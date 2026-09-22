@@ -1903,6 +1903,7 @@ class TestTaskAPI(BaseTaskAPITest):
             sandbox_environment_id=None,
             custom_image_id=None,
             initial_permission_mode=None,
+            signal_report_id=None,
         )
 
         update = self.client.patch(
@@ -2240,17 +2241,18 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("allowed", tasks_access.DesktopAccessDecision.ALLOWED, "acme/web"),
-            ("refused", tasks_access.DesktopAccessDecision.STARTUP_PLAN, None),
-            ("unresolvable", DesktopAccessResolutionError("cannot verify"), None),
+            ("allowed", tasks_access.DesktopAccessDecision.ALLOWED, True),
+            ("refused", tasks_access.DesktopAccessDecision.STARTUP_PLAN, False),
+            ("unresolvable", DesktopAccessResolutionError("cannot verify"), False),
         ]
     )
-    def test_discussion_repository_and_credential_follow_the_desktop_gate(self, _name, decision, expected_repository):
-        # A "Discuss" kickoff is repo-less and credential-less for a caller the gate refuses, so the
+    def test_discussion_starts_repo_less_and_credential_follows_the_desktop_gate(self, _name, decision, entitled):
+        # A "Discuss" kickoff never clones: the sandbox boots repo-less so the first answer is not
+        # held behind a checkout. It is also credential-less for a caller the gate refuses, so the
         # generally-available Inbox never 403s on the click this path exists to unblock. An
         # unverifiable gate degrades to that same shape rather than failing the click. An entitled
-        # caller gets a repository and the team credential instead, which is what lets the sandbox
-        # clone a private repository and update the report's pull request.
+        # caller carries the team credential instead, which is what lets the agent clone a private
+        # repository on demand and update the report's pull request.
         from products.signals.backend.models import SignalReport, SignalReportArtefact
 
         Integration.objects.create(
@@ -2286,8 +2288,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
-        self.assertEqual(data["repository"], expected_repository)
-        entitled = expected_repository is not None
+        self.assertIsNone(data["repository"])
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.github_integration is not None, entitled)
         self.assertEqual(tasks_facade.task_exempt_from_code_access(data["id"], self.team.id), not entitled)
