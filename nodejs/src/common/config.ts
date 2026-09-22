@@ -249,6 +249,8 @@ export type CommonConfig = BaseServerConfig & {
     // target audience. These run ClickHouse queries that routinely take longer than the 3s
     // EXTERNAL_REQUEST_TIMEOUT_MS inter-service budget, so they get a larger one of their own —
     // without it, resolving a non-trivial audience always times out and the whole batch run fails.
+    // It matches the HogQL max_execution_time default (60s), which is what actually stops the
+    // query: a smaller budget aborts the client while ClickHouse keeps running the query anyway.
     CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: number
 
     /** Per-function wall-clock budget for an event transformation, enforced by the HogVM. */
@@ -446,7 +448,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         // Shared between ingestion and CDP
         CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
         CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: false,
-        CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: 30_000,
+        CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: 60_000,
         TRANSFORMATIONS_HOG_TIMEOUT_MS: 300,
 
         // Event loop yield helper
