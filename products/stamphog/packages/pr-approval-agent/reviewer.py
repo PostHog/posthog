@@ -182,7 +182,7 @@ def _validate_verdict(result: dict) -> dict:
     # ANTHROPIC_API_KEY), and Read/Grep/Glob are NOT path-restricted, so the agent can
     # in principle read those env values. What actually prevents key exfiltration to the
     # PR / DB is the deterministic server-side output scrub in stamphog's activities.py
-    # (_scrub_credentials in run_review_in_sandbox and post_verdict), not this hook.
+    # (scrub_credentials in run_review_in_sandbox and post_verdict), not this hook.
     # TODO: re-enable once the SDK hook bug is fixed.
 
 
