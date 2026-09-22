@@ -4122,33 +4122,6 @@ jobs:
                   done
                   echo "::error::No Depot verdict for $SHA within $relay_minutes minutes"
                   exit 1
-            - name: Explain a deterministic failure on Depot
-              if: failure() && needs.changes.outputs.engine == 'depot'
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  REPO: ${{ github.repository }}
-                  SHA: ${{ github.event.pull_request.head.sha }}
-                  EVENT_AT: ${{ github.event.pull_request.updated_at }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-                  DEPOT_APP_ID: '219785'
-                  DEPOT_WORKFLOW: Backend CI on Depot
-              run: |
-                  check_state() {
-                      gh api -X GET "repos/$REPO/commits/$SHA/check-runs" -f app_id="$DEPOT_APP_ID" -f check_name="$DEPOT_WORKFLOW / $1" \
-                          | jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" \
-                              '[.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))] | max_by(.id) | if . == null then "" elif .status == "completed" then .conclusion // "" else .status end'
-                  }
-                  # The cancel request can end its own job or leave its check in progress
-                  # while this relay starts. A superseded run does not fail the source check.
-                  failed_deterministically() {
-                      [ "$(check_state "$1")" = failure ] && [[ "$(check_state "$2")" =~ ^(success|cancelled|in_progress)$ ]]
-                  }
-                  if failed_deterministically "Repo checks (depot-ubuntu-24.04)" "Request Backend CI cancellation after repo check failure"; then
-                      echo "::error title=Repo checks failed deterministically::Open the repo checks job on Depot CI for the root failure. Retrying will not fix this."
-                  fi
-                  if failed_deterministically "Validate OpenAPI types" "Request Backend CI cancellation after OpenAPI check failure"; then
-                      echo "::error title=OpenAPI type checks failed deterministically::Open the OpenAPI type check job on Depot CI for the root failure. Retrying will not fix this."
-                  fi
             - name: Summarize dependency results
               if: needs.changes.outputs.engine != 'depot'
               run: |

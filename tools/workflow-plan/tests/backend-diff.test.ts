@@ -134,26 +134,6 @@ function requiredGate(wf: Workflow, cwd: string, context: Context): SpawnSyncRet
 }
 
 describe('Backend CI comparison boundaries', () => {
-    it('keeps the Depot cancellation credential behind a trusted trigger', () => {
-        const backend = readFileSync(path.join(REPO_ROOT, '.depot/workflows/ci-backend.yml'), 'utf8')
-        const privileged = readFileSync(
-            path.join(REPO_ROOT, '.depot/workflows/ci-backend-privileged.yml'),
-            'utf8'
-        )
-
-        expect(backend).not.toContain('DEPOT_CI_CANCEL_TOKEN')
-        expect(privileged).toContain('pull_request_target:')
-        expect(privileged).toContain('DEPOT_CI_CANCEL_TOKEN')
-        expect(privileged).not.toContain('actions/checkout')
-        for (const check of [
-            'Backend CI on Depot / Request Backend CI cancellation after repo check failure',
-            'Backend CI on Depot / Request Backend CI cancellation after OpenAPI check failure',
-            'Backend CI on Depot / Django Tests Pass on Depot',
-        ]) {
-            expect(privileged).toContain(check)
-        }
-    })
-
     it('restricts the privileged migration reporter to master', () => {
         const report = loadWorkflow(path.join(REPO_ROOT, '.depot/workflows/ci-backend-report.yml'))
         expect(report.on).toMatchObject({ pull_request_target: { branches: ['master'] } })
