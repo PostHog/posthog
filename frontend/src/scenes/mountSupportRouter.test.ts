@@ -1,6 +1,7 @@
 import { mountSupportRouter } from './mountSupportRouter'
 
 const mount = jest.fn()
+let importError: Error | null = null
 
 jest.mock('lib/components/Support/supportRouterLogic', () => ({
     get supportRouterLogic() {
@@ -10,8 +11,6 @@ jest.mock('lib/components/Support/supportRouterLogic', () => ({
         return { mount }
     },
 }))
-
-let importError: Error | null = null
 
 describe('mountSupportRouter', () => {
     beforeEach(() => {
