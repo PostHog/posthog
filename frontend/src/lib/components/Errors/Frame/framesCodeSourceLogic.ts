@@ -3,6 +3,7 @@ import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } fro
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { errorTrackingGitProviderFileLinksResolveCreate } from 'products/error_tracking/frontend/generated/api'
+import { errorTrackingGitProviderFileLinksResolveCreateBodyRawIdsMax } from 'products/error_tracking/frontend/generated/api.zod'
 
 export interface SourceData {
     url: string
@@ -76,7 +77,8 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
     listeners(({ actions, values, cache }) => ({
         resolveSourceUrls: async ({ rawIds, releaseId }) => {
             const pending: Set<string> = (cache.pendingKeys ??= new Set<string>())
-            const unresolved = rawIds.filter((rawId) => {
+            // A recursive stack repeats a frame, and the server takes each ID once per request.
+            const unresolved = [...new Set(rawIds)].filter((rawId) => {
                 const key = sourceKey(releaseId, rawId)
                 return values.frameSourceUrls[key] === undefined && !pending.has(key)
             })
@@ -86,18 +88,26 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
             unresolved.forEach((rawId) => pending.add(sourceKey(releaseId, rawId)))
 
             try {
-                const { results } = await errorTrackingGitProviderFileLinksResolveCreate(String(getCurrentTeamId()), {
-                    release_id: releaseId,
-                    raw_ids: unresolved,
-                })
-                // Frames the server did not link are stored as null so the next load does not ask again.
-                const data: Record<string, SourceData | null> = Object.fromEntries(
-                    unresolved.map((rawId) => [sourceKey(releaseId, rawId), null])
-                )
-                for (const link of results) {
-                    data[sourceKey(releaseId, link.raw_id)] = { url: link.url, provider: link.provider }
+                const batchSize = errorTrackingGitProviderFileLinksResolveCreateBodyRawIdsMax
+                for (let start = 0; start < unresolved.length; start += batchSize) {
+                    const batch = unresolved.slice(start, start + batchSize)
+                    const { results } = await errorTrackingGitProviderFileLinksResolveCreate(
+                        String(getCurrentTeamId()),
+                        { release_id: releaseId, raw_ids: batch }
+                    )
+                    // A response that linked nothing may mean the provider was unreachable, so only
+                    // a response with links marks its other frames as having no file. Those
+                    // null markers stop the next load from asking again.
+                    const data: Record<string, SourceData | null> = results.length
+                        ? Object.fromEntries(batch.map((rawId) => [sourceKey(releaseId, rawId), null]))
+                        : {}
+                    for (const link of results) {
+                        data[sourceKey(releaseId, link.raw_id)] = { url: link.url, provider: link.provider }
+                    }
+                    if (Object.keys(data).length > 0) {
+                        actions.setSourceData(data)
+                    }
                 }
-                actions.setSourceData(data)
             } finally {
                 unresolved.forEach((rawId) => pending.delete(sourceKey(releaseId, rawId)))
             }

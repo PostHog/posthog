@@ -28,9 +28,9 @@ export function FrameDropDownMenu({
     className?: string
 }): JSX.Element {
     const { raw_id } = frame
-    const { release } = useValues(errorPropertiesLogic)
+    const { sourceLinkReleaseId } = useValues(errorPropertiesLogic)
     const { getSourceDataForFrame } = useValues(framesCodeSourceLogic)
-    const sourceData = getSourceDataForFrame(raw_id, release?.id)
+    const sourceData = getSourceDataForFrame(raw_id, sourceLinkReleaseId)
     const lineLocation = getLineLocation(frame)
     const hasItems = !!(frame.resolved_name || frame.source || lineLocation || sourceData)
     const [open, setOpen] = useState(false)

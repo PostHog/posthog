@@ -57,6 +57,7 @@ export interface errorPropertiesLogicValues {
     release: ErrorTrackingRelease | null | undefined
     releaseIdMissingFromSDK: boolean
     sessionId: string | undefined
+    sourceLinkReleaseId: string | undefined
     spanId: string | undefined
     traceId: string | undefined
     uuid: string
@@ -118,6 +119,7 @@ export interface errorPropertiesLogicMeta {
             frames: ErrorTrackingStackFrame[],
             stackFrameRecords: KeyedStackFrameRecords
         ) => ErrorTrackingRelease | null | undefined
+        sourceLinkReleaseId: (properties: Record<string, any>) => string | undefined
         releaseIdMissingFromSDK: (
             properties: Record<string, any>,
             frames: ErrorTrackingStackFrame[],
@@ -258,6 +260,14 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
                 return sortedReleases[0]
             },
         ],
+        // Source links use the release the event itself carries, and never the frame release
+        // fallback above: a frame release is a guess about which commit was deployed, and a link
+        // pinned at a guessed commit opens unrelated code.
+        sourceLinkReleaseId: [
+            (s) => [s.properties],
+            (properties: ErrorEventProperties): string | undefined =>
+                properties ? getExceptionRelease(properties)?.id : undefined,
+        ],
         releaseIdMissingFromSDK: [
             (s) => [s.properties, s.frames, s.stackFrameRecords, s.stackFrameRecordsLoading],
             (
@@ -275,10 +285,10 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        // The link target is the event's release, which only this logic knows, so the source
-        // link lookup starts here rather than in the shared frame logic.
+        // Only this logic knows the event's release, so the source link lookup starts here rather
+        // than in the shared frame logic.
         loadFromRawIdsSuccess: () => {
-            const releaseId = values.release?.id
+            const releaseId = values.sourceLinkReleaseId
             if (!releaseId || values.frames.length === 0) {
                 return
             }
