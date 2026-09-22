@@ -46,7 +46,7 @@ import { webAnalyticsLogic } from './webAnalyticsLogic'
 import { WebConversionGoal } from './WebConversionGoal'
 import { WEB_ANALYTICS_PROPERTY_ALLOW_LIST, getWebAnalyticsTaxonomicGroupTypes } from './WebPropertyFilters'
 
-const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
+export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
     const {
         dateFilter: { dateTo, dateFrom },
         isPathCleaningEnabled,
@@ -54,7 +54,7 @@ const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.El
     const { setDates, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
 
     return (
-        <>
+        <SuppressTaxonomicMenuToggle>
             <IncompatibleFiltersWarning />
             <FilterBar
                 top={tabs}
@@ -83,14 +83,6 @@ const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.El
                     </>
                 }
             />
-        </>
-    )
-}
-
-export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
-    return (
-        <SuppressTaxonomicMenuToggle>
-            <CondensedWebAnalyticsFilterBar tabs={tabs} />
         </SuppressTaxonomicMenuToggle>
     )
 }
