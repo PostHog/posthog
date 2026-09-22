@@ -363,4 +363,46 @@ describe('PostHog 9P filesystem', () => {
         }
         expect(names).toEqual(['.', '..', 'recovery', 'note.md', 'view.json'])
     })
+
+    it('does not drop later entries when a listed one is removed between pages', async () => {
+        const names: string[] = []
+        let offset = 0
+        while (true) {
+            const response = await request(40, new NinePWriter().number(1, 4).number(offset, 8).number(45, 4))
+            const length = response.body.number(4)
+            if (!length) {
+                break
+            }
+            const entry = new NinePReader(response.body.data(length))
+            entry.data(13)
+            offset = entry.number(8)
+            entry.number(1)
+            const name = entry.string()
+            names.push(name)
+            if (name === 'recovery') {
+                filesystem.root.children!.delete('recovery')
+            }
+        }
+        expect(names).toEqual(['.', '..', 'recovery', 'note.md', 'view.json'])
+    })
+
+    it('shows a fresh directory when a listing restarts from the beginning', async () => {
+        const read = async (offset: number): Promise<string> => {
+            const response = await request(40, new NinePWriter().number(1, 4).number(offset, 8).number(45, 4))
+            const length = response.body.number(4)
+            if (!length) {
+                return ''
+            }
+            const entry = new NinePReader(response.body.data(length))
+            entry.data(13)
+            entry.number(8)
+            entry.number(1)
+            return entry.string()
+        }
+        await read(0)
+        filesystem.text('added.json', filesystem.root, '{}')
+        expect(await read(5)).toBe('')
+        await read(0)
+        expect(await read(5)).toBe('added.json')
+    })
 })

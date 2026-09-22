@@ -10,6 +10,7 @@ import {
 interface Fid {
     node: TerminalNode
     file?: TerminalFile
+    entries?: TerminalNode[]
     capacity?: Uint8Array
     dirty?: boolean
     writing?: boolean
@@ -368,13 +369,18 @@ export class NinePServer {
                 return result
             }
             case 40: {
-                const node = this.fid(reader.number(4)).node
+                const fid = this.fid(reader.number(4))
+                const node = fid.node
                 const offset = reader.number(8)
                 const count = Math.min(reader.number(4), this.messageSize - 11)
                 if (!node.children) {
                     throw new FilesystemError(20)
                 }
-                const entries = [node, node.parent ?? node, ...node.children.values()]
+                // An offset indexes this list, so one listing holds its snapshot across pages. A
+                // removal between pages would otherwise shift the rest and drop an entry.
+                const entries =
+                    offset === 0 || !fid.entries ? [node, node.parent ?? node, ...node.children.values()] : fid.entries
+                fid.entries = entries
                 const data = new NinePWriter()
                 let length = 0
                 for (let i = offset; i < entries.length; i++) {
