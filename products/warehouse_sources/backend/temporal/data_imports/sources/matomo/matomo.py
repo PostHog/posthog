@@ -1,5 +1,4 @@
 import time
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
@@ -8,6 +7,8 @@ from urllib.parse import urlparse
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -30,7 +31,7 @@ class MatomoRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class MatomoResumeConfig:
     # The next unfetched day (yyyy-mm-dd), for both streams. Visits additionally carry the
     # serverTimestamp cursor that pages within that day.
