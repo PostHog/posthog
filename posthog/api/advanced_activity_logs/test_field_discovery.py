@@ -2,7 +2,14 @@ from typing import Any
 
 from posthog.test.base import BaseTest
 
+from django.db import connection
+from django.test.client import RequestFactory
+from django.test.utils import CaptureQueriesContext
+
+from rest_framework.request import Request
+
 from posthog.api.advanced_activity_logs.fields_cache import _get_cache_key, get_client
+from posthog.api.advanced_activity_logs.viewset import activity_log_ordering
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from .field_discovery import AdvancedActivityLogFieldDiscovery
@@ -110,3 +117,39 @@ class FieldDiscoveryTest(BaseTest):
                 self._create_activity_log("Dashboard", detail)
                 results = self._run_field_discovery()
                 self._assert_field_discovered(results, "Dashboard", field_pattern, expected_types)
+
+    def _reset_activity_logs(self) -> None:
+        ActivityLog.objects.filter(organization_id=self.organization.id).delete()
+        get_client().delete(_get_cache_key(str(self.organization.id)))
+
+    def test_static_filters_dedupe_in_postgres(self):
+        self._reset_activity_logs()
+        for _ in range(3):
+            self._create_activity_log("Dashboard", {"field": "value"})
+
+        ordered_queryset = ActivityLog.objects.filter(organization_id=self.organization.id).order_by(
+            *activity_log_ordering(Request(RequestFactory().get("/")))
+        )
+
+        with CaptureQueriesContext(connection) as captured:
+            static_filters = self.discovery._get_static_filters(ordered_queryset)
+
+        filter_queries = [query["sql"] for query in captured.captured_queries if "posthog_activitylog" in query["sql"]]
+        self.assertTrue(filter_queries)
+        for sql in filter_queries:
+            self.assertIn("DISTINCT", sql)
+            self.assertNotIn("created_at", sql)
+
+        self.assertEqual(static_filters["scopes"], [{"value": "Dashboard"}])
+        self.assertEqual(static_filters["activities"], [{"value": "updated"}])
+        self.assertEqual([user["value"] for user in static_filters["users"]], [str(self.user.uuid)])
+
+    def test_small_organization_reads_the_cache(self):
+        self._reset_activity_logs()
+        self._create_activity_log("Dashboard", {"field": "value"})
+        self._run_field_discovery()
+
+        self._create_activity_log("Insight", {"other": "value"})
+        results = self._run_field_discovery()
+
+        self.assertEqual(results["static_filters"]["scopes"], [{"value": "Dashboard"}])
