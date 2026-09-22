@@ -18,7 +18,8 @@ use capture::api::CaptureError;
 use capture::config::CaptureMode;
 use capture::outputs::{OutputRegistry, PublishEvents};
 use capture::quota_limiters::{
-    is_exception_event, is_llm_event, is_mobile_recording_event, is_survey_event, CaptureQuotaLimiter, EventInfo,
+    is_exception_event, is_llm_event, is_mobile_recording_event, is_survey_event,
+    CaptureQuotaLimiter, EventInfo,
 };
 use capture::router::router;
 use capture::time::TimeSource;
@@ -120,7 +121,8 @@ async fn setup_router_with_limits(
         .add_scoped_limiter(QuotaResource::Surveys, is_survey_event)
         .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
     if capture_mode == CaptureMode::Recordings {
-        quota_limiter = quota_limiter.add_scoped_limiter(QuotaResource::MobileRecordings, is_mobile_recording_event);
+        quota_limiter = quota_limiter
+            .add_scoped_limiter(QuotaResource::MobileRecordings, is_mobile_recording_event);
     }
 
     let app = router(
@@ -2046,8 +2048,13 @@ fn create_replay_payload_with_token(token: &str, snapshot_source: &str) -> Strin
 #[tokio::test]
 async fn test_mobile_recordings_quota_limiter_drops_only_mobile_sessions() {
     let token = "test_token_mobile_recordings";
-    let (router, sink) =
-        setup_router_with_limits(token, CaptureMode::Recordings, false, vec![QuotaResource::MobileRecordings]).await;
+    let (router, sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Recordings,
+        false,
+        vec![QuotaResource::MobileRecordings],
+    )
+    .await;
     let client = TestClient::new(router);
 
     // Web replay passes: the mobile limit must not touch the web meter.
@@ -2080,8 +2087,13 @@ async fn test_mobile_recordings_quota_limiter_ignores_other_sources() {
     // The web quota stays the catch-all: an unset or unknown `$snapshot_source`
     // counts against the web meter, never against mobile.
     let token = "test_token_mobile_recordings_other_sources";
-    let (router, _sink) =
-        setup_router_with_limits(token, CaptureMode::Recordings, false, vec![QuotaResource::MobileRecordings]).await;
+    let (router, _sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Recordings,
+        false,
+        vec![QuotaResource::MobileRecordings],
+    )
+    .await;
     let client = TestClient::new(router);
 
     let response = client
@@ -2102,8 +2114,13 @@ async fn test_mobile_recordings_quota_limiter_limits_a_batch_by_its_first_event(
     // meters the session off that stamp, so a mobile batch whose later events carry no source
     // must still drop as mobile, not partially pass.
     let token = "test_token_mobile_batch_stamp";
-    let (router, _sink) =
-        setup_router_with_limits(token, CaptureMode::Recordings, false, vec![QuotaResource::MobileRecordings]).await;
+    let (router, _sink) = setup_router_with_limits(
+        token,
+        CaptureMode::Recordings,
+        false,
+        vec![QuotaResource::MobileRecordings],
+    )
+    .await;
     let client = TestClient::new(router);
 
     let payload = serde_json::json!([
