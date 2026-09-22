@@ -74,6 +74,8 @@ def _authorized_source(
     source_id: str | None,
     user_access_control: "UserAccessControl | None",
     repo: str | None = None,
+    *,
+    query_limit: int | None = None,
 ) -> "CuratedGitHubSource":
     """Resolve this caller's curated read handle: the single place source selection and per-source
     warehouse access control happen. ``user_access_control`` (None for system/Temporal/CLI contexts)
@@ -83,7 +85,7 @@ def _authorized_source(
     right one. Raises ``GitHubSourceNotConnectedError`` / ``ValueError`` (bad source_id).
     """
     return logic.CuratedGitHubSource.for_team(
-        team, source_id=source_id, repo=repo, user_access_control=user_access_control
+        team, source_id=source_id, repo=repo, user_access_control=user_access_control, query_limit=query_limit
     )
 
 
@@ -345,7 +347,8 @@ def get_pull_request_timelines(
     # Validate the scope before resolving the source, so a bad request reads as a bad scope.
     scope = logic.DeliveryScope.from_params(author=author, github_team=github_team, pr_number=pr_number, repo=repo)
     return logic.build_pull_request_timelines(
-        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        # One budget covers the PR batches and their evidence pages; exhaustion must not return partial totals.
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo, query_limit=100),
         scope=scope,
         date_from=date_from,
         date_to=date_to,

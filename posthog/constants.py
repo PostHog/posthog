@@ -412,3 +412,8 @@ LOGIN_METHODS = [
 AUTH_BACKEND_DISPLAY_NAMES = {backend: m["display"] for m in LOGIN_METHODS for backend in m["backends"]}
 
 AUTH_BACKEND_KEYS = {backend: m["key"] for m in LOGIN_METHODS for backend in m["backends"]}
+
+
+# PostHog's own posthog-js instance on PostHog Cloud. The app's CSP names these by exact path.
+POSTHOG_JS_CLOUD_HOST = "https://internal-j.posthog.com"
+POSTHOG_JS_CLOUD_TOKEN = "sTMFPsFhdP1Ssg"
