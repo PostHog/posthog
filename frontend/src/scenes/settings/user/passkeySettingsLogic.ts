@@ -128,9 +128,6 @@ export interface passkeySettingsLogicActions {
     deletePasskey: (id: number) => {
         id: number
     }
-    dismissVerificationPrompt: () => {
-        value: true
-    }
     deletePasskeyFailure: (
         error: string,
         errorObject?: any
@@ -148,6 +145,9 @@ export interface passkeySettingsLogicActions {
         payload?: {
             id: number
         }
+    }
+    dismissVerificationPrompt: () => {
+        value: true
     }
     loadPasskeys: () => any
     loadPasskeysFailure: (
