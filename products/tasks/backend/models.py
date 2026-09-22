@@ -803,8 +803,16 @@ class Task(DeletedMetaFields, models.Model):
 
                 # Unknown and VM templates are refused here, before the run row exists.
                 parse_requested_sandbox_template(state["sandbox_template"])
-            previous = task.latest_run if carry_config_snapshot or carry_sandbox_template else None
-            previous_state: dict = (previous.state or {}) if previous else {}
+            previous_state: dict = {}
+            if carry_config_snapshot or carry_sandbox_template:
+                # Only the newest run's state; ``latest_run`` would load every run of the task.
+                previous_state = (
+                    task.runs.filter(team_id=task.team_id)
+                    .order_by("-created_at", "-id")
+                    .values_list("state", flat=True)
+                    .first()
+                    or {}
+                )
             # A workflow task's later runs must keep the connector allowlist selected by the workflow.
             if carry_config_snapshot and previous_state.get("config_snapshot"):
                 state["config_snapshot"] = previous_state["config_snapshot"]

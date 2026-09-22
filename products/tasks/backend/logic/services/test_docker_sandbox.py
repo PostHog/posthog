@@ -388,9 +388,13 @@ class TestDockerSandboxUnit:
                 MagicMock(stdout=f"{built_on} {stamped_sha}\n", returncode=0),  # labels on the derived image
             ]
 
-            DockerSandbox._build_derived_image_if_needed("posthog-sandbox-autoresearch", dockerfile.name)
+            DockerSandbox._build_derived_image_if_needed(
+                "posthog-sandbox-autoresearch", dockerfile.name, base_image="posthog-sandbox-base-local"
+            )
 
         assert mock_build.call_args.kwargs["force"] is expect_force
+        assert mock_build.call_args.kwargs["build_args"] == {"BASE_IMAGE": "posthog-sandbox-base-local"}
+        assert mock_run.call_args_list[0].args[0][-1] == "posthog-sandbox-base-local"
         assert mock_build.call_args.kwargs["labels"] == {"com.posthog.sandbox.base-image-id": "sha256:new"}
 
     @patch("products.tasks.backend.logic.services.docker_sandbox.subprocess.run")
