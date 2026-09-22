@@ -179,10 +179,10 @@ class TestFileSystemShortcutAPI(APIBaseTest):
         # order. Without it the database is free to return a different row order per page, which
         # repeats or skips rows at a page boundary.
         ids = [UUID(f"0194000{index}-0000-7000-8000-000000000000") for index in range(6)]
-        # Insert in the reverse of the expected order, so an ordering that relies on the physical
-        # row order cannot pass by accident.
+        # Insert against the expected order, so an ordering that relies on the physical row order
+        # cannot pass by accident.
         created_at = timezone.now()
-        for shortcut_id in reversed(ids):
+        for shortcut_id in ids if descending else reversed(ids):
             FileSystemShortcut.objects.create(
                 id=shortcut_id,
                 team=self.team,
@@ -197,7 +197,7 @@ class TestFileSystemShortcutAPI(APIBaseTest):
         for offset in range(0, len(ids), 2):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/file_system_shortcut/",
-                {"ordering": ordering, "limit": 2, "offset": offset},
+                {"ordering": ordering, "limit": "2", "offset": str(offset)},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
             seen.extend(row["id"] for row in response.json()["results"])
