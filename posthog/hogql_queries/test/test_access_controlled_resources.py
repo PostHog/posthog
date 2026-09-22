@@ -259,6 +259,31 @@ class TestQueriedAccessControlledResources(BaseTest):
         # hit skips that resolution, so the user's table denials must partition the key.
         assert result == {"warehouse_view", "warehouse_table", "external_data_source"}
 
+    @parameterized.expand(
+        [
+            (
+                "system table behind two views",
+                {"notebook_view": "select * from system.notebooks", "outer_view": "select * from notebook_view"},
+                "select * from outer_view",
+                {"warehouse_view", "warehouse_table", "external_data_source", "notebook"},
+            ),
+            (
+                "views that reference each other",
+                {"view_a": "select * from view_b", "view_b": "select * from view_a"},
+                "select * from view_a",
+                {"warehouse_view", "warehouse_table", "external_data_source"},
+            ),
+        ]
+    )
+    def test_view_definitions_are_walked(self, _name, views, sql, expected):
+        # A view expands to its definition at execution, and a cache hit skips the access check on the
+        # system tables that definition reads, so their scopes must partition a query on the view.
+        for name, definition in views.items():
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name=name, query={"kind": "HogQLQuery", "query": definition}
+            )
+        assert queried_access_controlled_resources(HogQLQuery(query=sql), self.team) == expected
+
     def test_warehouse_and_system_scopes_combined(self):
         self._create_warehouse_table("my_warehouse_table")
         result = queried_access_controlled_resources(

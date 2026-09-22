@@ -117,6 +117,7 @@ from posthog.slo.types import SloOutcome
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.revenue_analytics.backend.views.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -1782,19 +1783,26 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
                 {"external_data_source"},
                 False,
             ),
+            ("saved view over a system table", "select * from notebook_view", {"notebook"}, False),
         ]
     )
     def test_shared_link_viewer_partitions_only_on_scopes_a_table_carries(
         self, _name, sql, expected_restricted, same_key_as_user
     ):
         # A shared-link viewer bypasses warehouse access control, so on a synced table it must share the
-        # unrestricted user's entry, while a system table that carries the source scope is denied to it.
+        # unrestricted user's entry. A system table that carries the source scope is denied to it, as is
+        # the system table a saved view reads, so there it must keep its own entry.
         DataWarehouseTable.objects.create(
             team=self.team,
             name="warehouse_orders",
             format="Parquet",
             url_pattern="https://bucket.s3/data/*",
             columns={},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="notebook_view",
+            query={"kind": "HogQLQuery", "query": "select * from system.notebooks"},
         )
         query = {"kind": "HogQLQuery", "query": sql}
         shared_runner = HogQLQueryRunner(query=query, team=self.team, user=_shared_link_user(self.team))

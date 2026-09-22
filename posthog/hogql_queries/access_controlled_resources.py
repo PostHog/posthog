@@ -6,6 +6,7 @@ from posthog.schema import (
     DataWarehouseNode,
     EntityType,
     FunnelsDataWarehouseNode,
+    HogQLQuery,
     LifecycleDataWarehouseNode,
     RetentionEntity,
 )
@@ -58,7 +59,7 @@ _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
 
 
 def queried_access_controlled_resources(
-    query, team: "Team", *, bypassed_scopes: frozenset[str] = frozenset()
+    query, team: "Team", *, bypassed_scopes: frozenset[str] = frozenset(), _seen_views: frozenset[str] = frozenset()
 ) -> Optional[set[str]]:
     """The set of access-control scope names a query reads, e.g. "notebook", "warehouse_table".
     Empty when the query reads no access-controlled table.
@@ -71,7 +72,9 @@ def queried_access_controlled_resources(
     `bypassed_scopes` are the scopes whose access control the principal bypasses. The parent such a
     scope falls back to through `RESOURCE_FALLBACK_MAP` is left out, because the principal never
     reaches the parent's rules; the parent still partitions the cache when a table carries that
-    scope directly."""
+    scope directly.
+
+    `_seen_views` carries the saved views already walked, so views that reference each other end."""
 
     # Deferred to break the query_runner -> this module -> hogql import cycle.
     from posthog.hogql.database.database import get_data_warehouse_table_name  # noqa: PLC0415
@@ -195,17 +198,36 @@ def queried_access_controlled_resources(
             if non_system_names & warehouse_table_names:
                 scopes.add("warehouse_table")
 
-            view_names = set(
-                DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
+            views = list(
+                DataWarehouseSavedQuery.objects.filter(team_id=team.pk, name__in=non_system_names)
                 .exclude(deleted=True)
-                .values_list("name", flat=True)
+                .values_list("name", "query")
             )
-            if non_system_names & view_names:
+            if views:
                 scopes.add("warehouse_view")
                 # A non-materialized view re-resolves to its underlying warehouse tables at execution.
                 # A cache hit skips that resolution, so fold warehouse_table denials into the key too —
                 # otherwise a user denied an underlying table could be served a cached view result.
                 scopes.add("warehouse_table")
+            # The same holds for the access-controlled system tables a view definition reads: the caller's
+            # access to them is checked when the view expands, and a cache hit skips that. Every view is
+            # walked, because a materialized one still expands to its definition when the query does not
+            # read materialized views.
+            for view_name, view_query in views:
+                if view_name in _seen_views:
+                    continue
+                view_sql = view_query.get("query") if isinstance(view_query, dict) else None
+                if not isinstance(view_sql, str):
+                    return None  # a view without a definition cannot expand -> fail closed
+                nested = queried_access_controlled_resources(
+                    HogQLQuery(query=view_sql),
+                    team,
+                    bypassed_scopes=bypassed_scopes,
+                    _seen_views=_seen_views | {view_name},
+                )
+                if nested is None:
+                    return None
+                scopes |= nested
 
         return _with_fallback_parents(scopes, bypassed_scopes)
 
