@@ -852,6 +852,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         sync_type = data.get("sync_type")
 
         if sync_type == ExternalDataSchema.SyncType.CDC:
+            # The publication step below skips types without an adapter, so accepting one here would
+            # save a `cdc` label that nothing can read a change stream for.
+            if not source_type_supports_cdc(instance.source.source_type):
+                raise ValidationError(f"CDC is not supported for {instance.source.source_type} sources.")
+
             from posthog.models import Team
 
             team = Team.objects.get(id=self.context["team_id"])
