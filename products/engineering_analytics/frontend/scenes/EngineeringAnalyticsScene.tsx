@@ -63,7 +63,7 @@ export function EngineeringAnalyticsScene(): JSX.Element {
     const { searchParams: linkParams } = useValues(router)
     const { activeView } = useValues(engineeringAnalyticsSceneLogic)
 
-    // The general areas of the product. Drill-down pages (workflow, run, PR) live below the Overview.
+    // The general areas of the product. A drill-down page sits below the tab it opens from.
     const tabs: LemonTab<EngineeringAnalyticsView>[] = [
         {
             key: 'hub',
