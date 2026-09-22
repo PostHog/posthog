@@ -307,19 +307,16 @@ class TestSignalReportListAPI(APIBaseTest):
     def _actionability_artefact(
         self, report: SignalReport, *, actionability: str, already_addressed: bool = False
     ) -> SignalReportArtefact:
-        payload = {
-            "explanation": "x",
-            "actionability": actionability,
-            "already_addressed": already_addressed,
-        }
-        art = SignalReportArtefact(
-            team=self.team,
-            report=report,
-            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
-            content=json.dumps(payload),
+        return SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=ActionabilityAssessment(
+                explanation="x",
+                actionability=actionability,
+                already_addressed=already_addressed,
+            ),
+            attribution=ArtefactAttribution.system(),
         )
-        art.save()
-        return art
 
     def test_list_and_retrieve_include_typed_impact_metrics_without_running_them(self) -> None:
         metric = {
@@ -1547,16 +1544,7 @@ class TestSignalReportListAPI(APIBaseTest):
     def test_filter_actionability_follows_a_rejudgement(self):
         report = self._create_report(title="Rejudged")
         self._actionability_artefact(report, actionability="not_actionable")
-        SignalReportArtefact.append_status(
-            team_id=self.team.id,
-            report_id=str(report.id),
-            content=ActionabilityAssessment(
-                explanation="A later pass found a fix worth making.",
-                actionability="immediately_actionable",
-                already_addressed=False,
-            ),
-            attribution=ArtefactAttribution.system(),
-        )
+        self._actionability_artefact(report, actionability="immediately_actionable")
 
         stale = self.client.get(self._list_url(actionability="not_actionable"))
         current = self.client.get(self._list_url(actionability="immediately_actionable"))

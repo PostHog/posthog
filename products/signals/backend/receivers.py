@@ -776,34 +776,6 @@ def capture_status_change_analytics(
     transaction.on_commit(_capture)
 
 
-@receiver(post_save, sender=SignalReportArtefact)
-def mirror_latest_actionability_onto_report(
-    sender: Any, instance: SignalReportArtefact, created: bool, **kwargs: Any
-) -> None:
-    """Copy a new actionability judgment onto the report it judges.
-
-    The artefact log stays the source of truth — this only mirrors the two values the inbox
-    filters on, so a view does not have to read the current judgment back out of the log once per
-    report in the team. Artefacts are append-only, so the row that was just written is the latest
-    one and nothing needs re-reading. A judgment the report cannot be filtered on is worse than a
-    slow filter, so a mirror that fails must never fail the artefact write.
-    """
-    if not created or instance.type != SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT:
-        return
-    try:
-        content = json.loads(instance.content)
-        if not isinstance(content, dict):
-            return
-        actionability = content.get("actionability")
-        already_addressed = content.get("already_addressed")
-        SignalReport.objects.filter(team_id=instance.team_id, id=instance.report_id).update(
-            latest_actionability=actionability if isinstance(actionability, str) else None,
-            latest_already_addressed=already_addressed if isinstance(already_addressed, bool) else None,
-        )
-    except Exception:
-        logger.exception("signals.mirror_latest_actionability_failed", report_id=str(instance.report_id))
-
-
 # Latest-wins artefact values snapshotted onto `signal_report_status_changed`. Captured with the
 # event because artefacts can be re-judged or edited later — a training join by report_id after
 # the fact could otherwise see different values than existed when the transition happened.

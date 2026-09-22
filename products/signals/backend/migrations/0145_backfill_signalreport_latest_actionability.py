@@ -26,16 +26,14 @@ BACKFILL = """
 
 
 def backfill_latest_actionability(apps, schema_editor):
-    last_id = None
+    # The primary key is a uuid7, so the zero UUID sorts before every real row and seeds the walk.
+    last_id = "00000000-0000-0000-0000-000000000000"
     with schema_editor.connection.cursor() as cursor:
         while True:
-            if last_id is None:
-                cursor.execute("SELECT id FROM signals_signalreport ORDER BY id LIMIT %s", [BATCH_SIZE])
-            else:
-                cursor.execute(
-                    "SELECT id FROM signals_signalreport WHERE id > %s ORDER BY id LIMIT %s",
-                    [last_id, BATCH_SIZE],
-                )
+            cursor.execute(
+                "SELECT id FROM signals_signalreport WHERE id > %s ORDER BY id LIMIT %s",
+                [last_id, BATCH_SIZE],
+            )
             report_ids = [row[0] for row in cursor.fetchall()]
             if not report_ids:
                 return
