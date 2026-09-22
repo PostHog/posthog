@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -52,6 +53,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-09-22',
         pageUrl: urls.decisionPlayground(),
+        featureFlags: [FEATURE_FLAGS.ML_INFERENCE_DECISIONS],
     },
     decorators: [answered],
 }

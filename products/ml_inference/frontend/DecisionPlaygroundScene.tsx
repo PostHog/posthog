@@ -11,7 +11,11 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -45,6 +49,8 @@ const QUESTIONS_VIEW_OPTIONS: { value: QuestionsView; label: string }[] = [
 ]
 
 export function DecisionPlaygroundScene(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { preflight } = useValues(preflightLogic)
     const {
         state,
         questions,
@@ -68,6 +74,11 @@ export function DecisionPlaygroundScene(): JSX.Element {
         setQuestionsJson,
         askDecision,
     } = useActions(decisionPlaygroundLogic)
+
+    // The same rule as the API: the flag enrols a project, and local development needs no flag.
+    if (!featureFlags[FEATURE_FLAGS.ML_INFERENCE_DECISIONS] && !preflight?.is_debug) {
+        return <NotFound object="page" />
+    }
 
     const answerRows = decision
         ? Object.entries(decision.answers).map(([key, answer]) => {
