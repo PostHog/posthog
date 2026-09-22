@@ -60,6 +60,7 @@ const BASELINE: ModelListPrice = { inputPerMtok: 2, outputPerMtok: 10 };
 const LIST_PRICES: [family: string, price: ModelListPrice][] = [
   ["fable", { inputPerMtok: 10, outputPerMtok: 50 }],
   ["mythos", { inputPerMtok: 10, outputPerMtok: 50 }],
+  ["opus-5-5", { inputPerMtok: 4, outputPerMtok: 20 }],
   ["opus", { inputPerMtok: 5, outputPerMtok: 25 }],
   ["sonnet-4", { inputPerMtok: 3, outputPerMtok: 15 }],
   ["sonnet", { inputPerMtok: 2, outputPerMtok: 10 }],
