@@ -940,12 +940,14 @@ SCHEDULED_RUN_CONFIG = {
     }
 }
 
+# The weekly ClickHouse deletion sweep fills person_pg_cleanup_queue; this daily schedule is the
+# only thing that empties it, and it runs on its own rather than in that chain because one sweep
+# queues more rows than one run can drain.
 person_pg_cleanup_drain_schedule = dagster.ScheduleDefinition(
     job=person_pg_cleanup_drain_job,
     cron_schedule="0 2 * * *",
     execution_timezone="UTC",
     name="person_pg_cleanup_drain_schedule",
     run_config=SCHEDULED_RUN_CONFIG,
-    # The first scheduled run in a region needs watching, so an operator turns it on.
-    default_status=dagster.DefaultScheduleStatus.STOPPED,
+    default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
