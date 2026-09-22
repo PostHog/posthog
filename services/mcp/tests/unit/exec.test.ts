@@ -2050,7 +2050,11 @@ describe('exec tool', () => {
             const execTool = createExecTool(
                 v2Tools,
                 context,
-                formatter.buildExecToolDescription({ skillsEnabled: true, knowledgeSearchEnabled: true }),
+                formatter.buildExecToolDescription({
+                    skillsEnabled: true,
+                    docsSearchEnabled: true,
+                    businessKnowledgeSearchEnabled: true,
+                }),
                 commandReference,
                 undefined
             )
