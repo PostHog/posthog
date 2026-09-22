@@ -355,7 +355,19 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{KAFKA_TABLE_NAME}_mv TO {db}.{TABLE
     `original_expiry_timestamp` DateTime64(6)
 )
 AS SELECT
-    * EXCEPT (attributes, resource_attributes, kind, flags, dropped_attributes_count, dropped_events_count, dropped_links_count, status_code, retention_days),
+    uuid,
+    trace_id,
+    span_id,
+    parent_span_id,
+    trace_state,
+    name,
+    timestamp,
+    end_time,
+    observed_timestamp,
+    service_name,
+    instrumentation_scope,
+    events,
+    links,
     toInt8(kind) AS kind,
     toUInt32(flags) AS flags,
     toUInt32(dropped_attributes_count) AS dropped_attributes_count,
