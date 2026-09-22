@@ -96,6 +96,10 @@ The printer checks each rendered expression against a 1,000,000-character SQL li
 `arraySlice` and dynamic `range` bind their arguments once so nesting does not multiply their generated SQL.
 Scalar CTE substitution preserves resolved column bindings, including columns that share a CTE name.
 
+Arithmetic operators render each operand once and reuse its SQL after applying Trino's type conversions.
+This keeps long arithmetic chains from repeatedly registering unused bind parameters, including JSON extraction paths.
+Integer conversions also render their input only in the selected conversion path, so nested casts do not retain discarded parameters.
+
 `numbers()` uses Trino's scalar `sequence`, which supports at most 10,000 entries.
 Constant counts above this limit fail during compilation; dynamic counts are clamped to the range from zero to 10,000.
 
@@ -139,6 +143,11 @@ queries = [compiler.compile(query) for query in batch]
 ```
 
 Create a new compiler when the batch needs fresh control-plane placement or team-table mappings. The one-shot `compile_hogql_to_trino_sql(...)` API prepares and compiles in one call. Django expansion stays one-shot because its schema and semantic expansion depend on query-specific team and user state.
+
+Both managed compilation modes preserve the source query's limits and offsets in the generated SQL and diagnostic HogQL.
+They do not add an implicit row limit or cap an explicit limit at the interactive query maximum.
+For example, an unbounded query stays unbounded, and `LIMIT 75000` stays `LIMIT 75000`.
+After deploying this behavior, rerun saved-view translation for queries compiled with the implicit cap; previously stored SQL is not rewritten automatically.
 
 Pass `expansion_mode=TrinoExpansionMode.DJANGO` when a query requires actions, cohorts, saved queries, filters, variables, access-controlled warehouse discovery, or other Django-backed semantic expansion. This compatibility mode builds the full database and maps:
 
@@ -196,6 +205,8 @@ expressions and numeric conditions in `if`/`multiIf` use native Trino conditiona
 Aliases inside expressions are omitted from SQL; projection aliases are retained.
 String inputs to `toInt` use `TRY_CAST`, returning NULL for strings that do not
 represent an integer. Numeric aggregate-filter conditions are cast to BOOLEAN.
+This includes conditional argument, array, and quantile aggregates and conditional window functions.
+Window quantiles use a conditional NULL input because Trino does not support `FILTER` on window functions.
 
 Additional mappings cover common mathematical functions, array transforms,
 base64 strings, maps, URLs, date arithmetic, vector operations, and statistical
@@ -260,6 +271,7 @@ Dynamic arrays receive an equal-length guard instead of Trino's NULL padding.
 The regex group functions support constant patterns with 1–20 capture groups.
 They support one-match, vertical, and horizontal result shapes.
 `regexpExtract` supports a constant pattern and an optional constant group index.
+`extractAll` returns the first capture group when present and the entire match otherwise, for both constant and dynamic patterns.
 `replaceRegexpOne` supports constant
 patterns and replacements, including numbered replacement captures. Lookarounds,
 inline flags, and pattern backreferences remain rejected for first-only replacement.

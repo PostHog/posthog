@@ -300,6 +300,10 @@ If publication fails or a catalog cannot represent the resolver result, Django u
 Malformed HTTP payloads, incompatible revisions after refresh, and malformed autocomplete or validation mappings also use the Python path.
 Malformed service responses produce a sanitized Error Tracking event without the SQL text, response body, user context, or original exception.
 
+Full-query HogQL autocomplete can use the language service when `sourceQuery` is absent or is a `HogQLQuery`; only the current editor SQL and cursor position are sent.
+Metadata requests still require `sourceQuery` to be absent.
+Both operations continue to use Python when `connectionId`, `globals`, `filters`, or `modifiers` is not null.
+
 For authenticated requests that have the service configured and the feature flag enabled, the Prometheus counter `hogql_editor_assist_responses_total` counts the backend that produced the final successful editor response.
 Its bounded attributes are the operation, backend, and routing reason.
 The operation is `autocomplete` or `metadata`, the backend is `language_service` or `python`, and the reason is `served`, `ineligible`, `service_error`, or `invalid_response`.
