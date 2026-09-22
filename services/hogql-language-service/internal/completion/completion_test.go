@@ -44,6 +44,129 @@ func testCatalog() *catalog.PreparedCatalog {
 	}})
 }
 
+func traversalCatalog() *catalog.PreparedCatalog {
+	return catalog.Prepare(&catalog.Catalog{
+		Tables: map[string]catalog.Table{
+			"events": {Type: "posthog", Fields: map[string]catalog.Field{
+				"event": {Type: "String"}, "person": {Type: "lazy", Relation: "person"},
+				"properties": {Type: "JSON", PropertyNamespace: "person"},
+			}},
+		},
+		Relations: map[string]catalog.RelationDefinition{
+			"person": {Fields: map[string]catalog.Field{
+				"email": {Type: "String"}, "properties": {Type: "JSON", PropertyNamespace: "person"},
+				"manager": {Type: "lazy", Relation: "person"}, "payload": {Type: "JSON"},
+			}},
+		},
+		Properties: map[string][]catalog.Property{"person": {{Name: "plan", ValueType: "String"}}},
+	})
+}
+
+func TestCompletesTraversalRelationsWithoutGlobalLeakage(t *testing.T) {
+	for _, test := range []struct {
+		query, expected, kind string
+	}{
+		{"SELECT e.person.em FROM events AS e", "email", "field"},
+		{"SELECT person.em FROM events", "email", "field"},
+		{"SELECT e.person.properties.pl FROM events AS e", "plan", "property"},
+		{"SELECT e.person.manager.em FROM events AS e", "email", "field"},
+		{"SELECT properties AS properties, properties.pl FROM events", "plan", "property"},
+	} {
+		result, err := Complete(traversalCatalog(), test.query, strings.Index(test.query, " FROM"), PositionEncodingUTF8, "")
+		if err != nil || len(result.Suggestions) != 1 || result.Suggestions[0].Label != test.expected || result.Suggestions[0].Kind != test.kind {
+			t.Fatalf("query %q returned %#v, %v", test.query, result, err)
+		}
+	}
+	for _, query := range []string{
+		"SELECT e.person. FROM events AS e",
+		"SELECT person. FROM events",
+	} {
+		result, err := Complete(traversalCatalog(), query, strings.Index(query, " FROM"), PositionEncodingUTF8, "")
+		if err != nil {
+			t.Fatalf("query %q returned %v", query, err)
+		}
+		labels := make([]string, len(result.Suggestions))
+		for index, suggestion := range result.Suggestions {
+			labels[index] = suggestion.Label
+		}
+		if got, want := strings.Join(labels, ","), "email,manager,payload,properties"; got != want {
+			t.Fatalf("query %q labels = %q, want %q", query, got, want)
+		}
+	}
+	result, err := Complete(traversalCatalog(), "SELECT * FROM per", len("SELECT * FROM per"), PositionEncodingUTF8, "")
+	if err != nil || len(result.Suggestions) != 0 {
+		t.Fatalf("traversal relation leaked into tables: %#v, %v", result, err)
+	}
+	query := "SELECT e.person.properties.plan. FROM events AS e"
+	result, err = Complete(traversalCatalog(), query, strings.Index(query, " FROM"), PositionEncodingUTF8, "")
+	if err != nil || len(result.Suggestions) != 0 {
+		t.Fatalf("nested property returned top-level suggestions: %#v, %v", result, err)
+	}
+}
+
+func TestExplicitTraversalDoesNotFallBackToLegacyPropertyNamespace(t *testing.T) {
+	schema := catalog.Prepare(&catalog.Catalog{
+		Tables: map[string]catalog.Table{"events": {Fields: map[string]catalog.Field{
+			"person": {Type: "lazy", Relation: "person"},
+		}}},
+		Relations: map[string]catalog.RelationDefinition{"person": {Fields: map[string]catalog.Field{
+			"email": {Type: "String"},
+		}}},
+		Properties: map[string][]catalog.Property{"person": {{Name: "plan", ValueType: "String"}}},
+	})
+	query := "SELECT e.person.properties. FROM events AS e"
+	result, err := Complete(schema, query, strings.Index(query, " FROM"), PositionEncodingUTF8, "")
+	if err != nil || len(result.Suggestions) != 0 {
+		t.Fatalf("explicit relation returned legacy properties: %#v, %v", result, err)
+	}
+}
+
+func TestTraversalCompletionRespectsAmbiguityAndShadowing(t *testing.T) {
+	queries := []string{
+		"SELECT person.em FROM events AS left JOIN events AS right ON left.event = right.event",
+		"SELECT 1 AS person, person.em FROM events",
+		"SELECT E.person.em FROM events AS e",
+	}
+	for _, query := range queries {
+		result, err := Complete(traversalCatalog(), query, strings.Index(query, " FROM"), PositionEncodingUTF8, "")
+		if err != nil || len(result.Suggestions) != 0 {
+			t.Fatalf("query %q returned %#v, %v", query, result, err)
+		}
+	}
+}
+
+func TestTraversalCompletionRejectsDuplicateQualifiedSources(t *testing.T) {
+	schema := catalog.Prepare(&catalog.Catalog{
+		Tables: map[string]catalog.Table{
+			"events": {Fields: map[string]catalog.Field{"owner": {Type: "lazy", Relation: "person"}}},
+			"orders": {Fields: map[string]catalog.Field{"owner": {Type: "lazy", Relation: "account"}}},
+		},
+		Relations: map[string]catalog.RelationDefinition{
+			"person":  {Fields: map[string]catalog.Field{"email": {Type: "String"}}},
+			"account": {Fields: map[string]catalog.Field{"external_id": {Type: "String"}}},
+		},
+		Properties: map[string][]catalog.Property{},
+	})
+	for _, query := range []string{
+		"SELECT source.owner.e FROM events AS source JOIN orders AS source ON 1 = 1",
+		"SELECT owner.e FROM events AS source JOIN orders AS source ON 1 = 1",
+	} {
+		result, err := Complete(schema, query, strings.Index(query, " FROM"), PositionEncodingUTF8, "")
+		if err != nil || len(result.Suggestions) != 0 {
+			t.Fatalf("duplicate source query %q returned %#v, %v", query, result, err)
+		}
+	}
+}
+
+func TestTraversalCompletionReportsHopLimit(t *testing.T) {
+	path := "e.person." + strings.Repeat("manager.", querylimits.MaxRelationTraversalHops)
+	query := "SELECT " + path + "em FROM events AS e"
+	result, err := Complete(traversalCatalog(), query, strings.Index(query, " FROM"), PositionEncodingUTF8, "")
+	if !errors.Is(err, querylimits.ErrRelationTraversalTooDeep) || len(result.Suggestions) != 0 {
+		t.Fatalf("overlong traversal returned %#v, %v", result, err)
+	}
+}
+
 func TestCompletionRejectsQueriesOutsideResourceLimits(t *testing.T) {
 	_, err := Complete(testCatalog(), strings.Repeat("x", 64<<10+1), 0, PositionEncodingUTF8, "")
 	if err == nil {

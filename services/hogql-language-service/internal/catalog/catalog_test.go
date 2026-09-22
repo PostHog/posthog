@@ -1,6 +1,10 @@
 package catalog
 
-import "testing"
+import (
+	"errors"
+	"fmt"
+	"testing"
+)
 
 func TestIndexExactUsesUnicodeCaseFolding(t *testing.T) {
 	index := newIndex([]Entry{newEntry("t", "String"), newEntry("ſ", "String")})
@@ -115,5 +119,67 @@ func TestValidateCatalogRejectsInvalidAliases(t *testing.T) {
 
 	if err := ValidateCatalog(base(map[string]string{"orders": "orders"})); err != nil {
 		t.Fatalf("canonical identity alias was rejected: %v", err)
+	}
+}
+
+func TestPrepareCopiesAndValidatesTraversalRelations(t *testing.T) {
+	value := &Catalog{
+		Tables: map[string]Table{"events": {Fields: map[string]Field{"person": {Type: "lazy", Relation: "person"}}}},
+		Relations: map[string]RelationDefinition{"person": {Fields: map[string]Field{
+			"email": {Type: "String"}, "properties": {Type: "JSON", PropertyNamespace: "person"},
+		}}},
+		Properties: map[string][]Property{"person": {{Name: "plan", ValueType: "String"}}},
+	}
+	prepared := Prepare(value)
+	value.Relations["person"] = RelationDefinition{Fields: map[string]Field{"changed": {Type: "String"}}}
+	table, ok := prepared.Table("events")
+	if !ok {
+		t.Fatal("events table was not prepared")
+	}
+	traversal, ok := table.Fields.Traversal("person")
+	if !ok || traversal.Relation == nil {
+		t.Fatal("person traversal was not prepared")
+	}
+	if _, ok := traversal.Relation.Fields.Exact("email"); !ok {
+		t.Fatal("prepared relation changed with source catalog")
+	}
+	if _, ok := traversal.Relation.Fields.Exact("changed"); ok {
+		t.Fatal("prepared relation retained the source map")
+	}
+
+	for name, invalid := range map[string]*Catalog{
+		"dangling relation":  {Tables: map[string]Table{"events": {Fields: map[string]Field{"person": {Relation: "missing"}}}}, Properties: map[string][]Property{}},
+		"dangling namespace": {Tables: map[string]Table{"events": {Fields: map[string]Field{"properties": {PropertyNamespace: "missing"}}}}, Properties: map[string][]Property{}},
+		"two targets":        {Tables: map[string]Table{"events": {Fields: map[string]Field{"person": {Relation: "person", PropertyNamespace: "person"}}}}, Relations: map[string]RelationDefinition{"person": {Fields: map[string]Field{}}}, Properties: map[string][]Property{"person": {}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if ValidateCatalog(invalid) == nil {
+				t.Fatal("invalid traversal catalog was accepted")
+			}
+		})
+	}
+}
+
+func TestValidateCatalogRejectsTraversalLimits(t *testing.T) {
+	relations := make(map[string]RelationDefinition, MaxRelationDefinitions+1)
+	for index := 0; index <= MaxRelationDefinitions; index++ {
+		relations[fmt.Sprintf("relation_%d", index)] = RelationDefinition{Fields: map[string]Field{}}
+	}
+	if err := ValidateCatalog(&Catalog{Tables: map[string]Table{"events": {Fields: map[string]Field{}}}, Properties: map[string][]Property{}, Relations: relations}); !errors.Is(err, ErrInvalidRelations) {
+		t.Fatalf("relation definition limit error = %v", err)
+	}
+
+	fields := make(map[string]Field, MaxRelationFields/2+1)
+	for index := 0; index <= MaxRelationFields/2; index++ {
+		fields[fmt.Sprintf("field_%d", index)] = Field{Type: "String"}
+	}
+	if err := ValidateCatalog(&Catalog{
+		Tables:     map[string]Table{"events": {Fields: map[string]Field{}}},
+		Properties: map[string][]Property{},
+		Relations: map[string]RelationDefinition{
+			"left": {Fields: fields}, "right": {Fields: fields},
+		},
+	}); !errors.Is(err, ErrInvalidRelations) {
+		t.Fatalf("relation field limit error = %v", err)
 	}
 }

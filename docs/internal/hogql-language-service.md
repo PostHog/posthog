@@ -44,6 +44,81 @@ An alias candidate that resolves unambiguously to another visible canonical tabl
 Nonrepresentable resolver collisions require a separate catalog contract before they can use the Go service.
 Built-in `posthog.*` namespaces are outside this rollout.
 
+### Lazy-table traversal catalog
+
+The Go consumer accepts optional traversal metadata alongside the flat catalog.
+This is a consumer-first extension: existing Django snapshots do not publish these annotations yet.
+Deploy the Go consumer before enabling publication in Python, because older consumers reject unknown JSON fields.
+Snapshots without traversal metadata keep their existing completion and validation behavior.
+
+A field can carry one of two optional annotations:
+
+- `relation` points to an opaque key in the catalog's `relations` map.
+- `propertyNamespace` points to a key in the catalog's `properties` map.
+
+Each relation definition contains a `fields` map with the same field format as a top-level table.
+The relation key is not a SQL table name.
+Traversal definitions never appear in table suggestions, table aliases, or validation's `tableNames` output.
+They are reachable only through fields on a bound source.
+For example, this synthetic catalog exposes a person relation through events without adding another FROM table:
+
+```json
+{
+  "tables": {
+    "events": {
+      "name": "events",
+      "type": "posthog",
+      "fields": {
+        "person": { "name": "person", "type": "field_traverser", "relation": "event-person" }
+      }
+    }
+  },
+  "relations": {
+    "event-person": {
+      "fields": {
+        "id": { "name": "id", "type": "string" },
+        "properties": { "name": "properties", "type": "json", "propertyNamespace": "person" }
+      }
+    }
+  },
+  "properties": {
+    "person": [{ "name": "email", "property_type": "String" }]
+  }
+}
+```
+
+With that snapshot, completion at `|` supports:
+
+| SQL                                                      | Suggestions        |
+| -------------------------------------------------------- | ------------------ |
+| `SELECT event.person.\| FROM events AS event`            | `id`, `properties` |
+| `SELECT event.person.pro\| FROM events AS event`         | `properties`       |
+| `SELECT event.person.properties.\| FROM events AS event` | `email`            |
+| `SELECT person.\| FROM events`                           | `id`, `properties` |
+
+The same graph format can describe session fields, group fields, custom lazy joins, and multi-hop relationships.
+Completion and validation use the same traversal resolver.
+Explicit traversal metadata takes precedence over built-in property-name heuristics; a missing field on a traversed relation does not inherit a namespace from its spelling.
+Existing source binding, alias visibility, and ambiguity rules still apply.
+
+Relation IDs and property namespaces must refer to published definitions, and a field cannot carry both annotations.
+Admission allows at most 4,096 relation definitions and 120,000 fields across those definitions, in addition to existing top-level tables.
+The cache budget includes the traversal graph and annotations; the catalog request remains bounded by 64 MiB.
+Cycles are allowed without recursive expansion.
+Each query path can follow at most 16 relation hops and also consumes the request's field-lookup work budget.
+
+This first consumer slice supports traversal from bound catalog sources, including sources inside CTE bodies.
+Direct top-level property containers retain their explicit namespace through the existing projected-field provenance rules.
+Projecting a relation or nested virtual property container through a CTE, subquery, or SELECT alias does not yet retain traversal provenance.
+Quoted path completion, nested JSON schemas, scalar traverser expression inference, and execution of lazy joins remain outside this slice.
+For deeper JSON paths under an explicit property namespace, validation checks the first property key but does not validate its descendants.
+
+The Python publisher follow-up must resolve `LazyJoin`, `VirtualTable`, and table-valued `FieldTraverser` targets using the same permission-filtered database as the snapshot.
+It must publish only permitted fields, deduplicate relation definitions, bound traversal during publication, and isolate unresolvable edges without exposing denied targets.
+It must also distinguish traversal-capable revisions so cached flat snapshots refresh instead of hiding the new suggestions until expiry.
+Scalar traversers need no relation annotation.
+No Python resolver chains, join SQL, credentials, or executable expressions belong in the graph.
+
 ## Query analysis
 
 `internal/analysis` owns parsed statements, nested scopes, table and CTE bindings, and projected fields for validation and completion.
@@ -196,7 +271,7 @@ Closed block comments and line comments at end of input remain valid.
 - Recovery does not target a cursor inside a CTE definition or FROM/JOIN source section. It also rejects queries with any nested SELECT in the outer query, including an intact FROM subquery or predicate subquery. Per-scope recovery must first preserve cursor ownership and alias visibility without importing sibling bindings.
 - Set-operation and multi-statement recovery, scalar WITH declarations, and unterminated quoted tokens or comments remain excluded. These need separate statement/branch selection and lexical recovery rules before the service can infer bindings safely.
 - Property provenance covers direct containers only. Computed JSON expressions, nested JSON schemas, conflicting sources, and duplicate projected names do not establish a namespace. Completion suppresses property suggestions and validation skips property-name checks when the origin is unknown. Expression inference and ambiguous-column diagnostics remain follow-up work; duplicate source names produce `duplicate_table`.
-- Projecting a nested virtual container such as `e.person.properties AS props` does not retain provenance. Model virtual-table traversal before enabling those projected namespaces; existing direct physical property paths remain available.
+- Projecting a relation or nested virtual container such as `e.person.properties AS props` does not retain traversal provenance. Extend projected-field provenance before enabling those paths outside their source scope; direct source traversal requires explicit catalog annotations, and existing physical property paths remain available.
 - Single-SELECT recovery without WITH retains only FROM bindings and does not guess discarded aliases. Extending SELECT-alias recovery there requires preserving its SELECT list and visibility positions as the CTE-aware path does.
 - SELECT-alias property provenance follows the existing visibility and case-sensitive precedence rules. An alias without a known container origin suppresses property-owner fallback; it does not inherit a namespace from a name such as `person` or `properties`.
 - Scalar WITH aliases, aliases inside expressions, ARRAY JOIN aliases, QUALIFY, and duplicate SELECT-alias diagnostics remain follow-up work. Model their resolver order and parser support before extending the top-level SELECT alias index. For duplicate declarations, the index retains the first field and type, but property provenance becomes unknown once the duplicate declaration is visible; earlier references retain their original provenance.
