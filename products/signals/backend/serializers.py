@@ -2017,6 +2017,14 @@ class SignalReportSuggestedReviewersArtefactSerializer(SignalReportArtefactSeria
     `get_content` delegates to the base.
     """
 
+    # The path only returns this one type, so narrowing the discriminator lets a client match on it
+    # instead of the whole artefact enum.
+    type = serializers.ChoiceField(
+        choices=[SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS],
+        read_only=True,
+        help_text="Always `suggested_reviewers` on this path.",
+    )
+
     @extend_schema_field(SuggestedReviewerEntryReadSerializer(many=True))
     def get_content(self, obj: SignalReportArtefact) -> dict | list:
         return super().get_content(obj)
