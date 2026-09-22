@@ -361,6 +361,18 @@ describe('CanvasReplayerPlugin', () => {
         })
     })
 
+    describe('malformed snapshots', () => {
+        // Snapshot parsing only requires type, timestamp and windowId, so an incremental
+        // snapshot with no `data` field reaches the events array and is filtered here.
+        it('filters an incremental snapshot that has no data', () => {
+            expect(() =>
+                CanvasReplayerPlugin([
+                    { type: EventType.IncrementalSnapshot, timestamp: 1 } as unknown as eventWithTime,
+                ])
+            ).not.toThrow()
+        })
+    })
+
     describe('reconstructed image attribute copying', () => {
         it.each(['onload', 'onerror', 'onclick', 'onmouseover', 'onanimationstart', 'ontoggle'])(
             'does not copy the %s event handler attribute from the recorded canvas',

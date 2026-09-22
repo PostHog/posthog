@@ -1011,9 +1011,10 @@ describe('process all snapshots', () => {
         })
     })
 
-    describe('undecodable incremental snapshot', () => {
+    describe('malformed incremental snapshot', () => {
         // The incremental analogue of the full-snapshot case above: compressed fields that failed to
         // decompress arrive as strings where rrweb expects arrays and must be dropped, not replayed.
+        // A snapshot with no `data` at all goes the same way, because rrweb dereferences `data.source`.
         const sessionId = '1234'
         const source = { source: 'blob_v2', blob_key: '0' } as SessionRecordingSnapshotSource
         const key = keyForSource(source)
@@ -1057,6 +1058,30 @@ describe('process all snapshots', () => {
             expect(
                 result.filter((e) => e.type === 3 && (e.data as any)?.source === IncrementalSource.Scroll)
             ).toHaveLength(1)
+        })
+
+        it('drops an incremental snapshot that has no data', async () => {
+            const snapshots = [
+                { windowId: 1, timestamp: 1000, type: 4, data: { width: 100, height: 100, href: 'x' } },
+                { windowId: 1, timestamp: 1001, type: 3 },
+                {
+                    windowId: 1,
+                    timestamp: 1002,
+                    type: 3,
+                    data: { source: IncrementalSource.Scroll, id: 1, x: 0, y: 5 },
+                },
+            ] as unknown as RecordingSnapshot[]
+
+            const result = await processAllSnapshots(
+                [source],
+                { [key]: { snapshots } },
+                { snapshots: {} },
+                viewport,
+                sessionId
+            )
+
+            expect(result.filter((e) => e.type === 3)).toHaveLength(1)
+            expect(result.every((e) => e.data !== undefined)).toBe(true)
         })
     })
 })

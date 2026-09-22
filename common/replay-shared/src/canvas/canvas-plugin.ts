@@ -18,7 +18,7 @@ type CanvasEventWithTime = eventWithTime & {
 }
 
 function isCanvasMutation(e: eventWithTime): e is CanvasEventWithTime {
-    return e.type === EventType.IncrementalSnapshot && e.data.source === IncrementalSource.CanvasMutation
+    return e.type === EventType.IncrementalSnapshot && e.data?.source === IncrementalSource.CanvasMutation
 }
 
 function quickFindClosestCanvasEventIndex(
