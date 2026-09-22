@@ -42,7 +42,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
-from posthog.constants import AUTH_BACKEND_KEYS
+from posthog.constants import AUTH_BACKEND_KEYS, POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
@@ -55,7 +55,7 @@ from posthog.models.utils import generate_random_token
 from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
-from posthog.utils import POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN, get_ip_address, get_trusted_client_ip
+from posthog.utils import get_ip_address, get_trusted_client_ip
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.models.action import Action

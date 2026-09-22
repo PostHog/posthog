@@ -52,7 +52,7 @@ from rest_framework.request import Request
 from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
-from posthog.constants import AvailableFeature
+from posthog.constants import POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN, AvailableFeature
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
@@ -482,11 +482,6 @@ def _read_preload_manifest(manifest_path: str, include_authenticated_shell: bool
         logger.warning("preload_manifest_unreadable", manifest_path=manifest_path, error=str(e))
         capture_exception(e)
         return ("", (), "")
-
-
-# PostHog's own posthog-js instance, which the app's CSP names by exact path.
-POSTHOG_JS_CLOUD_HOST = "https://internal-j.posthog.com"
-POSTHOG_JS_CLOUD_TOKEN = "sTMFPsFhdP1Ssg"
 
 
 @tracer.start_as_current_span("template.context")
