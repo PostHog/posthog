@@ -156,6 +156,20 @@ def test_fetch_page_retries_chunked_encoding_error():
     assert session.request.call_count == 2
 
 
+def test_fetch_page_treats_unmapped_4xx_as_retryable():
+    # GitHub's edge has been observed returning the nginx-style 499 ("client closed request") on an
+    # upstream hiccup. It's not a real denial, so it must retry like a 5xx rather than crash the sync
+    # on a raw, unclassified HTTPError.
+    session = mock.Mock()
+    session.request.return_value = _error_response(499, "Unknown")
+
+    with mock.patch.object(github, "make_tracked_session", return_value=session):
+        with pytest.raises(github.GithubRetryableError):
+            github._fetch_page("https://api.github.com/repos/o/r/issues", {}, mock.Mock())
+
+    assert session.request.call_count == 5
+
+
 def test_fetch_page_reraises_chunked_encoding_error_after_exhausting_retries():
     session = mock.Mock()
     session.request.side_effect = [requests.exceptions.ChunkedEncodingError("Connection broken")] * 5

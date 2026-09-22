@@ -119,6 +119,8 @@ rules:
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
                               |Conversation
+                              |ConversationDelivery
+                              |ConversationDeliveryPart
                               |ConversationInboundEvent
                               |ConversationRestoreToken
                               |CoreMemory
@@ -332,6 +334,7 @@ rules:
                               |ResourceLink
                               |ScoreDefinition
                               |SavedHeatmap
+                              |HeatmapCaptureConfigVersion
                               |ScheduledChange
                               |SessionGroupSummary
                               |SessionRecording
@@ -367,6 +370,8 @@ rules:
                               |Subscription
                               |SubscriptionContext
                               |SubscriptionDelivery
+                              |PlatformAlert
+                              |PlatformAlertConfiguration
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -539,6 +544,8 @@ rules:
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
                         |Conversation
+                        |ConversationDelivery
+                        |ConversationDeliveryPart
                         |ConversationInboundEvent
                         |ConversationRestoreToken
                         |CoreMemory
@@ -742,6 +749,7 @@ rules:
                         |ResourceLink
                         |ScoreDefinition
                         |SavedHeatmap
+                        |HeatmapCaptureConfigVersion
                         |ScheduledChange
                         |SessionGroupSummary
                         |SessionRecording
@@ -777,6 +785,8 @@ rules:
                         |Subscription
                         |SubscriptionContext
                         |SubscriptionDelivery
+                        |PlatformAlert
+                        |PlatformAlertConfiguration
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification

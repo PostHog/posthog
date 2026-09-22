@@ -239,9 +239,10 @@ const meta: Meta<StoryArgs> = {
                 '/api/environments/:id/subscriptions/:subId':
                     formScenario === 'long-ai-prompt' ? LONG_AI_PROMPT_SUBSCRIPTION : createMockSubscription(),
                 '/api/projects/:id/subscriptions/:subId/deliveries': { results: [] },
-                ...(freeTierSubscriptionCount !== undefined
-                    ? { '/api/projects/:id/subscriptions/': { count: freeTierSubscriptionCount, results: [] } }
-                    : {}),
+                // subscriptionCountLogic counts through the generated client, which asks for the
+                // projects path. Say the count every scenario means, because the contextual list
+                // above is a different question and would read as a free-tier limit.
+                '/api/projects/:id/subscriptions/': { count: freeTierSubscriptionCount ?? 0, results: [] },
                 '/api/projects/:id/subscriptions/summary_quota': aiSummaryAtLimit
                     ? { active_count: 10, limit: 10, at_limit: true }
                     : { active_count: 0, limit: 10, at_limit: false },
@@ -286,16 +287,7 @@ export default meta
 type Story = StoryObj<StoryArgs>
 
 export const SubscriptionsNew: Story = {
-    args: { isCreating: true, formScenario: 'default' },
-}
-
-export const SubscriptionWizardNew: Story = {
-    parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.SUBSCRIPTION_CREATION_WIZARD]: 'test',
-        },
-    },
-    args: { isCreating: true, formScenario: 'default' },
+    args: { formScenario: 'default' },
 }
 
 export const LongAiPrompt: Story = {

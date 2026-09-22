@@ -83,7 +83,12 @@ import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
 import type { CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
-import type { NodeApiSuspended, NodeEndpointApi } from 'products/data_modeling/frontend/generated/api.schemas'
+import {
+    type LineageIssueApi,
+    type NodeApiSuspended,
+    type NodeEndpointApi,
+    NodeTypeEnumApi,
+} from 'products/data_modeling/frontend/generated/api.schemas'
 import type {
     DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryApiSuspended,
@@ -301,6 +306,7 @@ export enum AccessControlResourceType {
     Action = 'action',
     CustomerAnalytics = 'customer_analytics',
     CustomerTask = 'customer_task',
+    DataDeletion = 'data_deletion',
     FeatureFlag = 'feature_flag',
     Heatmap = 'heatmap',
     Insight = 'insight',
@@ -808,6 +814,7 @@ export interface ConversationsSettings {
     ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
     ai_reply_custom_instructions?: string | null
     docs_source?: 'posthog' | null
+    ai_context_account_property_ids?: string[] | null
 }
 
 export interface LogsSettings {
@@ -1105,6 +1112,7 @@ export enum PropertyOperator {
 }
 
 export enum SavedInsightsTabs {
+    Home = 'home',
     All = 'all',
     Yours = 'yours',
     History = 'history',
@@ -5238,6 +5246,8 @@ export interface AppContext {
     oauth_mcp_consent?: OAuthMcpConsentContext
     /** One of the user's organizations has the access-control feature and at least one rule, so a granted scope can reach less. */
     oauth_consent_access_controls_apply?: boolean
+    /** The scope set `/authorize` resolved for this request; the consent screen must render this, not the URL's `scope`. */
+    oauth_scope_resolution?: OAuthScopeResolution
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
 }
@@ -5887,6 +5897,7 @@ export const API_SCOPE_OBJECTS = [
     'customer_profile_config',
     'data_catalog',
     'data_catalog_approval',
+    'data_deletion',
     'dashboard',
     'event_filter',
     'dashboard_template',
@@ -6285,7 +6296,7 @@ export interface DataWarehouseSavedQueryDependencies {
     downstream_count: number
 }
 
-export type DataModelingNodeType = 'table' | 'view' | 'matview' | 'endpoint'
+export type DataModelingNodeType = NodeTypeEnumApi
 
 export interface DataModelingNode {
     /** UUID */
@@ -6298,6 +6309,9 @@ export interface DataModelingNode {
     /** Human-readable DAG name */
     dag_name?: string
     saved_query_id?: string
+    /** UUID of the data catalog metric a metric node stands for */
+    metric_id?: string | null
+    lineage_issue?: LineageIssueApi | null
     created_at: string
     updated_at: string
     upstream_count: number
@@ -7927,6 +7941,13 @@ export interface ProjectTreeRef {
 export type OAuthMcpConsentContext = {
     is_mcp_resource: boolean
     scopes?: string[]
+}
+
+export type OAuthScopeResolution = {
+    /** What `/authorize` resolved the request to: clamped to the app ceiling, and defaulted to it when the client sent no usable scope. */
+    scopes: string[]
+    /** Whether the client sent no usable `scope` (omitted, or cut off mid-token), so the server picked the set. */
+    was_defaulted: boolean
 }
 
 export type OAuthApplicationPublicMetadata = {

@@ -3791,12 +3791,13 @@ describe('maxThreadLogic', () => {
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
         })
 
-        it('degrades a keyed non-allowlisted context item to a text attachment instead of dropping it', async () => {
+        it('degrades a keyed non-allowlisted item to text but keeps instructions trusted', async () => {
             const openSpy = jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
             // initKeaTests() in beforeEach resets the kea context, so no explicit unmount is needed
             attachedContextLogic.mount()
             attachedContextLogic.actions.registerContext('test-provider', [
                 { type: 'trace', key: '0189-abc', label: 'LLM trace' },
+                { type: 'instructions', value: 'Prefer the live query.' },
             ])
 
             await expectLogic(logic, () => {
@@ -3806,10 +3807,15 @@ describe('maxThreadLogic', () => {
                 )
             }).toDispatchActions(['openSandboxSse'])
 
+            // Flattening the instructions item to `text` would render it into the untrusted block,
+            // alongside values read off the page the user has open.
             expect(openSpy).toHaveBeenCalledWith(
                 MOCK_CONVERSATION_ID,
                 expect.objectContaining({
-                    attached_context: expect.arrayContaining([{ type: 'text', value: 'trace 0189-abc ("LLM trace")' }]),
+                    attached_context: expect.arrayContaining([
+                        { type: 'text', value: 'trace 0189-abc ("LLM trace")' },
+                        { type: 'instructions', value: 'Prefer the live query.' },
+                    ]),
                 })
             )
         })

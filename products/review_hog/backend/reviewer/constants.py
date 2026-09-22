@@ -82,9 +82,19 @@ def message_prefix_for_mode(review_mode: str) -> str:
     return FLASH_MODE_MESSAGE_PREFIX if review_mode == REVIEW_MODE_FLASH else ""
 
 
-def review_arm_for_mode(review_mode: str, persisted: ReviewArm) -> ReviewArm:
+def flash_arm_for_effort(reasoning_effort: str) -> ReviewArm:
+    if reasoning_effort == ReasoningEffort.XHIGH.value:
+        return replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH)
+    if reasoning_effort != ReasoningEffort.MEDIUM.value:
+        logger.warning("Unknown Flash reasoning effort %s; using medium", reasoning_effort)
+    return FLASH_ARM
+
+
+def review_arm_for_mode(
+    review_mode: str, persisted: ReviewArm, *, flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
+) -> ReviewArm:
     """The arm a turn's review units run on: the flash arm for a flash turn, else the report's own."""
-    return FLASH_ARM if review_mode == REVIEW_MODE_FLASH else persisted
+    return flash_arm_for_effort(flash_reasoning_effort) if review_mode == REVIEW_MODE_FLASH else persisted
 
 
 class ReviewTier(StrEnum):
@@ -133,8 +143,8 @@ _TIER_BY_PRIORITY: dict[ReportPriority, ReviewTier] = {
 
 # The trigger sources (`temporal/types.py`) that carry an explicit ask for a review: a label, the
 # CLI, or the Code review scene and its MCP tool (both stamped `ui`, so an agent driving the MCP
-# tool on someone's behalf counts as that person asking). Only the inbox trigger fires with nobody
-# asking, and a trigger from this set on an inbox-created report lifts its tier
+# tool on someone's behalf counts as that person asking). Inbox and automatic authored-PR triggers
+# fire without a per-PR request. A trigger from this set on an inbox-created report lifts its tier
 # (`upsert_review_report`). Spelled out here because persistence cannot import the temporal
 # package (its `__init__` imports the activities, which import persistence); `test_constants.py`
 # locks the set to the trigger constants.
@@ -227,9 +237,11 @@ DEFAULT_VALIDATION_ARM = ReviewArm(
 )
 
 
-def validation_arm_for_mode(review_mode: str) -> ReviewArm:
+def validation_arm_for_mode(
+    review_mode: str, *, flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
+) -> ReviewArm:
     """The arm a turn's validation sessions run on: the flash arm for a flash turn, else the pins."""
-    return FLASH_ARM if review_mode == REVIEW_MODE_FLASH else DEFAULT_VALIDATION_ARM
+    return flash_arm_for_effort(flash_reasoning_effort) if review_mode == REVIEW_MODE_FLASH else DEFAULT_VALIDATION_ARM
 
 
 # RESOLUTION MODEL
