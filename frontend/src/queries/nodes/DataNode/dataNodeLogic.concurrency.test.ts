@@ -22,15 +22,23 @@ describe('dataNodeLogic concurrency', () => {
         initKeaTests()
     })
 
-    it('starts two account table queries without waiting for either response', async () => {
+    it('starts two account table queries before starting a third', async () => {
         const pendingResponses = [
             promiseResolveReject<AccountsTableQueryResponse>(),
             promiseResolveReject<AccountsTableQueryResponse>(),
+            promiseResolveReject<AccountsTableQueryResponse>(),
         ]
+        const thirdQueryStarted = promiseResolveReject<void>()
         let nextResponse = 0
-        mockedQuery.mockImplementation(() => pendingResponses[nextResponse++].promise)
+        mockedQuery.mockImplementation(() => {
+            const pendingResponse = pendingResponses[nextResponse++]
+            if (nextResponse === 3) {
+                thirdQueryStarted.resolve()
+            }
+            return pendingResponse.promise
+        })
 
-        const logics = ['rows', 'overview'].map((key) =>
+        const logics = ['rows', 'overview', 'totals'].map((key) =>
             dataNodeLogic({
                 key: `accounts-${key}`,
                 query: { kind: NodeKind.AccountsTableQuery, columns: [], filters: [] },
@@ -41,6 +49,16 @@ describe('dataNodeLogic concurrency', () => {
             logics.forEach((logic) => logic.mount())
 
             expect(mockedQuery).toHaveBeenCalledTimes(2)
+
+            pendingResponses[0].resolve({
+                kind: NodeKind.AccountsTableQuery,
+                results: [],
+                hasMore: false,
+                limit: 100,
+                offset: 0,
+            })
+            await thirdQueryStarted.promise
+            expect(mockedQuery).toHaveBeenCalledTimes(3)
         } finally {
             pendingResponses.forEach(({ resolve }) =>
                 resolve({ kind: NodeKind.AccountsTableQuery, results: [], hasMore: false, limit: 100, offset: 0 })
