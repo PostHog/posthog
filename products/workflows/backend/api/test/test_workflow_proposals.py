@@ -555,6 +555,33 @@ class TestWorkflowProposals(APIBaseTest):
         assert applied.status == WorkflowProposal.Status.SUGGESTED
         assert applied.applied_version is None
 
+    def test_folding_the_draft_into_a_save_returns_the_suggestion_to_the_queue(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        proposal = self._propose(flow_id)
+        self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
+        # The save below only clears the draft on a workflow that is not live, so pause it first.
+        paused = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "draft"})
+        assert paused.status_code == 200, paused.json()
+
+        # The builder saves a non-active workflow with the staged draft merged in, which clears the draft.
+        saved = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {
+                "includes_staged_draft": True,
+                "actions": [_trigger_action(), _webhook_action(url="https://saved.example.com")],
+                "edges": [],
+                "variables": [],
+                "conversion": None,
+                "exit_condition": "exit_only_at_end",
+                "email_sending_rate_limit": None,
+                "trigger_masking": None,
+            },
+            format="json",
+        )
+        assert saved.status_code == 200, saved.json()
+        assert HogFlow.objects.get(id=flow_id).draft is None
+        assert WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"]).status == "suggested"
+
     def test_resolving_a_suggestion_lands_in_the_workflow_history(self, _mock_flag):
         flow_id = self._create_active_flow()
         approved = self._propose(flow_id, source_id="history:approved")

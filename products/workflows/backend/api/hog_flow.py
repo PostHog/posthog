@@ -4081,6 +4081,21 @@ class ProposalAlreadyResolvedError(exceptions.APIException):
     default_code = "proposal_already_resolved"
 
 
+class ProposalNotRunnableError(exceptions.APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = (
+        "Applying this suggestion no longer describes a runnable workflow, because the workflow "
+        "changed around it. Ask for a fresh suggestion."
+    )
+    default_code = "proposal_not_runnable"
+
+    def __init__(self, reasons: list[str] | None = None) -> None:
+        detail = self.default_detail
+        if reasons:
+            detail = f"{detail} {' '.join(reasons)}"
+        super().__init__(detail)
+
+
 class ProposalOutOfDateError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = (
@@ -4851,6 +4866,7 @@ class HogFlowViewSet(
                     bump = self._stage_revision_bump(serializer.instance, before_update, serializer.validated_data)
                 if clears_staged_draft:
                     serializer.save(draft=None, draft_updated_at=None, draft_encrypted_inputs=None)
+                    unstage_workflow_proposals(serializer.instance)
                 else:
                     serializer.save()
                 if bump:
@@ -5663,7 +5679,13 @@ class HogFlowViewSet(
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
             # The draft is a full snapshot (live plus the proposal), so publish stays a plain copy.
-            locked.draft = merge_proposal_content(snapshot_flow_content(locked), locked_proposal.content)
+            merged = merge_proposal_content(snapshot_flow_content(locked), locked_proposal.content)
+            try:
+                # Create validated the merge against the graph as it was then; it can have moved since.
+                validate_graph(merged.get("actions") or [], merged.get("edges") or [], merged.get("abort_action"))
+            except serializers.ValidationError as error:
+                raise ProposalNotRunnableError(_flatten_graph_errors(error))
+            locked.draft = merged
             locked.draft_updated_at = timezone.now()
             # Proposal content carries no secrets, so the draft re-attaches them from live on publish.
             locked.draft_encrypted_inputs = None
