@@ -1757,7 +1757,8 @@ class ProjectViewSet(
 
         user = cast(User, request.user)
         was_impersonated = is_impersonated(request)
-        for team in project.teams.only("id", "name"):
+        teams = list(project.teams.only("id", "uuid", "name", "organization_id"))
+        for team in teams:
             log_activity(
                 organization_id=cast(UUIDT, project.organization_id),
                 team_id=team.pk,
@@ -1778,6 +1779,21 @@ class ProjectViewSet(
             activity="restored",
             detail=Detail(name=str(project.name)),
         )
+
+        if teams:
+            report_user_action(
+                user,
+                "project deletion canceled",
+                {
+                    "project_name": project.name,
+                    # How much of the recovery window was left, so we can see how people use it
+                    "seconds_before_scheduled_deletion": (deletion_scheduled_at - now).total_seconds()
+                    if deletion_scheduled_at
+                    else None,
+                },
+                team=teams[0],
+                request=request,
+            )
 
         return response.Response(ProjectSerializer(project, context=self.get_serializer_context()).data)
 

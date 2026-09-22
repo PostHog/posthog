@@ -1,6 +1,8 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { router } from 'kea-router'
 
 import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
@@ -77,6 +79,14 @@ export const SettingsProjectDetails: Story = { args: { sectionId: 'project-detai
 export const SettingsProjectCustomization: Story = { args: { sectionId: 'project-customization' } }
 
 export const SettingsProjectDangerZone: Story = { args: { sectionId: 'project-danger-zone' } }
+
+export const SettingsProjectDeleteModal: Story = {
+    args: { sectionId: 'project-danger-zone' },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: /^Delete / }))
+    },
+}
 
 // -- Project (legacy) --
 

@@ -670,6 +670,44 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         )
         self.assertEqual(restored_activities, ["Project", "Team"])
 
+    @patch("posthog.api.project.report_user_action")
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+    def test_project_deletion_cancellation_is_captured(
+        self, mock_delete_task, mock_cancel_delete_task, mock_report_user_action
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self._mark_project_ingested()
+        self.client.delete(f"/api/projects/{self.project.id}")
+        mock_report_user_action.reset_mock()
+
+        response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_report_user_action.assert_called_once()
+        self.assertEqual(mock_report_user_action.call_args.args[1], "project deletion canceled")
+        properties = mock_report_user_action.call_args.args[2]
+        self.assertEqual(properties["project_name"], self.project.name)
+        self.assertGreater(properties["seconds_before_scheduled_deletion"], 0)
+
+    @patch("posthog.api.project.report_user_action")
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
+    def test_failed_project_deletion_cancellation_is_not_captured(
+        self, mock_cancel_delete_task, mock_report_user_action
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        Project.objects.filter(id=self.project.id).update(
+            is_pending_deletion=True,
+            deletion_scheduled_at=timezone.now() - timedelta(hours=1),
+        )
+
+        response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_report_user_action.assert_not_called()
+
     @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
     def test_project_deletion_cancellation_rejects_a_stale_schedule(self, mock_cancel_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
