@@ -4,6 +4,7 @@ import pydantic
 from asgiref.sync import async_to_sync, sync_to_async
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from langgraph.graph.state import CompiledStateGraph
+from prometheus_client import Counter
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
@@ -47,6 +48,44 @@ CONVERSATION_TYPE_MAP: dict[
     Conversation.Type.SLACK: (AssistantGraph, AssistantState),
     Conversation.Type.DEEP_RESEARCH: (ResearchAgentGraph, AssistantState),
 }
+
+
+LEGACY_MESSAGE_TYPES = frozenset({"ai/router"})
+"""Message types the schema dropped. A checkpoint written before the removal still holds them."""
+
+LEGACY_CHECKPOINT_MESSAGE_COUNTER = Counter(
+    "max_ai_legacy_checkpoint_message_total",
+    "Conversation checkpoints that hold a message type the assistant schema no longer defines.",
+    labelnames=["message_type"],
+)
+
+
+def _legacy_message_types(error: pydantic.ValidationError) -> set[str]:
+    """The dropped message types that explain this failure, or an empty set.
+
+    A dropped type matches no member of the message union, so pydantic reports one error per
+    member for that message. The set stays empty when any other message also fails, because
+    that failure is unexpected and still needs a capture.
+    """
+    legacy: dict[int, str] = {}
+    unexplained: set[int] = set()
+    for detail in error.errors():
+        location = detail["loc"]
+        if len(location) < 2 or location[0] != "messages" or not isinstance(location[1], int):
+            return set()
+        message_type = detail["input"]
+        if (
+            detail["type"] == "literal_error"
+            and location[-1] == "type"
+            and isinstance(message_type, str)
+            and message_type in LEGACY_MESSAGE_TYPES
+        ):
+            legacy[location[1]] = message_type
+        else:
+            unexplained.add(location[1])
+    if not legacy or unexplained - legacy.keys():
+        return set()
+    return set(legacy.values())
 
 
 @frozen
@@ -104,14 +143,20 @@ async def aget_conversation_state(
             state=state, has_unsupported_content=False, interrupt_payloads=interrupt_payloads
         )
     except pydantic.ValidationError as e:
-        capture_exception(
-            e,
-            additional_properties={
-                "tag": "max_ai",
-                "exception_type": "ValidationError",
-                "conversation_id": str(conversation.id),
-            },
-        )
+        # A legacy checkpoint cannot be repaired, and the bulk history backfill reads thousands of
+        # them, so count those instead of capturing one exception per conversation.
+        if legacy_types := _legacy_message_types(e):
+            for message_type in legacy_types:
+                LEGACY_CHECKPOINT_MESSAGE_COUNTER.labels(message_type=message_type).inc()
+        else:
+            capture_exception(
+                e,
+                additional_properties={
+                    "tag": "max_ai",
+                    "exception_type": "ValidationError",
+                    "conversation_id": str(conversation.id),
+                },
+            )
         return ConversationStateResult(state=None, has_unsupported_content=True, interrupt_payloads={})
     except Exception as e:
         if raise_on_error:

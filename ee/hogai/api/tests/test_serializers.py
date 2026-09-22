@@ -4,6 +4,8 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from parameterized import parameterized
+
 from posthog.schema import (
     AgentMode,
     ArtifactContentType,
@@ -87,16 +89,36 @@ class TestConversationSerializers(APIBaseTest):
             # Third message should be the AssistantToolCallMessage without UI payload
             self.assertEqual(filtered_messages[2]["ui_payload"], None)
 
-    def test_get_messages_handles_validation_errors_and_sets_unsupported_content(self):
-        """Gracefully fall back to an empty list when the stored state fails validation, and set has_unsupported_content."""
+    @parameterized.expand(
+        [
+            ("unexpected_message", [{"not": "a valid message"}], True),
+            ("legacy_router_message", [{"type": "ai/router", "content": "trends", "id": "r1"}], False),
+            (
+                "legacy_router_message_beside_a_valid_one",
+                [{"type": "ai", "content": "hi", "id": "a1"}, {"type": "ai/router", "content": "trends", "id": "r1"}],
+                False,
+            ),
+            (
+                "legacy_router_message_beside_an_unexpected_one",
+                [{"not": "a valid message"}, {"type": "ai/router", "content": "trends", "id": "r1"}],
+                True,
+            ),
+        ]
+    )
+    def test_get_messages_handles_validation_errors_and_sets_unsupported_content(
+        self, _name: str, messages: list[dict], expect_capture: bool
+    ):
+        """Fall back to an empty list on a validation error, and capture only the unexpected ones."""
         conversation = Conversation.objects.create(
             user=self.user, team=self.team, title="Conversation with invalid state", type=Conversation.Type.ASSISTANT
         )
 
-        # Use an invalid payload to trigger a Pydantic validation error on AssistantState.model_validate
-        invalid_snapshot = type("Snapshot", (), {"values": {"messages": [{"not": "a valid message"}]}})()
+        invalid_snapshot = type("Snapshot", (), {"values": {"messages": messages}})()
 
-        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
+        with (
+            patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state,
+            patch("ee.hogai.api.serializers.capture_exception") as mock_capture,
+        ):
             mock_get_state.return_value = invalid_snapshot
 
             data = ConversationSerializer(
@@ -109,6 +131,7 @@ class TestConversationSerializers(APIBaseTest):
 
         self.assertEqual(data["messages"], [])
         self.assertTrue(data["has_unsupported_content"])
+        self.assertEqual(mock_capture.called, expect_capture)
 
     def test_has_unsupported_content_on_other_errors(self):
         """On non-validation errors, has_unsupported_content should be False."""
