@@ -6161,14 +6161,21 @@ class MarketingAnalyticsRetentionSummaryRow(BaseModel):
     eligible7d: int
     medianReturnDays: float | None = Field(
         ...,
-        description=("Median elapsed days to a second session within 30 days, among observed returners."),
+        description=(
+            "Estimated median calendar days from the first session to the first return"
+            " on a later day, using the project's timezone. Includes observed returns"
+            " within 30 days. Same-day visits do not count."
+        ),
     )
     previous: bool
     returned30d: int
     returned7d: int
     returners: int = Field(
         ...,
-        description=("People with an observed second session within 30 days, including incomplete windows."),
+        description=(
+            "People who returned on a later calendar day in the project's timezone"
+            " within 30 days of their first session, including incomplete windows."
+        ),
     )
 
 

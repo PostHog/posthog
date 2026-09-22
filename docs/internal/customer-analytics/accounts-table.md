@@ -1,5 +1,11 @@
 # Accounts table
 
+## Query scheduling
+
+Account row and overview requests use a dedicated frontend queue with two concurrent slots.
+This lets both requests start together while preserving cancellation, priority ordering, and queueing for additional account table queries.
+Other query types keep their existing global or scene-specific concurrency limits.
+
 ## Unsaved filters and views
 
 The Accounts list keeps unsaved filters when a user opens an account and returns to the list.
