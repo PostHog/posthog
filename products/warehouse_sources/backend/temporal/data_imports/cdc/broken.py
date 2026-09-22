@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 
 logger = structlog.get_logger(__name__)
 
+SELF_MANAGED_LAG_REASON = "critical_lag_self_managed"
+
 
 def mark_cdc_broken(
     source: ExternalDataSource,
@@ -105,6 +107,34 @@ def mark_cdc_broken(
     _capture(source, reason, paused=pause, log=log)
 
     log.warning("cdc_marked_broken", schemas=len(cdc_schemas), newly_broken=len(newly_broken), paused=pause)
+
+
+def clear_recovered_self_managed_lag(source: ExternalDataSource) -> int:
+    """Lift the ``critical_lag_self_managed`` marker once the slot's lag is back under the warning threshold.
+
+    PostHog never drops a self-managed slot, so this marker reports a condition, not lost state.
+    Left in place it keeps absorbing every status update and makes resume refuse the source,
+    long after the customer has recovered. Returns how many schemas were cleared.
+    """
+
+    def _clear(config: dict[str, typing.Any]) -> None:
+        if (config.get("cdc_broken") or {}).get("reason") == SELF_MANAGED_LAG_REASON:
+            config.pop("cdc_broken")
+
+    schema_ids = list(
+        ExternalDataSchema.objects.filter(
+            source=source, sync_type_config__cdc_broken__reason=SELF_MANAGED_LAG_REASON
+        ).values_list("id", flat=True)
+    )
+    for schema_id in schema_ids:
+        update_sync_type_config_keys(schema_id, source.team_id, mutate=_clear)
+    if (
+        schema_ids
+        and not ExternalDataSchema.objects.filter(source=source, sync_type_config__has_key="cdc_broken").exists()
+    ):
+        source.status = ExternalDataSource.Status.RUNNING
+        source.save(update_fields=["status", "updated_at"])
+    return len(schema_ids)
 
 
 def _create_failure_visibility_jobs(

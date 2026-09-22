@@ -55,7 +55,11 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     enrich_delete_rows,
     enrich_toast_omitted_rows,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import mark_cdc_broken
+from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import (
+    SELF_MANAGED_LAG_REASON,
+    clear_recovered_self_managed_lag,
+    mark_cdc_broken,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
     CDCBufferWriter,
     is_shadow_write_enabled,
@@ -1046,6 +1050,10 @@ class CDCExtractActivity:
     def _mark_schemas_running(self) -> None:
         """Mark CDC schemas as Running at the start."""
         for schema in self.cdc_schemas:
+            # A halted schema absorbs every later status update, so a Running painted here would
+            # replace its FAILED status and error until the marker clears.
+            if schema.cdc_halted:
+                continue
             schema.status = ExternalDataSchema.Status.RUNNING
             # skip_activity_log avoids the extra _get_before_update SELECT, which raises
             # OperationalError when the transaction pooler has dropped the connection since the
@@ -1896,6 +1904,10 @@ class CDCExtractActivity:
             # Repainting COMPLETED here would erase a failing consumer run within one capture tick,
             # hiding a buffer backlog until its files hit the S3 TTL — which is unrecoverable.
             if schema.name in self._buffered_table_names:
+                # A completed tick proves extraction runs again. The consumer cannot clear this
+                # marker: its job completions are absorbed while the marker holds.
+                if (schema.sync_type_config or {}).get("cdc_extraction_paused"):
+                    self._update_schema_sync_type_config(schema, removes=["cdc_extraction_paused"])
                 return False
             if not complete_schema_run(schema, last_synced_at=now):
                 self._schema_log(schema).info("cdc_success_repaint_skipped_broken")
@@ -2094,7 +2106,7 @@ def cleanup_orphan_slots_activity() -> None:
                     try:
                         mark_cdc_broken(
                             source,
-                            "critical_lag_self_managed",
+                            SELF_MANAGED_LAG_REASON,
                             f"Change data capture replication lag exceeded {critical_threshold_mb} MB. "
                             f"This slot is self-managed, so PostHog did not drop it — reduce load or WAL "
                             f"retention on the source database, or it may invalidate the slot and "
@@ -2113,6 +2125,10 @@ def cleanup_orphan_slots_activity() -> None:
                     lag_mb=round(lag_mb, 1),
                     threshold_mb=cdc_config.lag_warning_threshold_mb,
                 )
+            elif cdc_config.management_mode == "self_managed":
+                cleared = clear_recovered_self_managed_lag(source)
+                if cleared:
+                    source_log.info("slot_lag_recovered_self_managed", lag_mb=round(lag_mb, 1), schemas=cleared)
 
             source_log.info(
                 "slot_lag_checked",

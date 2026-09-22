@@ -345,7 +345,10 @@ def create_external_data_job_model_activity(
         # Persist the Running status only after the job row exists: a Running schema with no job
         # behind it can never be finalized, so it would stay stuck on Running forever. With the job
         # committed first, the workflow's finalizer can always resolve it and repaint the schema.
-        schema.status = ExternalDataSchema.Status.RUNNING
+        # A halted CDC schema keeps its FAILED status and error: the run's completion is absorbed
+        # while the marker holds, so a Running painted here would stay until the marker clears.
+        if not schema.cdc_halted:
+            schema.status = ExternalDataSchema.Status.RUNNING
         # Only v3 runs deliver to destinations; v2 has no per-batch queue to carry the ids.
         destination_ids: list[str] = []
         if pipeline_version == ExternalDataJob.PipelineVersion.V3 and is_multi_destination_enabled(

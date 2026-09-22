@@ -113,6 +113,7 @@ def _make_schema(
     schema.partition_count = partition_count
     schema.partition_size = partition_size
     schema.save = MagicMock()
+    type(schema).cdc_halted = ExternalDataSchema.cdc_halted
     return schema
 
 
@@ -451,6 +452,20 @@ class TestMarkSchemasRunning:
 
         assert schema.status == ExternalDataSchema.Status.RUNNING
         schema.save.assert_called_once_with(update_fields=["status", "updated_at"], skip_activity_log=True)
+
+    @pytest.mark.parametrize("marker", ["cdc_broken", "cdc_extraction_paused"])
+    def test_a_halted_schema_keeps_its_failed_status(self, marker):
+        source = _make_source()
+        act = _make_extract_activity(source)
+        schema = _make_schema("users", source=source)
+        schema.status = ExternalDataSchema.Status.FAILED
+        schema.sync_type_config[marker] = {"reason": "critical_lag_self_managed"}
+        act.cdc_schemas = [schema]
+
+        act._mark_schemas_running()
+
+        assert schema.status == ExternalDataSchema.Status.FAILED
+        schema.save.assert_not_called()
 
 
 class TestFlushDeferredRuns:
@@ -3256,6 +3271,19 @@ class TestSuccessRepaintGuards:
         # A successful run proves extraction resumed; the stale pause marker must not keep the
         # digest email reporting "paused, action required".
         assert "cdc_extraction_paused" not in recovered.sync_type_config
+
+    def test_a_buffered_schema_clears_its_pause_marker_but_keeps_the_consumers_status(self):
+        source = _make_source()
+        buffered = _make_schema("buffered_table", source=source)
+        buffered.status = ExternalDataSchema.Status.FAILED
+        buffered.sync_type_config["cdc_extraction_paused"] = {"reason": "transaction_too_large"}
+        act = self._activity_with(buffered)
+        act._buffered_table_names = {"buffered_table"}
+
+        act._finalize_success()
+
+        assert "cdc_extraction_paused" not in buffered.sync_type_config
+        assert buffered.status == ExternalDataSchema.Status.FAILED
 
 
 class TestCDCBoundedReadLoop:
