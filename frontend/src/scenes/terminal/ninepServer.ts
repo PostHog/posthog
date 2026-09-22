@@ -10,6 +10,7 @@ import {
 interface Fid {
     node: TerminalNode
     file?: TerminalFile
+    capacity?: Uint8Array
     dirty?: boolean
     writing?: boolean
     append?: boolean
@@ -413,12 +414,21 @@ export class NinePServer {
                 if (offset + count > MAX_TERMINAL_FILE_BYTES) {
                     throw new FilesystemError(27)
                 }
-                const bytes = new Uint8Array(Math.max(fid.file.bytes.length, offset + count))
-                bytes.set(fid.file.bytes)
-                bytes.set(reader.data(count), offset)
-                fid.file.bytes = bytes
+                const length = Math.max(fid.file.bytes.length, offset + count)
+                // Linux sends a file as many small packets, so the buffer grows in doubling steps
+                // and the file keeps a view of it. Copying it per packet would cost O(size squared).
+                const previous = fid.capacity?.buffer === fid.file.bytes.buffer ? fid.capacity : undefined
+                let capacity = previous
+                if (!capacity || length > capacity.length) {
+                    const grown = previous ? Math.max(length, previous.length * 2) : length
+                    capacity = new Uint8Array(Math.min(grown, MAX_TERMINAL_FILE_BYTES))
+                    capacity.set(fid.file.bytes)
+                    fid.capacity = capacity
+                }
+                capacity.set(reader.data(count), offset)
+                fid.file.bytes = capacity.subarray(0, length)
                 fid.dirty = true
-                fid.node.size = bytes.length
+                fid.node.size = length
                 return result.number(count, 4)
             }
             case 26: {

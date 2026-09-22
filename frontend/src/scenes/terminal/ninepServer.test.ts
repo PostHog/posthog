@@ -201,6 +201,32 @@ describe('PostHog 9P filesystem', () => {
         expect(saved).toBe('# café 🦔\n')
     })
 
+    it('assembles a chunked write from many packets, and keeps truncation and sparse gaps correct', async () => {
+        await open(1 | 512)
+        const chunk = 'abcdefgh'
+        let expected = ''
+        for (let index = 0; index < 200; index++) {
+            expect(await write(chunk, expected.length)).toBe(119)
+            expected += chunk
+        }
+        await request(120, new NinePWriter().number(2, 4))
+        expect(saved).toBe(expected)
+
+        await walk('note.md')
+        await open(1)
+        await write('ZZZZ', 8)
+        await request(120, new NinePWriter().number(2, 4))
+        expect(saved).toBe(`${expected.slice(0, 8)}ZZZZ${expected.slice(12)}`)
+
+        await walk('note.md')
+        await open(1 | 512)
+        await write('abcdefghij')
+        await request(26, new NinePWriter().number(2, 4).number(8, 4).data(new Uint8Array(12)).number(2, 8))
+        await write('Z', 4)
+        await request(120, new NinePWriter().number(2, 4))
+        expect(saved).toBe('ab\u0000\u0000Z')
+    })
+
     it('rejects oversized sparse writes without allocating their requested size', async () => {
         await open(1)
         expect(await write('x', MAX_TERMINAL_FILE_BYTES)).toBe(7)
