@@ -86,9 +86,9 @@ from ee.hogai.tool_errors import MaxToolRetryableError
 
 logger = structlog.get_logger(__name__)
 
-# Wall-clock bounds for the in-band LLM + HogQL pipeline. The caller's outer deadline (Temporal
-# activity timeout for scheduled, request timeout for ad-hoc) is the ultimate cap; these prevent a
-# single slow upstream from soaking it.
+# Per-invoke timeouts for the in-band LLM + HogQL pipeline. With the tool loop, a stage's total
+# wall time is bounded by up to (MAX_TOOL_ROUNDS + 1) invokes plus fetch time, not one of these
+# alone; AI_REPORT_GENERATION_TIMEOUT_SECONDS (8 minutes, activities.py) is the real outer cap.
 _SYNTHESIS_LLM_TIMEOUT_SECONDS = 90.0
 _HOGQL_STEP_TIMEOUT_SECONDS = 60.0
 # Backstop length cap on a single step's formatted results before they enter the synthesis prompt.
@@ -651,12 +651,11 @@ async def _synthesize(
     except Exception as exc:
         raise AiReportStageError(ReportStage.SYNTHESIS, exc) from exc
     final = transcript[-1]
-    content = final.content if hasattr(final, "content") else str(final)
-    if not content:
-        # run_tool_loop always forces a final plain answer, so an empty last message shouldn't
-        # happen; this is a belt-only fallback, not a path we expect to take.
-        content = str(final)
-    return content if isinstance(content, str) else str(content)
+    # Never stringify the message itself — that dumps LangChain internals (model name, token
+    # usage) into the report body. run_tool_loop always forces a final plain answer, so empty or
+    # non-string content shouldn't happen; the caller's notice/status machinery handles an empty body.
+    content = final.content
+    return content if isinstance(content, str) else ""
 
 
 def _compose_synthesis_human_message(spec: EnrichedPromptSpec, rendered_results: list[str], has_selection: bool) -> str:

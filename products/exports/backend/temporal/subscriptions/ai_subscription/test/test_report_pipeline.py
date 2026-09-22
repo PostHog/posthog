@@ -550,7 +550,7 @@ class _StubContextToolRuntime:
 @patch(f"{_RP}.MaxChatOpenAI")
 @patch(f"{_RP}.AssistantQueryExecutor")
 @patch(f"{_RP}.build_enriched_prompt", new_callable=AsyncMock)
-async def test_repair_receives_only_schema_while_planner_and_synthesis_keep_rows(
+async def test_repair_receives_only_schema_while_synthesis_keeps_rows(
     mock_bep: MagicMock,
     mock_executor: MagicMock,
     mock_chat: MagicMock,
@@ -618,6 +618,33 @@ async def test_repair_receives_only_schema_while_planner_and_synthesis_keep_rows
     assert rows not in human_message.content
     tool_messages = [message for message in final_transcript if isinstance(message, ToolMessage)]
     assert tool_messages[0].content == rows
+
+
+@parameterized.expand(
+    [
+        ("empty_string_content", ""),
+        ("non_string_content", None),
+    ]
+)
+@patch(f"{_RP}.resolve_prompt", side_effect=lambda _team, _name, fallback: fallback)
+@patch(f"{_RP}.MaxChatOpenAI")
+async def test_synthesis_never_leaks_message_internals_for_empty_or_non_string_content(
+    _name: str, content: str | None, mock_chat: MagicMock, _mock_resolve: MagicMock
+) -> None:
+    # A model can stop with empty or non-string content; falling back to str(message) would leak
+    # LangChain internals (model name, token usage) into the delivered report body.
+    final_message = MagicMock(
+        content=content, response_metadata={"model_name": "gpt-4o-test", "token_usage": {"total_tokens": 123}}
+    )
+    runtime = _StubContextToolRuntime(has_selection=True)
+    bound_llm = mock_chat.return_value.bind_tools.return_value
+    bound_llm.invoke.return_value = final_message
+
+    report = await _synthesize(
+        _spec(steps=0), [], MagicMock(), MagicMock(), None, runtime=cast(ContextToolRuntime, runtime)
+    )
+
+    assert report == ""
 
 
 @patch(_SLO_CAPTURE)
