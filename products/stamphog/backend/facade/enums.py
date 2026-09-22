@@ -36,17 +36,33 @@ TERMINAL_STATUSES = frozenset(
 class ReviewTrigger(StrEnum):
     """What caused a run to exist, derived from the run and its repo config.
 
-    Not stored: a run records `inbox_review` provenance on its output and inherits the repo's
-    review_mode, and this collapses the two into the one answer a reader wants — why did stamphog
-    look at this PR at all.
+    Not stored: a run records `inbox_review` or `manual_review` provenance on its output and
+    inherits the repo's review_mode, and this collapses them into the one answer a reader wants —
+    why did stamphog look at this PR at all.
     """
 
     # Self-driving: stamphog reviewed a bot-authored PR off its own inbox provenance.
     SELF_DRIVING = "self_driving"
+    # A project member asked for this review through the API.
+    MANUAL = "manual"
     # The repo is in LABEL mode, so the trigger label opted this PR in.
     LABEL = "label"
     # The repo reviews every relevant PR event.
     ALL = "all"
+
+
+class ReviewRequestRefusal(StrEnum):
+    """Why a manual review request did not queue a run."""
+
+    REPOSITORY_NOT_REVIEWABLE = "repository_not_reviewable"
+    PULL_REQUEST_NOT_FOUND = "pull_request_not_found"
+    PULL_REQUEST_NOT_OPEN = "pull_request_not_open"
+    DRAFT = "draft"
+    BOT_AUTHOR = "bot_author"
+    UNTRUSTED_AUTHOR = "untrusted_author"
+    AUTHOR_BELOW_WRITE = "author_below_write"
+    PULL_REQUEST_CHANGED = "pull_request_changed"
+    GITHUB_UNAVAILABLE = "github_unavailable"
 
 
 class ReviewVerdict(StrEnum):

@@ -17,7 +17,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -37,8 +37,9 @@ from products.stamphog.backend.facade import (
     api as facade_api,
     contracts,
 )
-from products.stamphog.backend.facade.enums import ReviewTrigger
+from products.stamphog.backend.facade.enums import ReviewRequestRefusal, ReviewTrigger
 
+from ..facade import review_requests
 from ..facade.github import (
     StamphogGitHubError,
     exchange_oauth_code_for_user_token,
@@ -49,6 +50,8 @@ from ..facade.github import (
 from .serializers import (
     DigestRunSerializer,
     PullRequestSerializer,
+    ReviewRequestResponseSerializer,
+    ReviewRequestSerializer,
     ReviewRunSerializer,
     StamphogInstallInfoSerializer,
     StamphogRepoConfigSerializer,
@@ -439,8 +442,29 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         return Response(data)
 
 
+_REFUSAL_STATUS = {
+    ReviewRequestRefusal.REPOSITORY_NOT_REVIEWABLE: 404,
+    ReviewRequestRefusal.PULL_REQUEST_NOT_FOUND: 404,
+    ReviewRequestRefusal.PULL_REQUEST_NOT_OPEN: 409,
+    ReviewRequestRefusal.DRAFT: 409,
+    ReviewRequestRefusal.BOT_AUTHOR: 409,
+    ReviewRequestRefusal.UNTRUSTED_AUTHOR: 409,
+    ReviewRequestRefusal.AUTHOR_BELOW_WRITE: 409,
+    ReviewRequestRefusal.PULL_REQUEST_CHANGED: 409,
+    ReviewRequestRefusal.GITHUB_UNAVAILABLE: 503,
+}
+
+
+class ReviewRequestRefused(APIException):
+    """A refused review request, carrying the refusal as the error code so clients can branch on it."""
+
+    def __init__(self, error: contracts.ReviewRequestRefusedError) -> None:
+        super().__init__(detail=error.message, code=error.refusal.value)
+        self.status_code = _REFUSAL_STATUS[error.refusal]
+
+
 class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
-    """Read-only history of stamphog review runs, filterable by repository, PR number, and status."""
+    """History of stamphog review runs, filterable by repository, PR number, and status, plus manual review requests."""
 
     scope_object = "stamphog"
     serializer_class = ReviewRunSerializer
@@ -467,7 +491,29 @@ class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
         run = facade_api.get_review_run(self.canonical_team_id, str(pk))
         if run is None:
             raise NotFound()
-        return Response(self.get_serializer(run).data)
+        context = {**self.get_serializer_context(), "reasoning": facade_api.get_review_reasoning(run)}
+        return Response(ReviewRunSerializer(run, context=context).data)
+
+    @extend_schema(
+        request=ReviewRequestSerializer,
+        responses={200: ReviewRequestResponseSerializer, 201: ReviewRequestResponseSerializer},
+    )
+    @action(detail=False, methods=["POST"], url_path="request_review", required_scopes=["stamphog:write"])
+    def request_review(self, request: Request, **kwargs) -> Response:
+        # Custom action names fall outside the default read/write action classification, so without
+        # explicit required_scopes this write would be reachable with no scope check at all.
+        serializer = ReviewRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = review_requests.request_review(
+                self.canonical_team_id,
+                user_id=request.user.pk,
+                repository=serializer.validated_data["repository"],
+                pr_number=serializer.validated_data["pr_number"],
+            )
+        except contracts.ReviewRequestRefusedError as error:
+            raise ReviewRequestRefused(error)
+        return Response(ReviewRequestResponseSerializer(result).data, status=201 if result.created else 200)
 
     @extend_schema(
         parameters=[
@@ -498,7 +544,7 @@ class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
                 OpenApiParameter.QUERY,
                 required=False,
                 enum=[t.value for t in ReviewTrigger],
-                description="Filter by what caused the run: self_driving, label, or all.",
+                description="Filter by what caused the run: self_driving, manual, label, or all.",
             ),
         ],
         responses={200: ReviewRunSerializer(many=True)},

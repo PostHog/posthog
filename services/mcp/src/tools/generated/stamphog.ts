@@ -189,9 +189,38 @@ const stamphogReviewRunsList = (): ToolBase<
         })
         const filtered = {
             ...result,
-            results: (result.results ?? []).map((item: any) => omitResponseFields(item, ['output'])),
+            results: (result.results ?? []).map((item: any) => omitResponseFields(item, ['output', 'reasoning'])),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/stamphog')
+    },
+})
+
+const StamphogReviewRunsRequestSchema = () => {
+    const StamphogReviewRunsRequestReviewCreateBody = orvalSchemas.StamphogReviewRunsRequestReviewCreateBody()
+    return StamphogReviewRunsRequestReviewCreateBody
+}
+
+const stamphogReviewRunsRequest = (): ToolBase<
+    ReturnType<typeof StamphogReviewRunsRequestSchema>,
+    Schemas.ReviewRequestResponse
+> => ({
+    name: 'stamphog-review-runs-request',
+    schema: StamphogReviewRunsRequestSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StamphogReviewRunsRequestSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
+        if (params.pr_number !== undefined) {
+            body['pr_number'] = params.pr_number
+        }
+        const result = await context.api.request<Schemas.ReviewRequestResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/stamphog/review_runs/request_review/`,
+            body,
+        })
+        return result
     },
 })
 
@@ -204,4 +233,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'stamphog-repo-configs-list': stamphogRepoConfigsList,
     'stamphog-review-runs-get': stamphogReviewRunsGet,
     'stamphog-review-runs-list': stamphogReviewRunsList,
+    'stamphog-review-runs-request': stamphogReviewRunsRequest,
 }
