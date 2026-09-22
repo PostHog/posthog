@@ -9809,7 +9809,12 @@ export namespace Schemas {
       p999_duration_nano: number;
       p99_duration_nano: number;
       service_name: string;
+      /** Set only when the query asked for `includeImpact`. `sessions` and `users` are uniq() estimates; the two span counts are exact. */
+      sessions?: number | null;
+      spans_with_distinct_id?: number | null;
+      spans_with_session_id?: number | null;
       total_duration_nano: number;
+      users?: number | null;
     }
 
     /**
@@ -50716,6 +50721,8 @@ export namespace Schemas {
       compareFilter?: CompareFilter | null;
       dateRange: DateRange;
       filterGroup?: PropertyGroupFilter | null;
+      /** Also aggregate sessions and people per operation. Off by default: it reads the attribute maps. */
+      includeImpact?: boolean | null;
       kind?: 'TraceSpansAggregationQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -99263,6 +99270,26 @@ export namespace Schemas {
       p999_duration_nano: number;
       /** Spans with OTel status code Error (status_code = 2). */
       error_count: number;
+      /**
+         * Estimated unique session IDs across this group's spans (HyperLogLog, about 1-2% error). Null unless the query set `includeImpact`.
+         * @nullable
+         */
+      sessions: number | null;
+      /**
+         * Estimated unique person distinct IDs across this group's spans (HyperLogLog, about 1-2% error). Null unless the query set `includeImpact`.
+         * @nullable
+         */
+      users: number | null;
+      /**
+         * How many of this group's spans carry a session ID under the team's configured or conventional attribute keys. Null unless the query set `includeImpact`.
+         * @nullable
+         */
+      spans_with_session_id: number | null;
+      /**
+         * How many of this group's spans carry a person distinct ID under the team's configured or conventional attribute keys. Null unless the query set `includeImpact`.
+         * @nullable
+         */
+      spans_with_distinct_id: number | null;
     }
 
     export interface _CompareFilter {
@@ -101021,6 +101048,8 @@ export namespace Schemas {
          * @minimum 0
          */
       offset?: number;
+      /** Also return the sessions and people behind each operation. Off by default because it reads the span and resource attribute maps, which the rest of the aggregation never touches. */
+      includeImpact?: boolean;
     }
 
     export interface _TracingAggregationRequest {
@@ -101137,6 +101166,21 @@ export namespace Schemas {
       count: number;
     }
 
+    /**
+     * Property filters for the count. Either a flat list of filters or a nested filter group.
+     */
+    export type _TracingCountBodyFilterGroup = _SpanPropertyFilter[] | {
+      /** How the inner groups combine. */
+      type: 'AND' | 'OR';
+      /** The inner filter groups. */
+      values: ({
+      /** How the filters in this group combine. */
+      type: 'AND' | 'OR';
+      /** The property filters in this group. */
+      values: _SpanPropertyFilter[];
+    })[];
+    };
+
     export interface _TracingCountBody {
       /** Date range for the count. Defaults to last hour. */
       dateRange?: _TracingDateRange;
@@ -101144,8 +101188,8 @@ export namespace Schemas {
       serviceNames?: string[];
       /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
       statusCodes?: number[];
-      /** Property filters for the count. */
-      filterGroup?: _SpanPropertyFilter[];
+      /** Property filters for the count. Either a flat list of filters or a nested filter group. */
+      filterGroup?: _TracingCountBodyFilterGroup;
     }
 
     export interface _TracingCountRequest {
@@ -101176,6 +101220,35 @@ export namespace Schemas {
     export interface _TracingDurationHistogramRequest {
       /** The duration-histogram query to execute. */
       query: _TracingDurationHistogramQueryBody;
+    }
+
+    export interface _TracingImpactRequest {
+      /** The impact query to execute. Takes the same filters as the count query. */
+      query: _TracingCountBody;
+    }
+
+    export interface _TracingImpactTopValue {
+      /** The session ID or person distinct ID. */
+      value: string;
+      /** Approximate number of matching spans that carry this value (topK estimate). */
+      count: number;
+    }
+
+    export interface _TracingImpactResponse {
+      /** Number of spans matching the filters. */
+      total: number;
+      /** How many of the matching spans carry a session ID under the team's configured or conventional attribute keys. */
+      spansWithSessionId: number;
+      /** Estimated number of unique session IDs across the matching spans (HyperLogLog, about 1-2% error). */
+      sessions: number;
+      /** How many of the matching spans carry a person distinct ID under the team's configured or conventional attribute keys. */
+      spansWithDistinctId: number;
+      /** Estimated number of unique distinct IDs across the matching spans (HyperLogLog, about 1-2% error). */
+      users: number;
+      /** Top session IDs on the matching spans, ordered by span count descending (topK, at most 5). */
+      topSessions: _TracingImpactTopValue[];
+      /** Top person distinct IDs on the matching spans, ordered by span count descending (topK, at most 5). */
+      topUsers: _TracingImpactTopValue[];
     }
 
     export interface _TracingLatencyHeatmapCell {
