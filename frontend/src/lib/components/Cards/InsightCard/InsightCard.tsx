@@ -7,7 +7,6 @@ import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from '
 import { LayoutItem } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
 
-import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -396,11 +395,11 @@ function InsightCardInternal(
             const failure = apiError as Record<string, any> | null
             return (
                 <InsightErrorState
-                    title={failure?.detail ?? (apiError instanceof Error ? apiError.message : null)}
+                    title={failure?.detail ?? failure?.message ?? null}
                     titleStatus={failure?.status ?? null}
                     titleCode={extractErrorCode(apiError)}
                     queryId={failure?.data?.queryId ?? failure?.queryId ?? queryId}
-                    retryAfter={(apiError as ApiError | null)?.formattedRetryAfter}
+                    retryAfter={failure?.formattedRetryAfter}
                     retryLoading={loading}
                     query={insight.query}
                     excludeActions={sharedView}

@@ -904,19 +904,16 @@ export function InsightErrorState({
 }: InsightErrorStateProps): JSX.Element {
     const errorKind = getInsightErrorKind(titleStatus, titleCode)
     const canRetry = errorKind !== 'invalid_query' && errorKind !== 'permission'
-    // A body that came with a machine code is curated backend copy, so only its own shape decides
-    // whether it can be shown — not the status it arrived with.
-    const safeTitle =
-        typeof title === 'string' && isRawServerErrorTitle(title, titleCode ? null : titleStatus) ? null : title
+    // A machine code, or an actionable-validation status, means the backend wrote this body for
+    // the user. An unlabelled 5xx body can be any internal failure text, so it stays hidden — as
+    // does a raw ClickHouse trace, which a staff account gets back on any status.
+    const isCuratedBody =
+        titleCode != null || titleStatus == null || titleStatus < 500 || VALIDATION_ERROR_STATUSES.has(titleStatus)
+    const backendDetail = isCuratedBody && typeof title === 'string' && !isRawServerErrorTitle(title) ? title : null
+    const safeTitle = typeof title === 'string' ? backendDetail : title
     const displayTitle = getInsightErrorTitle(errorKind, safeTitle, titleStatus)
     const isExport = placement === DashboardPlacement.Export
     const showBugReport = !isExport && (errorKind === 'transient' || errorKind === 'server' || errorKind === 'unknown')
-    // A machine code, or an actionable-validation status, means the backend wrote this body for
-    // the user. An unlabelled 5xx body can be any internal failure text, so it stays hidden.
-    const isCuratedBody =
-        titleCode != null || titleStatus == null || titleStatus < 500 || VALIDATION_ERROR_STATUSES.has(titleStatus)
-    // ...unless a staff account got the raw ClickHouse trace back.
-    const backendDetail = isCuratedBody && typeof title === 'string' && !isRawServerErrorTitle(title) ? title : null
     const remediation = getInsightErrorRemediation(errorKind, retryAfter, backendDetail)
     // The curated heading says a query failed; only the backend copy says why. Show it above the
     // next step, unless the heading or the next step is already that same sentence.
