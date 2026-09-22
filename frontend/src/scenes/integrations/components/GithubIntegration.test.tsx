@@ -98,6 +98,105 @@ describe('GithubIntegration', () => {
     )
 
     it.each([
+        [
+            'a sibling project',
+            {
+                installation_id: '55555',
+                account_name: 'acme',
+                account_type: null,
+                source_team_id: 7,
+                source_team_name: 'Website',
+            },
+            'connected in the project Website',
+        ],
+        [
+            'the personal GitHub connection',
+            {
+                installation_id: '55555',
+                account_name: 'acme',
+                account_type: null,
+                source_team_id: null,
+                source_team_name: null,
+            },
+            'visible through your personal GitHub connection',
+        ],
+    ])('says an installation offered from %s is from there', async (_source, installation, expectedSource) => {
+        availableInstallations = [installation]
+
+        render(
+            <Provider>
+                <GithubIntegration connectSurface="settings" />
+            </Provider>
+        )
+
+        expect(await screen.findByText(expectedSource, { exact: false })).toBeInTheDocument()
+    })
+
+    // The label used to fall back to the login of whoever connected the install, which reads as a
+    // stranger's account. An install with no account name must say so instead of naming a person.
+    it('falls back to the installation id when the account name is missing', async () => {
+        availableInstallations = [
+            {
+                installation_id: '55555',
+                account_name: null,
+                account_type: null,
+                source_team_id: 7,
+                source_team_name: 'Website',
+            },
+        ]
+
+        render(
+            <Provider>
+                <GithubIntegration connectSurface="settings" />
+            </Provider>
+        )
+
+        expect(await screen.findByText('installation 55555')).toBeInTheDocument()
+    })
+
+    it('reports what the link-existing banner offered', async () => {
+        availableInstallations = [
+            {
+                installation_id: '55555',
+                account_name: 'acme',
+                account_type: null,
+                source_team_id: 7,
+                source_team_name: 'Website',
+            },
+            {
+                installation_id: '66666',
+                account_name: null,
+                account_type: null,
+                source_team_id: null,
+                source_team_name: null,
+            },
+        ]
+
+        render(
+            <Provider>
+                <GithubIntegration connectSurface="settings" />
+            </Provider>
+        )
+
+        await waitFor(() =>
+            expect(
+                captureSpy.mock.calls
+                    .filter((call) => call[0] === 'integration_link_existing_offered')
+                    .map((call) => call[1])
+            ).toEqual([
+                {
+                    integration_kind: 'github',
+                    surface: 'settings',
+                    installation_count: 2,
+                    sibling_installation_count: 1,
+                    orphan_installation_count: 1,
+                    unnamed_installation_count: 1,
+                },
+            ])
+        )
+    })
+
+    it.each([
         ['pending', 'GitHub sent your request', 'Copy message for your org owner'],
         ['approved', 'An organization owner approved the PostHog app for', 'Finish connecting'],
     ])('shows the %s install request with its action', async (status, text, action) => {
