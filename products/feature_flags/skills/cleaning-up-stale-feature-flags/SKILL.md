@@ -138,6 +138,10 @@ Fetch first, because `git branch` and `git log` read only the refs this checkout
 - commits that added or removed the key: `git log --all -S'<key>' --oneline -20`, which finds a cleanup commit whose message never names the flag
 - open pull requests naming the key, when a GitHub tool is available: `gh pr list --search '<key>' --state open`
 
+Every match is a candidate and not a stop, so read its diff before you decide.
+`git log --all -S'<key>'` returns the commit that added the key, and a feature branch can name the key while it adds a call site.
+Only a removal counts as existing cleanup work.
+
 Read what you find against the base branch:
 
 - **A branch, commit, or PR removes the key, and the key is gone from the base branch.** The cleanup landed already. What remains is deployment and archival, not code. Go to "After the cleanup is deployed".
@@ -386,7 +390,8 @@ Agent steps:
 
    old-checkout-flow is the safest candidate, so I'll start there."
 
-- Search the repository for existing work on old-checkout-flow: no branch, commit, or open PR names it
+- Search the repository for existing work on old-checkout-flow: only the commit that added the key matches,
+  and no branch, commit, or open PR removes it
 - Search the repository for "old-checkout-flow"; find a Flags.OLD_CHECKOUT constant
   and trace its two call sites
 - Re-read the flag: still 100% boolean
@@ -417,7 +422,8 @@ Agent steps:
   The flag stays untouched until the user confirms the cleanup deployed.
 - **Never edit code for a partial or ambiguous flag.** Explain the decision the user must make instead.
 - **Never open an empty PR.** No runtime references means a reported no-op, not a commit.
-- **Look for existing work first.** A branch, commit, or PR naming the key means report what exists and stop, not clean it again.
+- **Look for existing work first.** A branch, commit, or PR that removes the key means report what exists and stop, not clean it again.
+  A match that only names the key, such as the commit that added it, is not existing work.
 - **Keep the flag abstraction.** Remove what the flag check leaves dead. A general helper that only lost its last caller stays, and gets named in the report.
 - **Unvalidated cleanups say so in the PR.** Red tests block publishing. Tests that could not run go in the PR body's first line.
 - **One draft PR per flag.** Bounded review, bounded rollback.
