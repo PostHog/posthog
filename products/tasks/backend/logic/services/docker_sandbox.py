@@ -1049,8 +1049,11 @@ class DockerSandbox(AgentServerLaunchMixin):
         if self._host_port is None:
             raise RuntimeError("Sandbox was not created with port exposure.")
 
-    def _reuse_healthy_agent_server(self, allowed_domains: list[str] | None) -> bool:
+    def _agent_server_reuse_enabled(self) -> bool:
         return False
+
+    def _install_agent_server_launch_files(self) -> tuple[str, ...]:
+        return ()
 
     def _prepare_agent_server_launch(self, allowed_domains: list[str] | None) -> None:
         # The agent runs each tool command in a fresh shell; BASH_ENV re-sources

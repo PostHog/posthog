@@ -22,6 +22,10 @@ from posthog.scopes import (
 )
 from posthog.utils import get_instance_region
 
+from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
+
 logger = structlog.get_logger(__name__)
 
 ARRAY_APP_CLIENT_ID_US = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W"
@@ -625,15 +629,29 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     Gated here rather than only at the HTTP kickoff, which a workflow retry or
     resume reaches with no request in front of it.
     """
+    organization_id = _organization_id_for_team(team_id)
     if wizard_identity_blocked(
         distinct_id=str(user.distinct_id),
         email=user.email,
         surface="wizard_mint",
         user_uuid=str(user.uuid),
-        organization_ids=[_organization_id_for_team(team_id)],
+        organization_ids=[organization_id],
         team_ids=[team_id],
     ):
         raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
+
+    try:
+        security_shadow_check(
+            SecuritySubject(
+                email=user.email,
+                user_uuid=str(user.uuid),
+                organization_ids=(organization_id,),
+            ),
+            SecuritySurface.AI_GATEWAY,
+            call_site="wizard_mint",
+        )
+    except Exception:
+        logger.exception("security_shadow_check_site_failed", call_site="wizard_mint")
 
     app = get_wizard_app()
 

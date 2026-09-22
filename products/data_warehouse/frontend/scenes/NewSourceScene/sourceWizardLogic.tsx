@@ -433,6 +433,7 @@ export interface sourceWizardLogicValues {
     } | null
     cdcSelfManagedVerifyResultLoading: boolean
     configuredSchemaName: string | null
+    connectError: string | null
     connectors: SourceConfigResponseApi[]
     currentStep: number
     currentSyncMethodModalSchema: ExternalDataSourceSyncSchema | null
@@ -672,6 +673,9 @@ export interface sourceWizardLogicActions {
     ) => {
         accessMethod: 'direct' | 'warehouse' | undefined
         connector: SourceConfigResponseApi | null
+    }
+    setConnectError: (message: string | null) => {
+        message: string | null
     }
     setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => {
         schemas: ExternalDataSourceSyncSchema[]
@@ -1055,6 +1059,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         }),
         createSource: true,
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
+        setConnectError: (message: string | null) => ({ message }),
         setSourceId: (id: string) => ({ sourceId: id }),
         closeWizard: true,
         cancelWizard: true,
@@ -1292,6 +1297,20 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 onNext: () => false,
                 setIsLoading: (_, { isLoading }) => isLoading,
+            },
+        ],
+        // The toast that also carries this message is gone in a few seconds, so people retry the
+        // same rejected credentials. Keep the reason next to the form until the next attempt.
+        connectError: [
+            null as string | null,
+            {
+                setConnectError: (_, { message }) => message,
+                getDatabaseSchemas: () => null,
+                createSource: () => null,
+                onBack: () => null,
+                onClear: () => null,
+                selectConnector: () => null,
+                setInitialConnector: () => null,
             },
         ],
         sourceId: [
@@ -2235,7 +2254,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     actions.setStep(5)
                 }
             } catch (e: any) {
-                lemonToast.error(resolveConnectErrorMessage(e))
+                const connectErrorMessage = resolveConnectErrorMessage(e)
+                actions.setConnectError(connectErrorMessage)
+                lemonToast.error(connectErrorMessage)
                 // Surface the failure instead of leaving it as a toast-only dead end: a captured
                 // exception keeps the stack triageable, and the event closes the connect funnel.
                 posthog.captureException(e)
@@ -2449,6 +2470,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             } catch (e: any) {
                 const apiMessage = e.data?.message ?? e.detail
                 const errorMessage = resolveConnectErrorMessage(e)
+                actions.setConnectError(errorMessage)
                 lemonToast.error(errorMessage)
 
                 // A 5xx with no body is an unexpected server failure, not a user credential

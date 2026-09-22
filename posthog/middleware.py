@@ -50,7 +50,12 @@ from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
 from posthog.models import Organization, Team, User
-from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_HEADER, activity_storage, client_from_header
+from posthog.models.activity_logging.utils import (
+    ACTIVITY_LOG_CLIENT_HEADER,
+    activity_storage,
+    client_from_header,
+    record_agent_intent,
+)
 from posthog.models.utils import generate_random_token
 from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
@@ -1254,6 +1259,7 @@ class ActivityLoggingMiddleware:
         if request.user.is_authenticated:
             activity_storage.set_user(request.user)
             activity_storage.set_was_impersonated(is_impersonated_session(request))
+            record_agent_intent(request)
 
         client_header = request.headers.get(ACTIVITY_LOG_CLIENT_HEADER)
         if client_header:
@@ -1494,12 +1500,15 @@ class CSPMiddleware:
                 frame_ancestors += " http://localhost:8001"
 
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
+            js_url = urlsplit(settings.JS_URL)
+            bundle_origin = f"{js_url.scheme}://{js_url.netloc}" if js_url.scheme and js_url.netloc else ""
             csp_parts = [
                 # Firefox checks <link rel="modulepreload"> against default-src instead of script-src,
-                # so without the static host it refuses the preloads index.html emits for the boot
-                # chain. The fetch directives below each set their own sources, so only a load a
-                # browser cannot map to one of them falls back to this list.
-                f"default-src 'self' {resource_url}",
+                # so without the bundle host it refuses the preloads index.html emits for the boot
+                # chain. Every preload href starts with JS_URL, so its origin is the one host needed.
+                # The fetch directives below each set their own sources, so only a load a browser
+                # cannot map to one of them falls back to this list.
+                f"default-src 'self' {bundle_origin}".rstrip(),
                 f"style-src 'self' 'unsafe-inline' {resource_url} https://fonts.googleapis.com",
                 # 'wasm-unsafe-eval' permits WebAssembly compilation and nothing else. It is not
                 # 'unsafe-eval': it does not permit eval() or the Function constructor. Compiling a
@@ -1609,7 +1618,7 @@ class CSPMiddleware:
             report_uri = csp_report_endpoint(sample_rate=sample_rate)
             shadow_parts: list[str] = []
             if report_uri and resource_url == "https://*.posthog.com" and not settings.E2E_TESTING:
-                bundle = [settings.JS_URL] if settings.JS_URL else []
+                bundle = [bundle_origin] if bundle_origin else []
                 replacements = {
                     # posthog-js loads its extensions from /static/ and our project's remote config. The
                     # config path names our token because the same path serves every project's config.

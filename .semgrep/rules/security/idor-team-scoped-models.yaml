@@ -334,6 +334,7 @@ rules:
                               |ResourceLink
                               |ScoreDefinition
                               |SavedHeatmap
+                              |HeatmapCaptureConfigVersion
                               |ScheduledChange
                               |SessionGroupSummary
                               |SessionRecording
@@ -425,6 +426,7 @@ rules:
                               |WizardRunArtifact
                               |WizardSession
                               |WizardWorker
+                              |WorkflowProposal
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -748,6 +750,7 @@ rules:
                         |ResourceLink
                         |ScoreDefinition
                         |SavedHeatmap
+                        |HeatmapCaptureConfigVersion
                         |ScheduledChange
                         |SessionGroupSummary
                         |SessionRecording
@@ -838,6 +841,7 @@ rules:
                         |WizardRunArtifact
                         |WizardSession
                         |WizardWorker
+                        |WorkflowProposal
                     )$
           # Exclude when team filter is present
           - pattern-not: $M.objects. ... .$METHOD2(..., team__project_id=$T, ...)
