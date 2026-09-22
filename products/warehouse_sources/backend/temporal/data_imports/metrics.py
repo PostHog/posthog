@@ -69,7 +69,6 @@ def get_v3_lock_skipped_metric() -> MetricCounter:
 def get_v3_lock_lost_metric() -> MetricCounter:
     # Counterpart to the skip metric, for the same race caught one step later: the run fails
     # without reporting an error, so this counter is the only record of how often it happens.
-    # Emitted from the activity, so the meter comes from the activity context.
     return activity.metric_meter().create_counter(
         "data_import_v3_lock_lost", "V3 runs failed because another run took the pipeline lock before job creation."
     )

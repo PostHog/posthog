@@ -90,8 +90,7 @@ class TestVerifyV3LockStillHeld:
         mock_get_holder.return_value = holder
 
         if expect_raise:
-            # The run must still fail, but losing the lock is the design working, so the failure
-            # has to stay out of error tracking. The counter is then the only record of the race.
+            # The failure stays out of error tracking, so the counter is the only record.
             with pytest.raises(V3PipelineLockLostError) as exc_info:
                 _verify_v3_lock_still_held(1, self.SCHEMA_ID)
             assert is_expected_activity_failure(exc_info.value)

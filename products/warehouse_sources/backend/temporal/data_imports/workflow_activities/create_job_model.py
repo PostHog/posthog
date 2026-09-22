@@ -432,8 +432,7 @@ def create_external_data_job_model_activity(
             fast_return_eligible=fast_return_eligible,
         )
     except NonReportableError:
-        # An expected race, already logged where it was detected. A stack trace here would read
-        # as a worker defect in the logs, the same way a captured exception would in error tracking.
+        # Already logged where it was detected. A stack trace would read as a worker defect.
         raise
     except Exception as e:
         logger.exception(
