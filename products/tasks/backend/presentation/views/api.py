@@ -71,6 +71,7 @@ from products.tasks.backend.facade import (
     contracts as tasks_contracts,
 )
 from products.tasks.backend.facade.access import (
+    ai_credits_limit_response,
     code_access_required_response,
     compute_quota_limit_response,
     usage_limit_response,
@@ -685,8 +686,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=TaskRunErrorResponseSerializer,
                 description=(
                     "The organization is on a Self-driving free trial, so a report implementation opens no "
-                    "pull request (code `self_driving_free_trial`), or the organization reached its "
-                    "self-driving pull request limit"
+                    "pull request (code `self_driving_free_trial`), the organization reached its "
+                    "self-driving pull request limit, or a PostHog AI task hit the organization's AI credit "
+                    "limit (code `ai_credits_exhausted`)"
                 ),
             ),
             403: OpenApiResponse(
@@ -742,7 +744,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if can_activate_warm_run and is_sandbox_origin_request(request):
             return _agent_run_disabled_response()
         if start_run or can_activate_warm_run:
-            is_code_access_exempt = (
+            # Web PostHog AI is funded as PostHog AI, not as Desktop, so the Desktop gate does not
+            # decide its entitlement; the AI-credits limit does. See task_exempt_from_code_access,
+            # which the run endpoint reads for the same task once it exists.
+            is_posthog_ai = origin_product == tasks_facade.TaskOriginProduct.POSTHOG_AI
+            is_code_access_exempt = is_posthog_ai or (
                 origin_product == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
                 and validated_data.get("signal_report") is not None
                 and relationship not in (None, "implementation")
@@ -755,6 +761,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 access_response := code_access_required_response(request, self.organization)
             ):
                 return access_response
+            if is_posthog_ai and (credits_response := ai_credits_limit_response(self.team)):
+                return credits_response
             if limit_response := usage_limit_response(request.user, self.team_id):
                 return limit_response
 
@@ -1264,7 +1272,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=TaskRunErrorResponseSerializer,
                 description=(
                     "The organization is on a Self-driving free trial, so a report implementation opens no "
-                    "pull request (code `self_driving_free_trial`)"
+                    "pull request (code `self_driving_free_trial`), or a PostHog AI task hit the "
+                    "organization's AI credit limit (code `ai_credits_exhausted`)"
                 ),
             ),
             403: OpenApiResponse(
@@ -1305,22 +1314,30 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return _agent_run_disabled_response()
 
         # Original order: 404 if the task isn't visible, then gate (always cloud) before the run.
-        if not tasks_facade.task_visible(pk, self.team_id, self._user_id(), for_control=True):
+        control = tasks_facade.task_control_runtime_and_origin(pk, self.team_id, self._user_id())
+        if control is None:
             raise NotFound()
         if one_shot_response := self._one_shot_analysis_response(str(pk)):
             return one_shot_response
-        if tasks_facade.task_runtime(
-            pk, self.team_id, self._user_id(), for_control=True
-        ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user):
+        if control.runtime == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(
+            self.team, request.user
+        ):
             return _pi_cloud_runtime_disabled_response()
 
-        # The generally-available Inbox runs tasks through this endpoint too (report "Create PR" /
-        # "Discuss", scout chat), so the Desktop policy applies only to tasks whose Inbox
-        # entitlement the server can't verify. See task_exempt_from_code_access.
+        # The generally-available Inbox and web PostHog AI run tasks through this endpoint too
+        # (report "Create PR" / "Discuss", scout chat, the web AI composer), so the Desktop policy
+        # applies only to tasks whose entitlement the server can't verify otherwise. See
+        # task_exempt_from_code_access.
         if not tasks_facade.task_exempt_from_code_access(pk, self.team_id) and (
             access_response := code_access_required_response(request, self.organization, task_id=pk)
         ):
             return access_response
+        # This is where a web PostHog AI run boots when no warm run was available, so it carries the
+        # limit the warm service would have applied.
+        if control.origin_product == tasks_facade.TaskOriginProduct.POSTHOG_AI and (
+            credits_response := ai_credits_limit_response(self.team)
+        ):
+            return credits_response
         if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 
@@ -1422,10 +1439,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not self._warm_enabled(origin_product):
             return Response(status=status.HTTP_200_OK)
 
-        # Every warmable origin's submit path gates on Desktop access too — POSTHOG_AI is not in
-        # `task_exempt_from_code_access`, only the Inbox shapes are — so warming applies it flat. A
-        # caller who can't run the task must not be able to provision a sandbox for it either.
-        if access_response := code_access_required_response(request, self.organization):
+        # A warm must not outrun what its submit path allows: a caller who can't run the task must
+        # not be able to provision a sandbox for it either. So the Desktop origins take the Desktop
+        # gate here, and POSTHOG_AI takes the AI-credits limit instead, which `SandboxWarmer`
+        # enforces itself before it provisions (see its ORIGIN_PRODUCT_QUOTA registry).
+        if origin_product != tasks_facade.TaskOriginProduct.POSTHOG_AI and (
+            access_response := code_access_required_response(request, self.organization)
+        ):
             return access_response
 
         user_id = self._user_id()
@@ -1495,7 +1515,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         if gate.runtime == tasks_facade.TaskRuntime.PI or not self._warm_enabled(gate.origin_product):
             return Response(status=status.HTTP_200_OK)
-        if access_response := code_access_required_response(request, self.organization, task_id=pk):
+        # Same split as `warm`: a PostHog AI successor is funded by AI credits, which the warm
+        # service checks, so the Desktop gate doesn't decide it.
+        if gate.origin_product != tasks_facade.TaskOriginProduct.POSTHOG_AI and (
+            access_response := code_access_required_response(request, self.organization, task_id=pk)
+        ):
             return access_response
 
         user_id = self._user_id()
@@ -1668,7 +1692,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             access_response := code_access_required_response(self.request, self.organization, task_id=task_id)
         ):
             return access_response
+        if credits_response := self._ai_credits_response(task_id):
+            return credits_response
         return usage_limit_response(user, self.team_id)
+
+    def _ai_credits_response(self, task_id: str) -> Response | None:
+        """The spend backstop for a PostHog AI task, which takes the AI-credits limit in place of the
+        Desktop funding gate. Applied wherever this viewset creates or launches a cloud run, so the
+        limit does not depend on which endpoint the client used."""
+        if tasks_facade.task_origin_product(task_id, self.team_id) != tasks_facade.TaskOriginProduct.POSTHOG_AI:
+            return None
+        return ai_credits_limit_response(self.team)
 
     def _ensure_task_accessible(self) -> str:
         """Gate access to the parent task, including exact task-bound sandbox access."""
@@ -1860,6 +1894,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             access_response := code_access_required_response(request, self.organization, task_id=task_id)
         ):
             return access_response
+        if credits_response := self._ai_credits_response(task_id):
+            return credits_response
         if limit_response := usage_limit_response(request.user, self.team_id):
             return limit_response
 

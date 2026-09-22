@@ -321,6 +321,7 @@ __all__ = [
     "task_accessible_for_run_view",
     "task_channel_id",
     "task_exempt_from_code_access",
+    "task_origin_product",
     "task_exists",
     "task_ids_with_pr_url_subquery",
     "get_pull_requests_for_tasks",
@@ -1020,8 +1021,19 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
     """Whether this task's cloud runs are entitled outside PostHog Desktop.
 
     The run/command endpoints gate on Desktop access (``code_access_required_response``) but
-    also serve the generally-available Inbox, whose tasks must run without the waitlist. Only
-    server-verifiable Inbox shapes qualify:
+    also serve the generally-available Inbox and web PostHog AI, whose tasks must run without the
+    Desktop policy. These shapes qualify:
+
+    - ``POSTHOG_AI``, the web PostHog AI experience. It is funded as PostHog AI, not as Desktop:
+      the sandbox token is minted under the ``posthog_ai`` OAuth app, spend counts against the
+      organization's AI credits like every other PostHog AI surface, and ``is_billable_compute``
+      never charges it to the Desktop compute quota. The Desktop funding gate exists so program
+      credits can't subsidize open-ended ``posthog_code`` spend, which this origin never does, so
+      applying it here refuses people who never asked for Desktop. ``origin_product`` is client
+      input, and that is fine: a Desktop caller who sends it gets a run minted under PostHog AI and
+      billed as AI credits, which is the web experience rather than free Desktop compute. The
+      AI-credits limit (``ai_credits_limit_response``, and ``SandboxWarmer``'s own gate on the warm
+      path) is the spend backstop.
 
     - ``SIGNAL_REPORT`` linked to a report in this team, repo-less, and carrying no GitHub
       integration (the Inbox "Discuss" fallback). Reports are minted by scouts and the link is
@@ -1045,11 +1057,13 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
 
     A bare ``SIGNAL_REPORT`` origin without a report link deliberately does not qualify:
     ``origin_product`` is client input, so an FK-less claim would be a one-field waitlist
-    bypass. The report's own team is re-checked here even though the write serializer
+    bypass. ``POSTHOG_AI`` needs no such link because claiming it moves the run's spend onto AI
+    credits instead of granting Desktop compute. The report's own team is re-checked here even though the write serializer
     already enforces it, so a future write path can't silently widen the exemption.
     """
     return Task.objects.filter(
-        Q(
+        Q(origin_product=Task.OriginProduct.POSTHOG_AI)
+        | Q(
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
             signal_report__team_id=team_id,
             repository__isnull=True,
@@ -5824,6 +5838,14 @@ def task_control_runtime_and_origin(
         return None
     runtime, origin_product = row
     return ControlVisibleTask(runtime=runtime, origin_product=origin_product)
+
+
+def task_origin_product(task_id: str | UUID, team_id: int) -> str | None:
+    """The origin product of a live task in this team, for the entitlement and quota decisions that
+    depend on how the run is funded. Visibility is gated separately by the caller."""
+    return (
+        Task.objects.filter(id=task_id, team_id=team_id, deleted=False).values_list("origin_product", flat=True).first()
+    )
 
 
 def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_control: bool = False) -> bool:

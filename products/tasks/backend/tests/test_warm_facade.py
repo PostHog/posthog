@@ -1280,7 +1280,7 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
         import_run.save(update_fields=["status"])
 
         with (
-            patch("products.tasks.backend.logic.services.warm.is_team_limited", return_value=False),
+            patch("ee.billing.quota_limiting.is_team_limited", return_value=False),
             patch("products.tasks.backend.logic.services.warm.execute_task_processing_workflow"),
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -1319,7 +1319,7 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
         terminal.save(update_fields=["status"])
 
         with (
-            patch("products.tasks.backend.logic.services.warm.is_team_limited", return_value=False),
+            patch("ee.billing.quota_limiting.is_team_limited", return_value=False),
             patch("products.tasks.backend.logic.services.warm.execute_task_processing_workflow") as execute_workflow,
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -1386,7 +1386,7 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
 
     def _warm_resume(self, task: Task, terminal: TaskRun):
         with (
-            patch("products.tasks.backend.logic.services.warm.is_team_limited", return_value=False),
+            patch("ee.billing.quota_limiting.is_team_limited", return_value=False),
             patch("products.tasks.backend.logic.services.warm.execute_task_processing_workflow"),
             self.captureOnCommitCallbacks(execute=True),
         ):

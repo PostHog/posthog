@@ -6,6 +6,7 @@ from products.tasks.backend.access import (
 )
 from products.tasks.backend.facade.contracts import DesktopAccessReason
 from products.tasks.backend.logic.services.code_usage_gate import (
+    ai_credits_limit_response,
     code_access_required_response,
     compute_quota_limit_response,
     usage_limit_response,
@@ -15,6 +16,7 @@ __all__ = [
     "DesktopAccessDecision",
     "DesktopAccessReason",
     "DesktopAccessResolutionError",
+    "ai_credits_limit_response",
     "code_access_required_response",
     "compute_quota_limit_response",
     "get_desktop_access_decision",
