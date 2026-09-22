@@ -7,8 +7,10 @@ on:
         # label. Force it also to give a story back a baseline entry it lost: the narrowed
         # matrix renders only the stories the diff affects, so a story the diff does not
         # touch is never captured, and a reviewer has nothing to approve into
-        # `frontend/snapshots.yml`. The `no-ci` label does the opposite: it silences
-        # this workflow on a draft entirely (prototypes).
+        # `frontend/snapshots.yml`. The label widens a run that happens anyway: a PR that
+        # changes no path the `changes` job watches builds no Storybook, label or not.
+        # The `no-ci` label does the opposite: it silences this workflow on a draft
+        # entirely (prototypes).
         # No labeled/unlabeled triggers: GitHub cannot filter a label trigger by name,
         # so every unrelated label re-ran the full chromium matrix against a commit CI
         # had already covered. A label here takes effect from the next push, or from

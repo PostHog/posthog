@@ -34,6 +34,7 @@ from posthog.middleware import (
     ManagedProxyClientIPMiddleware,
     ManagedProxyClientIPOutcome,
     app_csp_header_name,
+    narrowed_app_policy,
     per_request_logging_context_middleware,
 )
 from posthog.models.organization import Organization
@@ -1095,6 +1096,7 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             ("tracing_trace_by_id", "tracing/spans/trace/zzz/", {}),
             ("metrics_query", "metrics/query/", {}),
             ("metrics_explain", "metrics/explain/", {}),
+            ("experiments_setup_context", "experiments/setup_context/", {}),
         ]
     )
     def test_read_only_impersonation_allows_allowlisted_post(self, _name, path_suffix, body):
@@ -1119,6 +1121,7 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
                 "warehouse_saved_query_materialize",
                 "warehouse_saved_queries/00000000-0000-0000-0000-000000000000/materialize/",
             ),
+            ("experiments_create", "experiments/"),
         ]
     )
     def test_read_only_impersonation_blocks_mutating_siblings(self, _name, path_suffix):
@@ -2182,11 +2185,30 @@ class TestCSPMiddleware(APIBaseTest):
         response = self.client.get("/")
         assert "frame-src 'self' https:" in response["Content-Security-Policy-Report-Only"]
 
-    def test_app_policy_lets_firefox_preload_the_app_bundle(self):
+    @parameterized.expand(
+        [
+            ("local", {}, "default-src 'self' http://localhost:8234;"),
+            # The bundle host alone. The rest of the policy names every PostHog subdomain, and a
+            # fallback that broad admits whatever a new directive forgets to restrict.
+            (
+                "cloud",
+                {
+                    "TEST": False,
+                    "DEBUG": False,
+                    "CLOUD_DEPLOYMENT": "US",
+                    "SITE_URL": "https://us.posthog.com",
+                    "JS_URL": "https://app-static-prod.posthog.com",
+                },
+                "default-src 'self' https://app-static-prod.posthog.com;",
+            ),
+        ]
+    )
+    def test_app_policy_lets_firefox_preload_the_app_bundle(self, _name, overrides, expected):
         # Firefox judges <link rel="modulepreload"> by default-src, not script-src. A default-src of
         # 'self' alone refuses every preload index.html emits for the boot chain.
-        response = self.client.get("/")
-        assert "default-src 'self' http://localhost:8234" in response["Content-Security-Policy-Report-Only"]
+        with override_settings(**overrides):
+            response = self.client.get("/")
+        assert expected in response["Content-Security-Policy-Report-Only"]
 
     def test_replay_player_frame_serves_the_mount_node_without_a_session(self):
         # Shared recordings render the player for logged-out viewers.
@@ -2345,6 +2367,47 @@ class TestCSPMiddleware(APIBaseTest):
             assert "report-uri" not in policy
             assert "report-to" not in policy
             assert "Reporting-Endpoints" not in response
+
+    @parameterized.expand(
+        [
+            (
+                "cloud",
+                {
+                    "CLOUD_DEPLOYMENT": "US",
+                    "SITE_URL": "https://us.posthog.com",
+                    "JS_URL": "https://app-static-prod.posthog.com",
+                },
+                True,
+            ),
+            # An operator can turn reporting on for their own install, but the shadow names PostHog
+            # Cloud's hosts and token, so its reports would tell that operator nothing they can act on.
+            (
+                "self_hosted_with_reporting_on",
+                {
+                    "CLOUD_DEPLOYMENT": None,
+                    "SITE_URL": "https://posthog.example.com",
+                    "CSP_REPORT_ENDPOINT": "https://posthog.example.com/report/?token=phc_test&v=2",
+                },
+                False,
+            ),
+        ]
+    )
+    def test_only_cloud_pages_carry_a_report_only_shadow_without_the_wildcards(self, _name, overrides, expects_shadow):
+        # The shadow is the evidence for dropping the wildcards, so it must report on its own version
+        # and must not quietly keep a wildcard.
+        with override_settings(TEST=False, DEBUG=False, **overrides):
+            response = self.client.get("/")
+
+        app_policy, *shadows = response["Content-Security-Policy-Report-Only"].split(", ")
+        assert "https://*.posthog.com" in app_policy
+        assert "&v=2&" in app_policy
+        assert len(shadows) == (1 if expects_shadow else 0)
+        if expects_shadow:
+            shadow = shadows[0]
+            assert "*.posthog.com" not in shadow
+            assert "https://internal-j.posthog.com/array/sTMFPsFhdP1Ssg/config.js" in shadow
+            assert "https://live.us.posthog.com" in shadow
+            assert "&v=3&" in shadow
 
 
 class TestSocialAuthExceptionMiddleware(APIBaseTest):
@@ -2876,6 +2939,34 @@ class TestAppCspHeaderName(SimpleTestCase):
     def test_a_failing_flag_lookup_leaves_the_policy_report_only(self, _mock_flag):
         # Fail safe: an enforced policy that nobody meant to turn on breaks the page.
         assert app_csp_header_name(self._request("/")) == "Content-Security-Policy-Report-Only"
+
+
+class TestNarrowedAppPolicy(SimpleTestCase):
+    def test_swaps_the_wildcards_and_keeps_every_other_source(self) -> None:
+        app_policy = [
+            "default-src 'self'",
+            "script-src 'self' 'nonce-abc' 'wasm-unsafe-eval' https://*.posthog.com https://*.i.posthog.com https://js.stripe.com",
+            "worker-src 'self' blob:",
+            "img-src 'self' data: https://*.posthog.com",
+            "connect-src 'self' https://api.github.com https://*.posthog.com",
+        ]
+
+        narrowed = narrowed_app_policy(
+            app_policy,
+            {
+                "script-src": ["https://app-static-prod.posthog.com"],
+                "connect-src": ["https://internal-j.posthog.com"],
+            },
+        )
+
+        # A source the shadow dropped besides the wildcards would report loads the app policy allows,
+        # and a directive it was not asked about would restrict what the shadow does not measure.
+        assert narrowed == [
+            "script-src 'self' 'nonce-abc' 'wasm-unsafe-eval' https://js.stripe.com https://app-static-prod.posthog.com",
+            # Without it, workers fall back to script-src and the shadow reports the app's blob: workers.
+            "worker-src 'self' blob:",
+            "connect-src 'self' https://api.github.com https://internal-j.posthog.com",
+        ]
 
 
 class TestViewManagedCsp(SimpleTestCase):

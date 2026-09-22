@@ -3411,13 +3411,25 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
             self._user_access_control = UserAccessControl(user=user, team=self.team)
         return self._user_access_control
 
+    @property
+    def _bypassed_access_scopes(self) -> frozenset[str]:
+        """Scopes whose access control the principal skips. Service tokens and shared-link viewers bypass
+        warehouse access control (see Database.create_for); real users and userless runs bypass nothing."""
+        # `user` is typed Optional[User] but shared renders and service tokens pass other principals at runtime.
+        user = cast("Optional[User | SyntheticUser | SharedLinkUser]", self.user)
+        if user is None or isinstance(user, User):
+            return frozenset()
+        return WAREHOUSE_ACCESS_SCOPES
+
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
 
         # Partition only by the access-controlled tables this query reads that the user is restricted
         # from - so queries on events, persons and other non-access-controlled tables share one cache
         # entry (incl. userless cache warming).
-        queried_resources = queried_access_controlled_resources(self.query, self.team)
+        queried_resources = queried_access_controlled_resources(
+            self.query, self.team, bypassed_scopes=self._bypassed_access_scopes
+        )
 
         if isinstance(self.user, User) and not self.team.organization.is_feature_available(
             AvailableFeature.ACCESS_CONTROL
@@ -3490,13 +3502,12 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
 
         # Non-real principals (service tokens, shared-link viewers) are scope-gated on system tables;
         # partition on the readable scopes so a narrower token can't be served a broader principal's
-        # cached result. Warehouse scopes are excluded: these principals bypass warehouse access
-        # control (see Database.create_for), so warehouse tables are readable for them and listing
-        # them as restricted would collide with users who are genuinely denied those resources.
+        # cached result. Bypassed scopes are readable for them, and listing them as restricted would
+        # collide with users who are genuinely denied those resources.
         if not isinstance(user, User):
             if queried_resources is None:
                 return ["*"]
-            restricted = queried_resources - user.readable_system_table_access_scopes() - WAREHOUSE_ACCESS_SCOPES
+            restricted = queried_resources - user.readable_system_table_access_scopes() - self._bypassed_access_scopes
             return sorted(restricted) or None
 
         user_access_control = self.user_access_control

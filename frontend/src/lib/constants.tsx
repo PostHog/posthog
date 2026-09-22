@@ -316,9 +316,11 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_WEEKLY_DIGEST: 'error-tracking-weekly-digest', // owner: #team-error-tracking
     EXPERIMENT_BEHAVIOR_COMPARISON: 'experiment-behavior-comparison', // owner: @mp-hog #team-experiments
     EXPERIMENT_METRIC_EVENT_BREAKDOWNS: 'experiment-metric-event-breakdowns', // owner: @rodrigoi #team-experiments
+    EXPERIMENT_SETUP_CONTEXT: 'experiment-setup-context', // owner: @mp-hog #team-experiments, gates the experiment-setup-context MCP tool, its endpoint and the staff setup context drawer on the experiments list
     EXPERIMENTS_DW_AA_TEST: 'experiments-dw-aa-test', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_EXCLUDED_VARIANTS: 'experiments-excluded-variants', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_FREEZE_EXPOSURE_AA_TEST: 'experiments-freeze-exposure-aa-test', // owner: @mp-hog #team-experiments multivariate=control,test, dogfood A/A used to validate the freeze-exposure lifecycle action
+    EXPERIMENTS_LEGACY_DEPRECATION_NOTICE: 'experiments-legacy-deprecation-notice', // owner: @andehen #team-experiments, shows the legacy experiments deprecation banner
     EXPERIMENTS_LIST_AA_TEST: 'experiments-list-aa-test', // owner: @andehen #team-experiments multivariate=control,test, dogfood A/A exposed on the experiments list page
     EXPERIMENTS_METRICS_RECALCULATION: 'experiments-metrics-recalculation', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
@@ -467,6 +469,7 @@ export const FEATURE_FLAGS = {
     QUILL_DATE_PICKER: 'quill-date-picker', // owner: @pauldambra, flips the lib/components/DatePicker seam from LemonUI to Quill
     REAL_TIME_NOTIFICATIONS: 'real-time-notifications', // owner: #team-platform-features
     REALTIME_COHORT_FLAG_TARGETING: 'realtime-cohort-flag-targeting', // owner: @dmarticus #team-feature-flags
+    REALTIME_COHORTS: 'realtime-cohorts', // owner: #team-feature-flags, links the cohorts list waitlist banner to its early access feature
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
     REMOTE_CONFIG: 'remote-config', // owner: #team-platform-features
     REPLAY_COLLAPSE_INSPECTOR_ITEMS: 'replay-collapse-inspector-items', // owner: @fasyy612 #team-replay
@@ -522,6 +525,7 @@ export const FEATURE_FLAGS = {
     TOOLBAR_PAID_HEATMAPS: 'toolbar-paid-heatmaps', // owner: #team-web-analytics
     TRACING: 'tracing', // owner: #team-apm (@jonmcwest, @frankh)
     TRACING_FACET_RAIL: 'tracing-facet-rail', // owner: #team-apm — gates the facet rail (faceted filter sidebar) in tracing
+    TRACING_IMPACT_STRIP: 'tracing-impact-strip', // owner: #team-apm — gates the sessions/users impact strip and the Operations table's impact columns
     TRACING_LATENCY_HEATMAP: 'tracing-latency-heatmap', // owner: #team-apm — gates the latency-over-time heatmap chart in tracing
     TRACING_METRICS_TAB: 'tracing-metrics-tab', // owner: #team-apm — gates the Metrics tab (metrics correlated via exemplars) in the trace drawer
     TRACING_OPERATIONS_VIEW: 'tracing-operations-view', // owner: #team-apm — gates the Operations (per-operation aggregate) tab in tracing

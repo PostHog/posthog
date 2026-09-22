@@ -3,6 +3,9 @@ import type { CaptureOptions } from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 
+import type { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+
+import type { ReportTaskPurpose } from './components/detail/artefactTypes'
 import {
     InboxReportSectionKey,
     SignalReport,
@@ -61,6 +64,7 @@ export const INBOX_EVENTS = {
     SCOUT_SUGGESTIONS_REFRESHED: 'Scout suggestions refreshed',
     SCOUT_SUGGESTIONS_CHAT_OPENED: 'Scout suggestions chat opened',
     RUN_OPENED: 'Inbox run opened',
+    RUN_SUMMARY_VIEWED: 'Inbox run summary viewed',
     ONBOARDING_DECIDED: 'Inbox onboarding decided',
 } as const
 
@@ -822,6 +826,25 @@ export function captureInboxRunOpened(params: {
         run_kind: params.kind,
         run_status: params.status,
         has_report: params.hasReport,
+    })
+}
+
+/**
+ * A run's own summary was read on a Runs row. The summary is the cheapest account of what a run did,
+ * and it is only reachable on hover, so this is the one signal for whether readers find it.
+ *
+ * The summary text stays out of the event, like the report title: an agent writes it about a
+ * customer's own code and data. `summary_length` is the readable stand-in.
+ */
+export function captureInboxRunSummaryViewed(params: {
+    purpose: ReportTaskPurpose
+    status: TaskRunStatus | null
+    summaryLength: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.RUN_SUMMARY_VIEWED, {
+        run_purpose: params.purpose,
+        run_status: params.status,
+        summary_length: params.summaryLength,
     })
 }
 
