@@ -13,11 +13,17 @@ import {
     conversationsViewsPartialUpdate,
 } from '../../generated/api'
 import type { PatchedTicketViewApi, TicketViewFiltersApi } from '../../generated/api.schemas'
-import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
+import {
+    SUPPORT_TICKETS_DEFAULT_KEY,
+    type SupportTicketsSceneLogicProps,
+    supportTicketsSceneLogic,
+} from '../../scenes/tickets/supportTicketsSceneLogic'
 import type { SavedTicketView, TicketViewFilters } from '../../types'
 
 export interface TicketViewsLogicProps {
-    id: string
+    // Props of the ticket list this saved-views instance belongs to. Passing the whole
+    // set keeps the embedded list's own props (its key and distinct IDs) intact.
+    ticketListProps: SupportTicketsSceneLogicProps
 }
 
 export interface TicketViewChanges {
@@ -32,6 +38,7 @@ const searchViews = createFuseSearch<SavedTicketView>(['name'])
 export interface ticketViewsLogicValues {
     activeView: SavedTicketView | null // supportTicketsSceneLogic
     currentFilters: TicketViewFilters // supportTicketsSceneLogic
+    viewWithUnsavedChanges: SavedTicketView | null // supportTicketsSceneLogic
     currentTeamId: number | null // teamLogic
     favoriteViews: SavedTicketView[]
     favoritingShortIds: string[]
@@ -51,8 +58,15 @@ export interface ticketViewsLogicActions {
     applyView: (view: SavedTicketView) => {
         view: SavedTicketView
     } // supportTicketsSceneLogic
-    setActiveView: (view: SavedTicketView | null) => {
+    setActiveView: (
+        view: SavedTicketView | null,
+        appliedFilters?: TicketViewFilters
+    ) => {
         view: SavedTicketView | null
+        appliedFilters?: TicketViewFilters
+    } // supportTicketsSceneLogic
+    resetFilters: () => {
+        value: true
     } // supportTicketsSceneLogic
     closeModal: () => {
         value: true
@@ -114,6 +128,9 @@ export interface ticketViewsLogicActions {
     saveView: () => {
         value: true
     }
+    saveViewChanges: () => {
+        value: true
+    }
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
     }
@@ -154,12 +171,17 @@ export type ticketViewsLogicType = MakeLogicType<
 
 export const ticketViewsLogic = kea<ticketViewsLogicType>([
     props({} as TicketViewsLogicProps),
-    key((props) => props.id),
+    key((props) => props.ticketListProps.key || SUPPORT_TICKETS_DEFAULT_KEY),
     path((key) => ['products', 'conversations', 'frontend', 'components', 'SavedViews', 'ticketViewsLogic', key]),
 
-    connect(() => ({
-        values: [teamLogic, ['currentTeamId'], supportTicketsSceneLogic, ['currentFilters', 'activeView']],
-        actions: [supportTicketsSceneLogic, ['applyView', 'setActiveView']],
+    connect((props: TicketViewsLogicProps) => ({
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            supportTicketsSceneLogic(props.ticketListProps),
+            ['currentFilters', 'activeView', 'viewWithUnsavedChanges'],
+        ],
+        actions: [supportTicketsSceneLogic(props.ticketListProps), ['applyView', 'setActiveView', 'resetFilters']],
     })),
 
     actions({
@@ -174,6 +196,7 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
         closeSaveModal: true,
         setViewName: (viewName: string) => ({ viewName }),
         saveView: true,
+        saveViewChanges: true,
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
 
@@ -297,6 +320,13 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
             }
             actions.createView({ name, filters: { ...values.currentFilters } })
         },
+        saveViewChanges: () => {
+            const view = values.viewWithUnsavedChanges
+            if (!view) {
+                return
+            }
+            actions.updateView(view.short_id, { filters: { ...values.currentFilters } })
+        },
         deleteView: async ({ shortId }) => {
             try {
                 await conversationsViewsDestroy(String(values.currentTeamId), shortId)
@@ -314,9 +344,12 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
                     changes as PatchedTicketViewApi
                 )) as unknown as SavedTicketView
                 actions.viewUpdated(updated)
-                // Keep the header indicator and URL state in sync when the loaded view changes
+                // Keep the header indicator and URL state in sync when the loaded view
+                // changes. A drifted view re-attaches, because its filters are now saved.
                 if (values.activeView?.short_id === shortId) {
                     actions.setActiveView(updated)
+                } else if (values.viewWithUnsavedChanges?.short_id === shortId) {
+                    actions.setActiveView(updated, { ...values.currentFilters })
                 }
                 // Favoriting is a quiet, high-frequency action — no toast for it
                 const isFavoriteToggleOnly = Object.keys(changes).length === 1 && 'is_favorited' in changes

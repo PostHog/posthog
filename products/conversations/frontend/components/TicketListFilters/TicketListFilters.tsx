@@ -45,7 +45,7 @@ export function TicketListFilters({ embedded = false }: TicketListFiltersProps):
                         size="small"
                     />
                     <TicketFiltersDropdown />
-                    <SavedViewsButton id="SupportTicketsScene" />
+                    <SavedViewsButton ticketListProps={logic.props} />
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     <Tooltip
