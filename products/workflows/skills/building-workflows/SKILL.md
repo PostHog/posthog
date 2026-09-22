@@ -6,6 +6,7 @@ description: 'Build, edit, test, enable, and monitor PostHog workflows over MCP.
 # Building workflows
 
 A PostHog **workflow** is a directed graph: a list of **action nodes** (`actions`) wired by **edges** (`edges`), with exactly one `trigger` node that starts every run. You author that graph as JSON and ship it over MCP. Always call it a "workflow" to the user. "Hog flow" is the internal code name (`HogFlow`), not a user-facing term.
+To declare a workflow in TypeScript and push it from a repository instead, use the **`writing-workflows-as-code`** skill.
 
 The single biggest failure mode is **getting the graph JSON structurally wrong**. The backend stores `actions`/`config` as loose JSON, but the visual editor parses every node against a strict schema, so a malformed node saves but then **breaks the editor view** for the whole workflow. Before composing or editing any graph, read [references/graph-schema.md](references/graph-schema.md). It is the contract; do not improvise node shapes from these examples alone.
 
