@@ -136,6 +136,32 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
         assert "bytecode_error" not in response
 
+    def test_filters_allow_what_the_other_consumers_compile(self):
+        # Error tracking alerts and AI observability evaluations compile through this function too,
+        # and error tracking turns any bytecode_error into a refused save. Their surfaces reduce to
+        # roots the runtime provides, and this keeps that true.
+        alert = compile_filters_bytecode(
+            filters={
+                "events": [
+                    {
+                        "id": "$exception",
+                        "type": "events",
+                        "properties": [{"key": "$exception_type", "value": "TypeError", "type": "event"}],
+                    }
+                ]
+            },
+            team=self.team,
+        )
+        assert "bytecode_error" not in alert
+
+        evaluation = compile_filters_bytecode(
+            filters={
+                "properties": [{"key": "email", "value": "@example.com", "operator": "icontains", "type": "person"}]
+            },
+            team=self.team,
+        )
+        assert "bytecode_error" not in evaluation
+
     def test_filters_allow_group_globals(self):
         response = compile_filters_bytecode(
             filters={
