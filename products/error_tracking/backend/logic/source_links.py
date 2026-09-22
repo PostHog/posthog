@@ -92,6 +92,12 @@ MAX_TREE_SPLIT_DEPTH = 4
 TREE_LISTING_DEADLINE_SECONDS = 30
 TREE_LOCK_SECONDS = TREE_LISTING_DEADLINE_SECONDS + GITHUB_API_TIMEOUT_SECONDS
 
+# What those requests collect is capped too, because one response holds up to 100,000 entries and
+# every copy made after collection holds them again. A listing that reaches the ceiling keeps the
+# paths it has and is marked incomplete, which is how the request cap already behaves.
+MAX_TREE_PATHS = 250_000
+MAX_TREE_PATH_BYTES = 32 * 1024 * 1024
+
 # Reading the stored maps of one request is capped in wall-clock time as well. A build that writes
 # one map per file gives the event a symbol set per frame, and each set that is not mapped yet
 # costs an object storage round trip. The frames of a set the deadline stops get no link on this
@@ -631,6 +637,23 @@ class _TreeRequests:
         self._deadline = time.time() + TREE_LISTING_DEADLINE_SECONDS
         self.remaining = MAX_TREE_REQUESTS
         self.incomplete = False
+        self._path_count = 0
+        self._path_bytes = 0
+
+    @property
+    def full(self) -> bool:
+        return self._path_count >= MAX_TREE_PATHS or self._path_bytes >= MAX_TREE_PATH_BYTES
+
+    def add_paths(self, tree_ref: str, paths: set[str], new: Iterable[str]) -> None:
+        """Adds the paths that fit under the ceiling, and marks the listing incomplete when one does not."""
+        for path in new:
+            if self.full:
+                self.log_incomplete(tree_ref)
+                return
+            if path not in paths:
+                paths.add(path)
+                self._path_count += 1
+                self._path_bytes += len(path)
 
     def get(self, tree_ref: str, *, recursive: bool, etag: str | None = None) -> requests.Response | None:
         if time.time() > self._deadline:
@@ -661,6 +684,8 @@ class _TreeRequests:
         return body
 
     def log_incomplete(self, tree_ref: str) -> None:
+        if self.incomplete:
+            return
         self.incomplete = True
         logger.warning("source_links_tree_incomplete", repository=self._repository.path, tree=tree_ref)
 
@@ -705,10 +730,12 @@ def _collect_tree(
     again, each with its own recursive request and its own limit. Returns False on a failed request.
     """
     entries = [entry for entry in body["tree"] if isinstance(entry, dict) and isinstance(entry.get("path"), str)]
-    paths.update(prefix + entry["path"] for entry in entries if entry.get("type") == "blob")
+    tree_requests.add_paths(
+        tree_ref, paths, (prefix + entry["path"] for entry in entries if entry.get("type") == "blob")
+    )
     if not body.get("truncated") or not entries:
         return True
-    if depth >= MAX_TREE_SPLIT_DEPTH or tree_requests.remaining <= 0:
+    if depth >= MAX_TREE_SPLIT_DEPTH or tree_requests.remaining <= 0 or tree_requests.full:
         tree_requests.log_incomplete(tree_ref)
         return True
 
@@ -717,7 +744,9 @@ def _collect_tree(
     if listing is None:
         return False
     children = [child for child in listing["tree"] if isinstance(child, dict) and isinstance(child.get("path"), str)]
-    paths.update(prefix + child["path"] for child in children if child.get("type") == "blob")
+    tree_requests.add_paths(
+        tree_ref, paths, (prefix + child["path"] for child in children if child.get("type") == "blob")
+    )
 
     # The listing arrives in the same order as the recursive response, so its position gives the
     # later siblings without a reimplementation of git's tree ordering.
@@ -726,7 +755,7 @@ def _collect_tree(
         sha = child.get("sha")
         if child.get("type") != "tree" or not isinstance(sha, str) or not _TREE_SHA_RE.fullmatch(sha):
             continue
-        if tree_requests.remaining <= 0:
+        if tree_requests.remaining <= 0 or tree_requests.full:
             tree_requests.log_incomplete(tree_ref)
             return True
         subtree = tree_requests.body(tree_requests.get(sha, recursive=True))

@@ -347,6 +347,18 @@ class TestGitHubTree(SimpleTestCase):
             f"{TREES}/{TOOLS_SHA}?recursive=1",
         ]
 
+    @parameterized.expand([("path_count", "MAX_TREE_PATHS", 1), ("path_bytes", "MAX_TREE_PATH_BYTES", 17)])
+    def test_a_listing_stops_at_the_path_ceiling(self, _name: str, cap: str, value: int) -> None:
+        # One response holds up to 100,000 entries, so a listing without a ceiling holds whatever
+        # the repository returns, and every copy of it after collection holds that too.
+        api = _ScriptedGitHubApi(_truncated_repository(with_tools=True))
+
+        with patch(f"products.error_tracking.backend.logic.source_links.{cap}", value):
+            tree = github_tree(api, SourceTarget(repository=REPOSITORY, ref=COMMIT, pinned=True))
+
+        assert tree is not None and tree.paths == {"apps/web/src/a.ts"}
+        assert [path for path, _ in api.calls] == [f"{TREES}/{COMMIT}?recursive=1"]
+
     def test_a_failed_tail_request_does_not_pass_a_partial_tree_off_as_the_repository(self) -> None:
         # A commit tree is kept for a week, so a partial one would hide the tail's links that long.
         api = _ScriptedGitHubApi(_truncated_repository(with_tools=False))
