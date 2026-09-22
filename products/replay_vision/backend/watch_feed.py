@@ -59,6 +59,12 @@ SIGNAL_LEGACY_STRENGTH = 0.7
 # Signals corroborate across sessions, so a window full of them says the scanner is working, not that a
 # reader should watch all of them.
 WATCH_FEED_MAX_SIGNAL_SHARE = 0.4
+# Reason kinds that say nothing about the session: the fall-through for a row that scored on no source at
+# all. They are ordering, not evidence, so the feed carries them only to reach the floor below.
+FILLER_REASON_KINDS = frozenset({"unviewed_recent", "recent"})
+# How short the feed may get before filler rows pad it. A feed of 3 real findings beats one of 3 findings
+# and 17 "new since you last looked", and a feed that empties the moment nothing is wrong reads as broken.
+WATCH_FEED_MIN_ITEMS = 3
 # The score deviation, in stddevs, at which an outlier counts full strength. The hit fires at
 # OUTLIER_STDDEVS; its strength climbs from there to 1.0 by this many stddevs, so a wider outlier ranks
 # above a marginal one instead of both reading as the same boolean hit.
@@ -340,6 +346,11 @@ def _cap_signal_share(ranked: list[WatchFeedEntry]) -> list[WatchFeedEntry]:
     always leads, whatever it is. And a window with more signal rows than the share can hold runs out of
     other rows to interleave, so the rest trail the feed rather than disappear from it — reordering the feed
     is the job here, shortening it is not.
+
+    Because `_trim_filler` runs first, the rows a signal is held against are other findings, not padding.
+    So a window whose only findings are signals returns a feed of signals: the share keeps signals from
+    crowding out an outlier or a rare verdict, and was never meant to dilute them with clips that carry
+    nothing.
     """
     placed: list[WatchFeedEntry] = []
     # A deque, because the candidate cap is 1000 and every admitted row pops from the front.
@@ -354,6 +365,30 @@ def _cap_signal_share(ranked: list[WatchFeedEntry]) -> list[WatchFeedEntry]:
             placed.append(held.popleft())
             signals_placed += 1
     return placed + list(held)
+
+
+def _trim_filler(ranked: list[WatchFeedEntry]) -> list[WatchFeedEntry]:
+    """Drop the no-evidence rows once WATCH_FEED_MIN_ITEMS real findings are in the feed.
+
+    `limit` is a ceiling the feed had been filling: a quiet window returned 20 cards of which 17 said
+    "New since you last looked", which buries the few that meant something. Findings are kept whatever
+    their count; filler only makes up the difference to the floor, so a window with nothing to say
+    returns 3 newest clips rather than 20 or an empty state.
+    """
+    findings = [entry for entry in ranked if entry.reason["kind"] not in FILLER_REASON_KINDS]
+    if len(findings) >= WATCH_FEED_MIN_ITEMS:
+        return findings
+    # Walk rather than concatenate, because a row the reader already opened is docked half a point and can
+    # sort below an unviewed filler row — findings are not always a prefix of the list.
+    budget = WATCH_FEED_MIN_ITEMS - len(findings)
+    kept: list[WatchFeedEntry] = []
+    for entry in ranked:
+        if entry.reason["kind"] not in FILLER_REASON_KINDS:
+            kept.append(entry)
+        elif budget > 0:
+            kept.append(entry)
+            budget -= 1
+    return kept
 
 
 def rank_watch_feed_candidates(rows: list[dict[str, Any]]) -> list[WatchFeedEntry]:
@@ -372,8 +407,11 @@ def rank_watch_feed_candidates(rows: list[dict[str, Any]]) -> list[WatchFeedEntr
     `signal_emitted` even when a wide outlier was the stronger evidence and made the feed read as signals
     with a few other things in it.
 
-    Signal rows are then interleaved down to WATCH_FEED_MAX_SIGNAL_SHARE of the result; see
-    `_cap_signal_share` for the two rows that rule exempts.
+    Rows that scored on nothing are then trimmed to a floor of WATCH_FEED_MIN_ITEMS, and the signal rows
+    that survive are interleaved down to WATCH_FEED_MAX_SIGNAL_SHARE of the result; see `_trim_filler` and
+    `_cap_signal_share`. The trim runs first on purpose: trimming afterwards would strip the very rows the
+    cap interleaved signals against, so a feed that satisfied the share when built would breach it on the
+    way out.
     """
     candidates = [_parse_candidate(row) for row in rows]
     baselines = _baselines(candidates)
@@ -416,4 +454,4 @@ def rank_watch_feed_candidates(rows: list[dict[str, Any]]) -> list[WatchFeedEntr
         sort_key = (_watchability(candidate, hit_strength), candidate.created_at)
         scored.append((sort_key, WatchFeedEntry(observation_id=candidate.observation_id, reason=reason)))
     scored.sort(key=lambda item: item[0], reverse=True)
-    return _cap_signal_share([entry for _, entry in scored])
+    return _cap_signal_share(_trim_filler([entry for _, entry in scored]))

@@ -1452,7 +1452,11 @@ class WatchFeedQuerySerializer(serializers.Serializer):
         default=WATCH_FEED_DEFAULT_LIMIT,
         min_value=1,
         max_value=WATCH_FEED_MAX_LIMIT,
-        help_text=f"Feed items to return, at most {WATCH_FEED_MAX_LIMIT}. The feed is bounded, not paginated.",
+        help_text=(
+            f"Ceiling on feed items to return, at most {WATCH_FEED_MAX_LIMIT}. The feed is bounded, not "
+            "paginated, and routinely returns far fewer: a window is not padded to this number with "
+            "clips that carry no finding."
+        ),
     )
 
     def validate_tags(self, value: str) -> list[str]:
@@ -1564,9 +1568,10 @@ class WatchFeedResponseSerializer(serializers.Serializer):
     results = WatchFeedItemSerializer(
         many=True,
         help_text=(
-            "Succeeded observations in the window worth watching, most interesting first: signal emitters, "
-            "then type-specific hits, then unviewed before viewed, then the scan's own notability judgment, "
-            "then prose that reads as friction, then newest."
+            "Succeeded observations in the window worth watching, most interesting first, each carrying the "
+            "reason it ranked. Every observation that carries a finding is returned; observations that carry "
+            "none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, "
+            "so a quiet window answers with a handful of rows rather than a full page of newest clips."
         ),
     )
 

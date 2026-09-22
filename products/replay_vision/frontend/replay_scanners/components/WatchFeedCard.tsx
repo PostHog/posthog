@@ -36,6 +36,10 @@ const MAX_SHOWN_HEADLINES = 3
 const joinWithAnd = (parts: string[]): string =>
     parts.length > 1 ? `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}` : parts[0]
 
+/** Reason kinds that say nothing about the session. The backend returns these only to pad a near-empty
+ * feed, so a feed made up entirely of them means the window turned up no findings at all. */
+export const FILLER_REASON_KINDS = new Set(['unviewed_recent', 'recent'])
+
 export function watchReasonCopy(reason: WatchFeedReasonApi): string {
     // The scan wrote this sentence while watching the session, so it beats anything derived from the
     // reason kind. Absent on observations scanned before notability shipped, which fall through below.
