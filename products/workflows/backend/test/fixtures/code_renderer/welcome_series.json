@@ -1,0 +1,170 @@
+{
+    "id": "0198e2c6-7d2a-7c8e-a4b5-0f4c6e2d1a10",
+    "key": "welcome-series",
+    "name": "Welcome series",
+    "description": "Greets a new signup a day later.",
+    "version": 3,
+    "status": "active",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "events": [
+                {
+                    "id": "user signed up",
+                    "name": "user signed up",
+                    "type": "events",
+                    "order": 0,
+                    "properties": []
+                }
+            ],
+            "properties": [],
+            "filter_test_accounts": false
+        }
+    },
+    "exit_condition": "exit_only_at_end",
+    "variables": [],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Trigger",
+            "description": "",
+            "on_error": null,
+            "filters": null,
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "user signed up",
+                            "name": "user signed up",
+                            "type": "events",
+                            "order": 0,
+                            "properties": []
+                        }
+                    ],
+                    "properties": [],
+                    "filter_test_accounts": false
+                }
+            }
+        },
+        {
+            "id": "wait_a_day",
+            "name": "Wait a day",
+            "description": "",
+            "on_error": null,
+            "filters": null,
+            "type": "delay",
+            "config": {
+                "delay_duration": "1d"
+            }
+        },
+        {
+            "id": "send_the_welcome_email",
+            "name": "Send the welcome email",
+            "description": "",
+            "on_error": null,
+            "filters": null,
+            "type": "function_email",
+            "config": {
+                "template_id": "template-email",
+                "inputs": {
+                    "email": {
+                        "value": {
+                            "from": {
+                                "integrationId": 12,
+                                "integrationIds": [12],
+                                "name": "The Example team"
+                            },
+                            "to": {
+                                "email": "{person.properties.email}"
+                            },
+                            "subject": "Welcome aboard",
+                            "text": "Thanks for signing up.",
+                            "html": "<p>Thanks for signing up.</p>",
+                            "design": {
+                                "counters": {
+                                    "u_row": 1,
+                                    "u_column": 1,
+                                    "u_content_html": 1
+                                },
+                                "schemaVersion": 16,
+                                "body": {
+                                    "id": "html-wrap-body",
+                                    "headers": [],
+                                    "footers": [],
+                                    "rows": [
+                                        {
+                                            "id": "html-wrap-row",
+                                            "cells": [1],
+                                            "columns": [
+                                                {
+                                                    "id": "html-wrap-column",
+                                                    "contents": [
+                                                        {
+                                                            "id": "html-wrap-content",
+                                                            "type": "html",
+                                                            "values": {
+                                                                "html": "<p>Thanks for signing up.</p>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_html_1",
+                                                                    "htmlClassNames": "u_content_html"
+                                                                }
+                                                            }
+                                                        }
+                                                    ],
+                                                    "values": {
+                                                        "_meta": {
+                                                            "htmlID": "u_column_1",
+                                                            "htmlClassNames": "u_column"
+                                                        }
+                                                    }
+                                                }
+                                            ],
+                                            "values": {
+                                                "_meta": {
+                                                    "htmlID": "u_row_1",
+                                                    "htmlClassNames": "u_row"
+                                                }
+                                            }
+                                        }
+                                    ],
+                                    "values": {}
+                                }
+                            }
+                        },
+                        "order": 0
+                    }
+                }
+            }
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "",
+            "on_error": null,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Done"
+            }
+        }
+    ],
+    "edges": [
+        {
+            "from": "trigger_node",
+            "to": "wait_a_day",
+            "type": "continue"
+        },
+        {
+            "from": "wait_a_day",
+            "to": "send_the_welcome_email",
+            "type": "continue"
+        },
+        {
+            "from": "send_the_welcome_email",
+            "to": "exit_node",
+            "type": "continue"
+        }
+    ]
+}

@@ -8,3 +8,7 @@ common/hogvm/typescript/src/stl/bytecode.ts
 # pass would re-indent every schema body under the builder arrow (see
 # services/mcp/scripts/generate-orval-schemas.mjs).
 services/mcp/src/generated/
+
+# Golden fixtures: the Django test compares the rendered source byte for byte against these,
+# so a formatter pass must not touch them (see products/workflows/backend/services/code_renderer.py).
+products/workflows/backend/test/fixtures/code_renderer/
