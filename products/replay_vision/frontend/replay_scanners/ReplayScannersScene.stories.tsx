@@ -724,14 +724,6 @@ export const HomeWatchFeedEmpty: StoryObj = {
     },
 }
 
-// Test arm of the Usage tab: absorbs the observations chart and enabled-scanners card.
-export const UsageTabRedesigned: StoryObj = {
-    parameters: {
-        pageUrl: `${urls.replayVision()}?tab=usage`,
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
-    },
-}
-
 export const SummarizerOverview: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
 }
