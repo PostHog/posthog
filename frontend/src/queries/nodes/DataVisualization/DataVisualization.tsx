@@ -34,6 +34,7 @@ import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { DateRange } from '../DataNode/DateRange'
 import { ElapsedTime } from '../DataNode/ElapsedTime'
 import { Reload } from '../DataNode/Reload'
+import { RowLimitNotice } from '../DataNode/RowLimitNotice'
 import { QueryFeature } from '../DataTable/queryFeatures'
 import { PieChart } from './Components/Charts/PieChart'
 import { SqlBoxPlot } from './Components/Charts/SqlBoxPlot'
@@ -346,6 +347,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 )}
             >
                 {component}
+                <RowLimitNotice />
             </div>
         )
     }
