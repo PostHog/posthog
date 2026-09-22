@@ -12,8 +12,6 @@ describe('AdvertisementCard', () => {
     const onClose = jest.fn()
 
     function renderCard(): ReturnType<typeof navPanelAdvertisementLogic.build> {
-        const logic = navPanelAdvertisementLogic({ dismissKey: 'test-card' })
-        logic.mount()
         render(
             <BindLogic logic={navPanelAdvertisementLogic} props={{ dismissKey: 'test-card' }}>
                 <AdvertisementCard
@@ -24,7 +22,7 @@ describe('AdvertisementCard', () => {
                 />
             </BindLogic>
         )
-        return logic
+        return navPanelAdvertisementLogic({ dismissKey: 'test-card' })
     }
 
     beforeEach(() => {
@@ -43,9 +41,8 @@ describe('AdvertisementCard', () => {
     it('keeps the dismiss control outside the card link', () => {
         renderCard()
 
-        const dismiss = screen.getByRole('button', { name: 'Dismiss' })
-        expect(dismiss.closest('a')).toBeNull()
-        expect(screen.getByRole('link')).toBeInTheDocument()
+        expect(screen.getByLabelText('Dismiss').closest('a')).toBeNull()
+        expect(document.querySelector('a[href="/project/1/replay"]')).toBeInTheDocument()
     })
 
     it.each([
@@ -55,7 +52,7 @@ describe('AdvertisementCard', () => {
         const logic = renderCard()
 
         jest.advanceTimersByTime(elapsedMs)
-        fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+        fireEvent.click(screen.getByLabelText('Dismiss'))
 
         expect(logic.values.hidden).toBe(expectedHidden)
         expect(onClose).toHaveBeenCalledTimes(expectedHidden ? 1 : 0)
