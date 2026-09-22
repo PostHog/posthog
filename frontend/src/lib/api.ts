@@ -177,7 +177,6 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     PropertyGroupFilter,
-    QueryBasedInsightModel,
     QueryTabState,
     QuickFilter,
     RawAnnotationType,
@@ -607,7 +606,7 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('insights')
     }
 
-    public insight(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+    public insight(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.insights(teamId).addPathComponent(id)
     }
 
@@ -615,19 +614,15 @@ export class ApiRequest {
         return this.insights(teamId).addPathComponent('activity')
     }
 
-    public insightSharing(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+    public insightSharing(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.insight(id, teamId).addPathComponent('sharing')
     }
 
-    public insightSharingPasswords(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+    public insightSharingPasswords(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.insightSharing(id, teamId).addPathComponent('passwords')
     }
 
-    public insightSharingPassword(
-        id: QueryBasedInsightModel['id'],
-        passwordId: string,
-        teamId?: TeamType['id']
-    ): ApiRequest {
+    public insightSharingPassword(id: InsightModel['id'], passwordId: string, teamId?: TeamType['id']): ApiRequest {
         return this.insightSharingPasswords(id, teamId).addPathComponent(passwordId)
     }
 
@@ -3841,7 +3836,7 @@ const api = {
             notebookShortId,
         }: {
             dashboardId?: DashboardType['id']
-            insightId?: QueryBasedInsightModel['id']
+            insightId?: InsightModel['id']
             recordingId?: SessionRecordingType['id']
             notebookShortId?: NotebookType['short_id']
         }): Promise<SharingConfigurationType | null> {
@@ -3864,7 +3859,7 @@ const api = {
                 notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
-                insightId?: QueryBasedInsightModel['id']
+                insightId?: InsightModel['id']
                 recordingId?: SessionRecordingType['id']
                 notebookShortId?: NotebookType['short_id']
             },
@@ -3889,7 +3884,7 @@ const api = {
                 notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
-                insightId?: QueryBasedInsightModel['id']
+                insightId?: InsightModel['id']
                 recordingId?: SessionRecordingType['id']
                 notebookShortId?: NotebookType['short_id']
             },
@@ -3914,7 +3909,7 @@ const api = {
                 notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
-                insightId?: QueryBasedInsightModel['id']
+                insightId?: InsightModel['id']
                 recordingId?: SessionRecordingType['id']
                 notebookShortId?: NotebookType['short_id']
             },

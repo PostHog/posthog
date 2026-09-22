@@ -4,11 +4,11 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, DashboardType, QueryBasedInsightModel } from '~/types'
+import { AccessControlLevel, DashboardType, InsightModel } from '~/types'
 
 import { textCardModalLogic } from './textCardModalLogic'
 
-const makeDashboard = (body: string = 'existing text'): DashboardType<QueryBasedInsightModel> =>
+const makeDashboard = (body: string = 'existing text'): DashboardType<InsightModel> =>
     ({
         id: 123,
         name: 'Test dashboard',
@@ -34,7 +34,7 @@ const makeDashboard = (body: string = 'existing text'): DashboardType<QueryBased
         filters: {},
         tags: [],
         user_access_level: AccessControlLevel.Editor,
-    }) as DashboardType<QueryBasedInsightModel>
+    }) as DashboardType<InsightModel>
 
 describe('textCardModalLogic', () => {
     beforeEach(() => {

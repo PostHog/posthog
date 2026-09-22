@@ -11,7 +11,6 @@ import {
     InsightModel,
     PropertyFilterType,
     PropertyOperator,
-    QueryBasedInsightModel,
 } from '~/types'
 
 import {
@@ -72,7 +71,7 @@ describe('searchParamsWithUrlFilters', () => {
 
 describe('getDashboardTileDisplayName', () => {
     it('uses widget header title when no custom name is set', () => {
-        const tile: DashboardTile<QueryBasedInsightModel> = {
+        const tile: DashboardTile<InsightModel> = {
             id: 1,
             widget: { id: '1', widget_type: 'error_tracking_list', config: {} },
             layouts: {},
@@ -83,7 +82,7 @@ describe('getDashboardTileDisplayName', () => {
     })
 
     it('uses custom widget name when set', () => {
-        const tile: DashboardTile<QueryBasedInsightModel> = {
+        const tile: DashboardTile<InsightModel> = {
             id: 1,
             widget: { id: '1', widget_type: 'error_tracking_list', config: {}, name: 'Critical errors' },
             layouts: {},
@@ -266,7 +265,7 @@ describe('dashboardSearchParamsFromOverrides', () => {
 })
 
 describe('getInsightWithRetry', () => {
-    const insight = { id: 300, short_id: 'abc123', name: 'Test insight' } as QueryBasedInsightModel
+    const insight = { id: 300, short_id: 'abc123', name: 'Test insight' } as InsightModel
     const MAX_ATTEMPTS = 3
 
     afterEach(() => {

@@ -1,7 +1,7 @@
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { DashboardFilter, HogQLVariable, QuerySchema } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
-import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { ActionType, DashboardType, EventDefinition, InsightShortId, InsightModel } from '~/types'
 
 export enum MaxContextType {
     DASHBOARD = 'dashboard',
@@ -14,7 +14,7 @@ export enum MaxContextType {
 }
 
 export type InsightWithQuery = Pick<
-    Partial<QueryBasedInsightModel>,
+    Partial<InsightModel>,
     'query' | 'short_id' | 'name' | 'derived_name' | 'description' | 'id'
 >
 
@@ -157,7 +157,7 @@ export type MaxContextInput =
     | MaxEvaluationContextInput
     | MaxNotebookContextInput
 
-function pickInsightFields(insight: Partial<QueryBasedInsightModel>): InsightWithQuery {
+function pickInsightFields(insight: Partial<InsightModel>): InsightWithQuery {
     return {
         id: insight.id,
         short_id: insight.short_id,
@@ -173,7 +173,7 @@ function pickInsightFields(insight: Partial<QueryBasedInsightModel>): InsightWit
  * These ensure proper typing and consistent patterns across scene logics
  */
 export const createMaxContextHelpers = {
-    dashboard: (dashboard: DashboardType<QueryBasedInsightModel>): MaxDashboardContextInput => ({
+    dashboard: (dashboard: DashboardType<InsightModel>): MaxDashboardContextInput => ({
         type: MaxContextType.DASHBOARD,
         data: {
             ...dashboard,

@@ -35,7 +35,7 @@ import {
     QuerySchemaRoot,
 } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
-import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
+import { ActionType, DashboardType, EventDefinition, InsightModel } from '~/types'
 
 import { Scene } from '../sceneTypes'
 import { MODE_DEFINITIONS } from './max-constants'
@@ -203,7 +203,7 @@ function stripQueryResponses<Value>(value: Value): Value {
 
 // Utility functions for transforming data to max context
 export const insightToMaxContext = (
-    insight: Partial<QueryBasedInsightModel>,
+    insight: Partial<InsightModel>,
     filtersOverride?: DashboardFilter,
     variablesOverride?: Record<string, HogQLVariable>
 ): MaxInsightContext => {

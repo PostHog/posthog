@@ -23,7 +23,7 @@ import {
     AvailableFeature,
     DashboardPlacement,
     DashboardType,
-    QueryBasedInsightModel,
+    InsightModel,
     UserType,
 } from '~/types'
 
@@ -66,13 +66,13 @@ const USER_WITH_SUBSCRIPTIONS_FEATURE: UserType = {
     },
 }
 
-function mockDashboard(): DashboardType<QueryBasedInsightModel> {
+function mockDashboard(): DashboardType<InsightModel> {
     return {
         id: DASHBOARD_ID,
         name: 'Test dashboard',
         user_access_level: AccessControlLevel.Editor,
         tiles: [],
-    } as unknown as DashboardType<QueryBasedInsightModel>
+    } as unknown as DashboardType<InsightModel>
 }
 
 function capturesOf(event: string): any[][] {

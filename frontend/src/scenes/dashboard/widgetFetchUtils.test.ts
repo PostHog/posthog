@@ -1,9 +1,9 @@
-import type { DashboardTile, QueryBasedInsightModel } from '~/types'
+import type { DashboardTile, InsightModel } from '~/types'
 
 import { chunkTileIds, findNewlyAddedWidgetTiles } from './widgetFetchUtils'
 
 describe('widgetFetchUtils', () => {
-    const widgetTile = (id: number): DashboardTile<QueryBasedInsightModel> => ({
+    const widgetTile = (id: number): DashboardTile<InsightModel> => ({
         id,
         widget: { id: String(id), widget_type: 'error_tracking_list', config: {} },
         layouts: {},

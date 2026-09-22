@@ -12,7 +12,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile, DashboardType, InsightModel } from '~/types'
 
 import {
     DEFAULT_SHARED_DASHBOARD_WIDGET_PLACEHOLDER,
@@ -44,7 +44,7 @@ import { WidgetCardHeader, widgetCardShouldHideMoreButton } from '../WidgetCard/
 import { WidgetRuntimeAvailabilityGuard } from '../WidgetRuntimeAvailabilityGuard/WidgetRuntimeAvailabilityGuard'
 
 type DashboardWidgetItemProps = {
-    tile: DashboardTile<QueryBasedInsightModel>
+    tile: DashboardTile<InsightModel>
     placement: DashboardPlacement
     dashboardId?: number | null
     canEditDashboard?: boolean
@@ -84,7 +84,7 @@ type DashboardWidgetItemContentProps = Omit<
     DashboardWidgetItemProps,
     'children' | 'className' | 'style' | 'showResizeHandles' | 'canEnterEditModeFromEdge' | 'onEnterEditModeFromEdge'
 > & {
-    widget: NonNullable<DashboardTile<QueryBasedInsightModel>['widget']>
+    widget: NonNullable<DashboardTile<InsightModel>['widget']>
     definition: DashboardWidgetDefinition | undefined
     headerCatalogEntry: ResolvedDashboardWidgetCatalogEntry
     isUnknownWidgetType: boolean
@@ -94,7 +94,7 @@ type DashboardWidgetItemContentProps = Omit<
 }
 
 type DashboardWidgetItemBodyProps = {
-    widget: NonNullable<DashboardTile<QueryBasedInsightModel>['widget']>
+    widget: NonNullable<DashboardTile<InsightModel>['widget']>
     definition: DashboardWidgetDefinition | undefined
     componentProps: DashboardWidgetComponentProps
     dashboardId?: number | null

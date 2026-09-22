@@ -9,13 +9,7 @@ import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { initKeaTests } from '~/test/init'
-import {
-    AccessControlLevel,
-    type DashboardTileIdOrNew,
-    DashboardType,
-    PreflightStatus,
-    QueryBasedInsightModel,
-} from '~/types'
+import { AccessControlLevel, type DashboardTileIdOrNew, DashboardType, PreflightStatus, InsightModel } from '~/types'
 
 import { ImageTileModal } from 'products/dashboards/frontend/components/ImageTile/ImageTileModal'
 
@@ -23,7 +17,7 @@ jest.mock('lib/hooks/useUploadFiles', () => ({
     useUploadFiles: jest.fn(),
 }))
 
-const makeDashboard = (body?: string): DashboardType<QueryBasedInsightModel> =>
+const makeDashboard = (body?: string): DashboardType<InsightModel> =>
     ({
         id: 123,
         name: 'Test dashboard',
@@ -48,7 +42,7 @@ const makeDashboard = (body?: string): DashboardType<QueryBasedInsightModel> =>
         filters: {},
         tags: [],
         user_access_level: AccessControlLevel.Editor,
-    }) as DashboardType<QueryBasedInsightModel>
+    }) as DashboardType<InsightModel>
 
 const firePointerEvent = (
     element: HTMLElement,

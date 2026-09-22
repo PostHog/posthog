@@ -2,11 +2,11 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
 
-import { AccessControlLevel, DashboardPlacement, DashboardType, QueryBasedInsightModel } from '~/types'
+import { AccessControlLevel, DashboardPlacement, DashboardType, InsightModel } from '~/types'
 
 import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
 
-const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
+const MOCK_DASHBOARD: DashboardType<InsightModel> = {
     id: 5,
     name: 'Test dashboard',
     description: 'A test dashboard',
@@ -31,9 +31,7 @@ const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
     variables: {},
 }
 
-function makeDashboard(
-    overrides: Partial<DashboardType<QueryBasedInsightModel>> = {}
-): DashboardType<QueryBasedInsightModel> {
+function makeDashboard(overrides: Partial<DashboardType<InsightModel>> = {}): DashboardType<InsightModel> {
     return { ...MOCK_DASHBOARD, ...overrides }
 }
 
@@ -41,7 +39,7 @@ function renderBanner({
     dashboard = makeDashboard({ is_shared: true }),
     placement = DashboardPlacement.Dashboard,
 }: {
-    dashboard?: DashboardType<QueryBasedInsightModel>
+    dashboard?: DashboardType<InsightModel>
     placement?: DashboardPlacement
 } = {}): void {
     render(<DashboardPublicAccessBanner dashboard={dashboard} placement={placement} />)

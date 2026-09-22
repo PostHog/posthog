@@ -1,15 +1,4 @@
-import { FunnelLayout, ShownAsValue } from 'lib/constants'
-
-import {
-    AccessControlLevel,
-    ChartDisplayType,
-    DashboardTile,
-    DashboardType,
-    FunnelVizType,
-    InsightColor,
-    InsightShortId,
-    InsightType,
-} from '~/types'
+import { AccessControlLevel, DashboardTile, DashboardType, InsightColor, InsightShortId, InsightType } from '~/types'
 
 export const dashboard: DashboardType = {
     id: 1,
@@ -47,17 +36,7 @@ export const dashboard: DashboardType = {
                 last_refresh: '2022-07-01T13:33:12.871519Z',
                 name: 'Daily active users (DAUs)',
                 derived_name: null,
-                filters: {
-                    events: [
-                        {
-                            id: '$pageview',
-                            math: 'dau',
-                            type: 'events',
-                        },
-                    ],
-                    insight: InsightType.TRENDS,
-                    interval: 'day',
-                },
+                query: null,
                 order: null,
                 deleted: false,
                 dashboards: [1],
@@ -255,17 +234,7 @@ export const dashboard: DashboardType = {
                 short_id: 'e8FxXHZ6' as InsightShortId,
                 name: 'Weekly active users (WAUs)',
                 derived_name: null,
-                filters: {
-                    events: [
-                        {
-                            id: '$pageview',
-                            math: 'weekly_active',
-                            type: 'events',
-                        },
-                    ],
-                    insight: InsightType.TRENDS,
-                    interval: 'week',
-                },
+                query: null,
                 order: null,
                 deleted: false,
                 dashboards: [1],
@@ -399,21 +368,7 @@ export const dashboard: DashboardType = {
                 short_id: 'sMPkWHir' as InsightShortId,
                 name: 'Referring domain (last 14 days)',
                 derived_name: null,
-                filters: {
-                    events: [
-                        {
-                            id: '$pageview',
-                            math: 'dau',
-                            type: 'events',
-                        },
-                    ],
-                    display: ChartDisplayType.ActionsBarValue,
-                    insight: InsightType.TRENDS,
-                    interval: 'day',
-                    breakdown: '$referring_domain',
-                    date_from: '-14d',
-                    breakdown_type: 'event',
-                },
+                query: null,
                 last_refresh: '2022-07-01T13:33:13.694015Z',
                 order: null,
                 deleted: false,
@@ -576,19 +531,7 @@ export const dashboard: DashboardType = {
                 short_id: 'KcoMGkag' as InsightShortId,
                 name: 'Growth accounting',
                 derived_name: null,
-                filters: {
-                    events: [
-                        {
-                            id: '$pageview',
-                            type: 'events',
-                        },
-                    ],
-                    insight: InsightType.LIFECYCLE,
-                    interval: 'week',
-                    shown_as: ShownAsValue.LIFECYCLE,
-                    date_from: '-30d',
-                    entity_type: 'events',
-                },
+                query: null,
 
                 order: null,
                 deleted: false,
@@ -716,19 +659,7 @@ export const dashboard: DashboardType = {
                 short_id: '4nk6BVnw' as InsightShortId,
                 name: 'Retention',
                 derived_name: null,
-                filters: {
-                    period: 'Week',
-                    insight: InsightType.RETENTION,
-                    target_entity: {
-                        id: '$pageview',
-                        type: 'events',
-                    },
-                    retention_type: 'retention_first_time',
-                    returning_entity: {
-                        id: '$pageview',
-                        type: 'events',
-                    },
-                },
+                query: null,
 
                 order: null,
                 deleted: false,
@@ -1134,40 +1065,7 @@ export const dashboard: DashboardType = {
                 short_id: 'Ht75IvAs' as InsightShortId,
                 name: 'Pageview funnel, by browser',
                 derived_name: null,
-                filters: {
-                    events: [
-                        {
-                            id: '$pageview',
-                            type: 'events',
-                            order: 0,
-                            custom_name: 'First page view',
-                        },
-                        {
-                            id: '$pageview',
-                            type: 'events',
-                            order: 1,
-                            custom_name: 'Second page view',
-                        },
-                        {
-                            id: '$pageview',
-                            type: 'events',
-                            order: 2,
-                            custom_name: 'Third page view',
-                        },
-                    ],
-                    layout: FunnelLayout.horizontal,
-                    insight: InsightType.FUNNELS,
-                    interval: 'day',
-                    breakdowns: [
-                        {
-                            type: 'event',
-                            property: '$browser',
-                        },
-                    ],
-                    exclusions: [],
-                    breakdown_type: 'event',
-                    funnel_viz_type: FunnelVizType.Steps,
-                },
+                query: null,
                 last_refresh: '2022-07-01T13:33:15.069874Z',
                 order: null,
                 deleted: false,

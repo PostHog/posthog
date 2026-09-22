@@ -7,13 +7,13 @@ import { EditModeEdge, EditModeEdgeOverlay } from 'lib/components/Cards/InsightC
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
-import { DashboardPlacement, DashboardTile, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile, InsightModel } from '~/types'
 
 import { imageTilePositionToCss } from './imageTileUtils'
 import type { ImageTileImage } from './imageTileUtils'
 
 interface DashboardImageTileProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
-    tile: DashboardTile<QueryBasedInsightModel>
+    tile: DashboardTile<InsightModel>
     image: ImageTileImage
     placement: DashboardPlacement
     children?: JSX.Element

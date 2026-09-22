@@ -229,7 +229,7 @@ export interface dashboardsLogicMeta {
             nameSortedDashboards: (
                 | DashboardBasicType
                 | import('~/types').DashboardType<
-                      import('~/types').QueryBasedInsightModel<
+                      import('~/types').InsightModel<
                           import('~/queries/schema/schema-general').Node<Record<string, any>>
                       >
                   >
@@ -238,7 +238,7 @@ export interface dashboardsLogicMeta {
                 string,
                 | DashboardBasicType
                 | import('~/types').DashboardType<
-                      import('~/types').QueryBasedInsightModel<
+                      import('~/types').InsightModel<
                           import('~/queries/schema/schema-general').Node<Record<string, any>>
                       >
                   >
@@ -443,7 +443,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 allDashboards: DashboardBasicType[],
                 rawDashboards: Record<
                     string,
-                    DashboardBasicType | import('~/types').DashboardType<import('~/types').QueryBasedInsightModel>
+                    DashboardBasicType | import('~/types').DashboardType<import('~/types').InsightModel>
                 >,
                 searchedDashboards: DashboardBasicType[] | null,
                 filters: DashboardsFilters,
