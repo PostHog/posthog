@@ -1215,69 +1215,13 @@ export interface SignalReportArtefactWriteApi {
 }
 
 /**
- * * `video_segment` - Video Segment
- * * `safety_judgment` - Safety Judgment
- * * `actionability_judgment` - Actionability Judgment
- * * `priority_judgment` - Priority Judgment
- * * `signal_finding` - Signal Finding
- * * `repo_selection` - Repo Selection
- * * `suggested_reviewers` - Suggested Reviewers
- * * `channel_assignment` - Channel Assignment
- * * `dismissal` - Dismissal
- * * `code_reference` - Code Reference
- * * `commit` - Commit
- * * `task_run` - Task Run
- * * `note` - Note
- * * `title_change` - Title Change
- * * `summary_change` - Summary Change
- * * `code_review` - Code Review
- * * `related_to` - Related To
- * * `report_link` - Report Link
- * * `work_claim` - Work Claim
- * * `work_release` - Work Release
- * * `pull_request` - Pull Request
- * * `check_result` - Check Result
- * * `check_scheduled` - Check Scheduled
- * * `check_expired` - Check Expired
- * * `check_cancelled` - Check Cancelled
- * * `implementation_decision` - Implementation Decision
- * * `implementation_dispatch` - Implementation Dispatch
- * * `implementation_replacement` - Implementation Replacement
- * * `implementation_handover` - Implementation Handover
+ * * `suggested_reviewers` - suggested_reviewers
  */
-export type SignalReportArtefactArtefactTypeEnumApi =
-    (typeof SignalReportArtefactArtefactTypeEnumApi)[keyof typeof SignalReportArtefactArtefactTypeEnumApi]
+export type SignalReportSuggestedReviewersArtefactTypeEnumApi =
+    (typeof SignalReportSuggestedReviewersArtefactTypeEnumApi)[keyof typeof SignalReportSuggestedReviewersArtefactTypeEnumApi]
 
-export const SignalReportArtefactArtefactTypeEnumApi = {
-    VideoSegment: 'video_segment',
-    SafetyJudgment: 'safety_judgment',
-    ActionabilityJudgment: 'actionability_judgment',
-    PriorityJudgment: 'priority_judgment',
-    SignalFinding: 'signal_finding',
-    RepoSelection: 'repo_selection',
+export const SignalReportSuggestedReviewersArtefactTypeEnumApi = {
     SuggestedReviewers: 'suggested_reviewers',
-    ChannelAssignment: 'channel_assignment',
-    Dismissal: 'dismissal',
-    CodeReference: 'code_reference',
-    Commit: 'commit',
-    TaskRun: 'task_run',
-    Note: 'note',
-    TitleChange: 'title_change',
-    SummaryChange: 'summary_change',
-    CodeReview: 'code_review',
-    RelatedTo: 'related_to',
-    ReportLink: 'report_link',
-    WorkClaim: 'work_claim',
-    WorkRelease: 'work_release',
-    PullRequest: 'pull_request',
-    CheckResult: 'check_result',
-    CheckScheduled: 'check_scheduled',
-    CheckExpired: 'check_expired',
-    CheckCancelled: 'check_cancelled',
-    ImplementationDecision: 'implementation_decision',
-    ImplementationDispatch: 'implementation_dispatch',
-    ImplementationReplacement: 'implementation_replacement',
-    ImplementationHandover: 'implementation_handover',
 } as const
 
 /**
@@ -1358,7 +1302,10 @@ export interface SignalReportSuggestedReviewersArtefactApi {
      */
     readonly pull_request_id: string | null
     readonly id: string
-    readonly type: SignalReportArtefactArtefactTypeEnumApi
+    /** Always `suggested_reviewers` on this path.
+     *
+     * * `suggested_reviewers` - suggested_reviewers */
+    readonly type: SignalReportSuggestedReviewersArtefactTypeEnumApi
     readonly content: readonly SuggestedReviewerEntryReadApi[]
     readonly created_at: string
     /** @nullable */
@@ -2394,6 +2341,72 @@ export interface SignalReportStateRequestApi {
      */
     snooze_for?: number
 }
+
+/**
+ * * `video_segment` - Video Segment
+ * * `safety_judgment` - Safety Judgment
+ * * `actionability_judgment` - Actionability Judgment
+ * * `priority_judgment` - Priority Judgment
+ * * `signal_finding` - Signal Finding
+ * * `repo_selection` - Repo Selection
+ * * `suggested_reviewers` - Suggested Reviewers
+ * * `channel_assignment` - Channel Assignment
+ * * `dismissal` - Dismissal
+ * * `code_reference` - Code Reference
+ * * `commit` - Commit
+ * * `task_run` - Task Run
+ * * `note` - Note
+ * * `title_change` - Title Change
+ * * `summary_change` - Summary Change
+ * * `code_review` - Code Review
+ * * `related_to` - Related To
+ * * `report_link` - Report Link
+ * * `work_claim` - Work Claim
+ * * `work_release` - Work Release
+ * * `pull_request` - Pull Request
+ * * `check_result` - Check Result
+ * * `check_scheduled` - Check Scheduled
+ * * `check_expired` - Check Expired
+ * * `check_cancelled` - Check Cancelled
+ * * `implementation_decision` - Implementation Decision
+ * * `implementation_dispatch` - Implementation Dispatch
+ * * `implementation_replacement` - Implementation Replacement
+ * * `implementation_handover` - Implementation Handover
+ */
+export type SignalReportArtefactArtefactTypeEnumApi =
+    (typeof SignalReportArtefactArtefactTypeEnumApi)[keyof typeof SignalReportArtefactArtefactTypeEnumApi]
+
+export const SignalReportArtefactArtefactTypeEnumApi = {
+    VideoSegment: 'video_segment',
+    SafetyJudgment: 'safety_judgment',
+    ActionabilityJudgment: 'actionability_judgment',
+    PriorityJudgment: 'priority_judgment',
+    SignalFinding: 'signal_finding',
+    RepoSelection: 'repo_selection',
+    SuggestedReviewers: 'suggested_reviewers',
+    ChannelAssignment: 'channel_assignment',
+    Dismissal: 'dismissal',
+    CodeReference: 'code_reference',
+    Commit: 'commit',
+    TaskRun: 'task_run',
+    Note: 'note',
+    TitleChange: 'title_change',
+    SummaryChange: 'summary_change',
+    CodeReview: 'code_review',
+    RelatedTo: 'related_to',
+    ReportLink: 'report_link',
+    WorkClaim: 'work_claim',
+    WorkRelease: 'work_release',
+    PullRequest: 'pull_request',
+    CheckResult: 'check_result',
+    CheckScheduled: 'check_scheduled',
+    CheckExpired: 'check_expired',
+    CheckCancelled: 'check_cancelled',
+    ImplementationDecision: 'implementation_decision',
+    ImplementationDispatch: 'implementation_dispatch',
+    ImplementationReplacement: 'implementation_replacement',
+    ImplementationHandover: 'implementation_handover',
+} as const
 
 export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]
 
