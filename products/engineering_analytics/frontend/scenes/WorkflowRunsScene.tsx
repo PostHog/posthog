@@ -350,7 +350,7 @@ export function WorkflowRunsScene(): JSX.Element {
                     />
                     <MetricTile
                         label="Duration p50"
-                        tooltip="Median wall-clock duration over successful runs, excluding runs that settled in under 10 seconds without doing work."
+                        tooltip="Median duration over successful runs. Runs under 10 seconds with no work are excluded when longer samples exist. All-fast workflows use every successful run."
                         value={
                             healthSummary.medianSeconds != null
                                 ? humanFriendlyDuration(healthSummary.medianSeconds)
@@ -364,8 +364,8 @@ export function WorkflowRunsScene(): JSX.Element {
                         loading={workflowHealthLoading}
                     />
                     <MetricTile
-                        label="Queue time p50"
-                        tooltip="From job created to started, weighted across the workflow's jobs."
+                        label="Estimated median queue time"
+                        tooltip="Estimated median wait from job created to started: each job's median, weighted by how often the job ran."
                         value={queueP50Seconds != null ? humanFriendlyDuration(queueP50Seconds) : '—'}
                         loading={jobAggregatesLoading}
                     />
