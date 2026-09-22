@@ -2080,7 +2080,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'broadcasts',
         iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
         flag: FEATURE_FLAGS.BROADCASTS,
-        tags: ['beta'],
         sceneKey: 'Broadcasts',
         sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcasts', 'Broadcast'],
     },

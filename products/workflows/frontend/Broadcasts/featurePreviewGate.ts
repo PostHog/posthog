@@ -5,7 +5,7 @@ import { FeaturePreviewGateConfig } from '~/types'
 
 export const broadcastsFeaturePreviewGate: FeaturePreviewGateConfig = {
     flag: FEATURE_FLAGS.BROADCASTS,
-    title: 'Broadcasts is in beta',
+    title: 'Send a broadcast',
     description:
         'Send a one-time or scheduled email to a group of people, and see who received it. Turn it on to try it, and tell us what is missing.',
     docsURL: 'https://posthog.com/docs/workflows',

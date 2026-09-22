@@ -46,7 +46,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function OverviewTab({ logicKey, hasRun }: { logicKey: string; hasRun: boolean }): JSX.Element {
     return (
         <Section title={hasRun ? 'Metrics for the latest send' : 'Metrics for the last 30 days'}>
-            <EmailMetricsSummary logicKey={logicKey} />
+            <EmailMetricsSummary logicKey={logicKey} compact />
         </Section>
     )
 }
@@ -291,7 +291,7 @@ function SentTab({ workflowId }: { workflowId: string }): JSX.Element {
     )
 }
 
-function RecipientsTab({ batchJobs }: { batchJobs: HogFlowBatchJobApi[] }): JSX.Element {
+function SetupTab({ batchJobs }: { batchJobs: HogFlowBatchJobApi[] }): JSX.Element {
     const { audienceProperties, scheduleSummary, conversion, goalEnabled, emailRateLimit } =
         useValues(broadcastWizardLogic)
     const { recipientCount } = useValues(broadcastSentLogic)
@@ -510,9 +510,9 @@ export function BroadcastSummary(): JSX.Element {
                                 content: <SentTab workflowId={broadcastId ?? ''} />,
                             },
                             {
-                                key: 'recipients' as const,
-                                label: 'Recipients',
-                                content: <RecipientsTab batchJobs={batchJobs} />,
+                                key: 'setup' as const,
+                                label: 'Setup',
+                                content: <SetupTab batchJobs={batchJobs} />,
                             },
                         ]}
                     />

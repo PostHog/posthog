@@ -51,7 +51,7 @@ export const BROADCAST_WIZARD_STEPS: BroadcastWizardStep[] = ['recipients', 'goa
 
 export type BroadcastScheduleMode = 'now' | 'later' | 'recurring'
 
-export type BroadcastSummaryTab = 'overview' | 'content' | 'sent' | 'recipients'
+export type BroadcastSummaryTab = 'overview' | 'content' | 'sent' | 'setup'
 
 // The value stored in the email action's `inputs.email.value`, mirroring the
 // `template-email` hog function template's default input shape.

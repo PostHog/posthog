@@ -1,4 +1,4 @@
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -26,11 +26,6 @@ export function BroadcastsScene(): JSX.Element {
             <SceneContent>
                 <SceneTitleSection
                     name="Broadcasts"
-                    nameSuffix={
-                        <LemonTag className="ml-1" type="completion">
-                            Beta
-                        </LemonTag>
-                    }
                     description="Send a one-time or scheduled email to a group of people"
                     resourceType={{ type: 'broadcasts' }}
                     actions={
