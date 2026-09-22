@@ -1,13 +1,20 @@
 import datetime as dt
 from dataclasses import dataclass, field
 from typing import Optional
+from uuid import UUID
 
 import structlog
 from rest_framework.exceptions import NotFound
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.person import Person
-from posthog.models.person.util import create_person, create_person_distinct_id, get_persons_by_uuids
+from posthog.models.person.util import (
+    create_person,
+    create_person_distinct_id,
+    get_persons_by_uuids,
+    publish_person_tombstone,
+    tombstone_persons_in_postgres,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -227,6 +234,8 @@ class _Mapping:
 class OrphanRepairResult:
     orphaned_person_uuids: list[str]
     tombstoned_persons: int = 0
+    # Orphans that are tombstoned in the persons DB, republished at the versions it holds.
+    republished_persons: int = 0
     tombstoned_mappings: int = 0
     # distinct_id now won by a different, non-deleted CH mapping — left untouched
     # so the repair never resurrects-then-deletes a mapping that has been reassigned.
@@ -271,6 +280,13 @@ def tombstone_orphaned_ch_persons(
     and is not already deleted. Mappings reassigned to another live person are
     skipped; mappings whose deleted winner is live in the persons DB are reported
     as reverse drift (not touched).
+
+    Persons DB reads skip tombstoned rows, so a person that a deletion tombstoned in the
+    persons DB without publishing to ClickHouse also looks like an orphan. The tombstone
+    call returns the versions such a person holds, and those are published instead of
+    version + 100. A version + 100 tombstone would stay above the version that a later
+    revival writes, so the revived person would stay hidden in ClickHouse. A dry run
+    cannot tell the two apart, because the tombstone call writes.
     """
     result = OrphanRepairResult(orphaned_person_uuids=sorted(o.uuid for o in orphans), dry_run=dry_run)
     if not orphans:
@@ -294,7 +310,23 @@ def tombstone_orphaned_ch_persons(
         result.tombstoned_mappings = len(to_tombstone)
         return result
 
+    # Raises rather than falling back to version + 100 for every orphan.
+    stored = tombstone_persons_in_postgres(team_id, [UUID(o.uuid) for o in orphans])
+    if stored.newly_tombstoned:
+        logger.warning(
+            "Tombstoned persons that were live in the persons DB; a lagging read reported them as orphans",
+            team_id=team_id,
+            newly_tombstoned=stored.newly_tombstoned,
+        )
+    stored_by_uuid = {str(t.uuid): t for t in stored.tombstones}
+    republished: set[str] = set()
     for orphan in orphans:
+        tombstone = stored_by_uuid.get(orphan.uuid)
+        if tombstone is not None:
+            publish_person_tombstone(team_id, tombstone, created_at=orphan.created_at)
+            republished.add(orphan.uuid)
+            result.republished_persons += 1
+            continue
         # No persons-DB row exists, so derive the tombstone from ClickHouse. Version
         # + 100 makes the delete win over normal updates; stays below split's + 101.
         create_person(
@@ -307,6 +339,9 @@ def tombstone_orphaned_ch_persons(
         result.tombstoned_persons += 1
 
     for mapping in to_tombstone:
+        if mapping.winner_person_id in republished:
+            # publish_person_tombstone already wrote this distinct ID at the stored version.
+            continue
         create_person_distinct_id(
             team_id=team_id,
             distinct_id=mapping.distinct_id,

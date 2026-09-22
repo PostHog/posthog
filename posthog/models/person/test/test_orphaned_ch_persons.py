@@ -5,10 +5,11 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models.person.deletion import find_orphaned_ch_persons, tombstone_orphaned_ch_persons
+from posthog.models.person.deletion import OrphanedPerson, find_orphaned_ch_persons, tombstone_orphaned_ch_persons
 from posthog.models.person.util import (
     create_person as create_person_in_ch,
     create_person_distinct_id,
+    tombstone_persons_in_postgres,
 )
 from posthog.test.persons import create_person
 
@@ -67,6 +68,18 @@ class TestOrphanedCHPersonRepair(ClickhouseTestMixin, BaseTest):
         for did in ("did-a", "did-b"):
             _, mapping_deleted, _ = self._ch_mapping_state(did)
             assert mapping_deleted == 1
+
+    def test_person_tombstoned_in_the_persons_db_is_republished_at_its_stored_versions(self):
+        person = create_person(team=self.team, distinct_ids=["did-t"], properties={})
+        [written] = tombstone_persons_in_postgres(self.team.pk, [person.uuid]).tombstones
+        # The fake still reads tombstoned persons, so the orphan is built the way a real read reports it.
+        orphan = OrphanedPerson(uuid=str(person.uuid), ch_max_version=0, created_at=person.created_at)
+
+        result = tombstone_orphaned_ch_persons(self.team.pk, [orphan], dry_run=False)
+
+        assert (result.republished_persons, result.tombstoned_persons) == (1, 0)
+        assert self._ch_person_state(str(person.uuid)) == (1, written.version)
+        assert self._ch_mapping_state("did-t")[1:] == (1, written.distinct_ids[0].version)
 
     def test_dry_run_produces_nothing(self):
         uuid = str(uuid4())
