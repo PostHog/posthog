@@ -218,6 +218,18 @@ class TestValidateMetricDefinition(BaseTest):
         with self.assertRaises(ValidationError):
             validate_metric_definition(definition, self.team, self.user)
 
+    def test_unsupplied_placeholder_names_itself_and_is_not_captured(self) -> None:
+        definition = {
+            "kind": "HogQLQuery",
+            "query": "select count() from events where timestamp > {variables.since}",
+            "values": {"threshold": 10},
+        }
+        with patch("products.data_catalog.backend.logic.validation.capture_exception") as capture:
+            with self.assertRaises(ValidationError) as caught:
+                validate_metric_definition(definition, self.team, self.user)
+        assert "variables" in str(caught.exception.detail["definition"])
+        capture.assert_not_called()
+
 
 class TestCreateFromInsight(BaseTest):
     def _insight(self, query: dict | None = None) -> Insight:
