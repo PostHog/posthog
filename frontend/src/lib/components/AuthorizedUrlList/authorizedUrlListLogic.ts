@@ -323,9 +323,10 @@ async function writeAuthorizedUrls(
 
     let serverUrls: string[]
     try {
-        // nosemgrep: no-environments-api-urls-frontend -- this list is per environment, and
-        // /api/projects/ serves app_urls from the project's passthrough team, so it would rebase
-        // on the wrong environment. teamLogic reads and writes the same environment path.
+        // This list is per environment, and /api/projects/ serves app_urls from the project's
+        // passthrough team, so reading there would rebase on the wrong environment. teamLogic
+        // reads and writes this same environment path.
+        // nosemgrep: no-environments-api-urls-frontend
         serverUrls = readTeamUrls(await api.get<TeamType>('api/environments/@current'), field)
     } catch {
         // Without the server's list we could only send a stale whole array, which is the lost

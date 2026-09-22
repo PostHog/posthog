@@ -166,7 +166,7 @@ describe('the authorized urls list logic', () => {
                 get: { '/api/environments/@current/': () => [200, { ...MOCK_DEFAULT_TEAM, app_urls: storedUrls }] },
                 patch: {
                     '/api/environments/:team_id/': async ({ request }) => {
-                        storedUrls = (await request.json()).app_urls
+                        storedUrls = ((await request.json()) as { app_urls: string[] }).app_urls
                         return [200, { ...MOCK_DEFAULT_TEAM, app_urls: storedUrls }]
                     },
                 },
