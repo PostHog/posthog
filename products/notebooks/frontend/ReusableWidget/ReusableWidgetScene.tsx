@@ -22,6 +22,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { reusableWidgetsDemoFrame } from 'products/notebooks/frontend/generated/api'
 
 import { NotebookWidgetBetaNotice } from '../NotebookNodeGeneratedWidget/NotebookWidgetBetaNotice'
+import { NotebookWidgetGenerationCost } from '../NotebookNodeGeneratedWidget/NotebookWidgetGenerationCost'
 import { NotebookWidgetTrustControls } from '../NotebookNodeGeneratedWidget/NotebookWidgetTrustControls'
 import { WidgetArtifactFrame } from '../NotebookNodeGeneratedWidget/WidgetArtifactFrame'
 import { WIDGET_MODEL_OPTIONS } from '../NotebookNodeGeneratedWidget/widgetModels'
@@ -374,6 +375,7 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
                             data-attr="reusable-widget-version"
                         />
                     </div>
+                    <NotebookWidgetGenerationCost cost={version.generation_cost_usd} />
                     {versionHistoryError ? (
                         <LemonBanner type="warning" action={{ children: 'Retry', onClick: () => loadVersionHistory() }}>
                             Version history couldn't be loaded.

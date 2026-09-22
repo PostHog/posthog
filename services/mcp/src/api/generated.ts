@@ -83974,6 +83974,12 @@ export namespace Schemas {
     }
 
     export interface ReusableWidgetVersionDetail {
+      /**
+         * Estimated generation charge in USD, including retries, security review, and the AI credit markup. Null when unavailable.
+         * @nullable
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      generation_cost_usd?: string | null;
       /** Immutable widget version identifier. */
       id: string;
       /** Title stored with this version. */
@@ -97785,6 +97791,12 @@ export namespace Schemas {
     }
 
     export interface WidgetVersion {
+      /**
+         * Estimated generation charge in USD, including retries, security review, and the AI credit markup. Null when unavailable.
+         * @nullable
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      generation_cost_usd?: string | null;
       /** Immutable widget version identifier. */
       id: string;
       /**

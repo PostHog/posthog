@@ -50,21 +50,6 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/notebooks/widget-generation': notebook,
-                '/api/projects/:team_id/notebooks/widget-generation/widgets/chart/status': {
-                    lifecycle_status: 'awaiting_generation',
-                    has_versions: false,
-                    active_job: null,
-                    artifact_url: null,
-                    error_detail: null,
-                    current_version_id: null,
-                    pinned_version_id: null,
-                    frame_names: [],
-                    input_bindings: {},
-                    input_contract: [],
-                    security_review: null,
-                    is_reusable: false,
-                    build_hash: null,
-                },
             },
         }),
     ],
@@ -73,4 +58,78 @@ const meta: Meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-export const BeforeGeneration: Story = {}
+export const BeforeGeneration: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/notebooks/widget-generation/widgets/chart/status': {
+                        lifecycle_status: 'awaiting_generation',
+                        has_versions: false,
+                        active_job: null,
+                        artifact_url: null,
+                        error_detail: null,
+                        current_version_id: null,
+                        pinned_version_id: null,
+                        frame_names: [],
+                        input_bindings: {},
+                        input_contract: [],
+                        security_review: null,
+                        is_reusable: false,
+                        build_hash: null,
+                    },
+                },
+            },
+        },
+    },
+}
+
+export const AfterGeneration: Story = {
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="widget-generation-cost"]' },
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/notebooks/widget-generation/widgets/chart/status': {
+                        lifecycle_status: 'ready',
+                        has_versions: true,
+                        active_job: null,
+                        artifact_url: null,
+                        error_detail: null,
+                        current_version_id: '00000000-0000-4000-8000-000000000001',
+                        pinned_version_id: null,
+                        frame_names: [],
+                        input_bindings: {},
+                        input_contract: [],
+                        security_review: null,
+                        is_reusable: false,
+                        build_hash: null,
+                    },
+                    '/api/projects/:team_id/notebooks/widget-generation/widgets/chart/versions': {
+                        results: [
+                            {
+                                id: '00000000-0000-4000-8000-000000000001',
+                                parent_version_id: null,
+                                version: 1,
+                                version_operation: 'initial',
+                                prompt_delta: 'Create an interactive bar chart',
+                                effective_prompt: 'Create an interactive bar chart',
+                                model: 'claude-sonnet-5',
+                                generation_cost_usd: '0.123456',
+                                created_at: '2026-09-01T12:00:00Z',
+                                build_status: 'ready',
+                                artifact_url: null,
+                                frame_names: [],
+                                is_current: true,
+                                security_review: null,
+                                build_hash: null,
+                            },
+                        ],
+                        count: 1,
+                        next_offset: null,
+                    },
+                },
+            },
+        },
+    },
+}
