@@ -848,7 +848,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         return Response(
             {
                 "next": self._cursor_url(request, data.get("next")),
-                "previous": self._cursor_url(request, data.get("previous")),
+                "previous": self._previous_url(request, data.get("previous")),
                 "results": results,
             }
         )
