@@ -345,6 +345,9 @@ export interface insightLogicActions {
     setInsightFeedback: (feedback: 'disliked' | 'liked') => {
         feedback: 'disliked' | 'liked'
     }
+    setInsightLoadError: (status: number | null) => {
+        status: number | null
+    }
     setInsightMetadata: (
         metadataUpdate: Partial<Pick<QueryBasedInsightModel, 'description' | 'favorited' | 'name' | 'tags'>>
     ) => {
@@ -460,9 +463,6 @@ export interface insightLogicActions {
                 Pick<QueryBasedInsightModel<Node<Record<string, any>>>, 'description' | 'favorited' | 'name' | 'tags'>
             >
         }
-    }
-    setInsightLoadError: (status: number | null) => {
-        status: number | null
     }
     setInsightMissing: () => {
         value: true

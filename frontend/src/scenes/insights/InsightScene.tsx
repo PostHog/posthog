@@ -58,7 +58,9 @@ export function InsightScene(): JSX.Element {
         return <InsightAsScene insightId={insightId} attachTo={insightSceneLogic} />
     }
 
-    if (insightLoading) {
+    // `setSceneState` moves `insightId` on before `reloadInsightLogic` mounts the logic for it, so an
+    // absent ref means the read has not started yet, not that it came back empty.
+    if (!insightLogicRef || insightLoading) {
         return <InsightSkeleton />
     }
 

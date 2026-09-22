@@ -139,8 +139,6 @@ export interface insightSceneLogicValues {
         | ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => Record<string, any>)
         | undefined
     insightId: InsightId | null
-    insightLoading: boolean
-    insightLoadingSelector: ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => boolean) | undefined
     insightLoadError:
         | {
               status: number | null
@@ -148,8 +146,15 @@ export interface insightSceneLogicValues {
         | null
         | undefined
     insightLoadErrorSelector:
-        | ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => { status: number | null } | null)
+        | ((
+              state: any,
+              props?: InsightLogicProps<QuerySchema> | undefined
+          ) => {
+              status: number | null
+          } | null)
         | undefined
+    insightLoading: boolean
+    insightLoadingSelector: ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => boolean) | undefined
     insightLogicRef: {
         logic: BuiltLogic<insightLogicType>
         unmount: () => void
@@ -294,11 +299,26 @@ export interface insightSceneLogicMeta {
                 unmount: () => void
             } | null
         ) =>
-            | ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => { status: number | null } | null)
+            | ((
+                  state: any,
+                  props?: InsightLogicProps<QuerySchema> | undefined
+              ) => {
+                  status: number | null
+              } | null)
             | undefined
         insightLoadError: (
-            arg: { status: number | null } | null | undefined
-        ) => { status: number | null } | null | undefined
+            arg:
+                | {
+                      status: number | null
+                  }
+                | null
+                | undefined
+        ) =>
+            | {
+                  status: number | null
+              }
+            | null
+            | undefined
         dashboardBackPath: (
             dashboardId: number | null,
             variablesOverride: Record<string, HogQLVariable> | null,

@@ -20,6 +20,16 @@ describe('InsightScene', () => {
         cleanup()
     })
 
+    // Rendering between `setSceneState` and the logic mount it triggers would otherwise read an
+    // empty insight and call it missing.
+    it('keeps the loading screen while the insight logic has not mounted yet', () => {
+        insightSceneLogic.mount()
+        render(<InsightScene />)
+
+        expect(screen.queryByText('Insight not found')).toBeNull()
+        expect(screen.queryByText("Couldn't load this insight")).toBeNull()
+    })
+
     const mountScene = (): void => {
         insightSceneLogic.mount()
         insightSceneLogic.actions.setSceneState(
@@ -45,7 +55,7 @@ describe('InsightScene', () => {
 
         await waitFor(() => expect(screen.getByText("Couldn't load this insight")).toBeTruthy())
         expect(screen.getByText(/HTTP 500/)).toBeTruthy()
-        expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy()
+        expect(screen.getByText('Try again')).toBeTruthy()
         expect(screen.queryByText('Insight not found')).toBeNull()
     })
 
