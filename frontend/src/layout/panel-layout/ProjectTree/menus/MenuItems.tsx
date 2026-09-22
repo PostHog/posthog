@@ -158,6 +158,8 @@ export function MenuItems({
 
     const isSimpleSidepanelEnabled = useFeatureFlag('SIMPLE_SIDEPANEL')
     const isItemAFolder = item.record?.type === 'folder'
+    const isStarredFolder = isItemAFolder && item.id.startsWith('shortcuts://') && !!item.record?.ref
+    const newMenuItem = isStarredFolder ? { ...item, record: { ...item.record, path: item.record?.ref } } : item
     const itemShortcutPath = joinPath([splitPath(item.record?.path).pop() ?? 'Unnamed'])
     const isItemAlreadyInShortcut = !isItemAFolder && shortcutNonFolderPaths.has(itemShortcutPath)
     const shortcutId =
@@ -232,6 +234,7 @@ export function MenuItems({
             ) : null}
 
             {(item.record?.protocol === 'project://' && item.record?.type === 'folder') ||
+            isStarredFolder ||
             item.id?.startsWith('project-folder-empty/') ? (
                 <>
                     <MenuSub key="new">
@@ -247,7 +250,7 @@ export function MenuItems({
                             </ButtonPrimitive>
                         </MenuSubTrigger>
                         <MenuSubContent>
-                            <NewMenu type={type} item={item} createFolder={createFolder} />
+                            <NewMenu type={type} item={newMenuItem} createFolder={createFolder} />
                         </MenuSubContent>
                     </MenuSub>
                     <MenuSeparator />
