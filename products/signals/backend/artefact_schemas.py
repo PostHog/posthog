@@ -783,18 +783,23 @@ class CheckResult(BaseModel):
         return v
 
 
-class CheckScheduled(BaseModel):
-    """Content schema for a `check_scheduled` artefact: someone attached a check to this report.
+class CheckLifecycleEntry(BaseModel):
+    """What every entry in a check's life carries, so the three cannot drift apart.
 
-    A check soaks for days before its first run, so the verdict alone leaves the log silent over the
-    whole window a reader most wants explained. This entry says when the watch started, what it
-    watches, and which lane answers it. System-generated — `report_check_authoring.create_check` is
-    the only writer.
+    A check soaks for days before its first run, so its verdict alone leaves the log silent over
+    the window a reader most wants explained. These types fill that silence. All are
+    system-generated: `check_result`'s writer is the executor, and the writers below are in
+    `report_check_artefacts`.
     """
 
-    check_id: str = Field(description="UUID of the SignalReportCheck this entry opens.")
+    check_id: str = Field(description="UUID of the SignalReportCheck this entry describes.")
     kind: str = Field(description="The check's kind, e.g. `metric_threshold`.")
     title: str = Field(description="The check's title, copied so the log entry reads on its own.")
+
+
+class CheckScheduled(CheckLifecycleEntry):
+    """A check now watches this report: when it runs, what it watches, and which lane answers it."""
+
     rationale: str = Field(default="", description="Why the author wrote the check, in their own words.")
     next_run_at: str = Field(description="ISO 8601 date of the first run. Provisional when `arms_on_resolve`.")
     arms_on_resolve: bool = Field(
@@ -810,35 +815,26 @@ class CheckScheduled(BaseModel):
     runs: int = Field(default=1, description="How many runs the check was written for.")
 
 
-class CheckExpired(BaseModel):
-    """Content schema for a `check_expired` artefact: a check reached its horizon without deciding.
+class CheckExpired(CheckLifecycleEntry):
+    """A check reached its horizon without deciding, the one transition nobody chose.
 
-    The one transition nobody chose. A check that never ran says something the verdicts cannot: the
-    claim was never re-measured, so the report's conclusion still stands unverified. System-generated
-    — the expiry sweep is the only writer.
+    An absent `last_run_at` is what a reader acts on: the claim was never re-measured, so the
+    report's conclusion still stands unverified.
     """
 
-    check_id: str = Field(description="UUID of the SignalReportCheck that retired.")
-    kind: str = Field(description="The check's kind, e.g. `metric_threshold`.")
-    title: str = Field(description="The check's title, copied so the log entry reads on its own.")
     expired_at: str = Field(description="ISO 8601 time the sweep retired the check.")
-    never_ran: bool = Field(description="True when the check retired with no run behind it at all.")
     last_run_at: str | None = Field(
-        default=None, description="ISO 8601 time of the last run, when the check ran but never settled."
+        default=None, description="ISO 8601 time of the last run. Absent when the check never ran at all."
     )
 
 
-class CheckCancelled(BaseModel):
-    """Content schema for a `check_cancelled` artefact: a check was stopped before it could decide.
+class CheckCancelled(CheckLifecycleEntry):
+    """A check was stopped before it could decide.
 
-    Kept apart from `check_scheduled` so each entry in the log records one transition and the
-    renderer reads the type rather than a nullable field. System-generated — the three cancel paths
-    (a person in the inbox, a scout run, a re-research pass) are its only writers.
+    Kept apart from `check_scheduled` so each entry records one transition and the renderer reads
+    the type rather than a nullable field.
     """
 
-    check_id: str = Field(description="UUID of the SignalReportCheck that was stopped.")
-    kind: str = Field(description="The check's kind, e.g. `metric_threshold`.")
-    title: str = Field(description="The check's title, copied so the log entry reads on its own.")
     reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research"] = Field(
         description="Which path stopped the check."
     )

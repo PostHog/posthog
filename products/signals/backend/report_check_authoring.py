@@ -15,8 +15,10 @@ it. That makes the resolve the clock for every kind of fix.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from functools import partial
+from typing import Literal
 
 from django.db import transaction
 from django.utils import timezone
@@ -179,19 +181,17 @@ def create_checks_from_specs(
     """
     if not specs:
         return []
-    # Retired one row at a time rather than in one UPDATE, so each cancellation the write actually
-    # made gets its log entry and one it lost a race for gets none. A report carries at most a
-    # handful of pending checks, so the extra statements cost nothing.
+    # Only the pending rows, never a check the resolve already armed: this pass replaces prose that
+    # has not been measured against yet.
     for replaced in SignalReportCheck.objects.for_team(report.team_id).filter(
         report_id=report.id, status=SignalReportCheck.Status.PENDING
     ):
-        cancelled = (
-            SignalReportCheck.objects.for_team(report.team_id)
-            .filter(id=replaced.id, status=SignalReportCheck.Status.PENDING)
-            .update(status=SignalReportCheck.Status.CANCELLED, updated_at=timezone.now())
+        cancel_check(
+            replaced,
+            reason="replaced_by_research",
+            attribution=attribution,
+            from_statuses=(SignalReportCheck.Status.PENDING,),
         )
-        if cancelled:
-            write_check_cancelled(replaced, reason="replaced_by_research", attribution=attribution)
     written: list[SignalReportCheck] = []
     for spec in specs:
         try:
@@ -215,6 +215,34 @@ def create_checks_from_specs(
                 reason=str(error),
             )
     return written
+
+
+def cancel_check(
+    check: SignalReportCheck,
+    *,
+    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research"],
+    attribution: ArtefactAttribution,
+    from_statuses: Sequence[str] = SignalReportCheck.OPEN_STATUSES,
+) -> bool:
+    """Stop one check and log it. Returns False when the check had already finished.
+
+    One conditional update rather than a read and then a write: a verdict that lands in between
+    leaves a result artefact, and an unconditional write would overwrite the status that artefact
+    explains. The log entry follows the update rather than the intent, so a cancel that lost that
+    race records nothing, and it is built from the row as it was, so the entry names the check that
+    was stopped rather than the status it now holds.
+
+    `check` is refreshed either way, because both callers report the status back to whoever asked.
+    """
+    cancelled = (
+        SignalReportCheck.objects.for_team(check.team_id)
+        .filter(id=check.id, status__in=from_statuses)
+        .update(status=SignalReportCheck.Status.CANCELLED, updated_at=timezone.now())
+    )
+    if cancelled:
+        write_check_cancelled(check, reason=reason, attribution=attribution)
+    check.refresh_from_db()
+    return bool(cancelled)
 
 
 def arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at: datetime) -> int:

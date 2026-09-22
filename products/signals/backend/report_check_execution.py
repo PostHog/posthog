@@ -422,9 +422,11 @@ def expire_overdue_checks(now: datetime) -> int:
     """
 
     overdue = list(
-        SignalReportCheck.all_teams.filter(status__in=SignalReportCheck.OPEN_STATUSES, expires_at__lte=now)[
-            :MAX_CHECK_EXPIRIES_PER_TICK
-        ]
+        # Only the columns the log entry and the telemetry read. A `metric_threshold` config carries
+        # a copied-in query, and a full tick hydrates five hundred rows.
+        SignalReportCheck.all_teams.filter(status__in=SignalReportCheck.OPEN_STATUSES, expires_at__lte=now).only(
+            "id", "team_id", "report_id", "kind", "title", "last_run_at"
+        )[:MAX_CHECK_EXPIRIES_PER_TICK]
     )
     if not overdue:
         return 0
@@ -437,26 +439,33 @@ def expire_overdue_checks(now: datetime) -> int:
         expires_at__lte=now,
     ).update(status=SignalReportCheck.Status.EXPIRED, updated_at=now)
     if expired:
-        _log_expired_checks(overdue, now)
+        _log_expired_checks(overdue, now, expired)
         _report_expired_checks(overdue)
     return expired
 
 
-def _log_expired_checks(overdue: list[SignalReportCheck], now: datetime) -> None:
+def _log_expired_checks(overdue: list[SignalReportCheck], now: datetime, expired: int) -> None:
     """Write one `check_expired` entry per row this sweep actually retired.
 
-    The rows are re-read rather than taken from the selection, because the write above skips a
-    check whose report resolved in between. Telemetry can live with counting that row; the activity
-    log cannot, because an entry saying a check retired is permanent and a reader acts on it.
+    Which rows those are is re-read when the write took fewer than the selection, because it skips
+    a check whose report resolved in between. Telemetry can live with counting that row; the
+    activity log cannot, because an entry saying a check retired is permanent and a reader acts on
+    it. One transaction rather than one per row, so a full tick is a single commit ahead of the
+    runs it delays.
     """
-    retired = set(
-        SignalReportCheck.all_teams.filter(
-            id__in=[check.id for check in overdue], status=SignalReportCheck.Status.EXPIRED, updated_at=now
-        ).values_list("id", flat=True)
+    retired = (
+        {check.id for check in overdue}
+        if expired == len(overdue)
+        else set(
+            SignalReportCheck.all_teams.filter(
+                id__in=[check.id for check in overdue], status=SignalReportCheck.Status.EXPIRED, updated_at=now
+            ).values_list("id", flat=True)
+        )
     )
-    for check in overdue:
-        if check.id in retired:
-            write_check_expired(check, now)
+    with transaction.atomic():
+        for check in overdue:
+            if check.id in retired:
+                write_check_expired(check, now)
 
 
 def _report_expired_checks(overdue: list[SignalReportCheck]) -> None:

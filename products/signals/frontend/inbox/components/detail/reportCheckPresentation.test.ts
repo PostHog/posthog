@@ -227,7 +227,7 @@ describe('reportCheckPresentation', () => {
                 })
             ).toEqual({
                 tag: { label: 'Runs Sep 27', type: 'primary' },
-                detail: 'Error tracking runs it · 2 runs',
+                detail: 'Error tracking scout runs it · 2 runs',
             })
         })
 
@@ -246,8 +246,8 @@ describe('reportCheckPresentation', () => {
         })
 
         it('separates a check that never ran from one that ran and never settled', () => {
-            expect(checkExpiredEntry({ never_ran: true }).tag.label).toEqual('Never ran')
-            expect(checkExpiredEntry({ never_ran: false, last_run_at: '2026-09-20T09:00:00Z' })).toEqual({
+            expect(checkExpiredEntry({}).tag.label).toEqual('Never ran')
+            expect(checkExpiredEntry({ last_run_at: '2026-09-20T09:00:00Z' })).toEqual({
                 tag: { label: 'Expired', type: 'muted' },
                 detail: 'Last ran Sep 20 · retired at its horizon before it settled',
             })

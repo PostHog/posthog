@@ -1522,12 +1522,12 @@ class TestReportCheckLifecycleLog(APIBaseTest):
         spec.update(overrides)
         return create_check(report=self.report, attribution=ArtefactAttribution.system(), **spec)
 
-    def _entries(self, artefact_type: str) -> list[dict]:
+    def _entries(self, artefact_type: str, report: SignalReport | None = None) -> list[dict]:
         return [
             json.loads(artefact.content)
-            for artefact in SignalReportArtefact.objects.filter(report=self.report, type=artefact_type).order_by(
-                "created_at"
-            )
+            for artefact in SignalReportArtefact.objects.filter(
+                report=report or self.report, type=artefact_type
+            ).order_by("created_at")
         ]
 
     def test_writing_a_check_opens_the_log_with_its_date_and_its_lane(self) -> None:
@@ -1557,12 +1557,7 @@ class TestReportCheckLifecycleLog(APIBaseTest):
 
         arm_pending_checks(team_id=self.team.id, report_id=open_report.id, resolved_at=timezone.now())
 
-        entries = [
-            json.loads(artefact.content)
-            for artefact in SignalReportArtefact.objects.filter(
-                report=open_report, type=SignalReportArtefact.ArtefactType.CHECK_SCHEDULED
-            )
-        ]
+        entries = self._entries(SignalReportArtefact.ArtefactType.CHECK_SCHEDULED, open_report)
         check.refresh_from_db()
         assert check.status == SignalReportCheck.Status.ACTIVE
         assert len(entries) == 1
@@ -1580,7 +1575,6 @@ class TestReportCheckLifecycleLog(APIBaseTest):
         entries = self._entries(SignalReportArtefact.ArtefactType.CHECK_EXPIRED)
         assert len(entries) == 1
         assert entries[0]["check_id"] == str(check.id)
-        assert entries[0]["never_ran"] is True
         assert entries[0]["last_run_at"] is None
 
     def test_the_sweep_logs_nothing_for_a_check_whose_report_resolved_under_it(self) -> None:
@@ -1645,12 +1639,7 @@ class TestReportCheckLifecycleLog(APIBaseTest):
             attribution=ArtefactAttribution.system(),
         )
 
-        entries = [
-            json.loads(artefact.content)
-            for artefact in SignalReportArtefact.objects.filter(
-                report=open_report, type=SignalReportArtefact.ArtefactType.CHECK_CANCELLED
-            )
-        ]
+        entries = self._entries(SignalReportArtefact.ArtefactType.CHECK_CANCELLED, open_report)
         assert len(entries) == 1
         assert entries[0]["check_id"] == str(replaced.id)
         assert entries[0]["reason"] == "replaced_by_research"

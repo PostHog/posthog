@@ -107,10 +107,14 @@ export interface CheckResultContent {
     run_id?: string | null
 }
 
-export interface CheckScheduledContent {
+/** What every entry in a check's life carries. Mirrors `CheckLifecycleEntry` in `artefact_schemas.py`. */
+export interface CheckLifecycleContent {
     check_id?: string
     kind?: string
     title?: string
+}
+
+export interface CheckScheduledContent extends CheckLifecycleContent {
     rationale?: string
     next_run_at?: string
     arms_on_resolve?: boolean
@@ -119,19 +123,12 @@ export interface CheckScheduledContent {
     runs?: number
 }
 
-export interface CheckExpiredContent {
-    check_id?: string
-    kind?: string
-    title?: string
+export interface CheckExpiredContent extends CheckLifecycleContent {
     expired_at?: string
-    never_ran?: boolean
     last_run_at?: string | null
 }
 
-export interface CheckCancelledContent {
-    check_id?: string
-    kind?: string
-    title?: string
+export interface CheckCancelledContent extends CheckLifecycleContent {
     reason?: 'stopped_by_person' | 'stopped_by_scout' | 'replaced_by_research'
 }
 

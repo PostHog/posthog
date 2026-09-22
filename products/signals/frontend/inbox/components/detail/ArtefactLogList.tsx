@@ -44,8 +44,7 @@ import { ArtefactTaskRun } from './ArtefactTaskRun'
 import {
     artefactAttributionLabel,
     artefactLocationLabel,
-    CheckCancelledContent,
-    CheckExpiredContent,
+    CheckLifecycleContent,
     CheckResultContent,
     CheckScheduledContent,
     CodeReviewContent,
@@ -68,7 +67,7 @@ import {
     TitleChangeContent,
 } from './artefactTypes'
 import { prActivityTitle } from './prActivityPresentation'
-import { checkCancelledEntry, checkExpiredEntry, checkScheduledEntry } from './reportCheckPresentation'
+import { CHECK_LIFECYCLE_ENTRIES } from './reportCheckPresentation'
 
 /** Map a file extension to a CodeSnippet language for syntax highlighting; falls back to plain text. */
 function languageFromPath(path: string | undefined): Language {
@@ -374,10 +373,7 @@ function CheckLifecycleBody({
     title?: string
     rationale?: string
     detail: string
-}): JSX.Element | null {
-    if (!title?.trim() && !detail) {
-        return null
-    }
+}): JSX.Element {
     return (
         <div className="flex w-full flex-col items-start gap-1">
             {title?.trim() ? <span className="text-xs text-default">{title}</span> : null}
@@ -508,24 +504,10 @@ function renderArtefactSummary(artefact: SignalReportArtefact): JSX.Element | nu
                 </LemonTag>
             ) : null
         }
-        case 'check_scheduled': {
-            const { tag } = checkScheduledEntry(content as CheckScheduledContent)
-            return (
-                <LemonTag size="small" type={tag.type}>
-                    {tag.label}
-                </LemonTag>
-            )
-        }
-        case 'check_expired': {
-            const { tag } = checkExpiredEntry(content as CheckExpiredContent)
-            return (
-                <LemonTag size="small" type={tag.type}>
-                    {tag.label}
-                </LemonTag>
-            )
-        }
+        case 'check_scheduled':
+        case 'check_expired':
         case 'check_cancelled': {
-            const { tag } = checkCancelledEntry(content as CheckCancelledContent)
+            const { tag } = CHECK_LIFECYCLE_ENTRIES[artefact.type](content as CheckLifecycleContent)
             return (
                 <LemonTag size="small" type={tag.type}>
                     {tag.label}
@@ -635,17 +617,17 @@ function renderArtefactBody({
             return <CodeReviewBody content={content as CodeReviewContent} />
         case 'check_result':
             return <CheckResultBody content={content as CheckResultContent} />
-        case 'check_scheduled': {
-            const c = content as CheckScheduledContent
-            return <CheckLifecycleBody title={c.title} rationale={c.rationale} detail={checkScheduledEntry(c).detail} />
-        }
-        case 'check_expired': {
-            const c = content as CheckExpiredContent
-            return <CheckLifecycleBody title={c.title} detail={checkExpiredEntry(c).detail} />
-        }
+        case 'check_scheduled':
+        case 'check_expired':
         case 'check_cancelled': {
-            const c = content as CheckCancelledContent
-            return <CheckLifecycleBody title={c.title} detail={checkCancelledEntry(c).detail} />
+            const c = content as CheckScheduledContent
+            return (
+                <CheckLifecycleBody
+                    title={c.title}
+                    rationale={c.rationale}
+                    detail={CHECK_LIFECYCLE_ENTRIES[artefact.type](c).detail}
+                />
+            )
         }
         case 'title_change': {
             const c = content as TitleChangeContent

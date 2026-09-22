@@ -9,6 +9,7 @@ import { prettifyScoutSkillName } from '../../utils/scoutRunsWindow'
 import type {
     CheckCancelledContent,
     CheckExpiredContent,
+    CheckLifecycleContent,
     CheckResultContent,
     CheckScheduledContent,
 } from './artefactTypes'
@@ -49,6 +50,14 @@ function scoutLaneLabel(kind: string | undefined, skillName: string | null | und
         return null
     }
     return skillName ? prettifyScoutSkillName(skillName) : FALLBACK_LANE_LABEL
+}
+
+/** The lane as a clause: "Error tracking scout runs it", or "The follow-up scout runs it". */
+function laneRunsIt(kind: string | undefined, skillName: string | null | undefined): string | null {
+    if (kind !== 'agent') {
+        return null
+    }
+    return skillName ? `${prettifyScoutSkillName(skillName)} scout runs it` : `${FALLBACK_LANE_LABEL} runs it`
 }
 
 function laneLabel(check: SignalReportCheckApi): string | null {
@@ -254,7 +263,7 @@ const CHECK_CANCELLED_REASONS: Record<string, string> = {
  * so it says what starts the clock instead of naming a day it cannot keep.
  */
 export function checkScheduledEntry(content: CheckScheduledContent): CheckLifecycleEntry {
-    const lane = scoutLaneLabel(content.kind, content.skill_name)
+    const lane = laneRunsIt(content.kind, content.skill_name)
     const runs = content.runs && content.runs > 1 ? `${content.runs} runs` : null
 
     if (content.arms_on_resolve) {
@@ -263,7 +272,7 @@ export function checkScheduledEntry(content: CheckScheduledContent): CheckLifecy
             : 'Starts when this report is resolved'
         return {
             tag: { label: 'Waiting for resolve', type: 'muted' },
-            detail: joinDetail([start, lane && `${lane} runs it`, runs]),
+            detail: joinDetail([start, lane, runs]),
         }
     }
 
@@ -272,22 +281,21 @@ export function checkScheduledEntry(content: CheckScheduledContent): CheckLifecy
             label: content.next_run_at ? `Runs ${shortDate(content.next_run_at)}` : 'Scheduled',
             type: 'primary',
         },
-        detail: joinDetail([lane ? `${lane} runs it` : 'The coordinator measures it', runs]),
+        detail: joinDetail([lane ?? 'The coordinator measures it', runs]),
     }
 }
 
 /** The entry written when the sweep retires a check at its horizon. */
 export function checkExpiredEntry(content: CheckExpiredContent): CheckLifecycleEntry {
-    if (content.never_ran) {
+    if (!content.last_run_at) {
         return {
             tag: { label: 'Never ran', type: 'muted' },
             detail: 'Retired at its horizon without running, so this claim was never re-measured',
         }
     }
-    const ranOn = content.last_run_at ? `Last ran ${shortDate(content.last_run_at)}` : null
     return {
         tag: { label: 'Expired', type: 'muted' },
-        detail: joinDetail([ranOn, 'retired at its horizon before it settled']),
+        detail: `Last ran ${shortDate(content.last_run_at)} · retired at its horizon before it settled`,
     }
 }
 
@@ -295,6 +303,13 @@ export function checkExpiredEntry(content: CheckExpiredContent): CheckLifecycleE
 export function checkCancelledEntry(content: CheckCancelledContent): CheckLifecycleEntry {
     return {
         tag: { label: 'Cancelled', type: 'muted' },
-        detail: (content.reason && CHECK_CANCELLED_REASONS[content.reason]) ?? 'Stopped before it could settle',
+        detail: CHECK_CANCELLED_REASONS[content.reason ?? ''] ?? 'Stopped before it could settle',
     }
+}
+
+/** Which builder reads each lifecycle entry, so the renderer needs one arm rather than three. */
+export const CHECK_LIFECYCLE_ENTRIES: Record<string, (content: CheckLifecycleContent) => CheckLifecycleEntry> = {
+    check_scheduled: checkScheduledEntry,
+    check_expired: checkExpiredEntry,
+    check_cancelled: checkCancelledEntry,
 }

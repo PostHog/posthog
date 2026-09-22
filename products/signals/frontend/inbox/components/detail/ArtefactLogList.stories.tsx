@@ -115,7 +115,6 @@ const checkLifecycleArtefacts = [
             kind: 'metric_threshold',
             title: 'Confirm the export backlog stays clear',
             expired_at: '2026-10-27T09:00:00Z',
-            never_ran: true,
             last_run_at: null,
         },
     },
@@ -175,9 +174,11 @@ const checkLifecycleArtefacts = [
 ]
 
 export const CheckLifecycle: Story = {
+    parameters: { mockDate: '2026-10-28T10:00:00Z' },
     args: { artefacts: checkLifecycleArtefacts },
 }
 export const CheckLifecycleNarrow: Story = {
+    parameters: { mockDate: '2026-10-28T10:00:00Z' },
     args: { artefacts: checkLifecycleArtefacts },
     decorators: [
         (Story) => (
