@@ -1,8 +1,17 @@
 import { mixColors } from '../../core/color-utils'
 import type { SankeyChartLayout, SankeyHit, SankeyLinkDatum, SankeyNodeDatum } from './sankey-data'
+import type { SankeyHighlight } from './types'
 
 export interface DrawSankeyOptions {
     linkOpacity: number
+}
+
+/** The part of the graph that stays at full strength while the rest dims. */
+export interface SankeyEmphasis {
+    nodes: Set<SankeyNodeDatum>
+    links: Set<SankeyLinkDatum>
+    /** The node under the cursor, lightened a step further than the other active nodes. */
+    focus?: SankeyNodeDatum
 }
 
 /** Ribbon opacity while it, or a node it touches, is hovered. */
@@ -38,8 +47,101 @@ function fillNode(ctx: CanvasRenderingContext2D, node: SankeyNodeDatum, color: s
     ctx.fillRect(node.x0, node.y0, node.x1 - node.x0, Math.max(1, node.y1 - node.y0))
 }
 
-/** Static layer: every ribbon under every node, in input order. */
-export function drawSankey(ctx: CanvasRenderingContext2D, layout: SankeyChartLayout, options: DrawSankeyOptions): void {
+/** The hovered node with every ribbon it touches, or the hovered ribbon with its two ends. */
+export function emphasisForHit(layout: SankeyChartLayout, hit: SankeyHit | null): SankeyEmphasis | null {
+    if (!hit) {
+        return null
+    }
+    const links = new Set<SankeyLinkDatum>()
+    const nodes = new Set<SankeyNodeDatum>()
+    if (hit.kind === 'node') {
+        const node = layout.nodes[hit.index]
+        nodes.add(node)
+        for (const link of layout.links) {
+            if (link.source === node || link.target === node) {
+                links.add(link)
+                nodes.add(link.source)
+                nodes.add(link.target)
+            }
+        }
+        return { nodes, links, focus: node }
+    }
+    const link = layout.links[hit.index]
+    links.add(link)
+    nodes.add(link.source)
+    nodes.add(link.target)
+    return { nodes, links }
+}
+
+/** Resolves a consumer's highlight to laid-out data. Ids and indices the layout does not know are
+ *  ignored, so a highlight computed from a previous dataset does not throw mid-transition. */
+export function emphasisForHighlight(layout: SankeyChartLayout, highlight: SankeyHighlight): SankeyEmphasis {
+    const nodes = new Set<SankeyNodeDatum>()
+    const links = new Set<SankeyLinkDatum>()
+    for (const node of layout.nodes) {
+        if (highlight.nodeIds.has(node.id)) {
+            nodes.add(node)
+        }
+    }
+    for (const index of highlight.linkIndices) {
+        const link = layout.links[index]
+        if (link) {
+            links.add(link)
+        }
+    }
+    return { nodes, links }
+}
+
+function paintEmphasis(
+    ctx: CanvasRenderingContext2D,
+    layout: SankeyChartLayout,
+    emphasis: SankeyEmphasis,
+    options: DrawSankeyOptions & { dimTarget: string; progress: number }
+): void {
+    const dim = options.progress * HOVER_DIM_AMOUNT
+    // The dim fill must be opaque: a translucent repaint composites over the full-color static
+    // layer and does not dim at all.
+    for (const link of layout.links) {
+        if (!emphasis.links.has(link)) {
+            // Mix from the color the link rests at, then paint opaque, so the dim replaces the static
+            // ribbon instead of compositing a second translucent pass over it.
+            const resting = mixColors(options.dimTarget, link.color, options.linkOpacity)
+            strokeLink(ctx, link, mixColors(resting, options.dimTarget, dim), 1)
+        }
+    }
+    for (const node of layout.nodes) {
+        if (!emphasis.nodes.has(node)) {
+            fillNode(ctx, node, mixColors(node.color, options.dimTarget, dim))
+        }
+    }
+    const activeOpacity = options.linkOpacity + (HOVER_LINK_OPACITY - options.linkOpacity) * options.progress
+    for (const link of emphasis.links) {
+        strokeLink(ctx, link, link.color, activeOpacity)
+    }
+    for (const node of emphasis.nodes) {
+        const color =
+            node === emphasis.focus
+                ? mixColors(node.color, HOVER_HIGHLIGHT_TARGET, HOVER_HIGHLIGHT_AMOUNT * options.progress)
+                : node.color
+        fillNode(ctx, node, color)
+    }
+}
+
+/** Static layer: every ribbon under every node, in input order. With `emphasis`, the graph is
+ *  painted already dimmed around that set, which is how a controlled highlight shows. */
+export function drawSankey(
+    ctx: CanvasRenderingContext2D,
+    layout: SankeyChartLayout,
+    options: DrawSankeyOptions & { emphasis?: SankeyEmphasis | null; backgroundColor?: string }
+): void {
+    if (options.emphasis) {
+        paintEmphasis(ctx, layout, options.emphasis, {
+            linkOpacity: options.linkOpacity,
+            dimTarget: options.backgroundColor || HOVER_DIM_TARGET_FALLBACK,
+            progress: 1,
+        })
+        return
+    }
     for (const link of layout.links) {
         strokeLink(ctx, link, link.color, options.linkOpacity)
     }
@@ -56,54 +158,14 @@ export function drawSankeyHover(
     hit: SankeyHit | null,
     options: DrawSankeyOptions & { backgroundColor?: string; progress: number }
 ): boolean {
-    if (!hit) {
+    const emphasis = emphasisForHit(layout, hit)
+    if (!emphasis) {
         return false
     }
-    const dimTarget = options.backgroundColor || HOVER_DIM_TARGET_FALLBACK
-    const dim = options.progress * HOVER_DIM_AMOUNT
-
-    const activeLinks = new Set<SankeyLinkDatum>()
-    const activeNodes = new Set<SankeyNodeDatum>()
-    if (hit.kind === 'node') {
-        const node = layout.nodes[hit.index]
-        activeNodes.add(node)
-        for (const link of layout.links) {
-            if (link.source === node || link.target === node) {
-                activeLinks.add(link)
-                activeNodes.add(link.source)
-                activeNodes.add(link.target)
-            }
-        }
-    } else {
-        const link = layout.links[hit.index]
-        activeLinks.add(link)
-        activeNodes.add(link.source)
-        activeNodes.add(link.target)
-    }
-
-    // The dim fill must be opaque: a translucent repaint composites over the full-color static
-    // layer and does not dim at all.
-    for (const link of layout.links) {
-        if (!activeLinks.has(link)) {
-            const resting = mixColors(dimTarget, link.color, options.linkOpacity)
-            strokeLink(ctx, link, mixColors(resting, dimTarget, dim), 1)
-        }
-    }
-    for (const node of layout.nodes) {
-        if (!activeNodes.has(node)) {
-            fillNode(ctx, node, mixColors(node.color, dimTarget, dim))
-        }
-    }
-    for (const link of activeLinks) {
-        const opacity = options.linkOpacity + (HOVER_LINK_OPACITY - options.linkOpacity) * options.progress
-        strokeLink(ctx, link, link.color, opacity)
-    }
-    for (const node of activeNodes) {
-        const highlight = hit.kind === 'node' && node === layout.nodes[hit.index]
-        const color = highlight
-            ? mixColors(node.color, HOVER_HIGHLIGHT_TARGET, HOVER_HIGHLIGHT_AMOUNT * options.progress)
-            : node.color
-        fillNode(ctx, node, color)
-    }
+    paintEmphasis(ctx, layout, emphasis, {
+        linkOpacity: options.linkOpacity,
+        dimTarget: options.backgroundColor || HOVER_DIM_TARGET_FALLBACK,
+        progress: options.progress,
+    })
     return true
 }

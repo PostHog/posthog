@@ -46,6 +46,8 @@ describe('computeSankeyLayout', () => {
         expect(byId.done.value).toBe(40)
         // The total is the inflow of the source nodes, which is what shares are measured against.
         expect(layout.total).toBe(40)
+        // `SankeyHighlight.linkIndices` and click handlers address links by input position.
+        expect(layout.links.map((l) => [l.source.id, l.target.id])).toEqual(LINKS.map((l) => [l.source, l.target]))
     })
 
     it('places a flow that ends early by alignment: justify, left, and right', () => {

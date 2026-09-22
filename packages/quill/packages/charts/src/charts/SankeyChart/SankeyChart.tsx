@@ -11,7 +11,7 @@ import { applyMarginOverride } from '../../core/hooks/useChartMargins'
 import type { ChartDrawArgs, ChartMargins, ChartScales } from '../../core/types'
 import { defaultResolveValue } from '../../core/types'
 import { Tooltip } from '../../overlays/Tooltip'
-import { drawSankey, drawSankeyHover } from './draw-sankey'
+import { drawSankey, drawSankeyHover, emphasisForHighlight } from './draw-sankey'
 import { SankeyLayoutContext } from './sankey-context'
 import type { SankeyLayoutContextValue } from './sankey-context'
 import { computeSankeyLayout, defaultValueFormatter, hoverIndexToHit } from './sankey-data'
@@ -52,6 +52,8 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
     tooltip,
     onNodeClick,
     onLinkClick,
+    onHoverChange,
+    highlight,
     className,
     dataAttr,
     children,
@@ -122,21 +124,40 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
         showTooltip,
         onNodeClick,
         onLinkClick,
+        onHoverChange,
     })
 
+    // A controlled highlight paints on the static layer, so a change to it is a full repaint
+    // rather than a hover animation frame. The graph is small enough that this is cheap, and it
+    // keeps the hover overlay free to stay dark while the host owns emphasis.
+    const emphasis = useMemo(
+        () => (highlight ? emphasisForHighlight(layout as SankeyChartLayout<unknown, unknown>, highlight) : null),
+        [layout, highlight]
+    )
     const drawStatic = useCallback(
-        ({ ctx: drawCtx }: ChartDrawArgs) =>
-            drawSankey(drawCtx, layout as SankeyChartLayout<unknown, unknown>, { linkOpacity }),
-        [layout, linkOpacity]
+        ({ ctx: drawCtx, theme: drawTheme }: ChartDrawArgs) =>
+            drawSankey(drawCtx, layout as SankeyChartLayout<unknown, unknown>, {
+                linkOpacity,
+                emphasis,
+                backgroundColor: drawTheme.backgroundColor,
+            }),
+        [layout, linkOpacity, emphasis]
     )
     const drawHover = useCallback(
         ({ ctx: drawCtx, hoverIndex: index, hoverProgress, theme: drawTheme }: ChartDrawArgs): boolean =>
-            drawSankeyHover(drawCtx, layout as SankeyChartLayout<unknown, unknown>, hoverIndexToHit(layout, index), {
-                linkOpacity,
-                backgroundColor: drawTheme.backgroundColor,
-                progress: hoverProgress,
-            }),
-        [layout, linkOpacity]
+            emphasis
+                ? false
+                : drawSankeyHover(
+                      drawCtx,
+                      layout as SankeyChartLayout<unknown, unknown>,
+                      hoverIndexToHit(layout, index),
+                      {
+                          linkOpacity,
+                          backgroundColor: drawTheme.backgroundColor,
+                          progress: hoverProgress,
+                      }
+                  ),
+        [layout, linkOpacity, emphasis]
     )
 
     useChartDraw({
