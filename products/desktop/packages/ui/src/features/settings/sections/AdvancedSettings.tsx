@@ -66,7 +66,7 @@ export function AdvancedSettings() {
         <SettingsCard>
           <SettingsCardRow
             label="Google Chrome"
-            description="Let local agents use tabs you approve. Requires the Playwright browser extension."
+            description="Let local agents inspect and control open Chrome tabs, including signed-in pages. Requires the Playwright browser extension."
           >
             <div className="flex items-center gap-3">
               <Button
