@@ -1395,6 +1395,23 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
         self.assertFalse(any("deprecated property" in warning.message for warning in metadata.warnings))
 
+    def test_metadata_does_not_warn_when_a_filter_subquery_only_selects_the_property(self):
+        metadata = self._select(
+            "SELECT count() FROM events "
+            "WHERE event IN (SELECT properties.$time FROM events WHERE timestamp >= '2026-09-19')"
+        )
+
+        self.assertFalse(any("deprecated property" in warning.message for warning in metadata.warnings))
+
+    def test_metadata_warns_when_a_filter_subquery_filters_on_the_property(self):
+        metadata = self._select(
+            "SELECT count() FROM events "
+            "WHERE event IN (SELECT event FROM events WHERE properties.$time >= '2026-09-19')"
+        )
+
+        warnings = [warning for warning in metadata.warnings if "deprecated property" in warning.message]
+        self.assertEqual(len(warnings), 1)
+
     def test_metadata_does_not_warn_when_a_cte_shadows_the_events_table(self):
         metadata = self._select(
             """

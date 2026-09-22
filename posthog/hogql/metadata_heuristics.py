@@ -173,6 +173,12 @@ class _DeprecatedTimestampReferenceVisitor(TraversingVisitor):
             self.references.setdefault(node.property.value, node)
         super().visit_array_access(node)
 
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        # A subquery inside a filter carries its own filters, and `_collect_select_queries` reaches
+        # it on its own. Descending here would read the subquery's select list as if the outer query
+        # filtered on it.
+        pass
+
 
 def _collect_select_queries(query: ast.SelectQuery | ast.SelectSetQuery) -> list[ast.SelectQuery]:
     collector = _SelectQueryCollector()
