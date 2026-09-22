@@ -14,10 +14,7 @@ import { StatCard } from '../components/StatCard'
 import { TeamQuarantinedTestsTable } from '../components/TeamQuarantinedTestsTable'
 import { withCurrentScope } from '../lib/scope'
 import { TrunkQuarantineTeamRow, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
-
-function teamLabel(ownerTeam: string): string {
-    return ownerTeam === 'unowned' ? 'Unowned' : ownerTeam
-}
+import { teamLabel } from './teamsLogic'
 
 function TrunkQuarantineDebtBoard(): JSX.Element {
     const {
