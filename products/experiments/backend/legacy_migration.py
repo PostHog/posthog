@@ -1,10 +1,13 @@
 import copy
+from uuid import uuid4
 
 from django.db import transaction
 
 from posthog.dataclasses import frozen
 from posthog.models.utils import convert_legacy_metric, convert_legacy_metrics
 
+from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
+from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentSavedMetric,
@@ -41,7 +44,8 @@ def migrate_saved_metric(saved_metric_id: int, team_id: int) -> ExperimentSavedM
             name=original.name,
             team=original.team,
             created_by=original.created_by,
-            query=convert_legacy_metric(original.query),
+            # Through the service, so the new query gets the uuid every new-engine metric needs.
+            query=ExperimentSavedMetricService.normalize_query_for_write(convert_legacy_metric(original.query)),
             metadata={"migrated_from": original.id},
         )
 
@@ -87,9 +91,12 @@ def migrate_experiment(
                 value = copy.deepcopy(value)
             setattr(new_experiment, field.name, value)
 
-        new_experiment.metrics = convert_legacy_metrics(original.metrics)
-        new_experiment.metrics_secondary = convert_legacy_metrics(original.metrics_secondary)
         new_experiment.stats_config = {**(new_experiment.stats_config or {}), "migrated_from": original.id}
+        new_experiment.metrics = _prepare_metrics(convert_legacy_metrics(original.metrics), new_experiment)
+        new_experiment.metrics_secondary = _prepare_metrics(
+            convert_legacy_metrics(original.metrics_secondary), new_experiment
+        )
+        _set_metric_ordering(new_experiment, saved_metric_targets)
         new_experiment.save()
 
         for link, target in saved_metric_targets:
@@ -144,3 +151,41 @@ def _target_metric(
     if metric.id in replacements:
         return replacements[metric.id]
     return ExperimentSavedMetric.objects.get(pk=metric.metadata["migrated_to"], team_id=team_id)
+
+
+def _prepare_metrics(metrics: list[dict], experiment: Experiment) -> list[dict]:
+    """Give each converted metric the uuid and fingerprint the new engine writes on create.
+
+    The conversion drops the legacy uuid and never had a fingerprint. Without a uuid the metric
+    cannot enter the ordering arrays, and the UI renders only what those arrays list, so an
+    experiment migrated without one shows no metrics at all.
+    """
+    stats_method = (experiment.stats_config or {}).get("method", "bayesian")
+    for metric in metrics:
+        metric["uuid"] = str(uuid4())
+        metric["fingerprint"] = compute_metric_fingerprint(
+            metric,
+            experiment.start_date,
+            stats_method,
+            experiment.exposure_criteria,
+            only_count_matured_users=experiment.only_count_matured_users,
+            excluded_variants=experiment.excluded_variants,
+        )
+    return metrics
+
+
+def _set_metric_ordering(
+    experiment: Experiment, saved_metric_targets: list[tuple[ExperimentToSavedMetric, ExperimentSavedMetric]]
+) -> None:
+    """Fill the ordering arrays the new engine reads metrics through, inline metrics first."""
+    ordering: dict[str, list[str]] = {
+        "primary": [metric["uuid"] for metric in experiment.metrics or []],
+        "secondary": [metric["uuid"] for metric in experiment.metrics_secondary or []],
+    }
+    for link, target in saved_metric_targets:
+        if uuid := (target.query or {}).get("uuid"):
+            metric_type = (link.metadata or {}).get("type", "primary")
+            ordering["primary" if metric_type == "primary" else "secondary"].append(uuid)
+
+    experiment.primary_metrics_ordered_uuids = ordering["primary"]
+    experiment.secondary_metrics_ordered_uuids = ordering["secondary"]
