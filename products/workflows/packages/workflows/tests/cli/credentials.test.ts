@@ -105,6 +105,26 @@ describe('credentials', () => {
         assert.equal(credentials?.apiKey, 'phx_from_file')
     })
 
+    it('refuses a plain-http host that is not loopback, wherever it came from', () => {
+        const home = homeWithCredentials(FILE)
+
+        const refusal =
+            (status: string) =>
+            (error: unknown): boolean =>
+                (error as { fields: { status: string } }).fields.status === status
+
+        for (const [env, overrides] of [
+            [{ POSTHOG_CLI_HOST: 'http://posthog.example.com' }, {}],
+            [{}, { host: 'http://posthog.example.com' }],
+        ] as const) {
+            assert.throws(() => resolveCredentials(env, home, overrides), refusal('insecure_host'))
+        }
+        assert.throws(
+            () => resolveCredentials({ POSTHOG_CLI_HOST: 'posthog.example.com' }, home),
+            refusal('invalid_host')
+        )
+    })
+
     it('resolves nothing when neither source is complete', () => {
         assert.equal(
             resolveCredentials({ POSTHOG_CLI_HOST: 'http://localhost:8010' }, mkdtempSync(join(tmpdir(), 'empty-'))),

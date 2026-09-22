@@ -70,6 +70,44 @@ function trimHost(host: string | null | undefined): string | undefined {
     return present(host) ? host.replace(/\/+$/, '') : undefined
 }
 
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
+
+/**
+ * Every request carries the API key as a bearer token, so a plain-HTTP host outside the
+ * machine hands the key to anyone on the path. Loopback is the one place HTTP is allowed,
+ * because a local PostHog serves no TLS and the traffic never leaves the machine.
+ *
+ * @param host - The host after the trailing slashes are gone, from a flag, a variable or the file.
+ * @param source - Where the host came from, for the message.
+ */
+function assertSecureHost(host: string, source: string): string {
+    let url: URL
+    try {
+        url = new URL(host)
+    } catch {
+        throw new WorkflowError({
+            status: 'invalid_host',
+            message: `"${host}" is not a URL.`,
+            why: `The host from ${source} has to be a full URL, with its scheme, for the CLI to send requests to it.`,
+            fix: 'Use the form https://us.posthog.com, or https://eu.posthog.com for PostHog Cloud EU.',
+        })
+    }
+    if (url.protocol !== 'https:' && !LOOPBACK_HOSTS.has(url.hostname)) {
+        throw new WorkflowError({
+            status: 'insecure_host',
+            message: `${host} is not an https URL.`,
+            why: `Every request sends the API key as a bearer token, so a plain-HTTP host outside this machine would send the key in clear text. The host came from ${source}.`,
+            fix: 'Use https for a remote PostHog. Plain http is only allowed for localhost and 127.0.0.1.',
+        })
+    }
+    return host
+}
+
+function secureHost(host: string | null | undefined, source: string): string | undefined {
+    const trimmed = trimHost(host)
+    return trimmed === undefined ? undefined : assertSecureHost(trimmed, source)
+}
+
 function describeSource(base: string, overrides: CredentialOverrides): string {
     const parts = [base]
     if (overrides.project !== undefined) {
@@ -104,7 +142,7 @@ export function resolveCredentials(
     homeDir: string,
     overrides: CredentialOverrides = {}
 ): Credentials | null {
-    const host = trimHost(overrides.host) ?? trimHost(env.POSTHOG_CLI_HOST)
+    const host = secureHost(overrides.host, '--host') ?? secureHost(env.POSTHOG_CLI_HOST, 'POSTHOG_CLI_HOST')
     const apiKey = env.POSTHOG_CLI_API_KEY ?? env.POSTHOG_CLI_TOKEN
     const projectId = overrides.project ?? env.POSTHOG_CLI_PROJECT_ID ?? env.POSTHOG_CLI_ENV_ID
 
@@ -119,7 +157,7 @@ export function resolveCredentials(
         return {
             apiKey: file.token,
             projectId: fileProjectId,
-            host: host ?? trimHost(file.host) ?? DEFAULT_HOST,
+            host: host ?? secureHost(file.host, shown(path, homeDir)) ?? DEFAULT_HOST,
             source: describeSource(shown(path, homeDir), overrides),
         }
     }
