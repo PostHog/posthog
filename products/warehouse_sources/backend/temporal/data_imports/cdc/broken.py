@@ -19,6 +19,8 @@ from __future__ import annotations
 import typing
 import datetime as dt
 
+from django.db import transaction
+
 import structlog
 import posthoganalytics
 
@@ -60,37 +62,41 @@ def mark_cdc_broken(
     """
     log = logger.bind(source_id=str(source.id), team_id=source.team_id, reason=reason)
 
-    source.status = ExternalDataSource.Status.ERROR
-    source.save(update_fields=["status", "updated_at"])
-
     broken_marker = {"reason": reason, "at": dt.datetime.now(tz=dt.UTC).isoformat(), **extra}
-    cdc_schemas = list(
-        ExternalDataSchema.objects.filter(
-            source=source,
-            sync_type=ExternalDataSchema.SyncType.CDC,
-            should_sync=True,
-        ).exclude(deleted=True)
-    )
-    # The sweeper re-marks an unrepaired source on every sweep while the condition persists.
-    # Report once: only schemas newly entering this broken state produce failure-digest
-    # evidence, otherwise an ongoing condition would re-email the team daily and pile a
-    # synthetic FAILED run per sweep onto the Syncs tab.
-    newly_broken = [
-        schema
-        for schema in cdc_schemas
-        if ((schema.sync_type_config or {}).get("cdc_broken") or {}).get("reason") != reason
-    ]
-    for schema in cdc_schemas:
-        # Locked merge so a concurrent API PATCH of sync_type_config can't clobber the marker.
-        update_sync_type_config_keys(
-            schema.id,
-            source.team_id,
-            updates={"cdc_broken": broken_marker},
-            extra_model_fields={
-                "status": ExternalDataSchema.Status.FAILED,
-                "latest_error": message,
-            },
+    # The source row lock serializes this with clear_recovered_self_managed_lag, which must not
+    # see the source status and the markers half-written.
+    with transaction.atomic():
+        ExternalDataSource.objects.select_for_update(of=("self",)).get(id=source.id)
+        source.status = ExternalDataSource.Status.ERROR
+        source.save(update_fields=["status", "updated_at"])
+
+        cdc_schemas = list(
+            ExternalDataSchema.objects.filter(
+                source=source,
+                sync_type=ExternalDataSchema.SyncType.CDC,
+                should_sync=True,
+            ).exclude(deleted=True)
         )
+        # The sweeper re-marks an unrepaired source on every sweep while the condition persists.
+        # Report once: only schemas newly entering this broken state produce failure-digest
+        # evidence, otherwise an ongoing condition would re-email the team daily and pile a
+        # synthetic FAILED run per sweep onto the Syncs tab.
+        newly_broken = [
+            schema
+            for schema in cdc_schemas
+            if ((schema.sync_type_config or {}).get("cdc_broken") or {}).get("reason") != reason
+        ]
+        for schema in cdc_schemas:
+            # Locked merge so a concurrent API PATCH of sync_type_config can't clobber the marker.
+            update_sync_type_config_keys(
+                schema.id,
+                source.team_id,
+                updates={"cdc_broken": broken_marker},
+                extra_model_fields={
+                    "status": ExternalDataSchema.Status.FAILED,
+                    "latest_error": message,
+                },
+            )
 
     if pause:
         _pause_schedule(source, log)
@@ -128,12 +134,13 @@ def clear_recovered_self_managed_lag(source: ExternalDataSource) -> int:
     )
     for schema_id in schema_ids:
         update_sync_type_config_keys(schema_id, source.team_id, mutate=_clear)
-    if (
-        schema_ids
-        and not ExternalDataSchema.objects.filter(source=source, sync_type_config__has_key="cdc_broken").exists()
-    ):
-        source.status = ExternalDataSource.Status.RUNNING
-        source.save(update_fields=["status", "updated_at"])
+    if not schema_ids:
+        return 0
+    with transaction.atomic():
+        locked = ExternalDataSource.objects.select_for_update(of=("self",)).get(id=source.id)
+        if not ExternalDataSchema.objects.filter(source=source, sync_type_config__has_key="cdc_broken").exists():
+            locked.status = ExternalDataSource.Status.RUNNING
+            locked.save(update_fields=["status", "updated_at"])
     return len(schema_ids)
 
 
