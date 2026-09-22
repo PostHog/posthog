@@ -2,8 +2,8 @@
 
 The Alerts product registers three queues through `products/alerts/backend/facade/temporal.py` and the shared `start_temporal_worker` command:
 
-| Setting in `posthog/settings/temporal.py`        | Queue                                            | Workflow                     |
-| ------------------------------------------------ | ------------------------------------------------ | ---------------------------- |
+| Setting in `posthog/settings/temporal.py`         | Queue                                             | Workflow                      |
+| ------------------------------------------------- | ------------------------------------------------- | ----------------------------- |
 | `ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE` | `alerts-platform-shared-orchestration-task-queue` | `alerts-platform-orchestrate` |
 | `ALERTS_PLATFORM_EVALUATION_TASK_QUEUE`           | `alerts-platform-evaluation-task-queue`           | `alerts-platform-evaluate`    |
 | `ALERTS_PLATFORM_DELIVERY_TASK_QUEUE`             | `alerts-platform-delivery-task-queue`             | `alerts-platform-deliver`     |
@@ -52,18 +52,23 @@ The deployment identity is `temporal-worker-alerts-platform-shared-orchestration
 It uses the shared `posthog-cloud` image built by `container-images-cd.yml`, not a separate image build or repository.
 Worker deployment configuration lives outside this repository. Deploying this code must be coordinated with starting the orchestration worker.
 The three deployments in `PostHog/charts` still pass the old `alerts-product-*` queue names.
-A worker polls the queue its chart gives it, so charts must move to the new names in the same rollout, or the workers poll queues nothing writes to.
+A worker polls the queue its chart gives it, so the queue rename needs a charts change, sequenced with the code deploy by the steps below.
 Schedule reconciliation now routes directly to orchestration; merging the code alone does not start a worker process.
 If the dev schedule does not exist yet, start all three workers before the first reconciliation: new schedules start unpaused.
 
 1. Pause the existing dev schedule before deployment so migration-time reconciliation cannot send ticks to a worker that is not ready.
-2. Deploy the code and start the orchestration worker with the command above.
+2. Let the work already started finish before you touch the workers. A pause stops new ticks, not running workflows, and after the rename no worker serves the old workflow types.
+   Keep the workers on the `alerts-product-*` queues until their queued and running work drains. Production is off and dev runs are bounded by the 50-second tick and 75-second evaluation timeouts, so this is a short wait rather than a procedure.
+3. Point the three chart deployments at the `alerts-platform-*` queues and restart the workers. Until the code deploys they poll queues nothing writes to, which is the intended gap.
+4. Deploy the code and start the orchestration worker with the command above.
    Verify it polls `alerts-platform-shared-orchestration-task-queue`, and that evaluation and delivery workers remain available.
-3. Run `python manage.py schedule_temporal_workflows` and verify the action starts `alerts-platform-orchestrate` on the orchestration queue.
+5. Run `python manage.py schedule_temporal_workflows` and verify the action starts `alerts-platform-orchestrate` on the orchestration queue.
    Existing pause state is preserved. Resume only after all three workers are ready, then verify the complete workflow chain.
+6. Delete `alerts-product-check-due-schedule` by hand. Reconciliation creates the new ID and never deletes the old one, which would keep starting a workflow type no worker knows.
 
 To stop future starts, pause the schedule. Keep all three workers running until orchestration, evaluation, and delivery work drains.
-For rollback, restore the previous schedule action (the evaluation workflow started directly on the evaluation queue, named `alerts-product-check-due` before the renames below) after draining, then roll back the code.
+For rollback, drain first, then reverse the same order: point the three chart deployments back at the `alerts-product-*` queues, roll back the code, and restore the previous schedule action (the evaluation workflow started directly on the evaluation queue, named `alerts-product-check-due` before the renames below) before resuming it.
+Rolling the code back without the chart change leaves the workers polling queues the old code does not write to.
 Do not reconcile with the new code after restoring the old action: reconciliation would route back to orchestration.
 Pausing or changing the schedule does not move or stop queued or running workflows.
 
@@ -103,7 +108,7 @@ The evaluation workflow is `alerts-platform-evaluate` (class `AlertsPlatformEval
 These replace `alerts-product-check-due`, `alerts_product_check_due_activity` and `create_alerts_product_check_due_schedule`: discovery finds what is due and dispatchers hand it out, so this workflow only evaluates.
 A workflow type rename breaks runs of the old type that are in flight at deploy time: no worker knows the old name, so they fail. Dev evaluations live under their execution timeout, and production is off.
 The schedule ID is `alerts-platform-check-due-schedule`, renamed from `alerts-product-check-due-schedule`.
-Registration does not delete schedules, so delete the old ID by hand in any dev environment that ran it: it keeps starting a workflow type no worker knows.
+Registration never deletes a schedule, so the rollout above deletes the old ID by hand.
 
 ## Tick loop and source dispatchers
 
