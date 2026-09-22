@@ -378,7 +378,11 @@ class TestReportChartsSection(SimpleTestCase):
         assert block is not None
         charts = json.loads(block.group(1))
 
-        assert [c["query"]["kind"] for c in charts] == ["InsightVizNode", "DataVisualizationNode"]
+        assert [c["query"]["kind"] for c in charts] == [
+            "InsightVizNode",
+            "DataVisualizationNode",
+            "DataVisualizationNode",
+        ]
         for chart in charts:
             ReportChart.model_validate(chart)
 
@@ -391,6 +395,17 @@ class TestReportChartsSection(SimpleTestCase):
 
         assert sql_chart["chartSettings"]["xAxis"]["column"]
         assert sql_chart["chartSettings"]["yAxis"][0]["column"]
+
+    def test_multi_dimension_sql_example_names_its_breakdown_column(self) -> None:
+        # Naming only the axes on a query grouped by two dimensions draws every row of a day at its
+        # own x position, so the line zigzags. The breakdown column is what pivots them into series.
+        block = re.search(r"```json\n(.*?)\n```", _REPORT_CHARTS, re.S)
+        assert block is not None
+        sql_chart = json.loads(block.group(1))[2]["query"]
+
+        breakdown_column = sql_chart["chartSettings"]["seriesBreakdownColumn"]
+        assert breakdown_column
+        assert breakdown_column != sql_chart["chartSettings"]["xAxis"]["column"]
 
 
 class TestPromptCacheablePrefix(SimpleTestCase):

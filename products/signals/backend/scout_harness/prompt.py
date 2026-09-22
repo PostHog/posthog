@@ -629,6 +629,7 @@ _REPORT_CHARTS = f"""# Attaching charts
 
 - **Each chart is `chart_id` + `title` + `query`.** `chart_id` is your own slug (lowercase letters, numbers, `_`, `-`), `title` the heading above it, `query` a query node: `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a `HogQLQuery` source, plus `display` and `chartSettings` when you want a graph rather than a result table), or `SavedInsightNode` (an existing insight by `shortId`). Anything else is refused. Add a `caption` when there's something specific to look at.
 - **A graph from SQL needs its axes named.** Setting `display` without `chartSettings` draws an empty box: `chartSettings.xAxis.column` and `chartSettings.yAxis[].column` say which columns of your result are which. Leave `display` off entirely and the node renders the result table instead, which reads better than a chart for a handful of rows.
+- **A graph from SQL needs one row per x-axis value.** The x axis is built from the result rows in the order they arrive, so a query that also groups by a second dimension puts several rows at the same x position and the line zigzags instead of trending. Either aggregate the query down to one row per x value, or name the second dimension in `chartSettings.seriesBreakdownColumn`, which pivots those rows into one series per value of that column. For a time series per segment, an `InsightVizNode` wrapping a `TrendsQuery` with a `breakdownFilter` is usually cleaner than SQL.
 - **Only attach a query you actually ran this session.** A query is checked for its `kind` and its size when you write it, not for whether it runs, so a well-formed node holding a broken query is stored without complaint and then fails to draw when a reader opens the report, with nothing to tell you. When you want the exact shape of an ad-hoc node, read it off an existing insight rather than guessing.
 - **A chart renders data, it does not run code.** HogVM `bytecode`, a nested `HogQuery`, `sendRawQuery`, and a nested `SuggestedQuestionsQuery` (whose runner would buy an LLM completion per reader) are each refused wherever they sit in the node. A warehouse query is fine through HogQL: keep `connectionId`, drop `sendRawQuery`.
 - **Place it from the summary.** A markdown link with a `chart:` target, `[Daily signups](chart:signups-drop)`, draws the chart at that point in the body; reference it once, since repeating doesn't draw a second copy, and an unreferenced chart still renders after the prose. Two references in one paragraph sit side by side, so give a pair you want compared a paragraph of their own; one inside a table cell or heading has no room to draw, so its chart falls to the end. The inbox sizes a chart from its query, so set `size` (`small`, `medium`, `large`) only when it gets that wrong.
@@ -664,6 +665,17 @@ A trends chart and a graph built from SQL, as they arrive in `charts`:
       "source": {{"kind": "HogQLQuery", "query": "SELECT exception_type, uniq(distinct_id) AS people FROM ... GROUP BY exception_type ORDER BY people DESC"}},
       "display": "ActionsBar",
       "chartSettings": {{"xAxis": {{"column": "exception_type"}}, "yAxis": [{{"column": "people"}}]}}
+    }}
+  }},
+  {{
+    "chart_id": "exceptions-by-type-daily",
+    "title": "Exceptions per day, by type",
+    "caption": "One line per exception type.",
+    "query": {{
+      "kind": "DataVisualizationNode",
+      "source": {{"kind": "HogQLQuery", "query": "SELECT toDate(timestamp) AS day, exception_type, count() AS occurrences FROM ... GROUP BY day, exception_type ORDER BY day"}},
+      "display": "ActionsLineGraph",
+      "chartSettings": {{"xAxis": {{"column": "day"}}, "yAxis": [{{"column": "occurrences"}}], "seriesBreakdownColumn": "exception_type"}}
     }}
   }}
 ]
