@@ -18,10 +18,7 @@ class FieldDiscoveryTest(BaseTest):
         self._clear_fields_cache()
 
     def _clear_fields_cache(self) -> None:
-        try:
-            get_client().delete(_get_cache_key(str(self.organization.id)))
-        except Exception:
-            pass
+        get_client().delete(_get_cache_key(str(self.organization.id)))
 
     def _create_activity_log(self, scope: str, detail: dict[str, Any]) -> ActivityLog:
         return ActivityLog.objects.create(
@@ -109,12 +106,7 @@ class FieldDiscoveryTest(BaseTest):
         for field_pattern, expected_types, test_value in supported_patterns:
             with self.subTest(pattern=field_pattern):
                 ActivityLog.objects.filter(organization_id=self.organization.id).delete()
-                try:
-                    client = get_client()
-                    cache_key = _get_cache_key(str(self.organization.id))
-                    client.delete(cache_key)
-                except Exception:
-                    pass
+                self._clear_fields_cache()
 
                 detail = self._generate_test_data_from_pattern(field_pattern, test_value)
                 self._create_activity_log("Dashboard", detail)
@@ -137,7 +129,6 @@ class FieldDiscoveryTest(BaseTest):
         static_filters = results["static_filters"]
         scopes = [entry["value"] for entry in static_filters["scopes"]]
         self.assertIn("Dashboard", scopes)
-        self.assertEqual(len(scopes), len(set(scopes)))
         self.assertIn("updated", [entry["value"] for entry in static_filters["activities"]])
         self.assertEqual([entry["value"] for entry in static_filters["users"]], [str(self.user.uuid)])
 

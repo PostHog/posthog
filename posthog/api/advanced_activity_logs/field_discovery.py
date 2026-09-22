@@ -86,9 +86,8 @@ class AdvancedActivityLogFieldDiscovery:
         return [{"value": client} for client in self._get_distinct_values(queryset, "client")]
 
     def _get_distinct_values(self, queryset: QuerySet, column: str) -> list[str]:
-        # The caller's queryset carries the list ordering, and Django puts the ordering columns
-        # into the DISTINCT key, which makes every row unique again. Order by the column instead,
-        # so the database returns the few distinct values rather than the whole organization.
+        # Django puts the caller's ordering columns into the DISTINCT key, which makes every row
+        # unique again, so the ordering must be replaced before the dedupe reaches SQL.
         values = queryset.order_by(column).values_list(column, flat=True).distinct()
         return [value for value in values if value]
 
