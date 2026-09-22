@@ -28,10 +28,11 @@ from products.engineering_analytics.backend.logic.pr_timeline import (
     MasterFailureIndex,
     PRTimelineBuilder,
     PRTimelineInput,
+    Push,
     ReviewVerdict,
     RunAttempt,
 )
-from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, push_rows_select
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     DECISIVE_FAILURE_CONCLUSIONS,
     DECISIVE_FAILURE_CONCLUSIONS_SQL,
@@ -187,6 +188,7 @@ class PullRequestTimelinesQuery:
         ready_at = self._query_ready_at(pr_numbers, run_from)
         reviews = self._query_reviews(pr_numbers)
         attempts = self._query_run_attempts(pr_numbers, run_from)
+        pushes = self._query_pushes(pr_numbers, run_from)
         gates = self._query_gate_attempts(pr_numbers)
         default_branch = next((row[9] for row in prs if row[9]), "")
         master_failures = self._query_master_failures(attempts, default_branch, run_from)
@@ -222,7 +224,11 @@ class PullRequestTimelinesQuery:
                 ready = None
             # No ready event means never drafted, or issue events not synced.
             started_at = max(ready or created_at, run_from)
-            pr_attempts = [attempt for attempt in attempts.get(number, []) if attempt.started_at <= ended_at]
+            pr_attempts = [
+                attempt
+                for attempt in attempts.get(number, [])
+                if attempt.started_at <= ended_at or (attempt.attempt == 1 and attempt.queued_at <= ended_at)
+            ]
             builder = PRTimelineBuilder(
                 PRTimelineInput(
                     started_at=started_at,
@@ -230,6 +236,7 @@ class PullRequestTimelinesQuery:
                     is_open=is_open,
                     is_merged=merged_at is not None,
                     is_draft=bool(is_draft) and is_open,
+                    pushes=[push for push in pushes.get(number, []) if push.pushed_at <= ended_at],
                     attempts=pr_attempts,
                     gate_attempts=[gate for gate in gates.get(number, []) if gate.started_at <= ended_at],
                     reviews=reviews.get(number, []) if reviews is not None else None,
@@ -347,10 +354,10 @@ class PullRequestTimelinesQuery:
             started_at,
             updated_at,
             attempt,
-            created,
+            created_at,
         ) in runs:
             run_attempts = job_attempts.get(int(run_id), [])
-            pushed_at = created or started_at
+            queued_at = created_at or started_at
             completed = status == "completed"
             run_failed = completed and conclusion in DECISIVE_FAILURE_CONCLUSIONS
             newest_attempt = int(attempt or 1)
@@ -371,7 +378,7 @@ class PullRequestTimelinesQuery:
                         workflow_name=workflow_name or "",
                         head_sha=head_sha or "",
                         attempt=job_attempt.attempt,
-                        pushed_at=pushed_at,
+                        queued_at=queued_at,
                         started_at=job_attempt.started_at,
                         completed_at=completed_at,
                         failed=failed,
@@ -389,7 +396,7 @@ class PullRequestTimelinesQuery:
                     workflow_name=workflow_name or "",
                     head_sha=head_sha or "",
                     attempt=newest_attempt,
-                    pushed_at=pushed_at,
+                    queued_at=queued_at,
                     started_at=started_at,
                     completed_at=updated_at if completed else None,
                     failed=run_failed,
@@ -398,6 +405,22 @@ class PullRequestTimelinesQuery:
                 )
             )
         return attempts
+
+    def _query_pushes(self, pr_numbers: list[int], run_from: datetime) -> dict[int, list[Push]]:
+        sql = push_rows_select(
+            runs_source=self._curated.run_source(started_floor=True),
+            run_filter="pr_number IN {pr_numbers} AND run_started_at >= {run_from}",
+        )
+        rows = self._curated.run_paged(
+            sql + "\nORDER BY pr_number, head_sha",
+            query_type="engineering_analytics.pull_request_timelines_pushes",
+            placeholders=self._runs_placeholders(pr_numbers, run_from),
+        )
+        pushes: dict[int, list[Push]] = defaultdict(list)
+        for number, head_sha, pushed_at in rows:
+            if pushed_at is not None:
+                pushes[int(number)].append(Push(head_sha=head_sha or "", pushed_at=pushed_at))
+        return pushes
 
     def _query_gate_attempts(self, pr_numbers: list[int]) -> dict[int, list[GateAttempt]]:
         gate_from = self._date_from - GATE_RUN_LOOKBACK
