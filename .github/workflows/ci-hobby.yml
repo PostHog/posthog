@@ -133,6 +133,7 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  persist-credentials: false
                   sparse-checkout: |
                       bin/helpers/render-hobby-compose.sh
                       bin/test/test_render_hobby_compose.py
@@ -140,7 +141,13 @@ jobs:
             - name: Install envsubst
               run: sudo apt-get update && sudo apt-get install -y gettext-base
             - name: Check upgrade rendering
-              run: python3 -m unittest discover -s bin/test -p test_render_hobby_compose.py
+              # Branches opened before the renderer landed have no test file yet; skip instead of failing discovery.
+              run: |
+                  if [ ! -f bin/test/test_render_hobby_compose.py ]; then
+                      echo "Renderer test is not on this branch yet, skipping"
+                      exit 0
+                  fi
+                  python3 -m unittest discover -s bin/test -p test_render_hobby_compose.py
 
     wait-for-docker-image:
         name: Wait for Docker image build

@@ -126,6 +126,8 @@ if ! grep -q "ENCRYPTION_SALT_KEYS" .env; then
     echo "ENCRYPTION_SALT_KEYS=$ENCRYPTION_KEY" >> .env
     echo "Added missing ENCRYPTION_SALT_KEYS to .env file"
     source .env
+    # The earlier `set -a` is off by now, so the new key needs an explicit export to reach the Compose renderer.
+    export ENCRYPTION_SALT_KEYS
 else
     # Read the existing key
     EXISTING_KEY=$(grep "ENCRYPTION_SALT_KEYS" .env | cut -d '=' -f2)
