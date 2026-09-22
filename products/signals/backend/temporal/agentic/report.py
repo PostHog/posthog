@@ -307,7 +307,7 @@ def _collect_linked_report_context(team_id: int, report_id: str) -> list[LinkedR
     unique_edges: dict[tuple[ReportLinkKind, str], ReportEdge] = {}
     for edge in outgoing_links(team_id=team_id, report_id=report_id, kinds=_RESEARCH_CONTEXT_LINK_KINDS):
         unique_edges.setdefault((edge.kind, edge.target_id), edge)
-    edges = list(unique_edges.values())[:_MAX_LINKED_REPORTS]
+    edges = list(unique_edges.values())
     if not edges:
         return []
     reports = fetch_linked_reports(team_id=team_id, report_ids=[edge.target_id for edge in edges])
@@ -328,13 +328,18 @@ def _collect_linked_report_context(team_id: int, report_id: str) -> list[LinkedR
             continue
         if isinstance(verdict, dict) and verdict.get("choice") is True:
             visible[str(target_id)] = reports[str(target_id)]
-    prs_by_report = fetch_implementation_prs_for_reports(list(visible), team_id=team_id)
-    findings_by_report = _code_paths_by_report(team_id, list(visible))
+    # Capped on what the prompt can use, not on what is linked: a run of deleted or unjudged
+    # targets would otherwise spend the budget and leave a usable link behind it unread. The reads
+    # below are per report, so the cap comes first.
+    edges = [edge for edge in edges if edge.target_id in visible][:_MAX_LINKED_REPORTS]
+    if not edges:
+        return []
+    target_ids = [edge.target_id for edge in edges]
+    prs_by_report = fetch_implementation_prs_for_reports(target_ids, team_id=team_id)
+    findings_by_report = _code_paths_by_report(team_id, target_ids)
     context: list[LinkedReportContext] = []
     for edge in edges:
-        report = visible.get(edge.target_id)
-        if report is None:
-            continue
+        report = visible[edge.target_id]
         context.append(
             LinkedReportContext(
                 kind=edge.kind,

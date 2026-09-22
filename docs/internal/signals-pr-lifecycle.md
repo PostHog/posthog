@@ -39,7 +39,7 @@ Links must name a different live report in the same project and cannot form a cy
 Research reads a report's outgoing `follow_up_of`, `depends_on`, and `part_of` links and starts from the linked reports' findings and pull requests.
 A linked report must have an explicit safe verdict in its latest safety judgment.
 Research uses the latest finding for each signal and removes repeated links.
-It loads at most ten distinct relationships and limits the rendered context to 12,000 characters.
+It loads at most ten distinct relationships it can use and limits the rendered context to 12,000 characters.
 All linked fields are escaped and marked as untrusted evidence.
 A follow-up can refer to a manual fix or a regression; it must not invent a missing pull request.
 
