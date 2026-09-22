@@ -22,7 +22,7 @@ use crate::event_restrictions::{EventContext, EventRestrictionService};
 use crate::events::ai_byte_limit::charge_ai_bytes;
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
 use crate::v0_request::{exceeds_max_ai_event_bytes, is_ai_event};
-use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
+use limiters::overflow::{ForcedOverflowKeys, OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
 
 use super::context::Context;
@@ -159,10 +159,11 @@ async fn run_pipeline(
     apply_historical_rerouting(&state.historical_cfg, context, &mut events);
 
     // Overflow and global rate limit are independent checks on different axes:
-    // overflow reroutes bursting keys; global rate limit disables person processing.
-    if state.overflow_limiter.is_some() || state.ai_events_overflow_limiter.is_some() {
+    // overflow reroutes forced keys (plus bursting keys on the AI lane);
+    // global rate limit disables person processing.
+    if state.overflow_forced_keys.is_some() || state.ai_events_overflow_limiter.is_some() {
         apply_overflow_stamping(
-            state.overflow_limiter.as_ref(),
+            state.overflow_forced_keys.as_ref(),
             state.ai_events_overflow_limiter.as_ref(),
             context,
             &mut events,
@@ -174,12 +175,11 @@ async fn run_pipeline(
     //
     // DIVERGENCE from legacy (`events::analytics`), intentional and out of scope
     // to reconcile here — a future routing refactor must not assume parity:
-    //   1. Ordering: v1 runs this GRL step AFTER burst overflow stamping (above);
+    //   1. Ordering: v1 runs this GRL step AFTER overflow stamping (above);
     //      legacy runs its GRL BEFORE overflow stamping. The pass order differs,
     //      but the observable outcome does not: both reroute only
     //      AnalyticsMain/Destination::Overflow, and both drop the partition key
-    //      once person processing is off, so a key the GRL wanted spread stays
-    //      spread on either path even when the burst limiter preserves locality.
+    //      once person processing is off.
     //      `crate::overflow_parity` pins that across the whole matrix.
     //   2. Lane assignment is assign-then-reroute in v1 versus a single
     //      `DataType::from_event_name` match in legacy.
@@ -709,62 +709,77 @@ fn apply_historical_rerouting(
     }
 }
 
+enum OverflowLane {
+    Analytics,
+    Ai,
+}
+
 fn apply_overflow_stamping(
-    analytics_limiter: Option<&Arc<OverflowLimiter>>,
+    analytics_forced_keys: Option<&Arc<ForcedOverflowKeys>>,
     ai_limiter: Option<&Arc<OverflowLimiter>>,
     ctx: &RequestContext,
     events: &mut [WrappedEvent],
 ) {
     for event in events.iter_mut() {
-        // Each overflowing lane keeps its own overflow destination AND its
-        // own limiter instance, so an overflowing AI event lands on AI
-        // overflow (never analytics overflow) and the per-key budgets are
-        // isolated between the lanes. The AI lane only participates when its
-        // limiter exists — setup builds it exactly when the AI overflow valve
+        // Analytics reroutes only the operator's forced keys; a hot key
+        // beyond that list is the global rate limiter's business. The AI lane
+        // adds a per-key token bucket, and only participates when its limiter
+        // exists — setup builds it exactly when the AI overflow valve
         // (CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC) is armed, so limiter
         // presence encodes the valve here.
-        let (overflow_destination, lane_limiter) = match event.destination {
-            Destination::AnalyticsMain => (Destination::Overflow, analytics_limiter),
-            Destination::AiEvents => (Destination::AiEventsOverflow, ai_limiter),
+        let lane = match event.destination {
+            Destination::AnalyticsMain => OverflowLane::Analytics,
+            Destination::AiEvents => OverflowLane::Ai,
             _ => continue,
         };
         if event.result == EventResult::Drop {
             continue;
         }
-        let Some(limiter) = lane_limiter else {
-            continue;
-        };
 
         let key = event.partition_key(ctx);
 
-        match limiter.is_limited(&key) {
-            OverflowLimiterResult::ForceLimited => {
-                event.destination = overflow_destination;
-                // A force-limited key is hot enough that we both spread it and
-                // stop paying for identity resolution on it, matching v0's
-                // ForceLimited arm.
-                event.force_disable_person_processing = true;
-                event.spread_partitions = true;
-                metrics::counter!(CAPTURE_V1_OVERFLOW_ROUTED, "reason" => "force_limited")
-                    .increment(1);
-            }
-            OverflowLimiterResult::Limited => {
-                event.destination = overflow_destination;
-                if !limiter.should_preserve_locality() {
-                    // Spread only. Person processing stays on, because a burst
-                    // over the per-second budget says nothing about whether the
-                    // customer wants identity resolution for this event. On the
-                    // person-writing analytics lane the sink holds the key
-                    // until person processing is off (`WrappedEvent::ordering`);
-                    // the read-only AI overflow lane spreads immediately.
-                    event.spread_partitions = true;
+        match lane {
+            OverflowLane::Analytics => {
+                let Some(forced_keys) = analytics_forced_keys else {
+                    continue;
+                };
+                if forced_keys.is_forced(&key) {
+                    force_limit_to_overflow(event, Destination::Overflow);
                 }
-                metrics::counter!(CAPTURE_V1_OVERFLOW_ROUTED, "reason" => "rate_limited")
-                    .increment(1);
             }
-            OverflowLimiterResult::NotLimited => {}
+            OverflowLane::Ai => {
+                let Some(limiter) = ai_limiter else {
+                    continue;
+                };
+                match limiter.is_limited(&key) {
+                    OverflowLimiterResult::ForceLimited => {
+                        force_limit_to_overflow(event, Destination::AiEventsOverflow);
+                    }
+                    OverflowLimiterResult::Limited => {
+                        event.destination = Destination::AiEventsOverflow;
+                        if !limiter.should_preserve_locality() {
+                            // Person processing stays on: a burst over the
+                            // per-second budget says nothing about whether the
+                            // customer wants identity resolution.
+                            event.spread_partitions = true;
+                        }
+                        metrics::counter!(CAPTURE_V1_OVERFLOW_ROUTED, "reason" => "rate_limited")
+                            .increment(1);
+                    }
+                    OverflowLimiterResult::NotLimited => {}
+                }
+            }
         }
     }
+}
+
+/// A force-limited key is hot enough that we both spread it and stop paying
+/// for identity resolution on it, matching v0's ForceLimited arm.
+fn force_limit_to_overflow(event: &mut WrappedEvent, destination: Destination) {
+    event.destination = destination;
+    event.force_disable_person_processing = true;
+    event.spread_partitions = true;
+    metrics::counter!(CAPTURE_V1_OVERFLOW_ROUTED, "reason" => "force_limited").increment(1);
 }
 
 async fn apply_restrictions(
@@ -1048,9 +1063,9 @@ async fn apply_token_distinct_id_limits(
         // it too. The check reads only the local cache.
         let limited = limiter.is_limited(&cache_key, 1).await.is_some();
 
-        // Nothing left to take away, so stamp nothing. A merely rate-limited
-        // burst does NOT land here: it sets `spread_partitions` without touching
-        // person processing, so it still gets its warning stamped below.
+        // Nothing left to take away, so stamp nothing. An AI-lane burst does
+        // NOT land here: it sets `spread_partitions` without touching person
+        // processing, so it still gets its warning stamped below.
         if event.force_disable_person_processing {
             already_disabled_count += 1;
             if limited {
@@ -2811,49 +2826,10 @@ mod tests {
         assert_eq!(limited.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
     }
 
-    /// The two stages run in v1's production order: the burst limiter first,
-    /// then the global rate limiter. A key that trips both must still get its
-    /// warning, because the global limiter skips events whose person processing
-    /// is already off, and a burst used to leave that flag set on its way past.
-    /// The legacy path always warns here (its global limiter runs first), so
-    /// swallowing it would drop a customer-visible warning on v1 only.
-    ///
-    /// The spread stamp itself is covered by
-    /// `overflow_rate_limited_stamps_spread_without_disabling_person_processing`;
-    /// this case exists for the warning and the tally.
-    #[tokio::test]
-    async fn burst_overflow_then_global_limit_still_warns() {
-        let mut ctx = test_utils::test_context();
-        ctx.api_token = "phc_tok".to_string();
-        let burst = overflow_limiter(1, 1, None);
-        let global = mock_limiter(vec!["phc_tok:user-1"]);
-        let mut events = vec![
-            wrapped_event("$pageview", "user-1"),
-            wrapped_event("$pageview", "user-1"),
-        ];
-
-        apply_overflow_stamping(Some(&burst), None, &ctx, &mut events);
-        let tally = apply_token_distinct_id_limits(&global, &ctx, None, &mut events).await;
-
-        // events[1] is the one the burst limiter sent to overflow.
-        let spread = &events[1];
-        assert_eq!(
-            spread.result,
-            EventResult::Warning,
-            "a spread key must still be warned about when the global limiter hits it"
-        );
-        assert_eq!(spread.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
-        assert_eq!(
-            tally.already_disabled, 0,
-            "spreading must not look like person processing was already off"
-        );
-        assert_eq!(tally.limited, 2);
-    }
-
     #[tokio::test]
     async fn td_limits_skips_events_with_person_processing_already_off() {
         // An event that already has person processing disabled (illegal
-        // distinct_id, ops restriction, or burst overflow) is still charged
+        // distinct_id, ops restriction, or forced overflow) is still charged
         // against the shared limiter, because its volume belongs in the key's
         // fleet count. Its stamping is left untouched, because the limiter has
         // nothing left to take away.
@@ -3435,102 +3411,67 @@ mod tests {
         ))
     }
 
+    fn forced_keys(keys: &str) -> Arc<ForcedOverflowKeys> {
+        Arc::new(ForcedOverflowKeys::new(Some(keys.to_string())))
+    }
+
     #[test]
-    fn overflow_not_limited() {
+    fn overflow_not_forced() {
         let ctx = test_utils::test_context();
         let mut events = vec![wrapped_event("$pageview", "user-1")];
-        let limiter = overflow_limiter(100, 100, None);
 
-        apply_overflow_stamping(Some(&limiter), None, &ctx, &mut events);
+        apply_overflow_stamping(Some(&forced_keys("phc_other")), None, &ctx, &mut events);
 
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
         assert!(!events[0].force_disable_person_processing);
     }
 
+    /// Volume alone never reroutes the analytics lane — a key that is merely
+    /// busy is the global rate limiter's business.
     #[test]
-    fn overflow_force_limited_by_full_key() {
+    fn overflow_analytics_volume_alone_is_never_rerouted() {
+        let mut ctx = test_utils::test_context();
+        ctx.api_token = "phc_tok".to_string();
+        let mut events: Vec<_> = (0..5)
+            .map(|_| wrapped_event("$pageview", "user-1"))
+            .collect();
+
+        apply_overflow_stamping(Some(&forced_keys("phc_other")), None, &ctx, &mut events);
+
+        for (i, event) in events.iter().enumerate() {
+            assert_eq!(event.destination, Destination::AnalyticsMain, "event[{i}]");
+            assert!(!event.spread_partitions, "event[{i}]");
+            assert!(!event.force_disable_person_processing, "event[{i}]");
+        }
+    }
+
+    #[rstest::rstest]
+    #[case::full_key("phc_tok:user-1")]
+    #[case::token_only("phc_tok")]
+    fn overflow_force_limited(#[case] configured: &str) {
         let mut ctx = test_utils::test_context();
         ctx.api_token = "phc_tok".to_string();
         let mut events = vec![wrapped_event("$pageview", "user-1")];
-        let limiter = overflow_limiter(100, 100, Some("phc_tok:user-1"));
 
-        apply_overflow_stamping(Some(&limiter), None, &ctx, &mut events);
+        apply_overflow_stamping(Some(&forced_keys(configured)), None, &ctx, &mut events);
 
         assert_eq!(events[0].destination, Destination::Overflow);
         assert!(events[0].spread_partitions);
         assert!(events[0].force_disable_person_processing);
-    }
-
-    #[test]
-    fn overflow_force_limited_by_token_only() {
-        let mut ctx = test_utils::test_context();
-        ctx.api_token = "phc_tok".to_string();
-        let mut events = vec![wrapped_event("$pageview", "user-1")];
-        let limiter = overflow_limiter(100, 100, Some("phc_tok"));
-
-        apply_overflow_stamping(Some(&limiter), None, &ctx, &mut events);
-
-        assert_eq!(events[0].destination, Destination::Overflow);
-        assert!(events[0].spread_partitions);
-        assert!(events[0].force_disable_person_processing);
-    }
-
-    #[test]
-    fn overflow_rate_limited_stamps_spread_without_disabling_person_processing() {
-        let mut ctx = test_utils::test_context();
-        ctx.api_token = "phc_tok".to_string();
-        // burst=1 means only 1 event allowed, the second will be limited
-        let limiter = overflow_limiter(1, 1, None);
-        let mut events = vec![
-            wrapped_event("$pageview", "user-1"),
-            wrapped_event("$pageview", "user-1"),
-        ];
-
-        apply_overflow_stamping(Some(&limiter), None, &ctx, &mut events);
-
-        assert_eq!(events[0].destination, Destination::AnalyticsMain);
-        assert!(!events[0].spread_partitions);
-        assert!(!events[0].force_disable_person_processing);
-
-        assert_eq!(events[1].destination, Destination::Overflow);
-        assert!(
-            events[1].spread_partitions,
-            "a bursting key must carry the spread stamp"
-        );
-        assert!(
-            !events[1].force_disable_person_processing,
-            "exceeding the burst budget must not skip identity resolution"
-        );
-    }
-
-    #[test]
-    fn overflow_rate_limited_preserves_locality_when_configured() {
-        let mut ctx = test_utils::test_context();
-        ctx.api_token = "phc_tok".to_string();
-        let limiter = overflow_limiter_preserving(1, 1);
-        let mut events = vec![
-            wrapped_event("$pageview", "user-1"),
-            wrapped_event("$pageview", "user-1"),
-        ];
-
-        apply_overflow_stamping(Some(&limiter), None, &ctx, &mut events);
-
-        assert_eq!(events[1].destination, Destination::Overflow);
-        assert!(
-            !events[1].spread_partitions,
-            "preserve_locality=true keeps the partition key"
-        );
-        assert!(!events[1].force_disable_person_processing);
     }
 
     #[test]
     fn overflow_skips_non_analytics_main() {
         let ctx = test_utils::test_context();
-        let limiter = overflow_limiter(100, 100, Some("phc_test_token:user-1"));
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         events[0].destination = Destination::AnalyticsHistorical;
 
-        apply_overflow_stamping(Some(&limiter), None, &ctx, &mut events);
+        apply_overflow_stamping(
+            Some(&forced_keys("phc_test_token:user-1")),
+            None,
+            &ctx,
+            &mut events,
+        );
 
         assert_eq!(
             events[0].destination,
@@ -3542,19 +3483,22 @@ mod tests {
     #[test]
     fn overflow_skips_dropped_events() {
         let ctx = test_utils::test_context();
-        let limiter = overflow_limiter(100, 100, Some("phc_test_token:user-1"));
         let mut events = vec![wrapped_event("$pageview", "user-1")];
         events[0].result = EventResult::Drop;
 
-        apply_overflow_stamping(Some(&limiter), None, &ctx, &mut events);
+        apply_overflow_stamping(
+            Some(&forced_keys("phc_test_token:user-1")),
+            None,
+            &ctx,
+            &mut events,
+        );
 
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
     }
 
-    /// The AI lane converts to its own overflow destination under the same
-    /// conditions as AnalyticsMain, but only when its limiter is present
-    /// (setup builds it exactly when the AI overflow valve is armed); absent
-    /// it is never touched.
+    /// The AI lane converts to its own overflow destination, but only when its
+    /// limiter is present (setup builds it exactly when the AI overflow valve
+    /// is armed); absent it is never touched.
     #[rstest::rstest]
     #[case::limiter_present(true, Destination::AiEventsOverflow, true)]
     #[case::limiter_absent(false, Destination::AiEvents, false)]
@@ -3602,8 +3546,6 @@ mod tests {
         assert!(!events[1].force_disable_person_processing);
     }
 
-    /// The AI lane gets the same decoupling as the analytics lane: a burst over
-    /// the budget spreads the key without disabling person processing.
     #[test]
     fn overflow_ai_events_rate_limited_spreads_without_disabling_person_processing() {
         let mut ctx = test_utils::test_context();
@@ -3623,9 +3565,6 @@ mod tests {
         assert!(!events[1].force_disable_person_processing);
     }
 
-    /// The two lanes consult separate limiter instances: a key the analytics
-    /// limiter force-routes must not drag the same key's AI event into AI
-    /// overflow, and vice versa.
     #[rstest::rstest]
     #[case::analytics_force_key_leaves_ai_untouched(
         Some("phc_tok:user-1"),
@@ -3639,7 +3578,7 @@ mod tests {
         Destination::AnalyticsMain,
         Destination::AiEventsOverflow
     )]
-    fn overflow_lane_budgets_are_isolated_per_key(
+    fn overflow_lanes_are_checked_independently(
         #[case] analytics_force_keys: Option<&str>,
         #[case] ai_force_keys: Option<&str>,
         #[case] expected_analytics_destination: Destination,
@@ -3647,7 +3586,7 @@ mod tests {
     ) {
         let mut ctx = test_utils::test_context();
         ctx.api_token = "phc_tok".to_string();
-        let analytics_limiter = overflow_limiter(100, 100, analytics_force_keys);
+        let analytics_forced_keys = analytics_force_keys.map(forced_keys);
         let ai_limiter = overflow_limiter(100, 100, ai_force_keys);
         let mut events = vec![
             wrapped_event("$pageview", "user-1"),
@@ -3656,7 +3595,7 @@ mod tests {
         events[1].destination = Destination::AiEvents;
 
         apply_overflow_stamping(
-            Some(&analytics_limiter),
+            analytics_forced_keys.as_ref(),
             Some(&ai_limiter),
             &ctx,
             &mut events,
@@ -3665,6 +3604,7 @@ mod tests {
         assert_eq!(events[0].destination, expected_analytics_destination);
         assert_eq!(events[1].destination, expected_ai_destination);
     }
+
     // =========================================================================
     // apply_gateway_provenance tests — the verify→billing wiring
     // =========================================================================
@@ -4353,13 +4293,13 @@ mod tests {
         // historical batch reroute to AnalyticsHistorical before overflow
         // stamping (which only touches AnalyticsMain), and AI events divert
         // to the AI lane, which cannot stamp overflow while the AI overflow
-        // valve is unset — the capture-import config. Even with the burst
-        // overflow limiter armed at burst=1 and all three events sharing one
-        // token:distinct_id — which would overflow the 2nd and 3rd in Events
-        // mode — nothing lands on events_overflow or the AI overflow lane.
+        // valve is unset — the capture-import config. Even with the batch's
+        // token on the forced-overflow list — which would reroute every event
+        // in Events mode — nothing lands on events_overflow or the AI
+        // overflow lane.
         let ts = TestStateBuilder::new()
             .with_capture_mode(crate::config::CaptureMode::Import)
-            .with_overflow_limiter(1, 1)
+            .with_overflow_forced_key("phc_test_token")
             .build();
         let mut ctx = test_utils::test_analytics_context();
         let batch = historical_batch(vec![

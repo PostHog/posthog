@@ -383,16 +383,15 @@ async fn ai_handler_inner(
         }
     }
 
-    // Step 8b: Apply the in-process OverflowLimiter governor. The analytics
-    // pipeline stamps overflow reasons inside `process_events`, but AI
-    // bypasses that path, so we invoke the shared helper here to preserve
-    // OverflowLimiter parity on `capture-ai-*` deploys (where
-    // `OVERFLOW_ENABLED=true`). `force_overflow` already stamped on
-    // `processed_event.metadata` by `build_kafka_event` is honored by the
-    // helper's short-circuit.
+    // Step 8b: Stamp the overflow reason. The analytics pipeline stamps
+    // overflow reasons inside `process_events`, but AI bypasses that path, so
+    // we invoke the shared helper here to preserve overflow parity on
+    // `capture-ai-*` deploys (where `OVERFLOW_ENABLED=true`).
+    // `force_overflow` already stamped on `processed_event.metadata` by
+    // `build_kafka_event` is honored by the helper's short-circuit.
     stamp_overflow_reason(
         std::slice::from_mut(&mut processed_event),
-        state.overflow_limiter.as_ref(),
+        state.overflow_forced_keys.as_ref(),
         state.ai_events_overflow_limiter.as_ref(),
     );
 

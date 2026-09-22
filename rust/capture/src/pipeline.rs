@@ -127,26 +127,13 @@ pub fn resolve(
                         Lane::Overflow,
                         OrderingGuarantee::None,
                     ),
-                    // The person flag alone decides the key here, in both
-                    // directions. A burst keeps its key while person processing
-                    // is on — the overflow consumer updates persons keyed on
-                    // distinct id, so spreading one distinct id across
-                    // partitions turns a hot key into contended person-row
-                    // updates — which makes the locality preference irrelevant
-                    // on this lane. And a key whose person processing is
-                    // already off (the global rate limiter stamps its verdict
-                    // before the overflow limiter overwrites the reason) must
-                    // not get its partition back.
-                    Some(OverflowReason::RateLimited { .. }) => AddressDecision::lane(
-                        Pipeline::Analytics,
-                        Lane::Overflow,
-                        person_ordering(metadata.person_processing_disabled()),
-                    ),
-                    // ReplayLimited is stamped only by the recordings pipeline,
-                    // so an analytics event cannot carry it — the shared
-                    // OverflowReason enum forces the arm, which treats the
-                    // impossible stamp as unstamped.
-                    Some(OverflowReason::ReplayLimited) | None => AddressDecision::lane(
+                    // RateLimited comes from the AI lane's limiter and
+                    // ReplayLimited from the recordings pipeline, so neither
+                    // can reach an analytics event; the shared OverflowReason
+                    // enum forces the arms anyway.
+                    Some(OverflowReason::RateLimited { .. })
+                    | Some(OverflowReason::ReplayLimited)
+                    | None => AddressDecision::lane(
                         Pipeline::Analytics,
                         Lane::Main,
                         person_ordering(metadata.person_processing_disabled()),
@@ -383,80 +370,49 @@ mod tests {
             }
         );
 
-        let mut preserve = base.clone();
-        preserve.overflow_reason = Some(OverflowReason::RateLimited {
-            preserve_locality: true,
-        });
-        assert_eq!(
-            resolve(&preserve, false).unwrap().ordering,
-            OrderingGuarantee::PerDistinctId
-        );
-        assert_eq!(
-            resolve(&preserve, false).unwrap().address,
-            lane(Pipeline::Analytics, Lane::Overflow)
-        );
-
-        // The locality preference is irrelevant on the analytics lane: a
-        // person-on burst keeps its key either way, because the overflow
-        // consumer writes persons keyed on distinct id.
-        let mut no_preserve = base.clone();
-        no_preserve.overflow_reason = Some(OverflowReason::RateLimited {
-            preserve_locality: false,
-        });
-        assert_eq!(
-            resolve(&no_preserve, false).unwrap().ordering,
-            OrderingGuarantee::PerDistinctId
-        );
-        assert_eq!(
-            resolve(&no_preserve, false).unwrap().address,
-            lane(Pipeline::Analytics, Lane::Overflow)
-        );
-        no_preserve.skip_person_processing = true;
-        assert_eq!(
-            resolve(&no_preserve, false).unwrap().ordering,
-            OrderingGuarantee::None
-        );
-
-        // ReplayLimited cannot be stamped on analytics events (only the
-        // recordings pipeline produces it); the impossible combination is
-        // treated as unstamped.
-        let mut replay = base;
-        replay.overflow_reason = Some(OverflowReason::ReplayLimited);
-        assert_eq!(
-            resolve(&replay, false).unwrap().address,
-            lane(Pipeline::Analytics, Lane::Main)
-        );
+        for impossible in [
+            OverflowReason::RateLimited {
+                preserve_locality: true,
+            },
+            OverflowReason::RateLimited {
+                preserve_locality: false,
+            },
+            OverflowReason::ReplayLimited,
+        ] {
+            let mut m = base.clone();
+            m.overflow_reason = Some(impossible.clone());
+            assert_eq!(
+                resolve(&m, false).unwrap(),
+                AddressDecision {
+                    address: lane(Pipeline::Analytics, Lane::Main),
+                    ordering: OrderingGuarantee::PerDistinctId,
+                },
+                "{impossible:?} must route like an unstamped analytics event"
+            );
+        }
     }
 
-    /// The global rate limiter stamps `skip_person_processing` before the
-    /// overflow limiter runs, and the overflow limiter overwrites the reason it
-    /// stamped. Without this precedence a key the rate limiter declared too hot
+    /// Without this precedence a key the global rate limiter declared too hot
     /// would go back to hashing onto a single overflow partition whenever the
-    /// limiter preserves locality, which is how prod-US is configured.
-    #[rstest]
-    #[case::analytics(DataType::AnalyticsMain, Pipeline::Analytics)]
-    #[case::ai(DataType::AiEvents, Pipeline::Ai)]
-    fn person_processing_off_outranks_preserve_locality(
-        #[case] data_type: DataType,
-        #[case] expected_pipeline: Pipeline,
-    ) {
-        let armed = data_type == DataType::AiEvents;
-        let mut m = meta(data_type);
+    /// AI limiter preserves locality.
+    #[test]
+    fn person_processing_off_outranks_preserve_locality() {
+        let mut m = meta(DataType::AiEvents);
         m.overflow_reason = Some(OverflowReason::RateLimited {
             preserve_locality: true,
         });
 
         assert_eq!(
-            resolve(&m, armed).unwrap().ordering,
+            resolve(&m, true).unwrap().ordering,
             OrderingGuarantee::PerDistinctId,
             "locality is preserved while person processing is on"
         );
 
         m.skip_person_processing = true;
         assert_eq!(
-            resolve(&m, armed).unwrap(),
+            resolve(&m, true).unwrap(),
             AddressDecision {
-                address: lane(expected_pipeline, Lane::Overflow),
+                address: lane(Pipeline::Ai, Lane::Overflow),
                 ordering: OrderingGuarantee::None,
             }
         );

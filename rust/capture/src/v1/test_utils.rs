@@ -668,7 +668,7 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use common_redis::MockRedisClient;
-use limiters::overflow::OverflowLimiter;
+use limiters::overflow::{ForcedOverflowKeys, OverflowLimiter};
 use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
 
@@ -693,7 +693,6 @@ pub struct TestState {
 /// Builder for `router::State` with configurable mock services.
 pub struct TestStateBuilder {
     quota_limited: bool,
-    overflow_limiter: Option<(NonZeroU32, NonZeroU32)>,
     overflow_preserve_locality: bool,
     overflow_forced_key: Option<String>,
     ai_events_overflow_limiter: Option<(NonZeroU32, NonZeroU32)>,
@@ -718,7 +717,6 @@ impl TestStateBuilder {
     pub fn new() -> Self {
         Self {
             quota_limited: false,
-            overflow_limiter: None,
             overflow_preserve_locality: false,
             overflow_forced_key: None,
             ai_events_overflow_limiter: None,
@@ -746,24 +744,15 @@ impl TestStateBuilder {
         self
     }
 
-    /// Add an in-process overflow limiter with the given rate and burst.
-    pub fn with_overflow_limiter(mut self, per_second: u32, burst: u32) -> Self {
-        self.overflow_limiter = Some((
-            NonZeroU32::new(per_second).expect("per_second must be > 0"),
-            NonZeroU32::new(burst).expect("burst must be > 0"),
-        ));
-        self
-    }
-
-    /// Keep partition keys when rerouting to overflow, as prod-US does via
-    /// `OVERFLOW_PRESERVE_PARTITION_LOCALITY`. Applies to both lanes' limiters
-    /// because production derives both from that one setting.
+    /// Keep partition keys when the AI lane's limiter reroutes to overflow, as
+    /// prod-US does via `OVERFLOW_PRESERVE_PARTITION_LOCALITY`.
     pub fn with_overflow_preserve_locality(mut self) -> Self {
         self.overflow_preserve_locality = true;
         self
     }
 
-    /// Force-route this key outright, as an ops-configured hot key does.
+    /// Force-route this key outright on both lanes, as an ops-configured hot
+    /// key does.
     pub fn with_overflow_forced_key(mut self, key: impl Into<String>) -> Self {
         self.overflow_forced_key = Some(key.into());
         self
@@ -878,14 +867,10 @@ impl TestStateBuilder {
             None => HistoricalConfig::new(false, 1),
         };
 
-        let overflow_limiter = self.overflow_limiter.map(|(per_sec, burst)| {
-            Arc::new(OverflowLimiter::new(
-                per_sec,
-                burst,
-                self.overflow_forced_key.clone(),
-                self.overflow_preserve_locality,
-            ))
-        });
+        let overflow_forced_keys = self
+            .overflow_forced_key
+            .clone()
+            .map(|key| Arc::new(ForcedOverflowKeys::new(Some(key))));
 
         let ai_events_overflow_limiter = self.ai_events_overflow_limiter.map(|(per_sec, burst)| {
             Arc::new(OverflowLimiter::new(
@@ -946,7 +931,7 @@ impl TestStateBuilder {
             body_read_chunk_size_kb: 64,
             capture_v1_max_compressed_body_bytes: 2 * 1024 * 1024,
             capture_v1_max_decompressed_body_bytes: 20 * 1024 * 1024,
-            overflow_limiter,
+            overflow_forced_keys,
             ai_events_overflow_limiter,
             ai_byte_rate_limiter: self.ai_byte_rate_limiter,
             replay_overflow_limiter: None,

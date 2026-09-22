@@ -16,7 +16,7 @@
 //!
 //! Keeping routing policy out of the sink keeps the clone-per-spawned-task
 //! cost in the scatter-gather batch path at two `Arc::clone` calls (producer
-//! + topics) rather than deep copies of limiter state.
+//! + topics) rather than deep copies of routing state.
 use crate::api::CaptureError;
 use crate::config::{EnvelopeCompression, KafkaConfig};
 use crate::ordering::OrderingGuarantee;
@@ -2338,12 +2338,11 @@ mod tests {
             .await;
         }
 
-        /// Stamped overflow reasons on the AI lane, where — unlike the
-        /// analytics lane — a burst without locality preservation spreads
-        /// while person processing is on: the AI consumer reads persons
-        /// without writing them, so keyless person-on records contend
-        /// nothing downstream. `ForceLimited` implies the person-processing
-        /// header on its own, flag or no flag.
+        /// Stamped overflow reasons on the AI lane, where a burst without
+        /// locality preservation spreads while person processing is on: the
+        /// AI consumer reads persons without writing them, so keyless
+        /// person-on records contend nothing downstream. `ForceLimited`
+        /// implies the person-processing header on its own, flag or no flag.
         #[rstest]
         #[case::force_limited(OverflowReason::ForceLimited, false, Some(true))]
         #[case::rate_limited_preserving(
@@ -2639,10 +2638,11 @@ mod tests {
         // ==================== overflow_reason routing tests ====================
         // The pipeline stamps ProcessedEventMetadata::overflow_reason upstream;
         // the sink is a pure mechanism layer that switches on it. These cover
-        // each variant: ForceLimited, RateLimited { preserve_locality }, and
-        // ReplayLimited. `force_overflow` coexistence is covered by the
-        // analytics_main_force_overflow / snapshot_main_force_overflow cases
-        // above (force_overflow short-circuits the overflow_reason branch).
+        // each variant: ForceLimited, RateLimited { preserve_locality } (AI
+        // lane only), and ReplayLimited. `force_overflow` coexistence is
+        // covered by the analytics_main_force_overflow /
+        // snapshot_main_force_overflow cases above (force_overflow
+        // short-circuits the overflow_reason branch).
 
         /// `ForceLimited` implies person processing is off on its own: the
         /// header is set whether or not the stamping site also set the flag,
@@ -2672,15 +2672,13 @@ mod tests {
             .await;
         }
 
-        /// A person-on burst keeps its key on the analytics lane regardless of
-        /// the locality preference: the overflow consumer updates persons
-        /// keyed on distinct id, and spreading one distinct id across
-        /// partitions contends those updates.
+        /// Only the AI lane's limiter stamps `RateLimited`, so on the
+        /// analytics lane it is an impossible stamp, treated as unstamped.
         #[rstest]
         #[case::preserving_locality(true)]
         #[case::spreading(false)]
         #[tokio::test]
-        async fn overflow_reason_rate_limited_keeps_key_while_person_processing_on(
+        async fn overflow_reason_rate_limited_ignored_on_analytics_lane(
             #[case] preserve_locality: bool,
         ) {
             assert_routing(
@@ -2690,7 +2688,7 @@ mod tests {
                     ..Default::default()
                 },
                 ExpectedRouting {
-                    topic: OVERFLOW_TOPIC,
+                    topic: MAIN_TOPIC,
                     has_key: true,
                     force_disable_person_processing: None,
                     ..Default::default()
@@ -2700,29 +2698,26 @@ mod tests {
         }
 
         /// The wire outcome for the combination the global rate limiter and the
-        /// overflow limiter produce together (the GRL stamps the person flag,
-        /// the burst limiter overwrites the reason): the record keeps the
+        /// AI lane's limiter produce together (the GRL stamps the person flag,
+        /// the AI limiter overwrites the reason): the record keeps the
         /// person-processing header and loses the partition key, on either
         /// locality setting.
         #[rstest]
-        #[case::analytics_preserving(DataType::AnalyticsMain, true, OVERFLOW_TOPIC)]
-        #[case::analytics_spreading(DataType::AnalyticsMain, false, OVERFLOW_TOPIC)]
-        #[case::ai_preserving(DataType::AiEvents, true, AI_EVENTS_OVERFLOW_TOPIC)]
+        #[case::preserving(true)]
+        #[case::spreading(false)]
         #[tokio::test]
         async fn overflow_reason_rate_limited_drops_key_when_person_off(
-            #[case] data_type: DataType,
             #[case] preserve_locality: bool,
-            #[case] expected_topic: &str,
         ) {
             assert_routing(
                 EventInput {
-                    data_type,
+                    data_type: DataType::AiEvents,
                     skip_person_processing: true,
                     overflow_reason: Some(OverflowReason::RateLimited { preserve_locality }),
                     ..Default::default()
                 },
                 ExpectedRouting {
-                    topic: expected_topic,
+                    topic: AI_EVENTS_OVERFLOW_TOPIC,
                     has_key: false,
                     force_disable_person_processing: Some(true),
                     ..Default::default()
@@ -2774,8 +2769,8 @@ mod tests {
         #[tokio::test]
         async fn overflow_reason_force_overflow_short_circuits_overflow_reason() {
             // Precedence check: force_overflow set by event restrictions wins
-            // over any overflow_reason stamped by the governor. This ensures
-            // the event_restriction counter label stays distinct from
+            // over any overflow_reason stamped upstream. This ensures the
+            // event_restriction counter label stays distinct from
             // force_limited / rate_limited labels.
             assert_routing(
                 EventInput {

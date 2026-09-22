@@ -1,82 +1,50 @@
 //! Shared overflow-reason stamping for analytics + AI + OTEL pipelines.
 //!
-//! The in-process `OverflowLimiter` (governor-backed, keyed on
-//! `token:distinct_id`) used to live inside `KafkaSinkBase::prepare_record`,
-//! which meant every `DataType::AnalyticsMain` event reaching the sink was
-//! checked uniformly regardless of which handler produced it. After the
-//! sink became a pure mechanism layer, the check was moved upstream into
-//! `events::analytics::process_events`. That covers the `/e/`, `/batch/`,
-//! `/capture` etc. endpoints but NOT the AI (`/i/v0/ai`) or OTEL
-//! (`/i/v0/ai/otel`) endpoints, which build `ProcessedEvent`s of their own
-//! and call `state.sink.send` / `state.sink.send_batch` directly.
-//!
-//! [`stamp_overflow_reason`] is the single source of truth for that check
-//! so all three call sites — analytics, AI, OTEL — get identical semantics
-//! and metric labels. Triplicating the loop would invite drift; routing
-//! the call through one helper keeps the contract testable in one place.
-//!
-//! The helper is sync because the `OverflowLimiter` governor check is sync
-//! (unlike the replay redis limiter, which still lives in the recordings
-//! pipeline as an async call).
+//! The analytics, AI (`/i/v0/ai`) and OTEL (`/i/v0/ai/otel`) endpoints each
+//! build `ProcessedEvent`s of their own, and all three must reach the same
+//! overflow verdict for the same event. Triplicating the loop would invite
+//! drift; routing the call through one helper keeps the contract testable in
+//! one place.
 
 use std::sync::Arc;
 
-use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
+use limiters::overflow::{ForcedOverflowKeys, OverflowLimiter, OverflowLimiterResult};
 use metrics::counter;
 
 use crate::v0_request::{DataType, OverflowReason, ProcessedEvent};
 
+enum Lane {
+    Analytics,
+    Ai,
+}
+
 /// Stamp `ProcessedEventMetadata::overflow_reason` on every overflowing-lane
-/// event in `events`, consulting the lane's limiter and the pre-existing
-/// `force_overflow` flag stamped by event restrictions.
+/// event in `events`.
 ///
-/// Two lanes can overflow: `AnalyticsMain` always, and `AiEvents` only when
-/// its limiter is present — setup builds `ai_limiter` exactly when the AI
-/// overflow valve (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`) is armed and
-/// overflow is enabled, so limiter presence IS the valve here; the kafka sink
-/// independently ignores overflow stamps on the AI lane when the topic is
-/// unset. Each lane consults its own limiter instance — `analytics_limiter`
-/// for `AnalyticsMain`, `ai_limiter` for `AiEvents` — so per-key budgets are
-/// isolated: analytics volume never pushes a key's AI events into AI overflow
-/// and vice versa. The stamp carries no topic; the kafka sink maps it to the
-/// lane's own overflow topic, so an overflowing AI event lands on AI
-/// overflow, never analytics overflow.
+/// The two lanes are checked differently. `AnalyticsMain` is only ever routed
+/// to overflow by the operator-configured forced-key list; a hot key beyond
+/// that list is the global rate limiter's business, and it stamps its own
+/// verdict upstream. `AiEvents` additionally carries a per-key token bucket,
+/// consulted only when its limiter is present — setup builds `ai_limiter`
+/// exactly when the AI overflow valve
+/// (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`) is armed and overflow is
+/// enabled, so limiter presence IS the valve here.
 ///
-/// Behavior (matches the pre-refactor sink semantics byte-for-byte):
-/// * Events on non-overflowing lanes are skipped (heatmaps, exceptions,
-///   client-ingestion-warnings, etc. never overflow).
-/// * `force_overflow = true` (set upstream by event restrictions) emits the
-///   `event_restriction` counter and short-circuits — the limiter is NOT
-///   consulted, matching the pre-refactor sink ordering. This runs on both
-///   overflowing lanes regardless of limiter presence: the sink honors
-///   `force_overflow` on its own (restriction rerouting must survive
-///   `OVERFLOW_ENABLED=false`). The counter can over-report in one corner —
-///   a forced AI event with the valve unarmed is counted here but ignored by
-///   the sink; only the sink knows the valve.
-/// * If the lane's limiter is `None`, only the `event_restriction`
-///   short-circuit can stamp anything; otherwise the event passes through
-///   untouched. The AI lane's limiter exists exactly when the AI overflow
-///   valve is armed and overflow is enabled, so absence keeps AI events out
-///   of rate-limit overflow.
-/// * If the lane's limiter is `Some`, `is_limited(event.key())` is consulted
-///   and the resulting [`OverflowReason`] is stamped, plus the matching
-///   counter. `ForceLimited` additionally sets `skip_person_processing =
-///   true` for pipeline-level readers of the flag; the sink derives the
-///   `force_disable_person_processing` header from the reason itself, so
-///   the header does not depend on this stamp.
-///
-/// Counter labels are intentionally identical to the pre-refactor sink so
-/// existing dashboards (filtering on `capture_events_rerouted_overflow`'s
-/// `reason` label) keep working without dashboard-side changes.
+/// `force_overflow` short-circuits both lanes whether or not their check is
+/// wired, because the sink honors that flag on its own and restriction
+/// rerouting must survive `OVERFLOW_ENABLED=false`. Its counter can
+/// over-report in one corner: a forced AI event with the valve unarmed is
+/// counted here but ignored by the sink, which is the only layer that knows
+/// the valve.
 pub fn stamp_overflow_reason(
     events: &mut [ProcessedEvent],
-    analytics_limiter: Option<&Arc<OverflowLimiter>>,
+    analytics_forced_keys: Option<&Arc<ForcedOverflowKeys>>,
     ai_limiter: Option<&Arc<OverflowLimiter>>,
 ) {
     for event in events.iter_mut() {
-        let lane_limiter = match event.metadata.data_type {
-            DataType::AnalyticsMain => analytics_limiter,
-            DataType::AiEvents => ai_limiter,
+        let lane = match event.metadata.data_type {
+            DataType::AnalyticsMain => Lane::Analytics,
+            DataType::AiEvents => Lane::Ai,
             _ => continue,
         };
 
@@ -89,39 +57,50 @@ pub fn stamp_overflow_reason(
             continue;
         }
 
-        let Some(limiter) = lane_limiter else {
-            continue;
-        };
-
-        let event_key = event.event.key();
-        match limiter.is_limited(&event_key) {
-            OverflowLimiterResult::ForceLimited => {
-                counter!(
-                    "capture_events_rerouted_overflow",
-                    "reason" => "force_limited",
-                )
-                .increment(1);
-                event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
-                // ForceLimited implies person processing is skipped; the sink
-                // derives that from the reason itself
-                // (`person_processing_disabled`). The flag is stamped
-                // alongside so pipeline-level readers of the flag see the
-                // same truth.
-                event.metadata.skip_person_processing = true;
+        match lane {
+            Lane::Analytics => {
+                let Some(forced_keys) = analytics_forced_keys else {
+                    continue;
+                };
+                if forced_keys.is_forced(&event.event.key()) {
+                    stamp_force_limited(event);
+                }
             }
-            OverflowLimiterResult::Limited => {
-                counter!(
-                    "capture_events_rerouted_overflow",
-                    "reason" => "rate_limited",
-                )
-                .increment(1);
-                event.metadata.overflow_reason = Some(OverflowReason::RateLimited {
-                    preserve_locality: limiter.should_preserve_locality(),
-                });
+            Lane::Ai => {
+                let Some(limiter) = ai_limiter else {
+                    continue;
+                };
+                match limiter.is_limited(&event.event.key()) {
+                    OverflowLimiterResult::ForceLimited => stamp_force_limited(event),
+                    OverflowLimiterResult::Limited => {
+                        counter!(
+                            "capture_events_rerouted_overflow",
+                            "reason" => "rate_limited",
+                        )
+                        .increment(1);
+                        event.metadata.overflow_reason = Some(OverflowReason::RateLimited {
+                            preserve_locality: limiter.should_preserve_locality(),
+                        });
+                    }
+                    OverflowLimiterResult::NotLimited => {}
+                }
             }
-            OverflowLimiterResult::NotLimited => {}
         }
     }
+}
+
+fn stamp_force_limited(event: &mut ProcessedEvent) {
+    counter!(
+        "capture_events_rerouted_overflow",
+        "reason" => "force_limited",
+    )
+    .increment(1);
+    event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
+    // ForceLimited implies person processing is skipped; the sink derives that
+    // from the reason itself (`person_processing_disabled`). The flag is
+    // stamped alongside so pipeline-level readers of the flag see the same
+    // truth.
+    event.metadata.skip_person_processing = true;
 }
 
 #[cfg(test)]
@@ -185,13 +164,17 @@ mod tests {
         ))
     }
 
+    fn build_forced_keys(keys: &str) -> Arc<ForcedOverflowKeys> {
+        Arc::new(ForcedOverflowKeys::new(Some(keys.to_string())))
+    }
+
     #[test]
-    fn force_overflow_short_circuits_without_consulting_limiter() {
-        // Use a limiter that would otherwise force-route this event; the
-        // short-circuit must skip the limiter call so the stamped reason
-        // stays None (force_overflow drives the sink directly without a
-        // RateLimited/ForceLimited stamp).
-        let limiter = build_limiter(10, 10, Some("phc_t:user".to_string()), false);
+    fn force_overflow_short_circuits_without_consulting_forced_keys() {
+        // Use a forced-key list that would otherwise route this event; the
+        // short-circuit must skip the check so the stamped reason stays None
+        // (force_overflow drives the sink directly without a ForceLimited
+        // stamp).
+        let forced_keys = build_forced_keys("phc_t:user");
         let mut events = vec![build_event(
             DataType::AnalyticsMain,
             "phc_t",
@@ -199,11 +182,11 @@ mod tests {
             true, // force_overflow
         )];
 
-        stamp_overflow_reason(&mut events, Some(&limiter), None);
+        stamp_overflow_reason(&mut events, Some(&forced_keys), None);
 
         assert_eq!(
             events[0].metadata.overflow_reason, None,
-            "force_overflow short-circuits before the limiter; reason stays None"
+            "force_overflow short-circuits before the forced-key check; reason stays None"
         );
         assert!(
             !events[0].metadata.skip_person_processing,
@@ -213,10 +196,10 @@ mod tests {
 
     #[test]
     fn force_limited_stamps_reason_and_skip_person_processing() {
-        let limiter = build_limiter(10, 10, Some("phc_t:user".to_string()), false);
+        let forced_keys = build_forced_keys("phc_t:user");
         let mut events = vec![build_event(DataType::AnalyticsMain, "phc_t", "user", false)];
 
-        stamp_overflow_reason(&mut events, Some(&limiter), None);
+        stamp_overflow_reason(&mut events, Some(&forced_keys), None);
 
         assert_eq!(
             events[0].metadata.overflow_reason,
@@ -229,60 +212,23 @@ mod tests {
     }
 
     #[test]
-    fn rate_limited_stamps_preserve_locality_true() {
-        // burst=1 means the second event exceeds the budget; preserve_locality
-        // is mirrored from the limiter config onto the stamped reason.
-        let limiter = build_limiter(1, 1, None, true);
+    fn unforced_analytics_key_is_never_stamped() {
+        // Volume alone does not reroute the analytics lane: the global rate
+        // limiter stamps hot keys upstream, this check only honors the
+        // operator's forced-key list.
+        let forced_keys = build_forced_keys("phc_other:u");
         let mut events = vec![
+            build_event(DataType::AnalyticsMain, "phc_t", "u", false),
             build_event(DataType::AnalyticsMain, "phc_t", "u", false),
             build_event(DataType::AnalyticsMain, "phc_t", "u", false),
         ];
 
-        stamp_overflow_reason(&mut events, Some(&limiter), None);
+        stamp_overflow_reason(&mut events, Some(&forced_keys), None);
 
-        assert_eq!(
-            events[0].metadata.overflow_reason, None,
-            "first event within burst must not be stamped"
-        );
-        assert_eq!(
-            events[1].metadata.overflow_reason,
-            Some(OverflowReason::RateLimited {
-                preserve_locality: true
-            })
-        );
-        assert!(
-            !events[1].metadata.skip_person_processing,
-            "RateLimited (non-Force) must not flip skip_person_processing"
-        );
-    }
-
-    #[test]
-    fn rate_limited_stamps_preserve_locality_false() {
-        let limiter = build_limiter(1, 1, None, false);
-        let mut events = vec![
-            build_event(DataType::AnalyticsMain, "phc_t", "u", false),
-            build_event(DataType::AnalyticsMain, "phc_t", "u", false),
-        ];
-
-        stamp_overflow_reason(&mut events, Some(&limiter), None);
-
-        assert_eq!(
-            events[1].metadata.overflow_reason,
-            Some(OverflowReason::RateLimited {
-                preserve_locality: false
-            })
-        );
-    }
-
-    #[test]
-    fn not_limited_leaves_reason_none() {
-        // burst=10, single event; well under the budget.
-        let limiter = build_limiter(10, 10, None, false);
-        let mut events = vec![build_event(DataType::AnalyticsMain, "phc_t", "u", false)];
-
-        stamp_overflow_reason(&mut events, Some(&limiter), None);
-
-        assert_eq!(events[0].metadata.overflow_reason, None);
+        for (i, ev) in events.iter().enumerate() {
+            assert_eq!(ev.metadata.overflow_reason, None, "event[{i}]");
+            assert!(!ev.metadata.skip_person_processing, "event[{i}]");
+        }
     }
 
     #[test]
@@ -290,9 +236,9 @@ mod tests {
         // SnapshotMain has its own (replay) overflow path; HeatmapMain,
         // ExceptionErrorTracking, ClientIngestionWarning, AnalyticsHistorical,
         // and AiEvents (with the AI overflow valve unarmed) never overflow.
-        // Even with a limiter that would otherwise force-route their key, the
-        // helper must leave them untouched.
-        let limiter = build_limiter(10, 10, Some("phc_t:u".to_string()), false);
+        // Even with a forced-key list covering their key, the helper must
+        // leave them untouched.
+        let forced_keys = build_forced_keys("phc_t:u");
         let mut events = vec![
             build_event(DataType::SnapshotMain, "phc_t", "u", false),
             build_event(DataType::HeatmapMain, "phc_t", "u", false),
@@ -302,7 +248,7 @@ mod tests {
             build_event(DataType::AiEvents, "phc_t", "u", false),
         ];
 
-        stamp_overflow_reason(&mut events, Some(&limiter), None);
+        stamp_overflow_reason(&mut events, Some(&forced_keys), None);
 
         for (i, ev) in events.iter().enumerate() {
             assert_eq!(
@@ -315,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn none_limiter_is_a_no_op_for_non_force_overflow_events() {
+    fn absent_forced_keys_are_a_no_op_for_non_force_overflow_events() {
         let mut events = vec![build_event(DataType::AnalyticsMain, "phc_t", "u", false)];
 
         stamp_overflow_reason(&mut events, None, None);
@@ -325,10 +271,10 @@ mod tests {
     }
 
     #[test]
-    fn none_limiter_still_emits_event_restriction_counter() {
-        // force_overflow is independent of the limiter, so the
+    fn absent_forced_keys_still_emit_event_restriction_counter() {
+        // force_overflow is independent of the forced-key list, so the
         // event_restriction short-circuit must still fire (and emit its
-        // counter) even when the limiter is absent.
+        // counter) even when the list is absent.
         let mut events = vec![build_event(DataType::AnalyticsMain, "phc_t", "u", true)];
 
         stamp_overflow_reason(&mut events, None, None);
@@ -341,39 +287,37 @@ mod tests {
 
     #[test]
     fn empty_batch_is_a_no_op() {
-        let limiter = build_limiter(10, 10, None, false);
+        let forced_keys = build_forced_keys("phc_t:u");
         let mut events: Vec<ProcessedEvent> = Vec::new();
-        stamp_overflow_reason(&mut events, Some(&limiter), None);
+        stamp_overflow_reason(&mut events, Some(&forced_keys), None);
     }
 
     #[test]
     fn mixed_batch_stamps_only_analytics_main_entries() {
         // Realistic OTEL-shaped batch: a few AnalyticsMain spans plus one
-        // HeatmapMain that snuck in. Only the AnalyticsMain over-budget
+        // HeatmapMain that snuck in. Only the forced-key AnalyticsMain
         // entries should be stamped.
-        let limiter = build_limiter(1, 1, None, true);
+        let forced_keys = build_forced_keys("phc_t:user_a");
         let mut events = vec![
             build_event(DataType::AnalyticsMain, "phc_t", "user_a", false),
             build_event(DataType::HeatmapMain, "phc_t", "user_a", false),
-            build_event(DataType::AnalyticsMain, "phc_t", "user_a", false),
+            build_event(DataType::AnalyticsMain, "phc_t", "user_b", false),
         ];
 
-        stamp_overflow_reason(&mut events, Some(&limiter), None);
+        stamp_overflow_reason(&mut events, Some(&forced_keys), None);
 
         assert_eq!(
-            events[0].metadata.overflow_reason, None,
-            "first AnalyticsMain within burst"
+            events[0].metadata.overflow_reason,
+            Some(OverflowReason::ForceLimited),
+            "forced AnalyticsMain key"
         );
         assert_eq!(
             events[1].metadata.overflow_reason, None,
-            "HeatmapMain must be skipped regardless of limiter state"
+            "HeatmapMain must be skipped regardless of the forced-key list"
         );
         assert_eq!(
-            events[2].metadata.overflow_reason,
-            Some(OverflowReason::RateLimited {
-                preserve_locality: true
-            }),
-            "second AnalyticsMain over budget"
+            events[2].metadata.overflow_reason, None,
+            "unforced AnalyticsMain key"
         );
     }
 
@@ -401,11 +345,13 @@ mod tests {
         );
     }
 
-    #[test]
-    fn ai_events_rate_limited_mirrors_preserve_locality() {
-        // The AI limiter's preserve-partition-locality flag is mirrored onto
-        // the stamped reason, exactly like the analytics lane.
-        let limiter = build_limiter(1, 1, None, true);
+    #[rstest::rstest]
+    #[case::preserving(true)]
+    #[case::spreading(false)]
+    fn ai_events_rate_limited_mirrors_preserve_locality(#[case] preserve_locality: bool) {
+        // burst=1 means the second event exceeds the budget; the AI limiter's
+        // preserve-partition-locality flag is mirrored onto the stamped reason.
+        let limiter = build_limiter(1, 1, None, preserve_locality);
         let mut events = vec![
             build_event(DataType::AiEvents, "phc_t", "u", false),
             build_event(DataType::AiEvents, "phc_t", "u", false),
@@ -413,62 +359,46 @@ mod tests {
 
         stamp_overflow_reason(&mut events, None, Some(&limiter));
 
-        assert_eq!(events[0].metadata.overflow_reason, None);
         assert_eq!(
-            events[1].metadata.overflow_reason,
-            Some(OverflowReason::RateLimited {
-                preserve_locality: true
-            })
-        );
-    }
-
-    /// The two lanes consult separate limiter instances, so one lane
-    /// exhausting a key's budget must not stamp the other lane's events for
-    /// the same `token:distinct_id` key.
-    #[rstest::rstest]
-    #[case::analytics_burst_leaves_ai_untouched(DataType::AnalyticsMain, DataType::AiEvents)]
-    #[case::ai_burst_leaves_analytics_untouched(DataType::AiEvents, DataType::AnalyticsMain)]
-    fn lane_budgets_are_isolated_per_key(
-        #[case] bursting_lane: DataType,
-        #[case] quiet_lane: DataType,
-    ) {
-        // burst=1 for both limiters: the bursting lane's second event goes
-        // over budget, while the quiet lane's single event (same key) must
-        // stay within its own untouched budget.
-        let analytics_limiter = build_limiter(1, 1, None, false);
-        let ai_limiter = build_limiter(1, 1, None, false);
-        let mut events = vec![
-            build_event(bursting_lane, "phc_t", "u", false),
-            build_event(bursting_lane, "phc_t", "u", false),
-            build_event(quiet_lane, "phc_t", "u", false),
-        ];
-
-        stamp_overflow_reason(&mut events, Some(&analytics_limiter), Some(&ai_limiter));
-
-        assert_eq!(events[0].metadata.overflow_reason, None);
-        assert_eq!(
-            events[1].metadata.overflow_reason,
-            Some(OverflowReason::RateLimited {
-                preserve_locality: false
-            }),
-            "second {bursting_lane:?} event over budget"
+            events[0].metadata.overflow_reason, None,
+            "first event within burst must not be stamped"
         );
         assert_eq!(
-            events[2].metadata.overflow_reason, None,
-            "{quiet_lane:?} must not inherit the {bursting_lane:?} lane's exhausted budget"
+            events[1].metadata.overflow_reason,
+            Some(OverflowReason::RateLimited { preserve_locality })
+        );
+        assert!(
+            !events[1].metadata.skip_person_processing,
+            "RateLimited (non-Force) must not flip skip_person_processing"
         );
     }
 
     #[test]
-    fn ai_lane_ignores_analytics_limiter_when_own_limiter_absent() {
-        // A missing AI limiter means no rate-limit overflow for the AI lane,
-        // even when the analytics limiter would force-route the same key.
-        let analytics_limiter = build_limiter(10, 10, Some("phc_t:u".to_string()), false);
+    fn ai_lane_ignores_analytics_forced_keys_when_own_limiter_absent() {
+        // A missing AI limiter means no overflow for the AI lane, even when
+        // the analytics forced-key list covers the same key.
+        let forced_keys = build_forced_keys("phc_t:u");
         let mut events = vec![build_event(DataType::AiEvents, "phc_t", "u", false)];
 
-        stamp_overflow_reason(&mut events, Some(&analytics_limiter), None);
+        stamp_overflow_reason(&mut events, Some(&forced_keys), None);
 
         assert_eq!(events[0].metadata.overflow_reason, None);
+    }
+
+    #[test]
+    fn analytics_lane_ignores_the_ai_limiter() {
+        // The AI limiter's per-key budget is its own: an exhausted AI budget
+        // must never stamp an analytics event.
+        let ai_limiter = build_limiter(1, 1, None, false);
+        let mut events = vec![
+            build_event(DataType::AnalyticsMain, "phc_t", "u", false),
+            build_event(DataType::AnalyticsMain, "phc_t", "u", false),
+        ];
+
+        stamp_overflow_reason(&mut events, None, Some(&ai_limiter));
+
+        assert_eq!(events[0].metadata.overflow_reason, None);
+        assert_eq!(events[1].metadata.overflow_reason, None);
     }
 
     #[test]

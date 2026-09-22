@@ -17,7 +17,7 @@ use serde_json;
 use tracing::{error, instrument, warn, Span};
 use uuid::Uuid;
 
-use limiters::overflow::OverflowLimiter;
+use limiters::overflow::{ForcedOverflowKeys, OverflowLimiter};
 
 use crate::{
     api::CaptureError,
@@ -230,11 +230,11 @@ pub fn process_single_event(
 /// All routing policy lives here: token dropping, AI lane assignment
 /// (resolved into `DataType::AiEvents` at classification time), event
 /// restrictions, the AI lane's per-project byte budget, global rate
-/// limiting (per `token:distinct_id`), historical rerouting, and per-key
-/// overflow rerouting via [`OverflowLimiter`]. Overflow stamping
+/// limiting (per `token:distinct_id`), historical rerouting, and overflow
+/// rerouting of forced keys. Overflow stamping
 /// goes through the shared [`stamp_overflow_reason`] helper, which the AI
 /// (`ai_endpoint::ai_handler`) and OTEL (`otel::otel_handler`) paths also
-/// call so every `DataType::AnalyticsMain` event gets identical limiter
+/// call so every `DataType::AnalyticsMain` event gets identical overflow
 /// semantics regardless of entry point. The kafka sink is a pure mechanism
 /// layer — it reads `ProcessedEventMetadata::data_type`,
 /// `overflow_reason`, `force_overflow`, `redirect_to_dlq`, and
@@ -247,7 +247,7 @@ pub async fn process_events(
     restriction_service: Option<EventRestrictionService>,
     historical_cfg: router::HistoricalConfig,
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
-    overflow_limiter: Option<Arc<OverflowLimiter>>,
+    overflow_forced_keys: Option<Arc<ForcedOverflowKeys>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
     events: Vec<RawEvent>,
@@ -268,7 +268,7 @@ pub async fn process_events(
         restriction_service,
         historical_cfg,
         global_rate_limiter,
-        overflow_limiter,
+        overflow_forced_keys,
         ai_events_overflow_limiter,
         ingestion_warning_emitter,
         events,
@@ -290,7 +290,7 @@ async fn process_events_inner(
     restriction_service: Option<EventRestrictionService>,
     historical_cfg: router::HistoricalConfig,
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
-    overflow_limiter: Option<Arc<OverflowLimiter>>,
+    overflow_forced_keys: Option<Arc<ForcedOverflowKeys>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
     events: Vec<RawEvent>,
@@ -497,7 +497,7 @@ async fn process_events_inner(
     //
     // DIVERGENCE from v1 (`v1::analytics::process`), intentional and out of scope
     // to reconcile here — a future routing refactor must not assume parity:
-    //   1. Ordering: legacy runs this GRL step BEFORE burst overflow stamping
+    //   1. Ordering: legacy runs this GRL step BEFORE overflow stamping
     //      (`stamp_overflow_reason` below); v1 runs the GRL AFTER its overflow
     //      stamping. Both set overflow_reason on AnalyticsMain only, so the
     //      end state matches, but the pass order differs.
@@ -599,16 +599,15 @@ async fn process_events_inner(
         }
     }
 
-    // Overflow routing stage. This used to live in the kafka sink's
-    // prepare_record; moving it here keeps the sink free of policy and
-    // co-locates overflow with every other pipeline-level routing decision.
-    // The stamping helper is shared with the AI (`ai_endpoint::ai_handler`)
-    // and OTEL (`otel::otel_handler`) paths so every handler that emits
-    // `DataType::AnalyticsMain` events gets identical limiter semantics and
+    // Overflow routing stage, co-located with every other pipeline-level
+    // routing decision so the sink stays free of policy. The stamping helper
+    // is shared with the AI (`ai_endpoint::ai_handler`) and OTEL
+    // (`otel::otel_handler`) paths so every handler that emits
+    // `DataType::AnalyticsMain` events gets identical overflow semantics and
     // metric labels — see `events::overflow_stamping`.
     stamp_overflow_reason(
         &mut events,
-        overflow_limiter.as_ref(),
+        overflow_forced_keys.as_ref(),
         ai_events_overflow_limiter.as_ref(),
     );
 
@@ -731,7 +730,7 @@ mod tests {
         restriction_service: Option<EventRestrictionService>,
         historical_cfg: router::HistoricalConfig,
         global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
-        overflow_limiter: Option<Arc<OverflowLimiter>>,
+        overflow_forced_keys: Option<Arc<ForcedOverflowKeys>>,
         ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
         ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
         ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
@@ -744,7 +743,7 @@ mod tests {
                 restriction_service: None,
                 historical_cfg: router::HistoricalConfig::new(false, 1),
                 global_rate_limiter: None,
-                overflow_limiter: None,
+                overflow_forced_keys: None,
                 ai_events_overflow_limiter: None,
                 ingestion_warning_emitter: None,
                 ai_byte_rate_limiter: None,
@@ -764,7 +763,7 @@ mod tests {
             options.restriction_service,
             options.historical_cfg,
             options.global_rate_limiter,
-            options.overflow_limiter,
+            options.overflow_forced_keys,
             options.ai_events_overflow_limiter,
             options.ingestion_warning_emitter,
             events,
@@ -2340,11 +2339,13 @@ mod tests {
     }
 
     // ============ overflow_reason stamping tests ============
-    // These exercise the analytics pipeline's new overflow stamping stage
-    // (the logic that used to live in the kafka sink's prepare_record).
-    // Each case constructs a `process_events` call with a specific
-    // `OverflowLimiter` configuration and asserts the stamped
-    // `overflow_reason` on the sink-captured event.
+    // These exercise the analytics pipeline's overflow stamping stage. Each
+    // case runs `process_events` with a specific overflow configuration and
+    // asserts the stamped `overflow_reason` on the sink-captured event.
+
+    fn build_forced_keys(keys: &str) -> Arc<ForcedOverflowKeys> {
+        Arc::new(ForcedOverflowKeys::new(Some(keys.to_string())))
+    }
 
     fn build_limiter(
         per_second: u32,
@@ -2389,7 +2390,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_overflow_stamp_force_limited_when_token_in_reroute_list() {
+    async fn test_overflow_stamp_force_limited_when_token_in_forced_key_list() {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -2401,15 +2402,14 @@ mod tests {
         )];
 
         let sink = MockSink::new();
-        // test_token is in the reroute list -> ForceLimited
-        let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
+        let forced_keys = build_forced_keys("test_token");
 
         run_pipeline(
             Arc::new(OutputRegistry::single(sink.clone())),
             events,
             &context,
             PipelineOptions {
-                overflow_limiter: Some(limiter),
+                overflow_forced_keys: Some(forced_keys),
                 ..Default::default()
             },
         )
@@ -2479,7 +2479,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_overflow_stamp_rate_limited_when_burst_exceeded() {
+    async fn test_overflow_stamp_none_for_unforced_key_regardless_of_volume() {
+        // The analytics lane reroutes only the operator's forced keys; a key
+        // that is merely busy is the global rate limiter's business.
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -2487,18 +2489,17 @@ mod tests {
         let events = vec![
             create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None),
             create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None),
+            create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None),
         ];
 
         let sink = MockSink::new();
-        // burst of 1 -> first event passes, second event rate-limited
-        let limiter = build_limiter(1, 1, None, true);
 
         run_pipeline(
             Arc::new(OutputRegistry::single(sink.clone())),
             events,
             &context,
             PipelineOptions {
-                overflow_limiter: Some(limiter),
+                overflow_forced_keys: Some(build_forced_keys("some_other_token")),
                 ..Default::default()
             },
         )
@@ -2506,55 +2507,16 @@ mod tests {
         .unwrap();
 
         let captured = sink.get_events();
-        assert_eq!(captured.len(), 2);
-        assert_eq!(captured[0].metadata.overflow_reason, None);
-        assert_eq!(
-            captured[1].metadata.overflow_reason,
-            Some(OverflowReason::RateLimited {
-                preserve_locality: true,
-            })
-        );
+        assert_eq!(captured.len(), 3);
+        for (i, event) in captured.iter().enumerate() {
+            assert_eq!(event.metadata.overflow_reason, None, "event[{i}]");
+        }
     }
 
     #[tokio::test]
-    async fn test_overflow_stamp_preserve_locality_false_propagates() {
-        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
-        let context = create_test_context(now, None);
-        let events = vec![
-            create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None),
-            create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None),
-        ];
-
-        let sink = MockSink::new();
-        let limiter = build_limiter(1, 1, None, false);
-
-        run_pipeline(
-            Arc::new(OutputRegistry::single(sink.clone())),
-            events,
-            &context,
-            PipelineOptions {
-                overflow_limiter: Some(limiter),
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
-
-        let captured = sink.get_events();
-        assert_eq!(
-            captured[1].metadata.overflow_reason,
-            Some(OverflowReason::RateLimited {
-                preserve_locality: false,
-            })
-        );
-    }
-
-    #[tokio::test]
-    async fn test_overflow_stamp_force_overflow_short_circuits_limiter() {
+    async fn test_overflow_stamp_force_overflow_short_circuits_forced_key_check() {
         // When event restrictions set force_overflow, the pipeline short-
-        // circuits the limiter check and leaves overflow_reason = None. The
+        // circuits the forced-key check and leaves overflow_reason = None. The
         // sink routes on force_overflow directly in this case.
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
@@ -2567,8 +2529,7 @@ mod tests {
         )];
 
         let sink = MockSink::new();
-        // Even with a limiter that would flag this token, force_overflow wins.
-        let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
+        let forced_keys = build_forced_keys("test_token");
 
         let service =
             EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
@@ -2590,7 +2551,7 @@ mod tests {
             &context,
             PipelineOptions {
                 restriction_service: Some(service),
-                overflow_limiter: Some(limiter),
+                overflow_forced_keys: Some(forced_keys),
                 ..Default::default()
             },
         )
@@ -2606,7 +2567,7 @@ mod tests {
     #[tokio::test]
     async fn test_overflow_stamp_skipped_for_non_analytics_main() {
         // Historical, heatmap, exception, etc. events should never be stamped
-        // with an overflow_reason even if the limiter would otherwise hit.
+        // with an overflow_reason even when their key is force-routed.
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -2619,14 +2580,13 @@ mod tests {
         )];
 
         let sink = MockSink::new();
-        let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
 
         run_pipeline(
             Arc::new(OutputRegistry::single(sink.clone())),
             events,
             &context,
             PipelineOptions {
-                overflow_limiter: Some(limiter),
+                overflow_forced_keys: Some(build_forced_keys("test_token")),
                 ..Default::default()
             },
         )
@@ -2642,13 +2602,13 @@ mod tests {
         assert_eq!(captured[0].metadata.overflow_reason, None);
     }
 
-    // ============ global rate limiter x overflow limiter interplay ============
+    // ============ global rate limiter x forced keys interplay ============
 
     #[tokio::test]
-    async fn test_overflow_stamp_global_rate_limiter_and_overflow_interplay() {
-        // Global RL stamps skip_person_processing + ForceLimited on both events;
-        // the overflow limiter (burst=1) then overwrites event[1] with
-        // RateLimited. Either way both reach overflow with the skip-person header.
+    async fn test_overflow_stamp_global_rate_limiter_and_forced_key_interplay() {
+        // Global RL stamps skip_person_processing + ForceLimited; the
+        // forced-key check then re-stamps the same reason. Both events reach
+        // overflow with the skip-person header either way.
 
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
@@ -2665,17 +2625,13 @@ mod tests {
         // Global RL: limits (test_token, test_user) -> key `test_token:test_user`.
         let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
 
-        // Overflow limiter: burst=1, preserve_locality=true -> event[1]
-        // stamped RateLimited{preserve_locality: true}.
-        let overflow_limiter = build_limiter(1, 1, None, true);
-
         run_pipeline(
             Arc::new(OutputRegistry::single(sink.clone())),
             events,
             &context,
             PipelineOptions {
                 global_rate_limiter: Some(global_limiter),
-                overflow_limiter: Some(overflow_limiter),
+                overflow_forced_keys: Some(build_forced_keys("test_token")),
                 ..Default::default()
             },
         )
@@ -2685,37 +2641,23 @@ mod tests {
         let captured = sink.get_events();
         assert_eq!(captured.len(), 2);
 
-        // event[0]: global RL stamps skip_person_processing + ForceLimited; within
-        // the overflow limiter's burst, so the ForceLimited stamp survives.
-        assert!(
-            captured[0].metadata.skip_person_processing,
-            "event[0]: global RL should set skip_person_processing"
-        );
-        assert_eq!(
-            captured[0].metadata.overflow_reason,
-            Some(OverflowReason::ForceLimited),
-            "event[0]: global RL reroutes the hot key to overflow via ForceLimited"
-        );
-
-        // event[1]: BOTH stamps fire. skip_person_processing from global RL,
-        // overflow_reason=RateLimited{preserve_locality: true} from OverflowLimiter.
-        assert!(
-            captured[1].metadata.skip_person_processing,
-            "event[1]: global RL should set skip_person_processing"
-        );
-        assert_eq!(
-            captured[1].metadata.overflow_reason,
-            Some(OverflowReason::RateLimited {
-                preserve_locality: true,
-            }),
-            "event[1]: overflow limiter should stamp RateLimited{{preserve_locality: true}}"
-        );
+        for (i, event) in captured.iter().enumerate() {
+            assert!(
+                event.metadata.skip_person_processing,
+                "event[{i}]: both stages disable person processing"
+            );
+            assert_eq!(
+                event.metadata.overflow_reason,
+                Some(OverflowReason::ForceLimited),
+                "event[{i}]: rerouted to overflow via ForceLimited"
+            );
+        }
     }
 
     #[tokio::test]
     async fn global_rate_limit_reroutes_analytics_main_to_overflow() {
         // A globally rate-limited AnalyticsMain event is rerouted to overflow via
-        // ForceLimited even with no OverflowLimiter configured.
+        // ForceLimited even with no forced-key list configured.
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -3242,15 +3184,12 @@ mod tests {
             producer.clone(),
             test_topics(),
         )));
-        // test_token in reroute list -> ForceLimited stamped in pipeline.
-        let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
-
         run_pipeline(
             outputs,
             events,
             &context,
             PipelineOptions {
-                overflow_limiter: Some(limiter),
+                overflow_forced_keys: Some(build_forced_keys("test_token")),
                 ..Default::default()
             },
         )
@@ -3271,65 +3210,6 @@ mod tests {
             records[0].headers.force_disable_person_processing,
             Some(true),
             "ForceLimited must set force_disable_person_processing header"
-        );
-    }
-
-    /// A person-on burst keeps its key on either locality setting: the
-    /// overflow consumer updates persons keyed on distinct id, so spreading
-    /// one distinct id across partitions would contend those updates.
-    #[rstest]
-    #[case::preserving_locality(true)]
-    #[case::spreading(false)]
-    #[tokio::test]
-    async fn e2e_rate_limited_pipeline_to_sink_keeps_key_while_person_on(
-        #[case] preserve_locality: bool,
-    ) {
-        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
-        let context = create_test_context(now, None);
-        let events = vec![
-            create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None),
-            create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None),
-        ];
-
-        let producer = MockKafkaProducer::new();
-        let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
-            producer.clone(),
-            test_topics(),
-        )));
-        // burst=1 => event[1] stamped RateLimited { preserve_locality }.
-        let limiter = build_limiter(1, 1, None, preserve_locality);
-
-        run_pipeline(
-            outputs,
-            events,
-            &context,
-            PipelineOptions {
-                overflow_limiter: Some(limiter),
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
-
-        let records = producer.get_records();
-        assert_eq!(records.len(), 2);
-        assert_eq!(
-            records[0].topic, "events_plugin_ingestion",
-            "event[0]: within burst -> main topic"
-        );
-        assert_eq!(
-            records[1].topic, "events_plugin_ingestion_overflow",
-            "event[1]: over burst -> overflow topic"
-        );
-        assert!(
-            records[1].key.is_some(),
-            "a person-on burst must keep its partition key"
-        );
-        assert!(
-            records[1].headers.force_disable_person_processing.is_none(),
-            "RateLimited (non-Force) must NOT set force_disable_person_processing"
         );
     }
 

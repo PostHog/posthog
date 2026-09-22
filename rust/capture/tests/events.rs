@@ -1,4 +1,3 @@
-use std::num::NonZeroU32;
 use std::time::Duration as StdDuration;
 use time::Duration;
 
@@ -333,7 +332,7 @@ async fn it_overflows_events_on_specified_keys() -> Result<()> {
     let distinct_id2 = String::from("user2");
     let key2 = format!("{token2}:{distinct_id2}");
 
-    // won't be limited other than by burst/rate-limits
+    // not on the candidate list, so never rerouted
     let token3 = String::from("token3");
     let distinct_id3 = String::from("user3");
 
@@ -350,8 +349,6 @@ async fn it_overflows_events_on_specified_keys() -> Result<()> {
     config.kafka.kafka_topic = topic.topic_name().to_string();
     config.kafka.kafka_overflow_topic = overflow_topic.topic_name().to_string();
     config.overflow_enabled = true;
-    config.overflow_burst_limit = NonZeroU32::new(10).unwrap();
-    config.overflow_per_second_limit = NonZeroU32::new(10).unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -501,262 +498,6 @@ async fn it_overflows_events_on_specified_keys() -> Result<()> {
 }
 
 #[tokio::test]
-async fn it_overflows_events_on_specified_keys_preserving_locality() -> Result<()> {
-    setup_tracing();
-
-    // token only will be limited by candidate list
-    let token1 = String::from("token1");
-    let distinct_id1 = String::from("user1");
-
-    // token:distinct_id will be limited by candidate list
-    let token2 = String::from("token2");
-    let distinct_id2 = String::from("user2");
-    let key2 = format!("{token2}:{distinct_id2}");
-
-    // won't be limited other than by burst/rate-limits
-    let token3 = String::from("token3");
-    let distinct_id3 = String::from("user3");
-
-    let topic = EphemeralTopic::new().await;
-    let overflow_topic = EphemeralTopic::new().await;
-
-    let mut config = DEFAULT_CONFIG.clone();
-    // this is the candidate list of tokens/event keys to reroute on sight
-    config.ingestion_force_overflow_by_token_distinct_id = Some(format!("{token1},{key2}"));
-    config.kafka.kafka_hosts = "localhost:9092".to_string();
-    config.kafka.kafka_producer_linger_ms = 0; // Send messages immediately
-    config.kafka.kafka_message_timeout_ms = 10000; // 10s timeout
-    config.kafka.kafka_producer_max_retries = 3;
-    config.kafka.kafka_topic = topic.topic_name().to_string();
-    config.kafka.kafka_overflow_topic = overflow_topic.topic_name().to_string();
-    config.overflow_enabled = true;
-    config.overflow_preserve_partition_locality = true;
-    config.overflow_burst_limit = NonZeroU32::new(10).unwrap();
-    config.overflow_per_second_limit = NonZeroU32::new(10).unwrap();
-
-    let server = ServerHandle::for_config(config).await;
-
-    let batch_1 = json!([
-    // all events with token1 should be in overflow
-    {
-        "token": token1,
-        "event": "event1",
-        "distinct_id": distinct_id1,
-    },
-    {
-        "token": token1,
-        "event": "event2",
-        "distinct_id": distinct_id2,
-    }]);
-
-    let batch_2 = json!([
-    // only events with token2:distinct_id2 should be in overflow
-    {
-        "token": token2,
-        "event": "event3",
-        "distinct_id": distinct_id2,
-    },
-    {
-        "token": token2,
-        "event": "event4",
-        "distinct_id": distinct_id1,
-    }]);
-
-    let batch_3 = json!([
-    // all events for token3 and token3:distinct_id3 should be in main topic
-    {
-        "token": token3,
-        "event": "event5",
-        "distinct_id": distinct_id1,
-    },
-    {
-        "token": token3,
-        "event": "event6",
-        "distinct_id": distinct_id2,
-    },
-    {
-        "token": token3,
-        "event": "event7",
-        "distinct_id": distinct_id3,
-    }]);
-
-    let res = server.capture_events(batch_1.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
-
-    let res = server.capture_events(batch_2.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
-
-    let res = server.capture_events(batch_3.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
-
-    // main topic results - should NOT have force_disable_person_processing header
-    let (event, headers) = topic.next_message_with_headers()?;
-    assert_json_include!(
-        actual: event,
-        expected: json!({
-            "token": token2,
-            "distinct_id": distinct_id1,
-        })
-    );
-    assert!(!headers.contains_key("force_disable_person_processing"));
-
-    let (event, headers) = topic.next_message_with_headers()?;
-    assert_json_include!(
-        actual: event,
-        expected: json!({
-            "token": token3,
-            "distinct_id": distinct_id1,
-        })
-    );
-    assert!(!headers.contains_key("force_disable_person_processing"));
-
-    let (event, headers) = topic.next_message_with_headers()?;
-    assert_json_include!(
-        actual: event,
-        expected: json!({
-            "token": token3,
-            "distinct_id": distinct_id2,
-        })
-    );
-    assert!(!headers.contains_key("force_disable_person_processing"));
-
-    let (event, headers) = topic.next_message_with_headers()?;
-    assert_json_include!(
-        actual: event,
-        expected: json!({
-            "token": token3,
-            "distinct_id": distinct_id3,
-        })
-    );
-    assert!(!headers.contains_key("force_disable_person_processing"));
-
-    topic.assert_empty();
-
-    // Overflow events should have force_disable_person_processing header set to "true"
-    // and should retain original partition keys when locality is preserved
-    let (event, headers) = overflow_topic.next_message_with_headers()?;
-    assert_json_include!(
-        actual: event,
-        expected: json!({
-            "token": token1,
-            "distinct_id": distinct_id1,
-        })
-    );
-    assert_eq!(
-        headers.get("force_disable_person_processing"),
-        Some(&"true".to_string()),
-        "Overflow events should have force_disable_person_processing set to true"
-    );
-
-    let (event, headers) = overflow_topic.next_message_with_headers()?;
-    assert_json_include!(
-        actual: event,
-        expected: json!({
-            "token": token1,
-            "distinct_id": distinct_id2,
-        })
-    );
-    assert_eq!(
-        headers.get("force_disable_person_processing"),
-        Some(&"true".to_string())
-    );
-
-    let (event, headers) = overflow_topic.next_message_with_headers()?;
-    assert_json_include!(
-        actual: event,
-        expected: json!({
-            "token": token2,
-            "distinct_id": distinct_id2,
-        })
-    );
-    assert_eq!(
-        headers.get("force_disable_person_processing"),
-        Some(&"true".to_string())
-    );
-
-    overflow_topic.assert_empty();
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn it_should_not_set_force_disable_person_processing_header_when_rate_limited() -> Result<()>
-{
-    setup_tracing();
-
-    let token1 = String::from("token1");
-    let distinct_id1 = String::from("user1");
-
-    let topic = EphemeralTopic::new().await;
-    let overflow_topic = EphemeralTopic::new().await;
-
-    let mut config = DEFAULT_CONFIG.clone();
-    // NO forced overflow keys - only rate limiting
-    config.ingestion_force_overflow_by_token_distinct_id = None;
-    config.kafka.kafka_hosts = "localhost:9092".to_string();
-    config.kafka.kafka_producer_linger_ms = 0;
-    config.kafka.kafka_message_timeout_ms = 10000;
-    config.kafka.kafka_producer_max_retries = 3;
-    config.kafka.kafka_topic = topic.topic_name().to_string();
-    config.kafka.kafka_overflow_topic = overflow_topic.topic_name().to_string();
-    config.overflow_enabled = true;
-    // Very low limits to trigger rate-based overflow
-    config.overflow_burst_limit = NonZeroU32::new(1).unwrap();
-    config.overflow_per_second_limit = NonZeroU32::new(1).unwrap();
-
-    let server = ServerHandle::for_config(config).await;
-
-    // Send both events in a single batch to ensure rate limiting triggers
-    // First event goes to main, second should overflow
-    let events = json!([{
-        "token": token1,
-        "event": "event1",
-        "distinct_id": distinct_id1,
-    },{
-        "token": token1,
-        "event": "event2",
-        "distinct_id": distinct_id1,
-    }]);
-
-    let res = server.capture_events(events.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
-
-    // First event in main topic should NOT have the header
-    let (event, headers) = topic.next_message_with_headers()?;
-    assert_json_include!(
-        actual: event,
-        expected: json!({
-            "token": token1,
-            "distinct_id": distinct_id1,
-        })
-    );
-    assert!(
-        !headers.contains_key("force_disable_person_processing"),
-        "Main topic events should not have force_disable_person_processing header"
-    );
-
-    topic.assert_empty();
-
-    // Rate-limited overflow event should NOT have the header
-    let (event, headers) = overflow_topic.next_message_with_headers()?;
-    assert_json_include!(
-        actual: event,
-        expected: json!({
-            "token": token1,
-            "distinct_id": distinct_id1,
-        })
-    );
-    assert!(
-        !headers.contains_key("force_disable_person_processing"),
-        "Rate-limited overflow events should NOT have force_disable_person_processing header"
-    );
-
-    overflow_topic.assert_empty();
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn it_reroutes_to_historical_on_event_timestamp() -> Result<()> {
     setup_tracing();
 
@@ -768,7 +509,7 @@ async fn it_reroutes_to_historical_on_event_timestamp() -> Result<()> {
     let token2 = String::from("token2");
     let distinct_id2 = String::from("user2");
 
-    // won't be limited other than by burst/rate-limits
+    // not on the candidate list, so never rerouted
     let token3 = String::from("token3");
     let distinct_id3 = String::from("user3");
 
@@ -788,8 +529,6 @@ async fn it_reroutes_to_historical_on_event_timestamp() -> Result<()> {
     config.kafka.kafka_topic = topic.topic_name().to_string();
     config.kafka.kafka_historical_topic = historical_topic.topic_name().to_string();
     config.overflow_enabled = false;
-    config.overflow_burst_limit = NonZeroU32::new(10).unwrap();
-    config.overflow_per_second_limit = NonZeroU32::new(10).unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -848,118 +587,6 @@ async fn it_reroutes_to_historical_on_event_timestamp() -> Result<()> {
 }
 
 #[tokio::test]
-async fn it_overflows_events_on_burst() -> Result<()> {
-    setup_tracing();
-
-    let token = random_string("token", 16);
-    let distinct_id = random_string("id", 16);
-
-    let topic = EphemeralTopic::new().await;
-    let overflow_topic = EphemeralTopic::new().await;
-
-    let mut config = DEFAULT_CONFIG.clone();
-    config.kafka.kafka_hosts = "localhost:9092".to_string();
-    config.kafka.kafka_producer_linger_ms = 0; // Send messages immediately
-    config.kafka.kafka_message_timeout_ms = 10000; // 10s timeout
-    config.kafka.kafka_producer_max_retries = 3;
-    config.kafka.kafka_topic = topic.topic_name().to_string();
-    config.kafka.kafka_overflow_topic = overflow_topic.topic_name().to_string();
-    config.overflow_enabled = true;
-    config.overflow_burst_limit = NonZeroU32::new(2).unwrap();
-    config.overflow_per_second_limit = NonZeroU32::new(1).unwrap();
-
-    let server = ServerHandle::for_config(config).await;
-
-    let events = json!([{
-        "token": token,
-        "event": "event1",
-        "distinct_id": distinct_id,
-    },{
-        "token": token,
-        "event": "event2",
-        "distinct_id": distinct_id,
-    },
-    {
-        "token": token,
-        "event": "event3_to_overflow",
-        "distinct_id": distinct_id,
-    }]);
-
-    let res = server.capture_events(events.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
-
-    // First two events should go to main topic
-    assert_eq!(
-        topic.next_message_key()?.unwrap(),
-        format!("{token}:{distinct_id}")
-    );
-
-    assert_eq!(
-        topic.next_message_key()?.unwrap(),
-        format!("{token}:{distinct_id}")
-    );
-
-    topic.assert_empty();
-
-    // Third event should be in overflow topic. Locality is off for this
-    // test, but a person-on burst keeps its key anyway: the overflow
-    // consumer updates persons keyed on distinct id, so the key only drops
-    // once person processing is off.
-    assert_eq!(
-        overflow_topic.next_message_key()?.unwrap(),
-        format!("{token}:{distinct_id}")
-    );
-
-    overflow_topic.assert_empty();
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn it_does_not_overflow_team_with_different_ids() -> Result<()> {
-    setup_tracing();
-
-    let token = random_string("token", 16);
-    let distinct_id = random_string("id", 16);
-    let distinct_id2 = random_string("id", 16);
-
-    let topic = EphemeralTopic::new().await;
-
-    let mut config = DEFAULT_CONFIG.clone();
-    config.kafka.kafka_topic = topic.topic_name().to_string();
-    config.overflow_enabled = true;
-    config.overflow_burst_limit = NonZeroU32::new(1).unwrap();
-    config.overflow_per_second_limit = NonZeroU32::new(1).unwrap();
-
-    let server = ServerHandle::for_config(config).await;
-
-    let event = json!([{
-        "token": token,
-        "event": "event1",
-        "distinct_id": distinct_id
-    },{
-        "token": token,
-        "event": "event2",
-        "distinct_id": distinct_id2
-    }]);
-
-    let res = server.capture_events(event.to_string()).await;
-    assert_eq!(StatusCode::OK, res.status());
-
-    assert_eq!(
-        topic.next_message_key()?.unwrap(),
-        format!("{token}:{distinct_id}")
-    );
-
-    assert_eq!(
-        topic.next_message_key()?.unwrap(),
-        format!("{token}:{distinct_id2}")
-    );
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn it_skips_overflows_when_disabled() -> Result<()> {
     setup_tracing();
 
@@ -972,9 +599,10 @@ async fn it_skips_overflows_when_disabled() -> Result<()> {
     let mut config = DEFAULT_CONFIG.clone();
     config.kafka.kafka_topic = topic.topic_name().to_string();
     config.kafka.kafka_overflow_topic = overflow_topic.topic_name().to_string();
+    // The token is on the forced-overflow list, but OVERFLOW_ENABLED=false
+    // takes the whole reroute away.
+    config.ingestion_force_overflow_by_token_distinct_id = Some(token.clone());
     config.overflow_enabled = false;
-    config.overflow_burst_limit = NonZeroU32::new(2).unwrap();
-    config.overflow_per_second_limit = NonZeroU32::new(1).unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -985,10 +613,6 @@ async fn it_skips_overflows_when_disabled() -> Result<()> {
     },{
         "token": token,
         "event": "event2",
-        "distinct_id": distinct_id
-    },{
-        "token": token,
-        "event": "event3",
         "distinct_id": distinct_id
     }]);
 
@@ -1005,11 +629,7 @@ async fn it_skips_overflows_when_disabled() -> Result<()> {
         format!("{token}:{distinct_id}")
     );
 
-    // Should have triggered overflow, but has not
-    assert_eq!(
-        topic.next_message_key()?.unwrap(),
-        format!("{token}:{distinct_id}")
-    );
+    overflow_topic.assert_empty();
     Ok(())
 }
 

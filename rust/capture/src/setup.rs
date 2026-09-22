@@ -27,7 +27,7 @@ use crate::sinks::kafka::KafkaSink;
 use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
-use limiters::overflow::OverflowLimiter;
+use limiters::overflow::{ForcedOverflowKeys, OverflowLimiter};
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
 
@@ -241,39 +241,18 @@ pub async fn build_components(
         CaptureMode::Recordings => config.kafka.kafka_producer_message_max_bytes as usize,
     };
 
-    // Build the overflow limiters here (not inside the sink) so routing
+    // Build the overflow routing inputs here (not inside the sink) so routing
     // policy lives in `router::State` alongside every other pipeline-level
-    // decision. The kafka sink used to own these; after the refactor it is
-    // a pure mechanism layer and reads `metadata.overflow_reason` that the
-    // pipeline stamps upstream. See `router::State::overflow_limiter` and
+    // decision. The kafka sink is a pure mechanism layer and reads
+    // `metadata.overflow_reason` that the pipeline stamps upstream. See
+    // `router::State::overflow_forced_keys` and
     // `router::State::replay_overflow_limiter`.
-    let overflow_limiter: Option<Arc<OverflowLimiter>> = if config.overflow_enabled {
-        let partition = OverflowLimiter::new(
-            config.overflow_per_second_limit,
-            config.overflow_burst_limit,
-            config.ingestion_force_overflow_by_token_distinct_id.clone(),
-            config.overflow_preserve_partition_locality,
-        );
-
-        if config.export_prometheus {
-            let partition = partition.clone();
-            tokio::spawn(async move {
-                partition.report_metrics("analytics").await;
-            });
-        }
-
-        {
-            // Keep the governor's per-key state from growing unbounded.
-            let partition = partition.clone();
-            tokio::spawn(async move {
-                partition.clean_state().await;
-            });
-        }
-
-        Some(Arc::new(partition))
-    } else {
-        None
-    };
+    let overflow_forced_keys: Option<Arc<ForcedOverflowKeys>> =
+        config.overflow_enabled.then(|| {
+            Arc::new(ForcedOverflowKeys::new(
+                config.ingestion_force_overflow_by_token_distinct_id.clone(),
+            ))
+        });
 
     let replay_overflow_limiter: Option<Arc<RedisLimiter>> = match config.capture_mode {
         CaptureMode::Recordings => Some(Arc::new(
@@ -319,10 +298,9 @@ pub async fn build_components(
         "AI events topic routing"
     );
 
-    // The AI lane gets its own limiter instance with the same knobs: the
-    // governor state (per-`token:distinct_id` budgets) is what must stay
-    // isolated, so analytics volume can never push a key's AI events into
-    // AI overflow and AI volume never burns the analytics budget.
+    // The AI lane carries a per-`token:distinct_id` token bucket on top of the
+    // forced-key list: an AI event costs a downstream consumer far more than
+    // an analytics event, so a bursting key is rerouted on volume alone.
     let ai_events_overflow_limiter: Option<Arc<OverflowLimiter>> =
         if config.overflow_enabled && ai_events_overflow_enabled {
             let limiter = OverflowLimiter::new(
@@ -403,7 +381,7 @@ pub async fn build_components(
         config.body_read_chunk_size_kb,
         config.capture_v1_max_compressed_body_bytes,
         config.capture_v1_max_decompressed_body_bytes,
-        overflow_limiter,
+        overflow_forced_keys,
         ai_events_overflow_limiter,
         ai_byte_rate_limiter,
         replay_overflow_limiter,
