@@ -13,3 +13,5 @@ Materialized CTEs share the pageview identity scan between reach and credit, and
 Queries that override the session table version or v2 join mode fall back to live attribution when they differ from the writer. AUTO and v2 share the same session semantics. Custom channel rules on either the query or the team, and disabled project-timezone conversion, also use the live path. Identity and execution-only modifiers do not invalidate cached dimensions.
 
 Live and cached pageview scans include the full final second of the selected date range, matching conversion filters. This also applies to explicit fractional date bounds and pageview conversion goals.
+If either date boundary falls within a repeated local hour at a daylight saving transition, the reader uses live attribution because conversion filters parse dates without a UTC offset.
+Ranges that cross a transition can still use cached dimensions when both boundaries are unambiguous.

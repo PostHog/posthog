@@ -242,6 +242,34 @@ class TestAttributionSessionsRead(SimpleTestCase):
         ensure.assert_not_called()
         self.coverage.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("America/New_York", "2025-11-02T01:30:00-04:00", "2025-11-03", True, True),
+            ("America/New_York", "2025-11-02T01:30:00-05:00", "2025-11-03", True, True),
+            ("America/New_York", "2025-11-01", "2025-11-02T01:30:00-04:00", True, True),
+            ("America/New_York", "2025-11-01", "2025-11-02T01:30:00-05:00", True, True),
+            ("America/New_York", "2025-11-01", "2025-11-03", False, False),
+            ("America/Santiago", "2025-04-04", "2025-04-05", False, True),
+            ("America/Santiago", "2025-04-04", "2025-04-06", False, False),
+        ]
+    )
+    def test_ambiguous_date_boundaries_fall_back(
+        self, timezone: str, date_from: str, date_to: str, explicit: bool, ambiguous: bool
+    ) -> None:
+        self.team.timezone = timezone
+        runner = MarketingAnalyticsAttributionQueryRunner(
+            team=self.team,
+            query=MarketingAnalyticsAttributionQuery(
+                conversionGoalId="goal",
+                properties=[],
+                lookbackWindowDays=4,
+                dateRange=DateRange(date_from=date_from, date_to=date_to, explicitDate=explicit),
+            ),
+        )
+        assert attribution_sessions_read.ineligible_reason(runner, runner.query_date_range) == (
+            "ambiguous_date_boundary" if ambiguous else None
+        )
+
     def test_classifier_changes_invalidate_shared_query_identity(self) -> None:
         def identity() -> str:
             query = parse_select(

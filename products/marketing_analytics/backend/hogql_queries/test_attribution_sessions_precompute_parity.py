@@ -561,6 +561,62 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         assert used is expected_cached
         assert cached == live == {source: _AttributionCounts(visitors=1, conversions=1)}
 
+    @parameterized.expand(["start", "end"])
+    def test_ambiguous_date_boundary_preserves_live_attribution(self, boundary: str) -> None:
+        self.team.timezone = "America/New_York"
+        date_range = DateRange(
+            date_from="2025-11-02T01:30:00-05:00" if boundary == "start" else "2025-11-01T00:00:00-04:00",
+            date_to="2025-11-02T01:30:00-05:00" if boundary == "end" else "2025-11-03T00:00:00-05:00",
+            explicitDate=True,
+        )
+        create_person(team=self.team, distinct_ids=["ambiguous-boundary"])
+        pageview_at = (
+            datetime(2025, 10, 29, 6, tzinfo=UTC) if boundary == "start" else datetime(2025, 11, 2, 6, tzinfo=UTC)
+        )
+        session_id = str(uuid7(pageview_at.strftime("%Y-%m-%dT%H:%M:%SZ")))
+        _create_event(
+            team=self.team,
+            distinct_id="ambiguous-boundary",
+            event="$pageview",
+            timestamp=pageview_at,
+            properties={"$session_id": session_id, "utm_campaign": "boundary"},
+        )
+        if boundary == "end":
+            _create_event(
+                team=self.team,
+                distinct_id="ambiguous-boundary",
+                event="$autocapture",
+                timestamp=datetime(2025, 11, 2, 4, tzinfo=UTC),
+                properties={"$session_id": session_id, "utm_campaign": "boundary"},
+            )
+        self._conversion("ambiguous-boundary", datetime(2025, 11, 2, 5, 40 if boundary == "start" else 0, tzinfo=UTC))
+        flush_persons_and_events()
+        materialized = ensure_marketing_sessions_precomputed(
+            self.team, datetime(2025, 10, 27, tzinfo=UTC), datetime(2025, 11, 4, tzinfo=UTC)
+        )
+        assert materialized.ready, materialized.errors
+        for query_type, runner_type in (
+            (MarketingAnalyticsAttributionQuery, MarketingAnalyticsAttributionQueryRunner),
+            (MarketingAnalyticsAttributionPathsQuery, MarketingAnalyticsAttributionPathsQueryRunner),
+        ):
+            responses = []
+            for precomputed in (False, True):
+                runner = runner_type(
+                    query=query_type(
+                        dateRange=date_range,
+                        breakdownBy=MarketingAnalyticsAttributionBreakdown.CAMPAIGN,
+                        conversionGoalId=GOAL_ID,
+                        properties=[],
+                    ),
+                    team=self.team,
+                )
+                runner.config.sessions_precomputation_enabled = precomputed
+                response = runner.calculate()
+                assert not runner._sessions_precompute_used
+                assert response.totalConversions == 1
+                responses.append(response.results)
+            self.assertCountEqual(responses[0], responses[1])
+
     @parameterized.expand([(goal, explicit) for goal in ("purchase", "$pageview") for explicit in (False, True)])
     def test_fractional_boundary_events_match_conversion_date_precision(self, goal: str, explicit: bool) -> None:
         config = self.team.marketing_analytics_config

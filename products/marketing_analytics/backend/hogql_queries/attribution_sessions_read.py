@@ -100,6 +100,13 @@ def ineligible_reason(runner: "AttributionQueryRunnerBase", date_range: QueryDat
         # mid-bucket and moves sessions across each edge.
         return "non_integer_timezone"
 
+    # Live date filters omit the UTC offset, so repeated local hours can resolve to another instant.
+    if any(
+        bound.replace(fold=0).utcoffset() != bound.replace(fold=1).utcoffset()
+        for bound in (date_range.date_from(), date_range.date_to())
+    ):
+        return "ambiguous_date_boundary"
+
     if team_has_property_access_rules(team_id=runner.team.id):
         # The rows are userless and shared, so they cannot honor per-user property restrictions.
         return "property_access_controlled"
