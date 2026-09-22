@@ -21,7 +21,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ErrorResponseSerializer, action
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
-from posthog.models.filters.filter import Filter
+from posthog.models.property.parse import parse_property_group_data
 from posthog.rate_limit import CopyFlagsBurstRateThrottle, CopyFlagsSustainedRateThrottle
 from posthog.user_permissions import UserPermissions
 from posthog.utils import safe_int
@@ -1249,9 +1249,7 @@ class OrganizationFeatureFlagView(
 
                 # create new cohort in the destination project
                 if not destination_cohort:
-                    prop_group = Filter(
-                        data={"properties": original_cohort.properties.to_dict(), "is_simplified": True}
-                    ).property_groups
+                    prop_group = parse_property_group_data(original_cohort.properties.to_dict())
 
                     for prop in prop_group.flat:
                         if prop.type == "cohort" and not isinstance(prop.value, list):
