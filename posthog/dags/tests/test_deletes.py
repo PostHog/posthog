@@ -8,6 +8,7 @@ import time_machine
 from unittest.mock import patch
 
 from django.conf import settings as django_settings
+from django.utils import timezone
 
 import dagster
 from clickhouse_driver import Client
@@ -36,6 +37,7 @@ from posthog.dags.deletes import (
     manual_deletes_job,
     mark_deletions_verified,
     monthly_old_events_cleanup_job,
+    prune_verified_deletions,
     resolve_sweep_targets,
     run_deletes_after_manual_trigger,
 )
@@ -1339,3 +1341,37 @@ def test_the_manual_trigger_sensor_launches_a_real_deletes_run():
     assert request.run_config == DELETES_RUN_CONFIG
     # One deletes_job per manual success: re-evaluating the same event must not launch another.
     assert request.run_key == "22222222-2222-2222-2222-222222222222"
+
+
+@pytest.mark.django_db
+def test_pruning_removes_only_requests_verified_before_the_cutoff():
+    now = timezone.now()
+    kept_pending = AsyncDeletion.objects.create(deletion_type=DeletionType.Person, team_id=1, key="pending")
+    kept_recent = AsyncDeletion.objects.create(
+        deletion_type=DeletionType.Person, team_id=1, key="recent", delete_verified_at=now - timedelta(days=1)
+    )
+    expired = AsyncDeletion.objects.create(
+        deletion_type=DeletionType.Person, team_id=1, key="expired", delete_verified_at=now - timedelta(days=91)
+    )
+
+    context = build_op_context(config={"retention_days": 90, "batch_size": 1, "max_rows": 100})
+    assert prune_verified_deletions(context, cleanup_complete=True) == 1
+    assert set(AsyncDeletion.objects.values_list("id", flat=True)) == {kept_pending.id, kept_recent.id}
+    assert not AsyncDeletion.objects.filter(id=expired.id).exists()
+
+
+@pytest.mark.django_db
+def test_pruning_stops_at_the_row_cap_and_leaves_the_rest():
+    verified_at = timezone.now() - timedelta(days=91)
+    AsyncDeletion.objects.bulk_create(
+        [
+            AsyncDeletion(
+                deletion_type=DeletionType.Person, team_id=1, key=f"expired-{i}", delete_verified_at=verified_at
+            )
+            for i in range(5)
+        ]
+    )
+
+    context = build_op_context(config={"retention_days": 90, "batch_size": 2, "max_rows": 3})
+    assert prune_verified_deletions(context, cleanup_complete=True) == 3
+    assert AsyncDeletion.objects.count() == 2

@@ -11,6 +11,11 @@ class DeletionType(models.IntegerChoices):
     Event = 5
 
 
+# Rows per INSERT when queueing deletions. ignore_conflicts makes every row probe both unique
+# indexes below, so a caller that queues tens of thousands at once needs the work split up.
+ASYNC_DELETION_INSERT_BATCH_SIZE = 1000
+
+
 # This model represents deletions that should delete (other, unrelated) data async
 class AsyncDeletion(models.Model):
     id = models.BigAutoField(primary_key=True)

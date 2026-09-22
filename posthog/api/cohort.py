@@ -74,7 +74,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.async_deletion import ASYNC_DELETION_INSERT_BATCH_SIZE, AsyncDeletion, DeletionType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import earliest_timestamp_func
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
@@ -1582,6 +1582,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                         for team_id in relevant_team_ids
                     ],
                     ignore_conflicts=True,
+                    # One deleted cohort queues a row per team in the project.
+                    batch_size=ASYNC_DELETION_INSERT_BATCH_SIZE,
                 )
             else:
                 AsyncDeletion.objects.filter(
