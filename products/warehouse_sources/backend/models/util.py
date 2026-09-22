@@ -35,8 +35,12 @@ class DatabaseFieldFactory(Protocol):
     def __call__(self, *args: Any, **kwargs: Any) -> DatabaseField: ...
 
 
-def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "DataWarehouseTable", None]:
+def get_view_or_table_by_name(
+    team, name, exclude_direct_access: bool = False
+) -> Union["DataWarehouseSavedQuery", "DataWarehouseTable", None]:
+    """``exclude_direct_access`` drops direct-connection tables, which the default HogQL scope hides."""
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
     table_names = [name]
@@ -48,13 +52,13 @@ def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "D
             # Support both `_` suffixed source prefix and without - e.g. postgres_table_name and postgrestable_name
             table_names = [f"{chain[1]}_{chain[0]}_{chain[2]}", f"{chain[1]}{chain[0]}_{chain[2]}"]
 
+    # `queryable()` ignores soft-deleted tables and orphans of a soft-deleted source.
+    tables = DataWarehouseTable.objects.queryable().filter(team=team, name__in=table_names)
+    if exclude_direct_access:
+        tables = tables.exclude(external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT)
     table: DataWarehouseSavedQuery | DataWarehouseTable | None = (
-        # `queryable()` ignores soft-deleted tables and orphans of a soft-deleted source.
-        DataWarehouseTable.objects.queryable()
-        .filter(team=team, name__in=table_names)
         # Deterministic resolution when more than one live table matches: newest wins.
-        .order_by("-created_at")
-        .first()
+        tables.order_by("-created_at").first()
     )
     if table is None:
         table = DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team=team, name=name).first()
@@ -197,6 +201,8 @@ CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "UInt16": IntegerDatabaseField,
     "UInt32": IntegerDatabaseField,
     "UInt64": IntegerDatabaseField,
+    "UInt128": IntegerDatabaseField,
+    "UInt256": IntegerDatabaseField,
     "Float8": FloatDatabaseField,
     "Float16": FloatDatabaseField,
     "Float32": FloatDatabaseField,
@@ -205,6 +211,8 @@ CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "Int16": IntegerDatabaseField,
     "Int32": IntegerDatabaseField,
     "Int64": IntegerDatabaseField,
+    "Int128": IntegerDatabaseField,
+    "Int256": IntegerDatabaseField,
     "Tuple": StringJSONDatabaseField,
     "Array": StringArrayDatabaseField,
     "Map": StringJSONDatabaseField,
@@ -212,7 +220,23 @@ CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "Decimal": DecimalDatabaseField,
     "FixedString": StringDatabaseField,
     "Enum8": StringDatabaseField,
+    "Enum16": StringDatabaseField,
+    "IPv4": StringDatabaseField,
+    "IPv6": StringDatabaseField,
+    "JSON": StringJSONDatabaseField,
+    "Variant": UnknownDatabaseField,
+    "Dynamic": UnknownDatabaseField,
 }
+
+
+def hogql_type_name_for_clickhouse_type(clickhouse_type: str) -> str:
+    """Resolve a ClickHouse type name to its HogQL field class name.
+
+    Types absent from ``CLICKHOUSE_HOGQL_MAPPING`` fall back to ``UnknownDatabaseField`` so an
+    unfamiliar column type downgrades to a usable column instead of raising ``KeyError``.
+    """
+    return CLICKHOUSE_HOGQL_MAPPING.get(clean_type(clickhouse_type), UnknownDatabaseField).__name__
+
 
 # Old-style column metadata stores only the ClickHouse type string and resolves through a
 # mapping on every query, so retyping UUID in CLICKHOUSE_HOGQL_MAPPING would flip every

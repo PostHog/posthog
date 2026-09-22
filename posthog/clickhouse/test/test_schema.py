@@ -1,11 +1,20 @@
 import re
+import json
 import uuid
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
+from django.conf import settings as django_settings
+
+from posthog.hogql.database.models import DatabaseField, Table
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_CLICKHOUSE_TABLE, FlagEvaluationsTable
+
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON, KAFKA_COLUMNS_WITH_PARTITION
+from posthog.clickhouse.logs import LOGS34_TO_VOLUME_BUCKETS_MV_SELECT
 from posthog.clickhouse.schema import (
     CREATE_KAFKA_TABLE_QUERIES,
     CREATE_MERGETREE_TABLE_QUERIES,
@@ -14,6 +23,7 @@ from posthog.clickhouse.schema import (
     build_query,
     get_table_name,
 )
+from posthog.models.event.person_property_mutation_sql import PERSON_PROPERTY_MUTATION_LOG_MV_SQL
 from posthog.models.event.sql import (
     EVENTS_JSON_TABLE_MV_SQL,
     KAFKA_EVENTS_NATIVE_JSON_TABLE,
@@ -23,6 +33,7 @@ from posthog.models.flag_evaluations.sql import (
     DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL,
     FLAG_EVALUATIONS_KAFKA_COLUMNS,
     FLAG_EVALUATIONS_MV_SQL,
+    FLAG_EVALUATIONS_TABLE,
     FLAG_EVALUATIONS_TABLE_SQL,
 )
 from posthog.settings.data_stores import SUFFIX
@@ -62,6 +73,101 @@ def test_events_json_table_uses_dedicated_kafka_consumer_group(settings):
     assert f"CREATE TABLE IF NOT EXISTS {KAFKA_EVENTS_NATIVE_JSON_TABLE}" in kafka_table_query
     assert f"kafka_group_name = '{CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON}'" in kafka_table_query
     assert f"FROM {settings.CLICKHOUSE_DATABASE}.{KAFKA_EVENTS_NATIVE_JSON_TABLE}" in mv_query
+    assert "JSONCleanPostHogTemporaryProperties(" in mv_query
+    assert "accurateCastOrNull(if(isValidJSON(source.properties)" in mv_query
+    assert "accurateCastOrNull(if(isValidJSON(source.person_properties)" in mv_query
+
+
+@pytest.mark.parametrize(
+    "properties,expected",
+    [
+        (
+            {
+                "$set": {"nested": {"values": [True, None, 42, "雪"]}},
+                "$set_once": {"first": False},
+                "$unset": ["old"],
+                "ordinary": "discard",
+            },
+            {"$set": {"nested": {"values": [True, None, 42, "雪"]}}, "$set_once": {"first": False}, "$unset": ["old"]},
+        ),
+        ({"$unset": ["old"]}, {"$unset": ["old"]}),
+        ({"$unset": {"old": True}}, {"$unset": {"old": True}}),
+        ({"$set_once": {"first": 0}}, {"$set_once": {"first": 0}}),
+        ({"ordinary": "discard"}, None),
+    ],
+)
+def test_person_property_mutation_projection(properties: dict[str, object], expected: dict[str, object] | None) -> None:
+    select = PERSON_PROPERTY_MUTATION_LOG_MV_SQL().split("AS SELECT", 1)[1]
+    rows = sync_execute(
+        """
+        WITH kafka_person_property_mutation_log AS (
+            SELECT 42 AS team_id,
+                toUUID('0192a5c8-0000-0000-0000-000000000000') AS uuid,
+                %(properties)s AS properties,
+                now() AS _timestamp
+        )
+        SELECT """
+        + select,
+        {"properties": json.dumps(properties)},
+        team_id=42,
+        flush=False,
+    )
+    assert [json.loads(row[2]) for row in rows] == ([] if expected is None else [expected])
+
+
+@pytest.mark.parametrize(
+    "timestamp_offset,observed_delay,retentions,expected_days",
+    [
+        (timedelta(), timedelta(), [90], 90),
+        (timedelta(), timedelta(hours=23), [90], 91),
+        (timedelta(), timedelta(hours=-23), [90], 90),
+        (timedelta(minutes=4, seconds=59), timedelta(), [90], 91),
+        (timedelta(microseconds=1), timedelta(), [90], 91),
+        (timedelta(), timedelta(), [14], 14),
+        (timedelta(), timedelta(), [30, 90], 90),
+        (timedelta(), timedelta(), [-7], 0),
+        (timedelta(), timedelta(), [5000], 3650),
+    ],
+    ids=["aligned", "backdated", "future", "bucket_rounding", "subsecond", "floor", "mixed", "negative", "clamp"],
+)
+def test_logs_volume_bucket_retention_covers_raw_expiry(
+    timestamp_offset: timedelta,
+    observed_delay: timedelta,
+    retentions: list[int],
+    expected_days: int,
+) -> None:
+    bucket_start = datetime(2026, 1, 2, 12, tzinfo=UTC)
+    timestamp = bucket_start + timestamp_offset
+    observed_timestamp = timestamp + observed_delay
+    select = LOGS34_TO_VOLUME_BUCKETS_MV_SELECT().replace(
+        f"FROM {django_settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.logs34", "FROM retention_input"
+    )
+    rows = sync_execute(
+        """
+        WITH retention_input AS (
+            SELECT
+                42 AS team_id,
+                toDateTime64(%(timestamp)s, 6, 'UTC') AS timestamp,
+                toDateTime64(%(observed_timestamp)s, 6, 'UTC') AS observed_timestamp,
+                observed_timestamp + toIntervalDay(arrayJoin(%(retentions)s)) AS original_expiry_timestamp,
+                'checkout' AS service_name,
+                'INFO' AS severity_text,
+                CAST(map(), 'Map(String, String)') AS resource_attributes
+        )
+        SELECT retention_days, log_count FROM ("""
+        + select
+        + ")",
+        {
+            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "observed_timestamp": observed_timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "retentions": retentions,
+        },
+    )
+    assert rows == [(expected_days, len(retentions))]
+    if max(retentions) <= 2580:
+        assert bucket_start + timedelta(days=max(42, rows[0][0])) >= observed_timestamp + timedelta(
+            days=max(retentions)
+        )
 
 
 def _column_definition_lines(block: str) -> Iterator[str]:
@@ -124,6 +230,36 @@ def test_flag_evaluations_read_table_declares_every_stored_column():
     assert stored_columns
 
     assert _flag_evaluations_table_columns(DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL()) == stored_columns
+
+
+def _hogql_column_names(table: Table) -> set[str]:
+    names: set[str] = set()
+    for field in table.fields.values():
+        if isinstance(field, Table):
+            names |= _hogql_column_names(field)
+        elif isinstance(field, DatabaseField):
+            names.add(field.name)
+    return names
+
+
+# Kafka metadata, deliberately not exposed to customers.
+_FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {"_timestamp", "_offset", "_partition"}
+
+
+def test_flag_evaluations_hogql_table_matches_the_read_table():
+    # The HogQL table spells its column names by hand, and spells the read table's name again
+    # because it cannot import this module (posthog/hogql/test/test_no_django_imports.py). Both
+    # copies drift silently: a query naming a column the shards lack fails only when someone runs
+    # it. Asserting the difference rather than a subset means a column added to the read table has
+    # to be either exposed or named here, instead of staying invisible to HogQL by default.
+    declared = {
+        column.split()[0] for column in _flag_evaluations_table_columns(DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL())
+    }
+    exposed = _hogql_column_names(FlagEvaluationsTable())
+
+    assert FLAG_EVALUATIONS_CLICKHOUSE_TABLE == FLAG_EVALUATIONS_TABLE
+    assert declared - exposed == _FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL
+    assert exposed - declared == set()
 
 
 @pytest.fixture(autouse=True)

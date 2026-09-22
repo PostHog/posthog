@@ -5,7 +5,7 @@ import math
 import uuid
 import decimal
 import datetime
-from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from functools import _make_key, wraps
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
@@ -63,12 +63,19 @@ class BillingLimitsWillBeReachedException(NonReportableError):
     and subclassing NonReportableError keeps it out of error tracking."""
 
 
+# Matched as a substring by the shared non-retryable classification (`Any_Source_Errors`) and by the
+# import teardown that records why an incremental sync is blocked, so keep the wording in step with
+# them. The raised message continues past this prefix with the keys that were used.
+DUPLICATE_PRIMARY_KEYS_ERROR = "The primary keys for this table are not unique"
+
+
 class DuplicatePrimaryKeysException(Exception):
     pass
 
 
-# Matched as a substring by the shared non-retryable classification (`Any_Source_Errors`) and by the
-# v3 load consumer, so both keep recognizing the condition — keep the wording in step with them.
+# Matched as a substring by the shared non-retryable classification (`Any_Source_Errors`), by the
+# v3 load consumer, and by the import teardown that records why an incremental sync is blocked, so
+# all three keep recognizing the condition. Keep the wording in step with them.
 MISSING_PRIMARY_KEYS_ERROR = "Primary key required for incremental syncs"
 
 
@@ -78,6 +85,26 @@ class MissingPrimaryKeysException(Exception):
 
     def __init__(self, message: str = MISSING_PRIMARY_KEYS_ERROR) -> None:
         super().__init__(message)
+
+
+# Matched as a substring by the shared non-retryable classification (`Any_Source_Errors`), so the
+# schema is paused with guidance instead of retrying rows whose shape cannot change. Keep the
+# wording in step with that entry.
+NON_MAPPING_ROW_ERROR = "Rows from this table are not JSON objects"
+
+
+class NonMappingRowError(Exception):
+    """A batch carries a row that isn't a key/value object, so there are no column names to build a
+    table from.
+
+    Usually a REST resource whose selected response field holds arrays or scalars instead of
+    objects, for example a reporting endpoint that returns bare row arrays and its column names
+    separately. The same shape comes back on every retry until the source config selects objects.
+    The message carries only the row's type, because row contents can hold customer data.
+    """
+
+    def __init__(self, row_type: str) -> None:
+        super().__init__(f"{NON_MAPPING_ROW_ERROR} (a row arrived as {row_type})")
 
 
 class QueryTimeoutException(Exception):
@@ -1337,12 +1364,21 @@ def _serialize_dict_columns(table_data: list[dict]) -> tuple[list[dict], set[str
 
 
 def _process_batch(
-    table_data: list[dict],
+    # Not `list[dict]`: a source can hand the pipeline rows that aren't objects, which the guard
+    # below rejects.
+    table_data: list[Any],
     schema: Optional[pa.Schema] = None,
     *,
     primary_keys: Optional[Sequence[str]] = None,
     binary_reporter: Optional[BinaryColumnReporter] = None,
 ) -> pa.Table:
+    # Every step below reads a row as a mapping, so without this check a keyless row fails deep in
+    # the conversion with a bare `'list' object has no attribute 'items'`, which names neither the
+    # cause nor a fix.
+    for row in table_data:
+        if not isinstance(row, Mapping):
+            raise NonMappingRowError(type(row).__name__)
+
     table_data, serialized_dict_columns = _serialize_dict_columns(table_data)
 
     # Support both given schemas and inferred schemas

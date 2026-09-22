@@ -21,6 +21,8 @@ import type {
     LabelListResponseApi,
     ProductPushCampaignActiveRetrieveParams,
     ProductPushCampaignApi,
+    RescoreRequestApi,
+    RescoreResponseApi,
     RunRequestApi,
     SaveRequestApi,
     SdkHealthReportApi,
@@ -177,6 +179,26 @@ export const growthAiEnrichmentSaveCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(saveRequestApi),
+    })
+}
+
+export const getGrowthEnrichmentRescoreCreateUrl = () => {
+    return `/api/growth_enrichment/rescore/`
+}
+
+/**
+ * Called by a PostHog realtime destination, not by API clients. Requires the X-PostHog-Webhook-Secret header to match the GROWTH_RESCORE_WEBHOOK_SECRET instance setting.
+ * @summary Re-score an organization's ICP fit after its wizard AI-SDK stamp lands.
+ */
+export const growthEnrichmentRescoreCreate = async (
+    rescoreRequestApi: RescoreRequestApi,
+    options?: RequestInit
+): Promise<RescoreResponseApi> => {
+    return apiMutator<RescoreResponseApi>(getGrowthEnrichmentRescoreCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(rescoreRequestApi),
     })
 }
 

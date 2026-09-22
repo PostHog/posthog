@@ -236,11 +236,15 @@ def build_value_aggregation_expr(
                 placeholders={"value_expr": value_expr},
             )
 
-        # Count distinct values, filtering out null UUIDs and empty strings
+        # The precomputed read casts entity_id with accurateCastOrNull, which
+        # yields Nullable(UUID), so both UUID spellings must hit the zero-UUID
+        # filter or the direct and precomputed paths diverge for personless
+        # (zero-UUID) entities.
         return parse_expr(
             f"""toFloat(count(distinct
                 multiIf(
-                    toTypeName({column_ref}) = 'UUID' AND reinterpretAsUInt128({column_ref}) = 0, NULL,
+                    isNull({column_ref}), NULL,
+                    toTypeName({column_ref}) IN ('UUID', 'Nullable(UUID)') AND reinterpretAsUInt128(assumeNotNull({column_ref})) = 0, NULL,
                     toString({column_ref}) = '', NULL,
                     {column_ref}
                 )

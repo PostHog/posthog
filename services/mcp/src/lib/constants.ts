@@ -32,6 +32,13 @@ export const MCP_INSTRUCTIONS_CHAR_BUDGET = 2048
 // heuristic). A response over it is cut by the client, mid-value and unflagged, so a tool that
 // can return an unbounded payload has to bound it below this.
 export const MCP_TOOL_OUTPUT_CHAR_BUDGET = 100_000
+// Ceiling for the tool-domain index inside the claude.ai exec command reference. That reference
+// lives in the `command` description, whose serialized schema claude.ai silently drops past
+// ~16,384 chars, and the index is the only part of it that grows with the tool catalog — one new
+// tool can split a family into sub-family roots and add hundreds of characters. Bounding it here
+// makes `toCompact` trade sub-family precision to stay inside the cap, which costs far less than
+// a dropped exec tool.
+export const MCP_CLAUDE_TOOL_DOMAINS_CHAR_BUDGET = 1536
 
 // Gates reaching third-party MCP servers connected through the MCP gateway. Same flag as
 // the gateway's own UI in the main app, so a team gets the tools when it gets the gateway.

@@ -1,12 +1,16 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { sceneFileLogic } from 'lib/components/Scenes/sceneFileLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { initKeaTests } from '~/test/init'
 
+import { panelLayoutLogic } from '../panelLayoutLogic'
 import { customProductsLogic } from './customProductsLogic'
 import { MovedItem, projectTreeDataLogic } from './projectTreeDataLogic'
+import { projectTreeLogic } from './projectTreeLogic'
 
 // pluralize() joins the count to the unit with a non-breaking space, which no reader can see in an assertion.
 const toastText = (message: unknown): string => String(message).replace(/\u00a0/g, ' ')
@@ -22,9 +26,11 @@ describe('projectTreeDataLogic', () => {
         jest.spyOn(api.fileSystemShortcuts, 'list').mockResolvedValue({ count: 0, results: [] })
 
         initKeaTests()
+        panelLayoutLogic.mount()
+        panelLayoutLogic.actions.clearActivePanelIdentifier()
         logic = projectTreeDataLogic()
         unmount = logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadUnfiledItemsSuccess'])
+        await expectLogic(logic).toDispatchActions(['loadFolderSuccess'])
         jest.clearAllMocks()
     })
 
@@ -51,7 +57,6 @@ describe('projectTreeDataLogic', () => {
 
     it('handles null unfiled item responses', async () => {
         jest.mocked(api.fileSystem.unfiled).mockResolvedValueOnce(null)
-
         await expectLogic(logic, () => {
             logic.actions.loadUnfiledItems()
         })
@@ -60,6 +65,195 @@ describe('projectTreeDataLogic', () => {
 
         expect(api.fileSystem.list).not.toHaveBeenCalled()
     })
+
+    it('reconciles unfiled items when the project tree becomes active', async () => {
+        const rootlessTree = projectTreeLogic({ key: 'project-tree' })
+        rootlessTree.mount()
+
+        const projectTree = projectTreeLogic({ key: 'project-tree', root: 'project://', isActiveInPanel: true })
+
+        await expectLogic(logic, () => {
+            projectTree.mount()
+        }).toDispatchActions(['loadUnfiledItems', 'loadUnfiledItemsSuccess'])
+
+        projectTree.unmount()
+        rootlessTree.unmount()
+    })
+
+    it('does not reconcile unfiled items when the project tree is hidden', () => {
+        const projectTree = projectTreeLogic({ key: 'project-tree', root: 'project://', isActiveInPanel: false })
+
+        projectTree.mount()
+
+        expect(api.fileSystem.unfiled).not.toHaveBeenCalled()
+        projectTree.unmount()
+    })
+
+    it('reconciles unfiled items when a non-panel project tree opens', async () => {
+        const projectTree = projectTreeLogic({ key: 'folder-select', root: 'project://' })
+
+        await expectLogic(logic, () => {
+            projectTree.mount()
+        }).toDispatchActions(['loadUnfiledItems', 'loadUnfiledItemsSuccess'])
+
+        projectTree.unmount()
+    })
+
+    it('does not load Unfiled after the root folder loads in a hidden project tree', async () => {
+        const projectTree = projectTreeLogic({ key: 'project-tree', root: 'project://', isActiveInPanel: false })
+        projectTree.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        jest.clearAllMocks()
+
+        logic.actions.loadFolderSuccess('', [], false, 0)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(api.fileSystem.list).not.toHaveBeenCalled()
+        projectTree.unmount()
+    })
+
+    it('shares pending item lookups across tree mounts and navigation callbacks', async () => {
+        jest.spyOn(breadcrumbsLogic.selectors, 'projectTreeRef').mockReturnValue({ type: 'insight', ref: 'insight1' })
+        let resolveItem!: () => void
+        jest.mocked(api.fileSystem.list).mockImplementation((params) =>
+            params?.ref
+                ? new Promise((resolve) => {
+                      resolveItem = () =>
+                          resolve({
+                              count: 1,
+                              users: [],
+                              results: [{ id: 'file1', ref: 'insight1', type: 'insight', path: 'Reports/Insight' }],
+                          })
+                  })
+                : Promise.resolve({ count: 0, results: [], users: [] })
+        )
+        const projectTree = projectTreeLogic({ key: 'project-tree', root: 'project://', isActiveInPanel: false })
+        const pickerTree = projectTreeLogic({ key: 'folder-select', root: 'project://' })
+        projectTree.mount()
+        pickerTree.mount()
+        projectTree.actions.assureVisibility({ type: 'insight', ref: 'insight1' }, false)
+        expect(
+            jest.mocked(api.fileSystem.list).mock.calls.filter(([params]) => params?.ref === 'insight1')
+        ).toHaveLength(1)
+
+        resolveItem()
+        await expectLogic(projectTree).toFinishAllListeners()
+        expect(logic.values.viableItems).toEqual(expect.arrayContaining([expect.objectContaining({ ref: 'insight1' })]))
+        await expectLogic(projectTree, () => {
+            projectTree.actions.assureVisibility({ type: 'insight', ref: 'insight1' }, false)
+        }).toFinishAllListeners()
+        expect(
+            jest.mocked(api.fileSystem.list).mock.calls.filter(([params]) => params?.ref === 'insight1')
+        ).toHaveLength(1)
+
+        jest.mocked(api.fileSystem.list).mockResolvedValue({ count: 0, results: [], users: [] })
+        await expectLogic(logic, () => logic.actions.syncTypeAndRef('insight', 'insight1')).toFinishAllListeners()
+        expect(
+            jest.mocked(api.fileSystem.list).mock.calls.filter(([params]) => params?.ref === 'insight1')
+        ).toHaveLength(2)
+        pickerTree.unmount()
+        projectTree.unmount()
+    })
+
+    it('loads current insight metadata when a file consumer opens and follows navigation', async () => {
+        const currentItem = jest
+            .spyOn(projectTreeDataLogic.selectors, 'projectTreeRef')
+            .mockReturnValue({ type: 'insight', ref: 'insight1' })
+        const consumer = sceneFileLogic()
+        consumer.mount()
+        await expectLogic(consumer).toFinishAllListeners()
+        expect(api.fileSystem.list).toHaveBeenCalledWith({ type: 'insight', ref: 'insight1' })
+        currentItem.mockReturnValue({ type: 'insight', ref: 'insight2' })
+        await expectLogic(consumer, () =>
+            panelLayoutLogic.actions.setActivePanelIdentifier('Products')
+        ).toFinishAllListeners()
+        expect(api.fileSystem.list).toHaveBeenCalledWith({ type: 'insight', ref: 'insight2' })
+        consumer.unmount()
+    })
+
+    it('defers ancestor folder loading until Files opens and follows the latest insight', async () => {
+        const currentItem = jest.spyOn(breadcrumbsLogic.selectors, 'projectTreeRef').mockReturnValue({
+            type: 'insight',
+            ref: 'insight1',
+        })
+        jest.mocked(api.fileSystem.list).mockImplementation(async (params) => ({
+            count: params?.ref ? 1 : 0,
+            users: [],
+            results: params?.ref
+                ? [
+                      {
+                          id: String(params.ref),
+                          ref: String(params.ref),
+                          type: 'insight',
+                          path: params.ref === 'insight1' ? 'Unfiled/Insights/First insight' : 'Reports/Latest insight',
+                      },
+                  ]
+                : [],
+        }))
+        const projectTree = projectTreeLogic({ key: 'project-tree' })
+        projectTree.mount()
+        await expectLogic(projectTree).toFinishAllListeners()
+        expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ ref: 'insight1' }))
+        expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ parent: 'Unfiled/Insights' }))
+        expect(logic.values.sortedItems).not.toEqual(
+            expect.arrayContaining([expect.objectContaining({ ref: 'insight1' })])
+        )
+
+        currentItem.mockReturnValue({ type: 'insight', ref: 'insight2' })
+        await expectLogic(projectTree, () => {
+            panelLayoutLogic.actions.setActivePanelIdentifier('Products')
+        }).toFinishAllListeners()
+        expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ parent: 'Reports' }))
+        expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ ref: 'insight2' }))
+
+        await expectLogic(projectTree, () => {
+            panelLayoutLogic.actions.setActivePanelIdentifier('Project')
+        }).toFinishAllListeners()
+        expect(api.fileSystem.list).toHaveBeenCalledWith({ parent: 'Reports', depth: 2, limit: 101, offset: 0 })
+        expect(api.fileSystem.list).not.toHaveBeenCalledWith(expect.objectContaining({ parent: 'Unfiled/Insights' }))
+        projectTree.unmount()
+    })
+
+    it.each(['already-open', 'folder-picker', 'explicit-reveal'] as const)(
+        'loads ancestor folders for %s',
+        async (mode) => {
+            jest.spyOn(breadcrumbsLogic.selectors, 'projectTreeRef').mockReturnValue({
+                type: 'insight',
+                ref: 'insight1',
+            })
+            logic.actions.createSavedItem({
+                id: 'file1',
+                type: 'insight',
+                ref: 'insight1',
+                path: 'Unfiled/Insights/Insight',
+            })
+            if (mode === 'already-open') {
+                panelLayoutLogic.mount()
+                panelLayoutLogic.actions.setActivePanelIdentifier('Project')
+            }
+            const projectTree = projectTreeLogic({
+                key: mode === 'folder-picker' ? 'folder-select' : 'project-tree',
+                root: 'project://',
+            })
+            projectTree.mount()
+            await expectLogic(projectTree).toFinishAllListeners()
+            if (mode === 'explicit-reveal') {
+                expect(api.fileSystem.list).not.toHaveBeenCalledWith(
+                    expect.objectContaining({ parent: 'Unfiled/Insights' })
+                )
+                await expectLogic(projectTree, () => {
+                    projectTree.actions.assureVisibility({ type: 'insight', ref: 'insight1' })
+                }).toFinishAllListeners()
+            }
+            expect(api.fileSystem.list).toHaveBeenCalledWith({
+                parent: 'Unfiled/Insights',
+                depth: 3,
+                limit: 101,
+                offset: 0,
+            })
+            projectTree.unmount()
+        }
+    )
 
     it('loads unfiled folders when the count response reports items', async () => {
         logic.actions.createSavedItem({ id: 'saved-insight', path: 'Unfiled/Insights/Saved insight', type: 'insight' })

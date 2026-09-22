@@ -1,5 +1,6 @@
 ---
 name: signals-scout-surveys
+scout-display-name: Surveys
 description: >
   Signals scout for PostHog surveys. Watches active surveys for score regressions, response-
   volume drops, abandonment spikes, and targeting drift, and aggregates open-text responses into
@@ -51,7 +52,7 @@ Four cheap reads cold-start a run:
 - `scout-scratchpad-search` (`text=survey` or `text=nps`) — durable team steering. Entries with `pattern:`, `noise:`, `addressed:`, `dedupe:`, `report:`, or `reviewer:` key prefixes, plus the team's known active survey IDs, primary NPS / CSAT survey, healthy response baselines, known themes already raised, which report covers a theme, and who owns it.
 - `scout-runs-list` (last 7d) — what prior surveys runs found and ruled out.
 - `inbox-reports-list` (filter by `search`=survey name/theme, `source_product`, `ordering=-updated_at`) — the reports already in the inbox. A theme or regression you've reported before is an **edit**, not a fresh report; pull the closest matches with `inbox-reports-retrieve` before authoring.
-- `scout-project-profile-get` — `top_events` for `survey shown` / `survey dismissed` / `survey sent` reach (the survey product isn't yet surfaced in the profile inventory; see "When you hit a gap" below).
+- `scout-project-profile-get` — `top_events` for `survey shown` / `survey dismissed` / `survey sent` reach (and `recent_surveys` for total and active counts plus the five most recently updated surveys — volume ranking still comes from SQL, since that list is capped and sorted by edit recency).
 
 Then orient on surveys specifically. Order matters — busy projects can have 100+ active surveys, and `surveys-get-all` is **never the right cold-start move** there. Each survey object is 30–50 KB (questions, internal targeting flag, appearance theme, creator metadata) and even `limit: 5` returns ~30 KB. Listing the lot blows the token budget before you've made a single decision.
 
@@ -222,7 +223,7 @@ By run #5 you'll know the team's active surveys, healthy response volumes, score
 Search the inbox before you author — a report covering this theme / survey / regression may already exist (`inbox-reports-list` with `ordering=-updated_at`, then `inbox-reports-retrieve` the closest matches). Then, for each candidate finding:
 
 - **Edit** the existing report via `scout-edit-report` when the inbox already covers the theme or survey. A theme that's growing, a regression that's deepening, a later iteration's responses confirming an earlier read: use `append_evidence` for the fresh response counts, score deltas, and time range (or rewrite the title/summary on a report you authored). This is the default when a match exists; don't mint a near-duplicate.
-- **Author** a fresh report via `scout-emit-report` when nothing in the inbox covers it. The natural fits are a single validated theme (≥ 5 converging respondents, with 2–3 verbatim quotes — no PII) or one survey's score / response-rate / abandonment regression that clears the tiered bar, with concrete survey ids, question ids, response counts, and score deltas as evidence (the bar is confidence ≥ 0.85; sample-size matters more here than other domains — a report on 10 responses needs to be tighter than one on 200). A score or response-rate regression is chart-shaped — attach the survey's trend via `charts` so the drop against its own baseline is visible; a theme lives in its quotes, not a chart. A survey finding is an investigation, not a one-line code fix, so default to `requires_human_input`. **Always set `suggested_reviewers`** — resolve the owning person with `scout-members-list` (each member carries a resolved `github_login`; cache it under a `reviewer:surveys:<survey>` key). It's how the report reaches a human; left empty, the report is assigned to nobody and is likely missed. After authoring, write a `report:surveys:<theme-or-survey>` scratchpad entry with the `report_id` so the next run edits it instead of duplicating. The harness prompt carries the full report-channel contract (field schema, safety × actionability status mapping, reviewer routing, the non-idempotency caveat, and the edit rules) — this section only adds the surveys-specific framing.
+- **Author** a fresh report via `scout-emit-report` when nothing in the inbox covers it. The natural fits are a single validated theme (≥ 5 converging respondents, with 2–3 verbatim quotes — no PII) or one survey's score / response-rate / abandonment regression that clears the tiered bar, with concrete survey ids, question ids, response counts, and score deltas as evidence that settles it without a hedge (sample-size matters more here than other domains — a report on 10 responses needs to be tighter than one on 200). A score or response-rate regression is chart-shaped — attach the survey's trend via `charts` so the drop against its own baseline is visible; a theme lives in its quotes, not a chart. A survey finding is an investigation, not a one-line code fix, so default to `requires_human_input`. **Always set `suggested_reviewers`** — resolve the owning person with `scout-members-list` (each member carries a resolved `github_login`; cache it under a `reviewer:surveys:<survey>` key). It's how the report reaches a human; left empty, the report is assigned to nobody and is likely missed. After authoring, write a `report:surveys:<theme-or-survey>` scratchpad entry with the `report_id` so the next run edits it instead of duplicating. The harness prompt carries the full report-channel contract (field schema, safety × actionability status mapping, reviewer routing, the non-idempotency caveat, and the edit rules) — this section only adds the surveys-specific framing.
 - **Remember** via `scout-scratchpad-remember` if below the bar but worth carrying forward (a theme with only 3 respondents that might grow, a score wobble that didn't yet hold for two weeks), or to record what you ruled out and why.
 - **Skip** with a one-line note if a scratchpad entry with a `noise:` or `addressed:` key prefix, or an existing inbox report, already covers it.
 
@@ -259,21 +260,12 @@ Direct calls (read-only):
 - `advanced-activity-logs-list` — correlate themes / score drops with recent product changes.
 - `inbox-reports-list` / `inbox-reports-retrieve` — the reports already in the inbox; check before authoring so you edit instead of duplicating (`ordering=-updated_at`).
 - `inbox-report-artefacts-list` — a comparable report's artefact log, where the routed `suggested_reviewers` live (the report record doesn't expose them) — reviewer precedent.
-- `scout-members-list` — this project's members with their resolved `github_login`, to route `suggested_reviewers` to a survey's owner (null `github_login` → can't route, try the next owner). The in-run roster; the org-scoped resolver tools aren't available in a scout run.
+- `scout-members-list` — this project's members with their `user_uuid` and resolved `github_login`. Route with `user_uuid` when `github_login` is null. The org-scoped resolver tools are not available in a scout run.
 
 Harness-level:
 
 - `scout-project-profile-get` / `scout-scratchpad-search` / `scout-runs-list` / `scout-runs-retrieve` — orientation + dedupe.
 - `scout-emit-report` / `scout-edit-report` / `scout-scratchpad-remember` — author a report / edit an existing one / remember.
-
-### When you hit a gap
-
-Two MCP gaps are known and may be worth flagging in a separate PR rather than working around in-skill:
-
-- **Project profile doesn't include surveys.** Cold-start orientation has to call `surveys-get-all` directly. Adding a `_surveys` builder to `products/signals/backend/scout_harness/profile/builders.py` (a few rows: active count, top surveys by recent volume, primary NPS / CSAT survey if any) would let every scout — not just this one — see surveys at orientation time. Worth a P3.
-- **Survey summarization isn't MCP-callable.** The product has a summarization pipeline at `products/surveys/backend/summarization/` but it's not exposed as an MCP tool. If it were, this scout could lean on cached summaries instead of re-aggregating themes from scratch each run. Worth a P2 for accuracy and cost.
-
-If you notice a third gap during a run that would meaningfully unlock this scout, write a scratchpad entry with key `mcp-gap:surveys:<short-name>` so the gap surfaces in the next review via `text=mcp-gap`.
 
 ## When to stop
 

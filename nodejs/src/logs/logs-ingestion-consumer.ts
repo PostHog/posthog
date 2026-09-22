@@ -36,8 +36,9 @@ import {
     type LogRecordsTransform,
     bufferProcessingMode,
     processLogMessageBuffer,
+    sniffJsonLogAttributes,
 } from './log-record-avro'
-import type { CompiledMetricRule } from './metrics-rules/compile-metric-rules'
+import type { CompiledMetricRule, MetricRuleSource } from './metrics-rules/compile-metric-rules'
 import { MetricRulesCache } from './metrics-rules/metric-rules-cache'
 import { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { buildMetricRulesOtlpPayload } from './metrics-rules/otlp-payload'
@@ -83,7 +84,7 @@ export interface LogsIngestionConsumerDeps {
     dependencyRetry?: { retryCount: number; initialRetryDelayMs: number }
 }
 
-/** Ingestion default when `logs_settings.retention_days` is unset; must be in `TeamSerializer.VALID_RETENTION_DAYS`. */
+/** Ingestion default when `logs_settings.retention_days` is unset; must match `DEFAULT_LOGS_RETENTION_DAYS` in `posthog/models/team/logs_retention.py`. */
 export const DEFAULT_LOGS_RETENTION_DAYS = 14
 
 /** Retention day counts that get their own per-tier usage metric. */
@@ -347,6 +348,11 @@ export class LogsIngestionConsumer {
     // Billing identity for quota enforcement and usage metering; overridden by subclasses (e.g. traces).
     protected quotaResource: QuotaResource = 'logs_mb_ingested'
     protected appSource = 'logs'
+    // Record source this consumer tallies metric rules for. `appSource` is the
+    // billing/telemetry identity ('logs' | 'traces'); metric rules are tagged with the
+    // record source ('logs' | 'spans') instead, so map between the two explicitly
+    // rather than comparing across vocabularies. TracesIngestionConsumer overrides to 'spans'.
+    protected metricRuleSource: MetricRuleSource = 'logs'
     protected kafkaConsumer: KafkaConsumerInterface
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
@@ -362,6 +368,8 @@ export class LogsIngestionConsumer {
     private readonly retentionEnabledTeamsRaw: string
     private readonly retentionKillswitch: boolean
     private readonly patternMaskingEnabledTeamsRaw: string
+    private readonly jsonAttributeParsingEnabledTeamsRaw: string
+    private readonly jsonAttributeExtractionEnabledTeamsRaw: string
     private readonly patternMaskingStage: PipelineStage
 
     protected groupId: string
@@ -413,6 +421,8 @@ export class LogsIngestionConsumer {
         this.retentionEnabledTeamsRaw = mergedConfig.LOGS_RETENTION_ENABLED_TEAMS
         this.retentionKillswitch = mergedConfig.LOGS_RETENTION_KILLSWITCH
         this.patternMaskingEnabledTeamsRaw = mergedConfig.LOGS_PATTERN_MASKING_ENABLED_TEAMS
+        this.jsonAttributeParsingEnabledTeamsRaw = mergedConfig.LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS
+        this.jsonAttributeExtractionEnabledTeamsRaw = mergedConfig.LOGS_JSON_ATTRIBUTE_EXTRACTION_ENABLED_TEAMS
         this.patternMaskingStage = makePatternMaskingStage()
     }
 
@@ -812,7 +822,10 @@ export class LogsIngestionConsumer {
         if (!state) {
             let rules: CompiledMetricRule[]
             try {
-                rules = await this.deps.metricRulesCache!.getCompiledRules(message.teamId)
+                const all = await this.deps.metricRulesCache!.getCompiledRules(message.teamId)
+                // Each consumer tallies only its own record source: the logs consumer runs
+                // `logs` rules, the traces consumer runs `spans` rules.
+                rules = all.filter((r) => r.source === this.metricRuleSource)
             } catch (error) {
                 // Fail open: metric rules are a purely additive side feature, so a rules-fetch
                 // failure (e.g. a Postgres blip) must never DLQ or block the log records —
@@ -912,10 +925,27 @@ export class LogsIngestionConsumer {
                         }
 
                         const metricRuleState = await this.getMetricRuleBatchState(metricTalliesByTeam, message)
-                        const onRecordsDecoded = metricRuleState
-                            ? (records: LogRecord[]) =>
-                                  tallyRecords(metricRuleState.rules, records, metricRuleState.tallies, Date.now())
-                            : undefined
+                        const jsonAttributeKey =
+                            this.appSource === 'logs' &&
+                            teamIdMatchesCsv(this.jsonAttributeParsingEnabledTeamsRaw, message.teamId)
+                                ? logsSettings.json_parse_logs_attribute_key
+                                : undefined
+                        const onRecordsDecoded =
+                            metricRuleState || jsonAttributeKey
+                                ? (records: LogRecord[]) => {
+                                      if (metricRuleState) {
+                                          tallyRecords(
+                                              metricRuleState.rules,
+                                              records,
+                                              metricRuleState.tallies,
+                                              Date.now()
+                                          )
+                                      }
+                                      if (jsonAttributeKey) {
+                                          sniffJsonLogAttributes(records, jsonAttributeKey, message.teamId)
+                                      }
+                                  }
+                                : undefined
 
                         const resolved = await instrumentFn(
                             {
@@ -930,7 +960,17 @@ export class LogsIngestionConsumer {
                             async () =>
                                 this.resolveLogMessageBufferWithOptionalSampling(
                                     message,
-                                    logsSettings,
+                                    {
+                                        ...logsSettings,
+                                        json_parse_logs_attribute_key:
+                                            this.appSource === 'logs' &&
+                                            teamIdMatchesCsv(
+                                                this.jsonAttributeExtractionEnabledTeamsRaw,
+                                                message.teamId
+                                            )
+                                                ? logsSettings.json_parse_logs_attribute_key
+                                                : undefined,
+                                    },
                                     onRecordsDecoded,
                                     transformationBatchBudget
                                 )

@@ -387,6 +387,28 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
+    describe('model visibility', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] } as any)
+        })
+
+        it.each([
+            { rows: [], visible: false },
+            { rows: [{ model: 'Unknown', total_calls: 12 }], visible: true },
+            { rows: [{ model: 'gpt-5.6-sol', total_calls: 1 }], visible: true },
+            { rows: [{ model: 'claude-sonnet-5', total_calls: 0 }], visible: false },
+        ])('shows model coverage when calls exist: $rows', async ({ rows, visible }) => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.loadModelRowsSuccess(rows)
+            expect(logic.values.hasModelData).toBe(visible)
+        })
+    })
+
     describe('filter wiring', () => {
         beforeEach(() => {
             jest.clearAllMocks()
@@ -399,8 +421,8 @@ describe('mcpDashboardOverviewLogic', () => {
         }
 
         // HogQL query nodes carry filters under `.filters`; the typed
-        // MCPHarnessBreakdownQuery node carries dateRange/properties/filterTestAccounts
-        // at the top level. This reads whichever shape a reload used.
+        // Typed MCP breakdown nodes carry dateRange/properties/filterTestAccounts at the
+        // top level. This reads whichever shape a reload used.
         const filtersOf = (call: any): Record<string, any> => call.filters ?? call
 
         // The users query returns a single [current_users, prior_users] row; loadUsers maps
@@ -454,11 +476,11 @@ describe('mcpDashboardOverviewLogic', () => {
             }).toFinishAllListeners()
 
             const reloads = reloadCallsSince(callsBefore)
-            // Seven tiles: KPI + users + the five breakdown queries.
-            expect(reloads.length).toBe(7)
-            // The five breakdowns pass the raw selected range straight through.
+            // Eight tiles: KPI + users + the six breakdown queries.
+            expect(reloads.length).toBe(8)
+            // The six breakdowns pass the raw selected range straight through.
             const breakdowns = reloads.filter((call) => filtersOf(call).dateRange?.date_from === '-30d')
-            expect(breakdowns).toHaveLength(5)
+            expect(breakdowns).toHaveLength(6)
             // The KPI and users tiles widen to an absolute doubled window so they can compare against the prior period.
             const kpi = reloads.find((call) => call.query?.includes('AS bucket'))
             expect(kpi?.filters.dateRange.date_from).not.toBe('-30d')
@@ -482,7 +504,7 @@ describe('mcpDashboardOverviewLogic', () => {
             }
 
             const reloads = reloadCallsSince(callsBefore)
-            expect(reloads.length).toBe(7)
+            expect(reloads.length).toBe(8)
             expect(reloads.every((call) => filtersOf(call).filterTestAccounts === enabled)).toBe(true)
         })
 
@@ -495,7 +517,7 @@ describe('mcpDashboardOverviewLogic', () => {
 
             // No explicit toggle, yet every tile filters internal users because the team default is on.
             const reloads = mockApi.query.mock.calls.map((call) => call[0] as any)
-            expect(reloads.length).toBeGreaterThanOrEqual(7)
+            expect(reloads.length).toBeGreaterThanOrEqual(8)
             expect(reloads.every((call) => filtersOf(call).filterTestAccounts === true)).toBe(true)
         })
 
@@ -505,6 +527,50 @@ describe('mcpDashboardOverviewLogic', () => {
             operator: PropertyOperator.Exact,
             type: PropertyFilterType.Event,
         }
+        it('reloads tiles once when the URL hydrates both shared filters', async () => {
+            router.actions.push(urls.mcpAnalyticsDashboard())
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.mcpAnalyticsDashboard(), {
+                    properties: [EVENT_FILTER],
+                    filter_test_accounts: true,
+                })
+            }).toFinishAllListeners()
+
+            const reloads = reloadCallsSince(callsBefore)
+            expect(reloads).toHaveLength(8)
+            expect(reloads.every((call) => filtersOf(call).filterTestAccounts === true)).toBe(true)
+            expect(
+                reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([EVENT_FILTER]))
+            ).toBe(true)
+        })
+        it('reloads tiles once when the URL changes the date and shared filters together', async () => {
+            router.actions.push(urls.mcpAnalyticsDashboard())
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.mcpAnalyticsDashboard(), {
+                    date_from: '-30d',
+                    properties: [EVENT_FILTER],
+                    filter_test_accounts: true,
+                })
+            }).toFinishAllListeners()
+
+            const reloads = reloadCallsSince(callsBefore)
+            expect(reloads).toHaveLength(8)
+            expect(reloads.every((call) => filtersOf(call).filterTestAccounts === true)).toBe(true)
+            expect(
+                reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([EVENT_FILTER]))
+            ).toBe(true)
+            expect(reloads.filter((call) => filtersOf(call).dateRange?.date_from === '-30d')).toHaveLength(6)
+        })
         // Feature-flag filters arrive as ordinary $feature/<key> event-property filters.
         const FLAG_FILTER: AnyPropertyFilter = {
             key: '$feature/mcp-new-thing',
@@ -527,34 +593,62 @@ describe('mcpDashboardOverviewLogic', () => {
             }).toFinishAllListeners()
 
             const reloads = reloadCallsSince(callsBefore)
-            expect(reloads.length).toBe(7)
+            expect(reloads.length).toBe(8)
             expect(
                 reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([filter]))
             ).toBe(true)
         })
 
-        it('syncs property filters to the URL and clears the param when emptied', async () => {
-            const logic = mcpDashboardOverviewLogic()
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
+        it.each(['date', 'property', 'test accounts'])(
+            'offers feedback after a %s interaction and a successful nonempty refresh',
+            async (filter) => {
+                const populatedResponse = async (
+                    node: Parameters<typeof api.query>[0]
+                ): Promise<{ results: (string | number)[][] }> => ({
+                    results:
+                        'query' in node && typeof node.query === 'string' && node.query.includes('AS bucket')
+                            ? [[dayjs().format('YYYY-MM-DD'), 2, 10, 0, 100]]
+                            : [],
+                })
+                mockApi.query.mockImplementation(populatedResponse)
+                router.actions.push(urls.mcpAnalyticsDashboard(), { date_from: '-14d' })
+                const logic = mcpDashboardOverviewLogic()
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.kpis.toolCalls.value).toBe(10)
+                expect(logic.values.canShowFeedback).toBe(false)
 
-            await expectLogic(logic, () => {
-                logic.actions.setPropertyFilters([EVENT_FILTER])
-            }).toFinishAllListeners()
-            expect(router.values.searchParams.properties).toEqual([EVENT_FILTER])
+                if (filter === 'date') {
+                    logic.actions.setDateFilter('-30d', null)
+                } else if (filter === 'property') {
+                    logic.actions.setPropertyFilters([EVENT_FILTER])
+                } else {
+                    logic.actions.setFilterTestAccounts(true)
+                }
+                logic.actions.markFilterInteraction()
+                expect(logic.values.canShowFeedback).toBe(false)
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.canShowFeedback).toBe(true)
+                const previousContext = logic.values.feedbackContextKey
 
-            await expectLogic(logic, () => {
-                logic.actions.setPropertyFilters([])
-            }).toFinishAllListeners()
-            expect(router.values.searchParams.properties).toBeUndefined()
-        })
+                mockApi.query.mockImplementation(async (node) => {
+                    if (node.kind === 'MCPHarnessBreakdownQuery') {
+                        throw new Error('Example query failure')
+                    }
+                    return populatedResponse(node)
+                })
+                await expectLogic(logic, () => logic.actions.setDateFilter('-7d', null)).toFinishAllListeners()
+                expect(logic.values.feedbackContextKey).toBe(previousContext)
+                expect(logic.values.canShowFeedback).toBe(false)
 
-        it('hydrates property filters from the URL on mount', async () => {
-            router.actions.push(urls.mcpAnalyticsDashboard(), { properties: [EVENT_FILTER] })
-            const logic = mcpDashboardOverviewLogic()
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.propertyFilters).toEqual([EVENT_FILTER])
-        })
+                mockApi.query.mockResolvedValue({ results: [] })
+                await expectLogic(logic, () => logic.actions.reloadAll()).toFinishAllListeners()
+                expect(logic.values.canShowFeedback).toBe(false)
+
+                mockApi.query.mockImplementation(populatedResponse)
+                await expectLogic(logic, () => logic.actions.reloadAll()).toFinishAllListeners()
+                expect(logic.values.canShowFeedback).toBe(true)
+            }
+        )
     })
 })

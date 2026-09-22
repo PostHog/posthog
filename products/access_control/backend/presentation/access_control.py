@@ -495,6 +495,15 @@ class AccessControlViewSetMixin(_GenericViewSet):
         if is_resource_level and resource != "project":
             raise exceptions.ValidationError("Resource-level access controls can only be configured for projects.")
 
+        # A resource-level rule carries no resource_id, so a body that names one asks to write an
+        # object rule through the project's endpoint. The serializer's identity check compares
+        # primary keys only, and an object's pk can equal the project's, so it lets such a body
+        # through whenever the two numbers happen to match.
+        if is_resource_level and request.data.get("resource_id"):
+            raise exceptions.PermissionDenied(
+                "Cannot modify access controls for a resource different from the URL target."
+            )
+
         obj = self.get_object()
         resource_id = str(obj.id)
         team = cast(Team, self.team)  # type: ignore

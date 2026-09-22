@@ -178,6 +178,34 @@ describe('logsPatternsLogic', () => {
         )
     })
 
+    it('viewMatchingLogs matches canonical members and version without narrowing by example facets', async () => {
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPatternsSuccess'])
+
+        logic.actions.viewMatchingLogs({
+            ...RESPONSE.patterns[0],
+            match_patterns: ['User <N> not found', 'User <UUID> not found'],
+            pattern_version: 3,
+            match_regex: null,
+            match_literal: null,
+        })
+
+        const inner = filtersLogic.values.filters.filterGroup.values[0] as UniversalFiltersGroup
+        expect(inner.values).toEqual(
+            expect.arrayContaining([
+                {
+                    key: 'pattern',
+                    value: ['User <N> not found', 'User <UUID> not found'],
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Log,
+                },
+                { key: 'pattern_version', value: 3, operator: PropertyOperator.Exact, type: PropertyFilterType.Log },
+            ])
+        )
+        expect(selectedServices()).toEqual([])
+        expect(selectedLevels()).toEqual([])
+    })
+
     it('compare mode diffs with the same query body and switches loaders for filter reloads', async () => {
         // The diff must scope its windows with exactly the filters a plain mine uses — if the
         // two request bodies drift apart, compare mode silently answers a different question

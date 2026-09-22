@@ -13,7 +13,6 @@ import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { getAccessControlDisabledReason, accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -23,6 +22,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
@@ -103,8 +104,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         draftModeEnabled,
         replyRecipientDescription,
         snoozedUntil,
-        knowledgeGaps,
-        knowledgeGapsLoading,
         emailReplyBlockedReason,
         latestAiMessage,
         feedbackByMessageId,
@@ -113,6 +112,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         fullEmailContent,
         fullEmailContentLoading,
         fullEmailMessageId,
+        composerPrefillAt,
+        aiDraftApplying,
     } = useValues(logic)
     // The list's filters / saved view ride along in this page's query string
     // (the ticket row carries them through on navigation). Preserve them on the
@@ -131,13 +132,13 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setDraftContent,
         setDraftIsPrivate,
         setDraftModeEnabled,
-        dismissKnowledgeGap,
         submitAiReplyFeedback,
         startEditingMessage,
         cancelEditingMessage,
         deleteMessage,
         loadFullEmail,
         closeFullEmail,
+        applyAiDraft,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
@@ -297,6 +298,10 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onCancelEdit={cancelEditingMessage}
                         fullEmailLoadingMessageId={fullEmailContentLoading ? fullEmailMessageId : null}
                         onViewFullEmail={loadFullEmail}
+                        composerPrefillAt={composerPrefillAt}
+                        aiSources={ticket?.ai_triage?.sources}
+                        aiDraftApplying={aiDraftApplying}
+                        onApplyAiDraft={applyAiDraft}
                     />
                     <div className="hidden @min-[48rem]/main-content:block">
                         <Resizer {...resizerLogicProps} className="z-20" />
@@ -596,14 +601,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     {user?.is_staff && ticket && <StaffActionsPanel />}
 
                     {/* AI Triage Panel */}
-                    {aiSuggestionsEnabled && ticket && (
-                        <AIPanel
-                            aiTriage={ticket.ai_triage}
-                            knowledgeGaps={knowledgeGaps}
-                            knowledgeGapsLoading={knowledgeGapsLoading}
-                            onDismissGap={dismissKnowledgeGap}
-                        />
-                    )}
+                    {aiSuggestionsEnabled && ticket && <AIPanel aiTriage={ticket.ai_triage} />}
 
                     {ticket?.channel_source === 'widget' && (
                         <>

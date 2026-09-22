@@ -1,7 +1,14 @@
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalScoutRunSummary } from '../types'
-import { nextRunAt, scoutCadenceLabel, scoutGroup, ScoutGroupKey, scoutSubtitle } from './scoutGroups'
+import {
+    nextRunAt,
+    scoutCadenceLabel,
+    scoutCadenceNamesClockTime,
+    scoutGroup,
+    ScoutGroupKey,
+    scoutSubtitle,
+} from './scoutGroups'
 import { computeScoutRollups, ScoutRollup } from './scoutRunsWindow'
 
 const NOW = new Date('2026-06-27T22:00:00Z')
@@ -28,6 +35,7 @@ function makeConfig(overrides: Partial<SignalScoutConfig> = {}): SignalScoutConf
         auto_pause_exempt: false,
         tags: [],
         created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
         ...overrides,
     } as SignalScoutConfig
 }
@@ -126,6 +134,34 @@ describe('scoutGroups', () => {
             expect(scoutSubtitle(makeConfig(overrides), undefined, NOW)?.text).toEqual(expected)
         })
 
+        // A card that only says when a scout went off sends the reader to the activity log to find
+        // out who did it, which nobody looking at the roster knows to open.
+        it.each<[string, Partial<SignalScoutConfig>, string]>([
+            [
+                'a user pause names the person who did it',
+                {
+                    enabled: false,
+                    status: 'paused_by_user',
+                    status_changed_at: '2026-06-24T00:00:00Z',
+                    status_changed_by: {
+                        id: 7,
+                        uuid: 'user-7',
+                        first_name: 'Ada',
+                        last_name: 'Byron',
+                        email: 'ada@example.com',
+                    } as SignalScoutConfig['status_changed_by'],
+                },
+                'Turned off by Ada Byron · Jun 24, 2026',
+            ],
+            [
+                'an unattributed pause credits nobody',
+                { enabled: false, status: 'paused_by_user', status_changed_at: '2026-06-24T00:00:00Z' },
+                'Turned off Jun 24, 2026',
+            ],
+        ])('%s', (_name, overrides, expected) => {
+            expect(scoutSubtitle(makeConfig(overrides), undefined, NOW)?.text).toEqual(expected)
+        })
+
         it('prefers what the last run checked over the scout description', () => {
             const rollup = rollupFor([
                 makeRun({ summary: 'Swept 40 event series against the 14-day baseline. All inside range.' }),
@@ -164,6 +200,16 @@ describe('scoutGroups', () => {
             ],
         ])('%s', (_name, overrides, expected) => {
             expect(scoutCadenceLabel(makeConfig(overrides))).toEqual(expected)
+        })
+    })
+
+    describe('scoutCadenceNamesClockTime', () => {
+        it.each<[string, Partial<SignalScoutConfig>, boolean]>([
+            ['a rolling interval states no clock time', { run_interval_minutes: 60 }, false],
+            ['a plain daily cron states one', { run_cron_schedule: '0 9 * * *' }, true],
+            ['a richer cron states one', { run_cron_schedule: '35 8 * * 1-5' }, true],
+        ])('%s', (_name, overrides, expected) => {
+            expect(scoutCadenceNamesClockTime(makeConfig(overrides))).toBe(expected)
         })
     })
 

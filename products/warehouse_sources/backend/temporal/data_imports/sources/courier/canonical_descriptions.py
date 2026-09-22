@@ -21,6 +21,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "sent": "UTC timestamp at which Courier passed the message to the integration provider, if any.",
         },
     },
+    "MessageHistory": {
+        "description": "One entry per status transition of a sent message, giving the delivery funnel behind the message's current status.",
+        "docs_url": "https://www.courier.com/docs/api-reference/messages/get-message-history",
+        "columns": {
+            "message_id": "Unique identifier of the message this transition belongs to.",
+            "type": "The status the message moved into (e.g. ENQUEUED, ROUTED, SENT, DELIVERED, OPENED, CLICKED, UNDELIVERABLE).",
+            "ts": "Timestamp at which the message entered this status.",
+            "enqueued": "UTC timestamp at which Courier received the message request.",
+        },
+    },
     "AuditEvents": {
         "description": "An account-level activity log entry recording an action taken by a user or API key in your Courier workspace.",
         "docs_url": "https://www.courier.com/docs/reference/audit-events/list",
@@ -46,6 +56,17 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "operator": "Logical operator (AND/OR) combining the top-level filter rules.",
         },
     },
+    "AudienceMembers": {
+        "description": "A user currently matching an audience's filter. Courier recalculates membership as user profiles change.",
+        "docs_url": "https://www.courier.com/docs/api-reference/audiences/list-audience-members",
+        "columns": {
+            "audience_id": "Unique identifier of the audience the user belongs to.",
+            "member_id": "Unique identifier of the user matching the audience filter.",
+            "added_at": "Timestamp at which the user was added to the audience.",
+            "audience_version": "Version of the audience filter the membership was calculated against.",
+            "reason": "Why the user matches the audience filter.",
+        },
+    },
     "Brands": {
         "description": "A branding profile (colors, logo, templates) that can be applied to messages sent through Courier.",
         "docs_url": "https://www.courier.com/docs/reference/brands/list",
@@ -58,6 +79,31 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "settings": "Brand settings, including email and in-app configuration.",
             "snippets": "Reusable Handlebars snippets available to templates using this brand.",
             "version": "Version identifier of the brand.",
+        },
+    },
+    "ListSubscriptions": {
+        "description": "A user's subscription to a list, with the notification preferences recorded for that subscription.",
+        "docs_url": "https://www.courier.com/docs/api-reference/lists/list-subscriptions-for-a-list",
+        "columns": {
+            "list_id": "Unique identifier of the list the user is subscribed to.",
+            "recipientId": "Unique identifier of the subscribed user.",
+            "created": "Timestamp at which the subscription was created.",
+            "preferences": "Notification preferences (per category and per template) recorded for this subscription.",
+        },
+    },
+    "NotificationTemplates": {
+        "description": "A notification template in the workspace, resolving the template id every sent message carries.",
+        "docs_url": "https://www.courier.com/docs/api-reference/templates/list-notification-templates",
+        "columns": {
+            "id": "Unique identifier for the notification template.",
+            "title": "Name of the notification template.",
+            "created_at": "Timestamp at which the template was created.",
+            "updated_at": "Timestamp at which the template was last updated.",
+            "routing": "Routing configuration (method and channels) the template sends through.",
+            "tags": "Tags applied to the template.",
+            "topic_id": "Subscription topic the template is linked to.",
+            "note": "Note stored against the template. Legacy templates only.",
+            "event_ids": "Event ids mapped to this template.",
         },
     },
     "Tenants": {

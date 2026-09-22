@@ -3,7 +3,6 @@ import { useValues } from 'kea'
 import { IconArrowUpRight } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -13,10 +12,12 @@ import type {
     SignalScoutConfigApi as SignalScoutConfig,
 } from 'products/signals/frontend/generated/api.schemas'
 
-import { nextRunAt, scoutCadenceLabel } from '../../../utils/scoutGroups'
+import { nextRunAt } from '../../../utils/scoutGroups'
 import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import { ScoutLifecycleBadge } from './ScoutBadges'
+import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
+import { ScoutNextRunLabel } from './ScoutNextRunLabel'
 
 /**
  * A compact scout row for surfaces outside the roster — product pages that show the handful of
@@ -34,12 +35,7 @@ export function ScoutSummaryRow({
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const timezone = currentTeam?.timezone ?? 'UTC'
-    const now = new Date()
-    const next = nextRunAt(config, timezone, now)
-    // Shown in the project timezone, the one the cadence is stated in; a rolling scout past its
-    // interval is waiting on the scheduler rather than scheduled for a time that has passed.
-    const nextRunText =
-        !next || !config.enabled ? null : next <= now ? 'due now' : dayjs(next).tz(timezone).format('h:mm A')
+    const hasNextRun = nextRunAt(config, timezone, new Date()) !== null
 
     return (
         <div
@@ -67,8 +63,13 @@ export function ScoutSummaryRow({
                     <ScoutLifecycleBadge config={config} />
                 </div>
                 <span className="text-[11px] text-muted">
-                    {scoutCadenceLabel(config)}
-                    {nextRunText && ` · next run ${nextRunText}`}
+                    <ScoutCadenceLabel config={config} />
+                    {hasNextRun && (
+                        <>
+                            {' · next run '}
+                            <ScoutNextRunLabel config={config} />
+                        </>
+                    )}
                 </span>
             </div>
             <div className="flex shrink-0 items-center gap-2">

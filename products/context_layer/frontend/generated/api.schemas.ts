@@ -82,6 +82,15 @@ export interface ActiveDreamRunApi {
     started_at: string
 }
 
+export interface UnpublishedDreamRunApi {
+    /** Task URL in its project for the unpublished dream outcome and logs. */
+    task_url: string
+    /** The terminal task-run state, such as completed, failed, or cancelled. */
+    run_status: string
+    /** When the unpublished dream task was created. */
+    started_at: string
+}
+
 /**
  * One dreaming run: the merge commit it landed as, plus what it changed.
  */
@@ -110,6 +119,8 @@ export interface DreamRunListApi {
     head_sha: string
     /** The organization's active dreaming task, or null when no dream is running. */
     active_run: ActiveDreamRunApi | null
+    /** The latest finished dream when no update was published after it started, or null otherwise. */
+    unpublished_run: UnpublishedDreamRunApi | null
     /** Every landed dream run, newest first. */
     dreams: DreamRunApi[]
 }
@@ -176,6 +187,17 @@ export interface WikiPageApi {
     head_sha: string
     /** When this page was last changed in the wiki history. */
     updated_at: string
+    /** Character offset of this chunk. */
+    offset: number
+    /** Character length of the complete page. */
+    total_length: number
+    /**
+     * Next character offset, or null when complete.
+     * @nullable
+     */
+    next_offset: number | null
+    /** True when no further chunks remain. Do not write a page until all chunks are read. */
+    complete: boolean
 }
 
 /**
@@ -209,6 +231,32 @@ export interface HeadConflictApi {
     current_head: string
 }
 
+export interface WikiPageProposalApi {
+    /** Immutable suggested edit ID. Only its author can apply it through the user API. */
+    id: string
+    /** Task that proposed the edit. */
+    task_id: string
+    /** Shared wiki page to review. */
+    path: string
+    /** Page content at the revision the proposal is based on. */
+    original_content: string
+    /** Proposed page content. This is not published wiki content. */
+    content: string
+    /** Wiki revision the proposal is based on. */
+    base_head: string
+    /** When the edit was proposed. */
+    created_at: string
+}
+
+export interface PaginatedWikiPageProposalListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WikiPageProposalApi[]
+}
+
 /**
  * Response shape for the wiki's page listing.
  */
@@ -235,16 +283,84 @@ export interface WikiHealthReportApi {
     findings: WikiHealthFindingApi[]
 }
 
+/**
+ * Request body for creating or replacing one wiki page.
+ */
+export interface WikiPageProposalWriteApi {
+    /**
+     * Repo-relative Markdown path inside the wiki's structure, for example `projects/12/spaces/general.md`.
+     * @maxLength 512
+     */
+    path: string
+    /**
+     * The complete Markdown content for the page.
+     * @maxLength 1000000
+     */
+    content: string
+    /**
+     * The head_sha returned when reading the page. Required to bind the proposed edit.
+     * @maxLength 64
+     */
+    base_head: string
+}
+
 export type ContextLayerPagesRetrieveParams = {
     /**
+     * Head from the first chunk. Required for continuation. A changed head returns 409.
+     * @minLength 1
+     * @maxLength 64
+     */
+    head_sha?: string
+    /**
+     * Maximum characters to read. Omit for the full page.
+     * @minimum 1
+     * @maximum 12000
+     */
+    limit?: number
+    /**
+     * Character offset from next_offset.
+     * @minimum 0
+     */
+    offset?: number
+    /**
      * Repo-relative Markdown path of the page to read.
+     * @minLength 1
      */
     path: string
 }
 
+export type ContextLayerProposalsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ContextLayerAgentPagesRetrieveParams = {
     /**
+     * Head from the first chunk. Required for continuation. A changed head returns 409.
+     * @minLength 1
+     * @maxLength 64
+     */
+    head_sha?: string
+    /**
+     * Maximum characters to read. Omit for the full page.
+     * @minimum 1
+     * @maximum 12000
+     */
+    limit?: number
+    /**
+     * Character offset from next_offset.
+     * @minimum 0
+     */
+    offset?: number
+    /**
      * Repo-relative Markdown path of the page to read.
+     * @minLength 1
      */
     path: string
 }

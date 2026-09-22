@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from urllib.parse import urlparse
 
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
@@ -18,7 +18,7 @@ from dateutil.rrule import DAILY, FR, MO, MONTHLY, SA, SU, TH, TU, WE, WEEKLY, Y
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import Change, ChangeAction, Detail, changes_between, log_activity
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.utils import UUIDModel
@@ -40,15 +40,22 @@ UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
 subscription_request_analytics_props: ContextVar[Optional["AnalyticsProps"]] = ContextVar(
     "subscription_request_analytics_props", default=None
 )
+subscription_context_activity_change: ContextVar[tuple[list[str], list[str]] | None] = ContextVar(
+    "subscription_context_activity_change", default=None
+)
 
 
 @contextmanager
-def attribute_subscription_saves(analytics_props: "AnalyticsProps") -> Iterator[None]:
-    token = subscription_request_analytics_props.set(analytics_props)
+def attribute_subscription_saves(
+    analytics_props: "AnalyticsProps", *, context_change: tuple[list[str], list[str]] | None = None
+) -> Iterator[None]:
+    analytics_token = subscription_request_analytics_props.set(analytics_props)
+    context_token = subscription_context_activity_change.set(context_change)
     try:
         yield
     finally:
-        subscription_request_analytics_props.reset(token)
+        subscription_context_activity_change.reset(context_token)
+        subscription_request_analytics_props.reset(analytics_token)
 
 
 # Single source of truth shared with the frontend create gate via generated schema
@@ -159,27 +166,23 @@ class Subscription(ModelActivityMixin, models.Model):
     DEFAULT_AI_REPORT_WINDOW_DAYS = 7
 
     # Relations - i.e. WHAT are we exporting?
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True)
-    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE, null=True)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True, related_name="+")
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE, null=True, related_name="+")
     dashboard_export_insights = models.ManyToManyField(
         "product_analytics.Insight",
         blank=True,
         related_name="subscriptions_dashboard_export",
     )
     integration = models.ForeignKey(
-        "posthog.Integration",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_index=False,
+        "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, db_index=False, related_name="+"
     )
 
     prompt = models.TextField(null=True, blank=True)
 
     # Frozen by the first successful delivery so later runs reuse the same HogQL deterministically
-    # instead of re-running the planner LLM; cleared on prompt change (see save()). Shape is versioned —
-    # see report_pipeline._plan_to_freeze.
+    # instead of re-running the planner LLM. Edits that require a fresh plan clear it in save().
+    # Shape is versioned; see report_pipeline._plan_to_freeze.
     ai_query_plan = models.JSONField(null=True, blank=True, default=None)
     # Source of truth for the shape: ee.api.subscription.AIPromptConfigSerializer (writes) and
     # normalize_ai_window below (reads).
@@ -209,7 +212,7 @@ class Subscription(ModelActivityMixin, models.Model):
 
     # Meta
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
 
     # False when paused or auto-disabled because the delivery prerequisite is
@@ -236,6 +239,8 @@ class Subscription(ModelActivityMixin, models.Model):
             self._rrule = self.rrule
         if "prompt" not in self.get_deferred_fields():
             self._initial_prompt = self.prompt
+        if "delivery_config" not in self.get_deferred_fields():
+            self._initial_include_images = self.includes_delivery_part("include_images")
 
     def save(self, *args, **kwargs) -> None:
         # Only if the schedule has changed do we update the next delivery date
@@ -244,14 +249,40 @@ class Subscription(ModelActivityMixin, models.Model):
             self.set_next_delivery_date()
             if "update_fields" in kwargs:
                 kwargs["update_fields"].append("next_delivery_date")
-        # A changed prompt invalidates the frozen AI query plan at the model level (same pattern as
-        # next_delivery_date above), so ORM-path edits can't leave a plan answering the old prompt.
-        if self.id and self.prompt != getattr(self, "_initial_prompt", self.prompt) and self.ai_query_plan is not None:
+        include_images = self.includes_delivery_part("include_images")
+        initial_include_images = getattr(self, "_initial_include_images", None)
+        if initial_include_images is None and self.id:
+            persisted_delivery_config = (
+                type(self).objects.filter(id=self.id).values_list("delivery_config", flat=True).first()
+            )
+            initial_include_images = (
+                self._delivery_config_includes(persisted_delivery_config, "include_images")
+                if persisted_delivery_config is not None
+                else include_images
+            )
+        prompt_changed = self.prompt != getattr(self, "_initial_prompt", self.prompt)
+        images_just_enabled = include_images and not initial_include_images
+        # Frozen plans skip chart validation while images are hidden. Enabling images needs a new
+        # plan, while feedback and footer options only affect rendering.
+        if self.id and (prompt_changed or images_just_enabled) and self.ai_query_plan is not None:
             self.ai_query_plan = None
             if kwargs.get("update_fields") is not None:
                 kwargs["update_fields"] = [*kwargs["update_fields"], "ai_query_plan"]
         super().save(*args, **kwargs)
         self._initial_prompt = self.prompt
+        self._initial_include_images = include_images
+
+    @staticmethod
+    def _delivery_config_includes(delivery_config: Any, option: str) -> bool:
+        config = delivery_config if isinstance(delivery_config, dict) else {}
+        return bool(config.get(option, True))
+
+    def includes_delivery_part(self, option: str) -> bool:
+        return self._delivery_config_includes(self.delivery_config, option)
+
+    def _should_log_activity_for_update(self, **kwargs: Any) -> tuple[bool, Any]:
+        should_log, before_update = super()._should_log_activity_for_update(**kwargs)
+        return should_log or subscription_context_activity_change.get() is not None, before_update
 
     @classmethod
     def derive_resource_type(cls, insight_id: int | None, dashboard_id: int | None, prompt: str | None) -> str:
@@ -544,15 +575,24 @@ def subscription_saved(sender, instance, created, raw, using, **kwargs):
     if kwargs.get("update_fields"):
         return
 
-    if instance.created_by and instance.resource_info:
-        event_name: str = f"{instance.resource_info.kind.lower()} subscription {'created' if created else 'updated'}"
-        report_user_action(
-            instance.created_by,
-            event_name,
-            instance.get_analytics_metadata(),
-            team=instance.team,
-            analytics_props=subscription_request_analytics_props.get(),
-        )
+    resource_info = instance.resource_info
+    if instance.created_by and resource_info:
+        event_name: str = f"{resource_info.kind.lower()} subscription {'created' if created else 'updated'}"
+        user = instance.created_by
+        metadata = instance.get_analytics_metadata()
+        team = instance.team
+        analytics_props = subscription_request_analytics_props.get()
+
+        def capture_subscription_event() -> None:
+            report_user_action(
+                user,
+                event_name,
+                metadata,
+                team=team,
+                analytics_props=analytics_props,
+            )
+
+        transaction.on_commit(capture_subscription_event, using=using)
 
 
 @mutable_receiver(model_activity_signal, sender=Subscription)
@@ -564,6 +604,25 @@ def log_subscription_activity(
         return
 
     changes = changes_between("Subscription", previous=before_update, current=after_update)
+    context_change = subscription_context_activity_change.get()
+    if context_change is not None:
+        before_contexts, after_contexts = context_change
+        action: ChangeAction
+        if not before_contexts:
+            action = "created"
+        elif not after_contexts:
+            action = "deleted"
+        else:
+            action = "changed"
+        changes.append(
+            Change(
+                type="Subscription",
+                field="contexts",
+                action=action,
+                before=before_contexts or None,
+                after=after_contexts or None,
+            )
+        )
     try:
         log_activity(
             organization_id=instance.team.organization_id,
@@ -602,7 +661,7 @@ class SubscriptionDelivery(UUIDModel):
         SKIPPED = "skipped"
 
     subscription = models.ForeignKey("Subscription", on_delete=models.CASCADE, related_name="deliveries")
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     # Temporal correlation — workflow_id for debugging, idempotency_key for dedup.
     # idempotency_key is generated via temporalio.workflow.uuid4() which is deterministic
@@ -621,6 +680,9 @@ class SubscriptionDelivery(UUIDModel):
     # Content snapshot
     exported_asset_ids: ArrayField = ArrayField(models.IntegerField(), default=list)
     content_snapshot = models.JSONField(default=dict)
+
+    # db_default so workers on the previous image can INSERT without naming this column during a rolling deploy.
+    context_refs = ArrayField(models.CharField(max_length=64), default=list, db_default=[])
 
     # AI-generated summary sent in the delivery, when summary_enabled is on for the subscription.
     # None when no summary is attached.

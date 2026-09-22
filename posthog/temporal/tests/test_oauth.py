@@ -12,7 +12,7 @@ from parameterized import parameterized
 from temporalio.converter import JSONPlainPayloadConverter
 
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
-from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
+from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE, SLACK_RUN_SCOPE
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     CONTEXT_LAYER_INTERNAL_SCOPE,
@@ -160,6 +160,9 @@ class TestResolveScopes(SimpleTestCase):
                 "llm_skill:write",
                 "warehouse_view:write",
             ),
+            # The scanner grant's exclusions live in the scanner API, so the token still has to
+            # carry the whole scope object for the rest of that surface to work.
+            ("scanner_grant", "signals_scout", "replay_scanner:write", "alert:write"),
         ]
     )
     def test_scout_posture_adds_only_the_granted_write_scopes(
@@ -427,6 +430,17 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
         # The marker is provenance only: built-in agents keep the task tools.
         assert "task:read" in scopes
         assert "task:write" in scopes
+
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_slack_run_scope_is_added_without_narrowing_scopes(self) -> None:
+        self._create_oauth_app(ARRAY_APP_CLIENT_ID_DEV, "Array Dev App")
+        user, team = self._create_user_and_team()
+
+        token = create_oauth_access_token_for_user(user, team.id, include_slack_run_scope=True)
+
+        scopes = set(OAuthAccessToken.objects.get(token=token).scope.split())
+        assert SLACK_RUN_SCOPE in scopes
+        assert "task:read" in scopes
 
 
 class TestCreateWizardOAuthAccessTokenForUser(TestCase):

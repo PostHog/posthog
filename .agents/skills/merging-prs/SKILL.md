@@ -28,14 +28,15 @@ Resolve the repo slug once if you need it: `REPO=$(gh repo view --json nameWithO
 ## 1. Preflight
 
 ```bash
-gh pr view <n> --json state,isDraft,mergeable,reviewDecision,statusCheckRollup,baseRefName
+gh pr view <n> --json state,isDraft,mergeable,reviewDecision,statusCheckRollup,baseRefName,isCrossRepository
 ```
 
 - **Not open** (already merged/closed) → report and stop.
 - **Draft** → it can't be merged. Ask the developer to confirm, then `gh pr ready <n>` before continuing. Don't un-draft silently.
 - **Failing required checks** (`statusCheckRollup`) → the queue will just reject it. Report which checks are red and stop; fix them first. **Pending** checks are fine — the queue waits for them. To work out _why_ a check is red, use `/debugging-ci-failures`.
 - **Merge conflicts** (`mergeable == "CONFLICTING"`) → report and stop; merge `master` in first.
-- **Missing approval** (`reviewDecision == "REVIEW_REQUIRED"`, or a stamphog approval was dismissed) → apply the `stamphog` label yourself: `gh pr edit <n> --add-label stamphog`. That triggers the automated review-and-approve flow ([tools/pr-approval-agent/README.md](../../../tools/pr-approval-agent/README.md)); on an `APPROVED` verdict the Stamphog app posts the approval that satisfies the required review. Re-applying the label is always safe and is the intended retry path — it gets stripped on a `REFUSED`/`ESCALATE` verdict, and after addressing that feedback you re-apply it to request a fresh review. Read the reason first: every verdict is its own review from the Stamphog app, opening with whether it approved. Re-applying the label without changing anything just repeats the same verdict. It stays sticky across ordinary pushes (non-trivial deltas re-review automatically), and it never works on bot-authored PRs.
+- **Head is on a fork** (`isCrossRepository == true`) → backend CI ran on GitHub Actions, so the required check is on the head as usual. Depot's optional checks are absent; that is expected and needs no action.
+- **Missing approval** (`reviewDecision == "REVIEW_REQUIRED"`, or a stamphog approval was dismissed) → apply the `stamphog` label yourself: `gh pr edit <n> --add-label stamphog`. That triggers the automated review-and-approve flow ([the engine README](../../../products/stamphog/packages/pr-approval-agent/README.md)); on an `APPROVED` verdict the Stamphog app posts the approval that satisfies the required review. Re-applying the label is always safe and is the intended retry path — it gets stripped on a `REFUSED`/`ESCALATE` verdict, and after addressing that feedback you re-apply it to request a fresh review. Read the reason first: every verdict is its own review from the Stamphog app, opening with whether it approved. Re-applying the label without changing anything just repeats the same verdict. It stays sticky across ordinary pushes (non-trivial deltas re-review automatically), and it never works on bot-authored PRs.
 - **Part of a stack** (`baseRefName != "master"`, or the PR appears in `gh api repos/$REPO/stacks`) → the queue handles stacks natively: enqueueing a PR enqueues it **and every unmerged layer below it**, tests them together, and merges them atomically. After explicit user approval, comment `/trunk merge` on the **top** PR to merge the whole stack, or on the highest layer you want landed to merge just the bottom part. Run this preflight on every layer being merged, not only the one you comment on. `/stacking-prs` covers restack mechanics and the post-merge `gh stack sync --prune`.
 
 ## 2. Enqueue
@@ -150,6 +151,17 @@ gh pr comment <n> --body "/trunk cancel"
 ```
 
 Confirm the check run reports cancelled.
+
+## The pre-push merge queue guard
+
+A pre-push hook refuses to push a branch whose PR sits in the queue, because that push would knock the PR out.
+A PR whose batch failed and waits for a retest does not block — Trunk drops it from the queue on push, which is what you want after a failure.
+
+When the guard blocks you, leave the branch alone and put further changes on a new branch with a new PR.
+To update the queued PR on purpose, run `trunk merge cancel <n>` (or comment `/trunk cancel`), wait for it to leave the queue, then push.
+
+The check fails open — missing `gh` or `trunk`, not logged in, offline, API errors — and `TRUNK_QUEUE_PUSH_CHECK_DISABLED=1` skips it.
+`trunk login` arms it, which is why the one-time interactive login is worth running even if you prefer the PR comments.
 
 ## Hard rules
 

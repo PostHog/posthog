@@ -9,6 +9,7 @@ import { SqlPieGraph } from './SqlPieGraph'
 export interface PieChartProps {
     xData: AxisSeries<string> | null
     yData: AxisSeries<number | null>[] | AxisBreakdownSeries<number | null>[]
+    visualizationType: ChartDisplayType
     chartSettings: ChartSettings
     presetChartHeight?: boolean
     className?: string
@@ -18,7 +19,7 @@ export function PieChart(props: PieChartProps): JSX.Element {
     const sqlPieProps: SqlChartProps = {
         xData: props.xData,
         yData: props.yData,
-        visualizationType: ChartDisplayType.ActionsPie,
+        visualizationType: props.visualizationType,
         chartSettings: props.chartSettings,
         presetChartHeight: props.presetChartHeight,
         className: props.className,

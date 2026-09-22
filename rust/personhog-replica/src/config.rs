@@ -61,6 +61,13 @@ pub struct Config {
     #[envconfig(default = "2")]
     pub bulk_max_concurrent_chunks: usize,
 
+    /// Most dependent rows (distinct ids, hash key overrides, cohort
+    /// memberships) one DeleteTombstonedPersons call may delete; the request's
+    /// max_rows is clamped to it. The bulk pool statement timeout is 30 s and the
+    /// measured tail cost on the persons tables is up to 5 ms per row.
+    #[envconfig(default = "5000")]
+    pub tombstoned_delete_max_rows: usize,
+
     /// Maximum number of server-side (PgBouncer → Postgres) connections to
     /// warm at startup via SELECT 1. Clamped to min_pg_connections. Set to 0
     /// to skip server-side warming entirely.

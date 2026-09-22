@@ -14,10 +14,10 @@ from django.db import models, transaction
 from django.utils import timezone
 
 from dateutil import parser
-from django_deprecate_fields import deprecate_field
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.types import (
     ExternalDataSchemaSyncFrequency,
     ExternalDataSchemaSyncType,
     IncrementalFieldType,
+    IncrementalSyncBlockedReason,
 )
 
 if TYPE_CHECKING:
@@ -44,6 +45,43 @@ type IncrementalFieldValue = str | int | float | None
 SYNC_DISABLED_JOB_ERROR = "Sync stopped because syncing was turned off"
 SCHEMA_DELETED_JOB_ERROR = "Sync stopped because the table was deleted"
 AUTO_DISABLED_JOB_ERROR = "Sync stopped because of an error that retrying would not fix"
+
+# `Any_Source_Errors` rewrites the raised exception into this copy, so a blocked schema carries it
+# as `latest_error`. Matched below, not only displayed.
+MISSING_PRIMARY_KEY_DISABLED_MESSAGE = (
+    "This table needs a primary key to sync incrementally, but none is set. Choose a primary key "
+    "for the table in its sync settings, or switch it to full table replication, then re-enable the sync."
+)
+DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE = (
+    "The primary key set for this table isn't unique, so incremental syncing can't reliably match "
+    "rows to update. Choose a unique primary key in the table's sync settings, or switch it to full "
+    "table replication, then re-enable the sync."
+)
+
+# Runs that fail outside the workflow record the raw text instead. Copied from
+# `pipelines/core/arrow_utils.py`, which would pull pyarrow onto the Django model path; a test
+# holds the two in step.
+MISSING_PRIMARY_KEYS_RAW_ERROR = "Primary key required for incremental syncs"
+DUPLICATE_PRIMARY_KEYS_RAW_ERROR = "The primary keys for this table are not unique"
+
+_INCREMENTAL_SYNC_BLOCKED_MARKERS: tuple[tuple[str, IncrementalSyncBlockedReason], ...] = (
+    (MISSING_PRIMARY_KEY_DISABLED_MESSAGE, IncrementalSyncBlockedReason.MISSING_PRIMARY_KEY),
+    (MISSING_PRIMARY_KEYS_RAW_ERROR, IncrementalSyncBlockedReason.MISSING_PRIMARY_KEY),
+    (DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE, IncrementalSyncBlockedReason.DUPLICATE_PRIMARY_KEY),
+    (DUPLICATE_PRIMARY_KEYS_RAW_ERROR, IncrementalSyncBlockedReason.DUPLICATE_PRIMARY_KEY),
+)
+
+
+def incremental_sync_blocked_reason(latest_error: str | None) -> str | None:
+    """Classify a sync error as one of the two states a customer resolves by changing the key.
+
+    Reading the error keeps this in step with the failure by construction: a successful run clears
+    `latest_error`, and a different failure replaces it, so there is no second state to expire.
+    """
+    if not latest_error:
+        return None
+    return next((reason.value for marker, reason in _INCREMENTAL_SYNC_BLOCKED_MARKERS if marker in latest_error), None)
+
 
 # How stale a rewrite checkpoint may get before its import hold lapses. Generous on purpose: a
 # multi-budget rewrite renews the stamp on every advancing attempt, and attempts arrive at the
@@ -138,6 +176,15 @@ class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
         """
         disabling = kwargs.get("should_sync") is False
         deleting = kwargs.get("deleted") is True
+
+        # `auto_disabled_at` is written by `save()`, which a bulk write skips. The auto-disable
+        # path always runs through `update_should_sync`, which saves the instance, so a bulk
+        # write that names `should_sync` is the user's decision. An earlier halt must not
+        # outlive it, or a schema nobody halted stays in the failure digest. An explicit value
+        # still wins, so a caller can stage a halted row.
+        if "should_sync" in kwargs and "auto_disabled_at" not in kwargs:
+            kwargs["auto_disabled_at"] = None
+
         transitioning: list[tuple[uuid.UUID, int]] = []
         if disabling or deleting:
             predicate = models.Q()
@@ -167,6 +214,12 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     source = models.ForeignKey("warehouse_sources.ExternalDataSource", related_name="schemas", on_delete=models.CASCADE)
     table = models.ForeignKey("warehouse_sources.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
     should_sync = models.BooleanField(default=True)
+    auto_disabled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When PostHog stopped syncing this schema itself, after an error that retrying would not fix. "
+        "Null while syncing is on, and while syncing is off because the user turned it off.",
+    )
     latest_error = models.TextField(
         null=True, blank=True, help_text="The latest error that occurred when syncing this schema."
     )
@@ -186,7 +239,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # See `sources/common/history_window.py`. A column rather than a `sync_type_config` key
     # because it has to outlive a reset, and clearing that blob is what a reset is for.
     history_start = models.DateTimeField(null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict } }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "verified_primary_keys": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict } }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -198,7 +251,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     s3_folder_name = models.CharField(max_length=400, null=True, blank=True)
     # Deprecated in favour of `sync_frequency_interval`
     sync_frequency = deprecate_field(
-        models.CharField(max_length=128, choices=SyncFrequency, default=SyncFrequency.DAILY, blank=True)
+        models.CharField(max_length=128, choices=SyncFrequency, default=SyncFrequency.DAILY, blank=True, null=True)
     )
     sync_frequency_interval = models.DurationField(default=timedelta(hours=6), null=True, blank=True)
     sync_time_of_day = models.TimeField(null=True, blank=True, help_text="Time of day to run the sync (UTC)")
@@ -242,6 +295,30 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             return "disabled"
         return None
 
+    def _apply_auto_disabled_marker(self, teardown_kind: str | None, update_fields: Iterable[str] | None) -> bool:
+        """Record whether PostHog stopped this schema itself. Returns whether the value changed.
+
+        The failure digest emails a team about a schema PostHog halted, and stays quiet about one
+        the user switched off, so which of the two happened must outlive the write that stopped
+        the schema. Only the auto-disable path supplies an error message through
+        ``sync_disable_context``, and that is what tells the two apart. A save that leaves
+        ``should_sync`` False without performing the disable transition keeps the existing stamp,
+        so the pipeline's frequent bookkeeping saves cannot erase it.
+        """
+        if update_fields is not None and "should_sync" not in update_fields:
+            return False
+        if self.should_sync:
+            marker = None
+        elif teardown_kind == "disabled":
+            context = _sync_disable_context.get()
+            marker = timezone.now() if context is not None and context.error_message else None
+        else:
+            return False
+        if marker == self.auto_disabled_at:
+            return False
+        self.auto_disabled_at = marker
+        return True
+
     def save(self, *args: Any, skip_activity_log: bool = False, **kwargs: Any) -> None:
         # Populate the S3 folder on first write so the column is always authoritative for new rows.
         # Legacy/qualified rows set it explicitly before renaming (see `_qualify_legacy_row`); this
@@ -256,6 +333,11 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # `.update()` twin lives on ExternalDataSchemaQuerySet. Detected before the write,
         # dispatched only after it succeeds.
         teardown_kind = self._sync_teardown_kind(kwargs.get("update_fields"))
+
+        if self._apply_auto_disabled_marker(teardown_kind, kwargs.get("update_fields")):
+            scoped_fields = kwargs.get("update_fields")
+            if scoped_fields is not None:
+                kwargs["update_fields"] = {*scoped_fields, "auto_disabled_at"}
 
         if skip_activity_log:
             # Internal pipeline-driven bookkeeping saves (sync_type_config / xmin state) don't need
@@ -542,6 +624,19 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             return self.sync_type_config.get("primary_key_columns", None)
 
         return None
+
+    @property
+    def verified_primary_keys(self) -> list[str] | None:
+        """The key a full-table probe proved unique, so later runs only probe what they read."""
+        if self.sync_type_config:
+            return self.sync_type_config.get("verified_primary_keys", None)
+
+        return None
+
+    @property
+    def incremental_sync_blocked(self) -> str | None:
+        """Why the last run proved this schema's incremental sync can never succeed, if it did."""
+        return incremental_sync_blocked_reason(self.latest_error)
 
     @property
     def chunk_size_override(self) -> int | None:

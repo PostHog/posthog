@@ -5,8 +5,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.apple_search_ads import (
     AppleSearchAdsResumeConfig,
 )
@@ -186,6 +185,21 @@ class TestAppleSearchAdsSource:
         credentials = self.source._credentials(config)
 
         assert (credentials.ad_account_id, credentials.org_id) == ("123456789", "555")
+
+    def test_the_field_caption_and_step_five_describe_the_same_blank_connect_flow(self) -> None:
+        config = self.source.get_source_config
+        field_caption = next(
+            field.caption
+            for field in config.fields
+            if isinstance(field, SourceFieldInputConfig) and field.name == "ad_account_id"
+        )
+        assert field_caption is not None
+        assert config.caption is not None
+        step_five = next(line for line in config.caption.splitlines() if line.startswith("5."))
+
+        for text in (field_caption, step_five):
+            assert "connect again" in text
+            assert "expected" in text
 
     def test_the_connect_form_does_not_require_either_context_id(self) -> None:
         # `required` cannot express "depends on the version pin", so `validate_credentials`

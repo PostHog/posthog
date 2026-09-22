@@ -45,6 +45,7 @@ function makeRun(): WizardRunApi {
         id: 'run-1',
         team_id: 1,
         created_by_id: 1,
+        created_by: { id: 1, first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
         environment: 'cloud',
         workspace: { type: 'git_repository', repository: 'posthog/posthog' },
         program: {

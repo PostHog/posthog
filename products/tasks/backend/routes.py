@@ -8,6 +8,7 @@ import products.tasks.backend.presentation.views.channels_api as channels
 import products.tasks.backend.presentation.views.desktop_access as desktop_access
 import products.tasks.backend.presentation.views.task_usage_api as task_usage
 import products.tasks.backend.presentation.views.sandbox_pricing_api as sandbox_pricing
+import products.tasks.backend.presentation.views.repo_routing_rules_api as repo_routing_rules
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -27,6 +28,12 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(r"desktop", desktop_access.DesktopAccessViewSet, "project_desktop", ["team_id"])
     routers.projects.register(r"tasks/config", config.TasksTeamConfigViewSet, "project_tasks_config", ["team_id"])
+    routers.projects.register(
+        r"tasks/repo_routing_rules",
+        repo_routing_rules.RepoRoutingRuleViewSet,
+        "project_tasks_repo_routing_rules",
+        ["team_id"],
+    )
     routers.projects.register(
         r"tasks/@me/config", config.TasksUserConfigViewSet, "project_tasks_me_config", ["team_id"]
     )

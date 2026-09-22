@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookSyncResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.tests.api.utils import create_external_data_source_ok
 
@@ -122,22 +123,26 @@ class TestExternalDataSchema(APIBaseTest):
             "webhook_only": False,
             "available_columns": [],
             "detected_primary_keys": None,
+            "primary_key_detection_supported": False,
         }
 
     @parameterized.expand(
         [
-            ("expected_source_error", Exception("Invalid API Key provided"), False),
+            ("non_retryable_source_error", Exception("Invalid API Key provided"), False),
+            ("retryable_source_error", Exception("Request rate limit exceeded"), False),
             ("unclassified_error", RuntimeError("schema parser exploded"), True),
         ]
     )
     @mock.patch("products.warehouse_sources.backend.presentation.views.external_data_schema.capture_exception")
-    def test_incremental_fields_capture_depends_on_non_retryable_classification(
+    def test_incremental_fields_capture_depends_on_source_error_classification(
         self, _name, raised_exception, should_capture, mock_capture_exception
     ):
         # `validate_credentials` above this call already probed the same connection successfully, so
-        # a failure the source itself classifies as non-retryable (e.g. bad credentials, an
-        # unreachable host) is an expected customer/upstream condition and must not flood error
-        # tracking - mirrors `refresh_schemas`'s equivalent classification.
+        # a failure the source itself classifies is an expected customer/upstream condition and must
+        # not flood error tracking - mirrors `refresh_schemas`'s equivalent classification. A
+        # retryable classification counts too: a source that moves a condition from the
+        # non-retryable map to the retryable one still declares it self-recovering, so the guard
+        # must read both or that move starts minting error-tracking issues.
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.STRIPE,
@@ -337,6 +342,7 @@ class TestExternalDataSchema(APIBaseTest):
                 {"field": "id", "label": "id", "type": "integer", "nullable": True},
             ],
             "detected_primary_keys": ["id"],
+            "primary_key_detection_supported": True,
         }
 
     @parameterized.expand(
@@ -487,9 +493,46 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["supports_webhooks"] is True
 
-    def test_incremental_fields_returns_400_when_schema_name_absent(self):
+    @parameterized.expand(
+        [
+            (
+                "empty_discovery",
+                RedshiftSource,
+                [],
+                "Could not discover schema C999. The connection may be missing SELECT or schema access privileges, "
+                "or discovery may not support this relation type. Check that the relation exists, restore read "
+                "privileges, or expose it as a supported table or view, then try again.",
+            ),
+            (
+                "nonempty_discovery",
+                RedshiftSource,
+                [SourceSchema(name="$channels", supports_incremental=False, supports_append=False)],
+                "Schema with name C999 not found",
+            ),
+            (
+                "nonempty_api_discovery",
+                StripeSource,
+                [SourceSchema(name="$channels", supports_incremental=False, supports_append=False)],
+                "Schema with name C999 not found",
+            ),
+        ]
+    )
+    def test_incremental_fields_returns_400_when_schema_name_absent(
+        self, _name, source_class, discovered_schemas, expected_message
+    ):
         source = ExternalDataSource.objects.create(
-            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+            team=self.team,
+            source_type=source_class().source_type,
+            job_inputs={
+                "host": "localhost",
+                "port": 5439,
+                "database": "dev",
+                "user": "test",
+                "password": "test",
+                "schema": "public",
+            }
+            if source_class is RedshiftSource
+            else {"stripe_secret_key": "test_key"},
         )
         schema = ExternalDataSchema.objects.create(
             name="C999",
@@ -500,19 +543,16 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=ExternalDataSchema.SyncType.WEBHOOK,
         )
 
-        other_schemas = [
-            SourceSchema(name="$channels", supports_incremental=False, supports_append=False, supports_webhooks=False),
-        ]
-
         with (
-            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
-            mock.patch.object(StripeSource, "get_schemas", return_value=other_schemas),
+            mock.patch.object(source_class, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(source_class, "get_schemas", return_value=discovered_schemas),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"message": expected_message}
 
     def test_update_schema_change_sync_type(self):
         source = ExternalDataSource.objects.create(
@@ -549,6 +589,120 @@ class TestExternalDataSchema(APIBaseTest):
             schema.refresh_from_db()
             assert schema.sync_type_config.get("reset_pipeline") is None
             assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+    @parameterized.expand(
+        [
+            ("no_key_and_no_id_column", [{"name": "amount"}], None, None, False, "no primary key"),
+            ("id_column_is_the_fallback", [{"name": "id"}, {"name": "amount"}], None, None, True, ""),
+            (
+                "key_supplied_in_the_request",
+                [{"name": "amount"}, {"name": "order_id"}],
+                None,
+                ["order_id"],
+                True,
+                "",
+            ),
+            ("columns_unknown", [], None, None, True, ""),
+            ("clearing_an_existing_key", [{"name": "amount"}], ["order_id"], [], False, "no primary key"),
+            ("key_naming_a_missing_column", [{"name": "amount"}], None, ["nope"], False, "no column named"),
+            (
+                "source_declares_its_key_in_code",
+                [{"name": "amount"}],
+                None,
+                None,
+                True,
+                "",
+                "full_refresh",
+                ExternalDataSourceType.STRIPE,
+            ),
+            (
+                "clickhouse_without_a_sorting_key_is_refused",
+                [{"name": "amount"}],
+                None,
+                None,
+                False,
+                "no primary key",
+                "full_refresh",
+                ExternalDataSourceType.CLICKHOUSE,
+            ),
+            (
+                "clickhouse_with_a_key_passes",
+                [{"name": "amount"}, {"name": "event_id"}],
+                None,
+                ["event_id"],
+                True,
+                "",
+                "full_refresh",
+                ExternalDataSourceType.CLICKHOUSE,
+            ),
+            ("already_incremental_reenable_passes", [{"name": "amount"}], None, None, True, "", "incremental"),
+            (
+                "already_incremental_clearing_key_is_refused",
+                [{"name": "amount"}],
+                ["order_id"],
+                [],
+                False,
+                "no primary key",
+                "incremental",
+            ),
+        ]
+    )
+    def test_switching_to_incremental_requires_a_key_the_merge_can_use(
+        self,
+        _name: str,
+        columns: list[dict[str, str]],
+        persisted_keys: list[str] | None,
+        requested_keys: list[str] | None,
+        expected_ok: bool,
+        expected_error: str,
+        initial_sync_type: str = "full_refresh",
+        source_type: str = ExternalDataSourceType.POSTGRES,
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=source_type,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="orders",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=initial_sync_type,
+            sync_type_config={
+                **({"primary_key_columns": persisted_keys} if persisted_keys else {}),
+                "schema_metadata": {"columns": columns},
+            },
+        )
+        payload: dict[str, Any] = {"should_sync": True}
+        if initial_sync_type != "incremental":
+            payload.update(
+                {"sync_type": "incremental", "incremental_field": "created_at", "incremental_field_type": "datetime"}
+            )
+        if requested_keys is not None:
+            payload["primary_key_columns"] = requested_keys
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data=payload
+            )
+
+        if expected_ok:
+            assert response.status_code == 200, response.content
+        else:
+            assert response.status_code == 400, response.content
+            assert expected_error in str(response.json()).lower()
 
     def test_update_schema_sync_type_is_logged_to_activity(self):
         source = ExternalDataSource.objects.create(
@@ -3185,6 +3339,31 @@ class TestTriggerFailureDoesNotPaintRunning(APIBaseTest):
         schema.refresh_from_db()
         assert schema.status == ExternalDataSchema.Status.FAILED
 
+    @parameterized.expand([("reload",), ("resync",)])
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+    )
+    def test_missing_schedule_is_created_so_the_sync_starts(self, endpoint, mock_trigger, mock_create_schedule):
+        # A schema with no schedule behind it can't be triggered, and retrying never fixes it. The
+        # source-level reload already recovers by creating the schedule; one table must too.
+        from temporalio.service import RPCError
+
+        schema = self._create_schema()
+        mock_trigger.side_effect = RPCError("schedule not found", RPCStatusCode.NOT_FOUND, b"")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/{endpoint}/",
+        )
+
+        assert response.status_code == 200
+        mock_create_schedule.assert_called_once_with(schema, create=True, should_sync=True)
+
+        schema.refresh_from_db()
+        assert schema.status == ExternalDataSchema.Status.RUNNING
+
 
 class TestExternalDataSchemaAPIKeyScopes(APIBaseTest):
     def _make_api_key(self, scopes: list[str]) -> str:
@@ -3293,9 +3472,9 @@ class TestExternalDataSchemaSerializerValidation(APIBaseTest):
         assert self.schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
 
 
-class TestSyncTypeConfigLostUpdateProtection(APIBaseTest):
-    """The serializer's full-instance save must not revert a sync_type_config key that a concurrent
-    CDC extract activity committed after the request loaded the row."""
+class TestSerializerLostUpdateProtection(APIBaseTest):
+    """A PATCH must not revert what another writer committed after the request loaded the row —
+    a sync_type_config key from a CDC extract activity, or the link fields "Delete data" clears."""
 
     def setUp(self):
         super().setUp()
@@ -3387,6 +3566,43 @@ class TestSyncTypeConfigLostUpdateProtection(APIBaseTest):
         # The user's key change landed AND the concurrent position (a key the request didn't touch) survived.
         assert self.schema.cdc_table_mode == "both"
         assert self.schema.sync_type_config["cdc_last_log_position"] == "0/900"
+
+    def test_patch_does_not_revert_a_concurrent_delete_data(self):
+        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+            ExternalDataSchemaSerializer,
+        )
+
+        table = DataWarehouseTable.objects.create(
+            team=self.team, name="orders", format="Parquet", external_data_source=self.source
+        )
+        self.schema.table = table
+        self.schema.initial_sync_complete = True
+        self.schema.save()
+
+        instance = ExternalDataSchema.objects.get(id=self.schema.id)  # in-memory copy, still linked
+
+        with mock.patch("products.data_warehouse.backend.facade.api.get_s3_client"):
+            ExternalDataSchema.objects.get(id=self.schema.id).delete_table()
+
+        serializer = ExternalDataSchemaSerializer(
+            instance,
+            data={"should_sync": False},
+            partial=True,
+            context={"team_id": self.team.pk, "post_commit_actions": []},
+        )
+        serializer.is_valid(raise_exception=True)
+        saved = serializer.save()
+
+        self.schema.refresh_from_db()
+        table.refresh_from_db()
+        assert saved.table_id is None
+        assert saved.initial_sync_complete is False
+        assert self.schema.should_sync is False
+        assert self.schema.table_id is None
+        assert self.schema.status is None
+        assert self.schema.last_synced_at is None
+        assert self.schema.initial_sync_complete is False
+        assert table.deleted is True
 
 
 class TestAvailableColumnsAcrossSqlSources(APIBaseTest):

@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import (
+    AD_ASSET_BREAKDOWN_STATS_FIELDS,
     HOURLY_BREAKDOWN_STATS_FIELDS,
     MetaAdsResource,
 )
@@ -45,13 +46,30 @@ def _stats_columns(**overrides: str) -> dict[str, str]:
 
 _INSIGHTS_BREAKDOWNS_DOCS_URL = "https://developers.facebook.com/docs/marketing-api/insights/breakdowns/"
 
-# The hourly table syncs a reduced metric set, so its descriptions are filtered to match.
+# The hourly and creative-asset tables sync a reduced metric set, so their descriptions are
+# filtered to match.
 _HOURLY_COLUMN_NAMES = {*HOURLY_BREAKDOWN_STATS_FIELDS, "hourly_stats_aggregated_by_advertiser_time_zone"}
+_LINK_URL_COLUMN_NAMES = {
+    *AD_ASSET_BREAKDOWN_STATS_FIELDS,
+    "link_url_asset",
+    "link_url",
+    "link_url_asset_id",
+}
 
 
 def _campaign_breakdown_columns(**breakdowns: str) -> dict[str, str]:
     """Campaign-level breakdown tables share the campaign_stats columns, plus their own dimensions."""
     return _stats_columns(campaign_id="The ID of the campaign the metrics belong to.", **breakdowns)
+
+
+def _ad_breakdown_columns(**breakdowns: str) -> dict[str, str]:
+    """Ad-level breakdown tables share the ad_stats columns, plus their own dimensions."""
+    return _stats_columns(
+        ad_id="The ID of the ad the metrics belong to.",
+        adset_id="The ID of the ad set the ad belongs to.",
+        campaign_id="The ID of the campaign the ad belongs to.",
+        **breakdowns,
+    )
 
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
@@ -115,6 +133,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "configured_status": "The status set by the advertiser, before effective rules are applied.",
             "effective_status": "The effective status after account and delivery rules are applied.",
             "creative": "The creative associated with the ad.",
+            "creative_id": "The ID of the creative associated with the ad, joining to the ad_creatives table.",
             "bid_amount": "The bid amount for the ad, in the account's minor currency unit.",
             "created_time": "Time the ad was created.",
             "updated_time": "Time the ad was last updated.",
@@ -317,6 +336,25 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
                 ),
             ).items()
             if key in _HOURLY_COLUMN_NAMES
+        },
+    },
+    MetaAdsResource.AdStatsByLinkUrl: {
+        "description": (
+            "Daily ad Insights split by the landing page each ad sent people to. "
+            "Meta builds this split from creative assets. An ad that Meta reports no landing page "
+            "asset for has no row here, so the total spend can be lower than in ad_stats. "
+            "Meta does not report unique metrics such as reach and frequency with creative asset "
+            "breakdowns, so this table omits them."
+        ),
+        "docs_url": _INSIGHTS_BREAKDOWNS_DOCS_URL,
+        "columns": {
+            key: value
+            for key, value in _ad_breakdown_columns(
+                link_url="The landing page URL the ad sent people to.",
+                link_url_asset_id="The ID Meta gives the landing page URL as a creative asset.",
+                link_url_asset="The landing page URL as Meta returns it, with its asset ID.",
+            ).items()
+            if key in _LINK_URL_COLUMN_NAMES
         },
     },
 }

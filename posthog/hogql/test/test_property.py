@@ -1,7 +1,7 @@
 from collections.abc import Iterable
 from typing import Any, Literal, Optional, Union, cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_materialized_columns
 from unittest.mock import MagicMock, patch
 
@@ -415,7 +415,7 @@ class TestProperty(BaseTest):
             ("is_date_exact_relative", "-1y", "is_date_exact", ast.CompareOperationOp.Eq, "2025-04-09 12:00:00"),
         ]
     )
-    @freeze_time("2026-04-09T12:00:00Z")
+    @time_machine.travel("2026-04-09T12:00:00Z", tick=False)
     def test_property_to_expr_date_operator_relative(self, _name, value, operator, op, expected_rhs):
         result = self._property_to_expr({"type": "event", "key": "a", "value": value, "operator": operator})
         assert isinstance(result, ast.CompareOperation)
@@ -981,6 +981,10 @@ class TestProperty(BaseTest):
             self._property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
             self._parse_expr(f"person_id IN COHORT {cohort.pk}"),
         )
+
+    def test_cohort_filter_missing_cohort(self):
+        with self.assertRaisesMessage(QueryError, "Cohort 2137 does not exist"):
+            self._property_to_expr({"type": "cohort", "key": "id", "value": 2137}, self.team)
 
     def test_person_scope(self):
         self.assertEqual(
@@ -2119,7 +2123,7 @@ class TestProperty(BaseTest):
         )
 
     def test_behavioral_explicit_datetime_bounds(self):
-        with freeze_time("2024-05-15T12:00:00Z"):
+        with time_machine.travel("2024-05-15T12:00:00Z", tick=False):
             expected_from = relative_date_parse("-7d", self.team.timezone_info)
             self.assertEqual(
                 self._property_to_expr(
@@ -2184,7 +2188,7 @@ class TestProperty(BaseTest):
             )
 
     def test_behavioral_explicit_datetime_to_bounds_a_relative_window(self):
-        with freeze_time("2024-05-15T12:00:00Z"):
+        with time_machine.travel("2024-05-15T12:00:00Z", tick=False):
             expected_to = relative_date_parse("-1d", self.team.timezone_info)
             self.assertEqual(
                 self._property_to_expr(self._behavioral_filter(explicit_datetime_to="-1d")),
@@ -2261,7 +2265,12 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
         self.test_cases: list[tuple[str, Any, PropertyType, Any]] = [
             # String type: value, empty, "null" literal, null, not set
             ("string_value_prop", "hello", PropertyType.String, True),
-            ("string_empty_prop", "", PropertyType.String, self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED),
+            (
+                "string_empty_prop",
+                "",
+                PropertyType.String,
+                False if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED,
+            ),
             ("string_null_literal_prop", "null", PropertyType.String, self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED),
             ("string_null_prop", None, PropertyType.String, False),
             ("string_not_set_prop", self.NOT_SET, PropertyType.String, False),
@@ -2722,7 +2731,7 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
 
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-# $active_feature_flags is a native Array(String) subcolumn on the new events schema, so its negative
+# $exception_types is a native Array(String) subcolumn on the new events schema, so its negative
 # multi-value filters compile through the arrayExists optimizer rather than a scalar comparison. These
 # execute against ClickHouse to prove the optimized path returns the right rows, not only the right SQL.
 class TestNegativeArrayOperatorNullParityWithData(APIBaseTest):
@@ -2735,13 +2744,13 @@ class TestNegativeArrayOperatorNullParityWithData(APIBaseTest):
             team=cls.team,
             event=cls.EVENT,
             distinct_id="has_alpha",
-            properties={"$active_feature_flags": ["alpha", "gamma"]},
+            properties={"$exception_types": ["alpha", "gamma"]},
         )
         _create_event(
             team=cls.team,
             event=cls.EVENT,
             distinct_id="no_alpha",
-            properties={"$active_feature_flags": ["beta", "gamma"]},
+            properties={"$exception_types": ["beta", "gamma"]},
         )
         _create_event(team=cls.team, event=cls.EVENT, distinct_id="missing", properties={})
 
@@ -2776,4 +2785,4 @@ class TestNegativeArrayOperatorNullParityWithData(APIBaseTest):
         ]
     )
     def test_array_operator_row_counts(self, _name: str, filter_fields: dict, expected_count: int):
-        assert self._count({"type": "event", "key": "$active_feature_flags", **filter_fields}) == expected_count
+        assert self._count({"type": "event", "key": "$exception_types", **filter_fields}) == expected_count
