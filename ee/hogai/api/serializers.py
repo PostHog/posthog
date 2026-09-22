@@ -143,8 +143,7 @@ async def aget_conversation_state(
             state=state, has_unsupported_content=False, interrupt_payloads=interrupt_payloads
         )
     except pydantic.ValidationError as e:
-        # A legacy checkpoint cannot be repaired, and the bulk history backfill reads thousands of
-        # them, so count those instead of capturing one exception per conversation.
+        # A legacy checkpoint cannot be repaired, and the history backfill reads them in bulk.
         if legacy_types := _legacy_message_types(e):
             for message_type in legacy_types:
                 LEGACY_CHECKPOINT_MESSAGE_COUNTER.labels(message_type=message_type).inc()
