@@ -12,7 +12,7 @@ import {
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
-import { formatResponse, unwrapPaginatedResponse } from '@/lib/response'
+import { formatResponse } from '@/lib/response'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
@@ -2046,7 +2046,7 @@ export function createExecTool(
                     // returned to the client, not the raw object.
                     let outputText: string
                     if (useJson) {
-                        outputText = JSON.stringify(unwrapPaginatedResponse(result))
+                        outputText = JSON.stringify(result)
                     } else {
                         // Optimized mode: when the handler attached a backend-formatted table
                         // via `__formatted_results_override`, return ONLY that string. The raw

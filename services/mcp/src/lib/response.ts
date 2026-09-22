@@ -28,7 +28,7 @@ function preprocessKeys(obj: any, placeholderMap: Map<string, string>, placehold
     return obj
 }
 
-export function unwrapPaginatedResponse(data: unknown): unknown {
+function unwrapPaginatedResponse(data: unknown): unknown {
     if (
         data !== null &&
         typeof data === 'object' &&

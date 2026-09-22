@@ -394,16 +394,20 @@ describe('exec tool', () => {
             expect(result).not.toBe(JSON.stringify({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] }))
         })
 
-        it.each(['call mock-tool', 'call --json mock-tool'])('unwraps paginated lists for %s', async (command) => {
-            const results = [{ id: 1, name: 'example' }]
-            const exec = createExec([
-                makeMockTool({ handler: async () => ({ results, next: null, count: 1, previous: null }) }),
-            ])
+        it.each(['call mock-tool', 'call --json mock-tool'])(
+            'uses the requested pagination format for %s',
+            async (command) => {
+                const results = [{ id: 1, name: 'example' }]
+                const handlerResult = { results, next: null, count: 1, previous: null }
+                const exec = createExec([makeMockTool({ handler: async () => handlerResult })])
 
-            const result = await exec.handler(mockContext, { command })
+                const result = await exec.handler(mockContext, { command })
 
-            expect(result).toBe(command.includes('--json') ? JSON.stringify(results) : formatResponse(results))
-        })
+                expect(result).toBe(
+                    command.includes('--json') ? JSON.stringify(handlerResult) : formatResponse(results)
+                )
+            }
+        )
 
         it('returns raw JSON when --json flag is passed in command', async () => {
             const exec = createExec()

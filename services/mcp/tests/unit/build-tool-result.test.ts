@@ -358,7 +358,7 @@ describe('buildToolResultPayload — non-query use cases', () => {
         { results: [{ id: 1 }], next: null, count: 1, previous: null },
         { results: [], next: null, count: 0, previous: null },
         { results: [{ id: 1 }], next: 'https://example.com/api/items/?cursor=next', previous: null },
-    ])('unwraps paginated list text and preserves widget data: %j', (handlerResult) => {
+    ])('unwraps optimized lists but preserves JSON and widget data: %j', (handlerResult) => {
         for (const outputFormat of ['optimized', 'json'] as const) {
             const payload = buildToolResultPayload({
                 handlerResult,
@@ -368,7 +368,7 @@ describe('buildToolResultPayload — non-query use cases', () => {
             })
 
             expect(payload.content[0]!.text).toBe(
-                outputFormat === 'json' ? JSON.stringify(handlerResult.results) : formatResponse(handlerResult.results)
+                outputFormat === 'json' ? JSON.stringify(handlerResult) : formatResponse(handlerResult.results)
             )
             expect(payload._meta?.[APP_DATA_META_KEY]).toEqual(handlerResult)
         }
