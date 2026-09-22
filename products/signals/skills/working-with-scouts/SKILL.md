@@ -1,17 +1,14 @@
 ---
 name: working-with-scouts
 description: >
-  How to get real jobs done with PostHog Signals scouts — the scheduled agents that watch a
-  project and write reports into the Signals inbox — and how to steer and customize the fleet
-  over time. Use when a user wants to delegate a watching job ("have a scout keep an eye on X",
-  "tell me if Y spikes"), wants a recurring judged metric from a scout ("score X on a
-  schedule", "measure quality of Y"), wants to know which scout covers a surface, asks how to
-  act on what scouts report, complains the fleet is noisy or quiet, or wants the fleet to get
-  smarter over time (feedback loops, calibration, promoting one-off steers into policy), or wants to
-  know whether a fix a report drove actually held (its follow-up checks). The
-  operating manual for the human–scout working relationship; routes to `authoring-scouts` for
-  write mechanics, `exploring-scouts` for run observability, and `inbox-exploration` for report
-  triage. Trigger on "work with my scouts", "get more out of scouts", "have a scout watch X",
+  Work with PostHog Signals scouts: scheduled agents that monitor a project and write
+  reports into the Signals inbox. Use to assign monitoring work, schedule quality scoring,
+  find which scout covers a surface, act on reports, reduce noise, investigate missing
+  findings, or improve the fleet through feedback and calibration. Also covers follow-up
+  checks that verify whether a reported problem stays fixed. Use `authoring-scouts` for
+  edits, `exploring-scouts` for run observability, and `inbox-exploration` for report triage.
+  Trigger on "work with my scouts", "get more out of scouts", "have a scout watch X",
+  "tell me if Y spikes", "score X on a schedule", "measure quality of Y",
   "what do I do with this scout report", "calibrate/review my scout fleet".
 metadata:
   owner_team: signals
@@ -232,4 +229,4 @@ Every few weeks (or when someone says "are the scouts even worth it?"), run a ca
 | "Write / edit / retune a scout"                        | `authoring-scouts`                                                                                        |
 | "Why did the scout stop flagging X?"                   | Scratchpad first (`noise:` / `addressed:` / `dedupe:` / `allowlist:`), then notes, then config            |
 | "What did this scout change?"                          | "Auditing what a scout changed" above: the run window, then `advanced-activity-logs-list`                 |
-| "Did that fix actually hold?"                          | `posthog:inbox-report-checks-list` on the resolved report; mechanics in `authoring-scouts`                 |
+| "Did that fix actually hold?"                          | `posthog:inbox-report-checks-list` on the resolved report; mechanics in `authoring-scouts`                |

@@ -48,7 +48,7 @@ Keep `date_from` equal to the soak.
 
 ### `agent`
 
-For a claim no single number settles, or a number that lives outside events — a log rate, a fix whose effect shows in *which* entities fire rather than how many, a claim that needs a stack trace read.
+For a claim no single number settles, or a number that lives outside events — a log rate, a fix whose effect shows in _which_ entities fire rather than how many, a claim that needs a stack trace read.
 
 Config fields:
 

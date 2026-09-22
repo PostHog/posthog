@@ -1,16 +1,13 @@
 ---
 name: authoring-scouts
 description: >
-  How to author, edit, and adapt PostHog Signals scouts — the scheduled agents that
-  scan a project and file what they find. Use to customize a
-  canonical scout (narrow its scope, retune thresholds, add disqualifiers), tweak a
-  scout's schedule or dry-run posture, write a new scout for a surface the fleet
-  doesn't cover, build a measurement scout that records structured output (an
-  LLM-judge scoring a sample on a schedule — a custom metric no query can compute),
-  or steer a scout without editing it by leaving it a note. Covers the scout SKILL.md
-  anatomy, the report contract, follow-up report checks, the structured-output channel,
-  the dedupe + scratchpad-memory conventions, scout notes, the per-team skills-store path
-  vs the canonical in-repo path, and the test loop. Trigger on
+  Write, edit, and adapt PostHog Signals scouts: scheduled agents that scan a project
+  and report findings. Use to change a canonical scout's scope, thresholds, schedule,
+  or dry-run settings; add a scout for an uncovered surface; record structured output
+  from scheduled LLM scoring; or give feedback through notes. Covers SKILL.md structure,
+  report requirements, follow-up report checks, structured output, duplicate detection,
+  scratchpad memory, scout notes, per-team skills-store and canonical repository edits,
+  and testing. Trigger on
   "write/edit/customize a signals scout", "new scout for X", "tune my scout schedule",
   "make a scout that watches <event>", "score/judge/measure X with a scout",
   "structured output from a scout", "scout output to Slack",
