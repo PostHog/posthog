@@ -68,9 +68,11 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
             undefined,
             `Redis timeout: ${options.name}`
         )
-        const client = await pool.acquire()
-
+        // Acquisition sits inside the try so a rejection still clears the guard. Otherwise the
+        // timer fires for a call that never started and reports a timeout that did not happen.
+        let client: RedisClient | undefined
         try {
+            client = await pool.acquire()
             return await callback(client)
         } catch (e) {
             if (options.failOpen) {
@@ -81,8 +83,10 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
             }
             throw e
         } finally {
-            await pool.release(client)
             clearTimeout(timeout)
+            if (client) {
+                await pool.release(client)
+            }
         }
     }
 
