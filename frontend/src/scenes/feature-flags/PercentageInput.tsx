@@ -3,7 +3,11 @@ import { useEffect, useRef, useState } from 'react'
 import { clamp } from 'lib/utils/numbers'
 
 function clampPercentage(value: number): number {
-    return Math.round(clamp(value, 0, 100) * 100) / 100
+    // Rounding runs on the decimal representation, not on value * 100: in binary 1.005 * 100 is
+    // 100.49999999999999, so multiplying rounds a tie down to 1 instead of up to 1.01.
+    const [coefficient, exponent = '0'] = clamp(value, 0, 100).toString().split('e')
+    const hundredths = Math.round(Number(`${coefficient}e${Number(exponent) + 2}`))
+    return Number(`${hundredths}e-2`)
 }
 
 /** A percentage input (0–100) that allows clearing the field while typing.

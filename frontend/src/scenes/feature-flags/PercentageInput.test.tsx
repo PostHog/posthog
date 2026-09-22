@@ -20,6 +20,7 @@ describe('PercentageInput', () => {
     it.each([
         ['a value above the maximum', '150', '100', 100],
         ['more precision than the input keeps', '1.234', '1.23', 1.23],
+        ['a decimal tie', '1.005', '1.01', 1.01],
     ])('shows the stored value after clamping %s', (_name, typed, displayed, stored) => {
         const onValue = jest.fn()
         const { container } = render(<ControlledPercentageInput onValue={onValue} />)
