@@ -15,13 +15,12 @@ from posthog.models import OAuthAccessToken
 from posthog.permissions import get_authenticator_scopes
 
 if TYPE_CHECKING:
-    from posthog.models import Organization, Team, User
+    from posthog.models import Organization, User
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS, create_oauth_access_token_for_user
 from posthog.utils import get_instance_region
 
 from products.tasks.backend.access import DesktopAccessResolutionError, get_desktop_access_decision
 from products.tasks.backend.facade.contracts import DesktopAccessReason
-from products.tasks.backend.logic.services.ai_credits import AI_CREDITS_LIMIT_MESSAGE, ai_credits_exhausted
 from products.tasks.backend.logic.services.compute_quota import (
     COMPUTE_QUOTA_DENIAL_CODE,
     ORGANIZATION_DEACTIVATED_DENIAL_CODE,
@@ -33,8 +32,6 @@ from products.tasks.backend.presentation.serializers import TaskRunErrorResponse
 logger = logging.getLogger(__name__)
 
 GATEWAY_PRODUCT = "posthog_code"
-
-AI_CREDITS_DENIAL_CODE = "ai_credits_exhausted"
 
 # Short timeout: this runs on the creation hot path; on failure we fail open.
 GATEWAY_USAGE_TIMEOUT_SECONDS = 2.5
@@ -253,24 +250,6 @@ def code_access_required_response(
     return Response(
         TaskRunErrorResponseSerializer(payload).data,
         status=status.HTTP_403_FORBIDDEN,
-    )
-
-
-def ai_credits_limit_response(team: "Team") -> Response | None:
-    """Return a 402 when the team is over its AI credit limit, else None.
-
-    The cost backstop for origins billed as PostHog AI, which carry this limit in place of the
-    Desktop funding gate. The warm service checks the same limit before it provisions a sandbox, so
-    the paths that boot one cold check it here: without that, an over-limit team would run for free
-    whenever no warm run was available.
-    """
-    if not ai_credits_exhausted(team):
-        return None
-    return Response(
-        TaskRunErrorResponseSerializer(
-            {"type": "billing_limit", "code": AI_CREDITS_DENIAL_CODE, "error": AI_CREDITS_LIMIT_MESSAGE}
-        ).data,
-        status=status.HTTP_402_PAYMENT_REQUIRED,
     )
 
 

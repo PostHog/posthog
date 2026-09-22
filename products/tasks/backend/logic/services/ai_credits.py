@@ -9,6 +9,8 @@ read it from here so an over-limit team gets one answer whichever path it takes.
 
 from posthog.models.team import Team
 
+AI_CREDITS_DENIAL_CODE = "ai_credits_exhausted"
+
 AI_CREDITS_LIMIT_MESSAGE = (
     "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, "
     "or ask an org admin to do so."

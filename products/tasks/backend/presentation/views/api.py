@@ -47,7 +47,7 @@ from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.event_usage import groups
 from posthog.middleware import is_read_only_impersonation
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.permissions import (
     APIScopePermission,
     get_authenticator_scoped_team_ids,
@@ -71,7 +71,9 @@ from products.tasks.backend.facade import (
     contracts as tasks_contracts,
 )
 from products.tasks.backend.facade.access import (
-    ai_credits_limit_response,
+    AI_CREDITS_DENIAL_CODE,
+    AI_CREDITS_LIMIT_MESSAGE,
+    ai_credits_exhausted,
     code_access_required_response,
     compute_quota_limit_response,
     usage_limit_response,
@@ -252,6 +254,24 @@ def _pi_cloud_runtime_disabled_response() -> Response:
     return Response(
         TaskRunErrorResponseSerializer({"error": "Pi cloud runtime is disabled"}).data,
         status=status.HTTP_403_FORBIDDEN,
+    )
+
+
+def _ai_credits_limit_response(team: Team) -> Response | None:
+    """A 402 when the team is over its AI credit limit, else None.
+
+    The spend backstop for origins billed as PostHog AI, which carry this limit in place of the
+    Desktop funding gate. The warm service checks the same limit before it provisions a sandbox, so
+    the endpoints that boot one cold check it too: without that, an over-limit team would run for
+    free whenever no warm run was available.
+    """
+    if not ai_credits_exhausted(team):
+        return None
+    return Response(
+        TaskRunErrorResponseSerializer(
+            {"type": "billing_limit", "code": AI_CREDITS_DENIAL_CODE, "error": AI_CREDITS_LIMIT_MESSAGE}
+        ).data,
+        status=status.HTTP_402_PAYMENT_REQUIRED,
     )
 
 
@@ -761,7 +781,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 access_response := code_access_required_response(request, self.organization)
             ):
                 return access_response
-            if is_posthog_ai and (credits_response := ai_credits_limit_response(self.team)):
+            if is_posthog_ai and (credits_response := _ai_credits_limit_response(self.team)):
                 return credits_response
             if limit_response := usage_limit_response(request.user, self.team_id):
                 return limit_response
@@ -1335,7 +1355,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # This is where a web PostHog AI run boots when no warm run was available, so it carries the
         # limit the warm service would have applied.
         if control.origin_product == tasks_facade.TaskOriginProduct.POSTHOG_AI and (
-            credits_response := ai_credits_limit_response(self.team)
+            credits_response := _ai_credits_limit_response(self.team)
         ):
             return credits_response
         if limit_response := usage_limit_response(request.user, self.team_id):
@@ -1702,7 +1722,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         limit does not depend on which endpoint the client used."""
         if tasks_facade.task_origin_product(task_id, self.team_id) != tasks_facade.TaskOriginProduct.POSTHOG_AI:
             return None
-        return ai_credits_limit_response(self.team)
+        return _ai_credits_limit_response(self.team)
 
     def _ensure_task_accessible(self) -> str:
         """Gate access to the parent task, including exact task-bound sandbox access."""

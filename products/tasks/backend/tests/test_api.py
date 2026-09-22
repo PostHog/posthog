@@ -14867,6 +14867,33 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
     @parameterized.expand(
         [
+            ("under_limit", None, status.HTTP_200_OK),
+            ("over_limit", OVER_LIMIT, status.HTTP_429_TOO_MANY_REQUESTS),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("ee.billing.quota_limiting.is_team_limited", return_value=False)
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_run_posthog_ai_task_keeps_the_gateway_usage_backstop(
+        self, _name, gate_return, expected_status, mock_gate, _mock_limited, _mock_workflow
+    ):
+        # The exemption covers the Desktop entitlement gate only, exactly like the Inbox shapes
+        # above: the gateway usage backstop still fires, so a client-settable origin cannot escape
+        # every local rate limit at once.
+        mock_gate.return_value = gate_return
+        task = self._posthog_ai_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(TaskRun.objects.filter(task=task).exists(), expected_status == status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
             ("posthog_ai", Task.OriginProduct.POSTHOG_AI, status.HTTP_402_PAYMENT_REQUIRED),
             ("user_created", Task.OriginProduct.USER_CREATED, status.HTTP_200_OK),
         ]
