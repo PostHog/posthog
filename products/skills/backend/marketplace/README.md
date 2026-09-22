@@ -44,7 +44,7 @@ unit-testable against the real `git` binary without booting the app
   The tasks worker calls it when it builds a run's processing context and writes the entries into
   `TaskRun.state["store_skills"]` (`products/tasks/backend/logic/services/store_skills.py`); the sandbox
   agent renders one pointer `SKILL.md` per entry into `~/.claude/skills` and `~/.agents/skills`
-  (`packages/agent/packages/agent/src/server/store-skills.ts`), skipping any name a bundled skill
+  (`packages/agent/packages/harness/src/extensions/skills-store/store-skills.ts`), skipping any name a bundled skill
   already uses. The stub file the agent writes must stay in step with `render_skill_stub_md`.
   The list is the acting user's, so the worker writes it again when that user changes after the
   session started (a warm run activated by its first message, a shared Slack task whose next
