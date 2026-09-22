@@ -1358,8 +1358,8 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         except FEATURE_FLAG_LAST_CALLED_AT_SYNC_REDIS_ERRORS:
             # The fallback below caps the window at the max lookback, and the end of the run then
             # advances the checkpoint past everything older than that cap. So a read that failed on
-            # the transport has to reach Celery and retry, rather than take the fallback.
-            logger.warning("Failed to read last sync timestamp from Redis", exc_info=True)
+            # the transport has to reach Celery and retry, rather than take the fallback. The outer
+            # exception handler below already logs and reports it.
             raise
 
         last_sync_timestamp = None
