@@ -179,11 +179,6 @@ export class HogTransformerService implements HogTransformer {
         event: PluginEvent,
         teamHogFunctions: HogFunctionType[]
     ): Promise<TransformationResult> {
-        if (isProtectedInternalEvent(event.event)) {
-            hogTransformationProtectedEventSkips.inc()
-            return { event, invocationResults: [] }
-        }
-
         hogTransformationInvocations.inc()
 
         if (isProtectedInternalEvent(event.event)) {
