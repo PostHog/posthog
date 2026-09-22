@@ -1,6 +1,8 @@
 import dataclasses
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
+from urllib.parse import quote
 
 from dateutil import parser as date_parser
 
@@ -80,6 +82,20 @@ def _normalize_row(item: dict[str, Any], timestamp_fields: tuple[str, ...]) -> d
             except ValueError:
                 pass
     return item
+
+
+def _encode_parent_field(source_field: str, target_field: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Percent-encode a parent id into the field the child path binds.
+
+    `process_parent_data_item` binds the path with `str.format`, so a digest schedule id in the
+    legacy `sch/{uuid}` form would splice an unescaped "/" into the path and 404.
+    """
+
+    def _mapper(item: dict[str, Any]) -> dict[str, Any]:
+        item[target_field] = quote(str(item[source_field]), safe="")
+        return item
+
+    return _mapper
 
 
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
@@ -248,9 +264,15 @@ def _fanout_resource(
         incremental_config_factory=no_child_time_filter,
         parent_endpoint_extra={
             "data_selector": parent_config.data_selector,
-            "data_selector_required": True,
+            "data_selector_required": parent_config.data_selector_required,
         },
         child_endpoint_extra=child_endpoint_extra,
+        parent_data_map=(
+            _encode_parent_field(config.encode_parent_field, fanout.resolve_field)
+            if config.encode_parent_field is not None
+            else None
+        ),
+        page_size_param=config.fanout_page_size_param,
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_state,
     )
