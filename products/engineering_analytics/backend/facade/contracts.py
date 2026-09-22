@@ -55,8 +55,8 @@ class GitHubSourceNotConnectedError(Exception):
 # The product's rollout flag: gates the API surface (PostHogFeatureFlagPermission) and the CI-signals sweep.
 ENGINEERING_ANALYTICS_FEATURE_FLAG = "engineering-analytics"
 
-# The daily test-file census event. The sweep that captures it and the query that reads it back both
-# name it, and they sit on opposite sides of the layer, so the name lives here rather than in either.
+# The daily test-file census event. The sweep that captures it and the query that reads it back sit
+# on opposite sides of the layer, so the name lives here rather than in either of them.
 CENSUS_EVENT = "eng_analytics_test_census"
 
 
@@ -1582,8 +1582,7 @@ class WorkflowJobAggregate:
 
 
 # A stdlib dataclass, not the pydantic one every other contract uses: pydantic resolves the
-# annotation when the class is built, which would put ``owners_yaml`` back on the import path of
-# every module that reads a contract, and so on the path of every management command.
+# annotation when it builds the class, which would put ``owners_yaml`` back on the boot path.
 @stdlib_dataclass(frozen=True)
 class PathOwnership:
     """Which team owns each repository path, plus the repo's Slack registry from the root ``owners.yaml``.
