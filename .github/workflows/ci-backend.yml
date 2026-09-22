@@ -4118,8 +4118,23 @@ jobs:
                           queued|in_progress|pending|waiting|requested) ;;
                           *)
                               # A rerun of this workflow does not start Depot again; it only reads the same gate.
-                              echo "::error::Depot gate concluded $gate for $SHA"
-                              echo "::error::To retry, re-run the failed jobs in Depot and wait for that run to finish, then re-run this job. Or push a new commit. Depot run: $(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" "$latest_run"' | .details_url // "unknown"' /tmp/relay-gate)"
+                              # Developers hand this log to coding agents, so the retry steps are runnable commands.
+                              depot_url=$(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" "$latest_run"' | .details_url // ""' /tmp/relay-gate)
+                              depot_workflow=${depot_url#*/workflows/}
+                              depot_workflow=${depot_workflow%%\?*}
+                              echo "::error::Backend tests failed on Depot CI ($gate). This step's log lists the commands to retry them."
+                              printf '%s\n' \
+                                  "Backend tests for $SHA ran on Depot CI, not GitHub Actions. Re-running this job alone reads the same failed result." \
+                                  "Depot run: ${depot_url:-not found}" \
+                                  "" \
+                                  "Retry with the Depot CLI (needs access to the Depot org ntsdt08fpt):" \
+                                  "  depot ci diagnose --org ntsdt08fpt --workflow $depot_workflow   # the failures, and the run ID on the 'Run:' line" \
+                                  "  depot ci retry <run ID> --org ntsdt08fpt --workflow $depot_workflow --failed" \
+                                  "  depot ci status <run ID> --org ntsdt08fpt   # repeat until the run finishes" \
+                                  "  gh run rerun $GITHUB_RUN_ID --repo $REPO --failed   # relays the new Depot result" \
+                                  "" \
+                                  "Retry without Depot access: push a new commit." \
+                                  "  git commit --allow-empty -m 'chore: retry backend ci' && git push"
                               exit 1
                               ;;
                       esac
