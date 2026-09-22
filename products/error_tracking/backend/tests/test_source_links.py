@@ -3,6 +3,7 @@ import json
 import struct
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import time_machine
 from unittest.mock import patch
@@ -396,6 +397,22 @@ class TestGitHubTree(SimpleTestCase):
 
             tree = github_tree(_ScriptedGitHubApi({}), target)
             assert tree is not None and tree.paths == {"src/a.ts"}
+
+    def test_the_tree_entry_holds_only_what_json_can_carry(self) -> None:
+        # The cache pickles what it is given. Bytes or a class in the entry are rebuilt through
+        # pickle on every read, and a rename of that class breaks the entries already stored.
+        target = SourceTarget(repository=REPOSITORY, ref=COMMIT, pinned=True)
+        written: list[Any] = []
+        store = cache.set
+
+        def record(key: str, value: Any, *args: Any, **kwargs: Any) -> Any:
+            written.append(value)
+            return store(key, value, *args, **kwargs)
+
+        with patch.object(cache, "set", record):
+            assert github_tree(_ScriptedGitHubApi(_small_repository()), target) is not None
+
+        assert written == [json.loads(json.dumps(value)) for value in written]
 
     def test_revalidates_a_branch_tree_with_its_etag_instead_of_downloading_it_again(self) -> None:
         path = f"{TREES}/main?recursive=1"

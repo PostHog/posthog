@@ -401,6 +401,16 @@ class TestGitProviderFileLinksGitLab(_SourceLinksTestMixin):
         assert set(links) == {app, again}
         assert len(self.gitlab.calls) == 1
 
+    def test_a_second_page_load_reuses_the_cached_hit(self) -> None:
+        utils = self._frame(self._symbol_set(), "frame-utils", "../src/utils.ts")
+        first = self._resolve(str(self.release.id), [utils])
+
+        second = self._resolve(str(self.release.id), [utils])
+
+        assert set(first) == {utils}
+        assert second == first
+        assert len(self.gitlab.calls) == 1
+
     def test_a_lookup_cut_off_by_the_deadline_is_tried_again_on_the_next_load(self) -> None:
         self._integration("https://gitlab.com")
         utils = self._frame(self._symbol_set(), "frame-utils", "../src/utils.ts")

@@ -12,6 +12,7 @@ import re
 import json
 import time
 import zlib
+import base64
 import struct
 import functools
 import urllib.parse
@@ -739,7 +740,7 @@ def _collect_tree(
 
 
 def _tree_from_cache(entry: dict) -> RepositoryTree:
-    text = zlib.decompress(entry["paths"]).decode("utf-8")
+    text = zlib.decompress(base64.b64decode(entry["paths"])).decode("utf-8")
     return RepositoryTree(path for path in text.split("\n") if path)
 
 
@@ -784,8 +785,11 @@ def github_tree(api: GitHubApi, target: SourceTarget) -> RepositoryTree | None:
         cache.set(key, stale, PINNED_TTL_SECONDS)
         return _tree_from_cache(stale)
 
+    # The cache pickles what it is given, so the entry holds JSON shapes only. The paths are
+    # compressed because a large repository lists tens of thousands of them, and base64 is what
+    # carries those bytes as text.
     entry = {
-        "paths": zlib.compress("\n".join(listing.paths).encode("utf-8")),
+        "paths": base64.b64encode(zlib.compress("\n".join(listing.paths).encode("utf-8"))).decode("ascii"),
         "etag": listing.etag,
         "checked_at": now,
     }
@@ -952,6 +956,19 @@ class GitLabLookupResult:
     cut_off: bool = False
 
 
+def _gitlab_hit_from_cache(entry: dict) -> GitLabHit | None:
+    """The hit a cache entry holds, or None when it holds no usable one.
+
+    The cache pickles what it is given, so a hit is stored as its three fields and read back
+    through this check. A class in the entry would be rebuilt on read, and a rename of it would
+    fail every read of an entry the deployment before wrote.
+    """
+    host_url, ref, path = entry.get("host_url"), entry.get("ref"), entry.get("path")
+    if not (isinstance(host_url, str) and isinstance(ref, str) and isinstance(path, str)):
+        return None
+    return GitLabHit(host_url=host_url, ref=ref, path=path)
+
+
 def _gitlab_hit(
     team_id: int,
     repository: Repository,
@@ -968,9 +985,10 @@ def _gitlab_hit(
     if cached == "":
         SOURCE_LINK_CACHE.labels("gitlab_search", "negative").inc()
         return GitLabLookupResult(hit=None)
-    if isinstance(cached, GitLabHit):
+    cached_hit = _gitlab_hit_from_cache(cached) if isinstance(cached, dict) else None
+    if cached_hit is not None:
         SOURCE_LINK_CACHE.labels("gitlab_search", "hit").inc()
-        return GitLabLookupResult(hit=cached)
+        return GitLabLookupResult(hit=cached_hit)
     SOURCE_LINK_CACHE.labels("gitlab_search", "miss").inc()
 
     hit: GitLabHit | None = None
@@ -981,7 +999,11 @@ def _gitlab_hit(
         hit = gitlab_search(lookup, credential, repository, ref)
         if hit is not None:
             break
-    cache.set(key, hit if hit is not None else "", BRANCH_TTL_SECONDS if hit else NEGATIVE_TTL_SECONDS)
+    cache.set(
+        key,
+        {"host_url": hit.host_url, "ref": hit.ref, "path": hit.path} if hit else "",
+        BRANCH_TTL_SECONDS if hit else NEGATIVE_TTL_SECONDS,
+    )
     return GitLabLookupResult(hit=hit)
 
 
