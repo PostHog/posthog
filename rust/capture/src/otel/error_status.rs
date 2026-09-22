@@ -303,86 +303,53 @@ mod tests {
     }
 
     #[test]
-    fn test_error_status_reads_exception_attributes_on_the_span() {
-        let mut span = make_span(vec![
-            make_kv(
-                "exception.type",
-                any_value::Value::StringValue("ToolExecutionError".to_string()),
+    fn test_error_status_reads_error_details_from_span_attributes() {
+        let cases: Vec<(Vec<KeyValue>, &str, &str)> = vec![
+            (
+                vec![
+                    make_kv(
+                        "exception.type",
+                        any_value::Value::StringValue("ToolExecutionError".to_string()),
+                    ),
+                    make_kv(
+                        "exception.message",
+                        any_value::Value::StringValue("schema validation failed".to_string()),
+                    ),
+                ],
+                "",
+                "ToolExecutionError: schema validation failed",
             ),
-            make_kv(
-                "exception.message",
-                any_value::Value::StringValue("schema validation failed".to_string()),
+            (
+                vec![make_kv(
+                    "error.message",
+                    any_value::Value::StringValue("upstream refused the request".to_string()),
+                )],
+                "",
+                "upstream refused the request",
             ),
-        ]);
-        span.status = Some(Status {
-            code: StatusCode::Error as i32,
-            message: String::new(),
-        });
-        let mut properties = attributes_to_map(&span.attributes);
+            (
+                vec![make_kv(
+                    "exception.message",
+                    any_value::Value::StringValue("context window exceeded".to_string()),
+                )],
+                "Error",
+                "context window exceeded",
+            ),
+            (vec![], "", MISSING_ERROR_MESSAGE),
+        ];
 
-        apply_error_status_properties(&span, &mut properties);
+        for (attributes, status_message, expected) in cases {
+            let mut span = make_span(attributes);
+            span.status = Some(Status {
+                code: StatusCode::Error as i32,
+                message: status_message.to_string(),
+            });
+            let mut properties = attributes_to_map(&span.attributes);
 
-        assert_eq!(
-            properties["$ai_error"],
-            Value::String("ToolExecutionError: schema validation failed".to_string())
-        );
-    }
+            apply_error_status_properties(&span, &mut properties);
 
-    #[test]
-    fn test_error_status_reads_error_attributes_on_the_span() {
-        let mut span = make_span(vec![make_kv(
-            "error.message",
-            any_value::Value::StringValue("upstream refused the request".to_string()),
-        )]);
-        span.status = Some(Status {
-            code: StatusCode::Error as i32,
-            message: String::new(),
-        });
-        let mut properties = attributes_to_map(&span.attributes);
-
-        apply_error_status_properties(&span, &mut properties);
-
-        assert_eq!(
-            properties["$ai_error"],
-            Value::String("upstream refused the request".to_string())
-        );
-    }
-
-    #[test]
-    fn test_error_status_prefers_span_attributes_over_status_message() {
-        let mut span = make_span(vec![make_kv(
-            "exception.message",
-            any_value::Value::StringValue("context window exceeded".to_string()),
-        )]);
-        span.status = Some(Status {
-            code: StatusCode::Error as i32,
-            message: "Error".to_string(),
-        });
-        let mut properties = attributes_to_map(&span.attributes);
-
-        apply_error_status_properties(&span, &mut properties);
-
-        assert_eq!(
-            properties["$ai_error"],
-            Value::String("context window exceeded".to_string())
-        );
-    }
-
-    #[test]
-    fn test_error_status_without_any_message_names_the_next_step() {
-        let mut span = make_span(vec![]);
-        span.status = Some(Status {
-            code: StatusCode::Error as i32,
-            message: String::new(),
-        });
-        let mut properties = Map::new();
-
-        apply_error_status_properties(&span, &mut properties);
-
-        assert_eq!(
-            properties["$ai_error"],
-            Value::String(MISSING_ERROR_MESSAGE.to_string())
-        );
+            assert_eq!(properties["$ai_error"], Value::String(expected.to_string()));
+        }
     }
 
     #[test]
