@@ -84512,6 +84512,7 @@ export namespace Schemas {
      * * `evaluation` - evaluation
      * * `event` - event
      * * `insight` - insight
+     * * `instructions` - instructions
      * * `notebook` - notebook
      * * `text` - text
      */
@@ -84525,6 +84526,7 @@ export namespace Schemas {
       Evaluation: 'evaluation',
       Event: 'event',
       Insight: 'insight',
+      Instructions: 'instructions',
       Notebook: 'notebook',
       Text: 'text',
     } as const;
@@ -84537,7 +84539,7 @@ export namespace Schemas {
      * the live path wraps context client-side (`products/posthog_ai/frontend/utils/posthogContextBlock.ts`).
      */
     export interface SandboxAttachedContextItem {
-      /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.
+      /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` and `instructions` carry `value`. `instructions` is the caller's own guidance and renders into the trusted context block; every other kind renders into the untrusted block, which tells the agent to read it as data.
        *
        * * `action` - action
        * * `dashboard` - dashboard
@@ -84545,6 +84547,7 @@ export namespace Schemas {
        * * `evaluation` - evaluation
        * * `event` - event
        * * `insight` - insight
+       * * `instructions` - instructions
        * * `notebook` - notebook
        * * `text` - text */
       type: SandboxAttachedContextItemTypeEnum;
@@ -84552,7 +84555,7 @@ export namespace Schemas {
       id?: unknown;
       /** Optional human-readable label rendered in the context block. */
       name?: string;
-      /** Free-text content. Only for `text` attachments. */
+      /** Free-text content. Only for `text` and `instructions` attachments. */
       value?: string;
     }
 
