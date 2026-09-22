@@ -16,8 +16,16 @@ The selected scout, prompt, model, and effort can change independently of those 
 Use the same harness and tool versions throughout a comparison and retain their versions with the outputs.
 Rerun the current production configuration alongside candidates; an old score alone cannot distinguish an agent improvement from a change in the tools, harness, or rubric.
 
-The first usable version needs both a code case and a data case.
-Reuse the API-quality file sets from round 1 and add a bounded historical dataset for a data scout.
+The first version is agreed: API quality for code and Agent feedback for data.
+Reuse the API-quality file sets from round 1 and add a bounded historical dataset for Agent feedback.
+Restore saved memory and prior reports with the feedback data on every trial, so the case includes normal duplicate handling and baseline comparisons.
+Choose a natural window with several independently verified findings of varied difficulty, aiming for three to five, alongside ordinary activity, duplicates, and plausible false leads.
+Keep the complete relevant activity in that window; selecting only rows that demonstrate known findings would change the investigation.
+Restore memory and prior reports from the case's starting checkpoint, before its target findings were filed.
+The reviewed answer belongs in the grader's reference, outside the scout's accessible inputs.
+If the window spans several original runs, define it as one catch-up investigation from that checkpoint, rather than claiming to reproduce one original run.
+Historical contents must be recoverable: current rows filtered by creation date can contain later edits, and the scratchpad does not retain earlier versions.
+An existing report is a candidate answer until its evidence has been independently checked.
 Historical data and resulting traces must stay in private storage; public files contain the case structure and implementation only.
 Synthetic cases remain useful and are already supported by the existing harness.
 
@@ -50,6 +58,13 @@ The following additions still need implementation:
 - Load the selected skill version and restore its initial memory and report history.
 - Apply one consistent time policy across the agent context, product APIs, and database queries.
 - Capture complete persisted reports and memory changes. The current scout adapter exposes IDs and newly created memory keys, which are insufficient to grade all content and edits.
+- Give every repeated trial a unique artifact path. The current [log writer](../../../../posthog_ai/eval_harness/log_sink.py) names files by case alone within an experiment directory, so repeated trials can overwrite each other's local logs.
+
+Start with one case-specific loader and the existing Docker provider.
+It needs an empty project option: the current team factory always copies demo data, which would mix unrelated evidence into a historical case.
+Restore event files into ClickHouse and the small related state into the normal product models, preserving relationships when IDs change.
+The scout adapter must forward the selected skill version, repository, and explicit investigation bounds through the production runner's existing inputs.
+Do not build a general export service, another query engine, or a separate runner for prompt changes.
 
 The [suite instructions](../../../evals/agentic/AGENTS.md) currently describe public repositories and synthetic fixtures.
 A historical snapshot requires a private-fixture path and a review of every log and artifact destination.
@@ -76,7 +91,7 @@ The retained state must support those valid alternative investigations within th
 
 ## Data boundaries
 
-The working first data candidate is feedback analysis.
+The selected first data case is Agent feedback.
 Three additional candidates test different dependency shapes: feature flag cleanup, flaky test investigation, and skill validation.
 The descriptions below are proposed fixture requirements, without production data, private skill text, or operational measurements.
 
@@ -162,18 +177,36 @@ This is less suitable as the first general data snapshot because selection and t
 
 ### Implication for the first data case
 
-Feedback analysis remains the proposed analytics case; a manageable fixture must preserve its comparison windows and tool-call denominators.
-Flag cleanup offers a smaller alternative or second data case because much of its evidence is stored metadata plus code.
-Trunk and skill validation add useful coverage later, once retained external evidence and explicit task scope are supported.
-This review does not change the selected first case or authorize any run.
+Agent feedback is selected for the first version; its fixture must preserve comparison windows and tool-call denominators.
+Flag cleanup is the next candidate for testing how much restoration code another scout can reuse.
+Trunk and skill validation remain later candidates, once retained external evidence and explicit task scope are supported.
+No new scout run has been authorized.
 
 ## Time and evaluation awareness
 
 A saved dataset eventually falls outside a query for recent activity.
-Choose one policy per case: a consistent fixed reference time, or a documented shift of all relevant timestamps around the trial's reference time.
-The policy must cover event and metadata timestamps, memory expiry, query windows, and linked evidence.
-Freezing Python's clock alone does not control ClickHouse `now()` or external services.
-This is a requirement to resolve for the selected case, not a reason to build a universal time service.
+For the first data case, shift the declared timestamps together into the recent past of each comparison batch.
+Keep the original snapshot immutable, record the offset, and use the same offset for every configuration and repeat in that batch.
+Pass the same explicit investigation start and exclusive end through the runner's existing `run_note` input.
+This preserves relative ages, elapsed gaps, and ordering while using the existing tools and real clocks.
+
+The transform must cover event and metadata timestamps, memory cursors and expiry, profile freshness, comparison windows, and relevant dates embedded in retained evidence.
+Use a reviewed inventory of fields and date references; do not blindly rewrite arbitrary text or identifiers.
+Keep only observations available by the source cutoff, with memory and reports restored to the agreed starting checkpoint.
+A historical event timestamp alone does not prove the row was already available then; verify arrival history where possible and disclose any uncertainty.
+Existing future expiry dates are valid state, not later observations.
+
+Changing only the agent sandbox clock would leave backend and database queries on real time.
+In the current harness, the agent container, backend, MCP server, and ClickHouse do not share one configurable process clock.
+[Linux time namespaces](https://man7.org/linux/man-pages/man7/time_namespaces.7.html) do not virtualize the calendar clock.
+[libfaketime](https://github.com/wolfcw/libfaketime/blob/master/README) can intercept time calls in supported processes, but coordinating these services, runtime compatibility, and credential expiry would add a separate integration task.
+Defer that work for the first version.
+
+Timestamp shifting does not reproduce every arbitrary calendar or relative-time query exactly.
+Live clocks keep advancing during a batch, and weekdays, month boundaries, daylight-saving changes, and external repository dates may not retain their original relationships.
+Choose a case whose reviewed findings do not depend on those unsupported relationships.
+Check window membership, baseline counts and rates, active memory, and profile state before comparison; invalidate a batch if a required boundary changes.
+Exact historical time across all tools can be revisited if this bounded approach proves insufficient.
 
 A project containing only one event type may expose an incomplete environment or change the scout's conclusions.
 Preserve the coherent context the chosen workflow can reasonably inspect: project profile, discoverable schema, relevant control data, prior reports, and memory.
@@ -189,10 +222,12 @@ Equal conditions support a comparison within the case; they do not establish pro
 Keep a small manifest beside each case's grading instructions:
 
 - Case ID/version, repository commit and file scope, or private dataset reference with checksum and schema version.
-- Time reference/policy, initial memory and report state, and supported investigation scope.
+- Source cutoff and baseline windows, timestamp-transform version, initial memory and report checkpoint, and supported investigation scope.
 - Reviewed findings and valid reasons to file nothing, with a rubric version.
 
+Keep the grading reference inaccessible to the scout, even when stored beside the case manifest.
 Record the harness/tool revision, skill body hash/version, model, effective effort, and trial ID with every result.
+Record the batch's target cutoff and time offset so reported dates can be mapped back to the immutable source case.
 The case ID identifies the shared starting state; each repeated trial has its own mutable state and result directory.
 Retain artifacts for the intended comparison period; recreate execution environments when needed.
 
@@ -222,12 +257,16 @@ Keep the PostHog runner and borrow the reset/capture lifecycle and versioned inp
 No additional evaluation framework is proposed as a dependency.
 Echoverse's implementation was inspected at the linked commit; OpenEnv and Harbor were inspected on their current branches on September 22, 2026.
 
+The [autoresearch data preparation script](https://github.com/karpathy/autoresearch/blob/master/prepare.py) also separates cached Parquet inputs from repeated executions and reserves a validation shard.
+Its loader prepares text for model training; it does not restore PostHog state or MCP behavior.
+Reuse the separation of saved data from execution, with Parquet as a possible event-storage format and a case-specific PostHog restore step.
+
 ## Next decisions and work
 
-1. Choose the first data scout and one coherent case boundary using the dependency comparison above.
-2. Specify its data selection, private artifact location, time policy, initial state, and expected checks.
-3. Implement only the restoration and output-capture work that those cases require, using the existing runner.
-4. Verify repository identity, restored queries, state isolation, and report containment before running agents.
+1. Verify several findings in one natural Agent feedback window and establish that its starting memory and report contents can be recovered. The final fixture is not selected yet.
+2. Specify its full investigation and comparison data, private artifact location, date-transform inventory, and expected query results. Missing history must not appear as zero activity.
+3. Add the empty-project restore path and full output capture to the existing runner, including unique artifacts per repeat and checks on private trace destinations.
+4. Enforce the API-quality repository state before the first agent turn, including later fetches. Verify both cases' restored queries, state isolation, report containment, and equivalent inputs across two restores before running agents.
 5. Clarify severity and execution budget, then obtain approval for a new experiment.
 
 The production improvements listed in the round-1 [final report](FINAL_REPORT.md) remain useful, especially memory isolation, effort recording, and complete report capture.
