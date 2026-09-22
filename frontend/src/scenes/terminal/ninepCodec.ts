@@ -40,21 +40,44 @@ export class NinePReader {
 }
 
 export class NinePWriter {
-    private bytes: number[] = []
+    private bytes = new Uint8Array(256)
+    private view = new DataView(this.bytes.buffer)
+    private length = 0
+
+    // Every 9P message crosses this writer, and a file read fills it one packet at a time.
+    private reserve(size: number): void {
+        if (this.length + size <= this.bytes.length) {
+            return
+        }
+        let capacity = this.bytes.length * 2
+        while (capacity < this.length + size) {
+            capacity *= 2
+        }
+        const grown = new Uint8Array(capacity)
+        grown.set(this.bytes.subarray(0, this.length))
+        this.bytes = grown
+        this.view = new DataView(grown.buffer)
+    }
 
     number(value: number, size: 1 | 2 | 4 | 8): this {
-        let remaining = BigInt(value)
-        for (let i = 0; i < size; i++) {
-            this.bytes.push(Number(remaining & 255n))
-            remaining >>= 8n
+        this.reserve(size)
+        if (size === 8) {
+            this.view.setBigUint64(this.length, BigInt(value), true)
+        } else if (size === 4) {
+            this.view.setUint32(this.length, value, true)
+        } else if (size === 2) {
+            this.view.setUint16(this.length, value, true)
+        } else {
+            this.view.setUint8(this.length, value)
         }
+        this.length += size
         return this
     }
 
     data(value: Uint8Array): this {
-        for (const byte of value) {
-            this.bytes.push(byte)
-        }
+        this.reserve(value.length)
+        this.bytes.set(value, this.length)
+        this.length += value.length
         return this
     }
 
@@ -64,15 +87,16 @@ export class NinePWriter {
     }
 
     build(): Uint8Array {
-        return Uint8Array.from(this.bytes)
+        return this.bytes.slice(0, this.length)
     }
 
     frame(type: number, tag: number): Uint8Array {
-        return new NinePWriter()
-            .number(this.bytes.length + 7, 4)
-            .number(type, 1)
-            .number(tag, 2)
-            .data(this.build())
-            .build()
+        const frame = new Uint8Array(this.length + 7)
+        const view = new DataView(frame.buffer)
+        view.setUint32(0, frame.length, true)
+        view.setUint8(4, type)
+        view.setUint16(5, tag, true)
+        frame.set(this.bytes.subarray(0, this.length), 7)
+        return frame
     }
 }

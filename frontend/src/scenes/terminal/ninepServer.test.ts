@@ -227,6 +227,16 @@ describe('PostHog 9P filesystem', () => {
         expect(saved).toBe('ab\u0000\u0000Z')
     })
 
+    it('frames a read that outgrows the response buffer without corrupting it', async () => {
+        saved = 'hedgehog \u{1F994} '.repeat(4000)
+        const body = encoder.encode(saved)
+        expect(await open(0)).toBe(13)
+        const response = await request(116, new NinePWriter().number(2, 4).number(0, 8).number(body.length, 4))
+        const returned = response.body.data(response.body.number(4))
+        expect(returned.length).toBe(body.length)
+        expect(decoder.decode(returned)).toBe(saved)
+    })
+
     it('rejects oversized sparse writes without allocating their requested size', async () => {
         await open(1)
         expect(await write('x', MAX_TERMINAL_FILE_BYTES)).toBe(7)
