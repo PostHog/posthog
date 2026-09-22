@@ -10792,6 +10792,22 @@ snapshots:
         hash: v1.k794b7964.97190abf6b2cb1c02e955555559874e975140d4479843089f1a9535e6100a194.t9t3ni1Sd9qf56MyNquC5SbflzhcT9m5d3GyZhBkUZo
     scenes-app-stamphog-runs--runs-list-empty--light:
         hash: v1.k794b7964.e3f2449aaf242198553ecade4b10006f816108242c273060fa456e9504ee3fcf.vsiDO5c59UASwyXQZZtwifVbT-qaaUdTa-TxoKNSpmE
+    scenes-app-support-aipanel--auto-sent--dark:
+        hash: v1.k794b7964.07e3affbf3cd08afd226dbb511275935ff1c57068ee0fc26b087327a777fc787.L05NU4MU6m6USxVSPf7Q6h9pP6Q58rJHMYjTNCgXxpg
+    scenes-app-support-aipanel--auto-sent--light:
+        hash: v1.k794b7964.13ae85baf06876ab24cdbe1a99f3e7a7d53ec1c2970ce88f4566705a81f04611.Jd-0Qe9k1pTVDvrtEW6_ac5wLNKVdSyXUq8HlT5cEOk
+    scenes-app-support-aipanel--awaiting-clarification--dark:
+        hash: v1.k794b7964.2051e62bcb0ba9e312601856a1771b4bfbd9f6e50135aba65d7136b4b190b608.mTmg0OWRuKLv4QxBJO1vWco0MjhmDebmNese3ZkSVuY
+    scenes-app-support-aipanel--awaiting-clarification--light:
+        hash: v1.k794b7964.6873e4491c301b9ce004c6e50536c5d6387e80447f296f1bb001fc7f50f883ea.o6iSgLNLGEhqwzdaKoZeVsQi1wPkrI6nqH4B7k_l0ww
+    scenes-app-support-aipanel--findings-only--dark:
+        hash: v1.k794b7964.66f2025d216e19c519c125daad292493964b0e47a400fdedd25949acb98463c5.5c0VveovbSB8yvO3ibmrCGKMReeAxqY8HSpqW1GN1fw
+    scenes-app-support-aipanel--findings-only--light:
+        hash: v1.k794b7964.decd92b08b7ecf9b0c20834e18efc95d607a3331fa6301a60db228169c407988.Lbcu8gNKAgYq-H92y1eKEioRkP3MleRAxEP_-ZqDmrA
+    scenes-app-support-aipanel--suggested--dark:
+        hash: v1.k794b7964.6b6e47f7a6e819c6f5001b08535c3dff93cbad7acf5ebfeafeff9c5dcfc36189.lZn-6YFthsicyD42YSyFBP-KQ1ghbNYQ1C4uqgeTvlM
+    scenes-app-support-aipanel--suggested--light:
+        hash: v1.k794b7964.6c3b559141a22910e91279c6a78db5b3eb7c8c6fd603b0c9604dda0b18561f26.LPgQxRSVfVCglr43R6HXDc9tsTy6zB9W81t1WTzsB8I
     scenes-app-support-supportplaybookeditor--customized--dark:
         hash: v1.k794b7964.56dd8c26993da8181fb09aa4d9868be1f5925885f1f1854ca38100636acdaaec.yjA6yaERFMxD3ydwD-uPOPa4qSoIgBECHwHq3wOm_1E
     scenes-app-support-supportplaybookeditor--customized--light:
