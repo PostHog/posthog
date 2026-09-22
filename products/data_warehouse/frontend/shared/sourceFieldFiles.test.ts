@@ -69,6 +69,20 @@ describe('sourceFieldFiles', () => {
             ])
         })
 
+        it.each([[false], ['False']])('skips a file in a switch group disabled with %s', (enabled) => {
+            const fields: SourceFieldConfig[] = [
+                {
+                    type: 'switch-group',
+                    name: 'credentials',
+                    label: 'Use a key file?',
+                    default: false,
+                    fields: [KEY_FILE_FIELD],
+                },
+            ]
+
+            expect(findUploadedFiles(fields, { credentials: { enabled, key_file: [makeKeyFile()] } })).toEqual([])
+        })
+
         it('finds a file at the top of the payload', () => {
             const keyFile = makeKeyFile()
 

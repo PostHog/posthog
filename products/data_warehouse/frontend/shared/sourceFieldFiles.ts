@@ -59,7 +59,11 @@ export const findUploadedFiles = (fields: SourceFieldConfig[], valueObj: Record<
         const nestedValue = valueObj[field.name]
         const canDescend = !!nestedValue && typeof nestedValue === 'object' && !Array.isArray(nestedValue)
 
-        if (field.type === 'switch-group' && canDescend) {
+        // A disabled group's stored file must not be sent; the backend string form comes from an
+        // earlier config, the same as the form validation handles.
+        const groupEnabled = canDescend && !!nestedValue.enabled && nestedValue.enabled !== 'False'
+
+        if (field.type === 'switch-group' && groupEnabled) {
             uploads.push(...findUploadedFiles(field.fields, nestedValue))
             continue
         }
@@ -74,6 +78,10 @@ export const findUploadedFiles = (fields: SourceFieldConfig[], valueObj: Record<
     return uploads
 }
 
-export const readJsonFile = async (file: File): Promise<unknown> => {
-    return JSON.parse(await getTextFromFile(file))
+export const readJsonFile = async (file: File): Promise<Record<string, unknown>> => {
+    const parsed: unknown = JSON.parse(await getTextFromFile(file))
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('The uploaded JSON file must contain an object')
+    }
+    return parsed as Record<string, unknown>
 }
