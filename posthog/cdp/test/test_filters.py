@@ -232,9 +232,17 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 "`person.properties.email.startsWith` is a value, not a function",
             ),
             ("(event)()", "`event` is a value, not a function"),
+            ("multiIf(true, true, false, true)", "`multiIf` takes an odd number of arguments, got 4"),
         ):
             response = compile_filters_bytecode(filters={"properties": [{"type": "hogql", "key": key}]}, team=self.team)
             assert expected in (response.get("bytecode_error") or ""), key
+
+        # The shape with a value to fall back to still compiles.
+        odd = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "multiIf(true, true, false, true, false)"}]},
+            team=self.team,
+        )
+        assert "bytecode_error" not in odd
 
         # A lambda parameter is a variable, and a variable that holds a function can be called.
         allowed = compile_filters_bytecode(

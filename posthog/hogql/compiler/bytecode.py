@@ -484,7 +484,18 @@ class BytecodeCompiler(Visitor):
                 start=node.start, end=node.end, message=f"Hog function `{node.name}` is not implemented"
             )
             return
-        self._check_call_arity(node, len(node.params if node.params is not None else node.args))
+        arg_count = len(node.params if node.params is not None else node.args)
+        self._check_call_arity(node, arg_count)
+        # multiIf pairs every condition with a value and needs a last one to fall back to. An
+        # argument count is all the contract can carry, so it cannot say that, and an even count
+        # lowers into bytecode that leaves nothing to return when no condition matches.
+        if node.name == "multiIf" and arg_count > 3 and arg_count % 2 == 0:
+            self.context.add_error(
+                start=node.start,
+                end=node.end,
+                message=f"Hog function `multiIf` takes an odd number of arguments, got {arg_count}. "
+                f"Add a last value to fall back to.",
+            )
 
     def visit_call(self, node: ast.Call):
         self._check_declared_call(node)
