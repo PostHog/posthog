@@ -524,8 +524,13 @@ describe("ChannelItemRow", () => {
     await openCard();
 
     for (const label of MENU_ITEMS) {
-      expect(screen.getByRole("button", { name: label })).not.toBeNull();
+      expect(
+        screen.getByRole("button", {
+          name: label === "Archive" ? /^Archive/ : label,
+        }),
+      ).not.toBeNull();
     }
+    expect(screen.getByText("Ctrl+Shift+A")).not.toBeNull();
   });
 
   it("opens the same menu on right-click", () => {
@@ -534,8 +539,13 @@ describe("ChannelItemRow", () => {
     fireEvent.contextMenu(screen.getByText("Investigate signup drop-off"));
 
     for (const label of MENU_ITEMS) {
-      expect(screen.getByRole("menuitem", { name: label })).not.toBeNull();
+      expect(
+        screen.getByRole("menuitem", {
+          name: label === "Archive" ? /^Archive/ : label,
+        }),
+      ).not.toBeNull();
     }
+    expect(screen.getByText("Ctrl+Shift+A")).not.toBeNull();
   });
 
   it("opens a task in a new tab from the context menu", () => {

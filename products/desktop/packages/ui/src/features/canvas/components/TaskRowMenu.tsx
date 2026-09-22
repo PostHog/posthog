@@ -20,18 +20,24 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuShortcut,
   ContextMenuSub,
   ContextMenuSubTrigger,
   ContextMenuTrigger,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuShortcut,
   DropdownMenuSub,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@posthog/quill";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import {
+  TaskArchiveMenuItem,
+  type TaskArchiveMenuParts,
+} from "@posthog/ui/features/archive/TaskArchiveMenuItem";
 import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useFileTaskToChannel } from "@posthog/ui/features/canvas/hooks/useFileTaskToChannel";
@@ -92,7 +98,7 @@ export interface TaskRowMenuProps {
 // written once against this shape. Base UI builds context menus on the same Menu
 // parts as dropdowns, so the props line up; typing them structurally keeps the
 // shared content from having to know which surface it's on.
-interface MenuParts {
+interface MenuParts extends TaskArchiveMenuParts {
   Item: ComponentType<{
     children: ReactNode;
     disabled?: boolean;
@@ -105,12 +111,14 @@ interface MenuParts {
 
 const CONTEXT_PARTS: MenuParts = {
   Item: ContextMenuItem,
+  Shortcut: ContextMenuShortcut,
   Sub: ContextMenuSub,
   SubTrigger: ContextMenuSubTrigger,
 };
 
 const DROPDOWN_PARTS: MenuParts = {
   Item: DropdownMenuItem,
+  Shortcut: DropdownMenuShortcut,
   Sub: DropdownMenuSub,
   SubTrigger: DropdownMenuSubTrigger,
 };
@@ -254,10 +262,7 @@ function TaskRowMenuItems({
         </Item>
       )}
       {menu.onArchive && (
-        <Item onClick={menu.onArchive}>
-          <ArchiveIcon size={14} />
-          Archive
-        </Item>
+        <TaskArchiveMenuItem parts={parts} onClick={menu.onArchive} />
       )}
       {/* The ellipsis is the promise that a confirm follows — deleting a canvas
           takes it away from everyone in the space. */}
@@ -404,6 +409,7 @@ export function TaskRowMenuList({
           {children}
         </Button>
       ),
+      Shortcut: DropdownMenuShortcut,
       Sub: ({ children }) => (
         <DropdownMenu onOpenChange={onSubmenuOpenChange}>
           {children}
