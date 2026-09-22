@@ -253,6 +253,19 @@ class TestSourceLinks(SimpleTestCase):
                 "../src/late.ts": "packages/p3/src/late.ts",
             }
 
+    def test_match_sources_stops_lookups_past_the_budget(self) -> None:
+        # Every lookup scans the paths that share a file name, so many decoys times many sources is
+        # work the map controls. Past the budget the remaining sources get no link rather than a
+        # worker held for minutes.
+        tree = RepositoryTree(
+            ["pkg/src/a.ts", "pkg/src/b.ts", "other/src/index.ts"] + [f"d{index}/index.ts" for index in range(20)]
+        )
+        sources = ["../src/a.ts", "../src/b.ts", "../src/index.ts"]
+        assert match_sources(tree, sources)["../src/index.ts"] == "other/src/index.ts"
+
+        with patch("products.error_tracking.backend.logic.source_links.MAX_LOOKUP_PATHS", 3):
+            assert match_sources(tree, sources) == {"../src/a.ts": "pkg/src/a.ts", "../src/b.ts": "pkg/src/b.ts"}
+
     def test_match_sources_ignores_virtual_sources(self) -> None:
         tree = RepositoryTree(["src/a.ts"])
         assert match_sources(tree, ["webpack://app/webpack/runtime/x", "webpack://app/./src/a.ts"]) == {
@@ -358,6 +371,27 @@ class TestGitHubTree(SimpleTestCase):
 
         assert tree is not None and tree.paths == {"apps/web/src/a.ts"}
         assert [path for path, _ in api.calls] == [f"{TREES}/{COMMIT}?recursive=1"]
+
+    def test_the_path_ceiling_counts_bytes_as_the_cache_stores_them(self) -> None:
+        # "é.ts" is four code points but five bytes. A count in code points lets one more path in.
+        api = _ScriptedGitHubApi(
+            {
+                f"{TREES}/{COMMIT}?recursive=1": [
+                    _json_response(
+                        200,
+                        {
+                            "truncated": False,
+                            "tree": [{"path": "é.ts", "type": "blob"}, {"path": "b.ts", "type": "blob"}],
+                        },
+                    )
+                ]
+            }
+        )
+
+        with patch("products.error_tracking.backend.logic.source_links.MAX_TREE_PATH_BYTES", 5):
+            tree = github_tree(api, SourceTarget(repository=REPOSITORY, ref=COMMIT, pinned=True))
+
+        assert tree is not None and tree.paths == {"é.ts"}
 
     def test_a_failed_tail_request_does_not_pass_a_partial_tree_off_as_the_repository(self) -> None:
         # A commit tree is kept for a week, so a partial one would hide the tail's links that long.

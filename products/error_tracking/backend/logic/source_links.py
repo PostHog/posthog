@@ -73,6 +73,9 @@ MAX_SOURCE_MAP_SECTION_DEPTH = 4
 # capped as well. A real bundle stays far below the cap, because it names each source once and
 # its relative paths exist in few directories.
 MAX_ANCHOR_PLACEMENTS = 5_000_000
+# Every lookup by file name scans the paths that share that name, so the lookups of one match are
+# capped the same way as its placements. Past the budget the sources not yet placed get no link.
+MAX_LOOKUP_PATHS = 5_000_000
 
 # A tree at a commit never changes, so it is kept for a week. Data read at a branch is trusted for
 # an hour. After that a branch tree is revalidated with its ETag, which costs no rate limit budget
@@ -232,6 +235,29 @@ class RepositoryTree:
         suffix = "/" + relative
         return sorted(path for path in self._by_name.get(name, ()) if path == relative or path.endswith(suffix))
 
+    def paths_named(self, relative: str) -> int:
+        """How many paths a lookup for ``relative`` scans: those that share its file name."""
+        return len(self._by_name.get(relative.rsplit("/", 1)[-1], ()))
+
+
+class _BudgetedLookups:
+    """Runs the file name lookups of one match and stops them once they scanned enough paths."""
+
+    def __init__(self, tree: RepositoryTree, budget: int) -> None:
+        self._tree = tree
+        self._remaining = budget
+        self.exhausted = False
+
+    def paths_ending_with(self, relative: str) -> list[str]:
+        if self.exhausted:
+            return []
+        cost = self._tree.paths_named(relative)
+        if cost > self._remaining:
+            self.exhausted = True
+            return []
+        self._remaining -= cost
+        return self._tree.paths_ending_with(relative)
+
 
 def match_sources(tree: RepositoryTree, sources: Iterable[str]) -> dict[str, str]:
     """Maps raw sources to repository paths.
@@ -241,8 +267,9 @@ def match_sources(tree: RepositoryTree, sources: Iterable[str]) -> dict[str, str
     most common hop count is a candidate anchor, and the candidate under which the most sources
     exist wins. A source that does not fit under the winner falls back to a unique suffix match.
 
-    Raw sources that reduce to the same path are scored together, and scoring stops after
-    ``MAX_ANCHOR_PLACEMENTS`` placements, so a map with many sources cannot hold the worker.
+    Raw sources that reduce to the same path are scored together, scoring stops after
+    ``MAX_ANCHOR_PLACEMENTS`` placements, and lookups stop after they scanned ``MAX_LOOKUP_PATHS``
+    paths, so a map with many sources cannot hold the worker.
     """
     by_path: dict[SourcePath, list[str]] = defaultdict(list)
     for raw in dict.fromkeys(sources):
@@ -255,11 +282,12 @@ def match_sources(tree: RepositoryTree, sources: Iterable[str]) -> dict[str, str
     for source, raws in by_path.items():
         hop_counts[source.hops] += len(raws)
     anchor_hops = min(hop_counts, key=lambda hops: (-hop_counts[hops], hops))
+    lookups = _BudgetedLookups(tree, MAX_LOOKUP_PATHS)
     candidates: set[str] = set()
     for source in by_path:
         if source.hops != anchor_hops:
             continue
-        for path in tree.paths_ending_with(source.relative):
+        for path in lookups.paths_ending_with(source.relative):
             candidates.add(path[: -len(source.relative)].rstrip("/"))
 
     # Shallower anchors first, so a tie between identical package layouts resolves the same way every time.
@@ -279,11 +307,13 @@ def match_sources(tree: RepositoryTree, sources: Iterable[str]) -> dict[str, str
     for source, raws in by_path.items():
         placed = _place(best_anchor, anchor_hops, source) if best_anchor is not None else None
         if placed is None or placed not in tree:
-            placed = _unique_suffix_match(tree, source)
+            placed = _unique_suffix_match(lookups, source)
         if placed is None:
             continue
         for raw in raws:
             matched[raw] = placed
+    if lookups.exhausted:
+        logger.warning("source_links_lookups_capped", sources=len(by_path), tree_paths=len(tree.paths))
     return matched
 
 
@@ -300,7 +330,7 @@ def _place(anchor_segments: list[str], anchor_hops: int, source: SourcePath) -> 
     return "/".join([*base, *source.segments])
 
 
-def _unique_suffix_match(tree: RepositoryTree, source: SourcePath) -> str | None:
+def _unique_suffix_match(lookups: _BudgetedLookups, source: SourcePath) -> str | None:
     """The one path that ends with the source, dropping leading segments a build machine added.
 
     A match needs at least two segments unless the source itself has one. An ambiguous suffix
@@ -309,7 +339,9 @@ def _unique_suffix_match(tree: RepositoryTree, source: SourcePath) -> str | None
     segments = source.segments
     shortest = min(len(segments), 2)
     for start in range(0, len(segments) - shortest + 1):
-        matches = tree.paths_ending_with("/".join(segments[start:]))
+        if lookups.exhausted:
+            return None
+        matches = lookups.paths_ending_with("/".join(segments[start:]))
         if len(matches) == 1:
             return matches[0]
         if matches:
@@ -647,13 +679,17 @@ class _TreeRequests:
     def add_paths(self, tree_ref: str, paths: set[str], new: Iterable[str]) -> None:
         """Adds the paths that fit under the ceiling, and marks the listing incomplete when one does not."""
         for path in new:
-            if self.full:
+            if path in paths:
+                continue
+            # The ceiling is in bytes as the cache stores them, and a path is checked before it
+            # is added so the total never passes it.
+            path_bytes = len(path.encode("utf-8"))
+            if self._path_count >= MAX_TREE_PATHS or self._path_bytes + path_bytes > MAX_TREE_PATH_BYTES:
                 self.log_incomplete(tree_ref)
                 return
-            if path not in paths:
-                paths.add(path)
-                self._path_count += 1
-                self._path_bytes += len(path)
+            paths.add(path)
+            self._path_count += 1
+            self._path_bytes += path_bytes
 
     def get(self, tree_ref: str, *, recursive: bool, etag: str | None = None) -> requests.Response | None:
         if time.time() > self._deadline:
