@@ -818,6 +818,9 @@ layer = "modules"
 [[modules]]
 path = "products.signals"
 depends_on = [
+    # Facade-only: a scout report asks whether the bot can answer a follow-up on it. products.slack_app
+    # depends on products.signals in turn, so both directions stay facade-only to keep the pair honest.
+    "products.slack_app",
     "ee",
     "products.cohorts",
     "posthog",
