@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -579,25 +580,29 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         ],
     }),
     listeners(({ actions, values }) => {
+        const pendingSettingsUpdates = new WeakMap<
+            Partial<TeamType>,
+            { field: keyof MarketingAnalyticsConfig; entry_point: string }
+        >()
+
         const updateCurrentTeam = (field: keyof MarketingAnalyticsConfig): void => {
             if (values.marketingAnalyticsConfig) {
                 const payload = { marketing_analytics_config: { [field]: values.marketingAnalyticsConfig[field] } }
+                if (field !== 'filter_test_accounts') {
+                    // The same settings components render under project settings, outside the marketing app.
+                    const inMarketingApp =
+                        removeProjectIdIfPresent(router.values.location.pathname) === urls.marketingAnalyticsApp()
+                    pendingSettingsUpdates.set(payload, {
+                        field,
+                        entry_point: inMarketingApp ? values.setupEntryPointLabel : 'project_settings',
+                    })
+                }
                 actions.updateCurrentTeam(payload)
             }
         }
 
-        // The same settings components render under project settings, outside the marketing app.
-        const captureSettingsUpdated = (field: keyof MarketingAnalyticsConfig): void => {
-            const inMarketingApp = router.values.location.pathname.startsWith(urls.marketingAnalyticsApp())
-            posthog.capture('marketing analytics settings updated', {
-                field,
-                entry_point: values.setupEntryPoint ?? (inMarketingApp ? 'direct' : 'project_settings'),
-            })
-        }
-
         const trackSourceConfigured = (): void => {
             updateCurrentTeam('sources_map')
-            captureSettingsUpdated('sources_map')
             actions.addProductIntent({
                 product_type: ProductKey.MARKETING_ANALYTICS,
                 intent_context: ProductIntentContext.MARKETING_ANALYTICS_SOURCE_CONFIGURED,
@@ -606,7 +611,6 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
 
         const trackSettingsUpdated = (field: keyof MarketingAnalyticsConfig): void => {
             updateCurrentTeam(field)
-            captureSettingsUpdated(field)
             actions.addProductIntent({
                 product_type: ProductKey.MARKETING_ANALYTICS,
                 intent_context: ProductIntentContext.MARKETING_ANALYTICS_SETTINGS_UPDATED,
@@ -614,6 +618,13 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         }
 
         return {
+            [teamLogic.actionTypes.updateCurrentTeamSuccess]: ({ payload }) => {
+                const properties = payload && pendingSettingsUpdates.get(payload)
+                if (properties) {
+                    pendingSettingsUpdates.delete(payload)
+                    posthog.capture('marketing analytics settings updated', properties)
+                }
+            },
             updateSourceMapping: trackSourceConfigured,
             updateConversionGoals: () => trackSettingsUpdated('conversion_goals'),
             addOrUpdateConversionGoal: () => trackSettingsUpdated('conversion_goals'),

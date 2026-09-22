@@ -170,11 +170,17 @@ describe('setupPlanLogic', () => {
         await expectLogic(logic, () => logic.actions.loadSetupPlan()).toFinishAllListeners()
         expect(logic.values.safeBatch.map((s) => s.id)).toEqual([suggestion().id])
 
+        marketingAnalyticsSettingsLogic.actions.setSetupEntryPoint('dashboard_source_suggestions')
+        logic.actions.reviewSafeBatch()
+        expect(posthog.capture).toHaveBeenCalledWith('marketing analytics setup batch reviewed', {
+            count: 1,
+            entry_point: 'dashboard_source_suggestions',
+        })
         await expectLogic(logic, () => logic.actions.applyAllSafe()).toFinishAllListeners()
         expect(applyRequests[0].ops).toEqual([suggestion().apply])
         expect(posthog.capture).toHaveBeenCalledWith('marketing analytics setup change completed', {
             source: 'apply_all_safe',
-            entry_point: 'direct',
+            entry_point: 'dashboard_source_suggestions',
             operation_types: ['add_custom_source_mapping'],
             requested_count: 1,
             applied_count: 0,
@@ -299,6 +305,7 @@ describe('setupPlanLogic', () => {
         expect(applyRequests).toHaveLength(0)
         expect(posthog.capture).toHaveBeenCalledWith('marketing analytics setup suggestion dismissed', {
             kind: 'add_source_mapping',
+            entry_point: 'direct',
         })
     })
 

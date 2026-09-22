@@ -1,4 +1,15 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    listeners,
+    path,
+    reducers,
+    selectors,
+} from 'kea'
 import { actionToUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -1569,6 +1580,9 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 }
             },
         }
+    }),
+    beforeUnmount(({ actions }) => {
+        actions.setSetupEntryPoint(null)
     }),
     afterMount(({ actions }) => {
         // Read URL params on initial mount (one-time sync from URL)

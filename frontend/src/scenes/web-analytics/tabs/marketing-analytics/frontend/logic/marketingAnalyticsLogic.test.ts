@@ -24,6 +24,7 @@ import { initKeaTests } from '~/test/init'
 import { ExternalDataSource } from '~/types'
 
 import { MarketingAnalyticsTab, SetupSection, marketingAnalyticsLogic } from './marketingAnalyticsLogic'
+import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import { marketingAnalyticsTableLogic } from './marketingAnalyticsTableLogic'
 import { marketingAnalyticsTilesLogic } from './marketingAnalyticsTilesLogic'
 
@@ -247,29 +248,40 @@ describe('marketingAnalyticsLogic', () => {
         })
     })
 
-    it('records which dashboard surface opened Setup until the user leaves it', async () => {
-        logic = marketingAnalyticsLogic()
-        logic.mount()
+    it.each(['tab', 'scene'] as const)(
+        'clears the dashboard setup entry point when leaving the %s',
+        async (destination) => {
+            const settings = marketingAnalyticsSettingsLogic()
+            const unmountSettings = settings.mount()
+            logic = marketingAnalyticsLogic()
+            logic.mount()
 
-        await expectLogic(logic, () =>
-            logic.actions.openSetup(SetupSection.CONVERSION_GOALS, 'dashboard_customer_cards')
-        )
-            .toFinishAllListeners()
-            .toMatchValues({
-                activeTab: MarketingAnalyticsTab.SETUP,
-                setupSection: SetupSection.CONVERSION_GOALS,
-                setupEntryPoint: 'dashboard_customer_cards',
+            await expectLogic(logic, () =>
+                logic.actions.openSetup(SetupSection.CONVERSION_GOALS, 'dashboard_customer_cards')
+            )
+                .toFinishAllListeners()
+                .toMatchValues({
+                    activeTab: MarketingAnalyticsTab.SETUP,
+                    setupSection: SetupSection.CONVERSION_GOALS,
+                    setupEntryPoint: 'dashboard_customer_cards',
+                })
+            expect(posthog.capture).toHaveBeenCalledWith('marketing analytics dashboard setup opened', {
+                entry_point: 'dashboard_customer_cards',
+                section: SetupSection.CONVERSION_GOALS,
             })
-        expect(posthog.capture).toHaveBeenCalledWith('marketing analytics dashboard setup opened', {
-            entry_point: 'dashboard_customer_cards',
-            section: SetupSection.CONVERSION_GOALS,
-        })
 
-        await expectLogic(logic, () => logic.actions.setSetupSection(SetupSection.SOURCES))
-            .toFinishAllListeners()
-            .toMatchValues({ setupEntryPoint: 'dashboard_customer_cards' })
-        await expectLogic(logic, () => logic.actions.setActiveTab(MarketingAnalyticsTab.DASHBOARD))
-            .toFinishAllListeners()
-            .toMatchValues({ setupEntryPoint: null })
-    })
+            await expectLogic(logic, () => logic.actions.setSetupSection(SetupSection.SOURCES))
+                .toFinishAllListeners()
+                .toMatchValues({ setupEntryPoint: 'dashboard_customer_cards' })
+            if (destination === 'tab') {
+                await expectLogic(logic, () =>
+                    logic.actions.setActiveTab(MarketingAnalyticsTab.DASHBOARD)
+                ).toFinishAllListeners()
+            } else {
+                logic.unmount()
+            }
+            expect(settings.values.setupEntryPoint).toBeNull()
+            unmountSettings()
+        }
+    )
 })

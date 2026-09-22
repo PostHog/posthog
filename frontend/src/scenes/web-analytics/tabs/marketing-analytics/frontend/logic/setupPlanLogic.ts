@@ -422,35 +422,55 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
             }
         },
         reviewSafeBatch: () => {
-            posthog.capture('marketing analytics setup batch reviewed', { count: values.safeBatch.length })
+            posthog.capture('marketing analytics setup batch reviewed', {
+                count: values.safeBatch.length,
+                entry_point: values.setupEntryPointLabel,
+            })
         },
         dismissSuggestion: ({ id }) => {
             const suggestion = values.suggestions.find((item) => item.id === id)
             if (suggestion) {
-                posthog.capture('marketing analytics setup suggestion dismissed', { kind: suggestion.kind })
+                posthog.capture('marketing analytics setup suggestion dismissed', {
+                    kind: suggestion.kind,
+                    entry_point: values.setupEntryPointLabel,
+                })
             }
         },
         restoreSuggestion: ({ id }) => {
             const suggestion = values.suggestions.find((item) => item.id === id)
             if (suggestion) {
-                posthog.capture('marketing analytics setup suggestion restored', { kind: suggestion.kind })
+                posthog.capture('marketing analytics setup suggestion restored', {
+                    kind: suggestion.kind,
+                    entry_point: values.setupEntryPointLabel,
+                })
             }
         },
         restoreAllDismissed: () => {
-            posthog.capture('marketing analytics setup suggestions restored')
+            posthog.capture('marketing analytics setup suggestions restored', {
+                entry_point: values.setupEntryPointLabel,
+            })
         },
         toggleShowDismissed: () => {
-            posthog.capture('marketing analytics setup dismissed toggled', { shown: values.showDismissed })
+            posthog.capture('marketing analytics setup dismissed toggled', {
+                shown: values.showDismissed,
+                entry_point: values.setupEntryPointLabel,
+            })
         },
         focusCapability: () => {
-            posthog.capture('marketing analytics setup capability filtered', { capability: values.focusedCapability })
+            posthog.capture('marketing analytics setup capability filtered', {
+                capability: values.focusedCapability,
+                entry_point: values.setupEntryPointLabel,
+            })
         },
         loadSetupPlan: ({ refresh } = {}) => {
             if (refresh) {
-                posthog.capture('marketing analytics setup rescan requested')
+                posthog.capture('marketing analytics setup rescan requested', {
+                    entry_point: values.setupEntryPointLabel,
+                })
             }
         },
         retrySync: async ({ suggestionId, targets }) => {
+            const entryPoint = values.setupEntryPointLabel
             // Goes straight to the warehouse endpoint rather than through
             // apply_setup_ops: the warehouse owns this action and its permissions, and
             // the apply endpoint only mutates marketing config.
@@ -468,6 +488,7 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
                     }
                 }
                 posthog.capture('marketing analytics setup sync retry completed', {
+                    entry_point: entryPoint,
                     requested_count: targets.length,
                     failed_count: failed.length,
                 })

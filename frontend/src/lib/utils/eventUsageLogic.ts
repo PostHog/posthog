@@ -79,6 +79,8 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import type { ExperimentMetricsRecalculationTriggerEnumApi } from 'products/experiments/frontend/generated/api.schemas'
+
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'
 
@@ -1546,18 +1548,7 @@ export interface eventUsageLogicActions {
             recalculation_id: string | null
             succeeded?: number
             total_metrics?: number
-            trigger?:
-                | 'agent_mcp'
-                | 'auto_refresh'
-                | 'cold_run'
-                | 'config_change'
-                | 'experiment_config_change'
-                | 'experiment_launch'
-                | 'experiment_stop'
-                | 'experiment_update'
-                | 'manual'
-                | 'metric_config_change'
-                | 'stale_refresh'
+            trigger?: ExperimentMetricsRecalculationTriggerEnumApi
         }
     ) => {
         properties: {
@@ -1569,19 +1560,7 @@ export interface eventUsageLogicActions {
             recalculation_id: string | null
             succeeded?: number | undefined
             total_metrics?: number | undefined
-            trigger?:
-                | 'agent_mcp'
-                | 'auto_refresh'
-                | 'cold_run'
-                | 'config_change'
-                | 'experiment_config_change'
-                | 'experiment_launch'
-                | 'experiment_stop'
-                | 'experiment_update'
-                | 'manual'
-                | 'metric_config_change'
-                | 'stale_refresh'
-                | undefined
+            trigger?: ExperimentMetricsRecalculationTriggerEnumApi | undefined
         }
         status: 'completed' | 'failed' | 'triggered'
     }
@@ -3101,18 +3080,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             properties: {
                 experiment_id: number
                 recalculation_id: string | null
-                trigger?:
-                    | 'manual'
-                    | 'cold_run'
-                    | 'stale_refresh'
-                    | 'auto_refresh'
-                    | 'experiment_config_change'
-                    | 'metric_config_change'
-                    | 'config_change'
-                    | 'experiment_launch'
-                    | 'experiment_stop'
-                    | 'experiment_update'
-                    | 'agent_mcp'
+                trigger?: ExperimentMetricsRecalculationTriggerEnumApi
                 is_existing?: boolean
                 total_metrics?: number
                 succeeded?: number
