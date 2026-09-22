@@ -350,12 +350,16 @@ export function email(options: {
     html: string
     preheader?: string
 }): Step {
+    // The CLI evaluates a file without type-checking, so a sender written for another shape,
+    // or none, arrives here. It is read loosely and passed on, so emit refuses it with a reason.
+    const sender: Partial<EmailSenderOptions> = options.from ?? {}
+    const ids: readonly number[] = Array.isArray(sender.integrationIds) ? sender.integrationIds : []
     const message: EmailMessage = {
         from: {
-            integrationId: options.from.integrationIds[0],
-            integrationIds: [...options.from.integrationIds],
-            ...(options.from.email === undefined ? {} : { email: options.from.email }),
-            ...(options.from.name === undefined ? {} : { name: options.from.name }),
+            integrationId: ids[0] as number,
+            integrationIds: [...ids],
+            ...(sender.email === undefined ? {} : { email: sender.email }),
+            ...(sender.name === undefined ? {} : { name: sender.name }),
         },
         to: { email: options.to },
         subject: options.subject,

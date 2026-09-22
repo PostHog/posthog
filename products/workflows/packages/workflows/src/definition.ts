@@ -123,8 +123,8 @@ export interface EmailMessage {
  * The sender of an email step, as PostHog stores it.
  *
  * PostHog sends from one of the email integrations in `integrationIds`, which are the
- * ids of the project's verified senders. `integrationId` is the first of them, kept
- * because the runtime reads it when the list is absent. `email` writes both from one
+ * ids of the project's verified senders. `integrationId` is the first of them, because
+ * the runtime requires it and treats the list as optional. `email` writes both from one
  * list, so they cannot disagree.
  */
 export interface EmailSender {

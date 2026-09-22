@@ -384,6 +384,13 @@ describe('@posthog/workflows', () => {
         ['more than ten sender ids', { integrationIds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] }, 'invalid_email_sender'],
         ['a sender id that is not an integer', { integrationIds: [1.5] }, 'invalid_email_sender'],
         [
+            'a hole in the sender list, which find would mistake for nothing',
+            { integrationIds: [1, undefined] },
+            'invalid_email_sender',
+        ],
+        ['a sender id that is not positive', { integrationIds: [0] }, 'invalid_email_sender'],
+        ['no sender at all, which a file written for another shape passes', undefined, 'invalid_email_sender'],
+        [
             'a sender address that is not an address',
             { integrationIds: [12], email: 'the team' },
             'invalid_sender_address',

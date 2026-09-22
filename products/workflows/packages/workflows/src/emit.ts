@@ -379,7 +379,7 @@ function checkSender(sender: EmailSender, step: Step): void {
         throw new WorkflowError({
             status: 'invalid_email_sender',
             message: `Step "${step.name}" ${message}`,
-            why: "PostHog sends an email from one of the project's email integrations, named by id, and refuses to save a step that names none, more than ten, or one that is not an integer.",
+            why: "PostHog sends an email from one of the project's email integrations, named by id, and refuses to save a step that names none, more than ten, or one that is not a positive integer.",
             fix,
         })
     }
@@ -389,11 +389,13 @@ function checkSender(sender: EmailSender, step: Step): void {
     if (ids.length > MAX_EMAIL_SENDERS) {
         refuse(`names ${ids.length} senders, and the limit is ${MAX_EMAIL_SENDERS}.`, 'Keep at most ten ids.')
     }
-    const wrong = ids.find((id) => !Number.isInteger(id))
-    if (wrong !== undefined) {
+    // findIndex rather than find, because a hole in the list is found as undefined, which
+    // find cannot tell apart from finding nothing.
+    const wrongAt = ids.findIndex((id) => !Number.isSafeInteger(id) || id <= 0)
+    if (wrongAt !== -1) {
         refuse(
-            `names the sender ${String(wrong)}, which is not an integration id.`,
-            'Use the integer id of an email integration.'
+            `names the sender ${String(ids[wrongAt])}, which is not an integration id.`,
+            'Use the positive integer id of an email integration.'
         )
     }
 
