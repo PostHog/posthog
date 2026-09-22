@@ -112,6 +112,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         fullEmailContent,
         fullEmailContentLoading,
         fullEmailMessageId,
+        composerPrefillAt,
+        aiDraftApplying,
     } = useValues(logic)
     // The list's filters / saved view ride along in this page's query string
     // (the ticket row carries them through on navigation). Preserve them on the
@@ -136,6 +138,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         deleteMessage,
         loadFullEmail,
         closeFullEmail,
+        applyAiDraft,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
@@ -295,6 +298,10 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onCancelEdit={cancelEditingMessage}
                         fullEmailLoadingMessageId={fullEmailContentLoading ? fullEmailMessageId : null}
                         onViewFullEmail={loadFullEmail}
+                        composerPrefillAt={composerPrefillAt}
+                        aiSources={ticket?.ai_triage?.sources}
+                        aiDraftApplying={aiDraftApplying}
+                        onApplyAiDraft={applyAiDraft}
                     />
                     <div className="hidden @min-[48rem]/main-content:block">
                         <Resizer {...resizerLogicProps} className="z-20" />

@@ -24710,8 +24710,8 @@
                     "description": "For mean metrics: event source."
                 },
                 "start_event": {
-                    "$ref": "#/definitions/ExperimentApiEventSource",
-                    "description": "For retention metrics: start event."
+                    "$ref": "#/definitions/ExperimentApiRetentionStart",
+                    "description": "For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event; start_handling and conversion window are ignored then."
                 },
                 "start_handling": {
                     "enum": ["first_seen", "last_seen"],
@@ -24733,6 +24733,51 @@
                 }
             },
             "required": ["kind", "metric_type"],
+            "type": "object"
+        },
+        "ExperimentApiRetentionStart": {
+            "additionalProperties": false,
+            "description": "Slim start source for retention metrics in API payloads. kind stays required so a payload without it fails validation instead of silently becoming an exposure start.",
+            "properties": {
+                "event": {
+                    "description": "Event name, e.g. '$pageview'. Required for EventsNode.",
+                    "type": "string"
+                },
+                "id": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Action ID. Required for ActionsNode."
+                },
+                "kind": {
+                    "description": "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset.",
+                    "enum": ["EventsNode", "ActionsNode", "ExperimentExposureNode"],
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/ExperimentMetricMathType",
+                    "description": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'."
+                },
+                "math_group_type_index": {
+                    "description": "Group type index to aggregate over. Required when math is 'unique_group'.",
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "description": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum.",
+                    "type": "string"
+                },
+                "math_property": {
+                    "description": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue').",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Event property filters to narrow which events are counted.",
+                    "items": {
+                        "$ref": "#/definitions/EventPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind"],
             "type": "object"
         },
         "ExperimentBreakdownResult": {
