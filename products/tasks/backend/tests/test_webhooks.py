@@ -994,8 +994,8 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(response.status_code, 202)
 
     @patch("posthog.ingress.github.provider.get_instance_setting")
-    def test_ignored_pr_actions(self, mock_get_secret):
-        """Test that PR actions other than opened/closed are acknowledged but ignored."""
+    @patch("products.tasks.backend.webhooks.refresh_pull_request_review_decisions")
+    def test_ignored_pr_actions(self, refresh_review_decisions, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
 
         for action in ["edited", "synchronize", "labeled"]:
@@ -1009,6 +1009,9 @@ class TestGitHubPRWebhook(TestCase):
 
             response = self._make_webhook_request(payload)
             self.assertEqual(response.status_code, 202, f"Failed for action: {action}")
+
+        self.assertEqual(refresh_review_decisions.call_count, 1)
+        self.assertEqual(refresh_review_decisions.call_args.args[0]["action"], "synchronize")
 
     def test_webhook_secret_not_configured(self):
         """Test that webhook returns 500 if secret is not configured."""
@@ -1151,13 +1154,18 @@ class TestGitHubPRReviewWebhook(TestCase):
     )
     @patch("posthog.ingress.github.provider.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_review_events_not_captured(self, _name, reviewer, action, mock_capture, mock_get_secret):
+    @patch("products.tasks.backend.webhooks.refresh_pull_request_review_decisions")
+    def test_review_events_not_captured(
+        self, _name, reviewer, action, refresh_review_decisions, mock_capture, mock_get_secret
+    ):
         mock_get_secret.return_value = self.webhook_secret
 
-        response = self._make_review_webhook_request(self._review_payload(reviewer, action=action))
+        payload = self._review_payload(reviewer, action=action)
+        response = self._make_review_webhook_request(payload)
 
         self.assertEqual(response.status_code, 202)
         mock_capture.assert_not_called()
+        refresh_review_decisions.assert_called_once_with(payload)
 
 
 class TestGitHubPRWebhookResolvesSignalReports(TestCase):
@@ -1273,6 +1281,7 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             "pull_request": {
                 "html_url": pr_url,
                 "merged": merged,
+                "merged_at": "2026-09-20T12:30:00Z" if merged else None,
                 "number": int(pr_url.rstrip("/").split("/")[-1]),
             },
             "repository": {"full_name": "posthog/posthog"},
@@ -1343,17 +1352,14 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.report.refresh_from_db()
         self.assignment.refresh_from_db()
         self.assertEqual(self.report.status, expected_status)
+        implementation_pr = fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[
+            str(self.report.id)
+        ]
+        self.assertEqual(implementation_pr.state, expected_pr_state)
+        self.assertIs(implementation_pr.merged, merged)
         self.assertEqual(
-            fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[
-                str(self.report.id)
-            ].state,
-            expected_pr_state,
-        )
-        self.assertIs(
-            fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[
-                str(self.report.id)
-            ].merged,
-            merged,
+            implementation_pr.merged_at.isoformat() if implementation_pr.merged_at else None,
+            "2026-09-20T12:30:00+00:00" if merged else None,
         )
 
     @patch("posthog.ingress.github.provider.get_instance_setting")
