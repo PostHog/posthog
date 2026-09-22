@@ -77,18 +77,19 @@ jobs:
               run: |
                   release_id=""
                   if [ -n "$POSTHOG_CLI_TOKEN" ]; then
+                      # Explicit && chaining, not set -e: bash ignores errexit inside a command
+                      # substitution that || guards, so a failed download or checksum would
+                      # otherwise fall through to running the installer.
                       release_id="$(
-                          set -euo pipefail
-                          version="$(sed -n 's/^ARG POSTHOG_CLI_VERSION=//p' Dockerfile)"
-                          checksum="$(sed -n 's/^ARG POSTHOG_CLI_INSTALLER_SHA256=//p' Dockerfile)"
-                          [ -n "$version" ]
-                          [ -n "$checksum" ]
-                          installer="$RUNNER_TEMP/posthog-cli-installer.sh"
+                          version="$(sed -n 's/^ARG POSTHOG_CLI_VERSION=//p' Dockerfile)" &&
+                          checksum="$(sed -n 's/^ARG POSTHOG_CLI_INSTALLER_SHA256=//p' Dockerfile)" &&
+                          [ -n "$version" ] && [ -n "$checksum" ] &&
+                          installer="$RUNNER_TEMP/posthog-cli-installer.sh" &&
                           curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
                               -o "$installer" \
-                              "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv${version}/posthog-cli-installer.sh"
-                          echo "${checksum}  ${installer}" | sha256sum -c - >&2
-                          sh "$installer" >&2
+                              "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv${version}/posthog-cli-installer.sh" &&
+                          echo "${checksum}  ${installer}" | sha256sum -c - >&2 &&
+                          sh "$installer" >&2 &&
                           "$POSTHOG_CLI_INSTALL_DIR/posthog-cli" release resolve \
                               --release-name posthog \
                               --release-version "$RELEASE_VERSION"
