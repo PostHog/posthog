@@ -69,7 +69,7 @@ class DecisiveFacts:
     anonymous_share_null: bool
     anonymous_share_crosses_identification: bool
     device_id_bucketing_plausible: bool
-    server_lib_evaluates_locally: bool
+    server_lib_reports_local_evaluation: bool
     previous_experiments_listed: int
     shared_metrics_listed: int
 
@@ -80,7 +80,7 @@ FACT_SECTIONS: Final[dict[str, tuple[str, ...]]] = {
     "anonymous_share_null": ("target_surface",),
     "anonymous_share_crosses_identification": ("target_surface",),
     "device_id_bucketing_plausible": ("sdk_profile", "target_surface"),
-    "server_lib_evaluates_locally": ("sdk_profile",),
+    "server_lib_reports_local_evaluation": ("sdk_profile",),
     "previous_experiments_listed": ("previous_experiments",),
     "shared_metrics_listed": ("shared_metrics",),
 }
@@ -177,7 +177,7 @@ class SetupContextProbe:
                 anonymous_share is not None and IDENTITY_BAND[0] <= anonymous_share <= IDENTITY_BAND[1]
             ),
             device_id_bucketing_plausible=self.device_id_bucketing_plausible(sdk_profile, target_surface),
-            server_lib_evaluates_locally=bool(
+            server_lib_reports_local_evaluation=bool(
                 sdk_profile
                 and any(
                     lib.category == SdkLibCategory.SERVER and lib.locally_evaluated_share is not None

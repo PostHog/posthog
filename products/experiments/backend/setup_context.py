@@ -416,7 +416,6 @@ class ExperimentSetupContext:
     shared_metrics: SetupContextSection[SharedMetrics]
 
 
-# Called with the section name, its status and how long the read took, once per section that ran.
 # A skipped section never runs a provider, so the observer never hears about it.
 SectionObserver = Callable[[str, SetupContextSectionStatus, float], None]
 
