@@ -468,8 +468,8 @@ export interface SignalScoutEmission {
     run_id: string
     finding_id: string
     description: string
-    weight: number
-    confidence: number
+    /** Deprecated: no longer set on new findings. Null on anything emitted since it was retired. */
+    confidence?: number | null
     severity: SignalReportPriority | null
     /** Slug tags the scout attached to this finding (lowercase kebab-case, e.g. `cost-spike`). */
     tags: string[]

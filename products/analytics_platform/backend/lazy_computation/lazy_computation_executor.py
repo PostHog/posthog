@@ -554,6 +554,7 @@ class LazyComputationTable(StrEnum):
     # Dagster job (the precomputation-framework successor to v2 pre-aggregation).
     WEB_STATS_DIMENSIONAL_PREAGGREGATED = "web_stats_dimensional_preaggregated"
     WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED = "web_bounces_dimensional_preaggregated"
+    WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED = "web_sessions_dimensional_preaggregated"
 
 
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,

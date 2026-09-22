@@ -329,7 +329,9 @@ class SignalsScoutSignalExtra(SignalExtraBase):
     finding_id: str
     skill_name: str
     skill_version: int
-    confidence: float
+    # Deprecated: scouts are no longer asked for a confidence score. Kept optional so historical
+    # signals and any custom skill still sending one continue to validate.
+    confidence: float | None = None
     severity: ReportPriority | None = None
     hypothesis: str | None = None
     evidence: list[SignalsScoutEvidenceEntry]

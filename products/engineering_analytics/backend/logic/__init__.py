@@ -23,11 +23,11 @@ from products.engineering_analytics.backend.logic.delivery import (
     build_delivery_summary as build_delivery_summary,
     build_pull_request_timelines as build_pull_request_timelines,
 )
-from products.engineering_analytics.backend.logic.delivery_scope import DeliveryScope as DeliveryScope
-from products.engineering_analytics.backend.logic.dora import (
-    build_dora_overview as build_dora_overview,
-    get_dora_environment_choices as get_dora_environment_choices,
+from products.engineering_analytics.backend.logic.delivery_scope import (
+    DeliveryScope as DeliveryScope,
+    SummaryScope as SummaryScope,
 )
+from products.engineering_analytics.backend.logic.dora import build_dora_overview as build_dora_overview
 from products.engineering_analytics.backend.logic.ownership import resolve_path_owners as resolve_path_owners
 from products.engineering_analytics.backend.logic.pull_requests import (
     build_author_workflow_costs as build_author_workflow_costs,
