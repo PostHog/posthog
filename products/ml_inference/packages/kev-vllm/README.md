@@ -52,6 +52,20 @@ The answer is under `data.answers`, in Kev's format, with `data.probabilities_ra
 
 Prefix caching is off for this model: vLLM does not enable it for pooling models on hybrid backbones, so every row recomputes its state. Batching across rows and requests still applies.
 
+## Container image
+
+`Dockerfile` builds the serving image: the official `vllm/vllm-openai:v0.29.0` image with this package installed on top, so the entry points register the model class and the IO processor at import. Weights stay out of the image. `.github/workflows/cd-ml-inference-decision-image.yml` builds it for amd64 on every master push that touches the package and publishes it as `posthog-ml-inference-decision` to ECR and GHCR; add the `build-ml-inference-image` label to a PR to build it early, into the `-prs` ECR repository.
+
+The entrypoint (`bin/serve.sh`, installed as `kev-vllm-serve`) checks the checkpoint at `MODEL_DIR` against its `manifest.json` and starts `vllm serve` with the flags the parity run used. It binds loopback by default, because TLS and the per-instance bearer terminate in a proxy on the same host, so a GPU host runs it with the host network and the checkpoint mounted:
+
+```bash
+docker run --rm --gpus all --network host --ipc host \
+  -v /srv/models/kev-4b:/models/kev-4b:ro \
+  ghcr.io/posthog/posthog-ml-inference-decision:latest
+```
+
+`HOST=0.0.0.0` exposes the port directly for a bring-up box behind a firewall or tunnel. `MODEL_NAME`, `PORT`, `MAX_MODEL_LEN` and `GPU_MEMORY_UTILIZATION` override the defaults, and any extra arguments go to `vllm serve`. `kev-vllm-checkpoint verify <dir>` is the same manifest check on its own.
+
 ## GPU smoke test
 
 `bin/gpu-smoke.sh` does the whole loop on a fresh CUDA box: installs the `serve` environment, fetches and checksums the checkpoint, starts the server, sends one request, and runs the parity comparison.

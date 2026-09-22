@@ -32,22 +32,13 @@ case "$CHECKPOINT" in
   *)
     MODEL_DIR=$CHECKPOINT ;;
 esac
-python3 - "$MODEL_DIR" <<'PY'
-import hashlib, json, sys
-from pathlib import Path
-d = Path(sys.argv[1]); manifest = json.loads((d / "manifest.json").read_text())
-for name, meta in manifest["files"].items():
-    digest = hashlib.sha256(); f = (d / name).open("rb")
-    for chunk in iter(lambda: f.read(1 << 20), b""): digest.update(chunk)
-    assert digest.hexdigest() == meta["sha256"], f"{name}: checksum mismatch"
-print(f"checkpoint ok: {manifest['kev_run']} @ {manifest['kev_hub_revision']}, {len(manifest['files'])} files")
-PY
 
 cd "$PACKAGE_DIR"
 export UV_PROJECT_ENVIRONMENT="$PACKAGE_DIR/.venv-serve"
 # Model Runner V2 (default in vLLM 0.29) does not run the "plugin" pooling task; the V1 runner does.
 export VLLM_USE_V2_MODEL_RUNNER=0
 uv sync --extra serve
+uv run kev-vllm-checkpoint verify "$MODEL_DIR"
 nohup uv run --extra serve vllm serve "$MODEL_DIR" --served-model-name "$MODEL_NAME" --port "$PORT" \
   --mamba-ssm-cache-dtype float32 --max-model-len 16384 --gpu-memory-utilization 0.85 > vllm.log 2>&1 &
 echo "vllm pid $! (log: $PACKAGE_DIR/vllm.log)"
