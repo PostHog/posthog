@@ -2007,6 +2007,11 @@ describe('dashboardLogic', () => {
                 const dialogProps = dialogOpenSpy.mock.calls.at(-1)?.[0]
                 dialogProps?.primaryButton?.onClick?.({} as React.MouseEvent<HTMLButtonElement>)
 
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+                expect(logic.values.dashboard?.tiles.map((tile) => tile.layouts)).toEqual(
+                    logic.values.dashboard?.tiles.map((tile) => logic.values.dashboardLayouts[tile.id])
+                )
+
                 await expectLogic(logic).toFinishAllListeners().toMatchValues({ hasUnsavedLayoutChanges: false })
             })
         })

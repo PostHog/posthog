@@ -712,6 +712,9 @@ export interface dashboardLogicActions {
     resetUrlVariables: () => {
         value: true
     }
+    restoreSavedLayouts: (layouts: Record<DashboardTile['id'], DashboardTile['layouts']>) => {
+        layouts: Record<number, Record<string, never> | Record<DashboardLayoutSize, TileLayout> | undefined>
+    }
     restoreTemporaryColorState: (
         colors: BreakdownColorConfig[],
         themeId: {
@@ -1477,6 +1480,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
          * Dashboard layout & tiles.
          */
         updateLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
+        restoreSavedLayouts: (layouts: Record<DashboardTile['id'], DashboardTile['layouts']>) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: InsightColor | null) => ({ tileId, color }),
         toggleTileDescription: (tileId: number) => ({ tileId }),
@@ -1629,7 +1633,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         // Only persist sm layouts; xs layouts are derived on the fly
                         const layoutsToUpdate = (values.dashboard?.tiles || []).map((tile) => ({
                             id: tile.id,
-                            layouts: tile.layouts?.sm ? { sm: tile.layouts.sm } : tile.layouts,
+                            layouts: tile.layouts?.sm ? { sm: tile.layouts.sm } : {},
                         }))
 
                         const currentDashboard = values.dashboard
@@ -2062,6 +2066,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 dashboardNotFound: () => null,
                 setAccessDeniedToDashboard: () => null,
+                restoreSavedLayouts: (state, { layouts }) =>
+                    state
+                        ? {
+                              ...state,
+                              tiles: state.tiles.map((tile) => ({ ...tile, layouts: layouts[tile.id] })),
+                          }
+                        : state,
                 updateLayouts: (state, { layouts }) => {
                     const itemLayouts = layoutsByTile(layouts)
 
@@ -4461,10 +4472,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         changeDashboardGridCompaction: ({ layoutCompaction }) => {
             const changeCompaction = (discardUnsavedLayoutChanges = false): void => {
                 if (discardUnsavedLayoutChanges) {
-                    const savedSmLayout = Object.entries(values.dashboardLayouts).flatMap(([tileId, layouts]) =>
-                        layouts?.sm ? [{ ...layouts.sm, i: tileId }] : []
-                    )
-                    actions.updateLayouts({ sm: savedSmLayout })
+                    actions.restoreSavedLayouts(values.dashboardLayouts)
                 }
                 actions.setDashboardGridCompaction(layoutCompaction)
                 actions.saveDashboardGridCompaction(layoutCompaction)
