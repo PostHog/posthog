@@ -446,6 +446,20 @@ def test_every_write_route_can_be_checked() -> None:
     )
 
 
+def test_allowlist_entries_still_match_a_violation() -> None:
+    # Without this, the lists drift: an entry survives a field being made read-only,
+    # renamed, or dropped. It also catches the larger failure, a change that narrows
+    # discovery, because the fields that fall out of the sweep leave their entries
+    # unmatched instead of passing as allowed.
+    violations, problems = collect_violations()
+    stale = sorted((set(ALLOWED_WRITABLE) - set(violations)) | (set(UNCHECKED) - set(problems)))
+    assert not stale, (
+        "These ALLOWED_WRITABLE or UNCHECKED entries no longer match anything the guard found. "
+        "Delete them if the field is now read-only or gone. If the field still exists, discovery "
+        "stopped reaching it, which leaves its write route unchecked:\n" + "\n".join(stale)
+    )
+
+
 def test_discovery_reaches_dynamically_selected_serializers() -> None:
     discovered = {_dotted_name(serializer) for serializer in _write_exposed_serializers()[0]}
     missing = sorted(f"{name} ({why})" for name, why in HARD_TO_DISCOVER.items() if name not in discovered)
