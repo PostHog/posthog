@@ -75,6 +75,14 @@
             "ultracode"
           ]
         },
+        "claude-haiku-4-5": {
+          "cost_multiplier": "0.5×",
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
         "claude-opus-4-5": {
           "cost_multiplier": "2.5×",
           "reasoning_efforts": [
@@ -180,6 +188,14 @@
       "models": {
         "gpt-5": {
           "cost_multiplier": null,
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "gpt-5-mini": {
+          "cost_multiplier": "≈0.16×",
           "reasoning_efforts": [
             "low",
             "medium",

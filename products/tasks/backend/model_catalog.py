@@ -138,10 +138,12 @@ _OPUS_COST = ModelCost(5, 25)
 _FABLE_COST = ModelCost(10, 50)
 _SONNET_COST = ModelCost(2, 10)
 _SONNET_4_COST = ModelCost(3, 15)
+_HAIKU_COST = ModelCost(1, 5)
 _GPT_PRO_COST = ModelCost(5, 30)
 _GPT_MID_COST = ModelCost(2.5, 15)
 _GPT_LIGHT_COST = ModelCost(1, 6)
 _GPT_FRONTIER_COST = ModelCost(10, 50)
+_GPT_MINI_COST = ModelCost(0.25, 2)
 
 MODELS: tuple[CatalogModel, ...] = (
     # GLM 5.2 is Cloudflare-served and driven through the `claude` adapter: the LLM gateway
@@ -167,6 +169,7 @@ MODELS: tuple[CatalogModel, ...] = (
     CatalogModel("claude-fable-5-1", CLAUDE, _EXTENDED, cost=_FABLE_COST),
     CatalogModel("claude-sonnet-5", CLAUDE, _EXTENDED, cost=_SONNET_COST),
     CatalogModel("claude-sonnet-4-6", CLAUDE, _STANDARD, cost=_SONNET_4_COST),
+    CatalogModel("claude-haiku-4-5", CLAUDE, _STANDARD, cost=_HAIKU_COST),
     # No cost: the gateway does not serve bare `gpt-5` to a task run, so there is no rate
     # anyone can check it against.
     CatalogModel("gpt-5", CODEX, _STANDARD),
@@ -175,6 +178,7 @@ MODELS: tuple[CatalogModel, ...] = (
     CatalogModel("gpt-5.6-terra", CODEX, _THROUGH_MAX, cost=_GPT_MID_COST),
     CatalogModel("gpt-5.6-luna", CODEX, _THROUGH_MAX, cost=_GPT_LIGHT_COST),
     CatalogModel("gpt-6-astra", CODEX, _THROUGH_MAX, cost=_GPT_FRONTIER_COST),
+    CatalogModel("gpt-5-mini", CODEX, _STANDARD, cost=_GPT_MINI_COST),
 )
 
 # Depths a whole model family exposes, used when no exact id matches. OpenAI ships

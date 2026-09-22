@@ -274,6 +274,18 @@ export const MODELS: readonly CatalogModel[] = [
     costSummary: "Input $3 · Output $15 per 1M tokens",
   },
   {
+    id: "claude-haiku-4-5",
+    runtimeAdapter: "claude",
+    reasoningEfforts: ["low", "medium", "high"],
+    label: "Claude Haiku 4.5",
+    cost: {
+      inputPerMtok: 1,
+      outputPerMtok: 5,
+    },
+    costMultiplier: "0.5×",
+    costSummary: "Input $1 · Output $5 per 1M tokens",
+  },
+  {
     id: "gpt-5",
     runtimeAdapter: "codex",
     reasoningEfforts: ["low", "medium", "high"],
@@ -338,6 +350,18 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "5×",
     costSummary: "Input $10 · Output $50 per 1M tokens",
+  },
+  {
+    id: "gpt-5-mini",
+    runtimeAdapter: "codex",
+    reasoningEfforts: ["low", "medium", "high"],
+    label: "GPT-5 Mini",
+    cost: {
+      inputPerMtok: 0.25,
+      outputPerMtok: 2,
+    },
+    costMultiplier: "≈0.16×",
+    costSummary: "Input $0.25 · Output $2 per 1M tokens",
   },
 ];
 
