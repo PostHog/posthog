@@ -81,6 +81,7 @@ import type {
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
     SignalReportStateRequestApi,
+    SignalReportSuggestedReviewersArtefactApi,
     SignalReportWorkflowStatusApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
@@ -706,8 +707,8 @@ export const signalsReportsReviewersUpdate = async (
     id: string,
     signalReportArtefactWriteApi: SignalReportArtefactWriteApi,
     options?: RequestInit
-): Promise<SignalReportArtefactApi> => {
-    return apiMutator<SignalReportArtefactApi>(getSignalsReportsReviewersUpdateUrl(projectId, id), {
+): Promise<SignalReportSuggestedReviewersArtefactApi> => {
+    return apiMutator<SignalReportSuggestedReviewersArtefactApi>(getSignalsReportsReviewersUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

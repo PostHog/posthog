@@ -86259,11 +86259,11 @@ export namespace Schemas {
      */
     export interface SuggestedReviewerEntryWrite {
       /**
-         * GitHub login (case-insensitive). Stored lowercased.
+         * GitHub login (case-insensitive). Stored lowercased. Required unless `user_uuid` is given.
          * @maxLength 200
          */
       github_login?: string;
-      /** PostHog user UUID. Must be an org member on this team; a linked GitHub account is not required. If supplied together with `github_login`, the user's own identity wins. */
+      /** PostHog user UUID. Must be an org member on this team; a linked GitHub account is not required. Required unless `github_login` is given. If supplied together with `github_login`, the user's own identity wins. */
       user_uuid?: string;
       /**
          * Optional human-readable display name. Not backfilled from GitHub by the server.
@@ -86561,6 +86561,105 @@ export namespace Schemas {
          * @maximum 100000
          */
       snooze_for?: number;
+    }
+
+    /**
+     * Commit evidence behind a suggested reviewer.
+     */
+    export interface SuggestedReviewerCommit {
+      /** Commit SHA. */
+      sha: string;
+      /** Link to the commit. */
+      url: string;
+      /** Why the commit makes this reviewer relevant. */
+      reason: string;
+    }
+
+    /**
+     * One reviewer as the read path returns it: the stored entry plus read-time enrichment.
+     *
+     * `source_label`, `explanation` and `user` are computed on read, not stored, so a caller cannot
+     * write them.
+     */
+    export interface SuggestedReviewerEntryRead {
+      /**
+         * GitHub login, lowercased. Null when the reviewer has no linked account.
+         * @nullable
+         */
+      github_login: string | null;
+      /**
+         * PostHog user this entry routes to. Null on entries written before reviewers had one.
+         * @nullable
+         */
+      user_uuid: string | null;
+      /**
+         * Display name, when the writer supplied one.
+         * @nullable
+         */
+      github_name: string | null;
+      /** Commits attributed to this reviewer. Empty when the pick came from elsewhere. */
+      relevant_commits: SuggestedReviewerCommit[];
+      /**
+         * Why this reviewer was chosen.
+         * @nullable
+         */
+      reason: string | null;
+      /** True when the scout owner guardrail added the entry rather than commit authorship. */
+      is_skill_owner: boolean;
+      /**
+         * Scout skill whose run wrote the entry. Null when no scout did.
+         * @nullable
+         */
+      source_skill: string | null;
+      /** Where the suggestion came from, for display. */
+      source_label: string;
+      /**
+         * One line of evidence for display. Null when there is none to show.
+         * @nullable
+         */
+      explanation: string | null;
+      /** Resolved org member. Null when the entry resolves to nobody. */
+      user: _User | null;
+    }
+
+    /**
+     * The artefact, for a path that only ever returns a `suggested_reviewers` one.
+     *
+     * `content` is polymorphic on the base serializer, so a generated client types it as unknown.
+     * Here the type is fixed, so the entry shape can be declared. Runtime output is unchanged —
+     * `get_content` delegates to the base.
+     */
+    export interface SignalReportSuggestedReviewersArtefact {
+      /**
+         * Work claim that produced this artefact.
+         * @nullable
+         */
+      readonly claim_id: string | null;
+      /**
+         * Shared PR record linked by this artefact.
+         * @nullable
+         */
+      readonly pull_request_id: string | null;
+      readonly id: string;
+      readonly type: SignalReportArtefactArtefactTypeEnum;
+      readonly content: readonly SuggestedReviewerEntryRead[];
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** Actor kind. Legacy rows without attribution are returned as system. */
+      readonly actor_kind: SignalActorKindEnum;
+      /**
+         * MCP client name when an external agent produced the artefact.
+         * @nullable
+         */
+      readonly actor_agent: string | null;
+      /** Authenticated user principal for user or external agent writes. Null for internal task and system writes. */
+      readonly created_by: _User | null;
+      /**
+         * Internal task the artefact is attributed to. Null for user, external agent, and system writes.
+         * @nullable
+         */
+      readonly task_id: string | null;
     }
 
     /**
