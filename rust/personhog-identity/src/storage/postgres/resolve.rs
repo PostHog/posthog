@@ -9,11 +9,7 @@ use crate::storage::postgres::{person_columns, person_from_row};
 use crate::storage::types::Person;
 use personhog_common::query_tag;
 
-/// The resolve statement, binding `$1` team ids and `$2` distinct ids as
-/// parallel arrays. The person join repeats `$1` so the planner can prune the
-/// hash-partitioned person table to the batch's partitions instead of locking
-/// every partition on each call.
-pub fn resolve_sql(tables: &IdentityTables) -> String {
+pub fn resolve_distinct_ids_sql(tables: &IdentityTables) -> String {
     format!(
         r#"
         SELECT k.team_id AS key_team_id, k.distinct_id AS key_distinct_id,
@@ -48,7 +44,7 @@ pub(super) async fn resolve_distinct_ids(
     let team_ids: Vec<i32> = keys.iter().map(|(t, _)| *t as i32).collect();
     let distinct_ids: Vec<String> = keys.iter().map(|(_, d)| d.clone()).collect();
 
-    let sql = resolve_sql(tables);
+    let sql = resolve_distinct_ids_sql(tables);
     let mut conn = pools.acquire(Lane::Fast).await?;
     let rows = sqlx::query(&query_tag!("resolve_persons", sql))
         .bind(&team_ids)

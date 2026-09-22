@@ -7,7 +7,7 @@ mod distinct_ids;
 mod resolve;
 mod stub_create;
 
-pub use resolve::resolve_sql;
+pub use resolve::resolve_distinct_ids_sql;
 
 use std::collections::HashMap;
 
