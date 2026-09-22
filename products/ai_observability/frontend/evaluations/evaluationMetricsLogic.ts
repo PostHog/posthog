@@ -10,20 +10,32 @@ import { ChartDisplayType, HogQLMathType, PropertyFilterType, PropertyOperator }
 
 // eslint-disable-next-line import/no-cycle
 import { PASS_RATE_SUCCESS_THRESHOLD } from './components/EvaluationMetrics'
-import { EVALUATION_PASSED_HOGQL } from './constants'
+import {
+    EVALUATION_NOT_SKIPPED_HOGQL,
+    EVALUATION_RESULT_TRUE_HOGQL,
+    evaluationIsDetector,
+    evaluationPassedHogQLForMany,
+    evaluationPassRateHogQL,
+} from './constants'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationConfig } from './types'
 
 const MIN_RUNS_FOR_FAILING_STATUS = 3
 const MAX_EVALUATION_CHART_SERIES = 10
 
-export interface EvaluationStats {
+/** One row from the stats query. Polarity-free by design — the query never claims a pass. */
+export interface EvaluationStatsRow {
     evaluation_id: string
     runs_count: number
     applicable_count: number
+    true_count: number
+    applicability_rate: number
+}
+
+/** A stats row with the evaluation's own polarity applied. */
+export interface EvaluationStats extends EvaluationStatsRow {
     pass_count: number
     pass_rate: number
-    applicability_rate: number
 }
 
 export interface SummaryMetrics {
@@ -32,7 +44,7 @@ export interface SummaryMetrics {
     failing_evaluations_count: number
 }
 
-type RawStatsRow = [evaluation_id: string, runs_count: number, applicable_count: number, pass_count: number]
+type RawStatsRow = [evaluation_id: string, runs_count: number, applicable_count: number, true_count: number]
 
 export type EvaluationMetricsLogicProps = Record<string, never>
 
@@ -96,7 +108,7 @@ export interface evaluationMetricsLogicValues {
             stats?: EvaluationStats
         }
     >
-    stats: EvaluationStats[]
+    stats: EvaluationStatsRow[]
     statsLoading: boolean
     summaryMetrics: SummaryMetrics
 }
@@ -123,9 +135,8 @@ export interface evaluationMetricsLogicActions {
             applicability_rate: number
             applicable_count: number
             evaluation_id: string
-            pass_count: number
-            pass_rate: number
             runs_count: number
+            true_count: number
         }[],
         payload?: any
     ) => {
@@ -133,9 +144,8 @@ export interface evaluationMetricsLogicActions {
             applicability_rate: number
             applicable_count: number
             evaluation_id: string
-            pass_count: number
-            pass_rate: number
             runs_count: number
+            true_count: number
         }[]
         payload?: any
     }
@@ -151,15 +161,20 @@ export interface evaluationMetricsLogicMeta {
             evaluations: EvaluationConfig[],
             selectedDirectoryId: string | null
         ) => EvaluationConfig[]
-        summaryMetrics: (stats: EvaluationStats[], evaluationsForMetrics: EvaluationConfig[]) => SummaryMetrics
         evaluationsWithMetrics: (
             evaluations: EvaluationConfig[],
-            stats: EvaluationStats[]
+            stats: EvaluationStatsRow[]
         ) => Array<
             EvaluationConfig & {
                 stats?: EvaluationStats
             }
         >
+        summaryMetrics: (
+            evaluationsWithMetrics: (EvaluationConfig & {
+                stats?: EvaluationStats
+            })[],
+            evaluationsForMetrics: EvaluationConfig[]
+        ) => SummaryMetrics
         chartQuery: (
             evaluationsForMetrics: EvaluationConfig[],
             dateFilter: {
@@ -192,7 +207,7 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
 
     loaders(({ values }) => ({
         stats: [
-            [] as EvaluationStats[],
+            [] as EvaluationStatsRow[],
             {
                 loadStats: async () => {
                     const dateFrom = values.dateFilter.dateFrom || '-1d'
@@ -204,8 +219,8 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                             SELECT
                                 properties.$ai_evaluation_id as evaluation_id,
                                 count() as runs_count,
-                                countIf(properties.$ai_evaluation_result IS NOT NULL) as applicable_count,
-                                countIf(${EVALUATION_PASSED_HOGQL}) as pass_count
+                                countIf(properties.$ai_evaluation_result IS NOT NULL AND ${EVALUATION_NOT_SKIPPED_HOGQL}) as applicable_count,
+                                countIf(${EVALUATION_RESULT_TRUE_HOGQL} AND ${EVALUATION_NOT_SKIPPED_HOGQL}) as true_count
                             FROM events
                             WHERE event = '$ai_evaluation' AND {filters}
                             GROUP BY evaluation_id
@@ -224,17 +239,14 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                         return (response.results || []).map((row: RawStatsRow) => {
                             const runs_count = row[1]
                             const applicable_count = row[2]
-                            const pass_count = row[3]
-                            // Pass rate excludes N/A results (uses applicable_count as denominator)
-                            const pass_rate = applicable_count > 0 ? (pass_count / applicable_count) * 100 : 0
+                            const true_count = row[3]
                             const applicability_rate = runs_count > 0 ? (applicable_count / runs_count) * 100 : 0
 
                             return {
                                 evaluation_id: row[0],
                                 runs_count,
                                 applicable_count,
-                                pass_count,
-                                pass_rate: Math.round(pass_rate * 10) / 10,
+                                true_count,
                                 applicability_rate: Math.round(applicability_rate * 10) / 10,
                             }
                         })
@@ -253,14 +265,45 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
             (evaluations: EvaluationConfig[], selectedDirectoryId: string | null): EvaluationConfig[] =>
                 evaluations.filter((evaluation) => (evaluation.directory_id ?? null) === selectedDirectoryId),
         ],
+        evaluationsWithMetrics: [
+            (s) => [s.evaluations, s.stats],
+            (
+                evaluations: EvaluationConfig[],
+                stats: EvaluationStatsRow[]
+            ): Array<EvaluationConfig & { stats?: EvaluationStats }> => {
+                const statsMap = new Map(stats.map((stat) => [stat.evaluation_id, stat]))
+
+                return evaluations.map((evaluation) => {
+                    const stat = statsMap.get(evaluation.id)
+                    if (!stat) {
+                        return { ...evaluation }
+                    }
+                    // Pass rate excludes N/A results (uses applicable_count as denominator)
+                    const pass_count = evaluationIsDetector(evaluation)
+                        ? stat.applicable_count - stat.true_count
+                        : stat.true_count
+                    const pass_rate =
+                        stat.applicable_count > 0 ? Math.round((pass_count / stat.applicable_count) * 1000) / 10 : 0
+                    return { ...evaluation, stats: { ...stat, pass_count, pass_rate } }
+                })
+            },
+        ],
+
         summaryMetrics: [
-            (s) => [s.stats, s.evaluationsForMetrics],
-            (stats: EvaluationStats[], evaluationsForMetrics: EvaluationConfig[]): SummaryMetrics => {
-                const evaluationIds = new Set(evaluationsForMetrics.map((evaluation) => evaluation.id))
-                const statsForMetrics = stats.filter((stat) => evaluationIds.has(stat.evaluation_id))
-                const total_runs = statsForMetrics.reduce((sum: number, stat) => sum + stat.runs_count, 0)
-                const total_applicable = statsForMetrics.reduce((sum: number, stat) => sum + stat.applicable_count, 0)
-                const total_passes = statsForMetrics.reduce((sum: number, stat) => sum + stat.pass_count, 0)
+            (s) => [s.evaluationsWithMetrics, s.evaluationsForMetrics],
+            (
+                evaluationsWithMetrics: Array<EvaluationConfig & { stats?: EvaluationStats }>,
+                evaluationsForMetrics: EvaluationConfig[]
+            ): SummaryMetrics => {
+                const ids = new Set(evaluationsForMetrics.map((evaluation) => evaluation.id))
+                const statsForMetrics = evaluationsWithMetrics
+                    .filter((evaluation) => ids.has(evaluation.id))
+                    .map((evaluation) => evaluation.stats)
+                    .filter((stat): stat is EvaluationStats => stat != null)
+
+                const total_runs = statsForMetrics.reduce((sum, stat) => sum + stat.runs_count, 0)
+                const total_applicable = statsForMetrics.reduce((sum, stat) => sum + stat.applicable_count, 0)
+                const total_passes = statsForMetrics.reduce((sum, stat) => sum + stat.pass_count, 0)
                 // Overall pass rate excludes N/A results
                 const overall_pass_rate = total_applicable > 0 ? (total_passes / total_applicable) * 100 : 0
 
@@ -277,21 +320,6 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                     overall_pass_rate: Math.round(overall_pass_rate * 10) / 10,
                     failing_evaluations_count: failing_count,
                 }
-            },
-        ],
-
-        evaluationsWithMetrics: [
-            (s) => [s.evaluations, s.stats],
-            (
-                evaluations: EvaluationConfig[],
-                stats: EvaluationStats[]
-            ): Array<EvaluationConfig & { stats?: EvaluationStats }> => {
-                const statsMap = new Map(stats.map((stat) => [stat.evaluation_id, stat]))
-
-                return evaluations.map((evaluation) => ({
-                    ...evaluation,
-                    stats: statsMap.get(evaluation.id),
-                }))
             },
         ],
 
@@ -320,8 +348,11 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                             kind: NodeKind.EventsNode,
                             event: '$ai_evaluation',
                             math: HogQLMathType.HogQL,
-                            // Pass rate excludes N/A results, returns 0 if all results are N/A
-                            math_hogql: `if(countIf(properties.$ai_evaluation_result IS NOT NULL) > 0, countIf(${EVALUATION_PASSED_HOGQL}) / countIf(properties.$ai_evaluation_result IS NOT NULL) * 100, 0)`,
+                            math_hogql: evaluationPassRateHogQL(
+                                evaluationPassedHogQLForMany(
+                                    enabledEvaluations.filter(evaluationIsDetector).map((evaluation) => evaluation.id)
+                                )
+                            ),
                             properties: [
                                 {
                                     key: '$ai_evaluation_id',

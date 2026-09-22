@@ -1,8 +1,8 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@posthog/quill-primitives'
 
-import { IntervalType } from '~/types'
+import { type IntervalOption } from 'lib/utils/timeBuckets'
 
-import { type IntervalOption } from '../timeBuckets'
+import { IntervalType } from '~/types'
 
 interface McpIntervalFilterProps {
     interval: IntervalType

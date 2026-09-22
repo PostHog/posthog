@@ -1,3 +1,5 @@
+from typing import Any
+
 from rest_framework import serializers
 
 from products.context_layer.backend.facade.api import DREAM_BRANCH_RE, PAGE_MAX_BYTES
@@ -22,6 +24,26 @@ class WikiTreeSerializer(serializers.Serializer):
     )
 
 
+class WikiPageQuerySerializer(serializers.Serializer):
+    path = serializers.CharField(help_text="Repo-relative Markdown path of the page to read.")
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Character offset from next_offset."
+    )
+    limit = serializers.IntegerField(
+        required=False, min_value=1, max_value=12000, help_text="Maximum characters to read. Omit for the full page."
+    )
+    head_sha = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text="Head from the first chunk. Required for continuation. A changed head returns 409.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs["offset"] and (not attrs.get("head_sha") or not attrs.get("limit")):
+            raise serializers.ValidationError("To continue, pass the head_sha and limit from the first read.")
+        return attrs
+
+
 class WikiPageSerializer(serializers.Serializer):
     """Response shape for one wiki page."""
 
@@ -31,6 +53,80 @@ class WikiPageSerializer(serializers.Serializer):
         help_text="Commit sha the content was read at; pass back as `base_head` on writes."
     )
     updated_at = serializers.DateTimeField(help_text="When this page was last changed in the wiki history.")
+    offset = serializers.IntegerField(help_text="Character offset of this chunk.")
+    total_length = serializers.IntegerField(help_text="Character length of the complete page.")
+    next_offset = serializers.IntegerField(allow_null=True, help_text="Next character offset, or null when complete.")
+    complete = serializers.BooleanField(
+        help_text="True when no further chunks remain. Do not write a page until all chunks are read."
+    )
+
+
+class DreamRunSerializer(serializers.Serializer):
+    """One dreaming run: the merge commit it landed as, plus what it changed."""
+
+    sha = serializers.CharField(help_text="Merge commit sha the run landed as; pass back as `sha` on the detail read.")
+    date = serializers.CharField(help_text="The run's date, `YYYY-MM-DD`.")
+    committed_at = serializers.DateTimeField(help_text="When the run landed.")
+    summary = serializers.CharField(allow_blank=True, help_text="The run summary the dreaming agent wrote.")
+    pages_added = serializers.IntegerField(help_text="Pages the run created.")
+    pages_modified = serializers.IntegerField(help_text="Pages the run edited.")
+    pages_deleted = serializers.IntegerField(help_text="Pages the run removed.")
+
+
+class ActiveDreamRunSerializer(serializers.Serializer):
+    """A dreaming task that has not reached a terminal state yet."""
+
+    run_status = serializers.ChoiceField(
+        choices=[
+            ("not_started", "not_started"),
+            ("queued", "queued"),
+            ("in_progress", "in_progress"),
+        ],
+        help_text="The current task-run state for the active dream.",
+    )
+    started_at = serializers.DateTimeField(help_text="When the active dream task was created.")
+
+
+class UnpublishedDreamRunSerializer(serializers.Serializer):
+    task_url = serializers.URLField(help_text="Task URL in its project for the unpublished dream outcome and logs.")
+    run_status = serializers.CharField(
+        help_text="The terminal task-run state, such as completed, failed, or cancelled."
+    )
+    started_at = serializers.DateTimeField(help_text="When the unpublished dream task was created.")
+
+
+class DreamRunListSerializer(serializers.Serializer):
+    """Response shape for the wiki's dream run listing."""
+
+    head_sha = serializers.CharField(help_text="Commit sha of the wiki's current head.")
+    active_run = ActiveDreamRunSerializer(
+        allow_null=True,
+        help_text="The organization's active dreaming task, or null when no dream is running.",
+    )
+    unpublished_run = UnpublishedDreamRunSerializer(
+        allow_null=True,
+        help_text="The latest finished dream when no update was published after it started, or null otherwise.",
+    )
+    dreams = DreamRunSerializer(many=True, help_text="Every landed dream run, newest first.")
+
+
+class DreamFileDiffSerializer(serializers.Serializer):
+    """One file a dream run changed, with its unified patch."""
+
+    path = serializers.CharField(help_text="Repo-relative path of the changed page.")
+    status = serializers.ChoiceField(
+        choices=[("added", "added"), ("modified", "modified"), ("deleted", "deleted")],
+        help_text="How the run changed the page.",
+    )
+    patch = serializers.CharField(allow_blank=True, help_text="Unified git patch for this file.")
+    truncated = serializers.BooleanField(help_text="Whether the patch was cut off for size.")
+
+
+class DreamRunDetailSerializer(serializers.Serializer):
+    """Response shape for one dream run: the run plus the diff it landed."""
+
+    run = DreamRunSerializer()
+    files = DreamFileDiffSerializer(many=True, help_text="Per-file patches, in diff order.")
 
 
 class WikiHealthFindingSerializer(serializers.Serializer):
@@ -78,6 +174,24 @@ class WikiPageWriteSerializer(serializers.Serializer):
             "with 409 and the current head; omit to write unguarded."
         ),
     )
+
+
+class WikiPageProposalWriteSerializer(WikiPageWriteSerializer):
+    base_head = serializers.CharField(
+        max_length=64, help_text="The head_sha returned when reading the page. Required to bind the proposed edit."
+    )
+
+
+class WikiPageProposalSerializer(serializers.Serializer):
+    id = serializers.UUIDField(
+        help_text="Immutable suggested edit ID. Only its author can apply it through the user API."
+    )
+    task_id = serializers.UUIDField(help_text="Task that proposed the edit.")
+    path = serializers.CharField(help_text="Shared wiki page to review.")
+    original_content = serializers.CharField(help_text="Page content at the revision the proposal is based on.")
+    content = serializers.CharField(help_text="Proposed page content. This is not published wiki content.")
+    base_head = serializers.CharField(help_text="Wiki revision the proposal is based on.")
+    created_at = serializers.DateTimeField(help_text="When the edit was proposed.")
 
 
 class CommitBundleSerializer(serializers.Serializer):

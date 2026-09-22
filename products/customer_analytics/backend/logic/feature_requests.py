@@ -2,10 +2,24 @@ from typing import TYPE_CHECKING, Protocol, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.db import IntegrityError, transaction
-from django.db.models import Case, Count, IntegerField, Prefetch, Q, QuerySet, Value, When
-from django.db.models.functions import Lower
+from django.db.models import (
+    Case,
+    CharField,
+    Count,
+    F,
+    IntegerField,
+    Min,
+    OuterRef,
+    Prefetch,
+    Q,
+    QuerySet,
+    Subquery,
+    Value,
+    When,
+)
+from django.db.models.functions import Coalesce, Concat, Lower, NullIf, Trim
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -17,6 +31,7 @@ from products.customer_analytics.backend.models import (
     FeatureRequest,
     FeatureRequestAccountLink,
     FeatureRequestEvidence,
+    FeatureRequestGitHubLink,
     FeatureRequestHistory,
     FeatureRequestHistorySource,
     FeatureRequestPriority,
@@ -110,6 +125,36 @@ def _get_feature_request_can_update(feature_request: FeatureRequest, user_access
     )
 
 
+def _can_view_github_link(link: FeatureRequestGitHubLink | None, user_access_control: "UserAccessControl") -> bool:
+    if link is None:
+        return False
+    try:
+        integration = link.integration
+    except ObjectDoesNotExist:
+        return False
+    return integration is not None and user_access_control.check_access_level_for_object(
+        integration, required_level="viewer"
+    )
+
+
+def _to_github_link_view(
+    link: FeatureRequestGitHubLink | None, *, user_access_control: "UserAccessControl"
+) -> contracts.FeatureRequestGitHubLinkView | None:
+    if not _can_view_github_link(link, user_access_control):
+        return None
+    assert link is not None
+    return contracts.FeatureRequestGitHubLinkView(
+        id=link.id,
+        issue_url=f"https://github.com/{link.repository}/issues/{link.issue_number}",
+        repository=link.repository,
+        issue_number=link.issue_number,
+        issue_title=link.issue_title,
+        issue_state="closed" if link.issue_state == "closed" else "open",
+        sync_enabled=link.sync_enabled,
+        last_synced_at=link.last_synced_at,
+    )
+
+
 def _to_feature_request_view(
     feature_request: FeatureRequest,
     *,
@@ -140,11 +185,22 @@ def _to_feature_request_view(
         can_update=_get_feature_request_can_update(feature_request, user_access_control),
         account=legacy_account,
         account_links=account_links,
+        evidence_count=sum(link.evidence_count for link in account_links),
         product_areas=[_to_product_area_view(area) for area in feature_request.product_areas.all()],
+        github_link=_to_github_link_view(
+            getattr(feature_request, "github_link", None), user_access_control=user_access_control
+        ),
         created_by=feature_request.created_by_id,
         updated_by=feature_request.updated_by_id,
         created_at=feature_request.created_at,
         updated_at=feature_request.updated_at,
+    )
+
+
+def _accessible_account_ids(team_id: int, user_access_control: "UserAccessControl") -> QuerySet[Account]:
+    return cast(
+        QuerySet[Account],
+        user_access_control.filter_queryset_by_access_level(Account.objects.for_team(team_id)).values("id"),
     )
 
 
@@ -154,9 +210,7 @@ def _feature_request_queryset(
     *,
     include_evidence: bool = True,
 ) -> QuerySet[FeatureRequest]:
-    accessible_account_ids = user_access_control.filter_queryset_by_access_level(
-        Account.objects.for_team(team_id)
-    ).values("id")
+    accessible_account_ids = _accessible_account_ids(team_id, user_access_control)
     visible_links = (
         FeatureRequestAccountLink.objects.for_team(team_id)
         .filter(account_id__in=accessible_account_ids, unlinked_at__isnull=True)
@@ -172,6 +226,7 @@ def _feature_request_queryset(
     queryset = (
         FeatureRequest.objects.for_team(team_id)
         .filter(account_links__account_id__in=accessible_account_ids, account_links__unlinked_at__isnull=True)
+        .select_related("github_link__integration")
         .prefetch_related("product_areas", Prefetch("account_links", queryset=visible_links))
     )
     return queryset.prefetch_related(
@@ -199,15 +254,60 @@ def _apply_priority_ordering(queryset: QuerySet[FeatureRequest], ordering: str) 
     return queryset.alias(priority_order=priority_order).order_by("priority_order", "id")
 
 
-def _apply_ordering(queryset: QuerySet[FeatureRequest], ordering: str) -> QuerySet[FeatureRequest]:
+def _order_by_annotation(
+    queryset: QuerySet[FeatureRequest], annotation: str, direction: str
+) -> QuerySet[FeatureRequest]:
+    ordering = F(annotation).desc(nulls_last=True) if direction else F(annotation).asc(nulls_last=True)
+    return queryset.order_by(ordering, f"{direction}id")
+
+
+def _apply_ordering(
+    queryset: QuerySet[FeatureRequest], ordering: str, accessible_account_ids: QuerySet[Account]
+) -> QuerySet[FeatureRequest]:
     if ordering in {"priority", "-priority"}:
         return _apply_priority_ordering(queryset, ordering)
     if ordering == "title":
         return queryset.order_by(Lower("title"), "id")
     if ordering == "-title":
         return queryset.order_by(Lower("title").desc(), "-id")
+
     direction = "-" if ordering.startswith("-") else ""
     field = ordering.removeprefix("-")
+    if field == "account":
+        queryset = queryset.annotate(
+            _ordering_account=Min(
+                Lower("account_links__account__name"),
+                filter=Q(account_links__account_id__in=accessible_account_ids, account_links__unlinked_at__isnull=True),
+            )
+        )
+        return _order_by_annotation(queryset, "_ordering_account", direction)
+    if field == "product_area":
+        queryset = queryset.annotate(_ordering_product_area=Min(Lower("product_area_links__product_area__name")))
+        return _order_by_annotation(queryset, "_ordering_product_area", direction)
+    if field == "evidence_count":
+        queryset = queryset.annotate(
+            _ordering_evidence_count=Count(
+                "account_links__evidence",
+                filter=Q(account_links__account_id__in=accessible_account_ids, account_links__unlinked_at__isnull=True),
+                distinct=True,
+            )
+        )
+        return _order_by_annotation(queryset, "_ordering_evidence_count", direction)
+    if field == "created_by":
+        creator_name = (
+            User.objects.filter(pk=OuterRef("created_by_id"))
+            .annotate(
+                display_name=Coalesce(
+                    NullIf(Trim(Concat("first_name", Value(" "), "last_name")), Value("")),
+                    "email",
+                    output_field=CharField(),
+                )
+            )
+            .order_by()
+            .values("display_name")[:1]
+        )
+        queryset = queryset.annotate(_ordering_created_by=Lower(Subquery(creator_name, output_field=CharField())))
+        return _order_by_annotation(queryset, "_ordering_created_by", direction)
     if field == "updated_at":
         return queryset.order_by(ordering, f"{direction}created_at", f"{direction}id")
     return queryset.order_by(ordering, f"{direction}id")
@@ -550,12 +650,13 @@ def list_feature_requests(
             .filter(id__in=filters.account_ids)
             .values_list("id", flat=True)
         )
+    accessible_account_ids = _accessible_account_ids(team_id, user_access_control)
     queryset = _apply_filters(
         _feature_request_queryset(team_id, user_access_control, include_evidence=False),
         filters,
         account_filter_ids,
     )
-    queryset = _apply_ordering(queryset, filters.ordering)
+    queryset = _apply_ordering(queryset, filters.ordering, accessible_account_ids)
     total_count = queryset.count()
     return [
         _to_feature_request_view(item, user_access_control=user_access_control, include_evidence=False)
@@ -712,6 +813,18 @@ def update_feature_request(
                 feature_request.description = description
                 update_fields.add("description")
         if input.request_status is not None and input.request_status != feature_request.status:
+            github_link = (
+                FeatureRequestGitHubLink.objects.for_team(team_id)
+                .select_for_update()
+                .filter(feature_request=feature_request)
+                .first()
+            )
+            if github_link is not None:
+                if github_link.sync_enabled:
+                    history_changes.append({"field": "github_sync", "before": True, "after": False})
+                github_link.sync_enabled = False
+                github_link.status_before_github_close = None
+                github_link.save(update_fields=["sync_enabled", "status_before_github_close"])
             history_changes.append({"field": "status", "before": feature_request.status, "after": input.request_status})
             feature_request.status = input.request_status
             update_fields.add("status")
@@ -1242,6 +1355,13 @@ def list_feature_request_history(
 ) -> list[contracts.FeatureRequestHistoryView] | None:
     if not _feature_request_queryset(team_id, user_access_control).filter(id=feature_request_id).exists():
         return None
+    github_link = (
+        FeatureRequestGitHubLink.objects.for_team(team_id)
+        .select_related("integration")
+        .filter(feature_request_id=feature_request_id)
+        .first()
+    )
+    can_view_github_link = _can_view_github_link(github_link, user_access_control)
     history = list(
         FeatureRequestHistory.objects.for_team(team_id)
         .filter(feature_request_id=feature_request_id)
@@ -1270,7 +1390,11 @@ def list_feature_request_history(
     actor_names = {actor.id: actor.get_full_name().strip() or actor.email for actor in actors}
     visible_history: list[contracts.FeatureRequestHistoryView] = []
     for entry in history:
-        visible_changes = _redact_inaccessible_history_accounts(entry.changes, accessible_account_ids)
+        visible_changes = [
+            change
+            for change in _redact_inaccessible_history_accounts(entry.changes, accessible_account_ids)
+            if change["field"] != "github_link" or can_view_github_link
+        ]
         if not visible_changes:
             continue
         visible_history.append(

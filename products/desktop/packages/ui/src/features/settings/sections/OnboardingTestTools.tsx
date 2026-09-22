@@ -32,11 +32,14 @@ export function OnboardingTestTools(): ReactElement {
   };
 
   return (
-    <SettingsSection label="Onboarding test tools">
+    <SettingsSection
+      label="Onboarding test tools"
+      description="Replay the first-run flow to test it"
+    >
       <SettingsCard>
         <SettingsCardRow
           label="First-run session"
-          description="Describe who's arriving, then open a session built from those answers."
+          description="Describe who's arriving, then open a session built from those answers"
         >
           <Button
             variant="outline"
@@ -48,7 +51,7 @@ export function OnboardingTestTools(): ReactElement {
         </SettingsCardRow>
         <SettingsCardRow
           label="Teaching canvas"
-          description="Creates or repairs the canvas, then opens it."
+          description="Creates or repairs the canvas, then opens it"
         >
           <Button
             variant="outline"

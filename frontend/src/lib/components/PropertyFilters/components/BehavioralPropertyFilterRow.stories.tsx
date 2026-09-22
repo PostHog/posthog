@@ -22,11 +22,13 @@ const meta: Meta<typeof BehavioralPropertyFilterRow> = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/actions/': { count: 1, next: null, previous: null, results: [CHECKOUT_ACTION] },
+                '/api/event/values/': [],
             },
         }),
     ],
     args: {
         editable: true,
+        pageKey: 'behavioral-row-story',
     },
     render: (props) => {
         const [filter, setFilter] = useState<BehavioralPropertyFilter>({
@@ -60,6 +62,53 @@ export const Action: Story = {
                 event_type: 'actions',
                 time_value: 30,
                 time_interval: TimeUnitType.Day,
+            }}
+            onChange={() => {}}
+        />
+    ),
+}
+
+export const WithEventFilters: Story = {
+    render: (props) => {
+        const [filter, setFilter] = useState<BehavioralPropertyFilter>({
+            type: PropertyFilterType.Behavioral,
+            value: BehavioralEventType.PerformEvent,
+            key: 'insight created',
+            event_type: 'events',
+            negation: true,
+            time_value: 30,
+            time_interval: TimeUnitType.Day,
+            event_filters: [
+                { type: PropertyFilterType.Event, key: 'source', operator: PropertyOperator.Exact, value: ['web'] },
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$browser',
+                    operator: PropertyOperator.Exact,
+                    value: ['Chrome'],
+                },
+            ],
+        })
+
+        return <BehavioralPropertyFilterRow {...props} filter={filter} onChange={setFilter} />
+    },
+}
+
+export const ReadOnlyWithEventFilters: Story = {
+    args: { editable: false },
+    render: (props) => (
+        <BehavioralPropertyFilterRow
+            {...props}
+            filter={{
+                type: PropertyFilterType.Behavioral,
+                value: BehavioralEventType.PerformEvent,
+                key: 'insight created',
+                event_type: 'events',
+                negation: true,
+                time_value: 30,
+                time_interval: TimeUnitType.Day,
+                event_filters: [
+                    { type: PropertyFilterType.Event, key: 'source', operator: PropertyOperator.Exact, value: ['web'] },
+                ],
             }}
             onChange={() => {}}
         />

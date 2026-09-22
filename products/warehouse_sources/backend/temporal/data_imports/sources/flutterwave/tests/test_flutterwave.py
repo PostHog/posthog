@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -189,7 +189,7 @@ class TestDateWindow:
         assert "from" not in params[0]
         assert "to" not in params[0]
 
-    @freeze_time("2026-06-15T23:30:00Z")
+    @time_machine.travel("2026-06-15T23:30:00Z", tick=False)
     @mock.patch(SESSION_PATCH)
     def test_transactions_always_sends_the_required_window(self, MockSession: mock.MagicMock) -> None:
         # /transactions documents `from`/`to` as required, so every full refresh sends the whole

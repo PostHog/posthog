@@ -19,6 +19,8 @@ export const POSTHOG_NOTIFICATIONS = {
   /** Task run has started execution */
   RUN_STARTED: "_posthog/run_started",
 
+  COMMAND_DISPATCHED: "_posthog/agent_command_dispatched",
+
   /** Task has completed (success or failure) */
   TASK_COMPLETE: "_posthog/task_complete",
 
@@ -44,9 +46,6 @@ export const POSTHOG_NOTIFICATIONS = {
 
   /** Maps taskRunId to agent's sessionId and adapter type (for resumption) */
   SDK_SESSION: "_posthog/sdk_session",
-
-  /** Git checkpoint captured for handoff */
-  GIT_CHECKPOINT: "_posthog/git_checkpoint",
 
   /** Agent mode changed (interactive/background) */
   MODE_CHANGE: "_posthog/mode_change",
@@ -97,11 +96,36 @@ export const POSTHOG_NOTIFICATIONS = {
   /** RTK output-compression token savings tallied at the end of a run */
   RTK_SAVINGS: "_posthog/rtk_savings",
 
+  BUDGET_STEER: "_posthog/budget_steer",
+
   /** Latest native Codex goal state, persisted so cold cloud resumes can restore it. */
   CODEX_GOAL: "_posthog/codex_goal",
   /** Desktop → sandbox reply to an MCP relay request (docs/CLOUD-MCP-RELAY.md). */
   MCP_RESPONSE: "_posthog/mcp_response",
+  CREDENTIAL_REQUEST: "_posthog/credential_request",
+  CREDENTIAL_RESPONSE: "_posthog/credential_response",
 } as const;
+
+export type SteerDeclineCause =
+  | "cancelled"
+  | "compacting"
+  | "continuation_failed"
+  | "no_in_flight_turn"
+  | "no_owner_turn"
+  | "steer_in_flight"
+  | "turn_ended_first"
+  | "turn_failed"
+  | "turn_not_steerable";
+
+export function steerDeclined(cause: SteerDeclineCause): {
+  stopReason: "end_turn";
+  _meta: { steer: false; steerDeclineCause: SteerDeclineCause };
+} {
+  return {
+    stopReason: "end_turn",
+    _meta: { steer: false, steerDeclineCause: cause },
+  };
+}
 
 export type NativeGoalState = {
   objective: string;

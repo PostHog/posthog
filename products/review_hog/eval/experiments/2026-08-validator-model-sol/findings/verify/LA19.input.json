@@ -1,0 +1,12 @@
+{
+    "id": "LA19",
+    "file": "tools/pr-approval-agent/review_local.py",
+    "lines": "316-324",
+    "priority": "must_fix",
+    "title": "The carve-out is not bound to the expected PR shape",
+    "problem": "The engine trusts any truthy `self_driving_review` value. It then skips the bot-author refusal and the draft prerequisite. The initial Inbox task does not confirm the expected App bot, a repo-native head, or the task repository. A task output that points at another PR can therefore receive the relaxed review path and a real approval.",
+    "suggestion": "Verify the PR before the server writes `self_driving_review`. Check the expected App bot, repo-native head, task repository, and exact PR link. In this engine, require `context.get(\"self_driving_review\") is True` and `pipeline.pr.author_is_bot`. Leave `self_driving` false when any check fails.",
+    "cluster": 6,
+    "cluster_issue": "Draft/bot gate relaxations in Pipeline are keyed only on self_driving, not coupled to pr.author_is_bot",
+    "cluster_verified": "1/3"
+}

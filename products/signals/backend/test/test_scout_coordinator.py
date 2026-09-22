@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import random
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import AsyncMock, patch
 
 from django.test import override_settings
@@ -23,6 +24,7 @@ from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness import lazy_seed
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, sync_canonical_skills
 from products.signals.backend.scout_harness.limits import (
@@ -33,6 +35,7 @@ from products.signals.backend.scout_harness.limits import (
 
 # The flag-payload read + per-team cap resolution live in `scout_harness/team_limits.py`; helpers
 # defined there are imported and patched there (see `_PAYLOAD_PATH` / `_IS_CLOUD_PATH`).
+from products.signals.backend.scout_harness.serializers import SignalScoutConfigUpdateSerializer
 from products.signals.backend.scout_harness.team_limits import (
     DEFAULT_ENROLLED_TEAM_IDS,
     SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID,
@@ -70,6 +73,7 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     _overdue_seconds,
     _slot_anchor,
     fetch_enabled_signals_scout_runs_activity,
+    run_due_signal_report_checks_activity,
     stamp_dispatched_signals_scout_runs_activity,
 )
 from products.skills.backend.models.skills import LLMSkill
@@ -489,6 +493,22 @@ async def test_disabled_config_is_skipped(ateam):
     assert await _run_activity() == []
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_a_tick_that_plans_nothing_still_counts_itself(ateam):
+    # The zero-plan tick is the one that has to be counted: it is what a stalled fleet looks like,
+    # and the dispatch counters stay silent through it.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-errors")
+    await database_sync_to_async(_create_config)(ateam, "signals-scout-errors", enabled=False)
+
+    with patch(
+        "products.signals.backend.temporal.agentic.scout_coordinator.increment_coordinator_tick"
+    ) as increment_tick:
+        assert await _run_activity() == []
+
+    increment_tick.assert_called_once_with(0)
+
+
 # ── Auto-register: author a skill, get a scout ──────────────────────────────────
 
 
@@ -510,12 +530,27 @@ async def test_authoring_skill_auto_registers_enabled_config_and_runs(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_non_scout_skills_are_ignored(ateam):
+async def test_skill_without_the_prefix_is_not_auto_registered(ateam):
+    # Auto-registration is the one job the prefix keeps. A bare-named skill is not a scout until
+    # something registers a config for it, so the coordinator neither seeds nor dispatches it.
     await database_sync_to_async(_create_skill)(ateam, "custom-helper")
 
     assert await _run_activity() == []
     count = await database_sync_to_async(SignalScoutConfig.all_teams.filter(team=ateam).count)()
     assert count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_bare_named_skill_with_a_config_is_dispatched(ateam):
+    # The config row is the identity marker, so a scout registered under a name the prefix rule
+    # would have rejected runs on its schedule like any other.
+    await database_sync_to_async(_create_skill)(ateam, "my-churn-watch", seeded=False)
+    await database_sync_to_async(_create_config)(ateam, "my-churn-watch", enabled=True)
+
+    planned = await _run_activity()
+
+    assert [p.skill_name for p in planned] == ["my-churn-watch"]
 
 
 @pytest.mark.django_db
@@ -528,28 +563,60 @@ def test_register_missing_configs_stamps_scout_category():
         scout = _create_skill(team, "signals-scout-custom")
         helper = _create_skill(team, "custom-helper")
         assert scout.category == ""
+        stamped_before = scout.updated_at
 
         register_missing_configs(team.id)
 
         scout.refresh_from_db()
         helper.refresh_from_db()
         assert scout.category == "scout"
+        assert scout.updated_at > stamped_before
         # Non-scout skills are left untouched.
         assert helper.category == ""
 
 
+@pytest.mark.django_db
+def test_register_missing_configs_reports_bare_named_scouts_as_live():
+    # The return value is what the coordinator dispatches from. It has to cover a scout that
+    # already holds a config under a bare name, not just the prefixed skills scanned for seeding.
+    org = Organization.objects.create(name="bare-name-org", is_ai_data_processing_approved=True)
+    team = Team.objects.create(organization=org, name="bare-name-team")
+    with team_scope(team.id, canonical=True):
+        _create_skill(team, "signals-scout-prefixed")
+        bare = _create_skill(team, "my-churn-watch", seeded=False)
+        _create_config(team, "my-churn-watch")
+        _create_config(team, "orphan-watch")
+
+        live = register_missing_configs(team.id)
+
+        # The orphan has a config but no skill, so it stays out of the dispatchable set.
+        assert live == {"signals-scout-prefixed", "my-churn-watch"}
+        # A bare-named scout reaches the skills UI's Scouts tab too.
+        bare.refresh_from_db()
+        assert bare.category == "scout"
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_config_whose_skill_is_gone_is_skipped(ateam):
-    # A config whose `signals-scout-*` skill was deleted (or is no longer latest) must not be
-    # dispatched — its child workflow would only fail in load_skill_for_run every tick.
-    await database_sync_to_async(_create_skill)(ateam, "signals-scout-live")
-    await database_sync_to_async(_create_config)(ateam, "signals-scout-live", enabled=True)
-    await database_sync_to_async(_create_config)(ateam, "signals-scout-ghost", enabled=True)
+@pytest.mark.parametrize(
+    "live_name,ghost_name",
+    [
+        ("signals-scout-live", "signals-scout-ghost"),
+        # Liveness reads the config's skill rather than the name, so the same guard has to hold
+        # for a bare-named scout.
+        ("my-live-watch", "my-ghost-watch"),
+    ],
+)
+async def test_config_whose_skill_is_gone_is_skipped(ateam, live_name, ghost_name):
+    # A config whose skill was deleted (or is no longer latest) must not be dispatched — its
+    # child workflow would only fail in load_skill_for_run every tick.
+    await database_sync_to_async(_create_skill)(ateam, live_name)
+    await database_sync_to_async(_create_config)(ateam, live_name, enabled=True)
+    await database_sync_to_async(_create_config)(ateam, ghost_name, enabled=True)
 
     planned = await _run_activity()
 
-    assert [p.skill_name for p in planned] == ["signals-scout-live"]
+    assert [p.skill_name for p in planned] == [live_name]
 
 
 # ── Schedule: deterministic due-check, no sampling ──────────────────────────────
@@ -941,7 +1008,7 @@ async def test_stamp_activity_advances_dispatched_configs_to_their_slot_anchor(a
         ateam, "signals-scout-foo", enabled=True, run_interval_minutes=1440, last_run_at=old
     )
 
-    with freeze_time(_DISPATCHED_AT):
+    with time_machine.travel(_DISPATCHED_AT, tick=False):
         env = ActivityEnvironment()
         await env.run(
             stamp_dispatched_signals_scout_runs_activity,
@@ -976,7 +1043,7 @@ async def test_stamp_activity_keeps_the_wall_clock_for_cron_and_probed_configs(a
         ateam, "signals-scout-foo", run_interval_minutes=1440, **config_kwargs
     )
 
-    with freeze_time(_DISPATCHED_AT):
+    with time_machine.travel(_DISPATCHED_AT, tick=False):
         env = ActivityEnvironment()
         await env.run(
             stamp_dispatched_signals_scout_runs_activity,
@@ -1001,7 +1068,7 @@ async def test_stamp_activity_falls_back_to_the_wall_clock_when_slot_alignment_i
     )
     payload = {**_allowlist_payload(), "slot_aligned_dispatch": False}
 
-    with freeze_time(_DISPATCHED_AT), patch(_PAYLOAD_PATH, side_effect=lambda *a, **k: payload):
+    with time_machine.travel(_DISPATCHED_AT, tick=False), patch(_PAYLOAD_PATH, side_effect=lambda *a, **k: payload):
         env = ActivityEnvironment()
         await env.run(
             stamp_dispatched_signals_scout_runs_activity,
@@ -1440,6 +1507,226 @@ async def test_seed_launch_cadence_stamped_on_disabled_canonical(ateam):
     assert rows["signals-scout-error-tracking"] == (False, 720)
 
 
+# ── Operational scouts (scout-role: operational) ──────────────────────────────────
+
+# Read from disk by the harness, so a rename here is a real fleet rename, not a fixture choice.
+_OPERATIONAL_SCOUT = "signals-scout-inbox-validation"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_operational_scout_seeds_enabled_and_exempt_outside_the_allowlist(ateam):
+    # The allowlist decides what a project spends watching its own product, and the harness
+    # watching itself is not that.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-general")
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-error-tracking")
+    await database_sync_to_async(_create_skill)(ateam, _OPERATIONAL_SCOUT)
+
+    def _payload(*_a, **_k):
+        return {
+            "guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS],
+            "default_team_config": {"enabled_skills": ["signals-scout-general"]},
+        }
+
+    with patch(_PAYLOAD_PATH, side_effect=_payload):
+        await _run_activity()
+
+    rows = await database_sync_to_async(
+        lambda: {
+            c.skill_name: (c.enabled, c.auto_pause_exempt) for c in SignalScoutConfig.all_teams.filter(team_id=ateam.id)
+        }
+    )()
+    assert rows[_OPERATIONAL_SCOUT] == (True, True)
+    assert rows["signals-scout-general"] == (True, False)
+    assert rows["signals-scout-error-tracking"] == (False, False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_operational_scout_seeds_enabled_past_the_enabled_cap(ateam):
+    # A full fleet must not silence the follow-up check.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-existing")
+    await database_sync_to_async(_create_config)(ateam, "signals-scout-existing", enabled=True)
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-fresh")
+    await database_sync_to_async(_create_skill)(ateam, _OPERATIONAL_SCOUT)
+
+    with patch("products.signals.backend.scout_harness.config_registry.MAX_ENABLED_SCOUTS_PER_TEAM", 1):
+        await _run_activity()
+
+    rows = await database_sync_to_async(
+        lambda: {c.skill_name: c.enabled for c in SignalScoutConfig.all_teams.filter(team_id=ateam.id)}
+    )()
+    assert rows[_OPERATIONAL_SCOUT] is True
+    assert rows["signals-scout-fresh"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_withheld_operational_scout_is_still_held_back(ateam):
+    # An unreleased scout must not let itself out by declaring what it is.
+    await database_sync_to_async(_create_skill)(ateam, _OPERATIONAL_SCOUT)
+
+    def _payload(*_a, **_k):
+        return {
+            "guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS],
+            "default_team_config": {"withheld_skills": [_OPERATIONAL_SCOUT]},
+        }
+
+    with patch(_PAYLOAD_PATH, side_effect=_payload):
+        planned = await _run_activity()
+
+    exists = await database_sync_to_async(
+        lambda: SignalScoutConfig.all_teams.filter(team_id=ateam.id, skill_name=_OPERATIONAL_SCOUT).exists()
+    )()
+    assert exists is False
+    assert [p.skill_name for p in planned] == []
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "status,pause_reason",
+    [
+        (SignalScoutConfig.Status.PENDING_PAUSE, SignalScoutConfig.PauseReason.NO_OUTPUT),
+        (SignalScoutConfig.Status.PAUSED_BY_SYSTEM, SignalScoutConfig.PauseReason.IGNORED),
+    ],
+)
+def test_reconcile_resumes_an_operational_scout_the_sweep_silenced(status, pause_reason):
+    # The seed posture is forward-only, so a row that predates the role recovers only here.
+    org = Organization.objects.create(name="op-sweep-org", is_ai_data_processing_approved=True)
+    team = Team.objects.create(organization=org, name="op-sweep-team")
+    with team_scope(team.id, canonical=True):
+        _create_skill(team, _OPERATIONAL_SCOUT)
+        _create_config(team, _OPERATIONAL_SCOUT, status=status, pause_reason=pause_reason)
+
+        register_missing_configs(team.id)
+
+        config = SignalScoutConfig.all_teams.get(team_id=team.id, skill_name=_OPERATIONAL_SCOUT)
+        assert config.status == SignalScoutConfig.Status.ACTIVE
+        assert config.enabled is True
+        assert config.pause_reason is None
+        assert config.auto_pause_exempt is True
+
+
+@pytest.mark.django_db
+def test_reconcile_resumes_an_operational_scout_seeded_disabled():
+    # An `enabled=False` create is stored as `paused_by_user`, so the reconcile has to tell an
+    # untouched seed apart from a person switching the scout off.
+    org = Organization.objects.create(name="op-seeded-off-org", is_ai_data_processing_approved=True)
+    team = Team.objects.create(organization=org, name="op-seeded-off-team")
+    with team_scope(team.id, canonical=True):
+        _create_skill(team, _OPERATIONAL_SCOUT)
+        seeded_off = _create_config(team, _OPERATIONAL_SCOUT, enabled=False)
+        assert seeded_off.status == SignalScoutConfig.Status.PAUSED_BY_USER
+        assert seeded_off.status_changed_at is None
+
+        register_missing_configs(team.id)
+
+        config = SignalScoutConfig.all_teams.get(team_id=team.id, skill_name=_OPERATIONAL_SCOUT)
+        assert config.enabled is True
+        assert config.status == SignalScoutConfig.Status.ACTIVE
+        assert config.auto_pause_exempt is True
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("explicit_exemption", [None, False, True])
+def test_role_change_preserves_only_user_exemptions(tmp_path: Path, explicit_exemption: bool | None) -> None:
+    org = Organization.objects.create(name="role-change-org", is_ai_data_processing_approved=True)
+    team = Team.objects.create(organization=org, name="role-change-team")
+    skill_dir = tmp_path / _OPERATIONAL_SCOUT
+    skill_dir.mkdir()
+    skill_file = skill_dir / "SKILL.md"
+    frontmatter = f"---\nname: {_OPERATIONAL_SCOUT}\ndescription: test scout\nscout-role: {{role}}\n---\nBody\n"
+    caches = (
+        lazy_seed.canonical_skill_names,
+        lazy_seed._canonical_config_tags,
+        lazy_seed._canonical_operational_scouts,
+    )
+    try:
+        with team_scope(team.id, canonical=True), patch.object(lazy_seed, "_SKILLS_DIR", tmp_path):
+            for cache in caches:
+                cache.cache_clear()
+            skill_file.write_text(frontmatter.format(role="operational"))
+            sync_canonical_skills(team)
+            register_missing_configs(team.id)
+            config = SignalScoutConfig.objects.get(team=team, skill_name=_OPERATIONAL_SCOUT)
+            assert config.auto_pause_exempt is True
+
+            if explicit_exemption is not None:
+                serializer = SignalScoutConfigUpdateSerializer(
+                    config, data={"auto_pause_exempt": explicit_exemption}, partial=True
+                )
+                assert serializer.is_valid(), serializer.errors
+                serializer.save()
+
+            skill_file.write_text(frontmatter.format(role="specialist"))
+            for cache in caches:
+                cache.cache_clear()
+            sync_canonical_skills(team)
+            register_missing_configs(team.id)
+
+            config.refresh_from_db()
+            assert config.auto_pause_exempt is (explicit_exemption is True)
+            assert config.enabled is True
+    finally:
+        for cache in caches:
+            cache.cache_clear()
+
+
+@pytest.mark.django_db
+def test_reconcile_leaves_a_human_pause_alone():
+    # The recorded transition is what separates this from the seed's own `paused_by_user` row.
+    org = Organization.objects.create(name="op-human-off-org", is_ai_data_processing_approved=True)
+    team = Team.objects.create(organization=org, name="op-human-off-team")
+    with team_scope(team.id, canonical=True):
+        _create_skill(team, _OPERATIONAL_SCOUT)
+        config = _create_config(team, _OPERATIONAL_SCOUT, enabled=False)
+        SignalScoutConfig.all_teams.filter(pk=config.pk).update(status_changed_at=timezone.now())
+
+        register_missing_configs(team.id)
+
+        config.refresh_from_db()
+        assert config.enabled is False
+        assert config.status == SignalScoutConfig.Status.PAUSED_BY_USER
+        # Still exempted: the sweep must not re-warn it if the person turns it back on.
+        assert config.auto_pause_exempt is True
+
+
+@pytest.mark.django_db
+def test_reconcile_leaves_a_failure_pause_alone():
+    # The failure breaker owns this pause, and resuming it would spend runs on a scout that
+    # cannot finish one.
+    org = Organization.objects.create(name="op-failing-org", is_ai_data_processing_approved=True)
+    team = Team.objects.create(organization=org, name="op-failing-team")
+    with team_scope(team.id, canonical=True):
+        _create_skill(team, _OPERATIONAL_SCOUT)
+        _create_config(
+            team,
+            _OPERATIONAL_SCOUT,
+            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+            pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+        )
+
+        register_missing_configs(team.id)
+
+        config = SignalScoutConfig.all_teams.get(team_id=team.id, skill_name=_OPERATIONAL_SCOUT)
+        assert config.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+        assert config.pause_reason == SignalScoutConfig.PauseReason.REPEATED_FAILURES
+
+
+@pytest.mark.django_db
+def test_a_teams_own_scout_sharing_an_operational_name_gets_no_exemption():
+    # A hand-authored skill must not inherit a posture that skips the harness's controls.
+    org = Organization.objects.create(name="op-lookalike-org", is_ai_data_processing_approved=True)
+    team = Team.objects.create(organization=org, name="op-lookalike-team")
+    with team_scope(team.id, canonical=True):
+        _create_skill(team, _OPERATIONAL_SCOUT, seeded=False)
+
+        register_missing_configs(team.id)
+
+        config = SignalScoutConfig.all_teams.get(team_id=team.id, skill_name=_OPERATIONAL_SCOUT)
+        assert config.auto_pause_exempt is False
+
+
 # ── Per-scout holdback denylist (withheld_skills) ─────────────────────────────────
 
 
@@ -1729,18 +2016,61 @@ def _fake_info(workflow_id: str = "tick-1"):
     return type("Info", (), {"workflow_id": workflow_id, "start_time": _TICK_STARTED_AT})()
 
 
+# `workflow.patched` reads the workflow runtime, which a direct `run()` does not have. True is the
+# live path; False is what an in-flight coordinator replaying a pre-patch history takes.
+def _patch_check_gate(enabled: bool = True):
+    return patch(
+        "products.signals.backend.temporal.agentic.scout_coordinator.workflow.patched",
+        return_value=enabled,
+    )
+
+
 @pytest.mark.asyncio
 async def test_workflow_returns_zero_counts_when_no_planned_runs():
     coordinator = SignalsScoutCoordinatorWorkflow()
 
-    with patch(
-        "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
-        new_callable=AsyncMock,
-        return_value=FetchEnabledRunsOutput(planned_runs=[]),
+    with (
+        _patch_check_gate(),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
+            new_callable=AsyncMock,
+            return_value=FetchEnabledRunsOutput(planned_runs=[]),
+        ),
     ):
         output = await coordinator.run(CoordinatorWorkflowInput())
 
     assert output == CoordinatorWorkflowOutput(0, 0, 0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "gate_open,expected_activities",
+    [
+        (True, [run_due_signal_report_checks_activity, fetch_enabled_signals_scout_runs_activity]),
+        (False, [fetch_enabled_signals_scout_runs_activity]),
+    ],
+)
+async def test_report_checks_run_only_on_the_patched_path(gate_open, expected_activities):
+    # An in-flight coordinator replays its recorded history through the closed gate. Commanding the
+    # new activity there fails that replay with a non-determinism error, which under
+    # `ScheduleOverlapPolicy.SKIP` starves every later tick.
+    executed: list[Any] = []
+
+    async def fake_execute_activity(activity, *args, **kwargs):
+        executed.append(activity)
+        return FetchEnabledRunsOutput(planned_runs=[])
+
+    coordinator = SignalsScoutCoordinatorWorkflow()
+    with (
+        _patch_check_gate(gate_open),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
+            side_effect=fake_execute_activity,
+        ),
+    ):
+        await coordinator.run(CoordinatorWorkflowInput())
+
+    assert executed == expected_activities
 
 
 @pytest.mark.asyncio
@@ -1780,6 +2110,7 @@ async def test_workflow_dispatches_children_fire_and_forget():
 
     coordinator = SignalsScoutCoordinatorWorkflow()
     with (
+        _patch_check_gate(),
         patch(
             "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
             side_effect=fake_execute_activity,
@@ -1839,6 +2170,7 @@ async def test_smeared_fan_out_paces_batches_and_stamps_each_one():
 
     coordinator = SignalsScoutCoordinatorWorkflow()
     with (
+        _patch_check_gate(),
         patch(
             "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
             side_effect=fake_execute_activity,
@@ -1896,6 +2228,7 @@ async def test_smeared_fan_out_stops_sleeping_once_the_window_is_spent():
 
     coordinator = SignalsScoutCoordinatorWorkflow()
     with (
+        _patch_check_gate(),
         patch(
             "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
             side_effect=fake_execute_activity,
@@ -1954,6 +2287,7 @@ async def test_hard_dispatch_error_does_not_stamp():
 
     coordinator = SignalsScoutCoordinatorWorkflow()
     with (
+        _patch_check_gate(),
         patch(
             "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
             side_effect=fake_execute_activity,
@@ -1970,5 +2304,8 @@ async def test_hard_dispatch_error_does_not_stamp():
         with pytest.raises(RuntimeError, match="temporal unavailable"):
             await coordinator.run(CoordinatorWorkflowInput())
 
-    # Only the planning activity ran — the stamp activity never executed.
-    assert execute_activity_calls == [fetch_enabled_signals_scout_runs_activity]
+    # Only the report checks and the planning activity ran — the stamp activity never executed.
+    assert execute_activity_calls == [
+        run_due_signal_report_checks_activity,
+        fetch_enabled_signals_scout_runs_activity,
+    ]

@@ -7,8 +7,10 @@ import {
     IconPause,
     IconPencil,
     IconPlay,
+    IconPlus,
     IconToggle,
     IconTrash,
+    IconX,
 } from '@posthog/icons'
 import {
     LemonBanner,
@@ -18,12 +20,14 @@ import {
     LemonInput,
     LemonModal,
     LemonSelect,
+    LemonSkeleton,
     LemonSwitch,
     LemonTag,
     LemonTagType,
     Link,
 } from '@posthog/lemon-ui'
 
+import { ProjectTimezoneHint } from 'lib/components/ScheduledRunStatus'
 import { TZLabel } from 'lib/components/TZLabel'
 import { describeCron } from 'lib/cron'
 import { dayjs } from 'lib/dayjs'
@@ -57,40 +61,12 @@ import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseCon
 import { groupFilters } from './FeatureFlags'
 import { featureFlagScheduleEditLogic } from './featureFlagScheduleEditLogic'
 import { FeatureFlagVariantsForm } from './FeatureFlagVariantsForm'
+import { isSchedulePaused, maxRolloutPercentage } from './scheduleOccurrences'
+import { ScheduleTimeline } from './ScheduleTimeline'
 
 export const DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
-/** Shows the project timezone abbreviation (e.g. "PST") with a tooltip linking to settings. */
-function ScheduleTimezoneHint(): JSX.Element | null {
-    const { currentTeam } = useValues(teamLogic)
-    if (!currentTeam) {
-        return null
-    }
-    const tz = shortTimeZone(currentTeam.timezone) ?? currentTeam.timezone
-    return (
-        <Tooltip
-            interactive
-            title={
-                <>
-                    Times are in the{' '}
-                    <Link to={urls.settings('environment-customization', 'date-and-time')} target="_blank">
-                        project's timezone
-                    </Link>{' '}
-                    ({currentTeam.timezone})
-                </>
-            }
-        >
-            <span className="text-muted font-normal">({tz})</span>
-        </Tooltip>
-    )
-}
-
 type AggregationLabel = (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
-
-/** A recurring schedule that has been paused retains its recurrence config but has is_recurring=false. */
-function isSchedulePaused(sc: ScheduledChangeType): boolean {
-    return !sc.is_recurring && (!!sc.recurrence_interval || !!sc.cron_expression)
-}
 
 function getScheduledVariantsPayloads(
     featureFlag: FeatureFlagType,
@@ -457,6 +433,9 @@ export default function FeatureFlagSchedule(): JSX.Element {
         customPairDisableCronPreview,
         canCreatePairedSchedule,
         hasEarlyAccessFeatures,
+        scheduleTimelineOccurrences,
+        scheduleFormState,
+        scheduleFormCollapsible,
     } = useValues(featureFlagLogic)
     const {
         deleteScheduledChange,
@@ -472,6 +451,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
         setSchedulePreset,
         setCustomPairCron,
         createPairedSchedule,
+        setScheduleFormExpanded,
     } = useActions(featureFlagLogic)
     const {
         isEditOpen,
@@ -552,16 +532,67 @@ export default function FeatureFlagSchedule(): JSX.Element {
         (opt) => opt.value !== ScheduledChangeOperationType.UpdateVariants || featureFlag.filters.multivariate
     )
 
+    const showCollapsedFormButton = featureFlag.can_edit && scheduleFormState === 'collapsed'
+
     return (
         <div className="flex flex-col gap-4">
+            {/* Plan header: what-happens-next timeline, plus the schedule action while the form is collapsed */}
+            {scheduleFormState === 'loading' ? (
+                <LemonSkeleton className="h-10" />
+            ) : (
+                (scheduleTimelineOccurrences.length > 0 || showCollapsedFormButton) && (
+                    <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-4 min-h-8">
+                            {scheduleTimelineOccurrences.length > 0 && (
+                                <h3 className="font-semibold text-base m-0">What happens next</h3>
+                            )}
+                            {showCollapsedFormButton && (
+                                <LemonButton
+                                    className="ml-auto"
+                                    type="primary"
+                                    icon={<IconPlus />}
+                                    onClick={() => setScheduleFormExpanded(true)}
+                                    data-attr="feature-flag-open-schedule-form"
+                                >
+                                    Schedule a change
+                                </LemonButton>
+                            )}
+                        </div>
+                        <ScheduleTimeline
+                            occurrences={scheduleTimelineOccurrences}
+                            currentRolloutPercentage={maxRolloutPercentage(featureFlag.filters.groups)}
+                            timezone={scheduleTimezone}
+                        />
+                    </div>
+                )
+            )}
+
+            {!featureFlag.can_edit && (
+                <LemonBanner type="info">
+                    You don't have the necessary permissions to schedule changes to this flag. Contact your
+                    administrator to request editing rights.
+                </LemonBanner>
+            )}
+
             {/* Creation form */}
-            {featureFlag.can_edit ? (
+            {featureFlag.can_edit && scheduleFormState === 'expanded' && (
                 <div className="rounded border p-4 bg-bg-light flex flex-col gap-4">
-                    <div>
-                        <h3 className="font-semibold text-base mb-1">Schedule a change</h3>
-                        <span className="text-sm text-muted">
-                            Automatically change flag properties at a future point in time.
-                        </span>
+                    <div className="flex items-start justify-between gap-2">
+                        <div>
+                            <h3 className="font-semibold text-base mb-1">Schedule a change</h3>
+                            <span className="text-sm text-muted">
+                                Automatically change flag properties at a future point in time.
+                            </span>
+                        </div>
+                        {scheduleFormCollapsible && (
+                            <LemonButton
+                                size="small"
+                                icon={<IconX />}
+                                tooltip="Close"
+                                onClick={() => setScheduleFormExpanded(false)}
+                                data-attr="feature-flag-close-schedule-form"
+                            />
+                        )}
                     </div>
 
                     {/* Row 1: Change type + Date/Repeat controls */}
@@ -588,7 +619,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                         </Tooltip>
                                     ) : (
                                         <>
-                                            Date and time <ScheduleTimezoneHint />
+                                            Date and time <ProjectTimezoneHint />
                                         </>
                                     )}
                                 </label>
@@ -847,7 +878,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                 {scheduleDateMarker ? (
                                     <>
                                         {` on ${scheduleDateMarker.format(DAYJS_FORMAT)} `}
-                                        <ScheduleTimezoneHint />
+                                        <ProjectTimezoneHint />
                                     </>
                                 ) : (
                                     ' on the scheduled date'
@@ -986,11 +1017,6 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         )}
                     </div>
                 </div>
-            ) : (
-                <LemonBanner type="info">
-                    You don't have the necessary permissions to schedule changes to this flag. Contact your
-                    administrator to request editing rights.
-                </LemonBanner>
             )}
 
             {/* Schedule list */}
@@ -1100,7 +1126,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                 'Next run'
                             ) : (
                                 <>
-                                    Date and time <ScheduleTimezoneHint />
+                                    Date and time <ProjectTimezoneHint />
                                 </>
                             )}
                         </label>

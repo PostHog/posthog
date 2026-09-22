@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from products.ai_observability.backend.models.clustering_config import ClusteringConfig
@@ -100,3 +101,40 @@ class TestClusteringConfigViewSet(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/clustering_config/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data["event_filters"]), 2)
+
+    # The default test client uses force_login, which skips the scope check, so these
+    # cases use a real Personal API Key — the path MCP and OAuth callers take — to lock
+    # the scope the MCP tools must declare (ai_observability_clusters, not llm_analytics).
+    @parameterized.expand(
+        [
+            ("correct_read_scope", ["ai_observability_clusters:read"], status.HTTP_200_OK),
+            ("write_scope_grants_read", ["ai_observability_clusters:write"], status.HTTP_200_OK),
+            ("wrong_scope_denied", ["llm_analytics:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_get_config_pak_scope(self, _name: str, scopes: list[str], expected_status: int) -> None:
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/clustering_config/")
+        self.assertEqual(response.status_code, expected_status)
+
+    # set_event_filters carries its own required_scopes override rather than inheriting
+    # scope_object, so it needs separate coverage from the list action above.
+    @parameterized.expand(
+        [
+            ("correct_write_scope", ["ai_observability_clusters:write"], status.HTTP_200_OK),
+            ("read_scope_denied", ["ai_observability_clusters:read"], status.HTTP_403_FORBIDDEN),
+            ("wrong_scope_denied", ["llm_analytics:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_set_event_filters_pak_scope(self, _name: str, scopes: list[str], expected_status: int) -> None:
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/clustering_config/set_event_filters/",
+            {"event_filters": []},
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status)

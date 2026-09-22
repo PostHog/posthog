@@ -4,11 +4,7 @@ import {
 } from "@posthog/core/integrations/selectors";
 import { create } from "zustand";
 
-export type {
-  Integration,
-  IntegrationAccount,
-  IntegrationConfig,
-} from "@posthog/core/integrations/selectors";
+export type { Integration } from "@posthog/core/integrations/selectors";
 
 interface IntegrationStore {
   integrations: Integration[];

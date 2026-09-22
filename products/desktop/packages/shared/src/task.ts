@@ -1,10 +1,7 @@
 export type {
-  ArtifactType,
   Task,
   TaskRun,
   TaskRunArtifact,
-  TaskRunArtifactMetadata,
-  TaskRunEnvironment,
   TaskRunStatus,
 } from "./domain-types";
 

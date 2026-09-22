@@ -8,6 +8,7 @@ const LOGIC_KEY = 'test'
 const PERSISTED_KEY_PREFIX = `products.error_tracking.components.IssueQueryOptions.issueQueryOptionsLogic.${LOGIC_KEY}`
 const PERSISTED_STATUS_KEY = `${PERSISTED_KEY_PREFIX}.status`
 const PERSISTED_ASSIGNEE_KEY = `${PERSISTED_KEY_PREFIX}.assignee`
+const PERSISTED_SEVERITY_KEY = `${PERSISTED_KEY_PREFIX}.severity`
 
 describe('issueQueryOptionsLogic', () => {
     beforeEach(() => {
@@ -63,6 +64,24 @@ describe('issueQueryOptionsLogic', () => {
         localStorage.setItem(PERSISTED_STATUS_KEY, JSON.stringify('resolved'))
         const logic = mountLogic()
         expect(logic.values.status).toBe('resolved')
+    })
+
+    it('applies a valid severity from the URL and clears an invalid one', () => {
+        const logic = mountLogic()
+        router.actions.push('/error_tracking', { severity: 'critical' })
+        expect(logic.values.severity).toBe('critical')
+
+        router.actions.push('/error_tracking', { severity: 'unknown' })
+        expect(logic.values.severity).toBeNull()
+    })
+
+    it('clears a persisted severity when the URL omits the filter', () => {
+        localStorage.setItem(PERSISTED_SEVERITY_KEY, JSON.stringify('critical'))
+        const logic = mountLogic()
+
+        router.actions.push('/error_tracking')
+
+        expect(logic.values.severity).toBeNull()
     })
 
     // A malformed assignee reaches the query, which the backend rejects with a 400. It renders as

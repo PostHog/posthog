@@ -465,3 +465,11 @@ class TestBillingExemptions(BaseTest):
         forked_report = _make_report(self.team)
         self._scout_run("signals-scout-health-checks", [str(forked_report.id)])
         self.assertIsNone(system_billing_exempt_reason(self.team.id, forked_report.id))
+
+        # A republished row that kept the seed tag but dropped the stored hash proves nothing
+        # about its content, so it cannot mint an exemption either.
+        skill.metadata.pop("canonical_hash")
+        skill.save(update_fields=["metadata"])
+        unproven_report = _make_report(self.team)
+        self._scout_run("signals-scout-health-checks", [str(unproven_report.id)])
+        self.assertIsNone(system_billing_exempt_reason(self.team.id, unproven_report.id))

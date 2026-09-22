@@ -1,12 +1,13 @@
 import { TeamType } from '~/types'
 
-import { getCurrentTeamId } from './getAppContext'
+import { getAppContext, getCurrentTeamId } from './getAppContext'
 
 const pathsWithoutProjectId = [
     'api',
     'me',
     'instance',
     'organization',
+    'billing',
     'preflight',
     'login',
     'signup',
@@ -29,6 +30,24 @@ const exactPathsWithoutProjectId = ['/feature_flags/staff', '/experiments/staff'
 
 const projectIdentifierInUrlRegex = /^\/project\/(\d+|phc_)/
 
+// `/project` and `/project/` carry no id, so the regex above does not see a project prefix there.
+// Without this, the path survives the strip pass, matches no route, and renders the 404 scene,
+// while `addProjectIdUnlessPresent` prefixes the current team onto it and rewrites the address bar
+// to `/project/<team id>/project`. That rewritten URL reduces to the same bare form once its id is
+// stripped, so bookmarks of it land home too. The lookahead keeps real routes like `/project/new`
+// and `/project/settings` out, because they have their own entries in the redirects map.
+const projectRootWithoutIdentifierInUrlRegex = /^\/project\/?(?=$|[?#])/
+
+// A refused project keeps in the address whatever identifier the link carried, which can be a
+// legacy project token that the pattern above does not know.
+function hasProjectIdentifier(path: string): boolean {
+    if (path.match(projectIdentifierInUrlRegex)) {
+        return true
+    }
+    const refusedProject = getAppContext()?.project_access_denied
+    return !!refusedProject && getProjectIdentifierInPath(path) === refusedProject
+}
+
 function isPathWithoutProjectId(path: string): boolean {
     const pathname = path.split(/[?#]/)[0]
     if (
@@ -46,13 +65,15 @@ function normalizeRelativePath(path: string): string {
 }
 
 function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): string {
-    if (path.match(projectIdentifierInUrlRegex)) {
+    if (hasProjectIdentifier(path)) {
         return path
     }
 
     if (path.startsWith('../') || path.startsWith('./')) {
         path = normalizeRelativePath(path)
     }
+
+    path = path.replace(projectRootWithoutIdentifierInUrlRegex, '/')
 
     let prefix = ''
     try {
@@ -69,11 +90,15 @@ function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): strin
     return `${prefix}/${path.startsWith('/') ? path.slice(1) : path}`
 }
 
+/** The project id or project token a path names, exactly as it appears there. */
+export function getProjectIdentifierInPath(path: string): string | null {
+    const match = path.split(/[?#]/)[0].match(/^\/project\/([^/]+)(?:\/|$)/)
+    return match ? match[1] : null
+}
+
 export function removeProjectIdIfPresent(path: string): string {
-    if (path.match(projectIdentifierInUrlRegex)) {
-        return '/' + path.split('/').splice(3).join('/')
-    }
-    return path
+    const withoutProjectId = hasProjectIdentifier(path) ? '/' + path.split('/').splice(3).join('/') : path
+    return withoutProjectId.replace(projectRootWithoutIdentifierInUrlRegex, '/')
 }
 
 /**

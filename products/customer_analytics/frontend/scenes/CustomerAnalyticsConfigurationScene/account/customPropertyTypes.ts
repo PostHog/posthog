@@ -19,6 +19,7 @@ export interface DisplayTypeOption {
 
 export const DISPLAY_TYPE_OPTIONS: DisplayTypeOption[] = [
     { value: 'text', label: 'Text', isNumeric: false },
+    { value: 'link', label: 'Link', isNumeric: false },
     { value: 'number', label: 'Number', isNumeric: true },
     { value: 'currency', label: 'Currency', isNumeric: true },
     { value: 'percent', label: 'Percent', isNumeric: true },

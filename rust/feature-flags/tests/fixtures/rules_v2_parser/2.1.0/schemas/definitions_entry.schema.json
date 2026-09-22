@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://posthog.com/contracts/feature_flag_rules_v2/definitions_entry.schema.json",
+  "title": "Versioned definitions entry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "key",
+    "active",
+    "filters"
+  ],
+  "properties": {
+    "id": {
+      "type": "integer"
+    },
+    "key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "active": {
+      "type": "boolean"
+    },
+    "filters": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "const": 1
+            }
+          },
+          "additionalProperties": true,
+          "x-posthog-open-object": "Existing v1 filters remain opaque here; this schema only selects the version."
+        },
+        {
+          "$ref": "urn:posthog:feature-flag-rules-v2:config:1.0.0"
+        }
+      ]
+    },
+    "version": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "deleted": {
+      "type": "boolean"
+    },
+    "name": {
+      "type": "string"
+    },
+    "team_id": {
+      "type": "integer"
+    },
+    "ensure_experience_continuity": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "evaluation_runtime": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "bucketing_identifier": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "evaluation_contexts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "has_experiment": {
+      "type": "boolean"
+    }
+  },
+  "description": "The config discriminator is filters.version, independent of the optional row version. Canonical v2 filters include assignment seeds. V1 filter semantics remain owned by the legacy evaluator."
+}

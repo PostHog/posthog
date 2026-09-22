@@ -1,4 +1,5 @@
 import { escapeXmlAttr } from "@posthog/shared";
+import { CANVAS_INSTRUCTIONS_TAG } from "../editor/injectedBlocks";
 import { FREEFORM_TEMPLATE_ID } from "./freeformSchemas";
 
 // A generation task scoped to one placement on a grid canvas: the agent fills
@@ -15,7 +16,7 @@ export function buildPlacementGenerationPrompt(input: {
 }): string {
   return `${input.instruction}
 
-<canvas_generation_instructions>
+<${CANVAS_INSTRUCTIONS_TAG}>
 Invoke the \`composing-grid-canvases\` skill and follow it completely.
 
 You are filling ONE placement on a grid canvas. Resolve it with the skill's
@@ -30,7 +31,7 @@ Target:
 - channel: "${escapeXmlAttr(input.channelName)}"
 - placement id: "${escapeXmlAttr(input.placementId)}"
 - drawn box: ${input.boxWidth}x${input.boxHeight} grid units (a small box wants a glanceable tile; a large one a full app surface)
-</canvas_generation_instructions>`;
+</${CANVAS_INSTRUCTIONS_TAG}>`;
 }
 
 // A task scoped to a whole grid canvas: the agent edits the layout itself and
@@ -43,7 +44,7 @@ export function buildGridCanvasGenerationPrompt(input: {
 }): string {
   return `${input.instruction}
 
-<canvas_generation_instructions>
+<${CANVAS_INSTRUCTIONS_TAG}>
 Invoke the \`composing-grid-canvases\` skill and follow it completely.
 
 You are working on the WHOLE grid canvas: add, fill, move, resize, or remove
@@ -63,7 +64,7 @@ Target:
 - grid canvas id: "${escapeXmlAttr(input.dashboardId)}"
 - grid canvas name: "${escapeXmlAttr(input.name)}"
 - channel: "${escapeXmlAttr(input.channelName)}"
-</canvas_generation_instructions>`;
+</${CANVAS_INSTRUCTIONS_TAG}>`;
 }
 
 export function buildCanvasGenerationPrompt(input: {
@@ -83,12 +84,12 @@ export function buildCanvasGenerationPrompt(input: {
 
   return `${input.instruction}
 
-<canvas_generation_instructions>
+<${CANVAS_INSTRUCTIONS_TAG}>
 Invoke the \`building-canvases\` skill and follow it completely.
 
 Target:
 - canvas id: "${escapeXmlAttr(input.dashboardId)}"
 - canvas name: "${escapeXmlAttr(input.name)}"
 - channel: "${escapeXmlAttr(input.channelName)}"${template}
-</canvas_generation_instructions>`;
+</${CANVAS_INSTRUCTIONS_TAG}>`;
 }

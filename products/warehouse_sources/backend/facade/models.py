@@ -18,7 +18,17 @@ from products.warehouse_sources.backend.models.credential import (
     DataWarehouseCredential,
     get_or_create_datawarehouse_credential,
 )
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
+from products.warehouse_sources.backend.models.external_data_destination import (
+    ExternalDataDestination,
+    ExternalDataSchemaDestination,
+    ExternalDataSourceDestination,
+    resolve_destinations,
+)
+from products.warehouse_sources.backend.models.external_data_job import (
+    ExternalDataJob,
+    get_latest_run_if_exists,
+    latest_completed_job_prefetch,
+)
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     auto_enable_new_schemas,
@@ -70,9 +80,12 @@ __all__ = [
     "DataWarehouseCredential",
     "DataWarehouseTable",
     "DataWarehouseTableColumns",
+    "ExternalDataDestination",
     "ExternalDataJob",
     "ExternalDataSchema",
+    "ExternalDataSchemaDestination",
     "ExternalDataSource",
+    "ExternalDataSourceDestination",
     "MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS",
     "MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND",
     "MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND",
@@ -90,6 +103,7 @@ __all__ = [
     "get_direct_external_data_source_for_connection",
     "is_managed_warehouse_connection_ready",
     "get_latest_run_if_exists",
+    "latest_completed_job_prefetch",
     "get_or_create_datawarehouse_credential",
     "clickhouse_column_to_dwh_column",
     "clickhouse_columns_to_dwh_columns",
@@ -102,6 +116,7 @@ __all__ = [
     "postgres_column_to_dwh_column",
     "postgres_columns_to_dwh_columns",
     "remove_named_tuples",
+    "resolve_destinations",
     "snowflake_column_to_dwh_column",
     "snowflake_columns_to_dwh_columns",
     "sync_frequency_interval_to_sync_frequency",

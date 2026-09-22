@@ -34,7 +34,10 @@ class BingAdsResumeConfig:
 
 ENVIRONMENT = "production"
 REPORT_POLL_INTERVAL_MS = 5000
-REPORT_TIMEOUT_MS = 360000
+# Bing builds the report on its own queue, and Microsoft documents generation as taking minutes to
+# hours for a large request. A retry re-queues the report from scratch, so a deadline below that
+# window never converges for an account whose reports are slow to build.
+REPORT_TIMEOUT_MS = 1_800_000
 
 
 def parse_csv_to_dicts(csv_data: str) -> list[dict[str, Any]]:

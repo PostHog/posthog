@@ -469,6 +469,15 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub ai_byte_limit_dry_run: bool,
 
+    /// Window the AI byte budget is enforced over. Falls back to
+    /// `GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS` when unset.
+    ///
+    /// The AI byte budget is shared across capture deployments through one
+    /// Redis counter, and the epoch key derives from this window, so every
+    /// deployment must set the same value or the shared budget splits. Kept
+    /// separate so the token+distinct_id window can be tuned per deployment.
+    pub ai_byte_limit_window_interval_secs: Option<u64>,
+
     /// Max local cache entries for the AI byte limiter. Keyed per token, so this
     /// is bounded by the number of projects sending AI traffic — far smaller
     /// than the per-(token, distinct_id) limiter's key space.
@@ -494,7 +503,7 @@ pub struct KafkaConfig {
     #[envconfig(default = "none")]
     pub kafka_replay_envelope_compression: EnvelopeCompression,
     /// Refuse to boot when a registered output resolves to an empty topic
-    /// name (see `OutputRegistry::check_complete`). Config-only — the broker
+    /// name (see `TopicTable::check_complete`). Config-only — the broker
     /// is never probed, so topic autocreation on first publish is unaffected.
     /// Opt-in (default off) so deployments that deliberately blank a topic
     /// they never produce to keep booting; arm it per deployment once its

@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -7,7 +7,6 @@ from django.contrib.admin.sites import AdminSite
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.management.base import CommandError
 from django.test import RequestFactory
-from django.urls import reverse
 
 from posthog.admin.admins.organization_admin import OrganizationAdmin
 from posthog.models import Organization
@@ -29,9 +28,6 @@ class TestSendAIObservabilityUsageReportAdmin(BaseTest):
         self.user.save()
         self.factory = RequestFactory()
         self.admin = OrganizationAdmin(Organization, AdminSite())
-        reverse(
-            "admin:index"
-        )  # warm posthog.urls import outside freeze_time: the first reverse() lazily imports pydantic v1, which breaks under a frozen datetime.date
 
     def _post(self, report_date: str, call_command_side_effect=None):
         http_request = self.factory.post(
@@ -48,7 +44,7 @@ class TestSendAIObservabilityUsageReportAdmin(BaseTest):
             response = self.admin.send_ai_observability_usage_report_view(http_request)
         return response, mock_call_command, http_request
 
-    @freeze_time("2026-07-22T12:00:00Z")
+    @time_machine.travel("2026-07-22T12:00:00Z", tick=False)
     def test_valid_post_dispatches_async_command_for_date(self):
         response, mock_call_command, http_request = self._post("2026-07-15")
 
@@ -56,14 +52,14 @@ class TestSendAIObservabilityUsageReportAdmin(BaseTest):
         mock_call_command.assert_called_once_with("send_ai_observability_usage_report", "--date=2026-07-15", "--async")
         self.assertEqual([m.level for m in http_request._messages], [messages.SUCCESS])
 
-    @freeze_time("2026-07-22T12:00:00Z")
+    @time_machine.travel("2026-07-22T12:00:00Z", tick=False)
     def test_far_future_date_is_rejected_and_not_dispatched(self):
         response, mock_call_command, _ = self._post("2026-07-30")
 
         self.assertEqual(response.status_code, 200)
         mock_call_command.assert_not_called()
 
-    @freeze_time("2026-07-22T12:00:00Z")
+    @time_machine.travel("2026-07-22T12:00:00Z", tick=False)
     def test_refused_dispatch_is_reported_as_an_error_not_a_success(self):
         response, _, http_request = self._post(
             "2026-07-15", call_command_side_effect=CommandError("A usage report run for 2026-07-15 was already sent.")

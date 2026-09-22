@@ -4,7 +4,8 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { IconArrowDown } from 'lib/lemon-ui/icons'
 
-import type { AiReplyFeedbackRating, ChatMessage, MessageDeliveryStatus } from '../../types'
+import type { AITriageSource, AiReplyFeedbackRating, ChatMessage, MessageDeliveryStatus } from '../../types'
+import { aiDraftAction } from './aiDraftAction'
 import { Message } from './Message'
 
 export interface MessageListProps {
@@ -39,6 +40,11 @@ export interface MessageListProps {
     canEditTicket?: boolean
     onEditMessage?: (message: ChatMessage) => void
     onDeleteMessage?: (messageId: string) => void
+    fullEmailLoadingMessageId?: string | null
+    onViewFullEmail?: (messageId: string) => void
+    aiSources?: AITriageSource[]
+    aiDraftApplying?: boolean
+    onApplyAiDraft?: (message: ChatMessage) => void
 }
 
 /** A non-message entry in the thread, e.g. an agent's findings. `at` is what orders it among the
@@ -71,6 +77,11 @@ export function MessageList({
     canEditTicket = false,
     onEditMessage,
     onDeleteMessage,
+    fullEmailLoadingMessageId = null,
+    onViewFullEmail,
+    aiSources = [],
+    aiDraftApplying = false,
+    onApplyAiDraft,
 }: MessageListProps): JSX.Element {
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -198,6 +209,14 @@ export function MessageList({
 
     const deliveryStatusMap = getDeliveryStatusMap()
 
+    // Applying a draft records the outcome against the ticket's current AI run, so only the
+    // newest draft offers it. An older one would mark the wrong run as used.
+    const latestAiDraftId =
+        messages
+            .filter((message) => aiDraftAction(message) !== null)
+            .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+            .at(-1)?.id ?? null
+
     // Messages and extras share one chronological stream, so an agent's findings sit at the point in
     // the conversation they arrived rather than always at the bottom. Ties keep messages first, and
     // the original order within each kind, so a same-second reply never reshuffles.
@@ -231,6 +250,19 @@ export function MessageList({
                         }
                         onEdit={canModify && onEditMessage ? () => onEditMessage(message) : undefined}
                         onDelete={canModify && onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
+                        fullEmailLoading={fullEmailLoadingMessageId === message.id}
+                        onViewFullEmail={
+                            onViewFullEmail && message.hasFullEmailContent
+                                ? () => onViewFullEmail(message.id)
+                                : undefined
+                        }
+                        aiSources={aiSources}
+                        aiDraftApplying={aiDraftApplying}
+                        onApplyAiDraft={
+                            canEditTicket && onApplyAiDraft && message.id === latestAiDraftId
+                                ? () => onApplyAiDraft(message)
+                                : undefined
+                        }
                     />
                 ),
             }
@@ -247,7 +279,7 @@ export function MessageList({
         // hold: it takes the caller's className and the height bounds, and stays the flex child
         // callers lay out against. Without that, a caller's spacing (e.g. `mb-3`) would land inside
         // the wrapper and stop separating the thread from whatever follows it.
-        <div className={`relative flex flex-col flex-1 ${className}`} style={{ minHeight, maxHeight }}>
+        <div className={`relative flex flex-col flex-1 min-h-0 ${className}`} style={{ minHeight, maxHeight }}>
             <div
                 ref={containerRef}
                 onScroll={handleScroll}

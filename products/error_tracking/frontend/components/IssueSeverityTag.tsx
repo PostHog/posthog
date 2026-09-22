@@ -52,11 +52,17 @@ function issueSeverityIcon(severity: IssueSeverity | null | undefined): JSX.Elem
     )
 }
 
-export function IssueSeverityTag({ severity }: { severity: IssueSeverity | null | undefined }): JSX.Element {
+export function IssueSeverityTag({
+    severity,
+    label,
+}: {
+    severity: IssueSeverity | null | undefined
+    label?: string
+}): JSX.Element {
     return (
         <span className={clsx('inline-flex items-center gap-1 text-xs font-medium', issueSeverityColor(severity))}>
             {issueSeverityIcon(severity)}
-            {issueSeverityLabel(severity)}
+            {label ?? issueSeverityLabel(severity)}
         </span>
     )
 }

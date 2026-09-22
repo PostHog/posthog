@@ -16,8 +16,10 @@ import {
 import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -26,11 +28,13 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdownWithMermaid } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdownWithMermaid'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -43,13 +47,36 @@ import type { LLMSkillFileManifestApi, LLMSkillVersionSummaryApi } from 'product
 
 import type { SkillFormFileValues } from './llmSkillLogic'
 import { SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
-import { SKILL_NAME_MAX_LENGTH, SKILL_DESCRIPTION_MAX_LENGTH } from './skillConstants'
+import { llmSkillsLogic } from './llmSkillsLogic'
+import {
+    PRODUCT_OWNED_SKILL_NAME_PREFIXES,
+    SKILL_NAME_MAX_LENGTH,
+    SKILL_DESCRIPTION_MAX_LENGTH,
+} from './skillConstants'
 import { skillFileLogic } from './skillFileLogic'
 import { collectFilesFromDrop } from './skillFileUpload'
 import { SkillOwners } from './SkillOwners'
-import { SkillPublishReviewModal, openArchiveSkillDialog } from './skillSceneComponents'
+import {
+    SkillPublishReviewModal,
+    openArchiveSkillDialog,
+    openPublishToCommunityDialog,
+    openRenameSkillDialog,
+    publishToCommunityDisabledReason,
+} from './skillSceneComponents'
 
 const MonacoDiffEditor = lazyWithRetry(() => import('lib/components/MonacoDiffEditor'))
+
+/** Why this skill cannot be renamed, or undefined when it can be.
+ *
+ * Scouts and ReviewHog skills keep their settings under the skill name, so the backend refuses to
+ * rename them. Say so up front instead of letting the click come back a 400.
+ */
+function renameBlockedReason(skillName: string | null): string | undefined {
+    if (skillName === null || !PRODUCT_OWNED_SKILL_NAME_PREFIXES.some((prefix) => skillName.startsWith(prefix))) {
+        return undefined
+    }
+    return 'Skills that run on a schedule or a pull request keep settings under their name, so they cannot be renamed'
+}
 
 export const scene: SceneExport<SkillLogicProps> = {
     component: LLMSkillScene,
@@ -81,23 +108,32 @@ export function LLMSkillScene(): JSX.Element {
         downloadingZip,
         isSkillFormDirty,
         nextVersion,
+        skillName,
+        selectedVersion,
+        isSkillAccessDenied,
+        hasSkillLoadError,
+        renamingSkill,
     } = useValues(llmSkillLogic)
     const { searchParams } = useValues(router)
+    // Reuse the list scene's publish flow: its action, per-skill in-flight guard, and resolved
+    // GitHub handle. Mounting llmSkillsLogic here shares that single source of truth.
+    const { publishingSkills, githubLogin } = useValues(llmSkillsLogic)
+    const { publishToCommunity } = useActions(llmSkillsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
 
     const {
         submitSkillForm,
         requestPublish,
         deleteSkill,
+        renameSkill,
         setMode,
         setSkillFormValues,
         loadMoreVersions,
         downloadSkill,
         cancelEditing,
+        loadSkill,
     } = useActions(llmSkillLogic)
-
-    if (isSkillMissing) {
-        return <NotFound object="skill" />
-    }
 
     if (shouldDisplaySkeleton) {
         return (
@@ -109,9 +145,57 @@ export function LLMSkillScene(): JSX.Element {
         )
     }
 
+    if (isSkillAccessDenied) {
+        return <AccessDenied object="skill" />
+    }
+
+    if (hasSkillLoadError) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Try again', onClick: loadSkill }}>
+                Couldn't load this skill. Try again, and if it keeps happening contact support.
+            </LemonBanner>
+        )
+    }
+
+    if (isSkillMissing) {
+        return (
+            <NotFound
+                object="skill"
+                caption={
+                    // The resolve endpoint returns the same 404 for a missing skill and a missing
+                    // version, so the caption can only name what the URL asks for.
+                    selectedVersion !== null ? (
+                        <>
+                            This link points to version {selectedVersion}.{' '}
+                            <Link to={urls.skill(skillName)}>Try the latest version</Link>, or{' '}
+                            <Link to={urls.skills()}>browse all skills</Link>.
+                        </>
+                    ) : (
+                        <>
+                            Check the skill name in the URL, or <Link to={urls.skills()}>browse all skills</Link>.
+                        </>
+                    )
+                }
+            />
+        )
+    }
+
     // A direct link with `?edit=true` shouldn't grant edit access the New version button
     // wouldn't otherwise give — fall back to the read-only view when the user can't actually publish.
     const canEditSkill = userHasAccess(AccessControlResourceType.LlmSkill, AccessControlLevel.Editor)
+
+    const communitySkillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS]
+    const publishDisabledReason = isSkill(skill)
+        ? publishToCommunityDisabledReason({
+              ownerUuids: skill.owners.map((owner) => owner.uuid),
+              currentUserUuid: user?.uuid,
+              publishing: !!publishingSkills[skill.name],
+              isHistoricalVersion,
+          })
+        : undefined
+
+    const renameDisabledReason = renameBlockedReason(isSkill(skill) ? skill.name : null)
+
     const content =
         isViewMode || !canEditSkill ? (
             <SceneContent>
@@ -169,19 +253,59 @@ export function LLMSkillScene(): JSX.Element {
                             <More
                                 size="small"
                                 overlay={
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.LlmSkill}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                    >
-                                        <LemonButton
-                                            status="danger"
-                                            onClick={() => openArchiveSkillDialog(deleteSkill)}
-                                            data-attr="llma-skill-delete-button"
-                                            fullWidth
+                                    <>
+                                        {communitySkillsEnabled && isSkill(skill) && (
+                                            <AccessControlAction
+                                                resourceType={AccessControlResourceType.LlmSkill}
+                                                minAccessLevel={AccessControlLevel.Editor}
+                                            >
+                                                <LemonButton
+                                                    onClick={() =>
+                                                        openPublishToCommunityDialog({
+                                                            skillName: skill.name,
+                                                            githubLogin,
+                                                            onPublish: publishToCommunity,
+                                                        })
+                                                    }
+                                                    disabledReason={publishDisabledReason}
+                                                    data-attr="llma-skill-publish-community-button"
+                                                    fullWidth
+                                                >
+                                                    Publish to PostHog community…
+                                                </LemonButton>
+                                            </AccessControlAction>
+                                        )}
+
+                                        {isSkill(skill) && (
+                                            <AccessControlAction
+                                                resourceType={AccessControlResourceType.LlmSkill}
+                                                minAccessLevel={AccessControlLevel.Editor}
+                                            >
+                                                <LemonButton
+                                                    onClick={() => openRenameSkillDialog(skill.name, renameSkill)}
+                                                    disabledReason={renamingSkill ? 'Renaming…' : renameDisabledReason}
+                                                    data-attr="llma-skill-rename-button"
+                                                    fullWidth
+                                                >
+                                                    Rename
+                                                </LemonButton>
+                                            </AccessControlAction>
+                                        )}
+
+                                        <AccessControlAction
+                                            resourceType={AccessControlResourceType.LlmSkill}
+                                            minAccessLevel={AccessControlLevel.Editor}
                                         >
-                                            Archive
-                                        </LemonButton>
-                                    </AccessControlAction>
+                                            <LemonButton
+                                                status="danger"
+                                                onClick={() => openArchiveSkillDialog(deleteSkill)}
+                                                data-attr="llma-skill-delete-button"
+                                                fullWidth
+                                            >
+                                                Archive
+                                            </LemonButton>
+                                        </AccessControlAction>
+                                    </>
                                 }
                             />
                         </>
@@ -775,8 +899,8 @@ function SkillEditForm({
                 label="Name"
                 help={
                     isNewSkill
-                        ? `Lowercase letters, numbers, and hyphens only. Max ${SKILL_NAME_MAX_LENGTH} characters. Cannot be changed later.`
-                        : 'This name is used to fetch the skill from your code.'
+                        ? `Lowercase letters, numbers, and hyphens only. Max ${SKILL_NAME_MAX_LENGTH} characters.`
+                        : 'This name is used to fetch the skill from your code. Change it with Rename in the More menu.'
                 }
             >
                 <LemonInput
@@ -784,7 +908,7 @@ function SkillEditForm({
                     placeholder="my-skill-name"
                     maxLength={SKILL_NAME_MAX_LENGTH}
                     fullWidth
-                    disabledReason={!isNewSkill ? 'Skill name cannot be changed after creation' : undefined}
+                    disabledReason={!isNewSkill ? 'Use Rename in the More menu to change the name' : undefined}
                 />
             </LemonField>
 

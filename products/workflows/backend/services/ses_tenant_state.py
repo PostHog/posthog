@@ -7,6 +7,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.models.team import Team
+from posthog.plugins.plugin_server_api import reload_team_workflows_config_on_workers
 from posthog.tasks.email import (
     send_email_sending_reputation_finding,
     send_email_sending_suspended,
@@ -43,6 +44,18 @@ _FINDING_DESCRIPTIONS = {
 }
 
 _STATE_FIELDS = ["ses_tenant_sending_status", "ses_tenant_reputation_impact", "ses_tenant_state_synced_at"]
+
+
+def _announce_state_change(team_id: int) -> None:
+    """
+    Tell the send path to drop its cached copy of the row. Best effort: it re-reads within a couple
+    of minutes anyway, so a Redis blip must not fail a webhook or sweep whose state change has
+    already committed — the retry would find the state unchanged and never announce it at all.
+    """
+    try:
+        reload_team_workflows_config_on_workers(team_id)
+    except Exception:
+        logger.exception("Failed to announce SES tenant state change to workers", team_id=team_id)
 
 
 def sync_ses_tenant_state(team_id: int, provider: SESProvider | None = None, *, verify_team: bool = True) -> None:
@@ -112,6 +125,11 @@ def apply_ses_tenant_state(
             from_impact=previous_impact,
             to_impact=impact,
         )
+
+        # The send path caches this row for a couple of minutes, so without this a pause keeps
+        # sending and a reinstatement keeps blocking until the entry expires. After commit, so the
+        # worker cannot re-read the row before the new state is visible and cache it again.
+        transaction.on_commit(lambda: _announce_state_change(team_id))
 
         notify = _pick_notification(
             previous_status=previous_status,

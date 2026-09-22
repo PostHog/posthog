@@ -168,6 +168,7 @@ def build_export_context(chart: ValidatedChart) -> dict:
         chart_settings["showLegend"] = True
     return {
         "limit_context": "posthog_ai",
+        "title": chart.title,
         "source": {
             "kind": "DataVisualizationNode",
             "source": {"kind": "HogQLQuery", "query": chart.hogql},

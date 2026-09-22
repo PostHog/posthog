@@ -15,6 +15,20 @@ const EXISTING_EXPORT = {
     filters: [],
 }
 
+const EXISTING_LEGACY_S3_PARQUET_EXPORT = {
+    ...batchExports.results[2],
+    id: '018a6fab-2c21-0001-d451-724c2995e2c1',
+    model: 'events',
+    filters: [],
+    destination: {
+        ...batchExports.results[2].destination,
+        config: {
+            ...batchExports.results[2].destination.config,
+            file_format: 'Parquet',
+        },
+    },
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/BatchExports',
@@ -31,8 +45,15 @@ const meta: Meta = {
                 '/api/environments/:team_id/batch_exports/test/': { steps: [] },
                 [`/api/environments/:team_id/batch_exports/${EXISTING_EXPORT.id}/runs/`]: { results: [] },
                 [`/api/environments/:team_id/batch_exports/${EXISTING_EXPORT.id}/backfills/`]: { results: [] },
+                [`/api/environments/:team_id/batch_exports/${EXISTING_LEGACY_S3_PARQUET_EXPORT.id}/`]:
+                    EXISTING_LEGACY_S3_PARQUET_EXPORT,
+                [`/api/environments/:team_id/batch_exports/${EXISTING_LEGACY_S3_PARQUET_EXPORT.id}/runs/`]: {
+                    results: [],
+                },
+                [`/api/environments/:team_id/batch_exports/${EXISTING_LEGACY_S3_PARQUET_EXPORT.id}/backfills/`]: {
+                    results: [],
+                },
                 // Integration-backed destinations (Databricks, AzureBlob, BigQuery) render IntegrationChoice.
-                '/api/environments/:team_id/integrations': { results: [] },
                 '/api/projects/:team_id/integrations': { results: [] },
             },
         }),
@@ -44,8 +65,8 @@ type Story = StoryObj<{}>
 
 // One new-export story per destination so visual regression covers each destination's
 // edit form (the per-destination `Fields` components in destinations/). The default
-// configuration drives any conditional UI: Redshift defaults to COPY (shows the S3
-// staging section), Snowflake to password auth.
+// configuration drives any conditional UI: Redshift defaults to COPY, which shows the
+// S3 staging section.
 export const NewAwsS3Export: Story = {
     parameters: {
         pageUrl: urls.batchExportNew('awss3'),
@@ -103,6 +124,12 @@ export const NewBigQueryExport: Story = {
 export const ExistingBigQueryExport: Story = {
     parameters: {
         pageUrl: urls.batchExport(EXISTING_EXPORT.id),
+    },
+}
+
+export const ExistingAwsS3ExportWithLegacyParquetExtension: Story = {
+    parameters: {
+        pageUrl: urls.batchExport(EXISTING_LEGACY_S3_PARQUET_EXPORT.id),
     },
 }
 

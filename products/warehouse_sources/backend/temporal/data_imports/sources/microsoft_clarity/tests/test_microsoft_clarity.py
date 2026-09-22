@@ -3,7 +3,7 @@ from collections.abc import Iterable
 from typing import Any, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -68,10 +68,31 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, [], True, None),
-            ("unauthorized", 401, None, False, "Invalid or expired Microsoft Clarity API token."),
-            ("forbidden", 403, None, False, "This Microsoft Clarity API token is not authorized for this project."),
+            (
+                "unauthorized",
+                401,
+                None,
+                False,
+                "Your Microsoft Clarity API token is invalid or expired. Generate a new token in Clarity "
+                "under Settings -> Data Export and reconnect.",
+            ),
+            (
+                "forbidden",
+                403,
+                None,
+                False,
+                "Your Microsoft Clarity API token isn't authorized for this project. Generate one in the "
+                "Clarity project you want to sync, under Settings -> Data Export, then reconnect.",
+            ),
             ("quota_exceeded_still_valid", 429, None, True, None),
-            ("unexpected_status", 400, None, False, "Microsoft Clarity returned status 400."),
+            (
+                "unexpected_status",
+                400,
+                None,
+                False,
+                "Microsoft Clarity rejected the connection check. Confirm the token is still listed in Clarity "
+                "under Settings -> Data Export, then reconnect.",
+            ),
         ]
     )
     @mock.patch(SESSION_PATCH)
@@ -131,7 +152,7 @@ SAMPLE_PAYLOAD = [
 
 
 class TestMicrosoftClaritySource:
-    @freeze_time("2026-07-23T12:00:00Z")
+    @time_machine.travel("2026-07-23T12:00:00Z", tick=False)
     @mock.patch(SESSION_PATCH)
     def test_flattens_every_metric_and_information_row(self, MockSession: Any) -> None:
         session = MockSession.return_value

@@ -79,7 +79,7 @@ export function SpendLimitCard({
   };
 
   return (
-    <div className="flex flex-col gap-3 rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid) px-4 py-3.5">
+    <div className="flex flex-col gap-3 rounded-(--radius-3) border border-border bg-card px-4 py-3.5">
       <div className="flex items-center justify-between gap-4">
         <span className="flex min-w-0 flex-col gap-0.5">
           <Text className="text-(--gray-12) text-[13px]">{title}</Text>

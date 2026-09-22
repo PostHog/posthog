@@ -31,7 +31,18 @@ test.describe('Event Definitions', () => {
         const replayTab = await popupPromise
         await expect(replayTab).toHaveURL(/replay/)
 
-        await replayTab.locator('.LemonButton--has-icon .LemonButton__content').filter({ hasText: 'Filters' }).click()
+        // The demo project has events but no recordings, so replay opens on its setup
+        // empty state. Skip past it to reach the list this action deep-linked into.
+        const skipEmptyState = replayTab.locator('[data-attr="product-empty-state-skip"]')
+        const filtersButton = replayTab
+            .locator('.LemonButton--has-icon .LemonButton__content')
+            .filter({ hasText: 'Filters' })
+        await expect(skipEmptyState.or(filtersButton).first()).toBeVisible()
+        if (await skipEmptyState.isVisible()) {
+            await skipEmptyState.click()
+        }
+
+        await filtersButton.click()
 
         await expect(replayTab.locator('.UniversalFilterButton').first()).toContainText(eventName, {
             ignoreCase: true,

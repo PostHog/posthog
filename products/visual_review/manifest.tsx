@@ -18,6 +18,8 @@ export const manifest: ProductManifest = {
             // /visual_review entry point — picks a repo and forwards into its
             // workspace. Empty / multi-repo cases handled inside the scene.
             name: 'Visual review',
+            description:
+                'Catch unintended UI changes by reviewing screenshot diffs from CI, with the approved baselines committed back to your repo.',
             projectBased: true,
             import: () => import('./frontend/scenes/VisualReviewIndexScene'),
             iconType: 'visual_review',

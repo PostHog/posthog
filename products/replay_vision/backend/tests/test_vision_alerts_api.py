@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -12,6 +12,7 @@ from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, PersonalAPIKey, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -38,7 +39,7 @@ class _VisionAlertAPITestCase(APIBaseTest):
             name=name,
             scanner_type=scanner_type,
             scanner_config={"prompt": "did the user check out?"},
-            model=ScannerModel.GEMINI_3_7_FLASH,
+            model=ScannerModel.GEMINI_3_8_FLASH,
         )
 
     def _metric_payload(self, **overrides: Any) -> dict[str, Any]:
@@ -391,3 +392,43 @@ class TestVisionAlertAccessControl(_VisionAlertAPITestCase):
             HTTP_AUTHORIZATION=f"Bearer {full}",
         )
         assert response.status_code == 201, response.json()
+
+
+class TestVisionAlertActivityLogging(_VisionAlertAPITestCase):
+    def _logs(self, alert_id: str) -> list[ActivityLog]:
+        return list(
+            ActivityLog.objects.filter(
+                team_id=self.team.id, scope="VisionAlertConfiguration", item_id=str(alert_id)
+            ).order_by("created_at")
+        )
+
+    def test_api_crud_is_audited(self) -> None:
+        alert_id = self._create_via_api()["id"]
+
+        self.client.patch(f"{self.base_url}{alert_id}/", {"threshold": 9}, format="json")
+        self.client.delete(f"{self.base_url}{alert_id}/")
+
+        logs = self._logs(alert_id)
+        assert [log.activity for log in logs] == ["created", "updated", "deleted"]
+        detail = cast(dict[str, Any], logs[1].detail)
+        assert {change["field"] for change in detail["changes"]} == {"threshold"}
+
+    @parameterized.expand(
+        [
+            # The two shapes the engine actually saves: a suppressed check, and a state transition.
+            ("suppressed_check", ["next_check_at", "updated_at"]),
+            ("state_transition", ["state", "consecutive_failures", "last_checked_at", "next_check_at"]),
+        ]
+    )
+    def test_evaluation_writes_are_not_audited(self, _name: str, update_fields: list[str]) -> None:
+        # The engine rewrites these on every check; logging them would bury the edits a person made.
+        alert = VisionAlertConfiguration.objects.for_team(self.team.id).get(id=self._create_via_api()["id"])
+        ActivityLog.objects.all().delete()
+
+        alert.state = VisionAlertState.FIRING
+        alert.consecutive_failures = 1
+        alert.last_checked_at = datetime.now(UTC)
+        alert.next_check_at = datetime.now(UTC) + timedelta(hours=1)
+        alert.save(update_fields=update_fields)
+
+        assert self._logs(str(alert.id)) == []

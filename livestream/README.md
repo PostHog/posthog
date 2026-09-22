@@ -19,6 +19,13 @@ Hog 3000 powers live event stream on PostHog: https://us.posthog.com/project/0/a
   - `property` - repeatable; each value is `key=value` for exact-match
     filtering on top-level event properties. Multiple params with the same
     key OR together, different keys AND together.
+  - `pathCleaning` - JSON array of `{"alias", "regex"}` path cleaning rules
+    (the team's `path_cleaning_filters`). Each streamed event carrying a
+    `$pathname` gains a `$virt_cleaned_pathname` property with the rules
+    applied in list order using RE2 semantics. Entries that are malformed,
+    fail to compile, or exceed per-rule size limits are skipped individually;
+    a ruleset of more than 100 rules is ignored entirely, so subscribers can
+    fall back to cleaning client-side with the full set.
 - `/debug` - dummy html for SSE testing,
 - `/debug/sse/` - backend for `/debug` generating a server side events,
 - `/metrics` - exposes metrics in Prometheus format

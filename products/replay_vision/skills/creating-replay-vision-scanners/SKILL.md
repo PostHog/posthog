@@ -49,7 +49,7 @@ Pick a `scanner_type` and write its `scanner_config`. Every type needs a `prompt
 | `monitor`    | Open-ended observation against a prompt (e.g. "flag rage clicks") | `{"prompt": "..."}`; optional `"allow_inconclusive": true` (off by default, so the model must answer yes or no)                                                             |
 | `classifier` | Assigns tags from a fixed label set                               | `{"prompt": "...", "tags": ["tag-a", "tag-b"]}` — `tags` needs ≥1 entry; optional `"multi_label": false` (defaults to true), `"allow_freeform_tags": true` (off by default) |
 | `scorer`     | Numeric score on a rubric                                         | `{"prompt": "...", "scale": {"min": 1, "max": 5, "label": "frustration"}}` — `min` < `max`; `label` optional                                                                |
-| `summarizer` | Free-text summary, plus facet embeddings for search               | `{"prompt": "..."}`; optional `"length": "short" \| "medium" \| "long"` (default `"medium"`). Embeddings are always on                                                      |
+| `summarizer` | Free-text summary                                                 | `{"prompt": "..."}`; optional `"length": "short" \| "medium" \| "long"` (default `"medium"`). Embeddings are always on                                                      |
 
 `scanner_type` is **locked after creation** — to change it you delete and recreate, so confirm the type is
 right up front, and get the `scanner_config` shape right (a wrong shape is a create error, not a silent
@@ -79,8 +79,8 @@ Two levers narrow it further, applied in this order:
 #### Which model?
 
 `model` sets the price of every observation the scanner makes, so it's a cost lever as much as a quality one:
-`gemini-3.5-flash-lite` (2 credits), `gemini-3-flash-preview` (5 credits, the default) and `gemini-3.7-flash`
-(15 credits). Start at the default and only reach for `gemini-3.7-flash` when the cheaper tiers demonstrably
+`gemini-3.5-flash-lite` (2 credits), `gemini-3-flash-preview` (5 credits, the default) and `gemini-3.8-flash`
+(15 credits). Start at the default and only reach for `gemini-3.8-flash` when the cheaper tiers demonstrably
 miss what the scanner is looking for.
 
 ### Step 3: Size it — the gut-check (do not skip)
@@ -161,6 +161,10 @@ observations they have to go read.
   them with `vision-scanners-observations-list` for one scanner over time, or `vision-observations-list`
   (requires `session_id`) for every scanner's findings on a single session. To dig into a recording, hand off
   to the `investigating-replay` skill.
+- **Say how the scanner gets better.** A first prompt is a guess, and the first sweep is what corrects it.
+  Tell the user that rating results thumbs up or down with `vision-observations-label-create` turns into a
+  config recommendation they can review on the scanner's Calibration tab. Most scanners are never rated, so
+  they run forever on the first guess. The `exploring-replay-vision-observations` skill covers that loop.
 
 ## Updating an existing scanner
 

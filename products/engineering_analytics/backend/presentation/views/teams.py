@@ -55,6 +55,14 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
                 required=False,
                 description="Maximum number of teams to return (1-200). Defaults to 100.",
             ),
+            OpenApiParameter(
+                name="owner_team",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Restrict the roster to one owning team slug (or 'unowned'). The cheap way to "
+                "read a single team's rollup.",
+            ),
             _SOURCE_ID,
         ],
         responses={
@@ -69,9 +77,12 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
             "seen both failing and passing in the window, regression_test_count is owned tests that failed "
             "with no such proof and still hit the blast-radius bar, plus failed/recovery/quarantined run counts. Each has an "
             "equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI "
-            "emission time from the repo's ownership map (products/*/product.yaml + CODEOWNERS); unstamped "
+            "emission time from the repo's ownership map (the distributed owners.yaml files); unstamped "
             "spans aggregate under the literal team 'unowned', and a re-stamped test lands under its latest "
-            "owner only. Teams are organizational owners of code surfaces, never authors. " + FLAKY_TEST_SIGNAL_CAVEAT
+            "owner only. Each row also carries test_file_count (the daily owners.yaml census denominator, with "
+            "a window-start twin) and merged_pr_count (merged PRs by the team's members, bots excluded); teams "
+            "with census counts but no CI signal appear with zero signal counts and a null last_seen_at. Teams "
+            "are organizational owners of code surfaces, never authors. " + FLAKY_TEST_SIGNAL_CAVEAT
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -83,6 +94,7 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
                 date_to=request.query_params.get("date_to") or None,
                 min_failed_prs=_optional_int_param(request, "min_failed_prs"),
                 limit=_optional_int_param(request, "limit"),
+                owner_team=request.query_params.get("owner_team") or None,
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )

@@ -12,28 +12,24 @@ table), ``query_merge_queue_trunk_outcomes`` reads the real verdicts instead.
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from posthog.hogql import ast
 
-from products.engineering_analytics.backend.logic.merge_queue import gate_attempt_expr
+from products.engineering_analytics.backend.logic.merge_queue import GATE_RUN_LOOKBACK, gate_attempts_sql
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    DECISIVE_FAILURE_CONCLUSIONS_SQL,
     date_to_filter_clause,
     run_started_floor_constant,
     window_pair_predicates,
 )
+from products.engineering_analytics.backend.logic.views.trunk_merge_queue import TRUNK_OUT_OF_QUEUE_STATES
 
-# Gate runs start minutes-to-hours before their merge; reach this far behind the previous window so
-# a PR merged just inside it keeps its first attempt. Dwell beyond this truncates honestly: the
-# first observed gate run anchors the measure.
-_GATE_LOOKBACK = timedelta(days=7)
-
-# Three layers so no SELECT reads an alias it defines: the inner select groups gate runs per source
-# PR, the middle names the per-PR measure, the outer splits the current and previous windows on
-# merge time. ``r.run_started_at <= merged_at`` keeps post-merge bisection runs out of both the
-# first-gate anchor and the attempt count; a cancelled gate run counts as an attempt but not a
-# failure (an attempt evicted by a neighbor's failure is not this PR's failure).
+# Three layers so no SELECT reads an alias it defines: the inner select groups attempts per source
+# PR, the middle names the per-PR measure, and the outer splits the current and previous windows on
+# merge time. A cancelled gate run counts as an attempt but not a failure (an attempt evicted by a
+# neighbor's failure is not this PR's failure).
 _MERGE_QUEUE_SELECT = """
     SELECT
         countIf(__CUR__) AS merged_cur,
@@ -61,19 +57,13 @@ _MERGE_QUEUE_SELECT = """
             had_failed_gate
         FROM (
             SELECT
-                r.pr_number AS pr_number,
-                any(pr.merged_at) AS merged_at,
-                min(r.run_started_at) AS first_gate_started_at,
-                count(DISTINCT __GATE_ATTEMPT__) AS attempts,
-                max(r.status = 'completed' AND r.conclusion IN ('failure', 'timed_out')) AS had_failed_gate
-            FROM __RUNS_SOURCE__ AS r
-            INNER JOIN __PR_SOURCE__ AS pr ON pr.number = r.pr_number
-            WHERE r.is_merge_queue
-                AND r.run_started_at >= {gate_from}
-                AND pr.merged_at IS NOT NULL
-                AND r.run_started_at <= pr.merged_at
-                AND pr.merged_at >= {prev_from} __DATE_TO_MERGED__
-            GROUP BY r.pr_number
+                pr_number,
+                any(merged_at) AS merged_at,
+                min(started_at) AS first_gate_started_at,
+                count() AS attempts,
+                max(failed) AS had_failed_gate
+            FROM (__GATE_ATTEMPTS__)
+            GROUP BY pr_number
         )
     )
 """
@@ -135,8 +125,8 @@ _TRUNK_OUTCOMES_SELECT = """
     FROM (
         SELECT
             state_changed_at,
-            state IN ('merged', 'failed', 'cancelled') AS concluded,
-            state IN ('failed', 'cancelled') AS failed_or_cancelled,
+            state IN (__CONCLUDED_STATES__) AS concluded,
+            state IN (__OUT_OF_QUEUE_STATES__) AS failed_or_cancelled,
             skip_the_line
         FROM __TRUNK_SOURCE__
         WHERE state_changed_at >= {prev_from} __DATE_TO_CHANGED__
@@ -184,11 +174,15 @@ def query_merge_queue_trunk_outcomes(
         "prev_from": ast.Constant(value=prev_from),
     }
     date_to_changed_clause = date_to_filter_clause(date_to, placeholders, column="state_changed_at")
+    out_of_queue_states = ", ".join(f"'{state}'" for state in sorted(TRUNK_OUT_OF_QUEUE_STATES))
+    concluded_states = f"'merged', {out_of_queue_states}"
     sql = (
         _TRUNK_OUTCOMES_SELECT.replace("__CUR__", cur)
         .replace("__PREV__", prev)
         .replace("__TRUNK_SOURCE__", source)
         .replace("__DATE_TO_CHANGED__", date_to_changed_clause)
+        .replace("__CONCLUDED_STATES__", concluded_states)
+        .replace("__OUT_OF_QUEUE_STATES__", out_of_queue_states)
     )
     response = curated.run(
         sql, query_type="engineering_analytics.merge_queue_trunk_outcomes", placeholders=placeholders
@@ -212,26 +206,32 @@ def query_merge_queue_overview(
 ) -> MergeQueueWindowStats:
     """Merge-queue landing stats for [date_from, date_to] and [prev_from, date_from], one scan.
 
-    The population keys on ``merged_at`` like every merge median; gate runs are scanned from
-    ``prev_from - _GATE_LOOKBACK`` so a merge near the previous window's start keeps its early
-    attempts.
+    The population keys on ``merged_at`` like every merge median. Each comparison window applies
+    ``GATE_RUN_LOOKBACK`` from its own start, while the shared source scan begins at the earlier floor.
     """
-    gate_from = prev_from - _GATE_LOOKBACK
+    gate_from = prev_from - GATE_RUN_LOOKBACK
     windows = window_pair_predicates("merged_at", date_to=date_to)
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
         "prev_from": ast.Constant(value=prev_from),
         "gate_from": ast.Constant(value=gate_from),
+        "current_gate_from": ast.Constant(value=date_from - GATE_RUN_LOOKBACK),
         "run_started_floor": run_started_floor_constant(gate_from),
     }
     date_to_merged_clause = date_to_filter_clause(date_to, placeholders, column="pr.merged_at")
+    gate_attempts = gate_attempts_sql(
+        runs_source=curated.run_source(started_floor=True),
+        pull_requests_source=curated.pr_source(),
+        pull_request_filter="""pr.merged_at IS NOT NULL AND (
+            (pr.merged_at >= {date_from} __DATE_TO_MERGED__ AND r.run_started_at >= {current_gate_from})
+            OR (pr.merged_at >= {prev_from} AND pr.merged_at < {date_from})
+        )""",
+        decisive_failure_conclusions_sql=DECISIVE_FAILURE_CONCLUSIONS_SQL,
+    ).replace("__DATE_TO_MERGED__", date_to_merged_clause)
     sql = (
         _MERGE_QUEUE_SELECT.replace("__CUR__", windows.current)
         .replace("__PREV__", windows.previous)
-        .replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
-        .replace("__PR_SOURCE__", curated.pr_source())
-        .replace("__GATE_ATTEMPT__", gate_attempt_expr("r.head_branch"))
-        .replace("__DATE_TO_MERGED__", date_to_merged_clause)
+        .replace("__GATE_ATTEMPTS__", gate_attempts)
     )
     response = curated.run(sql, query_type="engineering_analytics.merge_queue_overview", placeholders=placeholders)
     if not response.results:

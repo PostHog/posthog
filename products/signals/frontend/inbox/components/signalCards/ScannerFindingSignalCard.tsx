@@ -1,10 +1,11 @@
-import { LemonTag } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { colonDelimitedDuration, humanFriendlyDuration } from 'lib/utils/durations'
-import { identifierToHuman } from 'lib/utils/strings'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { getVisionObservationsThumbnailRetrieveUrl } from 'products/replay_vision/frontend/generated/api'
 import type { ReplayVisionScannerFindingSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { RecordingPreview } from './RecordingPreview'
@@ -35,9 +36,8 @@ function findingSeekTime(recordingStartTime: string | null | undefined, offsetSe
 
 /** Live card for a replay-vision scanner finding: thumbnail preview and a play affordance that seeks to the observation. */
 export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
     const extra = signal.extra as Record<string, unknown> & ReplayVisionScannerFindingSignalExtraApi
-
-    const confidencePct = Math.round(extra.confidence * 100)
 
     const activeDuration =
         extra.recording_active_seconds != null ? humanFriendlyDuration(extra.recording_active_seconds) : undefined
@@ -46,20 +46,7 @@ export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Eleme
     const findingWindow = `${colonDelimitedDuration(extra.start_time, 2)} to ${colonDelimitedDuration(extra.end_time, 2)}`
 
     return (
-        <SignalCardShell
-            signal={signal}
-            label={extra.scanner_name}
-            rightSlot={
-                <div className="flex items-center gap-1 shrink-0">
-                    <LemonTag type="caution" size="small">
-                        {identifierToHuman(extra.problem_type)}
-                    </LemonTag>
-                    <LemonTag type="muted" size="small">
-                        {confidencePct}% confidence
-                    </LemonTag>
-                </div>
-            }
-        >
+        <SignalCardShell signal={signal} label={extra.scanner_name}>
             {signal.content && (
                 <LemonMarkdown className="text-sm text-secondary mb-2" disableImages>
                     {signal.content}
@@ -69,7 +56,11 @@ export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Eleme
             <RecordingPreview
                 sessionId={extra.session_id}
                 seekTime={findingSeekTime(extra.recording_start_time, extra.start_time)}
-                exportedAssetId={extra.exported_asset_id}
+                thumbnailSrc={
+                    currentTeamId !== null
+                        ? getVisionObservationsThumbnailRetrieveUrl(String(currentTeamId), extra.observation_id)
+                        : undefined
+                }
                 alt={`Recording preview for ${extra.scanner_name}`}
             />
 

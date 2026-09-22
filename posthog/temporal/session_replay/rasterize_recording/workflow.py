@@ -3,10 +3,6 @@ from typing import Any
 
 import temporalio.workflow as wf
 from temporalio import common
-from temporalio.exceptions import (
-    FailureError,
-    TimeoutError as TemporalTimeoutError,
-)
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
@@ -30,6 +26,7 @@ with wf.unsafe.imports_passed_through():
 
 from posthog.temporal.common.errors import (
     MAX_ERROR_MESSAGE_CHARS,
+    find_temporal_timeout_error,
     resolve_exception_class,
     truncate_for_temporal_payload,
     unwrap_temporal_cause,
@@ -65,12 +62,7 @@ def _resolve_error_code(exc: BaseException) -> str:
     ApplicationError in its cause chain, only Temporal's TimeoutError — without this check it would
     classify as an opaque `ActivityError` and land in the unknown bucket.
     """
-    current: BaseException | None = exc
-    while isinstance(current, FailureError):
-        if isinstance(current, TemporalTimeoutError):
-            return "ACTIVITY_TIMEOUT"
-        current = current.cause
-    return resolve_exception_class(exc)
+    return "ACTIVITY_TIMEOUT" if find_temporal_timeout_error(exc) else resolve_exception_class(exc)
 
 
 def _record_outcome(counter: Counter, inputs: RasterizeRecordingInputs) -> None:
@@ -212,7 +204,7 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
             # Reading a Django setting inside a workflow body is normally banned (it is not part of
             # recorded history); it is tolerated here because Temporal does not replay-check the
             # task-queue attribute, and a mid-flight change only redirects retries.
-            task_queue=settings.RASTERIZATION_TASK_QUEUE,
+            task_queue=inputs.task_queue or settings.RASTERIZATION_TASK_QUEUE,
             start_to_close_timeout=RASTERIZE_RENDER_TIMEOUT,
             heartbeat_timeout=dt.timedelta(seconds=30),
             retry_policy=common.RetryPolicy(maximum_attempts=RASTERIZE_RENDER_MAX_ATTEMPTS),

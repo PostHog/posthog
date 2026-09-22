@@ -43,6 +43,24 @@ export interface DisplayFormatterContext {
     registeredToolMap: Record<string, ToolRegistration>
 }
 
+/**
+ * Longest message the server accepts. Mirrors `MAX_MESSAGE_CONTENT_LENGTH` in ee/api/conversation.py;
+ * keep the two in sync. Anything longer comes back as a 400 on the `content` field.
+ */
+export const MAX_MESSAGE_LENGTH = 40000
+
+/** Shown when a message is over `MAX_MESSAGE_LENGTH`, both before sending and if the server rejects it. */
+export const MESSAGE_TOO_LONG = `Your message is too long. Shorten it to ${MAX_MESSAGE_LENGTH.toLocaleString()} characters or fewer.`
+
+/**
+ * Counts the way the server's `CharField` does: it trims whitespace, then measures Unicode code
+ * points (Python `len`), not UTF-16 units. Emoji are one code point each but two UTF-16 units, so
+ * `String.length` would reject messages the server accepts.
+ */
+export function messageLength(content: string): number {
+    return Array.from(content.trim()).length
+}
+
 /** Static tool definition for display purposes. */
 export interface ToolDefinition<N extends string = string> {
     /** A user-friendly display name for the tool. Must be a verb phrase, like "Create surveys" or "Search docs" */
@@ -867,18 +885,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Updating the scanner...'
         },
     },
-    create_replay_vision_action: {
-        name: 'Summarize a scanner',
-        description: 'Summarize a scanner on a recurring schedule',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Set up the summary'
-            }
-            return 'Setting up the summary...'
-        },
-    },
     list_replay_vision_scanners: {
         name: 'List scanners',
         description: 'List scanners in this project, with their ids, status and sampling',
@@ -949,54 +955,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Suggest categories'
             }
             return 'Suggest categories...'
-        },
-    },
-    read_replay_vision_actions: {
-        name: 'Read summaries',
-        description: 'Read summaries and alerts, and the reports they have produced',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Read summaries'
-            }
-            return 'Read summaries...'
-        },
-    },
-    update_replay_vision_action: {
-        name: 'Update a summary',
-        description: 'Update a summary: pause it, resume it, rename it, or change its cadence',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Update a summary'
-            }
-            return 'Update a summary...'
-        },
-    },
-    delete_replay_vision_action: {
-        name: 'Delete a summary',
-        description: 'Delete a summary and every report it has produced',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Delete a summary'
-            }
-            return 'Delete a summary...'
-        },
-    },
-    run_replay_vision_action: {
-        name: 'Run a summary now',
-        description: 'Run a summary now instead of waiting for its schedule',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Run a summary now'
-            }
-            return 'Run a summary now...'
         },
     },
     create_survey: {
@@ -1613,7 +1571,7 @@ export const MODE_DEFINITIONS: Record<
         description:
             'Works with your customer accounts — assign owners, review notes and usage, and dig into account data.',
         icon: iconForType('cohort'),
-        scenes: new Set([Scene.CustomerAnalytics]),
+        scenes: new Set([Scene.CustomerAnalytics, Scene.CustomerAnalyticsAccount]),
         flag: 'CUSTOMER_ANALYTICS_CSP',
     },
 }

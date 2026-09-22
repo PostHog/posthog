@@ -1,6 +1,10 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { combineUrl, router } from 'kea-router'
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+import type { CaptureOptions } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -10,10 +14,24 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { OriginProduct, Task, TaskRun, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
-import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { inboxSceneLogic, mergeSignalRuns } from './inboxSceneLogic'
-import { SignalScoutRunSummary } from './types'
+import { inboxBulkActionsLogic } from './logics/inboxBulkActionsLogic'
+import { reportListLogic, sectionListLogicProps } from './logics/reportListLogic'
+import { SignalReport, SignalReportStatus, SignalScoutRunSummary } from './types'
+
+function openedCalls(spy: jest.SpyInstance): any[][] {
+    return spy.mock.calls.filter((call) => call[0] === 'Inbox report opened')
+}
+
+function openedEvents(spy: jest.SpyInstance): Record<string, any>[] {
+    return openedCalls(spy).map((call) => call[1] as Record<string, any>)
+}
+
+function waitForOpenRankRetry(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, 400))
+}
 
 function scoutRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRunSummary {
     return {
@@ -43,7 +61,7 @@ function signalTask(overrides: Partial<Task> = {}): Task {
         title: 'Crash on login',
         description: '',
         origin_product: OriginProduct.SIGNAL_REPORT,
-        runtime: RuntimeEnumApi.Acp,
+        runtime: TaskRuntimeEnumApi.Acp,
         repository: null,
         github_integration: null,
         signal_report: 'report-1',
@@ -119,6 +137,8 @@ describe('inboxSceneLogic routing', () => {
                 '/api/projects/:team_id/signals/scout/configs/': [],
             },
         })
+        // The list-visited flag lives in session storage, so it outlives a test.
+        window.sessionStorage.clear()
         initKeaTests()
         featureFlagLogic.mount()
     })
@@ -215,6 +235,80 @@ describe('inboxSceneLogic routing', () => {
         expect(opened(logic.values)).toBe(true)
     })
 
+    // The scout page's tabs live in the URL, so a link to a scout's runs has to survive a reload.
+    // Selecting a scout resets the tab, so the URL's tab had to be applied after that reset.
+    describe('the scout page tab in the URL', () => {
+        it('opens the tab a reloaded URL names', () => {
+            mountWithRedesign(true)
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals'), { tab: 'runs' })
+            expect(logic.values.selectedScoutSkillName).toBe('signals-scout-web-vitals')
+            expect(logic.values.scoutDetailTab).toBe('runs')
+        })
+
+        it('leaves the tab on its default for a bare scout URL', () => {
+            mountWithRedesign(true)
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals'))
+            expect(logic.values.scoutDetailTab).toBeNull()
+        })
+
+        it('ignores a tab the page has no pane for', () => {
+            mountWithRedesign(true)
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals'), { tab: 'nonsense' })
+            expect(logic.values.scoutDetailTab).toBeNull()
+        })
+
+        it('writes the chosen tab back to the URL, and drops it again on the default', () => {
+            mountWithRedesign(true)
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals'))
+            logic.actions.setScoutDetailTab('learned')
+            expect(router.values.searchParams.tab).toBe('learned')
+            logic.actions.setScoutDetailTab(null)
+            expect(router.values.searchParams.tab).toBeUndefined()
+        })
+
+        // Hydrating a deep link must not add a history entry, or the first Back press lands on the
+        // same page with the same tab and reads as a dead control.
+        it.each<[string, string, Record<string, string> | undefined]>([
+            ['a tab deep link', urls.inboxScout('signals-scout-web-vitals'), { tab: 'runs' }],
+            ['a finding deep link', urls.inboxScout('signals-scout-web-vitals', 'finding-1'), undefined],
+            [
+                'a finding link on another pane',
+                urls.inboxScout('signals-scout-web-vitals', 'finding-1'),
+                { tab: 'runs' },
+            ],
+        ])('opens %s with one history entry', (_name, path, searchParams) => {
+            mountWithRedesign(true)
+            const push = jest.spyOn(router.actions, 'push')
+            router.actions.push(path, searchParams)
+            expect(push).toHaveBeenCalledTimes(1)
+            push.mockRestore()
+        })
+
+        it('opens Signals for a finding deep-link, which is what the link is asking for', () => {
+            mountWithRedesign(true)
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals', 'finding-1'))
+            expect(logic.values.scoutDetailTab).toBe('signals')
+        })
+
+        // A finding opens on Signals, but the reader can move to another pane and share that URL.
+        it('opens the pane a finding URL names instead of resetting to Signals', () => {
+            mountWithRedesign(true)
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals', 'finding-1'), { tab: 'runs' })
+            expect(logic.values.scoutDetailTab).toBe('runs')
+            expect(logic.values.selectedScoutFindingId).toBe('finding-1')
+        })
+
+        it('records a pane move on a finding page, and drops the param back on Signals', () => {
+            mountWithRedesign(true)
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals', 'finding-1'))
+            logic.actions.setScoutDetailTab('runs')
+            expect(router.values.location.pathname.endsWith('/finding-1')).toBe(true)
+            expect(router.values.searchParams.tab).toBe('runs')
+            logic.actions.setScoutDetailTab('signals')
+            expect(router.values.searchParams.tab).toBeUndefined()
+        })
+    })
+
     // A held report deep-link still opens the report under the persisted layout, so the page is not
     // empty while flags load; the replay only settles the tab once the layout is known.
     it('before flags resolve /inbox/pulls/<id> opens the report and lands on Reports once the redesign resolves', () => {
@@ -256,6 +350,145 @@ describe('inboxSceneLogic routing', () => {
         expect(openMethod).toBe(expectedMethod)
     })
 
+    // A reload, a new tab, and a bundle update each start a fresh logic. Switching project is a
+    // same-tab page load as well, and it keeps session storage, so the marker is per project.
+    it.each([
+        { where: 'the same project', team: MOCK_DEFAULT_TEAM, expected: 'click' },
+        {
+            where: 'another project',
+            team: { ...MOCK_DEFAULT_TEAM, id: MOCK_DEFAULT_TEAM.id + 1 },
+            expected: 'deeplink',
+        },
+    ])('a report URL loaded fresh in $where after the list was visited reads $expected', async ({ team, expected }) => {
+        mountWithRedesign(true)
+        router.actions.push(urls.inbox('reports'))
+        logic.unmount()
+
+        initKeaTests(true, team)
+        featureFlagLogic.mount()
+        mountWithRedesign(true)
+
+        let openMethod: string | undefined
+        await expectLogic(logic, () => router.actions.push(urls.inboxReport('reports', 'r1'))).toDispatchActions([
+            (action: any) => {
+                if (action.type !== logic.actionTypes.setSelectedReportId) {
+                    return false
+                }
+                openMethod = action.payload.openMethod
+                return true
+            },
+        ])
+        expect(openMethod).toBe(expected)
+    })
+
+    // A rank read at open time is null on a cold load, and joins to no impression row. The event is
+    // then captured after the wait, so it also has to carry the moment the report opened: a scroll
+    // or an action taken during the wait would otherwise read earlier than the open.
+    it('holds `Inbox report opened` until the list answers, then reports the rank and the open time', async () => {
+        const report = { id: 'r1', title: 'Crash on login' } as SignalReport
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/': {
+                    results: [report],
+                    count: 1,
+                    next: null,
+                    previous: null,
+                },
+            },
+        })
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        mountWithRedesign(false)
+        const listLogic = reportListLogic(sectionListLogicProps('needs-decision'))
+        listLogic.mount()
+        listLogic.actions.loadReports()
+
+        logic.actions.setSelectedReportId('r1')
+        const beforeOpen = Date.now()
+        logic.actions.loadSelectedReportSuccess(report)
+        const afterOpen = Date.now()
+        expect(openedEvents(captureSpy)).toHaveLength(0)
+
+        await waitForOpenRankRetry()
+
+        expect(openedEvents(captureSpy)[0]).toMatchObject({ rank: 1, list_size: 1 })
+        const stampedAt = (openedCalls(captureSpy)[0][2] as CaptureOptions | undefined)?.timestamp?.getTime()
+        expect(stampedAt).toBeGreaterThanOrEqual(beforeOpen)
+        expect(stampedAt).toBeLessThanOrEqual(afterOpen)
+        captureSpy.mockRestore()
+        listLogic.unmount()
+    })
+
+    // The flat list merges every selected state, so a state that answers late can add rows that sort
+    // above the report. Ranking on the first state to answer records a rank that is too small, and
+    // the impression side (which waits for all of them) then records a different one.
+    it('under the flat list the rank waits for the slower state, not the first one to answer', async () => {
+        const opened = { id: 'r1', title: 'Crash on login', priority: 'P2' } as SignalReport
+        const higher = { id: 'r2', title: 'Checkout times out', priority: 'P0' } as SignalReport
+        let releaseMonitoring = (): void => {}
+        const monitoringAnswered = new Promise<void>((resolve) => {
+            releaseMonitoring = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/': async ({ request }) => {
+                    // Only the monitoring state filters on an open implementation PR.
+                    if (new URL(request.url).searchParams.get('has_implementation_pr') === 'true') {
+                        await monitoringAnswered
+                        return [200, { results: [higher], count: 1, next: null, previous: null }]
+                    }
+                    return [200, { results: [opened], count: 1, next: null, previous: null }]
+                },
+            },
+        })
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        mountWithRedesign(true)
+        const needsDecision = reportListLogic(sectionListLogicProps('needs-decision'))
+        const monitoring = reportListLogic(sectionListLogicProps('monitoring'))
+        needsDecision.mount()
+        monitoring.mount()
+        needsDecision.actions.loadReports()
+        monitoring.actions.loadReports()
+
+        logic.actions.setSelectedReportId('r1')
+        logic.actions.loadSelectedReportSuccess(opened)
+
+        await waitForOpenRankRetry()
+        expect(needsDecision.values.reports).toHaveLength(1)
+        expect(openedEvents(captureSpy)).toHaveLength(0)
+
+        releaseMonitoring()
+        await waitForOpenRankRetry()
+
+        expect(openedEvents(captureSpy)[0]).toMatchObject({ rank: 2, list_size: 2 })
+        captureSpy.mockRestore()
+        needsDecision.unmount()
+        monitoring.unmount()
+    })
+
+    // posthog-js drains its batch queue from its own `pagehide` handler, which is registered before
+    // this scene's. An open left to normal batching is enqueued after that drain and never leaves.
+    it('a page unload while an open is still waiting sends the open instantly, ahead of the close', () => {
+        const report = { id: 'r1', title: 'Crash on login' } as SignalReport
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        mountWithRedesign(true)
+
+        // No list is mounted, so the rank never resolves and the open stays pending.
+        logic.actions.setSelectedReportId('r1')
+        logic.actions.loadSelectedReportSuccess(report)
+        expect(openedEvents(captureSpy)).toHaveLength(0)
+
+        window.dispatchEvent(new Event('pagehide'))
+
+        const inboxCalls = captureSpy.mock.calls.filter(([name]) =>
+            ['Inbox report opened', 'Inbox report closed'].includes(name as string)
+        )
+        expect(inboxCalls.map(([name]) => name)).toEqual(['Inbox report opened', 'Inbox report closed'])
+        // The open also carries its own `timestamp`, so match the option that bypasses the queue.
+        expect(inboxCalls[0][2]).toMatchObject({ send_instantly: true })
+        expect(inboxCalls[1][2]).toEqual({ send_instantly: true })
+        captureSpy.mockRestore()
+    })
+
     it('stops the runs poll when opening another surface closes the panel', () => {
         // Opening a report flips `isRunsOpen` false through a mutual-exclusion reducer, not
         // `setRunsOpen(false)`, so the poll teardown cannot hang off the `setRunsOpen` listener alone
@@ -272,5 +505,125 @@ describe('inboxSceneLogic routing', () => {
         expect(clearSpy.mock.calls.length).toBeGreaterThan(clearedBeforeReport)
 
         clearSpy.mockRestore()
+    })
+
+    describe('keeping the open report current', () => {
+        const originalVisibilityState = document.visibilityState
+
+        function setTabVisibility(state: 'visible' | 'hidden'): void {
+            Object.defineProperty(document, 'visibilityState', { value: state, configurable: true })
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
+
+        // The first fetch always answers `ready`; later fetches answer `refreshedStatus`, so a test can
+        // move the report's state server-side between the initial load and the visibility refresh.
+        function mockReportGet(refreshedStatus: SignalReportStatus = SignalReportStatus.READY): jest.Mock {
+            let fetches = 0
+            const reportGet = jest.fn(() => [
+                200,
+                {
+                    id: 'report-1',
+                    title: 'Crash on login',
+                    status: fetches++ === 0 ? SignalReportStatus.READY : refreshedStatus,
+                },
+            ])
+            // Pinned to the report's own path: a `:id` pattern would also swallow `available_reviewers/`.
+            useMocks({
+                get: { '/api/projects/:team_id/signals/reports/report-1/': reportGet },
+                post: { '/api/projects/:team_id/signals/reports/:id/viewed/': [204, null] },
+            })
+            return reportGet
+        }
+
+        afterEach(() => {
+            Object.defineProperty(document, 'visibilityState', {
+                value: originalVisibilityState,
+                configurable: true,
+            })
+        })
+
+        it('re-fetches the open report when the tab becomes visible again', async () => {
+            const reportGet = mockReportGet()
+            mountWithRedesign(true)
+            logic.actions.setSelectedReportId('report-1')
+            await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
+            expect(reportGet).toHaveBeenCalledTimes(1)
+
+            setTabVisibility('visible')
+
+            await expectLogic(logic).toDispatchActions(['loadSelectedReport', 'loadSelectedReportSuccess'])
+            expect(reportGet).toHaveBeenCalledTimes(2)
+        })
+
+        it('does not re-fetch while the tab is hidden, nor with no report open', async () => {
+            const reportGet = mockReportGet()
+            mountWithRedesign(true)
+            logic.actions.setSelectedReportId('report-1')
+            await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
+
+            setTabVisibility('hidden')
+            logic.actions.setSelectedReportId(null)
+            setTabVisibility('visible')
+
+            await expectLogic(logic).toNotHaveDispatchedActions(['loadSelectedReport'])
+            expect(reportGet).toHaveBeenCalledTimes(1)
+        })
+
+        it('ignores a visibility callback captured before the scene unmounts', async () => {
+            const reportGet = mockReportGet()
+            const addEventListenerSpy = jest.spyOn(document, 'addEventListener')
+            const removeEventListenerSpy = jest.spyOn(document, 'removeEventListener')
+            try {
+                mountWithRedesign(true)
+                logic.actions.setSelectedReportId('report-1')
+                await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
+
+                const onVisibilityChange = addEventListenerSpy.mock.calls.find(
+                    ([eventName]) => eventName === 'visibilitychange'
+                )?.[1]
+                if (typeof onVisibilityChange !== 'function') {
+                    throw new Error('Expected the report refresh visibility listener to be registered')
+                }
+
+                logic.unmount()
+                expect(removeEventListenerSpy).toHaveBeenCalledWith('visibilitychange', onVisibilityChange)
+                expect(() => onVisibilityChange(new Event('visibilitychange'))).not.toThrow()
+                await expectLogic(logic).toNotHaveDispatchedActions(['loadSelectedReport'])
+                expect(reportGet).toHaveBeenCalledTimes(1)
+            } finally {
+                addEventListenerSpy.mockRestore()
+                removeEventListenerSpy.mockRestore()
+            }
+        })
+
+        // The lists behind the detail pane reconcile only on `reportStateChanged`, so a refresh that
+        // lands a new status has to broadcast it. An unconditional broadcast is just as wrong: every
+        // tab return would refresh every mounted section and the refund summary.
+        test.each([
+            {
+                case: 'broadcasts when the refresh lands a new status',
+                refreshedStatus: SignalReportStatus.SUPPRESSED,
+                broadcasts: true,
+            },
+            {
+                case: 'stays quiet when the refresh lands the same status',
+                refreshedStatus: SignalReportStatus.READY,
+                broadcasts: false,
+            },
+        ])('$case', async ({ refreshedStatus, broadcasts }) => {
+            mockReportGet(refreshedStatus)
+            mountWithRedesign(true)
+            logic.actions.setSelectedReportId('report-1')
+            await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
+
+            setTabVisibility('visible')
+
+            await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
+            expect(logic.values.selectedReport?.status).toBe(refreshedStatus)
+            const broadcast = [inboxBulkActionsLogic.actionTypes.reportStateChanged]
+            await (broadcasts
+                ? expectLogic(logic).toDispatchActions(broadcast)
+                : expectLogic(logic).toNotHaveDispatchedActions(broadcast))
+        })
     })
 })

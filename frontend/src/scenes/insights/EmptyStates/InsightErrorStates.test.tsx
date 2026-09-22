@@ -9,6 +9,11 @@ import { DashboardPlacement } from '~/types'
 
 import { InsightErrorState, InsightValidationError, isRawServerErrorTitle } from './EmptyStates'
 
+// Status 513 also covers cluster pressure, whose backend copy says to wait rather than to shrink
+// the query. Verbatim from ClickHouseClusterMemoryLimitExceeded.
+const CLUSTER_MEMORY_DETAIL =
+    "We're under heavy load right now and couldn't finish this query. Please try again in a few minutes."
+
 describe('insight error states', () => {
     let captureSpy: jest.SpyInstance
 
@@ -129,6 +134,12 @@ describe('insight error states', () => {
 
     it.each([
         { status: 429, expectedCopy: 'Try again in 2 minutes.', retry: true },
+        {
+            status: 513,
+            title: CLUSTER_MEMORY_DETAIL,
+            expectedCopy: CLUSTER_MEMORY_DETAIL,
+            retry: true,
+        },
         { status: 400, expectedCopy: 'Open the query debugger and correct the query.', retry: false },
         {
             status: 403,
@@ -140,12 +151,12 @@ describe('insight error states', () => {
         { status: 503, expectedCopy: 'Try again in a moment.', retry: true, queryDebugger: false, bugReport: true },
     ])(
         'shows the correct action for HTTP $status errors',
-        ({ status, expectedCopy, retry, queryDebugger = !retry, bugReport = false }) => {
+        ({ status, expectedCopy, retry, title = 'The query failed.', queryDebugger = !retry, bugReport = false }) => {
             preflightLogic.actions.loadPreflightSuccess({ cloud: true } as any)
 
             const { container } = render(
                 <InsightErrorState
-                    title="The query failed."
+                    title={title}
                     titleStatus={status}
                     retryAfter={status === 429 ? 'in 2 minutes' : undefined}
                     query={{ kind: 'InsightVizNode' }}
@@ -159,6 +170,15 @@ describe('insight error states', () => {
             expect(screen.queryByText('If this persists, submit a bug report.') !== null).toBe(bugReport)
         }
     )
+
+    it('keeps raw ClickHouse traces out of memory failures', () => {
+        const rawTrace = 'Code: 241. DB::Exception: Memory limit (for query) exceeded. Stack trace:\n0.'
+        render(<InsightErrorState title={rawTrace} titleStatus={513} onRetry={() => {}} />)
+
+        expect(screen.getByText("This query couldn't finish")).toBeTruthy()
+        expect(screen.getByText('Try a shorter date range or narrower filters, then run it again.')).toBeTruthy()
+        expect(screen.queryByText(/DB::Exception/)).toBeNull()
+    })
 
     it('uses user-facing copy for invalid query errors', () => {
         render(<InsightErrorState title="This query is invalid" titleStatus={400} query={{ kind: 'InsightVizNode' }} />)

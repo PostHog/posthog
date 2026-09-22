@@ -174,6 +174,14 @@ export const LongMixedList: Story = {
   },
 };
 
+/** Loops backed by workflows: one team list, no personal/team tabs. */
+export const WorkflowBacked: Story = {
+  args: {
+    workflowBacked: true,
+    loops: MIXED_LOOPS.map((entry) => ({ ...entry, visibility: "team" })),
+  },
+};
+
 export const WithBuilderSessions: Story = {
   args: {
     builderSessions: [

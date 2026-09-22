@@ -1,0 +1,12 @@
+{
+    "id": "KB4",
+    "file": "products/stamphog/backend/tasks/tasks.py",
+    "lines": "1109-1112,1215-1235",
+    "priority": "should_fix",
+    "title": "Exhausted retries can leave a review run queued forever",
+    "problem": "The task commits a QUEUED run before it starts the Temporal workflow. A start failure retries the task, but the task stops after three retries. The run stays QUEUED after the final failure. No later save must occur to restart it.",
+    "suggestion": "Add durable recovery for stale QUEUED runs. For example, schedule a reconciliation task or mark the run as failed after the final retry and emit an alert. Add a metric for queued runs that have no workflow.",
+    "cluster": 58,
+    "cluster_issue": "Initial inbox review dispatch is fire-and-forget with no durable pending record or reconciliation, so a broker enqueue failure or exhaustion of the task's three retries silently drops the review",
+    "cluster_verified": "1/6"
+}

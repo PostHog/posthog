@@ -1,23 +1,34 @@
-import {
-  ArrowLeftIcon,
-  CaretDownIcon,
-  ClockIcon,
-  MagnifyingGlassIcon,
-  NotebookIcon,
-  StackIcon,
-} from "@phosphor-icons/react";
+import { CaretDownIcon, ClockIcon, StackIcon } from "@phosphor-icons/react";
+import type { ScoutScratchpadEntry } from "@posthog/api-client/posthog-client";
 import {
   filterScratchpadEntries,
   groupScratchpadEntries,
   type ScratchpadGrouping,
 } from "@posthog/core/scouts/scoutScratchpad";
-import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
+import {
+  Button,
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+  Skeleton,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+} from "@posthog/quill";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
-import { Box, Flex, SegmentedControl, Text, TextField } from "@radix-ui/themes";
-import { Link } from "@tanstack/react-router";
+import { SearchInput } from "@posthog/ui/primitives/SearchInput";
 import { useMemo, useState } from "react";
 import { useScoutScratchpad } from "../hooks/useScoutScratchpad";
 import { ScratchpadEntryCard } from "./ScratchpadEntryCard";
+import { VirtualCardList } from "./VirtualCardList";
+
+/** A collapsed note: header line plus a two-line preview. */
+const NOTE_CARD_HEIGHT = 84;
+
+const EMPTY_ENTRIES: ScoutScratchpadEntry[] = [];
+const NO_GROUPS: ReturnType<typeof groupScratchpadEntries> = [];
 
 /**
  * Browse + search surface for the scout fleet's scratchpad (`SignalScratchpad`).
@@ -30,264 +41,179 @@ import { ScratchpadEntryCard } from "./ScratchpadEntryCard";
  */
 export function ScratchpadView() {
   const { data: entries, isLoading, isError, refetch } = useScoutScratchpad();
+  const [expandedNotes, setExpandedNotes] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [expandedTopics, setExpandedTopics] = useState<Record<string, boolean>>(
+    {},
+  );
   const [searchText, setSearchText] = useState("");
   const [grouping, setGrouping] = useState<ScratchpadGrouping>("recent");
 
-  const headerContent = useMemo(
-    () => (
-      <Flex align="center" gap="2" className="w-full min-w-0">
-        <NotebookIcon size={12} className="shrink-0 text-gray-10" />
-        <Text
-          className="truncate whitespace-nowrap font-medium text-[13px]"
-          title="Scout scratchpad"
-        >
-          Scout scratchpad
-        </Text>
-      </Flex>
-    ),
-    [],
-  );
-  useSetHeaderContent(headerContent);
-
   const isSearching = searchText.trim().length > 0;
-  const allEntries = entries ?? [];
+  const allEntries = entries ?? EMPTY_ENTRIES;
   const visibleEntries = useMemo(
     () => filterScratchpadEntries(allEntries, searchText),
     [allEntries, searchText],
   );
+  // Only the topic view reads the groups, and "recent" is where people land.
   const groups = useMemo(
-    () => groupScratchpadEntries(visibleEntries),
-    [visibleEntries],
+    () =>
+      grouping === "topic" ? groupScratchpadEntries(visibleEntries) : NO_GROUPS,
+    [visibleEntries, grouping],
   );
 
   const totalCount = entries?.length ?? null;
   const lastUpdatedAt = entries?.[0]?.updated_at ?? null;
 
   return (
-    <Flex direction="column" className="h-full min-h-0">
-      <Flex
-        direction="column"
-        gap="2"
-        className="border-(--gray-5) border-b px-6 pt-5 pb-5"
-      >
-        <Link
-          to="/agents/scouts"
-          className="flex w-fit items-center gap-1 text-[12px] text-gray-10 no-underline hover:text-gray-12"
-        >
-          <ArrowLeftIcon size={12} />
-          Scouts
-        </Link>
-        <Flex align="center" gap="2">
-          <NotebookIcon size={20} className="shrink-0 text-(--iris-9)" />
-          <Text className="font-bold text-[22px] text-gray-12 leading-tight tracking-tight">
-            Scout scratchpad
-          </Text>
-        </Flex>
-        <Text className="max-w-2xl text-pretty text-[12.5px] text-gray-11 leading-relaxed">
-          Where your scouts jot down useful context as they scan your project —
-          things they&apos;ve classified, ruled out, or the vocabulary
-          they&apos;ve settled on. Browse it to see what they&apos;re picking up
-          about your setup.
-        </Text>
-        {totalCount !== null && totalCount > 0 ? (
-          <Flex align="center" gap="1" className="text-[12px] text-gray-10">
-            <Text className="text-[12px] text-gray-10">
-              {totalCount} note{totalCount === 1 ? "" : "s"}
-            </Text>
-            {lastUpdatedAt ? (
-              <>
-                <Text className="text-[12px] text-gray-9">· last updated</Text>
-                <RelativeTimestamp
-                  timestamp={lastUpdatedAt}
-                  className="text-[12px] text-gray-10"
-                />
-              </>
-            ) : null}
-          </Flex>
-        ) : null}
-      </Flex>
-
-      <div className="min-h-0 flex-1 overflow-auto">
-        <div className="mx-auto max-w-4xl px-6 py-6">
-          <Flex direction="column" gap="4">
-            <Flex align="center" gap="2" wrap="wrap">
-              <TextField.Root
-                type="search"
-                placeholder="Search the scratchpad…"
-                value={searchText}
-                onChange={(event) => setSearchText(event.target.value)}
-                size="2"
-                className="min-w-[14rem] flex-1"
-              >
-                <TextField.Slot>
-                  <MagnifyingGlassIcon size={14} className="text-gray-10" />
-                </TextField.Slot>
-              </TextField.Root>
-              <SegmentedControl.Root
-                value={grouping}
-                size="1"
-                onValueChange={(value) =>
-                  setGrouping(value as ScratchpadGrouping)
-                }
-                aria-label="Scratchpad grouping"
-              >
-                <SegmentedControl.Item value="recent">
-                  <span className="inline-flex items-center gap-1.5">
-                    <ClockIcon size={12} />
-                    Recent
-                  </span>
-                </SegmentedControl.Item>
-                <SegmentedControl.Item value="topic">
-                  <span className="inline-flex items-center gap-1.5">
-                    <StackIcon size={12} />
-                    By topic
-                  </span>
-                </SegmentedControl.Item>
-              </SegmentedControl.Root>
-            </Flex>
-
-            <ScratchpadBody
-              isLoading={isLoading}
-              isError={isError}
-              onRetry={() => refetch()}
-              entries={visibleEntries}
-              groups={groups}
-              grouping={grouping}
-              isSearching={isSearching}
-            />
-          </Flex>
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      {totalCount !== null && totalCount > 0 ? (
+        <div className="flex items-center gap-1 text-[12px] text-gray-10">
+          <span>
+            {totalCount >= 500
+              ? "Latest 500 notes"
+              : `${totalCount} note${totalCount === 1 ? "" : "s"}`}
+          </span>
+          {lastUpdatedAt ? (
+            <>
+              <span className="text-gray-9">· last updated</span>
+              <RelativeTimestamp
+                timestamp={lastUpdatedAt}
+                className="text-[12px] text-gray-10"
+              />
+            </>
+          ) : null}
         </div>
-      </div>
-    </Flex>
-  );
-}
-
-function ScratchpadBody({
-  isLoading,
-  isError,
-  onRetry,
-  entries,
-  groups,
-  grouping,
-  isSearching,
-}: {
-  isLoading: boolean;
-  isError: boolean;
-  onRetry: () => void;
-  entries: ReturnType<typeof filterScratchpadEntries>;
-  groups: ReturnType<typeof groupScratchpadEntries>;
-  grouping: ScratchpadGrouping;
-  isSearching: boolean;
-}) {
-  if (isLoading) {
-    return (
-      <Flex direction="column" gap="2">
-        {[0, 1, 2].map((key) => (
-          <Box
-            key={key}
-            className="h-12 w-full animate-pulse rounded-(--radius-2) bg-(--gray-3)"
-          />
-        ))}
-      </Flex>
-    );
-  }
-
-  if (isError) {
-    return (
-      <Flex
-        direction="column"
-        align="center"
-        gap="2"
-        className="rounded-(--radius-2) border border-(--gray-6) border-dashed bg-gray-1 px-4 py-8 text-center text-[12.5px] text-gray-11"
-      >
-        <Text className="text-[12.5px] text-gray-11">
-          Couldn&apos;t load the scratchpad. The scout API may be unavailable or
-          this project may not be enrolled yet.
-        </Text>
-        <button
-          type="button"
-          onClick={onRetry}
-          className="rounded-(--radius-2) border border-(--gray-7) px-2.5 py-1 text-[12px] text-gray-11 transition-colors hover:bg-(--gray-3)"
-        >
-          Retry
-        </button>
-      </Flex>
-    );
-  }
-
-  if (entries.length === 0) {
-    return (
-      <Box className="rounded-(--radius-2) border border-(--gray-6) border-dashed bg-gray-1 px-4 py-8 text-center text-[12.5px] text-gray-11">
-        {isSearching
-          ? "No notes match your search."
-          : "Your scouts haven't jotted anything down yet. As they scan your project, their notes show up here."}
-      </Box>
-    );
-  }
-
-  if (grouping === "topic") {
-    return (
-      <Flex direction="column" gap="3">
-        {groups.map((group) => (
-          <ScratchpadTopicGroup
-            key={group.namespace}
-            label={group.label}
-            entries={group.entries}
-            // A search forces every matching topic open so results stay visible
-            // without a click.
-            forceOpen={isSearching}
-          />
-        ))}
-      </Flex>
-    );
-  }
-
-  return (
-    <Flex direction="column" gap="2">
-      {entries.map((entry) => (
-        <ScratchpadEntryCard key={entry.key} entry={entry} />
-      ))}
-    </Flex>
-  );
-}
-
-function ScratchpadTopicGroup({
-  label,
-  entries,
-  forceOpen,
-}: {
-  label: string;
-  entries: ReturnType<typeof filterScratchpadEntries>;
-  forceOpen: boolean;
-}) {
-  // Collapsed by default for a high-level scan; a search forces it open.
-  const [expanded, setExpanded] = useState(false);
-  const isExpanded = forceOpen || expanded;
-
-  return (
-    <Flex direction="column" gap="2">
-      <button
-        type="button"
-        onClick={() => setExpanded((value) => !value)}
-        aria-expanded={isExpanded}
-        className="flex items-center gap-2 text-left"
-      >
-        <CaretDownIcon
-          size={14}
-          className={`shrink-0 text-gray-9 transition-transform ${isExpanded ? "" : "-rotate-90"}`}
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2">
+        <SearchInput
+          value={searchText}
+          onValueChange={setSearchText}
+          placeholder="Search notes"
         />
-        <Text className="font-medium text-[12px] text-gray-11 uppercase tracking-wide">
-          {label}
-        </Text>
-        <Text className="text-[11px] text-gray-10">
-          {entries.length} note{entries.length === 1 ? "" : "s"}
-        </Text>
-      </button>
-      {isExpanded
-        ? entries.map((entry) => (
-            <ScratchpadEntryCard key={entry.key} entry={entry} />
-          ))
-        : null}
-    </Flex>
+        <span className="flex-1" />
+        <Tabs
+          value={grouping}
+          onValueChange={(value: string) =>
+            setGrouping(value as ScratchpadGrouping)
+          }
+        >
+          <TabsList className="h-8" aria-label="Group notes">
+            <TabsTrigger value="recent" className="gap-1.5 px-2.5">
+              <ClockIcon size={12} />
+              Recent
+            </TabsTrigger>
+            <TabsTrigger value="topic" className="gap-1.5 px-2.5">
+              <StackIcon size={12} />
+              By topic
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+
+      {isLoading ? (
+        <div className="flex flex-col gap-2">
+          {[0, 1, 2].map((row) => (
+            <Skeleton key={row} className="h-14 w-full" />
+          ))}
+        </div>
+      ) : isError && entries === undefined ? (
+        <Empty className="py-10">
+          <EmptyHeader>
+            <EmptyDescription>
+              Couldn't load these notes. PostHog may be unavailable, or this
+              project may not be set up for agents yet.
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+            >
+              Retry
+            </Button>
+          </EmptyContent>
+        </Empty>
+      ) : visibleEntries.length === 0 ? (
+        <Empty className="py-10">
+          <EmptyHeader>
+            <EmptyTitle>
+              {isSearching
+                ? "No notes match your search."
+                : "Your agents haven't written anything down yet. As they scan your project, their notes show up here."}
+            </EmptyTitle>
+          </EmptyHeader>
+        </Empty>
+      ) : (
+        <VirtualCardList
+          resetKey={`${grouping}:${searchText}`}
+          items={
+            grouping === "topic"
+              ? groups.flatMap((group): MemoryRow[] => [
+                  { kind: "topic", group },
+                  ...(isSearching || expandedTopics[group.namespace]
+                    ? group.entries.map(
+                        (entry): MemoryRow => ({ kind: "note", entry }),
+                      )
+                    : []),
+                ])
+              : visibleEntries.map(
+                  (entry): MemoryRow => ({ kind: "note", entry }),
+                )
+          }
+          getKey={(row) =>
+            row.kind === "topic"
+              ? `topic:${row.group.namespace}`
+              : `note:${row.entry.key}`
+          }
+          estimateSize={NOTE_CARD_HEIGHT}
+          renderItem={(row) =>
+            row.kind === "topic" ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setExpandedTopics((state) => ({
+                    ...state,
+                    [row.group.namespace]: !state[row.group.namespace],
+                  }))
+                }
+                aria-expanded={
+                  isSearching || !!expandedTopics[row.group.namespace]
+                }
+                className="flex w-full items-center gap-2 py-2 text-left text-[12px] text-gray-11"
+              >
+                <CaretDownIcon
+                  size={14}
+                  className={
+                    isSearching || expandedTopics[row.group.namespace]
+                      ? ""
+                      : "-rotate-90"
+                  }
+                />
+                {row.group.label} · {row.group.entries.length} notes
+              </button>
+            ) : (
+              <ScratchpadEntryCard
+                entry={row.entry}
+                expanded={expandedNotes[row.entry.key] ?? false}
+                onExpandedChange={(value) =>
+                  setExpandedNotes((state) => ({
+                    ...state,
+                    [row.entry.key]: value,
+                  }))
+                }
+              />
+            )
+          }
+        />
+      )}
+    </div>
   );
 }
+
+type MemoryRow =
+  | { kind: "topic"; group: ReturnType<typeof groupScratchpadEntries>[number] }
+  | { kind: "note"; entry: ScoutScratchpadEntry };

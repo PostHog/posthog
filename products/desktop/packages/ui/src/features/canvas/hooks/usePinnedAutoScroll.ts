@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useRef } from "react";
 
 const BOTTOM_TOLERANCE_PX = 1;
 
-export function isScrolledToBottom(element: HTMLElement): boolean {
+function isScrolledToBottom(element: HTMLElement): boolean {
   return (
     element.scrollHeight - element.scrollTop - element.clientHeight <=
     BOTTOM_TOLERANCE_PX

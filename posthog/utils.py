@@ -606,6 +606,7 @@ def _build_template_context(
             "custom_products": [],
             "switched_team": getattr(request, "switched_team", None),
             "suggested_users_with_access": getattr(request, "suggested_users_with_access", None),
+            "project_access_denied": getattr(request, "project_access_denied", None),
             "commit_sha": context["git_rev"],
             "livestream_host": settings.LIVESTREAM_HOST,
             **posthog_app_context,
@@ -688,11 +689,17 @@ def _build_template_context(
                     home_settings = UserHomeSettings.objects.filter(team=user.team, user=user).first()
                     posthog_app_context["homepage"] = (home_settings.homepage or None) if home_settings else None
 
-    # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view)
-    if "oauth_application" in context:
-        posthog_app_context["oauth_application"] = context.pop("oauth_application")
-    if "oauth_mcp_consent" in context:
-        posthog_app_context["oauth_mcp_consent"] = context.pop("oauth_mcp_consent")
+    # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view).
+    # A key absent from this list never reaches `window.POSTHOG_APP_CONTEXT`, so the scene that reads it
+    # silently falls back.
+    for caller_key in (
+        "oauth_application",
+        "oauth_mcp_consent",
+        "oauth_consent_access_controls_apply",
+        "oauth_scope_resolution",
+    ):
+        if caller_key in context:
+            posthog_app_context[caller_key] = context.pop(caller_key)
 
     # JSON dumps here since there may be objects like Queries
     # that are not serializable by Django's JSON serializer
@@ -749,13 +756,45 @@ def _build_template_context(
 
         support_secret = get_instance_setting("CONVERSATIONS_HMAC_SIGNING_SECRET")
         if support_secret:
-            from products.conversations.backend.services.identity import compute_identity_hash
+            from products.conversations.backend.services.identity import (
+                IDENTITY_CLAIM_MAX_AGE_SECONDS,
+                canonicalize_claim_value,
+                compute_identity_claim_hash,
+                compute_identity_hash,
+            )
 
             context["js_posthog_identity_distinct_id"] = posthog_distinct_id
             context["js_posthog_identity_hash"] = compute_identity_hash(
                 posthog_distinct_id,
                 support_secret,
             )
+
+            # Sign the logged-in user's verified email as a claim bound to their distinct_id.
+            # The widget backend trusts this attested email to bridge tickets keyed on an email
+            # string (Slack, email, Zendesk), instead of the mutable person.properties.email.
+            user_email = None
+            if request.user and request.user.is_authenticated:
+                identity_user = cast("User", request.user)
+                if identity_user.is_email_verified is True:
+                    user_email = identity_user.email
+            if user_email:
+                canonical_email = canonicalize_claim_value("email", user_email)
+                expires_at = int(time.time()) + IDENTITY_CLAIM_MAX_AGE_SECONDS
+                context["js_posthog_identity_claims"] = json.dumps(
+                    {
+                        "email": {
+                            "value": canonical_email,
+                            "expires_at": expires_at,
+                            "hash": compute_identity_claim_hash(
+                                posthog_distinct_id,
+                                "email",
+                                canonical_email,
+                                support_secret,
+                                expires_at=expires_at,
+                            ),
+                        }
+                    }
+                )
 
     return context
 
@@ -1667,7 +1706,7 @@ def get_daterange(
     return time_range
 
 
-def get_safe_cache(cache_key: str):
+def get_safe_cache(cache_key: str) -> Any:
     try:
         cached_result = cache.get(cache_key)  # cache.get is safe in most cases
         return cached_result

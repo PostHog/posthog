@@ -3,8 +3,6 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
-from django.apps import apps
-
 from posthog.clickhouse.client import sync_execute
 
 from products.posthog_ai.eval_harness.data_setup import (
@@ -12,7 +10,7 @@ from products.posthog_ai.eval_harness.data_setup import (
     create_core_memory,
     ensure_master_demo_team,
 )
-from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext, create_skill_isolation_environment
 
 from ee.clickhouse.materialized_columns.columns import (
     backfill_materialized_columns,
@@ -31,8 +29,8 @@ class SandboxedDemoData:
     One instance per harness run: seeds the master Hedgebox team (or reuses
     a healthy one), then produces a fresh isolated ``CustomPromptSandboxContext``
     for every eval case via ``make_context(label)``. Each call copies the master
-    into a brand-new org/team/user with its own core memory and tasks-API
-    access, so concurrent eval cases can't pollute each other's state.
+    into a brand-new org/team/user with its own core memory, so concurrent
+    eval cases can't pollute each other's state.
     """
 
     def __init__(
@@ -51,20 +49,25 @@ class SandboxedDemoData:
         self.reasoning_effort = reasoning_effort
         self.sandbox_timeout_seconds = sandbox_timeout_seconds
 
-    def make_context(self, case_label: str) -> CustomPromptSandboxContext:
-        CodeInvite = apps.get_model("tasks", "CodeInvite")
-        CodeInviteRedemption = apps.get_model("tasks", "CodeInviteRedemption")
-
-        org, team, user = copy_demo_data_to_new_team(self.master_team_id, self._django_db_blocker, label=case_label)
+    def make_context(self, case_label: str, *, disable_bundled_skills: bool = False) -> CustomPromptSandboxContext:
+        _, team, user = copy_demo_data_to_new_team(self.master_team_id, self._django_db_blocker, label=case_label)
         create_core_memory(team, self._django_db_blocker)
-        with self._django_db_blocker.unblock():
-            invite, _ = CodeInvite.objects.get_or_create(code="eval-harness", max_redemptions=0, is_active=True)
-            CodeInviteRedemption.objects.get_or_create(invite_code=invite, user=user, organization=org)
+        sandbox_environment_id: str | None = None
+        if disable_bundled_skills:
+            # The sandbox reads this env var and clears its native skill directories
+            # before the agent launches, so only MCP-delivered skills can satisfy the case.
+            with self._django_db_blocker.unblock():
+                sandbox_environment_id = create_skill_isolation_environment(
+                    team_id=team.id,
+                    user_id=user.id,
+                    name=f"Eval skill isolation: {case_label}",
+                )
         logger.info("Case %r assigned team_id=%d user_id=%d", case_label, team.id, user.id)
         return CustomPromptSandboxContext(
             team_id=team.id,
             user_id=user.id,
             repository="posthog/hedgebox",
+            sandbox_environment_id=sandbox_environment_id,
             model=self.agent_model,
             runtime_adapter=self.agent_runtime,
             reasoning_effort=self.reasoning_effort,

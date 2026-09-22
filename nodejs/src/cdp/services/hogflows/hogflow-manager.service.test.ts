@@ -75,13 +75,17 @@ describe('HogFlowManager', () => {
         expect(items.map((item) => item.team_id)).toEqual([teamId1, teamId1])
 
         expect(
-            forSnapshot(items, {
-                overrides: {
-                    team_id: 'TEAM_ID',
-                    created_at: 'CREATED_AT',
-                    updated_at: 'UPDATED_AT',
-                },
-            })
+            // The manager's queries are unordered, so sort before snapshotting.
+            forSnapshot(
+                [...items].sort((a, b) => a.name.localeCompare(b.name)),
+                {
+                    overrides: {
+                        team_id: 'TEAM_ID',
+                        created_at: 'CREATED_AT',
+                        updated_at: 'UPDATED_AT',
+                    },
+                }
+            )
         ).toMatchSnapshot()
 
         await hub.postgres.query(
@@ -141,6 +145,33 @@ describe('HogFlowManager', () => {
                 jest.spyOn(Date, 'now').mockReturnValue(baseNow)
             }
         }, 10000)
+    })
+
+    describe('email sending pause', () => {
+        // The pause only reaches the send choke point through the manager's column list, so a
+        // column left out of HOG_FLOW_FIELDS silently lets a paused workflow keep sending.
+        it('carries the pause state and reaches the worker on a reload', async () => {
+            let items = await manager.getHogFlowsForTeam(teamId1)
+            expect(items.find((item) => item.id === hogFlows[0].id)?.email_sending_paused_at).toBeNull()
+
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow
+                 SET email_sending_paused_at = NOW(),
+                     email_sending_paused_reason = 'Spam complaints reached 2% of the 400 emails sent.',
+                     updated_at = NOW()
+                 WHERE id = $1`,
+                [hogFlows[0].id],
+                'testKey'
+            )
+            // Normally dispatched by the HogFlow post_save signal
+            manager['onHogFlowsReloaded'](teamId1, [hogFlows[0].id])
+
+            items = await manager.getHogFlowsForTeam(teamId1)
+            const paused = items.find((item) => item.id === hogFlows[0].id)
+            expect(paused?.email_sending_paused_at).toBeTruthy()
+            expect(paused?.email_sending_paused_reason).toBe('Spam complaints reached 2% of the 400 emails sent.')
+        })
     })
 
     describe('getHogFlowIdsForTeam', () => {

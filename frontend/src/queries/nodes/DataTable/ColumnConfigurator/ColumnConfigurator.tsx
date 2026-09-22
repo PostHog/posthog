@@ -32,6 +32,7 @@ import {
     taxonomicEventFilterToHogQL,
     taxonomicGroupFilterToHogQL,
     taxonomicPersonFilterToHogQL,
+    taxonomicSessionFilterToHogQL,
     trimQuotes,
 } from '~/queries/utils'
 import { GroupTypeIndex, PropertyFilterType } from '~/types'
@@ -255,7 +256,9 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                                     ? taxonomicGroupFilterToHogQL(group.type, value)
                                                     : isActorsQuery(query.source)
                                                       ? taxonomicPersonFilterToHogQL(group.type, value)
-                                                      : taxonomicEventFilterToHogQL(group.type, value)
+                                                      : isSessionsQuery(query.source)
+                                                        ? taxonomicSessionFilterToHogQL(group.type, value)
+                                                        : taxonomicEventFilterToHogQL(group.type, value)
                                                 if (column !== null) {
                                                     selectColumn(column)
                                                 }

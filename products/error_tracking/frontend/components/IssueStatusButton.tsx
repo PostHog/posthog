@@ -29,7 +29,12 @@ export const IssueStatusButton = ({
             <Tooltip>
                 <TooltipTrigger
                     render={
-                        <Button variant="primary" onClick={handleResolve} data-attr="error-tracking-resolve">
+                        <Button
+                            variant="primary"
+                            className="[translate:0_0]"
+                            onClick={handleResolve}
+                            data-attr="error-tracking-resolve"
+                        >
                             {status === 'active' ? 'Resolve' : 'Reopen'}
                         </Button>
                     }

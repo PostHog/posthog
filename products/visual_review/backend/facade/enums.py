@@ -72,10 +72,11 @@ class ClassificationReason(StrEnum):
 class ChangeKind(StrEnum):
     """What kind of change a CHANGED snapshot represents.
 
-    Set when a snapshot's `result` is CHANGED. The two-tier classifier
-    distinguishes a pixel-level diff (lots of pixels differ) from a
-    structural/perceptual change caught by SSIM (few pixels but a measurable
-    perceptual difference). Empty for snapshots that haven't been diffed yet (legacy data).
+    Set when a snapshot's `result` is CHANGED. The classifier distinguishes a
+    pixel-level diff (lots of pixels differ) from a structural/perceptual
+    change caught by SSIM (few pixels but a measurable perceptual difference),
+    and from a layout change where rows moved. Empty for snapshots that
+    haven't been diffed yet (legacy data).
 
     Size mismatch is *not* a kind here — a snapshot can have a different
     viewport AND a content change. The flag lives in `diff_metadata`
@@ -84,6 +85,21 @@ class ChangeKind(StrEnum):
 
     PIXEL = "pixel"  # Pixel diff above threshold — a chunk of pixels visibly changed
     STRUCTURAL = "structural"  # SSIM caught a perceptual change; pixel diff was below threshold
+    # Rows were inserted or deleted past the absorb cap, so the page moved
+    # vertically. The content in the rows that exist in both images is within
+    # both thresholds; what changed is where things sit.
+    LAYOUT = "layout"
+
+
+class ShiftBandKind(StrEnum):
+    """Whether a shift band marks rows the current image gained or lost.
+
+    Named explicitly in ENUM_NAME_OVERRIDES (ShiftBandKindEnum) so the OpenAPI
+    component does not collide with the other `kind` fields across products.
+    """
+
+    INSERTED = "inserted"
+    DELETED = "deleted"
 
 
 class FlakinessState(StrEnum):
@@ -116,3 +132,11 @@ class ToleratedReason(StrEnum):
     AUTO_THRESHOLD = "auto_threshold"  # Below pixel/SSIM diff threshold
     HUMAN = "human"  # Manually marked by a reviewer
     AGENT = "agent"  # Tolerated by an AI agent
+
+
+# A toleration somebody decided on, as opposed to one the diff pipeline minted
+# for sub-threshold pixel jitter. Counting AUTO_THRESHOLD rows as decisions
+# inflates every "tolerated drift" number with rendering noise. Use this
+# wherever the question is "did a reviewer accept this drift", so a reviewer and
+# an agent are never counted differently.
+INTENTIONAL_TOLERATE_REASONS = (ToleratedReason.HUMAN, ToleratedReason.AGENT)

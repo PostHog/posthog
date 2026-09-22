@@ -71,7 +71,7 @@ export function buildPosthogPropertyHeaderLines(
  * the limit it keys is a self-imposed guardrail, not a security boundary.
  * Cloud runs pin the node server-side into the run's scoped token.
  */
-export const POSTHOG_USER_HEADER = "X-PostHog-User";
+const POSTHOG_USER_HEADER = "X-PostHog-User";
 
 export function buildPosthogUserHeaderRecord(
   userNode: string | null | undefined,
@@ -124,7 +124,7 @@ export function buildPosthogScopedPropertyHeaderLines(
 }
 
 /** Header carrying the whole property set as one JSON object. */
-export const POSTHOG_PROPERTIES_HEADER = "X-PostHog-Properties";
+const POSTHOG_PROPERTIES_HEADER = "X-PostHog-Properties";
 
 /**
  * Byte cap the Go gateway enforces on {@link POSTHOG_PROPERTIES_HEADER}; a

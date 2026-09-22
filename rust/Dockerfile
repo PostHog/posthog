@@ -111,6 +111,11 @@ RUN --mount=type=secret,id=posthog_upload_symbols_cli_api_key \
 
 FROM debian:bookworm-slim AS runtime
 
+# AWS RDS global CA bundle — all root and intermediate CAs for TLS verification.
+# To update: download the bundle, recompute the hash with sha256sum, and replace both values.
+#   curl -fsS "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem" | sha256sum
+ARG RDS_CA_BUNDLE_SHA256=e5bb2084ccf45087bda1c9bffdea0eb15ee67f0b91646106e466714f9de3c7e3
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libssl-dev "ca-certificates" \
@@ -123,7 +128,12 @@ RUN apt-get update && \
     chmod -R 755 ./share/GeoLite2-City.mmdb && \
     mkdir -p /app/share && \
     mv ./share/GeoLite2-City.mmdb /app/share/ && \
-    rm -rf ./share
+    rm -rf ./share && \
+    curl -fsS -o /tmp/rds-combined-ca-bundle.crt \
+        "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem" && \
+    echo "${RDS_CA_BUNDLE_SHA256}  /tmp/rds-combined-ca-bundle.crt" | sha256sum -c - && \
+    mv /tmp/rds-combined-ca-bundle.crt /usr/local/share/ca-certificates/rds-combined-ca-bundle.crt && \
+    update-ca-certificates
 
 ARG BIN
 ENV BIN=$BIN

@@ -1,13 +1,10 @@
-import { ReactNode, useCallback, useMemo } from 'react'
-
-import { LemonButton } from '@posthog/lemon-ui'
+import { Fragment, ReactNode, useCallback, useMemo } from 'react'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { ChartPlacements } from '../../utils/chartPlacement'
 import { parseReportSummary } from '../../utils/reportSummary'
 import { ReportChart } from './ReportChart'
-import { ReportDetailAction } from './ReportDetailActions'
 
 const PROSE_CLASS =
     'text-[15px] text-secondary leading-relaxed break-words [&>*+*]:mt-3.5 [&_[data-attr=report-chart]]:my-5 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-8 [&_h1]:text-lg [&_h2]:mt-8 [&_h2]:text-lg [&_h3]:mt-6 [&_h3]:text-base'
@@ -41,13 +38,17 @@ function SummaryMarkdown({ markdown, sourceOffset, chartPlacements, className }:
 interface ReportSummaryBodyProps {
     summary: string
     chartPlacements: ChartPlacements
-    /** The Create PR action, rendered under the Solution section when the report offers it. */
-    createPrAction?: ReportDetailAction
+    implementButton?: ReactNode
     /**
      * Says a pull request with the fix is open and links to it. Rendered under the Solution section, or after
      * the body when the summary has no sections, so a report never hides that its fix already shipped.
      */
     pullRequestNote?: ReactNode
+    /**
+     * The report's supporting metric tiles. Rendered at the top of the Impact section; a summary without one
+     * gets an Impact section for them ahead of Solution, so the storyboard order holds.
+     */
+    impactMetrics?: ReactNode
 }
 
 /**
@@ -57,11 +58,21 @@ interface ReportSummaryBodyProps {
 export function ReportSummaryBody({
     summary,
     chartPlacements,
-    createPrAction,
+    implementButton,
     pullRequestNote,
+    impactMetrics,
 }: ReportSummaryBodyProps): JSX.Element {
     const parsed = useMemo(() => parseReportSummary(summary), [summary])
     const hasSolutionSection = parsed.sections.some((section) => section.kind === 'solution')
+    const hasImpactSection = parsed.sections.some((section) => section.kind === 'impact')
+    const solutionIndex = parsed.sections.findIndex((section) => section.kind === 'solution')
+    const impactFallback =
+        impactMetrics && !hasImpactSection ? (
+            <section className="flex flex-col gap-2">
+                <h2 className="m-0 text-lg font-semibold">Impact</h2>
+                {impactMetrics}
+            </section>
+        ) : null
 
     if (parsed.sections.length === 0) {
         return (
@@ -71,6 +82,7 @@ export function ReportSummaryBody({
                     sourceOffset={parsed.leadOffset}
                     chartPlacements={chartPlacements}
                 />
+                {impactFallback}
                 {pullRequestNote}
             </div>
         )
@@ -86,33 +98,27 @@ export function ReportSummaryBody({
                     className="text-base text-primary leading-relaxed break-words [&>*+*]:mt-3.5"
                 />
             )}
-            {parsed.sections.map((section) => (
-                <section key={`${section.kind}-${section.bodyOffset}`} className="flex flex-col gap-2">
-                    <h2 className="m-0 text-lg font-semibold">{section.heading}</h2>
-                    <SummaryMarkdown
-                        markdown={section.body}
-                        sourceOffset={section.bodyOffset}
-                        chartPlacements={chartPlacements}
-                    />
-                    {section.kind === 'solution' && pullRequestNote && <div className="mt-2">{pullRequestNote}</div>}
-                    {section.kind === 'solution' && createPrAction && (
-                        <div className="mt-2">
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                icon={createPrAction.icon}
-                                loading={createPrAction.loading}
-                                tooltip={createPrAction.disabledReason ? undefined : createPrAction.tooltip}
-                                disabledReason={createPrAction.disabledReason}
-                                onClick={createPrAction.onClick}
-                                data-attr="inbox-report-solution-create-pr"
-                            >
-                                {createPrAction.label}
-                            </LemonButton>
-                        </div>
-                    )}
-                </section>
+            {parsed.sections.map((section, index) => (
+                <Fragment key={`${section.kind}-${section.bodyOffset}`}>
+                    {index === solutionIndex && impactFallback}
+                    <section className="flex flex-col gap-2">
+                        <h2 className="m-0 text-lg font-semibold">{section.heading}</h2>
+                        {section.kind === 'impact' && impactMetrics && <div className="mb-1">{impactMetrics}</div>}
+                        <SummaryMarkdown
+                            markdown={section.body}
+                            sourceOffset={section.bodyOffset}
+                            chartPlacements={chartPlacements}
+                        />
+                        {section.kind === 'solution' && pullRequestNote && (
+                            <div className="mt-2">{pullRequestNote}</div>
+                        )}
+                        {section.kind === 'solution' && implementButton && (
+                            <div className="mt-2">{implementButton}</div>
+                        )}
+                    </section>
+                </Fragment>
             ))}
+            {!hasSolutionSection && impactFallback}
             {!hasSolutionSection && pullRequestNote}
         </div>
     )

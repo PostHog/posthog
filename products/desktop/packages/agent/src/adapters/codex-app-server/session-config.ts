@@ -111,7 +111,7 @@ export function buildCodexModes(platform: string): CodexMode[] {
 
 export const CODEX_MODES: CodexMode[] = buildCodexModes(process.platform);
 
-export const DEFAULT_MODE = "auto";
+const DEFAULT_MODE = "auto";
 
 export function modeApprovalPolicy(
   modeId: string | undefined,

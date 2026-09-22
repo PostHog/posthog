@@ -10,21 +10,16 @@ import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
-import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
-import {
-    getExperimentStatus,
-    isExperimentPaused,
-    isSingleVariantShipped,
-    getShippedVariantKey,
-} from 'scenes/experiments/experimentsLogic'
-import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ExperimentStatsMethod, ExperimentStatus } from '~/types'
 
+import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
+import { CONCLUSION_DISPLAY_CONFIG } from 'products/experiments/frontend/constants'
+import { getExperimentStatus, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
 import { LegacyExperimentDates, legacyExperimentLogic } from 'products/experiments/frontend/legacy'
-
+import { isSingleVariantShipped, getShippedVariantKey } from 'products/experiments/frontend/scenes/experimentsLogic'
 /**
  * @deprecated
  * This component supports legacy experiment metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery).

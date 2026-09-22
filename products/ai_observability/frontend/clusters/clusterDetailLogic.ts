@@ -16,6 +16,7 @@ import { AnyPropertyFilter, Breadcrumb, PropertyFilterType, PropertyOperator } f
 import type { ProductIntentProperties } from '../../../../frontend/src/lib/utils/product-intents'
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import type { ApplyUrlStatePayload } from '../aiObservabilitySharedLogic'
+import { llmEvaluationsLogic, waitForEvaluationsSettled } from '../evaluations/llmEvaluationsLogic'
 import { loadClusterMetrics } from './clusterMetricsLoader'
 import type { ClusterScatterSeries } from './clusterScatter'
 import {
@@ -61,6 +62,7 @@ export interface ClusterData {
 export interface clusterDetailLogicValues {
     propertyFilters: AnyPropertyFilter[] // aiObservabilitySharedLogic
     shouldFilterTestAccounts: boolean // aiObservabilitySharedLogic
+    detectorEvaluationIds: string[] // llmEvaluationsLogic
     breadcrumbs: Breadcrumb[]
     cluster: Cluster | null
     clusterData: ClusterData | null
@@ -206,7 +208,12 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
     props({} as ClusterDetailLogicProps),
     key((props) => `${props.runId}:${props.clusterId}`),
     connect(() => ({
-        values: [aiObservabilitySharedLogic, ['propertyFilters', 'shouldFilterTestAccounts']],
+        values: [
+            aiObservabilitySharedLogic,
+            ['propertyFilters', 'shouldFilterTestAccounts'],
+            llmEvaluationsLogic,
+            ['detectorEvaluationIds'],
+        ],
         actions: [
             teamLogic,
             ['addProductIntent'],
@@ -663,12 +670,21 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
             actions.setTraceSummariesLoading(true)
 
             try {
+                // Only evaluation-level clustering derives a verdict, so only that level
+                // needs to wait for llmEvaluationsLogic's evaluations to settle first —
+                // otherwise a clustering response that resolves first would read
+                // detectorEvaluationIds as [] and bake a wrong verdict into a cached summary
+                // that never gets refetched (loadTraceSummaries only fetches missing ids).
+                if (clusteringLevel === 'evaluation') {
+                    await waitForEvaluationsSettled()
+                }
                 const summaries = await loadTraceSummaries(
                     traceIds,
                     values.traceSummaries,
                     windowStart,
                     windowEnd,
-                    clusteringLevel
+                    clusteringLevel,
+                    values.detectorEvaluationIds
                 )
                 actions.setTraceSummaries(summaries)
             } catch (error) {

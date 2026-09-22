@@ -4,6 +4,7 @@ from unittest import mock
 
 import structlog
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.settings import AUTH_USERS_TABLE
 from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.source import FirebaseSource
@@ -11,11 +12,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     FirebaseKeyFileConfig,
     FirebaseSourceConfig,
 )
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _GET_TABLES = "products.warehouse_sources.backend.temporal.data_imports.sources.firebase.source.get_tables"
+_GET_INCREMENTAL_FIELDS = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.firebase.source.get_incremental_fields"
+)
 _VALIDATE = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.firebase.source.validate_firebase_credentials"
 )
+_UPDATED_ON = incremental_field("updatedOn", IncrementalFieldType.DateTime)
 
 
 def firebase_config(**overrides: Any) -> FirebaseSourceConfig:
@@ -66,18 +72,29 @@ class TestFirebaseSource:
             "realtime_database_paths",
         ]
 
-    def test_get_schemas_lists_discovered_tables_as_full_refresh(self) -> None:
-        with mock.patch(_GET_TABLES, return_value=[AUTH_USERS_TABLE, "firestore_rooms"]):
-            schemas = self.source.get_schemas(firebase_config(), team_id=1)
+    def test_get_schemas_offers_incremental_only_where_a_cursor_field_was_found(self) -> None:
+        # Advertising incremental on a table with no usable cursor field lets the pipeline merge a
+        # full read as if it were a delta, and the sync then fails at query time instead of at setup.
+        with mock.patch(_GET_TABLES, return_value=[AUTH_USERS_TABLE, "firestore_rooms", "firestore_logs"]):
+            with mock.patch(_GET_INCREMENTAL_FIELDS, return_value={"firestore_rooms": [_UPDATED_ON]}):
+                schemas = self.source.get_schemas(firebase_config(), team_id=1)
 
-        assert [schema.name for schema in schemas] == [AUTH_USERS_TABLE, "firestore_rooms"]
-        assert all(not schema.supports_incremental and not schema.supports_append for schema in schemas)
+        assert {schema.name: schema.supports_incremental for schema in schemas} == {
+            AUTH_USERS_TABLE: False,
+            "firestore_rooms": True,
+            "firestore_logs": False,
+        }
+        assert [schema.incremental_fields for schema in schemas if schema.name == "firestore_rooms"] == [[_UPDATED_ON]]
 
-    def test_get_schemas_honors_the_name_filter(self) -> None:
+    def test_get_schemas_samples_only_the_tables_it_was_asked_for(self) -> None:
+        # Discovery costs one request per Firestore collection, and the sync settings for one table
+        # ask for that table alone.
         with mock.patch(_GET_TABLES, return_value=[AUTH_USERS_TABLE, "firestore_rooms"]):
-            schemas = self.source.get_schemas(firebase_config(), team_id=1, names=["firestore_rooms"])
+            with mock.patch(_GET_INCREMENTAL_FIELDS, return_value={}) as discover:
+                schemas = self.source.get_schemas(firebase_config(), team_id=1, names=["firestore_rooms"])
 
         assert [schema.name for schema in schemas] == ["firestore_rooms"]
+        assert discover.call_args.args[1] == ["firestore_rooms"]
 
     def test_source_for_pipeline_syncs_the_requested_table(self) -> None:
         manager = self.source.get_resumable_source_manager(source_inputs("firestore_rooms"))

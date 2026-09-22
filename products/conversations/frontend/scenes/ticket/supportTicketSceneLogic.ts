@@ -19,6 +19,8 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api-error'
+import { commentsLogic } from 'lib/components/Comments/commentsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -28,7 +30,6 @@ import { isUUIDLike } from 'lib/utils/guards'
 import { markdownToHtml } from 'lib/utils/markdown'
 import { objectsEqual } from 'lib/utils/objects'
 import { fullName } from 'lib/utils/strings'
-import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -45,13 +46,13 @@ import type { Breadcrumb, CommentType, PersonType, UserType } from '~/types'
 import { ActivityScope, PropertyFilterType, PropertyOperator, Region } from '~/types'
 
 import {
-    businessKnowledgeGapSuggestionsDismissCreate,
-    businessKnowledgeGapSuggestionsList,
-} from 'products/business_knowledge/frontend/generated/api'
-import {
+    conversationsTicketsAiHumanOutcomeCreate,
+    conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesDestroy,
     conversationsTicketsNotesPartialUpdate,
+    conversationsTicketsPartialUpdate,
 } from 'products/conversations/frontend/generated/api'
+import type { PatchedTicketUpdateRequestApi } from 'products/conversations/frontend/generated/api.schemas'
 import { getCommentsCreateUrl } from 'products/platform_features/frontend/generated/api'
 import { signalsReportsList } from 'products/signals/frontend/generated/api'
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
@@ -61,16 +62,10 @@ import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/feat
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 import { assigneeSelectLogic } from '../../components/Assignee'
 import type { Assignee, TicketAssignee } from '../../components/Assignee'
+import { aiDraftComposerHtml } from '../../components/Chat/aiDraftAction'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import { priorityOptions } from '../../types'
-import type {
-    AiReplyFeedbackRating,
-    ChatMessage,
-    KnowledgeGapSuggestion,
-    Ticket,
-    TicketPriority,
-    TicketStatus,
-} from '../../types'
+import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketPriority, TicketStatus } from '../../types'
 import { conversationsDraftModeLogic } from '../settings/conversationsDraftModeLogic'
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 
@@ -233,10 +228,12 @@ export interface supportTicketSceneLogicValues {
     availableTags: string[] // tagsModel
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
+    aiDraftApplying: boolean
     assignee: TicketAssignee
     breadcrumbs: Breadcrumb[]
     chatMessages: ChatMessage[]
     chatPanelWidth: (desiredSize: number | null) => number
+    composerPrefillAt: number
     discussionsEnabled: boolean
     draftContent: string | JSONContent | null
     draftIsPrivate: boolean
@@ -246,11 +243,12 @@ export interface supportTicketSceneLogicValues {
     eventsQuery: DataTableNode | null
     exceptionsQuery: DataTableNode | null
     feedbackByMessageId: Record<string, AiReplyFeedbackRating>
+    fullEmailContent: string | null
+    fullEmailContentLoading: boolean
+    fullEmailMessageId: string | null
     hasMoreMessages: boolean
     hasPendingWork: boolean
     hasUnsavedChanges: boolean
-    knowledgeGaps: KnowledgeGapSuggestion[]
-    knowledgeGapsLoading: boolean
     latestAiMessage: ChatMessage | null
     linkedReports: SignalReportApi[]
     linkedReportsLoading: boolean
@@ -281,9 +279,17 @@ export interface supportTicketSceneLogicActions {
     loadTickets: () => {
         value: true
     } // supportTicketsSceneLogic
-    loadTags: () => any // tagsModel
+    loadTags: () => {
+        value: true
+    } // tagsModel
     appendMessage: (message: CommentType) => {
         message: CommentType
+    }
+    applyAiDraft: (message: ChatMessage) => {
+        message: ChatMessage
+    }
+    bumpComposerPrefill: () => {
+        value: true
     }
     cancelEditingMessage: () => {
         value: true
@@ -291,35 +297,29 @@ export interface supportTicketSceneLogicActions {
     clearEditingMessage: () => {
         value: true
     }
+    closeFullEmail: () => {
+        value: true
+    }
     deleteMessage: (messageId: string) => {
         messageId: string
-    }
-    dismissKnowledgeGap: (suggestionId: string) => {
-        suggestionId: string
     }
     incrementUnreadCustomerCount: () => {
         value: true
     }
-    loadKnowledgeGaps: () => {
-        value: true
-    }
-    loadKnowledgeGapsFailure: (
+    loadFullEmail: (messageId: string) => string
+    loadFullEmailFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadKnowledgeGapsSuccess: (
-        knowledgeGaps: KnowledgeGapSuggestion[],
-        payload?: {
-            value: true
-        }
+    loadFullEmailSuccess: (
+        fullEmailContent: string,
+        payload?: string
     ) => {
-        knowledgeGaps: KnowledgeGapSuggestion[]
-        payload?: {
-            value: true
-        }
+        fullEmailContent: string
+        payload?: string
     }
     loadLinkedReports: () => {
         value: true
@@ -415,6 +415,9 @@ export interface supportTicketSceneLogicActions {
         onSuccess: (() => void) | undefined
         richContent: Record<string, unknown> | null
         statusAfterSend: TicketStatus | undefined
+    }
+    setAiDraftApplying: (applying: boolean) => {
+        applying: boolean
     }
     setAssignee: (assignee: TicketAssignee) => {
         assignee: TicketAssignee
@@ -522,11 +525,7 @@ export interface supportTicketSceneLogicMeta {
             unsavedTicketChanges: string[]
         ) => boolean
         hasPendingWork: (hasUnsavedChanges: boolean, editingMessageId: string | null) => boolean
-        chatMessages: (
-            messages: CommentType[],
-            ticket: Ticket | null,
-            featureFlags: FeatureFlagsSet // featureFlagLogic
-        ) => ChatMessage[]
+        chatMessages: (messages: CommentType[], ticket: Ticket | null, featureFlags: FeatureFlagsSet) => ChatMessage[]
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
         exceptionsQuery: (ticket: Ticket | null) => DataTableNode | null
         latestAiMessage: (chatMessages: ChatMessage[]) => ChatMessage | null
@@ -576,6 +575,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
         pollDiscussionThread: true,
 
+        applyAiDraft: (message: ChatMessage) => ({ message }),
+        setAiDraftApplying: (applying: boolean) => ({ applying }),
+        bumpComposerPrefill: true,
+
         loadOlderMessages: true,
         setOlderMessages: (olderMessages: CommentType[]) => ({ olderMessages }),
         setOlderMessagesLoading: (loading: boolean) => ({ loading }),
@@ -607,10 +610,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         loadPreviousTickets: true,
         loadLinkedReports: true,
 
-        // Knowledge gap suggestions
-        loadKnowledgeGaps: true,
-        dismissKnowledgeGap: (suggestionId: string) => ({ suggestionId }),
-
         // Draft message state (persists across tab switches)
         setDraftContent: (content: string | JSONContent | null) => ({ content }),
         setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
@@ -632,6 +631,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             messageId,
             rating,
         }),
+        closeFullEmail: true,
     }),
     loaders(({ values, props }) => ({
         person: [
@@ -728,23 +728,21 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 },
             },
         ],
-        knowledgeGaps: [
-            [] as KnowledgeGapSuggestion[],
+        fullEmailContent: [
+            null as string | null,
             {
-                loadKnowledgeGaps: async (): Promise<KnowledgeGapSuggestion[]> => {
+                loadFullEmail: async (messageId: string, breakpoint): Promise<string> => {
                     const ticket = values.ticket
                     if (!ticket) {
-                        return []
+                        throw new Error('Ticket is not loaded')
                     }
-                    try {
-                        const response = await businessKnowledgeGapSuggestionsList(String(getCurrentTeamId()), {
-                            ticket_id: ticket.id,
-                        })
-                        const data = Array.isArray(response) ? response : (response.results ?? [])
-                        return data as unknown as KnowledgeGapSuggestion[]
-                    } catch {
-                        return []
-                    }
+                    const response = await conversationsTicketsMessagesFullEmailRetrieve(
+                        String(getCurrentTeamId()),
+                        ticket.id,
+                        messageId
+                    )
+                    breakpoint()
+                    return response.content
                 },
             },
         ],
@@ -772,6 +770,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 loadTicket: () => true,
                 setTicket: () => false,
                 setTicketLoading: (_, { loading }) => loading,
+            },
+        ],
+        fullEmailMessageId: [
+            null as string | null,
+            {
+                loadFullEmail: (_, messageId) => messageId,
+                loadFullEmailFailure: () => null,
+                closeFullEmail: () => null,
             },
         ],
         status: [
@@ -850,6 +856,19 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             {
                 sendMessage: () => true,
                 setMessageSending: (_, { sending }) => sending,
+            },
+        ],
+        aiDraftApplying: [
+            false,
+            {
+                applyAiDraft: () => true,
+                setAiDraftApplying: (_, { applying }) => applying,
+            },
+        ],
+        composerPrefillAt: [
+            0,
+            {
+                bumpComposerPrefill: (state) => state + 1,
             },
         ],
         draftContent: [
@@ -1074,6 +1093,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                                 message.item_context?.slack_author_name ||
                                 message.item_context?.teams_author_name ||
                                 message.item_context?.teams_author_email ||
+                                message.item_context?.github_login ||
                                 message.item_context?.email_from_name
                             if (messageAuthorName) {
                                 displayName = messageAuthorName
@@ -1102,6 +1122,27 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                             version: message.version,
                             emailDeliveryStatus: message.item_context?.email_delivery_status,
                             fromZendesk: message.item_context?.from_zendesk === true,
+                            hasFullEmailContent: message.item_context?.has_full_email_content === true,
+                            citations: Array.isArray(message.item_context?.citations)
+                                ? message.item_context.citations.filter(
+                                      (item: unknown): item is string => typeof item === 'string' && !!item
+                                  )
+                                : undefined,
+                            confidence:
+                                typeof message.item_context?.confidence === 'number'
+                                    ? message.item_context.confidence
+                                    : undefined,
+                            persistAs:
+                                message.item_context?.persist_as === 'reply' ||
+                                message.item_context?.persist_as === 'findings' ||
+                                message.item_context?.persist_as === 'clarification'
+                                    ? message.item_context.persist_as
+                                    : undefined,
+                            clarifyingQuestions: Array.isArray(message.item_context?.clarifying_questions)
+                                ? message.item_context.clarifying_questions.filter(
+                                      (item: unknown): item is string => typeof item === 'string'
+                                  )
+                                : undefined,
                         }
                     })
             },
@@ -1169,7 +1210,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
                 // Load session context data
                 actions.loadPerson()
-                actions.loadKnowledgeGaps()
                 actions.loadLinkedReports()
 
                 // Refresh the unread count since viewing a ticket marks it as read
@@ -1201,6 +1241,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             // Load previous tickets after person is loaded
             actions.loadPreviousTickets()
         },
+        loadFullEmailFailure: () => {
+            lemonToast.error("Couldn't load the full email. Try again.")
+            actions.closeFullEmail()
+        },
         updateTicket: async (_, breakpoint) => {
             if (props.id === 'new') {
                 actions.setTicketUpdating(false)
@@ -1213,13 +1257,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
             breakpoint()
 
-            const data: Partial<{
-                status: string
-                priority: string
-                assignee: TicketAssignee
-                tags: string[]
-                snoozed_until: string | null
-            }> = {}
+            const data: PatchedTicketUpdateRequestApi = {}
 
             if (values.status && values.status !== values.ticket?.status) {
                 data.status = values.status
@@ -1231,12 +1269,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             data.tags = values.tags
             data.snoozed_until = values.snoozedUntil
 
-            const request = api.conversationsTickets.update(props.id.toString(), data)
+            const request = conversationsTicketsPartialUpdate(String(getCurrentTeamId()), props.id.toString(), data)
             cache.ticketUpdateRequest = request
             try {
                 const ticket = await request
                 breakpoint()
-                actions.setTicket(ticket)
+                actions.setTicket(ticket as Ticket)
                 lemonToast.success('Ticket updated')
                 actions.loadTickets()
                 // tagsModel loads once per session and never refetches, so newly created tags need an explicit reload
@@ -1464,6 +1502,39 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
             actions.loadTickets()
         },
+        applyAiDraft: async ({ message }) => {
+            try {
+                if (values.editingMessageId) {
+                    cache.noteEditActive = false
+                    actions.clearEditingMessage()
+                }
+                actions.setDraftIsPrivate(false)
+                actions.setDraftContent(aiDraftComposerHtml(message))
+                actions.bumpComposerPrefill()
+                if (!values.ticket?.id) {
+                    return
+                }
+                try {
+                    await conversationsTicketsAiHumanOutcomeCreate(String(getCurrentTeamId()), values.ticket.id, {
+                        message_id: message.id,
+                        outcome: 'used',
+                    })
+                    const ticket = values.ticket
+                    if (ticket) {
+                        actions.setTicket({
+                            ...ticket,
+                            ai_triage: { ...ticket.ai_triage, human_outcome: 'used' },
+                        })
+                    }
+                } catch (error: unknown) {
+                    if (!(error instanceof ApiError && error.status === 409)) {
+                        lemonToast.error("Couldn't record that you used the draft.")
+                    }
+                }
+            } finally {
+                actions.setAiDraftApplying(false)
+            }
+        },
         startEditingMessage: ({ message }) => {
             // Only stash the composer draft on first enter; switching notes keeps the original stash.
             if (!cache.noteEditActive) {
@@ -1518,14 +1589,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 },
                 secondaryButton: { children: 'Cancel' },
             })
-        },
-        dismissKnowledgeGap: async ({ suggestionId }) => {
-            try {
-                await businessKnowledgeGapSuggestionsDismissCreate(String(getCurrentTeamId()), suggestionId)
-                actions.loadKnowledgeGaps()
-            } catch {
-                lemonToast.error('Failed to dismiss suggestion')
-            }
         },
         submitAiReplyFeedback: async ({ messageId, rating, feedbackText }) => {
             const ticket = values.ticket

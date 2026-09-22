@@ -16,7 +16,10 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.capture import capture_batch_internal
 from posthog.models.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
-from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
+from posthog.storage.hypercache_manager import (
+    HYPERCACHE_SIGNAL_UPDATE_COUNTER,
+    get_cache_stats as get_cache_stats_generic,
+)
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
 from products.feature_flags.backend.canary import run_local_eval_canary
@@ -256,6 +259,14 @@ def refresh_expiring_flags_cache_entries(self: PushGatewayTask) -> None:
         "Number of flags caches that failed to refresh",
         registry=self.metrics_registry,
     )
+    # Separate from the successful gauge because an enqueued team has not been rebuilt
+    # yet when the run ends. Folding the two together would report a healthy sweep
+    # while the Kafka builder was down.
+    enqueued_gauge = Gauge(
+        "posthog_flags_cache_refresh_enqueued_count",
+        "Number of flags caches whose refresh was raised as a Kafka invalidation instead of being built here",
+        registry=self.metrics_registry,
+    )
 
     start_time = time.time()
     logger.info(
@@ -272,6 +283,7 @@ def refresh_expiring_flags_cache_entries(self: PushGatewayTask) -> None:
     # Record metrics
     successful_gauge.set(counts.successful)
     failed_gauge.set(counts.failed)
+    enqueued_gauge.set(counts.enqueued)
 
     # Note: Teams processed metrics are pushed to Pushgateway by
     # cache_expiry_manager.refresh_expiring_caches() via push_hypercache_teams_processed_metrics()
@@ -285,6 +297,7 @@ def refresh_expiring_flags_cache_entries(self: PushGatewayTask) -> None:
         "Completed flags cache refresh",
         successful_refreshes=counts.successful,
         failed_refreshes=counts.failed,
+        enqueued_refreshes=counts.enqueued,
         total_cached=stats_after.get("total_cached", 0),
         total_teams=stats_after.get("total_teams", 0),
         cache_coverage=stats_after.get("cache_coverage", "unknown"),
@@ -489,11 +502,18 @@ def refresh_expiring_flag_definitions_cache_entries(self: PushGatewayTask) -> No
     successful_gauge.set(counts.successful)
     failed_gauge.set(counts.failed)
 
+    # Scan after refresh for metrics (pushes to Pushgateway via get_cache_stats)
+    stats_after = get_cache_stats_generic(FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG)
+
     duration = time.time() - start_time
     logger.info(
         "Completed flag definitions cache refresh",
         successful_refreshes=counts.successful,
         failed_refreshes=counts.failed,
+        total_cached=stats_after.get("total_cached", 0),
+        total_teams=stats_after.get("total_teams", 0),
+        cache_coverage=stats_after.get("cache_coverage", "unknown"),
+        ttl_distribution=stats_after.get("ttl_distribution", {}),
         duration_seconds=duration,
     )
 

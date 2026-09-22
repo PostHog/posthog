@@ -4,9 +4,6 @@ import { FetchCandidateQueue } from './fetch-candidate-queue'
 const OPTIONS = {
     maxConcurrentPerRegistrableDomain: 6,
     maxInFlightRequests: 300,
-    lowOriginDiversityMinimumRequestSlots: 48,
-    lowOriginDiversityRepublishThreshold: 50,
-    lowOriginDiversityProgress: 8,
 }
 
 function candidate(index: number): FetchCandidate {
@@ -89,8 +86,6 @@ describe('FetchCandidateQueue', () => {
             {
                 ...OPTIONS,
                 maxConcurrentPerRegistrableDomain: 1,
-                lowOriginDiversityMinimumRequestSlots: 1,
-                lowOriginDiversityRepublishThreshold: 100_000,
             }
         )
         let drained = 0

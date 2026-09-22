@@ -13,6 +13,8 @@ rules:
       owners: team-feature-flags
     - match: '/hogql/'
       owners: team-data-tools
+    - match: ['/pgcollector/', '/pgapi/']
+      owners: team-ingestion
     - match:
           - '/ingestion-consumer/'
           - '/kafka-assigner-proto/'

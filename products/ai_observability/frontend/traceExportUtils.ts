@@ -120,7 +120,9 @@ function buildEventExport(event: LLMTraceEvent, children?: EnrichedTraceTreeNode
             output: event.properties.$ai_output_tokens || 0,
         }
     }
-    if (event.properties.$ai_total_cost_usd) {
+    // `!= null` keeps a genuine $0 cost, which ingestion now reports for a
+    // generation that priced to zero, rather than dropping it as falsy.
+    if (event.properties.$ai_total_cost_usd != null) {
         metrics.cost = event.properties.$ai_total_cost_usd
     }
 
@@ -152,8 +154,9 @@ export function buildMinimalTraceJSON(trace: LLMTrace, tree: EnrichedTraceTreeNo
         result.name = trace.traceName
     }
 
-    // Add total cost if available
-    if (trace.totalCost) {
+    // Add total cost if reported. `!= null` keeps a genuine $0, which the trace
+    // header now shows, so the export agrees with it.
+    if (trace.totalCost != null) {
         result.total_cost = trace.totalCost
     }
 

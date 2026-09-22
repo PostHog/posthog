@@ -311,12 +311,22 @@ class TestFetchItemSummaries:
 
         assert summaries == {}
 
+    @pytest.mark.parametrize(
+        "trace_ts,expected",
+        [
+            (datetime(2025, 1, 5, 10, 30, 45), datetime(2025, 1, 5, 10, 30, 45).isoformat()),
+            ("2025-01-05T10:30:45", "2025-01-05T10:30:45"),
+            # The summarizer writes the property with str(datetime), so a space separates the date.
+            ("2025-01-05 10:30:45+00:00", "2025-01-05T10:30:45+00:00"),
+            ("not a timestamp", "not a timestamp"),
+            (None, ""),
+        ],
+    )
     @patch("posthog.temporal.ai_observability.trace_clustering.data.execute_hogql_query")
-    def test_extracts_timestamp_as_iso_string(self, mock_execute, mock_team):
-        test_timestamp = datetime(2025, 1, 5, 10, 30, 45)
+    def test_converts_timestamp_to_string(self, mock_execute, mock_team, trace_ts, expected):
         mock_result = MagicMock()
         mock_result.results = [
-            ("trace_1", "Title", "Flow", "Bullets", "Notes", test_timestamp, "batch_123", "trace_1"),
+            ("trace_1", "Title", "Flow", "Bullets", "Notes", trace_ts, "batch_123", "trace_1"),
         ]
         mock_result.clickhouse = "SELECT ..."
         mock_execute.return_value = mock_result
@@ -329,4 +339,4 @@ class TestFetchItemSummaries:
             window_end=datetime(2025, 1, 8, tzinfo=UTC),
         )
 
-        assert summaries["trace_1"]["trace_timestamp"] == test_timestamp.isoformat()
+        assert summaries["trace_1"]["trace_timestamp"] == expected

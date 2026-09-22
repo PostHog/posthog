@@ -21,11 +21,11 @@
             "type": "string"
         },
         "table_name": {
-            "description": "Table name; 409 with candidates if ambiguous.",
+            "description": "Queryable HogQL table name; 409 with candidates if ambiguous.",
             "type": "string"
         },
         "view_name": {
-            "description": "View name; 409 with candidates if ambiguous.",
+            "description": "Queryable HogQL view name; 409 with candidates if ambiguous.",
             "type": "string"
         }
     },

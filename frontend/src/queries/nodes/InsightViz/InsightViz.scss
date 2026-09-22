@@ -66,6 +66,45 @@
                     .ActionFilterGroup--events-list .TaxonomicPropertyFilter__row-items {
                         flex-basis: 100%;
                     }
+
+                    // The empty row keeps "where + Filter" as one unit so the suffix button wraps below it
+                    .ActionFilterGroup--events-list .property-filter-row--with-suffix .TaxonomicPropertyFilter__row {
+                        flex-wrap: nowrap;
+                    }
+
+                    .ActionFilterGroup--events-list
+                        .property-filter-row--with-suffix
+                        .TaxonomicPropertyFilter__row-items {
+                        flex-basis: auto;
+                    }
+                }
+
+                @container editor-panel (max-width: 400px) {
+                    .ActionFilterRow-filters .TaxonomicPropertyFilter__row {
+                        flex-wrap: wrap;
+                    }
+
+                    .ActionFilterRow-filters .TaxonomicPropertyFilter__row-items {
+                        flex-basis: 100%;
+                    }
+
+                    .ActionFilterRow-filters .TaxonomicPropertyFilter__row-operator {
+                        justify-content: flex-start;
+                        width: auto;
+                        height: auto;
+                    }
+
+                    .ActionFilterRow-filters .TaxonomicPropertyFilter__row-operator--empty {
+                        display: none;
+                    }
+
+                    .ActionFilterRow-filters .property-filter-row--with-suffix .TaxonomicPropertyFilter__row {
+                        flex-wrap: nowrap;
+                    }
+
+                    .ActionFilterRow-filters .property-filter-row--with-suffix .TaxonomicPropertyFilter__row-items {
+                        flex-basis: auto;
+                    }
                 }
             }
 
@@ -316,6 +355,15 @@
 .ErrorTracking__insights {
     .InsightViz {
         align-items: stretch;
+        height: 100%;
+    }
+
+    // An embedded query renders `.InsightCard__viz` instead of `.InsightViz`, and that wrapper carries
+    // no sizing of its own. Give it the same full-height flex column, or the chart collapses to its
+    // content height and leaves the bottom of the card empty.
+    .InsightCard__viz {
+        display: flex;
+        flex-direction: column;
         height: 100%;
     }
 

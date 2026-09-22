@@ -527,6 +527,7 @@ describe("resolveWriteBase", () => {
     run(clone, "init", "--initial-branch", "main");
     run(clone, "config", "user.email", "e2e@posthog.com");
     run(clone, "config", "user.name", "e2e");
+    run(clone, "config", "commit.gpgsign", "false");
     writeFileSync(path.join(clone, "a.txt"), "a\n");
     run(clone, "add", "a.txt");
     run(clone, "commit", "-m", "init");

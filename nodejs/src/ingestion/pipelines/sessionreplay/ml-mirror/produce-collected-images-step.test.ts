@@ -1,9 +1,10 @@
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PipelineResultType } from '~/ingestion/framework/results'
 import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-transport'
-import { CollectedImage } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { MlImageScrubOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 
+import { MlMirrorMetrics } from './metrics'
+import { CollectedImage } from './parse-and-anonymize-step'
 import { createProduceCollectedImagesStep } from './produce-collected-images-step'
 
 describe('produceCollectedImagesStep', () => {
@@ -50,12 +51,12 @@ describe('produceCollectedImagesStep', () => {
                 {
                     key: 'image:aa:h1',
                     value: Buffer.from([1]),
-                    headers: { [CAPTURE_TIMESTAMP_HEADER]: String(CAPTURED_AT) },
+                    headers: { [CAPTURE_TIMESTAMP_HEADER]: String(CAPTURED_AT), ai_research_ingestion_version: '1' },
                 },
                 {
                     key: 'image:aa:h2',
                     value: Buffer.from([2]),
-                    headers: { [CAPTURE_TIMESTAMP_HEADER]: String(CAPTURED_AT) },
+                    headers: { [CAPTURE_TIMESTAMP_HEADER]: String(CAPTURED_AT), ai_research_ingestion_version: '1' },
                 },
             ],
         ])
@@ -80,14 +81,14 @@ describe('produceCollectedImagesStep', () => {
                 {
                     key: 'image:aa:h1',
                     value: Buffer.from([1]),
-                    headers: { [CAPTURE_TIMESTAMP_HEADER]: String(CAPTURED_AT) },
+                    headers: { [CAPTURE_TIMESTAMP_HEADER]: String(CAPTURED_AT), ai_research_ingestion_version: '1' },
                 },
             ],
             [
                 {
                     key: 'image:aa:h2',
                     value: Buffer.from([1]),
-                    headers: { [CAPTURE_TIMESTAMP_HEADER]: String(CAPTURED_AT) },
+                    headers: { [CAPTURE_TIMESTAMP_HEADER]: String(CAPTURED_AT), ai_research_ingestion_version: '1' },
                 },
             ],
         ])
@@ -121,6 +122,23 @@ describe('produceCollectedImagesStep', () => {
             message: { timestamp: CAPTURED_AT },
         })
         expect(result.type).toBe(PipelineResultType.OK)
+    })
+
+    it.each([
+        ['delivered', false, 1],
+        ['failed', true, 0],
+    ])('counts the wire version of a %s produce', async (_outcome, rejects, expected) => {
+        if (rejects) {
+            queueMessages.mockRejectedValueOnce(new Error('broker down'))
+        }
+        const incrementVersion = jest.spyOn(MlMirrorMetrics, 'incrementMlProducedVersion')
+        try {
+            const step = createProduceCollectedImagesStep(outputs)
+            await run(step, { collectedImages: [image('image:aa:h1')], message: { timestamp: CAPTURED_AT } })
+            expect(incrementVersion).toHaveBeenCalledTimes(expected)
+        } finally {
+            incrementVersion.mockRestore()
+        }
     })
 
     it('un-marks refs whose produce failed so a recurring image re-produces naturally', async () => {

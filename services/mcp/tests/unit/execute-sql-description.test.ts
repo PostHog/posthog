@@ -14,7 +14,8 @@ describe('formatExecuteSqlDescription', () => {
         expect(rendered).toContain('confidence')
         expect(rendered).toContain('reasoning')
         expect(rendered).toContain('#### Metric discovery (semantic layer)')
-        expect(rendered).toContain('system.information_schema.metrics')
+        expect(rendered).toContain('metric-list')
+        expect(rendered).toContain('metric-describe')
         expect(rendered).toContain('data-catalog-metric-run')
         expect(rendered).toContain('#### Regular schema discovery')
         // The tool's own intro must stay first; metric discovery sits after the

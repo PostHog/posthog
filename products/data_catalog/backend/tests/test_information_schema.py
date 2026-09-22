@@ -814,6 +814,38 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
         )
         assert response.results == [("cert_push_view",)]
 
+    @parameterized.expand(
+        [
+            ("raw", "cert_push_table", "cert_push_table"),
+            ("dotted", "stripe_cert_push_table", "stripe.cert_push_table"),
+        ]
+    )
+    def test_certifications_table_target_name_pushdown_keeps_table_rows(
+        self, _name: str, raw_name: str, target_name: str
+    ) -> None:
+        external_data_source = None
+        if target_name != raw_name:
+            external_data_source = ExternalDataSource.objects.create(
+                team=self.team, source_type=ExternalDataSourceType.STRIPE
+            )
+        table = DataWarehouseTable.objects.create(
+            name=raw_name,
+            format="Parquet",
+            team=self.team,
+            external_data_source=external_data_source,
+            url_pattern=f"s3://bucket/{raw_name}",
+            columns=_COLUMNS,
+        )
+        propose_certification(team=self.team, user=self.user, table_id=str(table.id))
+
+        response = execute_hogql_query(
+            f"SELECT target_name FROM system.information_schema.certifications WHERE target_name = '{target_name}'",
+            team=self.team,
+            context=self._context(),
+        )
+
+        assert response.results == [(target_name,)]
+
     def test_certifications_table_team_isolation(self) -> None:
         other = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user, name="Other")
         table = DataWarehouseTable.objects.create(
