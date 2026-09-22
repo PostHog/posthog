@@ -25,7 +25,7 @@ import {
 } from 'products/metrics/frontend/generated/api'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
-import { metricsViewerLogic } from './metricsViewerLogic'
+import { createViewerClause, metricsViewerLogic } from './metricsViewerLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
@@ -218,6 +218,43 @@ describe('metricsViewerLogic', () => {
 
         logic.actions.setMetricName('queue_depth')
         expect(logic.values.displayType).toBe('line')
+    })
+
+    // The heatmap grids one distribution as-is; the histogram query has no grouping field,
+    // so a grouped clause would render its heatmap with the grouping silently dropped.
+    it('is not heatmap-eligible for a grouped clause', () => {
+        logic.actions.setMetricName('request_duration')
+        logic.actions.setGroupByKeys(['container'])
+
+        expect(logic.values.heatmapEligible).toBe(false)
+        expect(logic.values.histogramQueryNode).toBeNull()
+    })
+
+    // The display latches only at metric-switch time, so every other change that makes the
+    // query ineligible (a formula, a second clause, a URL restore, a group-by) must fall
+    // back too — otherwise the viewer keeps "heatmap" selected while rendering a time
+    // series, and saving silently does nothing (savedQueryNode is null).
+    it('falls back to the default display from heatmap on any eligibility loss', () => {
+        const expectHeatmapFallback = (act: () => void): void => {
+            logic.actions.setClauses([createViewerClause('a')], '')
+            logic.actions.setMetricName('request_duration')
+            logic.actions.setDisplayType('heatmap')
+            expect(logic.values.displayType).toBe('heatmap')
+
+            act()
+            expect(logic.values.displayType).toBe('line')
+        }
+
+        expectHeatmapFallback(() => logic.actions.setFormula('a / 2'))
+        expectHeatmapFallback(() => {
+            logic.actions.addClause()
+            logic.actions.setMetricName('queue_depth')
+        })
+        expectHeatmapFallback(() => logic.actions.duplicateClause(0))
+        expectHeatmapFallback(() => logic.actions.setGroupByKeys(['container']))
+        expectHeatmapFallback(() =>
+            logic.actions.setClauses([createViewerClause('a'), createViewerClause('b')], 'a / 2')
+        )
     })
 
     // Guards the multi-series save path: each clause carries its own metric/aggregation,
