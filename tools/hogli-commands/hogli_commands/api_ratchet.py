@@ -88,6 +88,7 @@ _ROOT_PREFIXES: Final[dict[str, tuple[str, ...]]] = {
 
 _METHOD_START: Final = re.compile(r"^    public (\w+)\(")
 _CHAIN_BASE: Final = re.compile(r"this\.(\w+)\(")
+_RETURN_LINE: Final = re.compile(r"\s*return\b")
 _CHAINED_CALL: Final = re.compile(r"\.(\w+)\(")
 _NAMESPACE_START: Final = re.compile(r"^    (\w+): \{")
 _MEMBER_CALL: Final = re.compile(r"\.(\w+)\(")
@@ -145,24 +146,44 @@ class ReturnStatement:
     statement: str
 
 
+def _block_paths(lines: list[str]) -> list[tuple[int, ...]]:
+    """For each line, the ids of the brace blocks open at it, outermost first."""
+    paths: list[tuple[int, ...]] = []
+    stack: list[int] = []
+    opened = 0
+    for line in lines:
+        paths.append(tuple(stack))
+        for char in line:
+            if char == "{":
+                opened += 1
+                stack.append(opened)
+            elif char == "}" and stack:
+                stack.pop()
+    return paths
+
+
 def _split_returns(body: str) -> list[ReturnStatement]:
     """Split a method body into one ReturnStatement per ``return``.
 
-    The setup of a return is every statement before it that is not itself an earlier
-    return expression, so a chain the body mutates between two returns reaches the
-    later one, while a branch that already returned contributes nothing.
+    A return's setup is the statements it actually runs after: those in its own block
+    and in the blocks enclosing it, never those in a branch it never entered. A
+    conditional that mutates the chain before returning inside the `if` must not reach
+    the return below the block, or the method resolves to the conditional route only.
     """
-    starts = [match.start() for match in re.finditer(r"\breturn\b", body)]
-    if not starts:
-        return [ReturnStatement(setup="", statement=body)]
-    bounds = [*starts, len(body)]
-    chunks = [body[start:bound] for start, bound in zip(starts, bounds[1:])]
-    expressions = [_return_expression(chunk) for chunk in chunks]
+    lines = body.splitlines()
+    paths = _block_paths(lines)
     returns: list[ReturnStatement] = []
-    for index, expression in enumerate(expressions):
-        trailing = "".join(earlier[len(expressions[position]) :] for position, earlier in enumerate(chunks[:index]))
-        returns.append(ReturnStatement(setup=body[: starts[0]] + trailing, statement=expression))
-    return returns
+    for index, line in enumerate(lines):
+        if not _RETURN_LINE.match(line):
+            continue
+        setup = [
+            earlier
+            for position, earlier in enumerate(lines[:index])
+            if paths[position] == paths[index][: len(paths[position])] and not _RETURN_LINE.match(earlier)
+        ]
+        statement = _return_expression("\n".join(lines[index:]))
+        returns.append(ReturnStatement(setup="\n".join(setup), statement=statement))
+    return returns or [ReturnStatement(setup="", statement=body)]
 
 
 def _ternary_branches(expression: str) -> list[str]:

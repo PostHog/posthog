@@ -58,6 +58,15 @@ export class ApiRequest {
         return this.signalReports(teamId).addPathComponent(`${id}/similar`)
     }
 
+    public signalReportChecks(id?: string, teamId?: TeamType['id']): ApiRequest {
+        let request = this.signalReports(teamId).addPathComponent('checks')
+        if (id) {
+            request = request.addPathComponent(id)
+            return request
+        }
+        return request
+    }
+
     public signalScoutRuns(kind?: string, teamId?: TeamType['id']): ApiRequest {
         const request = this.projectsDetail(teamId).addPathComponent('signals')
         if (!kind) {
@@ -195,6 +204,13 @@ class TestApiRequestResolver:
                 "a chain through a path helper keeps its segments",
                 "organizationMembers",
                 ["organizations/@current/members"],
+            ),
+            # The mutation inside the `if` must not reach the return below the block,
+            # or the collection route disappears.
+            (
+                "a conditional mutation stays inside its branch",
+                "signalReportChecks",
+                ["projects/{}/signals/reports/checks/{}", "projects/{}/signals/reports/checks"],
             ),
             # The second return reads a chain the first branch did not see.
             (
