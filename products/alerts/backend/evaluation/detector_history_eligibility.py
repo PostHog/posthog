@@ -30,6 +30,13 @@ _RESERVED_ALIASES = {"timestamp", "event", "distinct_id", "person_id", "properti
 _ROW_LOCAL_FIELD_ROOTS = ("timestamp", "event", "distinct_id", "person_id", "properties")
 
 
+@frozen
+class _HourlySeriesShape:
+    window_hours: int
+    bucket_alias: str
+    value_alias: str
+
+
 class _HourlySeriesMatcher:
     """Decide whether one parsed query is a single-level, bucket-local hourly aggregation."""
 
@@ -213,14 +220,14 @@ class _HourlySeriesMatcher:
                     hours = found if hours is None else min(hours, found)
         return hours if has_end else None
 
-    def match(self) -> tuple[int, str, str] | None:
+    def match(self) -> _HourlySeriesShape | None:
         aliases = self._aliases()
         if aliases is None:
             return None
         hours = self._window_hours()
         if hours is None:
             return None
-        return hours, aliases[0], aliases[1]
+        return _HourlySeriesShape(window_hours=hours, bucket_alias=aliases[0], value_alias=aliases[1])
 
 
 @frozen
@@ -287,11 +294,10 @@ def match_detector_series_query(query: object, *, column: str | None) -> Detecto
     matched = _HourlySeriesMatcher(parsed, column).match()
     if matched is None:
         return None
-    window_hours, bucket_alias, value_alias = matched
     return DetectorSeriesQuery(
-        window_hours=window_hours,
-        bucket_alias=bucket_alias,
-        value_alias=value_alias,
+        window_hours=matched.window_hours,
+        bucket_alias=matched.bucket_alias,
+        value_alias=matched.value_alias,
         source=query,
         parsed=parsed,
     )
