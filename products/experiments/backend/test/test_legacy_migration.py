@@ -9,11 +9,11 @@ from ee.api.test.base import APILicensedTest
 
 LEGACY_TRENDS_METRIC = {
     "kind": "ExperimentTrendsQuery",
-    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+    "count_query": {"series": [{"kind": "EventsNode", "event": "$pageview"}]},
 }
 LEGACY_FUNNEL_QUERY = {
     "kind": "ExperimentFunnelsQuery",
-    "funnels_query": {"kind": "FunnelsQuery", "series": [{"kind": "EventsNode", "event": "signed_up", "name": "x"}]},
+    "funnels_query": {"series": [{"kind": "EventsNode", "event": "signed_up", "name": "x"}]},
 }
 
 
