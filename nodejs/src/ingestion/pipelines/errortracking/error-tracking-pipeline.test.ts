@@ -662,7 +662,6 @@ describe('ErrorTrackingPipeline', () => {
             // doesn't commit and retries the batch
             await expect(runErrorTrackingPipeline(pipeline, [message])).rejects.toThrow('Cymbal unavailable')
 
-            // Cymbal was called 5 times (initial + 4 retries) before giving up
             expect(mockCymbalClient.processExceptions).toHaveBeenCalledTimes(5)
             expect(mockHogTransformer.transformEventAndProduceMessages).not.toHaveBeenCalled()
         })

@@ -80,7 +80,6 @@ describe('retryIfRetriable backoff', () => {
         const sleeps = captureSleeps()
         const fn = jest.fn(alwaysFails(4000))
         await expect(retryIfRetriable(fn, { tries: 5, sleepMs: 100, jitter: 0, deadlineMs: 5000 })).rejects.toThrow('x')
-        // The second attempt ends past the deadline, so the remaining tries are never spent.
         expect(fn).toHaveBeenCalledTimes(2)
         expect(sleeps).toEqual([100])
     })

@@ -177,7 +177,6 @@ describe('retry', () => {
             })
 
             expect(results.every(isOkResult)).toBe(true)
-            // The factor grows the sleep until the cap holds it.
             expect(mockSleep.mock.calls.map(([ms]) => ms)).toEqual([100, 400, 1000, 1000])
         })
 

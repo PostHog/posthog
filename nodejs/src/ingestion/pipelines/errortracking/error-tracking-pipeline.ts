@@ -186,17 +186,10 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
     const afterCymbal = preCymbal
         // Process through Cymbal as a batch (before enrichment - Cymbal only
         // needs raw exception data, not person/geoip/group data).
-        // Retry on transient failures (5xx, timeout, network errors). Those
-        // usually last longer than a few hundred milliseconds, so the backoff
-        // grows fast (0.1s, 0.4s, 1.6s, 6.4s) to stop sending while Cymbal
-        // recovers. Fast failures still get every attempt, because the whole
-        // backoff fits inside the 10s budget.
-        // The budget bounds how long the step holds the consumer loop: it is
-        // checked between attempts and never cuts short a request in flight,
-        // so the worst case is the budget plus one request capped at
-        // ERROR_TRACKING_CYMBAL_TIMEOUT_MS (10s + 15s). That stays under the
-        // consumer health thresholds, the stricter of which is
-        // CONSUMER_MAX_HEARTBEAT_INTERVAL_MS (30s).
+        // Cymbal failures usually outlast a few hundred milliseconds, so the
+        // backoff grows 4x per attempt. The deadline is checked between attempts,
+        // so the worst case is the budget plus one request at
+        // ERROR_TRACKING_CYMBAL_TIMEOUT_MS, which must stay under CONSUMER_MAX_HEARTBEAT_INTERVAL_MS.
         .pipeChunk(createCymbalProcessingStep(cymbalClient), {
             retry: { tries: 5, sleepMs: 100, backoffFactor: 4, deadlineMs: 10000, name: 'cymbal_processing' },
         })
