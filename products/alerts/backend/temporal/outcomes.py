@@ -12,9 +12,14 @@ this module off the import path of any workflow.
 import datetime as dt
 
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from products.alerts.backend.facade.contracts import RECORD_OUTCOMES_ACTIVITY, SourceOutcomeInputs
 from products.alerts.backend.temporal.metrics import increment_outcomes_recorded, safe_record
+
+WRITE_PERMISSION_DENIED = "AlertsProductWritePermissionDenied"
+# Postgres `insufficient_privilege`.
+PERMISSION_DENIED_SQLSTATE = "42501"
 
 
 @activity.defn(name=RECORD_OUTCOMES_ACTIVITY)
@@ -22,6 +27,8 @@ async def alerts_product_record_outcomes_activity(inputs: SourceOutcomeInputs) -
     """Records one batch's decisions. Returns how many reached the tables."""
     # Imported in the activity body, not at module scope: a Django model import trips Temporal's
     # workflow sandbox, and the worker registration that reaches this module runs through one.
+    from django.db import DatabaseError
+
     from posthog.models import Team
     from posthog.sync import database_sync_to_async_pool
 
@@ -41,6 +48,17 @@ async def alerts_product_record_outcomes_activity(inputs: SourceOutcomeInputs) -
             team_timezone=timezone,
         )
 
-    recorded = await database_sync_to_async_pool(_record)()
+    try:
+        recorded = await database_sync_to_async_pool(_record)()
+    except DatabaseError as error:
+        if getattr(error.__cause__, "sqlstate", None) != PERMISSION_DENIED_SQLSTATE:
+            raise
+        # The grant is missing for every attempt of every batch, so retrying only multiplies the
+        # same failure. Fail the batch once; its keys stay due for a later tick.
+        raise ApplicationError(
+            "The database role cannot write the shared alert tables",
+            type=WRITE_PERMISSION_DENIED,
+            non_retryable=True,
+        ) from None
     safe_record(increment_outcomes_recorded, recorded)
     return recorded

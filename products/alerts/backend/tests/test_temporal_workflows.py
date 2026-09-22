@@ -94,7 +94,7 @@ async def environment(
 def postgres_cursor() -> Iterator[MagicMock]:
     with patch.object(postgres, "execute_with_timeout") as execute:
         cursor = execute.return_value.__enter__.return_value
-        cursor.fetchone.return_value = (1,)
+        cursor.fetchall.return_value = [(table, True, True) for table in postgres.required_tables()]
         yield cursor
 
 

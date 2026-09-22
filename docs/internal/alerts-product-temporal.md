@@ -86,7 +86,7 @@ Watch orchestration, its source dispatcher children, their evaluation children, 
 Evaluation and delivery accept an empty `AlertsProductInputs` dataclass; orchestration accepts `OrchestrateInputs` with all fields defaulted.
 Orchestration pages source dispatchers, which start evaluation children with a 75-second execution timeout and one workflow attempt.
 Evaluation child IDs carry the tick ID, source and page, so each tick starts distinct evaluations.
-Evaluation runs a Postgres connectivity probe; delivery runs an empty activity with no I/O.
+Evaluation runs a Postgres readiness probe; delivery runs an empty activity with no I/O.
 Evaluation and delivery activities each have a 10-second start-to-close timeout and a 30-second schedule-to-close timeout.
 Evaluation has one attempt; delivery retains at most three attempts.
 Evaluation starts one delivery child on the delivery queue and waits for confirmation that it started, without waiting for completion.
@@ -220,6 +220,9 @@ A source starts the write by name rather than importing it, so the products stay
 
 The write is safe to run twice. An attempt that commits leaves every configuration due after the cutoff,
 and a replay skips those rows rather than advancing them again and skipping a cycle.
+The write keeps three attempts, except when Postgres refuses it for lack of privilege (`42501`).
+A missing grant fails every attempt of every batch, so the activity turns that one error into a non-retryable
+`AlertsProductWritePermissionDenied` and fails the batch once. Its keys stay due for a later tick.
 It runs in one transaction, so no alert is marked as notified while its schedule still says the check is due.
 
 `MAX_PREVIEWS_PER_CYCLE` bounds an outcome together with the delivery it belongs to.
@@ -283,11 +286,13 @@ Pass `--team-id` to copy one team's configurations only.
 It is a seed, not a sync: the logs product keeps the control plane, and a later change to a logs alert reaches these tables only on the next run.
 A second run updates rather than duplicates, because `legacy_configuration_id` carries the row each copy came from.
 
-## Postgres connectivity probe
+## Postgres readiness probe
 
-Each evaluation activity issues one explicit `SELECT 1` and checks for `(1,)` through Django's `default` main writer connection.
+Each evaluation activity issues one explicit privilege query through Django's `default` main writer connection.
+The query asks `has_table_privilege` for `INSERT` and `UPDATE` on the two tables `record_outcomes` writes, resolved through the role's own search path.
+A role that reads the shared alert tables but cannot write them is not ready, and a connectivity check alone reports it as healthy.
 It inherits runtime credentials and connection/pooler settings without overrides, new aliases, or a separate pool.
-It does not use replicas, persons services, or application tables.
+It does not use replicas or persons services, and it reads catalog metadata rather than table rows.
 One probe per tick means one intended activity attempt, not exactly-once SQL execution.
 Connection setup and transaction control can issue additional statements.
 
@@ -297,7 +302,8 @@ Connection acquisition, SQL, and force-close cleanup run in the same executor th
 `close_db_connections` closes initialized connections without a cleanup health-check query after failure.
 
 Django `OperationalError` and `InterfaceError` become a sanitized `AlertsProductPostgresProbeFailure` activity failure.
-Evaluation starts delivery after that failure or an activity start-to-close/schedule-to-close timeout.
+A missing privilege becomes a non-retryable `AlertsProductWriteReadinessFailure` activity failure that names the table and the privileges, which are deployment facts rather than data.
+Evaluation logs that failure and starts delivery, the same as after a connectivity failure or an activity start-to-close/schedule-to-close timeout.
 Cancellation and unrelated errors propagate without starting delivery.
 This handoff requires the parent and its worker to remain available; termination before child startup is not covered.
 
@@ -313,7 +319,7 @@ Cleanup runs when that thread finishes; this probe does not change connection de
 
 Before production rollout, deployment owners must verify the runtime database identity and main writer route in dev using the deployment's credentials.
 Verify a successful probe, statement timeout and transaction reset through the configured pooler, and delivery continuation after failure or timeout.
-`SELECT 1` alone does not verify the intended database identity, application grants, schema, or write readiness.
+The probe verifies the write grants the platform needs, not the intended database identity or the rest of the schema.
 These tests do not replace deployment verification.
 
 Worker registration does not deploy workers. The dev schedule sets the orchestration workflow's

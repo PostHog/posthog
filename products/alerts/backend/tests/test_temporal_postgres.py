@@ -18,10 +18,18 @@ from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.testing import ActivityEnvironment
 
 from products.alerts.backend.temporal import postgres
-from products.alerts.backend.temporal.workflows import POSTGRES_PROBE_FAILURE, alerts_product_probe_postgres_activity
+from products.alerts.backend.temporal.workflows import (
+    POSTGRES_PROBE_FAILURE,
+    WRITE_READINESS_FAILURE,
+    alerts_product_probe_postgres_activity,
+)
 
 if TYPE_CHECKING:
     from pytest_django.fixtures import Settings
+
+
+def all_privileges_granted() -> list[tuple[str, bool, bool]]:
+    return [(table, True, True) for table in postgres.required_tables()]
 
 
 @pytest.mark.parametrize(
@@ -41,7 +49,7 @@ async def test_probe_uses_database_thread_and_sanitizes_only_expected_errors(
     settings.TEST = False
     threads: list[int] = []
     cursor = MagicMock()
-    cursor.fetchone.return_value = (1,)
+    cursor.fetchall.return_value = all_privileges_granted()
     cursor.execute.side_effect = error
     connection = MagicMock()
     connection.close.side_effect = lambda: threads.append(threading.get_ident())
@@ -63,7 +71,7 @@ async def test_probe_uses_database_thread_and_sanitizes_only_expected_errors(
         environment = ActivityEnvironment()
         if error is None:
             await environment.run(alerts_product_probe_postgres_activity)
-            cursor.fetchone.assert_called_once_with()
+            cursor.fetchall.assert_called_once_with()
         elif isinstance(error, (OperationalError, InterfaceError)):
             with pytest.raises(ApplicationError) as caught:
                 await environment.run(alerts_product_probe_postgres_activity)
@@ -77,7 +85,7 @@ async def test_probe_uses_database_thread_and_sanitizes_only_expected_errors(
                 await environment.run(alerts_product_probe_postgres_activity)
             assert caught_unrelated.value is error
 
-    cursor.execute.assert_called_once_with("SELECT 1")
+    cursor.execute.assert_called_once_with(postgres.PRIVILEGE_SQL, [list(postgres.required_tables())])
     assert len(threads) == 4
     assert len(set(threads)) == 1
     assert threads[0] != threading.get_ident()
@@ -92,7 +100,7 @@ async def test_probe_cancellation_and_concurrent_activity_cleanup(settings: Sett
     cleaned_up = threading.Event()
     loop = asyncio.get_running_loop()
     cursor = MagicMock()
-    cursor.fetchone.return_value = (1,)
+    cursor.fetchall.return_value = all_privileges_granted()
     connection = MagicMock()
     cleanup_threads: list[int] = []
 
@@ -130,11 +138,39 @@ async def test_probe_cancellation_and_concurrent_activity_cleanup(settings: Sett
     assert threading.get_ident() not in cleanup_threads
 
 
-def test_probe_rejects_unexpected_result() -> None:
+@pytest.mark.parametrize(
+    "granted,expected",
+    [
+        ([], "not visible"),
+        ([(postgres.required_tables()[0], True, True)], "not visible"),
+        ([(table, False, True) for table in postgres.required_tables()], "INSERT"),
+        ([(table, True, False) for table in postgres.required_tables()], "UPDATE"),
+        ([(table, False, False) for table in postgres.required_tables()], "INSERT, UPDATE"),
+    ],
+)
+def test_probe_fails_when_a_write_privilege_is_missing(granted: list[tuple[str, bool, bool]], expected: str) -> None:
     with patch.object(postgres, "execute_with_timeout") as execute:
-        execute.return_value.__enter__.return_value.fetchone.return_value = (0,)
-        with pytest.raises(ValueError, match="Unexpected Postgres probe result"):
+        execute.return_value.__enter__.return_value.fetchall.return_value = granted
+        with pytest.raises(postgres.WriteReadinessError) as caught:
             postgres.check_postgres_connection()
+    assert expected in str(caught.value)
+    assert postgres.required_tables()[-1] in str(caught.value)
+
+
+async def test_probe_reports_a_missing_grant_as_a_non_retryable_failure(settings: Settings) -> None:
+    settings.TEST = False
+    with (
+        patch.object(postgres, "execute_with_timeout") as execute,
+        patch("django.db.connections.all", return_value=[]),
+    ):
+        execute.return_value.__enter__.return_value.fetchall.return_value = [
+            (table, False, True) for table in postgres.required_tables()
+        ]
+        with pytest.raises(ApplicationError) as caught:
+            await ActivityEnvironment().run(alerts_product_probe_postgres_activity)
+    assert caught.value.type == WRITE_READINESS_FAILURE
+    assert caught.value.non_retryable
+    assert "INSERT" in caught.value.message
 
 
 @pytest.mark.django_db(transaction=True, databases=["default"], available_apps=[])
@@ -165,7 +201,7 @@ def test_probe_statement_timeout_rolls_back_and_closes_without_leaking() -> None
         context: dict[str, object],
     ) -> object:
         statements.append(sql)
-        if sql == "SELECT 1":
+        if sql == postgres.PRIVILEGE_SQL:
             assert connection.in_atomic_block
             with connection.cursor() as timeout_cursor:
                 timeout_cursor.execute("SHOW statement_timeout")
@@ -184,7 +220,7 @@ def test_probe_statement_timeout_rolls_back_and_closes_without_leaking() -> None
         rollback.assert_called_once_with()
         assert connection.connection is None
         assert close_states == [(False, False), (False, False)]
-        assert statements.count("SELECT 1") == 1
+        assert statements.count(postgres.PRIVILEGE_SQL) == 1
         with connection.cursor() as cursor:
             cursor.execute("SHOW statement_timeout")
             assert cursor.fetchone() == original_timeout
