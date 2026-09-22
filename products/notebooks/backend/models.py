@@ -416,6 +416,7 @@ class GeneratedWidgetGenerationJob(TeamScopedRootMixin, UUIDModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     idempotency_key = models.UUIDField(default=uuid7)
+    gateway_credential_hash = models.CharField(max_length=300, null=True, blank=True, editable=False)
     widget = models.ForeignKey("notebooks.GeneratedWidget", on_delete=models.CASCADE, related_name="generation_jobs")
     instance = models.ForeignKey(
         "notebooks.NotebookWidgetInstance", on_delete=models.CASCADE, related_name="generation_jobs"

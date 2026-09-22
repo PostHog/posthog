@@ -1755,6 +1755,7 @@ class TestWidgetData(APIBaseTest):
     def test_generation_worker_persists_review_and_preserves_version_following(
         self, operation: str, pinned: bool
     ) -> None:
+        Team.objects.filter(id=self.team.id).update(llm_gateway_overspend_allowance_usd=Decimal("5"))
         instance = self._mapping(pinned=pinned, with_version=operation != GeneratedWidgetVersion.Operation.INITIAL)
         base_version = instance.widget.current_version
         job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
@@ -1877,6 +1878,7 @@ class TestWidgetData(APIBaseTest):
             assert policy["project_token"] == self.team.api_token
             assert policy["scopes"] == ["llm_gateway:read"]
         assert project_credential.call_args.args[1]["overspend_allowance_usd"] == "0.000000"
+        assert project_credential.call_args_list[0].args[1]["overspend_allowance_usd"] == "5.000000"
         clear_credential.assert_called_once_with(hash_key_value(gateway_api_keys[0]))
         review.assert_called_once()
         assert review.call_args.kwargs["team_id"] == self.team.id
@@ -1889,6 +1891,11 @@ class TestWidgetData(APIBaseTest):
         assert prepare.call_args.kwargs["source"] == source
         publish.assert_called_once()
 
+    @override_settings(
+        AI_GATEWAY_URL="https://ai-gateway.example/v1",
+        AI_GATEWAY_API_KEY="phs_shared_key",
+        AI_GATEWAY_REDIS_URL="redis://gateway",
+    )
     def test_generation_worker_fails_closed_when_security_review_fails(self) -> None:
         instance = self._mapping()
         base_version = self._pinned_version(instance)
@@ -1906,6 +1913,8 @@ class TestWidgetData(APIBaseTest):
         )
 
         with (
+            patch("posthog.storage.gateway_credential_cache.project_gateway_credential") as project_credential,
+            patch("posthog.storage.gateway_credential_cache.clear_gateway_credential") as clear_credential,
             patch(
                 "products.notebooks.backend.widget_generation.generate_widget_source",
                 return_value=GeneratedWidgetSource(title="Lighter globe", source="export default () => null"),
@@ -1926,6 +1935,8 @@ class TestWidgetData(APIBaseTest):
         assert job.error_code == "security_review_failed"
         assert job.error_detail == "Review failed"
         assert job.result_version_id is None
+        assert job.gateway_credential_hash is None
+        clear_credential.assert_called_once_with(project_credential.call_args.args[0].secure_value)
         prepare.assert_not_called()
         publish.assert_not_called()
 

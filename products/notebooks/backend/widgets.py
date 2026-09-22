@@ -15,13 +15,12 @@ from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
-from django.utils.crypto import salted_hmac
 
 import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.models import ProjectSecretAPIKey, Team, User
-from posthog.models.utils import SECRET_API_TOKEN_PREFIX, hash_key_value
+from posthog.models.utils import generate_random_token_secret, hash_key_value
 
 from products.notebooks.backend.models import (
     MAX_WIDGET_NODE_ID_LENGTH,
@@ -61,7 +60,6 @@ GENERATION_CANCELLATION_TTL_SECONDS = 60 * 15
 MAX_SCHEMA_CONTEXT_BYTES = 64 * 1_024
 MAX_INPUT_CONTRACT_BYTES = 512 * 1_024
 NOTEBOOK_GENERATED_WIDGETS_FLAG = "notebook-generated-widgets"
-_WIDGET_GATEWAY_CREDENTIAL_SALT = "products.notebooks.widget_gateway_credential"
 
 _INPUT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -1020,15 +1018,6 @@ def heartbeat_widget_generation_job(job_id: UUID, team_id: int) -> None:
     ).update(heartbeat_at=timezone.now())
 
 
-def _widget_gateway_api_key_value(job_id: UUID, team_id: int) -> str:
-    digest = salted_hmac(
-        _WIDGET_GATEWAY_CREDENTIAL_SALT,
-        f"{team_id}:{job_id.hex}",
-        algorithm="sha256",
-    ).hexdigest()
-    return f"{SECRET_API_TOKEN_PREFIX}{digest}"
-
-
 def _clear_widget_gateway_credential(job_id: UUID, team_id: int) -> None:
     if not settings.AI_GATEWAY_REDIS_URL:
         return
@@ -1036,7 +1025,11 @@ def _clear_widget_gateway_credential(job_id: UUID, team_id: int) -> None:
         clear_gateway_credential,
     )
 
-    clear_gateway_credential(hash_key_value(_widget_gateway_api_key_value(job_id, team_id)))
+    jobs = GeneratedWidgetGenerationJob.objects.for_team(team_id).filter(id=job_id)
+    credential_hash = jobs.values_list("gateway_credential_hash", flat=True).first()
+    if credential_hash:
+        clear_gateway_credential(credential_hash)
+        jobs.filter(gateway_credential_hash=credential_hash).update(gateway_credential_hash=None)
 
 
 def _clear_widget_gateway_credentials(job_ids: list[UUID], team_id: int) -> None:
@@ -1045,16 +1038,17 @@ def _clear_widget_gateway_credentials(job_ids: list[UUID], team_id: int) -> None
 
 
 def _project_widget_gateway_credential(job: GeneratedWidgetGenerationJob) -> None:
+    if not job.gateway_credential_hash:
+        return
     from posthog.storage.gateway_credential_cache import (  # noqa: PLC0415 — keeps gateway cache setup off notebook startup
         GATEWAY_CREDENTIAL_REQUIRED_SCOPE,
         project_gateway_credential,
     )
 
-    value = _widget_gateway_api_key_value(job.id, job.team_id)
     credential = ProjectSecretAPIKey(
-        team=job.team,
+        team_id=job.team_id,
         label="Notebook widget generation",
-        secure_value=hash_key_value(value),
+        secure_value=job.gateway_credential_hash,
         created_by=job.requested_by,
         scopes=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE],
     )
@@ -1077,8 +1071,17 @@ def _widget_gateway_api_key(job: GeneratedWidgetGenerationJob) -> Iterator[str |
             "gateway_billing_not_configured",
         )
     try:
+        value = generate_random_token_secret()
+        job.gateway_credential_hash = hash_key_value(value)
+        updated = (
+            GeneratedWidgetGenerationJob.objects.for_team(job.team_id)
+            .filter(id=job.id, status=GeneratedWidgetGenerationJob.Status.GENERATING, cancel_requested_at__isnull=True)
+            .update(gateway_credential_hash=job.gateway_credential_hash)
+        )
+        if not updated:
+            raise WidgetError("This generation is no longer active.", "generation_abandoned")
         _project_widget_gateway_credential(job)
-        yield _widget_gateway_api_key_value(job.id, job.team_id)
+        yield value
     finally:
         _clear_widget_gateway_credential(job.id, job.team_id)
 
