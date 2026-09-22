@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest import mock
@@ -264,6 +266,9 @@ async def test_the_registered_schedule_is_live_on_the_weekly_digest_queue() -> N
     assert isinstance(action, ScheduleActionStartWorkflow)
     assert action.task_queue == settings.WEEKLY_DIGEST_TASK_QUEUE
     assert action.args == [DataCatalogWeeklyDigestInput(dry_run=False)]
+    # Overlap defaults to SKIP, so an unbounded run would drop every later Tuesday for good.
+    assert action.execution_timeout is not None
+    assert action.execution_timeout < timedelta(days=7)
 
 
 def test_an_inputless_manual_run_does_not_send() -> None:
