@@ -3,19 +3,27 @@ from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 
-from django.db import models
-from django.db.models import Prefetch, Q, QuerySet, prefetch_related_objects
+from django.db import models, transaction
+from django.db.models import Exists, OuterRef, Prefetch, Q, QuerySet, prefetch_related_objects
 
-from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema
 from rest_framework import pagination, response, serializers, status, viewsets
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.dataclasses import frozen
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Tag, TaggedItem
-from posthog.models.activity_logging.activity_log import Change, Detail, LogActivityEntry, bulk_log_activity
+from posthog.models.activity_logging.activity_log import (
+    Change,
+    Detail,
+    LogActivityEntry,
+    bulk_log_activity,
+    log_activity,
+)
 from posthog.models.tag import tagify
+from posthog.models.tagged_item_registry import taggable_for_content_type_id
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 
@@ -49,6 +57,80 @@ def set_tags_on_object(tags: list[str], obj: Any) -> list[TaggedItem]:
 def cleanup_orphan_tags(team_id: int) -> None:
     """Remove tags that are no longer referenced by any TaggedItem."""
     Tag.objects.filter(Q(team_id=team_id) & Q(tagged_items__isnull=True)).delete()
+
+
+@frozen
+class TagUsage:
+    """One tag, and how many objects of each taggable kind carry it."""
+
+    tag: Tag
+    counts_by_type: dict[str, int]
+
+    @property
+    def total_count(self) -> int:
+        return sum(self.counts_by_type.values())
+
+
+def tag_usages(tags: Sequence[Tag]) -> list[TagUsage]:
+    """Count the objects each tag is on, split by the kind of object.
+
+    The split matters because a tag is shared by every taggable model in the team: a
+    support agent who renames a ticket tag also renames it on dashboards and insights,
+    and the per-kind count is what tells them so.
+    """
+    counts: dict[UUID, dict[str, int]] = {tag.id: {} for tag in tags}
+    rows = (
+        TaggedItem.objects.filter(tag_id__in=list(counts))
+        .values("tag_id", "content_type_id")
+        .annotate(count=models.Count("id"))
+    )
+    for row in rows:
+        entry = taggable_for_content_type_id(row["content_type_id"]) if row["content_type_id"] else None
+        if entry is not None:
+            counts[row["tag_id"]][entry.legacy_field] = row["count"]
+    return [TagUsage(tag=tag, counts_by_type=counts[tag.id]) for tag in tags]
+
+
+def rename_tag(tag: Tag, name: str) -> Tag:
+    """Rename a tag in place, so every object that carries it follows.
+
+    ``Tag.save`` sends the model activity signal, so this leaves one activity-log entry
+    for the rename, not one per tagged object.
+    """
+    tag.name = name
+    tag.save()
+    return tag
+
+
+def delete_tag(tag: Tag) -> int:
+    """Remove a tag from every object that carries it, and return how many it was on.
+
+    The ``TaggedItem`` rows go through a queryset delete rather than ``Model.delete``, so
+    a tag on thousands of tickets does not write thousands of activity-log entries.
+    """
+    with transaction.atomic():
+        items = TaggedItem.objects.filter(tag=tag)
+        removed = items.count()
+        items.delete()
+        tag.delete()
+    return removed
+
+
+def merge_tags(source: Tag, target: Tag) -> int:
+    """Move every object tagged ``source`` onto ``target``, drop ``source``, return the count moved.
+
+    An object that already carries both tags keeps the row it has, because
+    ``(content type, object, tag)`` is unique; its ``source`` row is dropped instead of
+    repointed. Both steps are queryset writes, for the same reason as ``delete_tag``.
+    """
+    duplicate_on_target = TaggedItem.objects.filter(tag=target, content_type=OuterRef("content_type")).filter(
+        Q(object_id=OuterRef("object_id")) | Q(object_uuid=OuterRef("object_uuid"))
+    )
+    with transaction.atomic():
+        TaggedItem.objects.filter(tag=source).filter(Exists(duplicate_on_target)).delete()
+        moved = TaggedItem.objects.filter(tag=source).update(tag=target)
+        source.delete()
+    return moved
 
 
 def normalize_tag_names(tags: Iterable[str]) -> set[str]:
@@ -209,6 +291,8 @@ BULK_UPDATE_TAGS_SKIPPED_REASON = "Not found or no edit access"
 # database work a single request can demand; bound the product, not just each list, or 500 ids
 # with 100 tags each still turns one request into 50k writes.
 BULK_UPDATE_TAGS_MAX_OPERATIONS = 10_000
+# Tag lists are small next to the objects they tag, and the settings list reads the whole page at once.
+TAG_USAGE_PAGE_SIZE = 500
 
 
 class BulkUpdateTagsAction(models.TextChoices):
@@ -448,10 +532,52 @@ class TaggedItemSerializer(serializers.Serializer):
         return obj.tag.name
 
 
+class TagUsageSerializer(serializers.Serializer):
+    id = serializers.UUIDField(source="tag.id", help_text="Unique identifier of the tag.")
+    name = serializers.CharField(source="tag.name", help_text="The tag's name, always lowercase and trimmed.")
+    counts_by_type = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text=(
+            "How many objects of each kind carry this tag, keyed by object kind "
+            "(for example 'ticket', 'dashboard', 'insight'). Kinds with no objects are omitted."
+        ),
+    )
+    total_count = serializers.IntegerField(help_text="How many objects carry this tag in total, across all kinds.")
+
+
+class TagRenameRequestSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=TAG_NAME_MAX_LENGTH,
+        help_text="The tag's new name. It is trimmed and lowercased, and must not match another tag in the project.",
+    )
+
+
+class TagMergeRequestSerializer(serializers.Serializer):
+    into_id = serializers.UUIDField(
+        help_text="Unique identifier of the tag to keep. Every object tagged with this tag moves onto it."
+    )
+
+
+class TagMergeResponseSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Unique identifier of the tag that was kept.")
+    name = serializers.CharField(help_text="Name of the tag that was kept.")
+    moved_count = serializers.IntegerField(
+        help_text="How many objects moved onto the kept tag. Objects that already carried both tags are not counted."
+    )
+
+
+class TagErrorSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why the request was rejected.")
+
+
+@extend_schema(extensions={"x-product": "core"})
 class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "INTERNAL"
     serializer_class = TaggedItemSerializer
-    queryset = Tag.objects.none()
+    queryset = Tag.objects.all()
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        return queryset.filter(team=self.team)
 
     @extend_schema(
         parameters=[
@@ -475,3 +601,104 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         paginator.max_limit = 100
         page = paginator.paginate_queryset(tags, request, view=self)
         return paginator.get_paginated_response(page)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("search", OpenApiTypes.STR, required=False),
+            OpenApiParameter("limit", OpenApiTypes.INT, required=False),
+            OpenApiParameter("offset", OpenApiTypes.INT, required=False),
+        ],
+        responses=TagUsageSerializer(many=True),
+    )
+    @action(methods=["GET"], detail=False)
+    def usage(self, request, *args, **kwargs) -> response.Response:
+        """List the project's tags with the number of objects each one is on, by object kind."""
+        tags = self.get_queryset().order_by("name")
+        search = request.query_params.get("search")
+        if search:
+            tags = tags.filter(name__icontains=search)
+
+        paginator = pagination.LimitOffsetPagination()
+        paginator.default_limit = TAG_USAGE_PAGE_SIZE
+        paginator.max_limit = TAG_USAGE_PAGE_SIZE
+        page = paginator.paginate_queryset(tags, request, view=self)
+        return paginator.get_paginated_response(TagUsageSerializer(tag_usages(page or []), many=True).data)
+
+    @extend_schema(
+        request=TagRenameRequestSerializer,
+        responses={
+            200: TagUsageSerializer,
+            400: OpenApiResponse(response=TagErrorSerializer, description="The name is blank or already taken."),
+        },
+    )
+    def partial_update(self, request, *args, **kwargs) -> response.Response:
+        """Rename a tag on every object that carries it."""
+        tag = self.get_object()
+        serializer = TagRenameRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        name = tagify(serializer.validated_data["name"])
+        if not name:
+            raise serializers.ValidationError({"name": "Enter a tag name."})
+        if name != tag.name and Tag.objects.filter(team=self.team, name=name).exists():
+            raise serializers.ValidationError({"name": f"'{name}' already exists. Merge the two tags instead."})
+
+        rename_tag(tag, name)
+        return response.Response(TagUsageSerializer(tag_usages([tag])[0]).data)
+
+    @extend_schema(responses={204: None})
+    def destroy(self, request, *args, **kwargs) -> response.Response:
+        """Remove a tag from every object that carries it."""
+        tag = self.get_object()
+        # Django blanks the primary key on delete, so the audit entry needs these read first.
+        tag_id, tag_name, team_id = tag.id, tag.name, tag.team_id
+        removed = delete_tag(tag)
+        self._log_tag_activity(tag_id, team_id, "deleted", Detail(name=tag_name, changes=[]))
+        return response.Response(status=status.HTTP_204_NO_CONTENT, headers={"X-Objects-Untagged": str(removed)})
+
+    @extend_schema(
+        request=TagMergeRequestSerializer,
+        responses={
+            200: TagMergeResponseSerializer,
+            400: OpenApiResponse(response=TagErrorSerializer, description="The target tag is missing or the same tag."),
+        },
+    )
+    @action(methods=["POST"], detail=True)
+    def merge(self, request, *args, **kwargs) -> response.Response:
+        """Move every object tagged with this tag onto another tag, then drop this one."""
+        source = self.get_object()
+        serializer = TagMergeRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        target = self.get_queryset().filter(id=serializer.validated_data["into_id"]).first()
+        if target is None:
+            raise serializers.ValidationError({"into_id": "Tag not found."})
+        if target.id == source.id:
+            raise serializers.ValidationError({"into_id": "Pick a different tag to merge into."})
+
+        source_name = source.name
+        moved = merge_tags(source, target)
+        self._log_tag_activity(
+            target.id,
+            target.team_id,
+            "merged",
+            Detail(
+                name=target.name,
+                changes=[Change(type="Tag", action="merged", field="name", before=source_name, after=target.name)],
+            ),
+        )
+        return response.Response(
+            TagMergeResponseSerializer({"id": target.id, "name": target.name, "moved_count": moved}).data
+        )
+
+    def _log_tag_activity(self, tag_id: UUID, team_id: int, activity: str, detail: Detail) -> None:
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=team_id,
+            user=cast("User", self.request.user),
+            was_impersonated=is_impersonated(self.request),
+            item_id=str(tag_id),
+            scope="Tag",
+            activity=activity,
+            detail=detail,
+        )

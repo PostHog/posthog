@@ -56,6 +56,7 @@ import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/se
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
+import { TagsSection } from 'products/conversations/frontend/scenes/settings/TagsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsNotifications } from 'products/customer_analytics/frontend/components/TaskDigest/CustomerAnalyticsNotifications'
 import { AccountTrackRules } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/AccountTrackRules'
@@ -1339,6 +1340,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'email',
                     'browser',
                 ],
+            },
+            {
+                id: 'conversations-tags',
+                title: 'Tags',
+                description:
+                    'Rename, merge, or delete the tags on your support tickets. Tags are shared across the project, so a change here also applies anywhere else the tag is used.',
+                component: <TagsSection />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['tag', 'label', 'rename', 'merge', 'delete', 'support', 'conversation', 'ticket'],
             },
             {
                 id: 'conversations-imports',
