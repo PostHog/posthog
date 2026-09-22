@@ -2684,8 +2684,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         }
 
     def test_destination_rejects_inputs_referencing_unavailable_globals(self):
-        # `{distinct_id}` reads like a shortcut for `{event.distinct_id}`, saves, and then fails on
-        # every event because the runtime has no such global.
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={

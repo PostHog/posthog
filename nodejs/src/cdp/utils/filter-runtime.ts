@@ -22,8 +22,7 @@ export type FilterRuntime = {
     template_roots: string[]
 }
 
-// Typed against the globals every caller of buildInputsWithGlobals hands over. A key added to the type
-// has to be added here or the compiler stops the build, so Django never validates against a stale list.
+// A key added to HogFunctionInvocationGlobals has to be added here or the build fails.
 const templateRoots: Record<keyof HogFunctionInvocationGlobalsWithInputs, true> = {
     project: true,
     source: true,

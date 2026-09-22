@@ -490,8 +490,7 @@ def generate_template_bytecode(
                     f"Log transformations only have access to project, record, and inputs."
                 )
         elif function_type is not None:
-            # Every other type resolves its inputs against the invocation globals at run time, where a
-            # name outside them fails on every event. `record` was rewritten to `event.properties` above.
+            # Every other type resolves its inputs against the invocation globals at run time.
             template_validator = TransformationGlobalsValidator(
                 available_globals=TEMPLATE_GLOBALS, runtime_functions=set()
             )

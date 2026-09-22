@@ -42,7 +42,6 @@ describe('filter-runtime', () => {
         expect(functions).not.toHaveProperty('sleep')
         expect(callables).not.toContain('print')
         expect(functions).not.toHaveProperty('print')
-        // Templates read the invocation globals, not the flattened filter globals.
         expect(template_roots).toEqual(expect.arrayContaining(['event', 'person', 'inputs', 'variables', 'request']))
         expect(template_roots).not.toContain('distinct_id')
         expect(template_roots).not.toContain('properties')
