@@ -28,7 +28,7 @@ from products.event_definitions.backend.models import EventProperty
 from .file_system.file_system import FileSystem
 from .file_system.file_system_view_log import FileSystemViewLog
 from .file_system.user_product_list import UserProductList
-from .filters import Filter, RetentionFilter
+from .filters import RetentionFilter
 from .group import Group
 from .group_usage_metric import GroupUsageMetric
 from .group_type_mapping import GroupTypeMapping
@@ -109,7 +109,6 @@ __all__ = [
     "FileSystem",
     "FileSystemViewLog",
     "UserProductList",
-    "Filter",
     "Group",
     "GroupUsageMetric",
     "GroupTypeMapping",
