@@ -720,15 +720,6 @@ class UserSerializer(serializers.ModelSerializer):
             validated_data["email"]
         ) != EmailNormalizer.normalize(instance.email)
 
-        # The login email and the password decide who can sign in to the account. A leaked personal API
-        # key or OAuth token must not be able to reset either of them and take over the account.
-        if (changes_email or "password" in validated_data) and not isinstance(
-            self.context["request"].successful_authenticator, SessionAuthentication
-        ):
-            raise exceptions.PermissionDenied(
-                "You can only change your email or password from the PostHog app, not with an API key or token."
-            )
-
         if changes_email:
             self.check_current_password(
                 instance,
@@ -1065,6 +1056,27 @@ class UserViewSet(
             **super().get_serializer_context(),
             "user_permissions": UserPermissions(cast(User, self.request.user)),
         }
+
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        self.refuse_identity_change_over_token(request)
+        return super().update(request, *args, **kwargs)
+
+    def refuse_identity_change_over_token(self, request: Request) -> None:
+        # The login email and the password decide who can sign in to the account, so a leaked personal
+        # API key or OAuth token must not reset either of them. This check runs before serializer
+        # validation, because an email validation error would tell a token holder which addresses have
+        # an account.
+        if isinstance(request.successful_authenticator, SessionAuthentication):
+            return
+        email = request.data.get("email")
+        keeps_email = "email" not in request.data or (
+            isinstance(email, str)
+            and EmailNormalizer.normalize(email) == EmailNormalizer.normalize(self.get_object().email)
+        )
+        if "password" in request.data or not keeps_email:
+            raise exceptions.PermissionDenied(
+                "You can only change your email or password from the PostHog app, not with an API key or token."
+            )
 
     def perform_destroy(self, user: User) -> None:
         report_user_deleted_account(user)

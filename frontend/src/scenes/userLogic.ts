@@ -489,8 +489,10 @@ export const userLogic = kea<userLogicType>([
                 current_password:
                     values.userDetailsNeedsCurrentPassword && !current_password ? 'Enter your current password.' : null,
             }),
-            submit: (user) => {
-                actions.updateUser(user)
+            submit: (userDetails) => {
+                // The API rejects a blank current_password, so a name-only save must not send the empty field.
+                const { current_password: _, ...details } = userDetails
+                actions.updateUser(values.userDetailsNeedsCurrentPassword ? userDetails : details)
             },
         },
     })),

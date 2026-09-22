@@ -189,6 +189,44 @@ describe('userLogic', () => {
         })
     })
 
+    describe('user details form', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        beforeEach(async () => {
+            // The load started on mount must settle first, or its result overwrites the seeded user.
+            await expectLogic(userLogic).toFinishAllListeners()
+            userLogic.actions.loadUserSuccess(userWithLightTheme)
+        })
+
+        test.each([
+            {
+                name: 'a name-only save sends no current_password',
+                changes: { first_name: 'Renamed' },
+                expected: { first_name: 'Renamed', email: userWithLightTheme.email },
+            },
+            {
+                name: 'an email change sends the current password',
+                changes: { email: 'new-address@example.com', current_password: 'hunter2hunter2' },
+                expected: { email: 'new-address@example.com', current_password: 'hunter2hunter2' },
+            },
+        ])('$name', async ({ changes, expected }) => {
+            jest.spyOn(api, 'update').mockResolvedValue(userWithLightTheme)
+            const updateUserSpy = jest.spyOn(userLogic.actions, 'updateUser')
+
+            userLogic.actions.setUserDetailsValues(changes)
+            await expectLogic(userLogic, () => {
+                userLogic.actions.submitUserDetails()
+            }).toFinishAllListeners()
+
+            expect(updateUserSpy).toHaveBeenCalledTimes(1)
+            const payload = updateUserSpy.mock.calls[0][0]
+            expect(payload).toMatchObject(expected)
+            expect('current_password' in payload).toBe('current_password' in expected)
+        })
+    })
+
     describe('updateUser failure handling', () => {
         beforeEach(silenceKeaLoadersErrors)
         afterEach(resumeKeaLoadersErrors)

@@ -982,6 +982,9 @@ class TestUserAPI(APIBaseTest):
         [
             ("email", {"email": "beta@example.com", "current_password": "testpassword12345"}, 403),
             ("password", {"password": "a_new_password", "current_password": "testpassword12345"}, 403),
+            ("taken_email", {"email": "taken@example.com"}, 403),
+            ("invalid_email", {"email": "not-an-email"}, 403),
+            ("same_email_in_other_case", {"email": "ALPHA@example.com"}, 200),
             ("profile_field", {"first_name": "Newname"}, 200),
         ]
     )
@@ -992,6 +995,7 @@ class TestUserAPI(APIBaseTest):
     ):
         self.user.email = "alpha@example.com"
         self.user.save()
+        User.objects.create_user("taken@example.com", "pwd1234*", "Other")
         key = self.create_personal_api_key_with_scopes(["user:write"])
         self.client.logout()
 
