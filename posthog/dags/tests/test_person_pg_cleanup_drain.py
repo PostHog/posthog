@@ -701,8 +701,7 @@ def test_chunks_for_page_groups_by_team_and_sweep_then_splits(rows, rpc_batch_si
         (_pg_error("40001"), "retry", True),
         (_pg_error("40P01"), "retry", True),
         (_pg_error("55P03"), "retry", True),
-        # A statement timeout retries the same way, but it is slowness rather than contention, so
-        # it must stay out of the conflict counter the sweep overlap is read from.
+        # Retries like a conflict, but it is slowness, so it stays out of the conflict counter.
         (_pg_error("57014"), "retry", False),
         # lock_timeout arrives as an OperationalError subclass: the same connection retries it.
         (type("_LockNotAvailable", (psycopg2.OperationalError,), {"pgcode": "55P03"})(), "retry", True),

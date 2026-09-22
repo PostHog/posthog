@@ -60,8 +60,7 @@ DRAIN_METRICS_JOB = "person_pg_cleanup_drain"
 RPC_MAX_UUIDS = 1000
 
 # tonic takes min(client deadline, personhog-router's BACKEND_TIMEOUT_MS), which is 15 s, so this
-# deadline is what bounds a request. The replica deletes at most REPLICA_CHUNK_SIZE persons per call
-# and clamps the row budget to REPLICA_MAX_ROWS.
+# deadline is what bounds a request.
 ROUTER_BACKEND_TIMEOUT_SECONDS = 5.0
 REPLICA_CHUNK_SIZE = 100
 REPLICA_MAX_ROWS = 5000
@@ -972,9 +971,8 @@ SCHEDULED_RUN_CONFIG = {
     }
 }
 
-# The weekly ClickHouse deletion sweep fills person_pg_cleanup_queue; this daily schedule is the
-# only thing that empties it, and it runs on its own rather than in that chain because one sweep
-# queues more rows than one run can drain.
+# Nothing else empties person_pg_cleanup_queue. It is not chained to the sweep that fills it
+# because one sweep queues more rows than one run can drain.
 person_pg_cleanup_drain_schedule = dagster.ScheduleDefinition(
     job=person_pg_cleanup_drain_job,
     cron_schedule=settings.PERSON_PG_CLEANUP_DRAIN_SCHEDULE,
