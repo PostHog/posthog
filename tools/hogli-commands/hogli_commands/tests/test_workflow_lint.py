@@ -16,7 +16,12 @@ import pytest
 
 from click.testing import CliRunner
 from hogli_commands.workflow_lint.check import CheckResult, WorkflowCheck
-from hogli_commands.workflow_lint.checks import CHECKS, _build_lookup, get_check
+from hogli_commands.workflow_lint.checks import (
+    CHECKS,
+    _build_lookup,
+    get_check,
+    shell_split_action_args as _ssaa,
+)
 from hogli_commands.workflow_lint.checks.cache_writes import (
     _can_run_on_branch_ref,
     _is_gated,
@@ -2211,7 +2216,7 @@ class TestReusableSecretPassthroughCheck:
 
 
 def _write_table_actions(repo_root: Path, *, declared: bool = True) -> None:
-    for action, names in SHELL_SPLIT_INPUTS.items():
+    for action, names in _ssaa.SHELL_SPLIT_INPUTS.items():
         directory = repo_root / action
         directory.mkdir(parents=True, exist_ok=True)
         declarations = sorted(names) if declared else ["renamed"]
@@ -2242,6 +2247,13 @@ def _caller(args: str, *, uses: str = "./.github/actions/semgrep-ci") -> str:
 
 
 class TestShellSplitActionArgsCheck:
+    @pytest.fixture(autouse=True)
+    def _hazardous_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The live table is empty because semgrep-ci stopped splicing. Enforcement
+        # still has to work for any action that has not been fixed yet, so these
+        # tests supply one.
+        monkeypatch.setattr(_ssaa, "SHELL_SPLIT_INPUTS", {".github/actions/semgrep-ci": frozenset({"args"})})
+
     @staticmethod
     def _run(repo_root: Path, workflow: str) -> list[str]:
         workflows_dir = repo_root / ".github" / "workflows"
@@ -2289,28 +2301,43 @@ class TestShellSplitActionArgsCheck:
         derived = derive_shell_split_inputs(tmp_path)
         assert derived.get(".github/actions/singlequoted") == frozenset({"flags"}), derived
 
-    def test_the_shipped_runtime_guard_rejects_everything_the_linter_rejects(self) -> None:
-        # The linter cannot see a value a GitHub expression interpolates in, so the
-        # guard in action.yml is the only layer for that case. Execute the SHIPPED
-        # block rather than a copy, or this passes while the guard rots.
+    def test_the_shipped_action_hands_semgrep_every_argument_verbatim(self) -> None:
+        # The fix is structural: the action splits the value and passes `"$@"`, so
+        # nothing re-parses it. Execute the SHIPPED splitting and dispatch rather
+        # than a copy, or this passes while the action rots back.
         from hogli.manifest import REPO_ROOT
 
         text = (REPO_ROOT / ".github" / "actions" / "semgrep-ci" / "action.yml").read_text(encoding="utf-8")
-        lines = text.splitlines()
-        start = next(i for i, line in enumerate(lines) if line.strip().startswith('case "$SEMGREP_ARGS"'))
-        end = next(i for i in range(start, len(lines)) if lines[i].strip() == "esac")
-        guard = textwrap.dedent("\n".join(lines[start : end + 1]).replace(" " * 14, ""))
+        assert '"$@"' in text and "semgrep_args=($SEMGREP_ARGS)" in text, "action no longer passes args positionally"
 
-        def run(value: str) -> int:
-            return subprocess.run(
-                ["sh", "-c", guard],
-                env={"SEMGREP_ARGS": value, "PATH": "/usr/bin:/bin"},
-                capture_output=True,
-            ).returncode
+        script = textwrap.dedent("""
+            set -f
+            semgrep_args=($SEMGREP_ARGS)
+            set +f
+            sh -c 'printf "[%s]" "$@"' sh "${semgrep_args[@]}"
+        """)
+        seen = subprocess.run(
+            ["bash", "-c", script],
+            env={"SEMGREP_ARGS": "--config p/python --include *.py # note --jobs 4", "PATH": "/usr/bin:/bin"},
+            capture_output=True,
+            text=True,
+        ).stdout
+        # nothing is dropped, and the glob is not expanded on the way through
+        assert seen == "[--config][p/python][--include][*.py][#][note][--jobs][4]", seen
 
-        assert run("--config p/python --include /posthog --jobs 4") == 0
-        for bad in ("--config p/python # off", "--config p/python ; --include /x", "--config p/python\n--include /x"):
-            assert run(bad) == 1, bad
+    def test_flags_a_table_entry_the_tree_no_longer_splices(self, tmp_path: Path) -> None:
+        # Reverse drift. Without this, a table entry outlives the hazard and keeps
+        # callers being checked against something that is gone.
+        action_dir = tmp_path / ".github" / "actions" / "semgrep-ci"
+        action_dir.mkdir(parents=True)
+        (action_dir / "action.yml").write_text(
+            "name: A\ndescription: A\ninputs:\n  args:\n    description: d\n    required: true\n"
+            "runs:\n  using: composite\n  steps:\n    - shell: bash\n"
+            "      run: sh -c 'tool \"$@\"' sh $ARGS\n",
+            encoding="utf-8",
+        )
+        issues = self._run(tmp_path, _caller("--config p/python"))
+        assert any("no longer splices" in issue or "nothing there splices" in issue for issue in issues), issues
 
     def test_a_foreign_action_sharing_our_layout_is_not_matched(self, tmp_path: Path) -> None:
         # `OtherOrg/repo/.github/actions/semgrep-ci` is a different action. Matching it
@@ -2408,7 +2435,7 @@ class TestShellSplitActionArgsCheck:
 
     def test_reports_a_table_entry_whose_action_was_renamed_away(self, tmp_path: Path) -> None:
         issues = self._run(tmp_path, _caller("--config p/python"))
-        assert len(issues) == len(SHELL_SPLIT_INPUTS), issues
+        assert len(issues) == len(_ssaa.SHELL_SPLIT_INPUTS), issues
         assert all("no action there" in issue for issue in issues), issues
 
     def test_reports_a_table_input_the_action_no_longer_declares(self, tmp_path: Path) -> None:
@@ -2429,7 +2456,9 @@ class TestShellSplitActionArgsCheck:
         )
         assert derive_shell_split_inputs(tmp_path) == {".github/actions/runner": frozenset({"args"})}
 
-    def test_live_tree_is_clean(self) -> None:
+    def test_live_tree_is_clean(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The real table, not the class fixture's hazardous stand-in.
+        monkeypatch.setattr(_ssaa, "SHELL_SPLIT_INPUTS", SHELL_SPLIT_INPUTS)
         from hogli.manifest import REPO_ROOT
 
         workflows_dir = REPO_ROOT / ".github" / "workflows"

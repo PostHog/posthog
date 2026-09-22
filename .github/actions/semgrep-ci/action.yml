@@ -13,8 +13,10 @@ inputs:
     args:
         description: >
             Arguments for `semgrep ci` (--config, --include/--exclude, --exclude-rule,
-            --jobs, ...). Split on whitespace, so values must not contain spaces,
-            quotes or `#` (see the guard in the step below). Anchor --include/--exclude
+            --jobs, ...). Split on whitespace and handed to semgrep as positional
+            parameters, so a single argument must not contain spaces or quotes.
+            Everything else reaches semgrep verbatim -- glob characters included,
+            unexpanded. Anchor --include/--exclude
             patterns with a leading slash (--include /bin); unanchored patterns also
             match same-named nested directories anywhere in the tree.
         required: true
@@ -35,30 +37,21 @@ runs:
           # auth from .git/config, and safe.directory because the workspace is
           # owned by the runner user while the container runs as root.
           run: |
-              # A `#` anywhere in SEMGREP_ARGS silently truncates the scan.
-              # Callers write the value as a YAML block scalar (`args: >-`), and
-              # inside one a `#` is data, not a YAML comment. It survives into
-              # this variable, which the last line splices into the
-              # `sh -c "..."` string. That inner shell re-parses the string as a
-              # SCRIPT -- which is what performs the documented whitespace split
-              # into flags -- and `exec` then replaces the shell on the first
-              # command it finds. So every token that ends a command truncates
-              # the flag list: `#`, a newline, `;`, `&`, `|`. Semgrep loads
-              # fewer configs, scans a narrower tree, and still exits 0.
-              # Quoting is NOT the fix: `$SEMGREP_ARGS` already sits inside
-              # double quotes, and quoting it again collapses every flag into a
-              # single argument. An allowlist rather than a blocklist, because
-              # the dangerous set is "whatever this shell's grammar treats as a
-              # terminator", not a list anyone can keep current.
-              # `hogli lint:workflows` (WF012) applies the same allowlist to a
-              # caller's literal args; this catches a value a GitHub expression
-              # interpolates in, which the linter cannot see.
-              case "$SEMGREP_ARGS" in
-                  *[!\ A-Za-z0-9._/@:=+-]*)
-                      echo "::error title=semgrep-ci::args may contain only flags and [A-Za-z0-9._/@:=+-]; the container shell re-parses this value as a script, so a '#', newline, ';' or similar silently drops every flag after it"
-                      exit 1
-                      ;;
-              esac
+              # Split `args` HERE and pass the words as positional parameters.
+              # Never splice the string into the command the container shell
+              # parses: that inner shell re-parses it as a SCRIPT, and every token
+              # that ends a command there -- `#`, a newline, `;`, `&`, `|` --
+              # truncates the flag list while the job still exits 0. A caller
+              # writes this value as a YAML block scalar, where `#` is data rather
+              # than a comment and a more-indented line keeps its newlines, so the
+              # hazard needs no unusual input.
+              # `set -f` splits on whitespace WITHOUT pathname expansion, so a
+              # glob reaches semgrep unexpanded and semgrep does its own matching.
+              # With `"$@"` a stray `#` is just an argument semgrep rejects loudly.
+              set -f
+              # shellcheck disable=SC2206  # deliberate word split; globbing disabled above
+              semgrep_args=($SEMGREP_ARGS)
+              set +f
 
               docker run --rm \
                 -v "$GITHUB_WORKSPACE:/src" -w /src \
@@ -70,4 +63,4 @@ runs:
                 -e GITHUB_REPOSITORY_ID -e GITHUB_REPOSITORY_OWNER_ID \
                 -e GH_TOKEN \
                 "$SEMGREP_IMAGE" \
-                sh -c "git config --global --add safe.directory /src && exec semgrep ci --metrics=off --verbose --timeout 300 $SEMGREP_ARGS"
+                sh -c 'git config --global --add safe.directory /src && exec semgrep ci --metrics=off --verbose --timeout 300 "$@"' sh "${semgrep_args[@]}"

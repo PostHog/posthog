@@ -36,9 +36,13 @@ from ..model import Workflow
 # Source of truth. Enforcement reads only this table; see `_drift_issues`.
 REPO_PREFIX = "PostHog/posthog/"
 
-SHELL_SPLIT_INPUTS: dict[str, frozenset[str]] = {
-    ".github/actions/semgrep-ci": frozenset({"args"}),
-}
+# Actions that splice a caller's input into a command string an inner shell
+# re-parses. EMPTY IS THE HEALTHY STATE: semgrep-ci used to be here, and the fix
+# was to stop splicing (it splits the value and passes `"$@"`), not to police the
+# value. An entry here means an action still has the hazard and its callers need
+# checking until it does the same. `derive_shell_split_inputs` alarms in both
+# directions, so neither adding nor removing an entry can go unnoticed.
+SHELL_SPLIT_INPUTS: dict[str, frozenset[str]] = {}
 
 ACTIONS_DIR = ".github/actions"
 
@@ -260,7 +264,24 @@ class ShellSplitActionArgsCheck(WorkflowCheck):
                         file=str(self._repo_root / action),
                     )
                 )
-        for action, names in sorted(derive_shell_split_inputs(self._repo_root).items()):
+        derived = derive_shell_split_inputs(self._repo_root)
+        for action in sorted(set(SHELL_SPLIT_INPUTS) - set(derived)):
+            # A missing action is already reported above, and more precisely;
+            # this alarm is for one that still exists and has stopped splicing.
+            if _load_action(self._repo_root / action) is None:
+                continue
+            issues.append(
+                Issue(
+                    workflow=action,
+                    message=(
+                        f"SHELL_SPLIT_INPUTS lists {action}, but nothing there splices an input into an inner "
+                        "shell any more — drop the entry, or callers keep being checked against a hazard that "
+                        "is gone"
+                    ),
+                    file=str(self._repo_root / action),
+                )
+            )
+        for action, names in sorted(derived.items()):
             for name in sorted(names - SHELL_SPLIT_INPUTS.get(action, frozenset())):
                 issues.append(
                     Issue(
