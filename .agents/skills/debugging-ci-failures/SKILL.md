@@ -333,9 +333,7 @@ Do NOT run `hogli test` with no arguments. Do NOT run `hogli nuke` or
   runner troubleshooting beyond triage.
 - A PR can route its backend tests to Depot CI. Then `Django Tests Pass` only
   relays the Depot result, and `gh run rerun` reads the same failure again.
-  Its `Relay the Depot verdict` step log lists the `depot ci` commands that
-  diagnose and retry the Depot run, and a new commit as the retry that needs no
-  Depot access.
+  The log of its `Relay the Depot verdict` step lists the retry options.
 - If a job fails before `Checkout` completes (no app code ran), classify as
   `infra / runner`. Do not propose code fixes.
 - PostHog CI frequently parallelizes the same test class across N shards
