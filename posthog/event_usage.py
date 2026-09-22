@@ -4,7 +4,7 @@ Module to centralize event reporting on the server-side.
 
 import re
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, NotRequired, Optional, Required, TypedDict
+from typing import TYPE_CHECKING, NotRequired, Optional, Required, TypedDict
 from urllib.parse import urlparse
 
 from django.contrib.auth.models import AnonymousUser
@@ -169,7 +169,7 @@ def report_user_login_failed(
     otherwise put an arbitrary typed address into the event stream.
     """
     distinct_id = user.distinct_id if user else None
-    properties: dict[str, Any] = {
+    properties: dict[str, str | bool] = {
         "failure_reason": failure_reason,
         "social_provider": social_provider,
         "user_identified": bool(distinct_id),
