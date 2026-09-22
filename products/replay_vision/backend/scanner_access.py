@@ -86,11 +86,10 @@ def accessible_observations(
     team_experiment_ids = set(Experiment.objects.filter(team_id=team_id).values_list("id", flat=True))
     accessible = _accessible_experiment_ids(access, team_id, team_experiment_ids)
     if accessible == team_experiment_ids:
-        # Nothing on the team is restricted, so the predicate below can only ever drop a row whose
-        # snapshot names an experiment outside the team. A snapshot records the scanner's own
-        # targeting and a scanner is team-scoped, and experiments are soft-deleted rather than
-        # removed, so no such row exists. Skipping the filter keeps the unindexed JSON path — and
-        # the snapshot detoast it forces on every candidate row — off the common read path.
+        # With nothing restricted the predicate below can only drop a row naming an experiment outside
+        # the team, and none exists: a snapshot records the scanner's own targeting, a scanner is
+        # team-scoped, and experiments are soft-deleted rather than removed. Skipping it keeps the
+        # unindexed JSON path, and the snapshot detoast it forces per row, off the common read path.
         return observations
     # Keep rows whose snapshot names no experiment (untargeted, unrestricted) OR an accessible one.
     # Phrased positively rather than `.exclude(path__in=inaccessible)`: on a nullable JSON path, exclude

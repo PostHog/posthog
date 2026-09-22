@@ -462,6 +462,10 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
                     self.assertNotIn("SELECT DISTINCT", sql, sql)
                     self.assertTrue(observation.id.hex in sql or sql.endswith("LIMIT 1"), sql)
 
+    @staticmethod
+    def _observation_reads(queries: CaptureQueriesContext) -> list[str]:
+        return [q["sql"] for q in queries.captured_queries if 'FROM "replay_vision_replayobservation"' in q["sql"]]
+
     def test_observation_list_skips_the_snapshot_gate_when_nothing_is_restricted(self) -> None:
         # The snapshot experiment path has no index, so filtering on it detoasts the snapshot of every
         # candidate row. A caller who can view every experiment on the team has nothing to gate, so the
@@ -491,10 +495,6 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
             any("experiment_targeting" in sql for sql in self._observation_reads(restricted)),
             "a denied experiment must still gate the rows by their snapshot",
         )
-
-    @staticmethod
-    def _observation_reads(queries: CaptureQueriesContext) -> list[str]:
-        return [q["sql"] for q in queries.captured_queries if 'FROM "replay_vision_replayobservation"' in q["sql"]]
 
 
 class TestObservationThumbnailAccessControl(_AccessControlTestCase):
