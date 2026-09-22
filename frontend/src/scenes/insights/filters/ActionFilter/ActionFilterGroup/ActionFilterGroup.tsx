@@ -100,7 +100,7 @@ export function ActionFilterGroup({
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: uuid })
 
     const groupLogic = actionFilterGroupLogic({ filterUuid: uuid, typeKey, groupIndex: index })
-    const { nestedNodes, operator, isHogQLDropdownVisible, groupNode } = useValues(groupLogic)
+    const { nestedNodes, nestedRows, operator, isHogQLDropdownVisible, groupNode } = useValues(groupLogic)
     const {
         addNestedSeries,
         updateNestedSeriesProperties,
@@ -344,20 +344,21 @@ export function ActionFilterGroup({
 
                 {/* Events list */}
                 <ul className="ActionFilterGroup--events-list flex flex-col px-4 py-2.5 bg-primary [&_.ActionFilterRow]:!border-0 [&_.ActionFilterRow]:!rounded-none [&_.ActionFilterRow]:!p-0">
-                    {nestedNodes.map((nestedNode, eventIndex) => {
+                    {nestedRows.map(({ uuid: nestedUuid, node: nestedNode }, eventIndex) => {
                         const nestedLogicInstance = nestedFilterLogic({
                             groupFilterUuid: uuid,
+                            nestedUuid,
                             nestedIndex: eventIndex,
                             typeKey,
                             groupIndex: index,
                         })
 
                         return (
-                            <div key={`${uuid}-${eventIndex}`}>
+                            <div key={nestedUuid}>
                                 <ActionFilterRow
                                     logic={nestedLogicInstance as any}
                                     node={nestedNode}
-                                    uuid={`${uuid}-${eventIndex}`}
+                                    uuid={nestedUuid}
                                     index={eventIndex}
                                     typeKey={`group-${index}-${eventIndex}`}
                                     mathAvailability={MathAvailability.None}

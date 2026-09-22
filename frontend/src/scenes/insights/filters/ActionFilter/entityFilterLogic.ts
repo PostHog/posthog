@@ -366,7 +366,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                     }
 
                     if (isWarehouseSeriesNodeKind(kind)) {
-                        applySeriesKey(next, kind, typeof key === 'undefined' ? (seriesNodeKey(current) ?? null) : key)
+                        applySeriesKey(next, kind, typeof key === 'undefined' ? seriesNodeKey(current) : key)
                         dataWarehousePopoverFields.forEach(({ key: fieldKey }) => {
                             const value = extra[fieldKey]
                             next[fieldKey] = typeof value === 'undefined' ? (current as any)[fieldKey] : value
@@ -421,7 +421,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                         delete next.nodes
                         delete next.operator
                     }
-                    applySeriesKey(next, kind, typeof key === 'undefined' ? (seriesNodeKey(current) ?? null) : key)
+                    applySeriesKey(next, kind, typeof key === 'undefined' ? seriesNodeKey(current) : key)
 
                     return withLatestVersion(next as SeriesNode)
                 })
@@ -490,7 +490,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                 }
                 eventUsageLogic.actions.reportInsightFilterSet(
                     series.map((node) => ({
-                        id: (seriesNodeKey(node) ?? null) as string | number | null,
+                        id: seriesNodeKey(node),
                         type: seriesNodeEntityType(node) as EntityType | undefined,
                     }))
                 )

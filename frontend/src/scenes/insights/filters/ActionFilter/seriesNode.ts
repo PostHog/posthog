@@ -66,14 +66,14 @@ export function isAllEventsSeriesNode(node: SeriesNode | null | undefined): bool
 
 /**
  * The key the row queries: the event, the action id, or the table. A group has none of its
- * own, so it reports `undefined` and the editor identifies it by index alone.
+ * own, so it reports `null` and the editor identifies it by index alone.
  */
-export function seriesNodeKey(node: SeriesNode | null | undefined): string | number | null | undefined {
+export function seriesNodeKey(node: SeriesNode | null | undefined): string | number | null {
     if (!node) {
-        return undefined
+        return null
     }
     if (isEventsSeriesNode(node)) {
-        return node.event
+        return node.event ?? null
     }
     if (isActionsSeriesNode(node)) {
         return node.id
@@ -81,7 +81,7 @@ export function seriesNodeKey(node: SeriesNode | null | undefined): string | num
     if (isWarehouseSeriesNode(node)) {
         return node.table_name
     }
-    return undefined
+    return null
 }
 
 const ENTITY_TYPE_BY_SERIES_NODE_KIND: Partial<Record<string, EntityType>> = {

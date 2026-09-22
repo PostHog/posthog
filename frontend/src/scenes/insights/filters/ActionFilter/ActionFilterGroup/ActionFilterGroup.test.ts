@@ -10,6 +10,7 @@ import { EntityTypes, FilterLogicalOperator, FilterType } from '~/types'
 
 import { legacyFiltersToSeries } from '../legacyFilters'
 import { SeriesNode } from '../seriesNode'
+import { actionFilterGroupLogic } from './actionFilterGroupLogic'
 
 const eventNode = (event: string, extra: Record<string, any> = {}): AnyEntityNode =>
     ({ kind: NodeKind.EventsNode, event, name: event, ...extra }) as AnyEntityNode
@@ -331,6 +332,46 @@ describe('ActionFilterGroup - Combining and Splitting Events', () => {
                 NodeKind.GroupNode,
                 NodeKind.EventsNode,
             ])
+        })
+    })
+
+    describe('nested row identity', () => {
+        const mountGroupLogic = (
+            nodes: AnyEntityNode[],
+            typeKey: string
+        ): ReturnType<typeof actionFilterGroupLogic.build> => {
+            const parent = mountLogic([groupNode(nodes)], typeKey)
+            const logic = actionFilterGroupLogic({
+                filterUuid: parent.values.localSeries[0].uuid,
+                typeKey,
+                groupIndex: 0,
+            })
+            logic.mount()
+            return logic
+        }
+
+        it('keeps each surviving nested row on its own uuid when one is removed', () => {
+            const logic = mountGroupLogic(
+                [eventNode('$pageview'), eventNode('$autocapture'), eventNode('$rageclick')],
+                'nested_removal'
+            )
+            const originalUuids = logic.values.nestedRows.map(({ uuid }) => uuid)
+            expect(originalUuids).toHaveLength(3)
+
+            logic.actions.removeNestedSeries(0)
+
+            // Keying by index would move each surviving row's open property panel onto the next event.
+            expect(logic.values.nestedRows.map(({ uuid }) => uuid)).toEqual(originalUuids.slice(1))
+        })
+
+        it('keeps every nested row on its uuid when one of them switches event', () => {
+            const logic = mountGroupLogic([eventNode('$pageview'), eventNode('$autocapture')], 'nested_update')
+            const originalUuids = logic.values.nestedRows.map(({ uuid }) => uuid)
+
+            logic.actions.updateNestedSeries(1, { event: '$rageclick', name: '$rageclick' } as Partial<AnyEntityNode>)
+
+            expect(logic.values.nestedRows.map(({ uuid }) => uuid)).toEqual(originalUuids)
+            expect(logic.values.nestedNodes[1]).toEqual(expect.objectContaining({ event: '$rageclick' }))
         })
     })
 })

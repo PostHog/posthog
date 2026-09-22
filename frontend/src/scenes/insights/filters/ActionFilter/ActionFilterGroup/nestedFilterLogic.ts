@@ -8,6 +8,8 @@ import { actionFilterGroupLogic } from './actionFilterGroupLogic'
 
 export interface NestedFilterLogicProps {
     groupFilterUuid: string
+    /** Sidecar row identity, so a removal cannot move this row's state onto its neighbour. */
+    nestedUuid: string
     nestedIndex: number
     typeKey: string
     groupIndex: number
@@ -92,7 +94,7 @@ export type nestedFilterLogicType = MakeLogicType<
 export const nestedFilterLogic = kea<nestedFilterLogicType>([
     path(['scenes', 'insights', 'filters', 'ActionFilter', 'ActionFilterGroup', 'nestedFilterLogic']),
     props({} as NestedFilterLogicProps),
-    key((props) => `${props.groupFilterUuid}-${props.nestedIndex}`),
+    key((props) => `${props.groupFilterUuid}-${props.nestedUuid}`),
 
     connect((props: NestedFilterLogicProps) => ({
         actions: [
