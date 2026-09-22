@@ -61,7 +61,7 @@ import { SubscriptionCreationGate, SubscriptionFormSkeleton } from './views/Edit
 interface SubscriptionWizardProps {
     insightShortId?: InsightShortId
     insightName?: string
-    dashboard?: DashboardType<any> | null
+    dashboard?: DashboardType | null
     onCancel: () => void
 }
 
@@ -477,7 +477,7 @@ function SubscriptionContentStep({
     aiSubscriptionBlocked,
 }: {
     logicProps: SubscriptionLogicProps
-    dashboard?: DashboardType<any> | null
+    dashboard?: DashboardType | null
     insightName?: string
     subscription: SubscriptionType
     aiSubscriptionBlocked: boolean
@@ -714,7 +714,7 @@ function SubscriptionReviewStep({
 }: {
     logicProps: SubscriptionLogicProps
     subscription: SubscriptionType
-    dashboard?: DashboardType<any> | null
+    dashboard?: DashboardType | null
     insightShortId?: InsightShortId
 }): JSX.Element {
     const { previewLoading, previewError, previewImageUrl } = useValues(subscriptionLogic(logicProps))
