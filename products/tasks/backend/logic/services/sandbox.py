@@ -81,20 +81,25 @@ class SandboxTemplate(str, Enum):
     CANVAS_BUILD = "canvas_build"
 
 
-def parse_requested_sandbox_template(value: str | None) -> SandboxTemplate:
-    """Resolve a template a caller asked for on a task.
+# Templates whose image hosts the task agent server, so a task can ask for them. The
+# notebook, streamlit, slim and canvas images omit the server on purpose, pi has no Modal
+# image, and VM_BASE bakes in Docker and forces the VM runtime, which only the server-side
+# VM routing gate may select.
+TASK_AGENT_TEMPLATES: frozenset[SandboxTemplate] = frozenset(
+    {SandboxTemplate.DEFAULT_BASE, SandboxTemplate.AUTORESEARCH_BASE}
+)
 
-    ``VM_BASE`` is never a caller's choice: it bakes in Docker and forces the VM runtime,
-    and only the server-side VM routing gate may select it.
-    """
+
+def parse_requested_sandbox_template(value: str | None) -> SandboxTemplate:
+    """Resolve a template a caller asked for on a task; anything outside ``TASK_AGENT_TEMPLATES`` is refused."""
     if value is None:
         return SandboxTemplate.DEFAULT_BASE
     try:
         template = SandboxTemplate(value)
     except ValueError:
         raise ValueError(f"Unknown sandbox template: {value!r}")
-    if template == SandboxTemplate.VM_BASE:
-        raise ValueError("The VM sandbox template cannot be requested per task")
+    if template not in TASK_AGENT_TEMPLATES:
+        raise ValueError(f"Sandbox template {value!r} cannot be requested per task")
     return template
 
 

@@ -423,7 +423,7 @@ class TestLocalModalBuildContext:
         _template_image_cache.clear()
 
         assert image is base.dockerfile_commands.return_value
-        (body,) = base.dockerfile_commands.call_args.args
+        ([body],) = base.dockerfile_commands.call_args.args
         assert "RUN pip install --break-system-packages --no-cache-dir \\\n    numpy==" in body
         assert not any(line.startswith(("FROM ", "ARG BASE_IMAGE")) for line in body.splitlines())
 

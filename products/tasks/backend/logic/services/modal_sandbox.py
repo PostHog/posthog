@@ -648,7 +648,7 @@ def get_template_base_image(template: SandboxTemplate) -> modal.Image:
             # change to the base Dockerfile, the bundled skills or agent-shadow reaches this
             # image too instead of the published :master base its FROM names.
             return get_template_base_image(SandboxTemplate.DEFAULT_BASE).dockerfile_commands(
-                _derived_dockerfile_body(Path(settings.BASE_DIR) / LOCAL_MODAL_DOCKERFILES[template])
+                [_derived_dockerfile_body(Path(settings.BASE_DIR) / LOCAL_MODAL_DOCKERFILES[template])]
             )
         dockerfile_path, context_dir = _prepare_local_modal_build_context(template)
         return modal.Image.from_dockerfile(dockerfile_path, context_dir=context_dir, ignore=[])

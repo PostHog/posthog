@@ -489,8 +489,8 @@ def test_requested_sandbox_template_resolves_what_a_task_may_ask_for(value, expe
     assert _requested_sandbox_template(value) == expected
 
 
-@pytest.mark.parametrize("value", ["vm_base", "not-a-template"])
-def test_requested_sandbox_template_rejects_vm_and_unknown_values(value):
+@pytest.mark.parametrize("value", ["vm_base", "streamlit_base", "not-a-template"])
+def test_requested_sandbox_template_rejects_what_cannot_host_the_agent(value):
     with pytest.raises(TaskInvalidStateError):
         _requested_sandbox_template(value)
 

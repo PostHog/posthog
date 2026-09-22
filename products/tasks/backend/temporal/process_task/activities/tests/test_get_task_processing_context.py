@@ -46,6 +46,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     _is_pr_babysit_snapshot_enabled,
     _is_rtk_enabled,
     _is_sandbox_event_ingest_enabled,
+    _require_template_compatible_with_custom_image,
     _resolve_claude_model_access,
     _resolve_modal_vm_sandbox,
     _resolve_sandbox_backend,
@@ -1682,6 +1683,24 @@ class TestGetTaskProcessingContextActivity:
         assert result.model is None
         assert result.reasoning_effort is None
         assert result.initial_permission_mode is None
+
+
+@pytest.mark.parametrize(
+    "state, custom_image_name, compatible",
+    [
+        ({"sandbox_template": "autoresearch_base"}, "org-image", False),
+        ({"sandbox_template": "autoresearch_base"}, None, True),
+        ({"sandbox_template": "default_base"}, "org-image", True),
+        ({}, "org-image", True),
+    ],
+    ids=["template_and_image", "template_only", "default_template_and_image", "image_only"],
+)
+def test_a_custom_template_cannot_compose_with_a_custom_image(state, custom_image_name, compatible):
+    if compatible:
+        _require_template_compatible_with_custom_image(state, custom_image_name, run_id="run-1")
+    else:
+        with pytest.raises(TaskInvalidStateError):
+            _require_template_compatible_with_custom_image(state, custom_image_name, run_id="run-1")
 
 
 _HOGLAND_SETTINGS = {"HOGLAND_API_URL": "https://hogland.example", "HOGLAND_API_TOKEN": "hog-tok"}
