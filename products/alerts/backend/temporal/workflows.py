@@ -44,10 +44,11 @@ with workflow.unsafe.imports_passed_through():
         TickPage,
     )
     from products.alerts.backend.logic.demand import discover_demand
-    from products.alerts.backend.temporal.postgres import check_postgres_connection
+    from products.alerts.backend.temporal.postgres import WriteReadinessError, check_postgres_connection
 
 
 POSTGRES_PROBE_FAILURE = "AlertsProductPostgresProbeFailure"
+WRITE_READINESS_FAILURE = "AlertsProductWriteReadinessFailure"
 
 # A tick stops starting pages once this much of its minute is spent. The schedule's 50-second
 # execution timeout is the backstop, and it spans continued runs.
@@ -85,6 +86,9 @@ async def alerts_product_probe_postgres_activity() -> None:
         await sync_to_async(check_postgres_connection, thread_sensitive=False)()
     except (OperationalError, InterfaceError):
         raise ApplicationError("Postgres connectivity probe failed", type=POSTGRES_PROBE_FAILURE) from None
+    except WriteReadinessError as error:
+        # A missing grant is a deployment fact, not a transient one, so a retry cannot fix it.
+        raise ApplicationError(str(error), type=WRITE_READINESS_FAILURE, non_retryable=True) from None
 
 
 @activity.defn
@@ -156,6 +160,8 @@ class AlertsProductEvaluateWorkflow(PostHogWorkflow):
         except ActivityError as error:
             if isinstance(error.cause, ApplicationError) and error.cause.type == POSTGRES_PROBE_FAILURE:
                 pass
+            elif isinstance(error.cause, ApplicationError) and error.cause.type == WRITE_READINESS_FAILURE:
+                workflow.logger.warning("Database role cannot write the platform tables: %s", error.cause.message)
             elif isinstance(error.cause, TimeoutError) and error.cause.type in (
                 TimeoutType.START_TO_CLOSE,
                 TimeoutType.SCHEDULE_TO_CLOSE,
