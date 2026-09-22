@@ -1,6 +1,9 @@
+from uuid import UUID
+
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 import structlog
 
@@ -44,11 +47,32 @@ class HogFlowBatchJob(RootTeamMixin, UUIDTModel):
         return f"HogFlow batch run {self.id}"
 
 
+NON_TERMINAL_BATCH_JOB_STATES = (
+    HogFlowBatchJob.State.WAITING,
+    HogFlowBatchJob.State.QUEUED,
+    HogFlowBatchJob.State.ACTIVE,
+)
+
+
+def _mark_dispatch_failed(batch_job: HogFlowBatchJob) -> None:
+    updated = HogFlowBatchJob.objects.filter(id=batch_job.id, status=HogFlowBatchJob.State.QUEUED).update(
+        status=HogFlowBatchJob.State.FAILED, updated_at=timezone.now()
+    )
+    if updated:
+        batch_job.status = HogFlowBatchJob.State.FAILED
+
+
+def cancel_batch_jobs_for_inactive_flow(hog_flow_id: UUID) -> int:
+    return HogFlowBatchJob.objects.filter(hog_flow_id=hog_flow_id, status__in=NON_TERMINAL_BATCH_JOB_STATES).update(
+        status=HogFlowBatchJob.State.CANCELLED, updated_at=timezone.now()
+    )
+
+
 @receiver(post_save, sender=HogFlowBatchJob)
 def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
     if created:
         try:
-            create_batch_hog_flow_job_invocation(
+            response = create_batch_hog_flow_job_invocation(
                 team_id=instance.team.id,
                 hog_flow_id=instance.hog_flow.id,
                 batch_job_id=instance.id,
@@ -65,9 +89,18 @@ def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
                 filters=instance.filters,
             )
         except Exception as e:
+            _mark_dispatch_failed(instance)
             logger.exception(
                 "Failed to create batch hogflow job invocation",
                 batch_job_id=instance.id,
                 error=str(e),
             )
             raise
+
+        if not response.ok:
+            _mark_dispatch_failed(instance)
+            logger.error(
+                "Batch hogflow job invocation was rejected",
+                batch_job_id=instance.id,
+                status_code=response.status_code,
+            )

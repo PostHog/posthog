@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import TestCase
 
@@ -63,6 +63,30 @@ class TestHogFlowBatchJob(TestCase):
         batch_job.status = HogFlowBatchJob.State.FAILED
         batch_job.save()
         batch_job.refresh_from_db()
+        assert batch_job.status == HogFlowBatchJob.State.FAILED
+
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_rejected_dispatch_marks_batch_job_failed(self, mock_create_invocation):
+        mock_create_invocation.return_value = Mock(ok=False, status_code=500)
+
+        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow, variables=[])
+
+        assert batch_job.status == HogFlowBatchJob.State.FAILED
+        batch_job.refresh_from_db()
+        assert batch_job.status == HogFlowBatchJob.State.FAILED
+
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_unreachable_dispatch_marks_batch_job_failed(self, mock_create_invocation):
+        mock_create_invocation.side_effect = RuntimeError("CDP unreachable")
+
+        with self.assertRaises(RuntimeError):
+            HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow, variables=[])
+
+        batch_job = HogFlowBatchJob.objects.get(hog_flow=self.hog_flow)
         assert batch_job.status == HogFlowBatchJob.State.FAILED
 
     @patch(

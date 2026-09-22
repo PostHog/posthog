@@ -4331,6 +4331,24 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "active" in response.json()["detail"].lower()
 
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_disabling_workflow_cancels_its_unfinished_batch_jobs(self, mock_create_invocation):
+        flow_id = self._create_active_hog_flow()
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
+            {"variables": [{"key": "first_name", "value": "Test"}]},
+        )
+        assert create_response.status_code == 200, create_response.json()
+        batch_job_id = create_response.json()["id"]
+
+        disable_response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "draft"})
+        assert disable_response.status_code == 200, disable_response.json()
+
+        batch_job = HogFlowBatchJob.objects.get(id=batch_job_id)
+        assert batch_job.status == HogFlowBatchJob.State.CANCELLED
+
     def test_post_hog_flow_batch_jobs_endpoint_nonexistent_flow(self):
         batch_job_data = {"variables": [{"key": "first_name", "value": "Test"}]}
 
