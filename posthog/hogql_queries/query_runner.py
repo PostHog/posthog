@@ -1,10 +1,12 @@
 import threading
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
+from collections import deque
+from collections.abc import Callable, Iterable, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import cache, cached_property
+from itertools import islice
 from time import perf_counter
 from types import UnionType
 from typing import Any, Generic, NamedTuple, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
@@ -305,8 +307,15 @@ def get_survey_query_metric_labels(query: Any) -> dict[str, str] | None:
 
 
 # A response can hold millions of rows, and every row of a column holds the same class, so the
-# recovery scan below reads a bounded prefix of the response instead of all of it.
+# recovery scan below reads a bounded prefix of the response, breadth first, instead of all of it.
 _DUMP_RECOVERY_SCAN_LIMIT = 1000
+
+
+def _enqueue_within_limit(pending: deque[Any], values: Iterable[Any]) -> None:
+    """Add only the values the scan can still reach, so a container of rows is never copied whole."""
+    room = _DUMP_RECOVERY_SCAN_LIMIT - len(pending)
+    if room > 0:
+        pending.extend(islice(values, room))
 
 
 def _rebuild_unbuilt_response_models(query_result: BaseModel) -> list[str]:
@@ -317,11 +326,11 @@ def _rebuild_unbuilt_response_models(query_result: BaseModel) -> list[str]:
     """
     rebuilt: list[str] = []
     seen: set[type[BaseModel]] = set()
-    pending: list[Any] = [query_result]
-    budget = _DUMP_RECOVERY_SCAN_LIMIT
-    while pending and budget > 0:
-        value = pending.pop()
-        budget -= 1
+    pending: deque[Any] = deque([query_result])
+    scanned = 0
+    while pending and scanned < _DUMP_RECOVERY_SCAN_LIMIT:
+        value = pending.popleft()
+        scanned += 1
         if isinstance(value, BaseModel):
             model_class = type(value)
             if model_class not in seen:
@@ -329,13 +338,13 @@ def _rebuild_unbuilt_response_models(query_result: BaseModel) -> list[str]:
                 if not isinstance(getattr(model_class, "__pydantic_serializer__", None), SchemaSerializer):
                     model_class.model_rebuild(force=True, raise_errors=False)
                     rebuilt.append(model_class.__name__)
-            pending.extend(value.__dict__.values())
+            _enqueue_within_limit(pending, value.__dict__.values())
         elif isinstance(value, dict):
-            pending.extend(value.values())
+            _enqueue_within_limit(pending, value.values())
         elif isinstance(value, list | tuple):
             # Iterators stay untouched: results support generators, and reading one here would
             # consume the rows before the dump can serialize them.
-            pending.extend(value)
+            _enqueue_within_limit(pending, value)
     return rebuilt
 
 

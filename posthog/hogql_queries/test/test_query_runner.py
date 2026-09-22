@@ -249,7 +249,7 @@ class TestQueryRunner(BaseTest):
         class ResultRow(BaseModel):
             label: str = "row"
 
-        ResultRow.__pydantic_serializer__ = None  # type: ignore[assignment]
+        ResultRow.__pydantic_serializer__ = None  # type: ignore[assignment] # ty: ignore[invalid-assignment]
 
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
@@ -278,11 +278,9 @@ class TestQueryRunner(BaseTest):
                 autospec=True,
                 side_effect=lambda _self: TheTestBasicQueryResponse(results=[UnbuiltRow.model_construct(value=1)]),
             ),
-            pytest.raises(Exception) as error,
+            pytest.raises(TypeError, match=r"Cannot serialize TestBasicQueryResponse:"),
         ):
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-
-        assert "TestBasicQueryResponse" in str(error.value)
 
     @parameterized.expand(
         [
