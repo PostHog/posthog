@@ -1,25 +1,17 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ProductTab } from './common'
 import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 export function WebAnalyticsSavePresetNudge(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { productTab, hasNonDefaultFilters, appliedPresetShortId } = useValues(webAnalyticsLogic)
     const { openSaveModal } = useActions(webAnalyticsFilterPresetsLogic)
 
-    if (
-        !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] ||
-        productTab !== ProductTab.ANALYTICS ||
-        !hasNonDefaultFilters ||
-        appliedPresetShortId
-    ) {
+    if (productTab !== ProductTab.ANALYTICS || !hasNonDefaultFilters || appliedPresetShortId) {
         return null
     }
 
