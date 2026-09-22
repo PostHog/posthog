@@ -93,10 +93,11 @@ PROBLEMATIC PATTERNS:
    But e_all__override is defined later in the SQL, causing the error.
 
 3. Joining flag_evaluations to any table on flag_evaluations.person_id:
-   ❌ FROM flag_evaluations fe JOIN events e ON fe.person_id = e.person_id
+   ❌ FROM posthog.flag_evaluations fe JOIN events e ON fe.person_id = e.person_id
 
    flag_evaluations.person_id is the same kind of ExpressionField, so this fails with
    "QueryError: Field not found: flag_evaluation_person_id", naming a column the query never used.
+   Note this table is only reachable as `posthog.flag_evaluations`; the bare name does not resolve.
 
 REQUIRED WORKAROUNDS:
 1. For accessing person data, use the person virtual table from events:
@@ -118,9 +119,9 @@ REQUIRED WORKAROUNDS:
       WHERE e.person_id IN (SELECT DISTINCT person_id FROM events WHERE ...)
 
 4. For flag_evaluations, join on distinct_id, or filter with WHERE IN:
-   ✅ FROM flag_evaluations fe JOIN events e ON fe.distinct_id = e.distinct_id
+   ✅ FROM posthog.flag_evaluations fe JOIN events e ON fe.distinct_id = e.distinct_id
    ✅ SELECT p.id FROM persons p
-      WHERE p.id IN (SELECT DISTINCT person_id FROM flag_evaluations WHERE flag_key = 'my-flag')
+      WHERE p.id IN (SELECT DISTINCT person_id FROM posthog.flag_evaluations WHERE flag_key = 'my-flag')
    A CROSS JOIN with the equality moved into WHERE also works.
    The distinct_id join matches raw ids only, so it pairs a logged-out evaluation with the logged-out
    events alone. Use the WHERE IN form when the question is about people rather than devices.
