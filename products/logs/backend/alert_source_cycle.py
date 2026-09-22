@@ -27,7 +27,7 @@ from products.alerts.backend.facade.contracts import (
     AlertDeliveryPreview,
     CheckOutcomeReason,
     GroupTransition,
-    PlatformAlertCheck,
+    PlatformAlertCheckInput,
     PlatformAlertOutcome,
     SourceBatchEvaluation,
     SourceKind,
@@ -103,7 +103,7 @@ _NOTIFICATION_EVENT_KINDS: dict[NotificationAction, EventKind] = {
 }
 
 
-def _cohort_key(check: PlatformAlertCheck, checkpoint: datetime | None, now: datetime) -> tuple:
+def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now: datetime) -> tuple:
     return (
         check.window_minutes,
         check.evaluation_periods,
@@ -113,7 +113,7 @@ def _cohort_key(check: PlatformAlertCheck, checkpoint: datetime | None, now: dat
     )
 
 
-def _is_in_quiet_hours(check: PlatformAlertCheck, local_minute: int) -> bool:
+def _is_in_quiet_hours(check: PlatformAlertCheckInput, local_minute: int) -> bool:
     """True when the alert's schedule restriction blocks a check at the batch's local minute."""
     try:
         windows = parse_blocked_windows_tuples(check.schedule_restriction)
@@ -127,7 +127,7 @@ def _is_in_quiet_hours(check: PlatformAlertCheck, local_minute: int) -> bool:
         return False
 
 
-def _snapshot(check: PlatformAlertCheck, prior_breached: tuple[bool, ...]) -> AlertSnapshot:
+def _snapshot(check: PlatformAlertCheckInput, prior_breached: tuple[bool, ...]) -> AlertSnapshot:
     return AlertSnapshot(
         state=AlertState(check.state),
         cooldown=timedelta(minutes=check.cooldown_minutes),
@@ -144,7 +144,7 @@ Decision = tuple[PlatformAlertOutcome, AlertDeliveryPreview | None]
 
 
 def _record_check_metrics(
-    check: PlatformAlertCheck,
+    check: PlatformAlertCheckInput,
     new_state: str,
     notification: NotificationAction,
     reason: CheckOutcomeReason,
@@ -162,7 +162,7 @@ def _record_check_metrics(
 
 
 def _decide(
-    check: PlatformAlertCheck,
+    check: PlatformAlertCheckInput,
     check_input: CheckInput,
     prior_breached: tuple[bool, ...],
     *,
@@ -206,7 +206,7 @@ def _decide(
 
 
 def _evaluate_one(
-    check: PlatformAlertCheck, buckets: list[BucketedCount], *, window_end: datetime, now: datetime
+    check: PlatformAlertCheckInput, buckets: list[BucketedCount], *, window_end: datetime, now: datetime
 ) -> Decision:
     current_breached, *prior_windows_breached = _derive_breaches(
         buckets, check.threshold_count, check.threshold_operator, check.evaluation_periods
@@ -221,7 +221,7 @@ def _evaluate_one(
     )
 
 
-def _failed(check: PlatformAlertCheck, error: Exception, *, window_end: datetime, now: datetime) -> Decision:
+def _failed(check: PlatformAlertCheckInput, error: Exception, *, window_end: datetime, now: datetime) -> Decision:
     """A check that could not reach a verdict, as the shared machine's error path sees it.
 
     The machine raises `consecutive_failures` and escalates to BROKEN, so an alert that fails
@@ -244,7 +244,7 @@ def _failed(check: PlatformAlertCheck, error: Exception, *, window_end: datetime
 
 
 def _held(
-    check: PlatformAlertCheck, outcome: ControlPlaneOutcome, *, reason: CheckOutcomeReason, now: datetime
+    check: PlatformAlertCheckInput, outcome: ControlPlaneOutcome, *, reason: CheckOutcomeReason, now: datetime
 ) -> Decision:
     """A control-plane transition the check machine cannot express. The outcome advances the schedule."""
     recorded = PlatformAlertOutcome(
@@ -258,7 +258,7 @@ def _held(
 
 
 def _evaluate_cohort(
-    team: Team, checks: Sequence[PlatformAlertCheck], key: tuple, *, now: datetime, query_seconds: int
+    team: Team, checks: Sequence[PlatformAlertCheckInput], key: tuple, *, now: datetime, query_seconds: int
 ) -> list[Decision]:
     window_minutes, evaluation_periods, cadence_minutes, projection_eligible, date_to = key
     lookback = rolling_check_lookback_minutes(window_minutes, cadence_minutes, evaluation_periods)
@@ -297,8 +297,8 @@ def _evaluate_cohort(
 
 
 def _triage(
-    checks: Sequence[PlatformAlertCheck], team: Team, *, now: datetime
-) -> tuple[list[Decision], list[PlatformAlertCheck]]:
+    checks: Sequence[PlatformAlertCheckInput], team: Team, *, now: datetime
+) -> tuple[list[Decision], list[PlatformAlertCheckInput]]:
     """Splits a batch into the checks a query can answer and the ones already decided.
 
     A skip is a decision, not an omission. Dropping one records nothing, so its due time stays
@@ -307,7 +307,7 @@ def _triage(
     # One conversion for the batch: every check shares the tick instant and the team's timezone.
     local_minute = local_minute_of(now, team.timezone)
     decided: list[Decision] = []
-    evaluable: list[PlatformAlertCheck] = []
+    evaluable: list[PlatformAlertCheckInput] = []
     for check in checks:
         broken_reason = _detect_broken_filter_config(check.source_config)
         if broken_reason is not None:
@@ -401,7 +401,7 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
         logger.exception("Failed to fetch logs ingestion checkpoint; falling back to wall-clock", error=str(error))
         checkpoint = None
 
-    cohorts: dict[tuple, list[PlatformAlertCheck]] = {}
+    cohorts: dict[tuple, list[PlatformAlertCheckInput]] = {}
     for check in evaluable:
         cohorts.setdefault(_cohort_key(check, checkpoint, cutoff), []).append(check)
 
