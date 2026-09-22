@@ -5,7 +5,6 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { IconArrowDown } from 'lib/lemon-ui/icons'
 
 import type { AITriageSource, AiReplyFeedbackRating, ChatMessage, MessageDeliveryStatus } from '../../types'
-import { aiDraftAction } from './aiDraftAction'
 import { Message } from './Message'
 
 export interface MessageListProps {
@@ -26,6 +25,8 @@ export interface MessageListProps {
     showDeliveryStatus?: boolean
     /** ID of the latest AI message eligible for reviewer feedback */
     latestAiMessageId?: string | null
+    /** ID of the latest AI draft the ticket logic selected for applying. */
+    latestAiDraftId?: string | null
     /** Recorded reviewer feedback keyed by message id */
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
     /** Whether AI reply feedback controls are enabled */
@@ -72,6 +73,7 @@ export function MessageList({
     unreadCustomerCount = 0,
     showDeliveryStatus = false,
     latestAiMessageId = null,
+    latestAiDraftId = null,
     feedbackByMessageId = EMPTY_FEEDBACK_BY_MESSAGE_ID,
     showAiReplyFeedback = false,
     aiReplyFeedbackDisabledReason,
@@ -210,17 +212,6 @@ export function MessageList({
 
         return statusMap
     }, [messages, showDeliveryStatus, unreadCustomerCount])
-
-    // Applying a draft records the outcome against the ticket's current AI run, so only the
-    // newest draft offers it. An older one would mark the wrong run as used.
-    const latestAiDraftId = useMemo(
-        () =>
-            messages
-                .filter((message) => aiDraftAction(message) !== null)
-                .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-                .at(-1)?.id ?? null,
-        [messages]
-    )
 
     // Messages and extras share one chronological stream, so an agent's findings sit at the point in
     // the conversation they arrived rather than always at the bottom. Ties keep messages first, and

@@ -63,7 +63,7 @@ import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/feat
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 import { assigneeSelectLogic } from '../../components/Assignee'
 import type { Assignee, TicketAssignee } from '../../components/Assignee'
-import { aiDraftComposerHtml } from '../../components/Chat/aiDraftAction'
+import { aiDraftAction, aiDraftComposerHtml } from '../../components/Chat/aiDraftAction'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import { priorityOptions } from '../../types'
 import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketPriority, TicketStatus } from '../../types'
@@ -250,6 +250,7 @@ export interface supportTicketSceneLogicValues {
     hasMoreMessages: boolean
     hasPendingWork: boolean
     hasUnsavedChanges: boolean
+    latestAiDraftId: string | null
     latestAiMessage: ChatMessage | null
     linkedReports: SignalReportApi[]
     linkedReportsLoading: boolean
@@ -530,6 +531,7 @@ export interface supportTicketSceneLogicMeta {
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
         exceptionsQuery: (ticket: Ticket | null) => DataTableNode | null
         latestAiMessage: (chatMessages: ChatMessage[]) => ChatMessage | null
+        latestAiDraftId: (chatMessages: ChatMessage[]) => string | null
     }
 }
 
@@ -1177,6 +1179,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 }
                 return null
             },
+        ],
+        latestAiDraftId: [
+            (s) => [s.chatMessages],
+            (chatMessages: ChatMessage[]): string | null =>
+                chatMessages
+                    .filter((message) => aiDraftAction(message) !== null)
+                    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+                    .at(-1)?.id ?? null,
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({

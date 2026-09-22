@@ -171,6 +171,7 @@ describe('MessageList', () => {
                 messages={[draft('old', '2026-01-01T00:00:00Z'), draft('new', '2026-01-01T00:05:00Z')]}
                 messagesLoading={false}
                 canEditTicket
+                latestAiDraftId="new"
                 onApplyAiDraft={jest.fn()}
             />
         )

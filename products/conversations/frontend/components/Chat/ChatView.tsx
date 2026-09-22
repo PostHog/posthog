@@ -75,6 +75,7 @@ export interface ChatViewProps {
     /** Other unsaved ticket edits that sending with a status would also persist */
     unsavedTicketChanges?: string[]
     latestAiMessageId?: string | null
+    latestAiDraftId?: string | null
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
     showAiReplyFeedback?: boolean
     aiReplyFeedbackDisabledReason?: string
@@ -126,6 +127,7 @@ export function ChatView({
     sendAndSetStatusOptions,
     unsavedTicketChanges,
     latestAiMessageId,
+    latestAiDraftId,
     feedbackByMessageId,
     showAiReplyFeedback,
     aiReplyFeedbackDisabledReason,
@@ -164,6 +166,7 @@ export function ChatView({
                 unreadCustomerCount={unreadCustomerCount}
                 showDeliveryStatus={showDeliveryStatus}
                 latestAiMessageId={latestAiMessageId}
+                latestAiDraftId={latestAiDraftId}
                 feedbackByMessageId={feedbackByMessageId}
                 showAiReplyFeedback={showAiReplyFeedback}
                 aiReplyFeedbackDisabledReason={aiReplyFeedbackDisabledReason}

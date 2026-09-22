@@ -106,6 +106,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         snoozedUntil,
         emailReplyBlockedReason,
         latestAiMessage,
+        latestAiDraftId,
         feedbackByMessageId,
         editingMessageId,
         discussionsEnabled,
@@ -290,6 +291,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         replyDisabledReason={replyDisabledReason}
                         sendDisabledReason={sendDisabledReason}
                         latestAiMessageId={latestAiMessage?.id ?? null}
+                        latestAiDraftId={latestAiDraftId}
                         feedbackByMessageId={feedbackByMessageId}
                         showAiReplyFeedback={aiSuggestionsEnabled}
                         aiReplyFeedbackDisabledReason={sendDisabledReason}
