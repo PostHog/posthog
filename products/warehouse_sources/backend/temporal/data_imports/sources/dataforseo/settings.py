@@ -1,6 +1,8 @@
 import dataclasses
 from typing import Any, Literal
 
+from posthog.dataclasses import frozen
+
 # DataForSEO serves every dataset as a POST "live" endpoint under https://api.dataforseo.com/v3.
 # The request body is an array with one task object ({"target": ..., "location_name": ...}) and
 # the response nests data as tasks[].result[] (with result[].items[] for most Labs endpoints).
@@ -11,7 +13,7 @@ from typing import Any, Literal
 ParseKind = Literal["items", "ranked_keywords", "monthly_items", "result_rows", "lookup_rows"]
 
 
-@dataclasses.dataclass
+@frozen
 class DataForSEOEndpointConfig:
     name: str
     # Path under the API base (https://api.dataforseo.com/v3).
