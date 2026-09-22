@@ -71,6 +71,28 @@ describe('check', () => {
         )
     })
 
+    it('takes the project and the host from the flags over the environment', async (t) => {
+        const standIn = await startStandIn()
+        t.after(() => standIn.close())
+        const workspace = makeWorkspace({ 'flows/onboarding.ts': workflowFile() })
+
+        const result = await runCli(['check', 'flows/onboarding.ts', '--project', '7', '--host', standIn.url], {
+            workspace,
+            env: {
+                POSTHOG_CLI_API_KEY: 'phx_test',
+                POSTHOG_CLI_PROJECT_ID: '2',
+                POSTHOG_CLI_HOST: 'https://eu.posthog.com',
+            },
+        })
+
+        assert.equal(result.code, 0, result.stderr)
+        assert.match(standIn.requests[0]?.url ?? '', /^\/api\/environments\/7\/hog_flows\//)
+        assert.match(
+            result.stdout,
+            /compared against project 7 on http:\/\/127\.0\.0\.1:\d+ \(credentials from the environment, project from --project, host from --host\)\.$/m
+        )
+    })
+
     it('says nothing about recording a commit, because check records nothing either way', async (t) => {
         const standIn = await startStandIn()
         t.after(() => standIn.close())

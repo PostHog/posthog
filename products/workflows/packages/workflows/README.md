@@ -81,6 +81,7 @@ posthog-workflows push flows/onboarding.ts    # create or update every workflow 
 
 `check` runs without credentials, skips the comparison and says so, so a pull request from a fork is not blocked by a secret it cannot read.
 `push` needs a personal API key with the `hog_flow:write` scope. It reads `POSTHOG_CLI_API_KEY`, `POSTHOG_CLI_PROJECT_ID` and `POSTHOG_CLI_HOST`, and falls back to the `~/.posthog/credentials.json` that `posthog-cli login` writes.
+`--project <id>` and `--host <url>` win over both, so one file reaches another project without a change to the environment. The key is never a flag.
 
 A push writes nothing when nothing changed. `--force` pushes anyway, which is how a rotated secret lands, because the comparison never looks at a secret input.
 A push from a path the workflow was not pushed from is refused, so a copied file cannot replace a live workflow. `--allow-move` records the new path.

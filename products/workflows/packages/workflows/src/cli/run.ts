@@ -23,6 +23,9 @@ export interface RunOptions {
     readonly path: string
     readonly force: boolean
     readonly allowMove: boolean
+    /** From `--project` and `--host`, which win over the environment and the credentials file. */
+    readonly project?: string | undefined
+    readonly host?: string | undefined
     readonly env: Readonly<Record<string, string | undefined>>
     readonly cwd: string
     readonly homeDir: string
@@ -215,9 +218,10 @@ function redacted(error: unknown, secrets: readonly string[]): unknown {
 
 export async function runFileCommand(options: RunOptions): Promise<number> {
     const isPush = options.command === 'push'
+    const overrides = { project: options.project, host: options.host }
     const credentials = isPush
-        ? requireCredentials(options.env, options.homeDir)
-        : resolveCredentials(options.env, options.homeDir)
+        ? requireCredentials(options.env, options.homeDir, overrides)
+        : resolveCredentials(options.env, options.homeDir, overrides)
     const client = credentials === null ? null : new Client(credentials)
 
     // Everything that must fail is resolved before any change is detected. An empty diff skips the

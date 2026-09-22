@@ -48,6 +48,36 @@ describe('credentials', () => {
         })
     })
 
+    it('lets the flags win over the environment, and names them as the source', () => {
+        const credentials = resolveCredentials(
+            {
+                POSTHOG_CLI_API_KEY: 'phx_from_env',
+                POSTHOG_CLI_PROJECT_ID: '2',
+                POSTHOG_CLI_HOST: 'https://eu.posthog.com',
+            },
+            homeWithCredentials(FILE),
+            { project: '7', host: 'http://localhost:8010/' }
+        )
+
+        assert.deepEqual(credentials, {
+            apiKey: 'phx_from_env',
+            projectId: '7',
+            host: 'http://localhost:8010',
+            source: 'the environment, project from --project, host from --host',
+        })
+    })
+
+    it('pairs a project flag with the key from the file when the environment has none', () => {
+        const credentials = resolveCredentials({}, homeWithCredentials(FILE), { project: '7' })
+
+        assert.deepEqual(credentials, {
+            apiKey: 'phx_from_file',
+            projectId: '7',
+            host: 'https://eu.posthog.com',
+            source: '~/.posthog/credentials.json, project from --project',
+        })
+    })
+
     it('takes the older names for the key and the project', () => {
         const credentials = resolveCredentials(
             { POSTHOG_CLI_TOKEN: 'phx_from_env', POSTHOG_CLI_ENV_ID: '2' },

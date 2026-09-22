@@ -54,46 +54,84 @@ function shown(path: string, homeDir: string): string {
 }
 
 /**
+ * What the command line named outright. The key is never among them: a command line lands in
+ * shell history and in CI logs, and a variable or the file does not.
+ */
+export interface CredentialOverrides {
+    readonly project?: string | undefined
+    readonly host?: string | undefined
+}
+
+function present(value: string | null | undefined): value is string {
+    return value !== undefined && value !== null && value !== ''
+}
+
+function trimHost(host: string | null | undefined): string | undefined {
+    return present(host) ? host.replace(/\/+$/, '') : undefined
+}
+
+function describeSource(base: string, overrides: CredentialOverrides): string {
+    const parts = [base]
+    if (overrides.project !== undefined) {
+        parts.push('project from --project')
+    }
+    if (overrides.host !== undefined) {
+        parts.push('host from --host')
+    }
+    return parts.join(', ')
+}
+
+/**
  * The key and the project resolve together from one source, following the Rust CLI. Mixing them
  * would let a token from the environment write to the project id left in the file, which is how a
  * staging deploy reaches production.
  *
- * `POSTHOG_CLI_HOST` is the one value that overrides on its own. The Rust CLI takes the host from
- * the same source as the pair; this CLI does not, because pointing one set of credentials at
- * another instance is what the variable is for, and a push names the host it wrote to.
+ * A flag is the exception, because it is the author saying the project outright: `--project` pairs
+ * with the key from whichever source has one, and wins over `POSTHOG_CLI_PROJECT_ID` and the file.
+ *
+ * The host overrides on its own, from `--host` first and `POSTHOG_CLI_HOST` second. The Rust CLI
+ * takes the host from the same source as the pair; this CLI does not, because pointing one set of
+ * credentials at another instance is what the variable is for, and a push names the host it wrote to.
  *
  * Null rather than a throw when nothing is configured, which is what lets `check` degrade.
  *
  * @param env - The process environment, read for the `POSTHOG_CLI_*` variables.
  * @param homeDir - The user's home directory, where the credentials file lives by default.
+ * @param overrides - The project and the host from the command line, when the flags were passed.
  */
 export function resolveCredentials(
     env: Readonly<Record<string, string | undefined>>,
-    homeDir: string
+    homeDir: string,
+    overrides: CredentialOverrides = {}
 ): Credentials | null {
-    const host = env.POSTHOG_CLI_HOST?.replace(/\/+$/, '')
+    const host = trimHost(overrides.host) ?? trimHost(env.POSTHOG_CLI_HOST)
     const apiKey = env.POSTHOG_CLI_API_KEY ?? env.POSTHOG_CLI_TOKEN
-    const projectId = env.POSTHOG_CLI_PROJECT_ID ?? env.POSTHOG_CLI_ENV_ID
+    const projectId = overrides.project ?? env.POSTHOG_CLI_PROJECT_ID ?? env.POSTHOG_CLI_ENV_ID
 
-    if (apiKey !== undefined && apiKey !== '' && projectId !== undefined && projectId !== '') {
-        return { apiKey, projectId, host: host ?? DEFAULT_HOST, source: 'the environment' }
+    if (present(apiKey) && present(projectId)) {
+        return { apiKey, projectId, host: host ?? DEFAULT_HOST, source: describeSource('the environment', overrides) }
     }
 
     const path = credentialsPath(env, homeDir)
     const file = readFile(path)
-    if (file?.token !== undefined && file.token !== '' && file.env_id !== undefined && file.env_id !== '') {
+    const fileProjectId = overrides.project ?? file?.env_id
+    if (present(file?.token) && present(fileProjectId)) {
         return {
             apiKey: file.token,
-            projectId: file.env_id,
-            host: host ?? file.host?.replace(/\/+$/, '') ?? DEFAULT_HOST,
-            source: shown(path, homeDir),
+            projectId: fileProjectId,
+            host: host ?? trimHost(file.host) ?? DEFAULT_HOST,
+            source: describeSource(shown(path, homeDir), overrides),
         }
     }
     return null
 }
 
-export function requireCredentials(env: Readonly<Record<string, string | undefined>>, homeDir: string): Credentials {
-    const credentials = resolveCredentials(env, homeDir)
+export function requireCredentials(
+    env: Readonly<Record<string, string | undefined>>,
+    homeDir: string,
+    overrides: CredentialOverrides = {}
+): Credentials {
+    const credentials = resolveCredentials(env, homeDir, overrides)
     if (credentials !== null) {
         return credentials
     }
@@ -101,6 +139,6 @@ export function requireCredentials(env: Readonly<Record<string, string | undefin
         status: 'missing_credentials',
         message: 'No PostHog credentials.',
         why: `push writes to a project, so it needs a personal API key with hog_flow:write and the project to write into. Neither the environment nor ${shown(credentialsPath(env, homeDir), homeDir)} carried both.`,
-        fix: 'In CI set POSTHOG_CLI_API_KEY, POSTHOG_CLI_PROJECT_ID and POSTHOG_CLI_HOST. On your own machine run posthog-cli login once.',
+        fix: 'In CI set POSTHOG_CLI_API_KEY, POSTHOG_CLI_PROJECT_ID and POSTHOG_CLI_HOST, or set the key and pass --project. On your own machine run posthog-cli login once.',
     })
 }
