@@ -118,6 +118,76 @@ describe('inboxFiltersLogic', () => {
         })
     })
 
+    describe('URL hydration', () => {
+        let logic: ReturnType<typeof inboxFiltersLogic.build>
+
+        beforeEach(() => {
+            localStorage.clear()
+            initKeaTests()
+            useMocks({ get: { '/api/projects/:team_id/signals/reports/available_reviewers/': () => [200, {}] } })
+            logic = inboxFiltersLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+        })
+
+        it('clears the source when the last filter parameter is removed', () => {
+            router.actions.push(urls.inbox('reports'), { source: 'error_tracking' })
+            expect(logic.values.sourceProductFilter).toEqual(['error_tracking'])
+
+            router.actions.push(urls.inbox('reports'))
+
+            expect(logic.values.sourceProductFilter).toEqual([])
+            expect(router.values.searchParams).toEqual({})
+        })
+
+        it.each([{}, { sort: 'created_at:desc' }])(
+            'does not restore saved filters on a fresh load with params %j',
+            async (searchParams) => {
+                logic.actions.setFilters({
+                    ...DEFAULT_STATE,
+                    scope: 'entire-project',
+                    sourceProductFilter: ['error_tracking'],
+                    scoutFilter: ['example-scout'],
+                    priorityFilter: ['P1'],
+                    stateFilter: ['resolved'],
+                })
+                await expectLogic(logic).toFinishAllListeners()
+                logic.unmount()
+                initKeaTests()
+                router.actions.push(urls.inbox(), searchParams)
+                logic = inboxFiltersLogic()
+                logic.mount()
+
+                expectLogic(logic).toMatchValues(parseFilterSearchParams(searchParams))
+                expect(router.values.searchParams).toEqual(searchParams)
+            }
+        )
+
+        it('keeps the remaining URL parameters when a source is removed', () => {
+            router.actions.push(urls.inbox('reports'), { source: 'github', sort: 'created_at:desc' })
+            router.actions.push(urls.inbox('reports'), { sort: 'created_at:desc' })
+
+            expectLogic(logic).toMatchValues({
+                ...DEFAULT_STATE,
+                sortField: 'created_at',
+                sortDirection: 'desc',
+            })
+            expect(router.values.searchParams).toEqual({ sort: 'created_at:desc' })
+        })
+
+        it('keeps unrelated query and hash parameters when clearing filters', () => {
+            router.actions.push(urls.inbox('reports'), { source: 'github', example: 'keep' }, { panel: 'keep' })
+            logic.actions.clearFilters()
+
+            expect(logic.values.sourceProductFilter).toEqual([])
+            expect(router.values.searchParams).toEqual({ example: 'keep' })
+            expect(router.values.hashParams).toEqual({ panel: 'keep' })
+        })
+    })
+
     describe('query-changed telemetry', () => {
         let logic: ReturnType<typeof inboxFiltersLogic.build>
 
