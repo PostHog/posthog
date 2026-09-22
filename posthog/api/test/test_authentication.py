@@ -2343,6 +2343,47 @@ class TestTimeSensitivePermissions(APIBaseTest):
             )
             assert res.status_code == 200
 
+    @parameterized.expand(
+        [
+            ("passkey_register_begin", "post", "/api/webauthn/register/begin/"),
+            ("passkey_register_complete", "post", "/api/webauthn/register/complete/"),
+            ("passkey_rename", "patch", "/api/webauthn/credentials/1/"),
+            ("passkey_delete", "delete", "/api/webauthn/credentials/1/"),
+            ("passkey_verify", "post", "/api/webauthn/credentials/1/verify/"),
+            ("connected_app_revoke", "post", "/api/oauth/connected-apps/00000000-0000-0000-0000-000000000001/revoke/"),
+            ("github_start", "post", "/api/users/@me/integrations/github/start/"),
+            ("github_prepare_callback", "post", "/api/users/@me/integrations/github/prepare_callback/"),
+            ("github_disconnect", "delete", "/api/users/@me/integrations/github/123/"),
+            (
+                "github_install_request_cancel",
+                "delete",
+                "/api/users/@me/integrations/github/install_requests/00000000-0000-0000-0000-000000000001/",
+            ),
+            ("slack_start", "post", "/api/users/@me/integrations/slack/start/"),
+            ("slack_disconnect", "delete", "/api/users/@me/integrations/slack/U0123ABC/"),
+        ]
+    )
+    def test_credential_writes_require_recent_authentication(self, _name, method, url):
+        now = datetime.now()
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
+            res = getattr(self.client, method)(url, {}, format="json")
+            assert res.status_code == 403, res.content
+            assert res.json()["code"] == "sensitive_action_required_reauth"
+
+    @parameterized.expand(
+        [
+            ("passkey_list", "get", "/api/webauthn/credentials/"),
+            ("connected_app_list", "get", "/api/oauth/connected-apps"),
+            ("personal_integration_list", "get", "/api/users/@me/integrations/"),
+            ("github_repos_refresh", "post", "/api/users/@me/integrations/github/123/repos/refresh/"),
+        ]
+    )
+    def test_credential_reads_do_not_require_recent_authentication(self, _name, method, url):
+        now = datetime.now()
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
+            res = getattr(self.client, method)(url, {}, format="json")
+            assert res.status_code != 403, res.content
+
 
 class TestTeamSecretTokenAuthentication(APIBaseTest):
     def setUp(self):
