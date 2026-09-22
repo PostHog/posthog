@@ -23,10 +23,9 @@ from products.conversations.backend.support_teams import get_graph_token
 logger = structlog.get_logger(__name__)
 
 GRAPH_API_BASE = "https://graph.microsoft.com/v1.0"
-GRAPH_API_HOST = "graph.microsoft.com"
+GRAPH_API_HOST = urlparse(GRAPH_API_BASE).hostname
 GRAPH_REQUEST_TIMEOUT_SECONDS = 15
-# A tenant with more teams or channels than this keeps the extra items out of the
-# picker, but the cap stops one setup call from walking an unbounded page chain.
+# Keeps one setup call off an unbounded page chain.
 GRAPH_MAX_PAGES = 20
 
 
