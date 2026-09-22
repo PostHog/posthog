@@ -30,6 +30,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
     post_scout_emission_to_slack,
 )
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
+from products.signals.backend.slack_report_threads import report_id_for_slack_thread
 from products.signals.backend.tasks import (
     deliver_scout_slack_output,
     deliver_scout_slack_thread_replies,
@@ -210,6 +211,9 @@ class TestScoutSlackDelivery(BaseTest):
         )
         assert call["blocks"][-1]["type"] == "context"
         assert fake_client.chat_postMessage.call_count == 1
+        assert report_id_for_slack_thread(
+            team_id=self.team.id, channel="CSCOUTS", thread_ts="1785418710.000200"
+        ) == str(report.id)
 
     def test_note_only_edit_delivers_the_note_instead_of_the_report(self) -> None:
         # Without the edit_note branch a note-only edit re-posts the full report message, which is
