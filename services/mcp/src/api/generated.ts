@@ -100070,7 +100070,7 @@ export namespace Schemas {
       kind: number;
       /** Service that emitted the span. */
       service_name: string;
-      /** OpenTelemetry status code. Non-zero means an error. */
+      /** OpenTelemetry status code: 0 unset, 1 ok, 2 error. */
       status_code: number;
       /** When the span started. */
       timestamp: string;
@@ -100080,8 +100080,8 @@ export namespace Schemas {
       duration_nano: number;
       /** Whether the span has no parent in the trace. */
       is_root_span: boolean;
-      /** Whether this span matched the request's filters, rather than being included as context. */
-      matched_filter: boolean;
+      /** 1 when this span matched the request's filters, 0 when it is included as context. The query selects it as an expression, so it arrives as a number rather than a boolean. */
+      matched_filter: number;
       /** Start of the whole trace, for ordering traces by recency. */
       trace_start: string;
       /** Duration of the whole trace in nanoseconds. Falls back to this span's duration. */
@@ -100353,7 +100353,7 @@ export namespace Schemas {
       kind: number;
       /** Service that emitted the span. */
       service_name: string;
-      /** OpenTelemetry status code. Non-zero means an error. */
+      /** OpenTelemetry status code: 0 unset, 1 ok, 2 error. */
       status_code: number;
       /** When the span started. */
       timestamp: string;
@@ -100363,8 +100363,8 @@ export namespace Schemas {
       duration_nano: number;
       /** Whether the span has no parent in the trace. */
       is_root_span: boolean;
-      /** Whether this span matched the request's filters, rather than being included as context. */
-      matched_filter: boolean;
+      /** 1 when this span matched the request's filters, 0 when it is included as context. The query selects it as an expression, so it arrives as a number rather than a boolean. */
+      matched_filter: number;
       /** Start of the whole trace, for ordering traces by recency. */
       trace_start: string;
       /** Duration of the whole trace in nanoseconds. Falls back to this span's duration. */
@@ -100650,7 +100650,7 @@ export namespace Schemas {
       /** Whether a further page exists. */
       hasMore: boolean;
       /**
-         * Cursor for the next page, or null on the last page. Pass it back as the query's `after`.
+         * Cursor for the next page, or null on the last page. Pass it back as the query's `after`. Always null when ordering by duration, which pages by offset instead.
          * @nullable
          */
       nextCursor: string | null;
