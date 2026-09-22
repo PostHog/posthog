@@ -313,21 +313,6 @@ export const LazySchema: Story = {
                                     },
                                 },
                             },
-                            saved_events: {
-                                id: 'saved-view',
-                                name: 'saved_events',
-                                type: 'view',
-                                fields: {
-                                    event: { name: 'event', hogql_value: 'event', type: 'string', schema_valid: true },
-                                    person: {
-                                        name: 'person',
-                                        hogql_value: 'person',
-                                        type: 'lazy_table',
-                                        schema_valid: true,
-                                        table: 'persons',
-                                    },
-                                },
-                            },
                             persons: {
                                 id: 'persons',
                                 name: 'persons',

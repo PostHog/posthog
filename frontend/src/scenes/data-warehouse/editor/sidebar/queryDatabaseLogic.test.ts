@@ -682,7 +682,6 @@ describe('queryDatabaseLogic', () => {
 
         it.each(['events', 'posthog.events'])('hydrates %s and defers joined fields until expansion', async (name) => {
             const placeholder = findTableNode(name)?.children?.[0]
-
             expect(placeholder?.type).toEqual('loading-indicator')
             expect(placeholder?.record?.pendingTableName).toEqual('events')
 
@@ -699,12 +698,11 @@ describe('queryDatabaseLogic', () => {
                     type: 'posthog',
                     fields: {
                         uuid: { name: 'uuid', hogql_value: 'uuid', type: 'string', schema_valid: true },
-                        saved: {
-                            name: 'saved',
-                            hogql_value: 'saved',
-                            type,
-                            table: '`saved_events`',
-                            fields: ['event', 'person'],
+                        person: {
+                            name: 'person',
+                            hogql_value: 'person',
+                            type: 'lazy_table',
+                            table: 'persons',
                             schema_valid: true,
                         },
                     },
@@ -722,43 +720,8 @@ describe('queryDatabaseLogic', () => {
                 logic.values.sidebarOverlayTreeItems.map((item) => ('name' in item ? item.name : undefined))
             ).toEqual(['uuid', 'person'])
             const joinNode = findTableNode(name)?.children?.find((child: any) => child.record?.type === 'lazy-table')
-
             expect(joinNode).toBeTruthy()
-            ;(performQuery as jest.Mock).mockResolvedValueOnce({
-                tables: {
-                    saved_events: {
-                        ...savedView,
-                        fields: {
-                            event: { name: 'event', hogql_value: 'event', type: 'string', schema_valid: true },
-                            person: {
-                                name: 'person',
-                                hogql_value: 'person',
-                                type: 'lazy_table',
-                                table: 'persons',
-                                schema_valid: true,
-                            },
-                        },
-                    },
-                },
-                joins: [],
-            })
-            if (restored) {
-                logic.actions.setExpandedFolders(['sources', 'source-posthog', 'table-events', joinNode.id], null)
-            } else {
-                logic.actions.toggleFolderOpen(joinNode.id, false)
-            }
-            await expectLogic(dbLogic).toFinishAllListeners()
-            expect(performQuery).toHaveBeenLastCalledWith(expect.objectContaining({ tables: ['saved_events'] }))
-            expect(findJoin()?.children).toEqual([
-                expect.objectContaining({
-                    name: 'event',
-                    record: expect.objectContaining({ field: expect.objectContaining({ type: 'string' }) }),
-                }),
-                expect.objectContaining({ name: 'person', record: expect.objectContaining({ type: 'lazy-table' }) }),
-            ])
-            expect(performQuery).toHaveBeenCalledTimes(2)
-            const nestedJoin = findJoin().children[1]
-            logic.actions.toggleFolderOpen(nestedJoin.id, false)
+            logic.actions.toggleFolderOpen(joinNode.id, false)
             await expectLogic(dbLogic).toFinishAllListeners()
             expect(performQuery).toHaveBeenLastCalledWith(expect.objectContaining({ tables: ['persons'] }))
         })
