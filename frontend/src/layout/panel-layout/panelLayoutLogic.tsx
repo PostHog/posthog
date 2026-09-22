@@ -21,7 +21,7 @@ export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 245
 export const PANEL_LAYOUT_MIN_WIDTH: number = 160
 
 // Navbar resize: any width upward, snapping to collapsed below the threshold.
-export const PANEL_NAVBAR_DEFAULT_WIDTH: number = 280
+export const PANEL_NAVBAR_DEFAULT_WIDTH: number = 215
 // Below this the drag snaps to collapsed mode.
 export const PANEL_NAVBAR_COLLAPSE_THRESHOLD: number = 140
 

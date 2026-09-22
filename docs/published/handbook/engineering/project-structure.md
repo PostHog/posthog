@@ -51,6 +51,7 @@ The app-level Files scene lives in `src/scenes/project-files` and reuses the pro
 Open `/project/<project_id>/files` to browse the project, or add `?folder=Research` to start in a folder.
 
 The sidebar lives in `src/layout/panel-layout/navbar`.
+Its default width stays at 215px so scene content keeps the same available space; users can resize it.
 Global search sits beside the project menu as a compact button with its keyboard shortcut.
 Apps lists all available product and data pages from the product manifests, with feature flags and access controls applied.
 When enabled, Self-driving appears between Home and Activity with a beta label.
