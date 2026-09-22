@@ -9,6 +9,7 @@ from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import evaluate_with_detector
 from products.alerts.backend.evaluation.hogql import (
+    DEFAULT_ROW_LIMIT,
     LAST_ROW_MAX_ROWS,
     HogQLDetectorExtractor,
     extract_hogql_detector_series,
@@ -31,12 +32,18 @@ def _alert(rows_config: dict | None = None, detector_config: dict | None = ZSCOR
     return alert
 
 
-def _extract(values, *, columns=None, rows_config=None, detector_config=ZSCORE):
+def _insight(sql: str | None = None):
+    # ``sql`` is the insight's saved query text; the extractor reads it to tell a result that the
+    # default row limit truncated from one the query itself limited.
+    return MagicMock(query={"kind": "HogQLQuery", "query": sql} if sql is not None else None)
+
+
+def _extract(values, *, columns=None, rows_config=None, detector_config=ZSCORE, sql=None):
     rows = [[v] for v in values] if columns is None else values
     with patch(CALC_PATH) as calc:
         calc.return_value = MagicMock(result=rows, columns=columns)
         return HogQLDetectorExtractor().extract(
-            _alert(rows_config, detector_config), MagicMock(), MagicMock(), EXEC_MODE
+            _alert(rows_config, detector_config), _insight(sql), MagicMock(), EXEC_MODE
         )
 
 
@@ -72,6 +79,30 @@ def test_last_row_truncation_guard_rejects_a_capped_result():
     # must fail loud just like the threshold extractor rather than score a wrong "current" row.
     with pytest.raises(AlertExtractionError, match="may be truncated"):
         _extract([[1.0]] * LAST_ROW_MAX_ROWS, columns=["value"])
+
+
+def test_default_row_limit_truncation_is_reported_instead_of_uncomputed():
+    # A window longer than the default row limit can never fill from a LIMIT-less query, so the
+    # alert would report uncomputed on every check and never fire. Fail loud instead.
+    wide = {"type": "zscore", "threshold": 0.9, "window": 150}
+    assert _compute_min_samples_for_detector(wide) > DEFAULT_ROW_LIMIT  # guard: else the case is moot
+    with pytest.raises(AlertExtractionError, match="no LIMIT"):
+        _extract(
+            [1.0] * DEFAULT_ROW_LIMIT,
+            rows_config={"evaluation": "first_row"},
+            detector_config=wide,
+            sql="SELECT day, total FROM events ORDER BY day DESC",
+        )
+
+
+def test_first_row_scores_a_default_limited_result_that_fills_the_window():
+    # The head holds the newest rows, so a cut result the window still fits is scored as usual.
+    result = _extract(
+        [100.0, *STABLE_HISTORY, *([1.0] * (DEFAULT_ROW_LIMIT - len(STABLE_HISTORY) - 1))],
+        rows_config={"evaluation": "first_row"},
+        sql="SELECT day, total FROM events ORDER BY day DESC",
+    )
+    assert result.series[0].points[-1].value == 100.0
 
 
 def test_first_row_reverses_so_the_head_is_current():

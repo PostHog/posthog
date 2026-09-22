@@ -3,6 +3,7 @@ from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create
 
 from posthog.api.services.query import ExecutionMode
 
+from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.hogql import HogQLExtractor
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
@@ -65,3 +66,35 @@ class TestHogQLExtractorFiltersPlaceholder(APIBaseTest, ClickhouseDestroyTablesM
                 )
                 == 5.0
             )
+
+
+class TestHogQLExtractorDefaultRowLimit(APIBaseTest, ClickhouseDestroyTablesMixin):
+    """A query that sets no LIMIT is cut at HogQL's default row count and nothing says so, so
+    last-row evaluation would grade row 100 instead of the newest row, and an anomaly detector
+    could never fill a window past the cut. Pins that the alert fails loud on such a result,
+    and still evaluates one the query limited itself."""
+
+    def _evaluate(self, query: str) -> float:
+        insight = Insight.objects.create(
+            team=self.team,
+            query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": query}},
+        )
+        alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight=insight,
+            name="row limit alert",
+            condition={"type": "absolute_value"},
+            config={"type": "HogQLAlertConfig", "evaluation": "last_row"},
+            calculation_interval="daily",
+        )
+        result = HogQLExtractor().extract(
+            alert, insight, insight.query, ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+        )
+        return result.series[0].points[result.series[0].current_index].value
+
+    def test_query_without_limit_is_rejected(self) -> None:
+        with self.assertRaisesMessage(AlertExtractionError, "no LIMIT"):
+            self._evaluate("SELECT number FROM numbers(200) ORDER BY number")
+
+    def test_query_with_its_own_limit_evaluates_the_last_row(self) -> None:
+        assert self._evaluate("SELECT number FROM numbers(200) ORDER BY number LIMIT 200") == 199.0

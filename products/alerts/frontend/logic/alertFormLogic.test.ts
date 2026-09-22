@@ -33,7 +33,12 @@ import {
 } from './alertFormLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { deriveFunnelAlertPreview } from './funnelAlertPreview'
-import { deriveHogQLAlertPreview, HOGQL_ANY_ROW_MAX_ROWS, HOGQL_LAST_ROW_MAX_ROWS } from './hogqlAlertPreview'
+import {
+    deriveHogQLAlertPreview,
+    HOGQL_ANY_ROW_MAX_ROWS,
+    HOGQL_DEFAULT_ROW_LIMIT,
+    HOGQL_LAST_ROW_MAX_ROWS,
+} from './hogqlAlertPreview'
 import { insightAlertsLogic } from './insightAlertsLogic'
 
 const Insight42 = '42' as InsightShortId
@@ -725,6 +730,34 @@ describe('alertFormLogic', () => {
                 { type: 'HogQLAlertConfig', evaluation: 'last_row' },
                 null,
                 { status: 'last-row-truncated', rowCount: HOGQL_LAST_ROW_MAX_ROWS },
+            ],
+            [
+                'last-row at the default row limit with no LIMIT in the query warns',
+                {
+                    result: Array.from({ length: HOGQL_DEFAULT_ROW_LIMIT }, (_, i) => [i]),
+                    columns: ['count'],
+                    query: 'SELECT day, count() FROM events GROUP BY day ORDER BY day',
+                },
+                { type: 'HogQLAlertConfig', evaluation: 'last_row' },
+                null,
+                { status: 'last-row-default-limit' },
+            ],
+            [
+                'last-row at the default row limit stays ok when the query sets its own LIMIT',
+                {
+                    result: Array.from({ length: HOGQL_DEFAULT_ROW_LIMIT }, (_, i) => [i]),
+                    columns: ['count'],
+                    query: 'SELECT day, count() FROM events GROUP BY day ORDER BY day LIMIT 100',
+                },
+                { type: 'HogQLAlertConfig', evaluation: 'last_row' },
+                null,
+                ok({
+                    columnName: 'count',
+                    currentValue: HOGQL_DEFAULT_ROW_LIMIT - 1,
+                    previousValue: HOGQL_DEFAULT_ROW_LIMIT - 2,
+                    rowCount: HOGQL_DEFAULT_ROW_LIMIT,
+                    breachingRows: null,
+                }),
             ],
             [
                 'missing explicit label column',

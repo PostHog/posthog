@@ -17,6 +17,7 @@ from products.alerts.backend.evaluation.comparator import MAX_BREACH_MESSAGES, e
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.hogql import (
     ANY_ROW_MAX_ROWS,
+    DEFAULT_ROW_LIMIT,
     LAST_ROW_MAX_ROWS,
     HogQLExtractor,
     _resolve_value_column_index,
@@ -41,10 +42,23 @@ def _threshold(type_=InsightThresholdType.ABSOLUTE, lower=None, upper=None):
     return InsightThreshold(type=type_, bounds=InsightsThresholdBounds(lower=lower, upper=upper))
 
 
-def _extract(rows, *, columns=None, condition_type=AlertConditionType.ABSOLUTE_VALUE, config: dict | None = None):
+def _insight(sql: str | None = None):
+    # ``sql`` is the insight's saved query text; the extractor reads it to tell a result that the
+    # default row limit truncated from one the query itself limited.
+    return MagicMock(query={"kind": "HogQLQuery", "query": sql} if sql is not None else None)
+
+
+def _extract(
+    rows,
+    *,
+    columns=None,
+    condition_type=AlertConditionType.ABSOLUTE_VALUE,
+    config: dict | None = None,
+    sql: str | None = None,
+):
     with patch(CALC_PATH) as calc:
         calc.return_value = MagicMock(result=rows, columns=columns)
-        return HogQLExtractor().extract(_alert(condition_type, config), MagicMock(), MagicMock(), _IF_STALE)
+        return HogQLExtractor().extract(_alert(condition_type, config), _insight(sql), MagicMock(), _IF_STALE)
 
 
 @pytest.mark.parametrize(
@@ -208,6 +222,29 @@ def test_last_row_fails_loud_when_result_hits_the_cap():
     rows = [[float(i)] for i in range(LAST_ROW_MAX_ROWS)]
     with pytest.raises(AlertExtractionError, match="may be truncated"):
         _extract(rows)
+
+
+@pytest.mark.parametrize(
+    "row_count,sql,config,raises",
+    [
+        # A LIMIT-less query is cut at the default limit without saying so, so the last row is
+        # row 100 rather than the newest one, and the alert grades stale data on every check.
+        (DEFAULT_ROW_LIMIT, "SELECT day, total FROM events ORDER BY day", {}, True),
+        # The query asked for these rows, so nothing was hidden from the alert.
+        (DEFAULT_ROW_LIMIT, "SELECT day, total FROM events ORDER BY day LIMIT 100", {}, False),
+        # first_row reads the head, which the cut never touches.
+        (DEFAULT_ROW_LIMIT, "SELECT day, total FROM events ORDER BY day DESC", {"evaluation": "first_row"}, False),
+        # Only a result that lands exactly on the cut is suspect; a shorter one is the whole answer.
+        (DEFAULT_ROW_LIMIT - 1, "SELECT day, total FROM events ORDER BY day", {}, False),
+    ],
+)
+def test_default_row_limit_truncation(row_count, sql, config, raises):
+    rows = [[float(i)] for i in range(row_count)]
+    if raises:
+        with pytest.raises(AlertExtractionError, match="no LIMIT"):
+            _extract(rows, config=config, sql=sql)
+    else:
+        assert _extract(rows, config=config, sql=sql).series
 
 
 def test_first_row_evaluates_the_head_newest_first():

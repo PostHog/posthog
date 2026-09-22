@@ -9,6 +9,7 @@ import { AlertConditionType } from '~/queries/schema/schema-general'
 
 import {
     HOGQL_ANY_ROW_MAX_ROWS,
+    HOGQL_DEFAULT_ROW_LIMIT,
     HogQLAlertPreview,
     HogQLAlertPreviewRow,
 } from 'products/alerts/frontend/logic/hogqlAlertPreview'
@@ -110,6 +111,15 @@ function getHogQLPreviewBannerCopy(preview: Exclude<HogQLAlertPreview, { status:
                     The query returns {preview.rowCount.toLocaleString()} rows and may be truncated, so the last row
                     isn't reliably the newest. Add a LIMIT, aggregate the query, or switch to evaluating the first row
                     (newest-first ordering), or the alert will fail to evaluate.
+                </>
+            )
+        case 'last-row-default-limit':
+            return (
+                <>
+                    The query has no LIMIT, so SQL insights cut its result at {HOGQL_DEFAULT_ROW_LIMIT} rows. That makes
+                    the last row row {HOGQL_DEFAULT_ROW_LIMIT}, not the newest one. Add a LIMIT to the query, aggregate
+                    it, or switch to evaluating the first row (newest-first ordering), or the alert will fail to
+                    evaluate.
                 </>
             )
         case 'bad-shape':
