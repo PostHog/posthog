@@ -261,7 +261,9 @@ export const formatHogInput = async (
         }
         if (!result?.finished) {
             // An uncaught hog exception comes back as an unfinished run with the error attached.
-            const cause = result?.error?.message ? `: ${result.error.message}` : ''
+            // Other VM messages can echo an argument, and an argument can be a secret input.
+            const message: string = result?.error?.message ?? ''
+            const cause = message.startsWith('Global variable not found') ? `: ${message}` : ''
             throw new Error(`Could not execute bytecode for input field: ${key}${cause}`)
         }
         return convertHogToJS(result.result)

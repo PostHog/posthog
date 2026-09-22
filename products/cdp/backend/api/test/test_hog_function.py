@@ -2707,6 +2707,24 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
+    def test_destination_with_an_unavailable_input_global_can_still_be_disabled(self):
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Saved before the check",
+            type="destination",
+            hog="fetch(inputs.url)",
+            inputs_schema=[{"key": "url", "type": "string", "required": True}],
+            inputs={"url": {"value": "https://example.com/{distinct_id}"}},
+            enabled=True,
+        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{function.id}/", {"enabled": False})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["enabled"] is False
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{function.id}/", {"enabled": True})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "inputs__url"
+
     def test_limits_transformation_functions_per_team(self):
         """Test that we can create unlimited disabled transformations but only 20 enabled ones"""
         # 1. Create several disabled transformations (more than the limit)

@@ -16,7 +16,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.cdp.filters import TEMPLATE_GLOBALS, compile_filters_bytecode, compile_filters_expr
+from posthog.cdp.filters import TEMPLATE_CALLABLES, TEMPLATE_GLOBALS, compile_filters_bytecode, compile_filters_expr
 from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration
 
 from products.cdp.backend.models.hog_functions.hog_function import (
@@ -287,21 +287,27 @@ class TransformationGlobalsValidator(TraversingVisitor):
         self,
         available_globals: Optional[set[str]] = None,
         runtime_functions: Optional[set[str]] = None,
+        # The Python tables describe the Python VM. A template that runs in the Node VM passes its
+        # own callables as runtime_functions and turns these off.
+        python_stl: bool = True,
     ):
         super().__init__()
         self.invalid_globals = set()
+        self._python_stl = python_stl
+        self._declared: set[str] = set()
         self._available_globals = (
             available_globals if available_globals is not None else TRANSFORMATION_AVAILABLE_GLOBALS
         )
         self._runtime_functions = (
             runtime_functions if runtime_functions is not None else TRANSFORMATION_RUNTIME_FUNCTIONS
         )
-        self._lambda_args: list[str] = []
 
-    def visit_lambda(self, node: ast.Lambda):
-        self._lambda_args.extend(node.args)
-        super().visit_lambda(node)
-        del self._lambda_args[len(self._lambda_args) - len(node.args) :]
+    def check(self, node: ast.Expr) -> None:
+        # Lambda parameters and anything a lambda body declares are locals, not globals.
+        declared = DeclaredNamesCollector()
+        declared.visit(node)
+        self._declared = declared.names
+        self.visit(node)
 
     def visit_field(self, node: ast.Field):
         super().visit_field(node)
@@ -309,13 +315,12 @@ class TransformationGlobalsValidator(TraversingVisitor):
             return
         root = str(node.chain[0])
         if (
-            root in self._lambda_args
+            root in self._declared
             or root in self._available_globals
             or root in self._runtime_functions
             or root in CORE_SUPPORTED_FUNCTIONS
             or root in PRODUCT_ASYNC_FUNCTIONS
-            or root in STL
-            or root in BYTECODE_STL
+            or (self._python_stl and (root in STL or root in BYTECODE_STL))
         ):
             return
         self.invalid_globals.add(root)
@@ -447,6 +452,7 @@ def generate_template_bytecode(
     input_collector: set[str],
     function_type: Optional[str] = None,
     is_dwh_source: bool = False,
+    validate_globals: bool = True,
 ) -> Any:
     """
     Clones an object, compiling any string values to bytecode templates
@@ -454,11 +460,14 @@ def generate_template_bytecode(
 
     if isinstance(obj, dict):
         return {
-            key: generate_template_bytecode(value, input_collector, function_type, is_dwh_source)
+            key: generate_template_bytecode(value, input_collector, function_type, is_dwh_source, validate_globals)
             for key, value in obj.items()
         }
     elif isinstance(obj, list):
-        return [generate_template_bytecode(item, input_collector, function_type, is_dwh_source) for item in obj]
+        return [
+            generate_template_bytecode(item, input_collector, function_type, is_dwh_source, validate_globals)
+            for item in obj
+        ]
     elif isinstance(obj, str):
         node = parse_string_template(obj)
         if is_dwh_source:
@@ -470,7 +479,7 @@ def generate_template_bytecode(
             raise Exception(detector.errors[0])
         if function_type == "transformation":
             transformation_validator = TransformationGlobalsValidator()
-            transformation_validator.visit(node)
+            transformation_validator.check(node)
             if transformation_validator.invalid_globals:
                 names = ", ".join(sorted(transformation_validator.invalid_globals))
                 raise Exception(
@@ -482,19 +491,20 @@ def generate_template_bytecode(
                 available_globals=TRANSFORMATION_LOG_AVAILABLE_GLOBALS,
                 runtime_functions=set(),
             )
-            log_validator.visit(node)
+            log_validator.check(node)
             if log_validator.invalid_globals:
                 names = ", ".join(sorted(log_validator.invalid_globals))
                 raise Exception(
                     f"Variable not available in log transformations: {names}. "
                     f"Log transformations only have access to project, record, and inputs."
                 )
-        elif function_type is not None:
-            # Every other type resolves its inputs against the invocation globals at run time.
+        elif function_type is not None and validate_globals:
+            # Every other type resolves its inputs against the invocation globals at run time. A save
+            # that disables or deletes the function skips this, so a broken function can be turned off.
             template_validator = TransformationGlobalsValidator(
-                available_globals=TEMPLATE_GLOBALS, runtime_functions=set()
+                available_globals=TEMPLATE_GLOBALS, runtime_functions=TEMPLATE_CALLABLES, python_stl=False
             )
-            template_validator.visit(node)
+            template_validator.check(node)
             if template_validator.invalid_globals:
                 names = ", ".join(sorted(template_validator.invalid_globals))
                 raise Exception(
@@ -804,7 +814,11 @@ class InputsItemSerializer(serializers.Serializer):
                         else:
                             input_collector: set[str] = set()
                             attrs["bytecode"] = generate_template_bytecode(
-                                value, input_collector, function_type=function_type, is_dwh_source=is_dwh_source
+                                value,
+                                input_collector,
+                                function_type=function_type,
+                                is_dwh_source=is_dwh_source,
+                                validate_globals=self.context.get("function_will_be_enabled", True),
                             )
                             attrs["input_deps"] = list(input_collector)
                             if "transpiled" in attrs:

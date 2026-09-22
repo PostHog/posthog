@@ -1048,6 +1048,18 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         expected = generate_template_bytecode(equivalent, set(), function_type="destination", is_dwh_source=False)
         assert rewritten == expected
 
+    def test_destination_templates_accept_lambda_locals_and_node_callables(self):
+        for template in (
+            "{arrayMap(a -> { let b := a return b }, [1])}",
+            "{arrayMap(tryBase64Decode, event.properties.ids)}",
+        ):
+            assert generate_template_bytecode(template, set(), function_type="destination"), template
+
+    def test_destination_templates_skip_the_globals_check_when_the_function_stays_off(self):
+        with self.assertRaises(Exception):
+            generate_template_bytecode("{distinct_id}", set(), function_type="destination")
+        assert generate_template_bytecode("{distinct_id}", set(), function_type="destination", validate_globals=False)
+
     def test_record_alias_not_rewritten_without_dwh_source(self):
         # Without a warehouse source there is no `record` global at run time, so it is refused like any other.
         with self.assertRaises(Exception) as ctx:

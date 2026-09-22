@@ -374,6 +374,7 @@ FILTER_FUNCTIONS: dict[str, tuple[int, Optional[int]]] = {
 }
 # Input templates run against the invocation globals, a different shape from the flattened filter globals.
 TEMPLATE_GLOBALS: set[str] = set(_RUNTIME["template_roots"])
+TEMPLATE_CALLABLES: set[str] = set(_RUNTIME["callables"])
 
 _UNKNOWN_GLOBAL = "Unknown global variable: "
 
