@@ -2039,18 +2039,16 @@ class SignalReportArtefactWriteSerializer(serializers.Serializer):
 
     MAX_ENTRIES = 10
 
-    content = SuggestedReviewerEntryWriteSerializer(
-        many=True,
+    # ListField rather than the serializer with many=True: drf-spectacular returns early for a
+    # nested many=True serializer, so a cap declared there never reaches the schema as maxItems.
+    content = serializers.ListField(
+        child=SuggestedReviewerEntryWriteSerializer(),
         allow_empty=True,
+        max_length=MAX_ENTRIES,
         help_text=(
             f"Full replacement list of reviewers. Empty list clears the artefact. At most {MAX_ENTRIES} entries."
         ),
     )
-
-    def validate_content(self, value: list[dict]) -> list[dict]:
-        if len(value) > self.MAX_ENTRIES:
-            raise serializers.ValidationError(f"At most {self.MAX_ENTRIES} reviewers may be supplied.")
-        return value
 
 
 # Writable types only — `video_segment` (and any other NON_WRITABLE type) is read-only and rejected
