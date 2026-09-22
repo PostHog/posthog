@@ -2,15 +2,14 @@
 # One-shot smoke test on a fresh CUDA box (a Lambda on-demand instance): install the serving environment, fetch an
 # exported checkpoint, start vLLM with the Kev plugin, and run the parity comparison against a reference file.
 #
-#   CHECKPOINT=s3://<base-models bucket>/posthog/kev-4b-vllm/<version> \
-#   REFERENCE=reference-fp32.jsonl bin/gpu-smoke.sh
+#   CHECKPOINT=s3://<base-models bucket>/posthog/kev-4b-vllm/<version> bin/gpu-smoke.sh
 #
 # CHECKPOINT may be an s3:// prefix (needs AWS credentials or presigned access), an http(s) URL to a tarball, or a
-# local directory. The script leaves the server running on :8000 and prints the parity summary.
+# local directory. REFERENCE defaults to the parity fixture published next to the weights. The script leaves the
+# server running on :8000 and prints the parity summary.
 set -euo pipefail
 
 CHECKPOINT=${CHECKPOINT:?s3:// prefix, tarball URL, or local directory with the exported checkpoint}
-REFERENCE=${REFERENCE:?parity reference jsonl from 'kev-vllm-parity reference'}
 MODEL_NAME=${MODEL_NAME:-kev-4b}
 PORT=${PORT:-8000}
 MODEL_DIR=${MODEL_DIR:-$HOME/models/$MODEL_NAME}
@@ -39,6 +38,8 @@ export UV_PROJECT_ENVIRONMENT="$PACKAGE_DIR/.venv-serve"
 export VLLM_USE_V2_MODEL_RUNNER=0
 uv sync --extra serve
 uv run kev-vllm-checkpoint verify "$MODEL_DIR"
+REFERENCE=${REFERENCE:-$MODEL_DIR/parity/reference-fp32.jsonl}
+[ -f "$REFERENCE" ] || { echo "no parity reference at $REFERENCE; pass REFERENCE=" >&2; exit 1; }
 nohup uv run --extra serve vllm serve "$MODEL_DIR" --served-model-name "$MODEL_NAME" --port "$PORT" \
   --mamba-ssm-cache-dtype float32 --max-model-len 16384 --gpu-memory-utilization 0.85 > vllm.log 2>&1 &
 echo "vllm pid $! (log: $PACKAGE_DIR/vllm.log)"

@@ -3,8 +3,9 @@
     kev-vllm-upload --src build/kev-4b --version <kev hub revision> --profile ml-prod-us-write
 
 Objects land under `posthog/<model>-vllm/<version>/`, one prefix per export, never overwritten: the upload refuses a
-prefix that already holds anything. A `checksums.tsv` in the bucket's `_provenance/` layout records every file's
-sha256 and size, so a consumer can verify what it fetched.
+prefix that already holds anything. Subdirectories go along, which is how the `parity/` fixture travels with the
+weights it was measured against. A `checksums.tsv` in the bucket's `_provenance/` layout records every file's sha256
+and size, so a consumer can verify what it fetched.
 """
 
 import argparse
@@ -35,14 +36,15 @@ def upload(src: Path, bucket: str, prefix: str, profile: str | None) -> None:
     if not prefix_is_empty(s3, bucket, prefix):
         raise SystemExit(f"refusing to write into s3://{bucket}/{prefix}: the prefix is not empty, pick a new version")
     manifest = json.loads((src / "manifest.json").read_text())
-    files = sorted(p for p in src.iterdir() if p.is_file())
+    files = sorted(p for p in src.rglob("*") if p.is_file() and not p.name.startswith("."))
     rows = []
     for path in files:
+        relative = path.relative_to(src).as_posix()
         digest = sha256_of(path)
-        recorded = manifest.get("files", {}).get(path.name, {}).get("sha256")
+        recorded = manifest.get("files", {}).get(relative, {}).get("sha256")
         if recorded and recorded != digest:
-            raise SystemExit(f"{path.name} does not match manifest.json ({digest} != {recorded}); re-export")
-        key = f"{prefix}{path.name}"
+            raise SystemExit(f"{relative} does not match manifest.json ({digest} != {recorded}); re-export")
+        key = f"{prefix}{relative}"
         size = path.stat().st_size
         print(f"put s3://{bucket}/{key} ({size / 1e9:.2f} GB)", file=sys.stderr)
         if size < 4 * 1024**3:
@@ -60,7 +62,7 @@ def upload(src: Path, bucket: str, prefix: str, profile: str | None) -> None:
         head = s3.head_object(Bucket=bucket, Key=key)
         if head["ContentLength"] != size:
             raise SystemExit(f"size mismatch after upload for {key}")
-        rows.append(f"{path.name}\tsha256\t{digest}\t{size}")
+        rows.append(f"{relative}\tsha256\t{digest}\t{size}")
     header = (
         f"# derived: {manifest.get('kev_run')} at Hub revision {manifest.get('kev_hub_revision')}, "
         f"exported {manifest.get('exported_at')}\n"
@@ -76,7 +78,7 @@ def main() -> None:
     parser.add_argument("--model", default="kev-4b")
     parser.add_argument("--version", help="defaults to the Kev Hub revision in manifest.json")
     parser.add_argument("--bucket", default=BUCKET)
-    parser.add_argument("--profile", default="ml-prod-us-write")
+    parser.add_argument("--profile", help="an AWS profile with write access; omitted, boto3 uses the ambient credentials")
     args = parser.parse_args()
     if not args.bucket:
         parser.error("pass --bucket or set KEV_VLLM_BASE_MODELS_BUCKET")

@@ -20,11 +20,15 @@ Downloads the base model and adapter, merges the LoRA in fp32 the way `kev.serve
 
 ## Publish it
 
+`.github/workflows/ml-inference-publish-model.yml` is the publisher: dispatch it with the Hub id (optionally `@revision`) and it exports on a CI runner, measures the fp32 parity fixture on the pinned Kev eval records, and uploads the checkpoint with the fixture under it as `parity/reference-fp32.jsonl`. The job needs two repository variables, `ML_BASE_MODELS_BUCKET` and `AWS_ML_BASE_MODELS_PUBLISH_IAM_ROLE`, and refuses to run without them. Its summary lists the prefix and the manifest.
+
+By hand, the same upload is:
+
 ```bash
 uv run kev-vllm-upload --src build/kev-4b --profile ml-prod-us-write
 ```
 
-Writes to `s3://<base-models bucket>/posthog/kev-4b-vllm/<kev Hub revision>/` (the bucket comes from `--bucket` or `KEV_VLLM_BASE_MODELS_BUCKET`) and a `checksums.tsv` under `_provenance/`. It refuses a prefix that already has content, so a new export is a new version. The profile needs write access to the ML training account.
+Writes to `s3://<base-models bucket>/posthog/kev-4b-vllm/<kev Hub revision>/` (the bucket comes from `--bucket` or `KEV_VLLM_BASE_MODELS_BUCKET`) and a `checksums.tsv` under `_provenance/`. Subdirectories of the export go along, which is how the parity fixture travels with the weights. It refuses a prefix that already has content, so a new export is a new version. The profile needs write access to the ML training account.
 
 When the export sits on a GPU box with a fast pipe and no AWS credentials, `bin/upload_via_box.py` publishes it from there: this machine creates the multipart upload, presigns one URL per part and per small file, the box PUTs them in parallel over ssh-delivered URLs, and this machine completes the upload and writes the provenance file. The 8.4 GB Kev-4B checkpoint took 37 seconds from a Lambda instance. The URLs must be SigV4; SigV2 signs the content type and fails with `SignatureDoesNotMatch`.
 
@@ -68,10 +72,10 @@ The container serves as an unprivileged user (uid 10001), so the mounted checkpo
 
 ## GPU smoke test
 
-`bin/gpu-smoke.sh` does the whole loop on a fresh CUDA box: installs the `serve` environment, fetches and checksums the checkpoint, starts the server, sends one request, and runs the parity comparison.
+`bin/gpu-smoke.sh` does the whole loop on a fresh CUDA box: installs the `serve` environment, fetches and checksums the checkpoint, starts the server, sends one request, and runs the parity comparison against the fixture published with the weights (`REFERENCE=` overrides it).
 
 ```bash
-CHECKPOINT=s3://<base-models bucket>/posthog/kev-4b-vllm/<version> REFERENCE=reference-fp32.jsonl bin/gpu-smoke.sh
+CHECKPOINT=s3://<base-models bucket>/posthog/kev-4b-vllm/<version> bin/gpu-smoke.sh
 ```
 
 ## Parity

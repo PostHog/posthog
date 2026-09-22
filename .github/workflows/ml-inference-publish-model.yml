@@ -1,0 +1,122 @@
+#
+# Export a Kev checkpoint for vLLM, measure its fp32 parity fixture, and publish both to the base-models bucket under a
+# versioned prefix. Nothing is launched by hand: this job is the only writer of new model versions.
+#
+name: ML Inference Publish Model
+
+on:
+    workflow_dispatch:
+        inputs:
+            run:
+                description: 'Kev checkpoint on the Hub, optionally pinned: jaredpalmer/kev-4b@<revision>'
+                required: true
+                default: 'jaredpalmer/kev-4b'
+                type: string
+            model:
+                description: 'Model name in the bucket prefix, posthog/<model>-vllm/<version>/'
+                required: true
+                default: 'kev-4b'
+                type: string
+            version:
+                description: 'Version segment of the prefix; empty means the Hub revision of the checkpoint'
+                required: false
+                default: ''
+                type: string
+            parity_records:
+                description: 'How many eval records the fp32 parity fixture covers'
+                required: true
+                default: '32'
+                type: string
+
+concurrency:
+    group: ${{ github.workflow }}-${{ inputs.model }}
+    cancel-in-progress: false
+
+jobs:
+    publish:
+        name: Export, measure and publish ${{ inputs.model }}
+        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true'
+        # The export merges the LoRA in fp32 and needs about 16 GB of RAM; the fp32 reference pass runs on CPU.
+        runs-on: depot-ubuntu-24.04-8
+        timeout-minutes: 180
+        permissions:
+            id-token: write
+            contents: read
+        defaults:
+            run:
+                working-directory: products/ml_inference/packages/kev-vllm
+        env:
+            KEV_VLLM_BASE_MODELS_BUCKET: ${{ vars.ML_BASE_MODELS_BUCKET }}
+
+        steps:
+            - name: Assert the publish target is configured
+              env:
+                  BUCKET: ${{ vars.ML_BASE_MODELS_BUCKET }}
+                  ROLE: ${{ vars.AWS_ML_BASE_MODELS_PUBLISH_IAM_ROLE }}
+              run: |
+                  if [[ -z "$BUCKET" || -z "$ROLE" ]]; then
+                    echo "::error::ML_BASE_MODELS_BUCKET and AWS_ML_BASE_MODELS_PUBLISH_IAM_ROLE must both be set as repository variables."
+                    exit 1
+                  fi
+
+            - name: Check out the package
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: products/ml_inference/packages/kev-vllm
+                  sparse-checkout-cone-mode: false
+
+            - name: Set up uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.12.13'
+                  enable-cache: false
+
+            - name: Install the export environment
+              run: uv sync --extra export
+
+            - name: Export the checkpoint
+              env:
+                  RUN: ${{ inputs.run }}
+              run: uv run --extra export kev-vllm-export --run "$RUN" --out build/export
+
+            - name: Fetch the eval records the fixture is measured on
+              # The records come from the Kev revision the package pins, so the fixture matches the vendored encoder.
+              run: |
+                  rev="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["tool"]["uv"]["sources"]["kev"]["rev"])')"
+                  curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
+                    -o build/records.jsonl "https://raw.githubusercontent.com/jaredpalmer/kev/${rev}/evals/public-pool-v6/test.jsonl"
+
+            - name: Measure the fp32 parity fixture
+              env:
+                  RUN: ${{ inputs.run }}
+                  PARITY_RECORDS: ${{ inputs.parity_records }}
+              run: |
+                  mkdir -p build/export/parity
+                  uv run --extra export kev-vllm-parity reference --run "$RUN" --records build/records.jsonl \
+                    --limit "$PARITY_RECORDS" --out build/export/parity/reference-fp32.jsonl
+
+            - name: Configure AWS credentials for the base-models bucket
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ vars.AWS_ML_BASE_MODELS_PUBLISH_IAM_ROLE }}
+                  aws-region: us-east-1
+
+            - name: Publish the checkpoint and its fixture
+              env:
+                  MODEL: ${{ inputs.model }}
+                  VERSION: ${{ inputs.version }}
+              run: |
+                  args=(--src build/export --model "$MODEL")
+                  if [[ -n "$VERSION" ]]; then
+                    args+=(--version "$VERSION")
+                  fi
+                  uv run kev-vllm-upload "${args[@]}" 2>&1 | tee build/upload.log
+                  {
+                    echo "## Published"
+                    echo
+                    grep '^done: ' build/upload.log | sed 's/^done: /- /'
+                    echo
+                    echo '```json'
+                    python3 -c 'import json; m = json.load(open("build/export/manifest.json")); m.pop("files", None); print(json.dumps(m, indent=2))'
+                    echo '```'
+                  } >> "$GITHUB_STEP_SUMMARY"
