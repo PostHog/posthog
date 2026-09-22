@@ -33,35 +33,3 @@ For setup instructions, see the [installation guides](/docs/surveys/installation
 | Survey wait period                           | <IconCheck className="w-4 h-4 inline text-green" /> 1.105.7+  | <a href="https://github.com/PostHog/posthog-js/issues/3192"><IconWrench className="w-4 h-4 inline text-muted" /></a> | <IconCheck className="w-4 h-4 inline text-green" /> 3.44.0+                                                          | <IconCheck className="w-4 h-4 inline text-green" /> 3.35.0+                                                              | <IconCheck className="w-4 h-4 inline text-green" /> 5.18.0+                                                              |
 | Delay survey popup                           | <IconCheck className="w-4 h-4 inline text-green" /> 1.141.0+  | <a href="https://github.com/PostHog/posthog-js/issues/3193"><IconWrench className="w-4 h-4 inline text-muted" /></a> | <IconCheck className="w-4 h-4 inline text-green" /> 3.54.0+                                                          | <IconCheck className="w-4 h-4 inline text-green" /> 3.49.0+                                                              | <a href="https://github.com/PostHog/posthog-flutter/issues/322"><IconWrench className="w-4 h-4 inline text-muted" /></a> |
 | Response length validation                   | <IconCheck className="w-4 h-4 inline text-green" /> 1.344.0+  | <IconCheck className="w-4 h-4 inline text-green" /> 4.31.0+                                                          | <IconX className="w-4 h-4 inline text-red" />                                                                        | <IconX className="w-4 h-4 inline text-red" />                                                                            | <IconX className="w-4 h-4 inline text-red" />                                                                            |
-
-## Android survey UI
-
-The Android versions in the table refer to `posthog-android`.
-The built-in survey UI also requires `posthog-android-surveys-compose` 0.2.2+ for choice shuffling, 0.3.0+ for auto-submit, and 0.4.0+ for persistent resume.
-Custom survey delegates must implement these UI behaviors themselves.
-
-## Partial responses and resume
-
-Partial response collection saves submitted answers after each question when enabled for the survey.
-React Native 4.75.0+, iOS 3.79.0+, and Android 3.70.0+ can also restore unfinished surveys after an app restart, including saved answers and the next question.
-Completion, dismissal, SDK reset, and incompatible survey changes clear saved progress.
-Custom iOS delegates must opt in with `supportsSurveyResume` and honor `initialQuestionIndex`; custom Android delegates must implement `PostHogSurveysResumeAwareDelegate`.
-
-Flutter does not yet support persistent resume.
-Partial response collection depends on the resolved native SDK: iOS 3.79.0+ or Android 3.70.0+.
-Flutter 5.45.0 permits older native versions, so its version alone does not guarantee partial response support.
-The same limitation applies to feature flag variant targeting, which requires iOS 3.78.0+ or Android 3.67.0+.
-The Flutter cells remain marked as not yet supported until the SDK guarantees these native dependencies.
-
-## Selection behavior
-
-Choice option shuffling is available for single-choice and multiple-choice questions in all five SDKs listed above.
-The open-ended "Other" option stays last, and the choice order stays stable while the user answers.
-Auto-submit applies to ratings and single-choice questions without an open-ended choice.
-Multiple-choice questions and questions with an open-ended choice keep the submit button.
-
-## Cancellation events
-
-Cancellation events remove a survey from the event-triggered display queue when a configured event occurs.
-They are separate from the dismissal event emitted when a user closes a survey.
-Cancellation events remain available only in the JavaScript Web SDK.
