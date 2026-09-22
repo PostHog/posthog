@@ -52,6 +52,8 @@ from products.engineering_analytics.backend.logic.views import (
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
+_QUERY_PAGE_SIZE = 5000
+
 
 @dataclass(frozen=True, kw_only=True)
 class _IssueEventsWindow:
@@ -70,6 +72,17 @@ class DeploySources:
 
 
 _READY_BY_PR_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
+_PUSH_RUN_PREDICATE = "pr_number > 0 AND NOT is_merge_queue"
+
+
+def push_rows_select(*, runs_source: str, run_filter: str) -> str:
+    """One row per authored commit that reached CI. Skipped workflows still prove the push."""
+    return f"""
+        SELECT pr_number, head_sha, min(coalesce(created_at, run_started_at)) AS pushed_at
+        FROM {runs_source} AS r
+        WHERE {_PUSH_RUN_PREDICATE} AND ({run_filter})
+        GROUP BY pr_number, head_sha
+    """
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -463,7 +476,7 @@ class CuratedGitHubSource:
                     count(DISTINCT head_sha) AS pushes,
                     countIf(run_attempt > 1) AS rerun_cycles
                 FROM runs AS r
-                WHERE pr_number > 0 AND NOT is_merge_queue
+                WHERE {_PUSH_RUN_PREDICATE}
                     AND pr_number IN (SELECT number FROM pr_scope)
                 GROUP BY repo_owner, repo_name, pr_number
             )
@@ -487,6 +500,22 @@ class CuratedGitHubSource:
     def _compose_pr_query(self, ctes: list[str], select: str) -> str:
         """Prefix ``select`` with the given CTEs and fill its ``__PR_SOURCE__`` placeholder with the PR source."""
         return f"WITH {', '.join(ctes)} {select}".replace("__PR_SOURCE__", self.pr_source())
+
+    def run_paged(self, sql: str, *, query_type: str, placeholders: dict[str, ast.Expr]) -> list[tuple]:
+        """Read every row of a query with a stable ORDER BY, without the per-query result cap."""
+        rows: list[tuple] = []
+        offset = 0
+        while True:
+            response = self.run(
+                f"{sql}\nLIMIT {_QUERY_PAGE_SIZE} OFFSET {offset}",
+                query_type=query_type,
+                placeholders=placeholders,
+            )
+            page = list(response.results or [])
+            rows.extend(page)
+            if len(page) < _QUERY_PAGE_SIZE:
+                return rows
+            offset += len(page)
 
     def run(
         self,
