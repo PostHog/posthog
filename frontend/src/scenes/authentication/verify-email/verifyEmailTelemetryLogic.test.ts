@@ -65,6 +65,29 @@ describe('verifyEmailTelemetryLogic', () => {
         })
     })
 
+    it('holds the exit while the page rests in the back-forward cache', () => {
+        window.dispatchEvent(Object.assign(new Event('pagehide'), { persisted: true }))
+
+        expect(captureCount('email verification exited')).toBe(0)
+
+        verifyEmailLogic.actions.submitVerificationCodeSuccess({ success: true, uuid: 'abc-123' })
+        logic.unmount()
+
+        expect(capturedProperties('email verification exited')).toMatchObject({ outcome: 'verified' })
+    })
+
+    it('reports a second visit after the scene remounts', () => {
+        window.dispatchEvent(new Event('pagehide'))
+        logic.unmount()
+        jest.mocked(posthog.capture).mockClear()
+
+        logic = verifyEmailTelemetryLogic()
+        logic.mount()
+        logic.unmount()
+
+        expect(captureCount('email verification exited')).toBe(1)
+    })
+
     it('separates a verified exit from an abandoned one', () => {
         verifyEmailLogic.actions.submitVerificationCodeSuccess({ success: true, uuid: 'abc-123' })
         logic.unmount()

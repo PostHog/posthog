@@ -106,9 +106,12 @@ export const verifyEmailTelemetryLogic = kea<verifyEmailTelemetryLogicType>([
         })
         // Most people who give up close the tab, which unmounts nothing, so the exit needs both a
         // page-lifecycle hook and the unmount. `cache.exited` keeps whichever fires first the only
-        // one that reports.
-        cache.reportExit = (): void => {
-            if (cache.exited) {
+        // one that reports, and starts each mount over so a second visit reports its own exit.
+        cache.exited = false
+        cache.reportExit = (event?: PageTransitionEvent): void => {
+            // A `pagehide` into the back-forward cache suspends the page rather than ending the
+            // visit. Reporting it would call a person who comes back and verifies an abandonment.
+            if (event?.persisted || cache.exited) {
                 return
             }
             cache.exited = true
