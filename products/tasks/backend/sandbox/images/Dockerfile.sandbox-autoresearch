@@ -19,5 +19,9 @@ RUN pip install --break-system-packages --no-cache-dir \
     scikit-learn==1.7.2 \
     pyarrow==23.0.1 \
     scipy==1.16.3
+# xgboost is on the recipe allowlist. Its Linux wheel declares nvidia-nccl-cu12 (322 MB) for
+# multi-GPU training; training runs on CPU, so install it without dependencies (numpy and scipy
+# are already present), the same way pyproject.toml overrides its metadata.
+RUN pip install --break-system-packages --no-cache-dir --no-deps xgboost==3.2.0
 
 CMD ["/bin/bash"]

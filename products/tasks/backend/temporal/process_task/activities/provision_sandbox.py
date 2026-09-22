@@ -115,7 +115,7 @@ class PrepareSandboxForRepositoryInput:
     context: TaskProcessingContext
 
 
-@frozen
+@dataclass
 class PrepareSandboxForRepositoryOutput:
     sandbox_name: str
     repository: str | None
@@ -129,7 +129,6 @@ class PrepareSandboxForRepositoryOutput:
     shallow_clone: bool
     image_source: str
     image_source_label: str
-    sandbox_template: str = SandboxTemplate.DEFAULT_BASE.value
     snapshot_kind: str = SNAPSHOT_KIND_FILESYSTEM
     snapshot_mount_path: str | None = None
     snapshot_source: str = "none"
@@ -789,7 +788,6 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             shallow_clone=shallow_clone,
             image_source=image_source,
             image_source_label=image_source_label,
-            sandbox_template=sandbox_template.value,
             snapshot_kind=snapshot_kind,
             snapshot_mount_path=snapshot_mount_path,
             snapshot_source=snapshot_source,
@@ -826,9 +824,11 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         # can run nested containers; the default template has neither.
         use_vm_sandbox = ctx.use_modal_vm_sandbox
         resource_overrides = ctx.sandbox_resource_overrides()
+        # Read from the run context, not the prepare output: a prepare activity claimed by an
+        # older worker during a rolling deploy would hand over an output without the template.
         template = _effective_sandbox_template(
             use_vm_sandbox=use_vm_sandbox,
-            requested=_requested_sandbox_template(prepared.sandbox_template),
+            requested=_requested_sandbox_template(parse_run_state(ctx.state).sandbox_template),
         )
         config = SandboxConfig(
             name=prepared.sandbox_name,
