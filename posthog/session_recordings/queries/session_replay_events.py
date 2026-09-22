@@ -15,6 +15,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.team import Team
 from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES, RecordingMetadata
+from posthog.utils import ensure_utc
 
 DEFAULT_EVENT_FIELDS = [
     "event",
@@ -378,7 +379,9 @@ class SessionReplayEvents:
             return []
         # Query columns: session_id, min_timestamp, max_timestamp, retention_period_days, expiry_time.
         return [
-            SessionTimestamps(session_id=row[0], min_timestamp=row[1], max_timestamp=row[2], expiry_time=row[4])
+            SessionTimestamps(
+                session_id=row[0], min_timestamp=row[1], max_timestamp=row[2], expiry_time=ensure_utc(row[4])
+            )
             for row in result.results
         ]
 
@@ -496,7 +499,7 @@ class SessionReplayEvents:
             block_last_timestamps=replay[16],
             block_urls=replay[17],
             retention_period_days=replay[18],
-            expiry_time=replay[19],
+            expiry_time=ensure_utc(replay[19]),
             recording_ttl=replay[20],
             ongoing=bool(replay[21]),
             total_size=replay[22],
