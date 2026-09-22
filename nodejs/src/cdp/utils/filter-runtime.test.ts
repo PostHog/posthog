@@ -32,20 +32,41 @@ describe('filter-runtime', () => {
         // In the type, but built only by the hogflow conditional-branch path, which does not compile
         // through compile_filters_bytecode. Listing it would let a destination save a filter that throws.
         expect(roots).not.toContain('cohort_ids')
-        expect(callables).toEqual(expect.arrayContaining(['lower', 'arrayMap', 'toString']))
+        expect(callables).toEqual(expect.arrayContaining(['lower', 'toString']))
         // Resolvable but async, and the filter path runs with maxAsyncSteps 0.
         expect(callables).not.toContain('sleep')
+        // Resolvable, but the closure it resolves to cannot be invoked. Calling arrayMap by name is
+        // unaffected, because a call is not read as a global.
+        expect(callables).not.toContain('arrayMap')
     })
 
     it('agrees with what the VM does when asked', async () => {
-        // The tables say what resolves; this checks the tables mean what we think they mean.
-        const resolves = async (name: string): Promise<boolean> => {
-            const { error, execResult } = await execHog(['_H', 1, 32, name, 1, 1], { globals: {} })
-            return !String(error ?? execResult?.error ?? '').includes('Global variable not found')
+        // The tables say what resolves; this checks the tables mean what we think they mean. A filter
+        // passes a name as a callback, so resolving it is only half of what has to work: the other half
+        // is the VM invoking the closure it got back. Passing one through arrayMap covers both.
+        const asCallback = async (name: string): Promise<string> => {
+            const bytecode = ['_H', 1, 32, name, 1, 1, 32, 'A', 43, 1, 2, 'arrayMap', 2]
+            const { error, execResult } = await execHog(bytecode, { globals: {} })
+            return String(error ?? execResult?.error ?? '')
         }
-        for (const name of ['lower', 'arrayMap', 'toString']) {
-            expect(await resolves(name)).toBe(true)
+        for (const name of ['lower', 'toString']) {
+            expect(await asCallback(name)).toBe('')
         }
-        expect(await resolves('definitelyNotAGlobal')).toBe(false)
+        expect(await asCallback('definitelyNotAGlobal')).toContain('Global variable not found')
+        // The half a resolution-only check misses, and the reason arrayMap is not offered as one.
+        expect(await asCallback('arrayMap')).toContain('Unsupported function call')
+
+        // Every offered name has to survive both halves, or a filter that passes it saves and then
+        // throws on every event. Other errors are the callback meeting one string argument, not the
+        // contract breaking.
+        const contractErrors = ['Global variable not found', 'Unsupported function call']
+        const broken: string[] = []
+        for (const name of describeFilterRuntime().callables) {
+            const message = await asCallback(name)
+            if (contractErrors.some((error) => message.includes(error))) {
+                broken.push(`${name}: ${message}`)
+            }
+        }
+        expect(broken).toEqual([])
     })
 })

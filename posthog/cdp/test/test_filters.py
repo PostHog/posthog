@@ -186,6 +186,21 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
         assert "sleep" in rejected["bytecode_error"]
 
+        # A bytecode standard-library name resolves to a closure the VM then refuses to call, so a
+        # filter passing one as a callback throws on every event.
+        not_invocable = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "arrayMap(sortableSemver, ['1.2.3'])[1] != []"}]},
+            team=self.team,
+        )
+        assert "sortableSemver" in not_invocable["bytecode_error"]
+
+        # A direct call compiles to a different instruction, which does run the same name.
+        called_directly = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "sortableSemver('1.2.3')[1] = 1"}]},
+            team=self.team,
+        )
+        assert "bytecode_error" not in called_directly
+
     def test_filters_allow_group_globals(self):
         response = compile_filters_bytecode(
             filters={

@@ -1,4 +1,4 @@
-import { ASYNC_STL, BYTECODE_STL, STL } from '@posthog/hogvm'
+import { ASYNC_STL, STL } from '@posthog/hogvm'
 
 import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent } from '../../types'
 import { HogFunctionInvocationGlobals } from '../types'
@@ -10,7 +10,8 @@ export const FILTER_GLOBALS_RELATIVE_PATH = 'posthog/cdp/filter_globals.json'
 export type FilterRuntime = {
     /** Data globals every filter compiled by compile_filters_bytecode is evaluated with. */
     roots: string[]
-    /** Standard-library names GET_GLOBAL hands back as values, so a filter can pass them as callbacks. */
+    /** Standard-library names the VM hands back as values and can then invoke, so a filter can pass
+     * them as callbacks. */
     callables: string[]
 }
 
@@ -72,10 +73,13 @@ export function describeFilterRuntime(): FilterRuntime {
         )
     }
 
+    // BYTECODE_STL is left out. GET_GLOBAL hands back a closure for one of its names, but CALL_LOCAL
+    // resolves an 'stl' closure in STL only, so invoking that closure throws. Calling the same name
+    // directly is unaffected: a call compiles to CALL_GLOBAL, which runs the BYTECODE_STL bytecode.
     // ASYNC_STL is a separate table today, so this removes nothing. It stays because GET_GLOBAL checks
     // ASYNC_STL first: a name added to both would be async at runtime, and the filter path allows no
     // async steps, so it must not be offered as a callable.
-    const callables = [...new Set([...Object.keys(STL), ...Object.keys(BYTECODE_STL)])]
+    const callables = Object.keys(STL)
         .filter((name) => !Object.hasOwn(ASYNC_STL, name))
         .sort()
 
@@ -94,8 +98,9 @@ export function renderFilterGlobalsFile(runtime: FilterRuntime): string {
                 $comment:
                     'Generated. Do not edit: run `pnpm --filter=@posthog/plugin-server run build:filter-globals`. ' +
                     'roots are the data globals the CDP filter runtime builds for a hog function. callables are ' +
-                    'the standard-library names GET_GLOBAL hands back as values, minus the async ones the filter ' +
-                    'path cannot run. Django reads this to refuse a filter the runtime could not evaluate.',
+                    'the standard-library names the VM hands back as values and can then invoke, so they are the ' +
+                    'ones a filter can pass as a callback. Django reads this to refuse a filter the runtime could ' +
+                    'not evaluate.',
                 roots: runtime.roots,
                 callables: runtime.callables,
             },
