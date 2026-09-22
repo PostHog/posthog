@@ -18,6 +18,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { percentage } from 'lib/utils/numbers'
 import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
 import { billingLogic, BillingAlertConfig } from 'scenes/billing/billingLogic'
@@ -133,11 +134,6 @@ function storeNoticeDismissal(key: string): void {
  */
 function shouldFetchProxyRecords(user: UserType | null, currentOrganizationId: string | null): boolean {
     return !!user && !!currentOrganizationId && !isNoticeDismissed('missing_reverse_proxy')
-}
-
-/** Reads the measured share as a whole percent, so the banner quotes the account's own number. */
-function formatBlockedShare(share: number | null): string {
-    return `${Math.round((share ?? 0) * 100)}%`
 }
 
 function buildBillingAlertAction(
@@ -316,7 +312,7 @@ export interface projectNoticeLogicMeta {
             activeSceneId: string | null,
             arg: number,
             isProvisionedUser: boolean,
-            shouldNudgeReverseProxy: any
+            shouldNudgeReverseProxy: boolean
         ) => ProjectNoticeVariant | null
         projectNoticeDismissKey: (
             projectNoticeVariant: ProjectNoticeVariant | null,
@@ -746,8 +742,9 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                         }
                     case 'missing_reverse_proxy':
                         return {
-                            message: `Ad blockers stopped PostHog from loading on ${formatBlockedShare(
-                                adBlockedCaptureShare
+                            message: `Ad blockers stopped PostHog from loading on ${percentage(
+                                adBlockedCaptureShare ?? 0,
+                                0
                             )} of your sessions in the last ${AD_BLOCKED_CAPTURE_WINDOW_DAYS} days. Those sessions have no recording and no client-side events. Set up a reverse proxy to route data through your own domain and get them back.`,
                             type: 'info',
                             action: {
@@ -777,6 +774,13 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 width: 560,
             })
         },
+        // Only an account without a managed proxy can act on the measurement, so the rest never run
+        // the query.
+        loadRecordsSuccess: ({ proxyRecords }) => {
+            if (proxyRecords?.length === 0) {
+                actions.loadAdBlockedCaptureStats()
+            }
+        },
         dismissProjectNotice: ({ dismissKey }) => {
             if (dismissKey) {
                 storeNoticeDismissal(dismissKey)
@@ -795,7 +799,6 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
     afterMount(({ actions, values }) => {
         if (shouldFetchProxyRecords(values.user, values.currentOrganizationId)) {
             actions.loadRecords()
-            actions.loadAdBlockedCaptureStats()
         }
     }),
 ])

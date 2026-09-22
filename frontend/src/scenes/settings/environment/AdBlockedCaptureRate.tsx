@@ -8,7 +8,7 @@ import {
     adBlockedCaptureLogic,
 } from 'lib/components/AdBlockedCapture/adBlockedCaptureLogic'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 export function AdBlockedCaptureRate(): JSX.Element {
@@ -37,7 +37,7 @@ export function AdBlockedCaptureRate(): JSX.Element {
         <div className="flex flex-col gap-2">
             <div className="flex flex-wrap items-baseline gap-x-2">
                 <span className="text-2xl font-semibold" translate="no">
-                    {Math.round(adBlockedCaptureShare * 100)}%
+                    {percentage(adBlockedCaptureShare, 0)}
                 </span>
                 <span className="text-secondary">of sessions in the last {AD_BLOCKED_CAPTURE_WINDOW_DAYS} days</span>
             </div>

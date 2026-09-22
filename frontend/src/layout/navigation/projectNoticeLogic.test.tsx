@@ -59,8 +59,7 @@ describe('projectNoticeLogic', () => {
             logic.unmount()
         })
 
-        // The nudge used to be gated on the first 7 days of each month, which hid it for about three
-        // quarters of the year. It is now eligible on any day, and measured loss decides instead.
+        // Eligibility must not depend on the day of the month.
         it.each([
             { label: 'early in the month', date: new Date(2026, 3, 3) },
             { label: 'late in the month', date: new Date(2026, 3, 27) },
@@ -252,8 +251,7 @@ describe('projectNoticeLogic', () => {
             logic.unmount()
         })
 
-        // Without measured loss there is nothing to fix, so the nudge must stay quiet. This is what
-        // the old calendar-day gate could not tell apart.
+        // Without measured loss there is nothing to fix, so the nudge must stay quiet.
         it.each([
             { label: 'nothing is measured yet', stats: null },
             { label: 'the measured loss is small', stats: { blockedSessions: 5, totalSessions: 1000 } },

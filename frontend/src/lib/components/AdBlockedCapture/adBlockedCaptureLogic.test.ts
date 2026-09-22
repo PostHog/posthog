@@ -8,9 +8,14 @@ import { adBlockedCaptureLogic } from './adBlockedCaptureLogic'
 describe('adBlockedCaptureLogic', () => {
     let logic: ReturnType<typeof adBlockedCaptureLogic.build>
     let queryResponse: [number, Record<string, any>]
+    // The measurement is cached for 10 minutes outside the logic, so the clock only ever moves
+    // forward here, and each case steps past that window to get a fresh query.
+    let now = Date.now()
+    let dateNowSpy: jest.SpyInstance
 
     beforeEach(() => {
         queryResponse = [200, { results: [] }]
+        dateNowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now)
         useMocks({
             post: {
                 '/api/environments/:team_id/query/:kind': () => queryResponse,
@@ -23,10 +28,12 @@ describe('adBlockedCaptureLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+        dateNowSpy.mockRestore()
     })
 
     const measure = async (results: any[][]): Promise<void> => {
         queryResponse = [200, { results }]
+        now += 1000 * 60 * 11
         logic.actions.loadAdBlockedCaptureStats()
         await expectLogic(logic).toDispatchActions(['loadAdBlockedCaptureStatsSuccess'])
     }
@@ -36,6 +43,21 @@ describe('adBlockedCaptureLogic', () => {
 
         expect(logic.values.adBlockedCaptureStats).toEqual({ blockedSessions: 120, totalSessions: 1000 })
         expect(logic.values.adBlockedCaptureShare).toEqual(0.12)
+    })
+
+    // A scene change remounts the nav banner, so a cache that died with the logic would rerun a
+    // week-wide scan on every navigation.
+    it('keeps the measurement when the logic remounts inside the cache window', async () => {
+        await measure([[120, 1000]])
+        logic.unmount()
+        logic = adBlockedCaptureLogic()
+        logic.mount()
+
+        queryResponse = [500, {}]
+        logic.actions.loadAdBlockedCaptureStats()
+        await expectLogic(logic).toDispatchActions(['loadAdBlockedCaptureStatsSuccess'])
+
+        expect(logic.values.adBlockedCaptureStats).toEqual({ blockedSessions: 120, totalSessions: 1000 })
     })
 
     // The nudge fires on `hasSignificantAdBlockedCapture`, so each boundary here is a banner that
@@ -55,6 +77,7 @@ describe('adBlockedCaptureLogic', () => {
 
     it('leaves the measurement unknown when the query fails', async () => {
         queryResponse = [500, {}]
+        now += 1000 * 60 * 11
         logic.actions.loadAdBlockedCaptureStats()
 
         // A failed measurement must not raise a load failure — kea-loaders would toast it on a page
