@@ -221,8 +221,7 @@ class TestRoleAPI(APILicensedTest):
     def test_paginated_listing_is_stable_when_roles_share_a_created_at(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        # Descending ids on one timestamp: without the id tie-breaker Postgres is free to return
-        # the rows in insertion order, which drops one role and repeats another across pages.
+        # Descending ids on one timestamp: an unordered query returns insertion order, the reverse.
         role_ids = sorted((uuid4() for _ in range(6)), reverse=True)
         for index, role_id in enumerate(role_ids):
             Role.objects.create(id=role_id, name=f"Role {index}", organization=self.organization)
