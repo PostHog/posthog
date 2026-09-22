@@ -108,11 +108,13 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = self._scope_by_project_and_environment(queryset).filter(user=self.request.user)
         ordering_param = self.request.GET.get("ordering", "")
+        # Every ordering ends with "id", so a paginated traversal cannot repeat or skip a row
+        # when the primary sort keys tie.
         if ordering_param == "-created_at":
-            return queryset.order_by("-created_at")
+            return queryset.order_by("-created_at", "-id")
         if ordering_param == "created_at":
-            return queryset.order_by("created_at")
-        return queryset.order_by("order", Lower("path"))
+            return queryset.order_by("created_at", "id")
+        return queryset.order_by("order", Lower("path"), "id")
 
     @extend_schema(
         request=FileSystemShortcutReorderSerializer,

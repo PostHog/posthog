@@ -1,4 +1,5 @@
 from datetime import timedelta
+from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 
@@ -165,6 +166,44 @@ class TestFileSystemShortcutAPI(APIBaseTest):
         self.assertIn(str(foreign.id), response.json()["unknown_ids"])
         foreign.refresh_from_db()
         self.assertEqual(foreign.order, 0)
+
+    @parameterized.expand(
+        [
+            ("default", "", False),
+            ("created_at", "created_at", False),
+            ("created_at_desc", "-created_at", True),
+        ]
+    )
+    def test_paginated_list_visits_each_tied_shortcut_once(self, _name: str, ordering: str, descending: bool):
+        # Every primary sort key is tied, so only the "id" tie-breaker gives the list a total
+        # order. Without it the database is free to return a different row order per page, which
+        # repeats or skips rows at a page boundary.
+        ids = [UUID(f"0194000{index}-0000-7000-8000-000000000000") for index in range(6)]
+        # Insert in the reverse of the expected order, so an ordering that relies on the physical
+        # row order cannot pass by accident.
+        created_at = timezone.now()
+        for shortcut_id in reversed(ids):
+            FileSystemShortcut.objects.create(
+                id=shortcut_id,
+                team=self.team,
+                path="Same",
+                type="t",
+                user=self.user,
+                order=0,
+                created_at=created_at,
+            )
+
+        seen: list[str] = []
+        for offset in range(0, len(ids), 2):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/file_system_shortcut/",
+                {"ordering": ordering, "limit": 2, "offset": offset},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            seen.extend(row["id"] for row in response.json()["results"])
+
+        expected = [str(shortcut_id) for shortcut_id in sorted(ids, reverse=descending)]
+        self.assertEqual(seen, expected)
 
     def test_reorder_rejects_empty_list(self):
         response = self.client.post(
