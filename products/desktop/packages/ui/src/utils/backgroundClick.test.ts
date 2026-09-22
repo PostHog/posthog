@@ -17,7 +17,7 @@ describe("shouldFocusOnBackgroundClick", () => {
   it.each([
     {
       gesture: "a plain click on background chrome",
-      html: '<div id="target"></div>',
+      tagName: "div",
       isCollapsed: true,
       expected: true,
     },
@@ -26,27 +26,26 @@ describe("shouldFocusOnBackgroundClick", () => {
       // the ignore selector never matches and only the live selection tells
       // the two gestures apart.
       gesture: "releasing a drag-select outside the input",
-      html: '<div id="target"></div>',
+      tagName: "div",
       isCollapsed: false,
       expected: false,
     },
     {
       gesture: "a click on an element that answers clicks itself",
-      html: '<button id="target" type="button"></button>',
+      tagName: "button",
       isCollapsed: true,
       expected: false,
     },
     {
       gesture: "a click with no selection object at all",
-      html: '<div id="target"></div>',
+      tagName: "div",
       isCollapsed: null,
       expected: true,
     },
-  ])("returns $expected for $gesture", ({ html, isCollapsed, expected }) => {
-    document.body.innerHTML = html;
+  ])("returns $expected for $gesture", ({ tagName, isCollapsed, expected }) => {
+    const target = document.createElement(tagName);
+    document.body.replaceChildren(target);
     mockSelection(isCollapsed);
-
-    const target = document.getElementById("target") as HTMLElement;
 
     expect(shouldFocusOnBackgroundClick(target, IGNORE_SELECTOR)).toBe(
       expected,
