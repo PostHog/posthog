@@ -354,12 +354,12 @@ _TICKET_SESSION_CONTEXT_SCHEMA = {
     "type": "object",
     "description": (
         "Context captured with the ticket. Values are strings, numbers or booleans. Keys are whatever "
-        "the widget sent, commonly current_url, session_replay_url, browser, os and sdk_version."
+        "the widget sent, commonly current_url, replay_url, browser, os and sdk_version."
     ),
     "additionalProperties": True,
     "properties": {
         "current_url": {"type": "string", "description": "Page the reporter was on."},
-        "session_replay_url": {"type": "string", "description": "Replay of the session the ticket came from."},
+        "replay_url": {"type": "string", "description": "Replay of the session the ticket came from."},
     },
 }
 
