@@ -14,6 +14,7 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { LiquidRenderer } from 'lib/utils/liquid'
 import { objectsEqual } from 'lib/utils/objects'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
@@ -25,7 +26,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AccessControlLevel, HogFunctionTemplateType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
-import { hogFlowsResumeEmailSending } from 'products/workflows/frontend/generated/api'
+import { hogFlowsCodeRetrieve, hogFlowsResumeEmailSending } from 'products/workflows/frontend/generated/api'
 
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
 import { codeManagedReason, isCodeManagedWorkflow } from './codeManagedWorkflow'
@@ -239,6 +240,8 @@ export interface workflowLogicValues {
     actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
     autoSaveBlockedByValidation: boolean
     autoSaveEnabled: boolean
+    copyCodeDisabledReason: string | undefined
+    copyCodePending: boolean
     currentSchedule: HogFlowSchedule | null
     deferredResourceEdited: ResourceEditedEvent | null
     discardDisabledReason: string | undefined
@@ -328,6 +331,9 @@ export interface workflowLogicActions {
         confirmToken: string
     }
     confirmResumeEmailSending: () => {
+        value: true
+    }
+    copyWorkflowCode: () => {
         value: true
     }
     discardChanges: () => {
@@ -2426,6 +2432,9 @@ export interface workflowLogicActions {
     setAutoSaveEnabled: (enabled: boolean) => {
         enabled: boolean
     }
+    setCopyCodePending: (pending: boolean) => {
+        pending: boolean
+    }
     setDeferredResourceEdited: (event: ResourceEditedEvent | null) => {
         event: ResourceEditedEvent | null
     }
@@ -3049,6 +3058,7 @@ export interface workflowLogicMeta {
             draftActionPending: 'discard' | 'publish' | null,
             workflowSaveDisabledReason: string | null
         ) => string | undefined
+        copyCodeDisabledReason: (logicProps: WorkflowLogicProps, hasUnsavedChanges: boolean) => string | undefined
     }
 }
 
@@ -3123,6 +3133,8 @@ export const workflowLogic = kea<workflowLogicType>([
         resumeEmailSending: true,
         confirmResumeEmailSending: true,
         setResumeEmailSendingPending: (pending: boolean) => ({ pending }),
+        copyWorkflowCode: true,
+        setCopyCodePending: (pending: boolean) => ({ pending }),
     }),
     loaders(({ props, values, actions, cache }) => ({
         originalWorkflow: [
@@ -3543,6 +3555,12 @@ export const workflowLogic = kea<workflowLogicType>([
             false,
             {
                 setResumeEmailSendingPending: (_, { pending }) => pending,
+            },
+        ],
+        copyCodePending: [
+            false,
+            {
+                setCopyCodePending: (_, { pending }) => pending,
             },
         ],
         // A resource_edited event parked while our own save/reload was in flight. Replayed once the
@@ -3970,6 +3988,21 @@ export const workflowLogic = kea<workflowLogicType>([
                 return hasStagedDraft ? undefined : 'No changes staged to discard'
             },
         ],
+
+        copyCodeDisabledReason: [
+            (s) => [s.logicProps, s.hasUnsavedChanges],
+            (logicProps: WorkflowLogicProps, hasUnsavedChanges: boolean): string | undefined => {
+                if (!logicProps.id || logicProps.id === 'new') {
+                    return 'Save the workflow first'
+                }
+                // The endpoint renders what is stored, so edits still sitting in the form would be
+                // missing from the copied source.
+                if (hasUnsavedChanges) {
+                    return 'Save your changes first'
+                }
+                return undefined
+            },
+        ],
     }),
     listeners(({ actions, values, props, cache }) => ({
         setScheduleStartsAtFromPicker: ({ pickerDate }) => {
@@ -4130,6 +4163,29 @@ export const workflowLogic = kea<workflowLogicType>([
                 // Reload either way: on success to clear the banner, on failure because another
                 // editor may have resumed it already.
                 actions.loadWorkflow()
+            }
+        },
+        copyWorkflowCode: async () => {
+            if (!props.id || props.id === 'new' || values.hasUnsavedChanges || values.copyCodePending) {
+                return
+            }
+            actions.setCopyCodePending(true)
+            try {
+                const { code, warnings } = await hogFlowsCodeRetrieve(String(values.currentProjectId), props.id)
+                // One toast per click: the warning replaces the default "copied" toast when the
+                // source drops part of the workflow, so the loss is not hidden behind a success.
+                const copied = await copyToClipboard(code, 'workflow code', { silent: warnings.length > 0 })
+                if (copied && warnings.length > 0) {
+                    lemonToast.warning(
+                        warnings.length === 1
+                            ? 'Copied the workflow code. 1 part of this workflow cannot be expressed in code. It is listed at the top of the file.'
+                            : `Copied the workflow code. ${warnings.length} parts of this workflow cannot be expressed in code. They are listed at the top of the file.`
+                    )
+                }
+            } catch {
+                lemonToast.error('Could not copy the workflow code. Please try again.')
+            } finally {
+                actions.setCopyCodePending(false)
             }
         },
         discardDraft: () => {
