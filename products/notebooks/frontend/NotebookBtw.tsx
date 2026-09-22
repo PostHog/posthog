@@ -10,6 +10,9 @@ import { SidePanelRunner } from 'products/posthog_ai/frontend/api/runner'
 import { getNotebookBtwContext } from './notebookBtwContext'
 import type { NotebookBtwSession } from './notebookBtwLogic'
 
+const CONVERSATION_DESCRIPTION =
+    'Sent messages are saved in PostHog AI history, separately from this notebook. After a refresh, reopen the conversation from history.'
+
 const COMPOSER_OVERRIDE = {
     placeholder: 'Ask a side question...',
     subheadline: null,
@@ -47,13 +50,7 @@ export function NotebookBtw({
     return (
         <>
             {presentation === 'modal' ? (
-                <LemonModal
-                    isOpen
-                    title="BTW"
-                    description="Ask a side question. Replies stay in this conversation."
-                    onClose={onClose}
-                    width={640}
-                >
+                <LemonModal isOpen title="BTW" description={CONVERSATION_DESCRIPTION} onClose={onClose} width={640}>
                     <div ref={attachChat} className="h-[65vh] min-h-0 overflow-hidden" />
                 </LemonModal>
             ) : (
@@ -64,9 +61,7 @@ export function NotebookBtw({
                     <header className="flex items-start justify-between gap-2 border-b p-4">
                         <div>
                             <h3 className="mb-1">BTW</h3>
-                            <p className="mb-0 text-secondary">
-                                Ask a side question. Replies stay in this conversation.
-                            </p>
+                            <p className="mb-0 text-secondary">{CONVERSATION_DESCRIPTION}</p>
                         </div>
                         <LemonButton
                             icon={<IconX />}
