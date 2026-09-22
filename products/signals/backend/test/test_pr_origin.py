@@ -195,9 +195,10 @@ class TestPullRequestOrigin(BaseTest):
         assert "[`a59c3290`](https://github.com/acme/web/commit/a59c3290fe9bb4d4)" in section
         assert "bbbbbbbb" not in section
         assert "- Task started by: auto-start, after the report was rated P2 and ready to fix" in section
-        assert "- Issues: [#12](https://github.com/acme/web/issues/12), GitHub issue, ENG-1" in section
+        assert "- Issues: [#12](https://github.com/acme/web/issues/12), GitHub issue, Linear issue" in section
         assert "private" not in section
         assert "secret-title" not in section
+        assert "ENG-1" not in section
 
     @parameterized.expand([("verified", True, BodyEditOutcome.WRITTEN), ("unverified", False, BodyEditOutcome.FAILED)])
     def test_edits_only_a_webhook_confirmed_pull_request(

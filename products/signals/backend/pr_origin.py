@@ -241,7 +241,8 @@ def _issue_link(reference: SignalSourceReference, repository: str) -> OriginLink
             return OriginLink(label=reference.label, url=reference.url)
         # A bare "#42" would render as a link to issue 42 of this pull request's repository.
         return OriginLink(label="GitHub issue", url=None)
-    return OriginLink(label=reference.label, url=None)
+    # A Linear identifier names a private team key and a sequential issue number.
+    return OriginLink(label="Linear issue", url=None)
 
 
 @frozen
