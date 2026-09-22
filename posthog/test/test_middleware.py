@@ -2934,7 +2934,22 @@ class TestAppCspHeaderName(SimpleTestCase):
     @parameterized.expand(
         [
             ("login", "/login", None, CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG, "Content-Security-Policy"),
+            ("signup", "/signup", None, CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG, "Content-Security-Policy"),
             ("reset_link", "/reset/abc/def", None, CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG, "Content-Security-Policy"),
+            (
+                "reset_2fa_link",
+                "/reset_2fa/abc/def",
+                None,
+                CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG,
+                "Content-Security-Policy",
+            ),
+            (
+                "verify_email_link",
+                "/verify_email/abc/def",
+                None,
+                CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG,
+                "Content-Security-Policy",
+            ),
             ("login_without_a_flag", "/login", None, None, "Content-Security-Policy-Report-Only"),
             (
                 "login_with_the_app_flag",
@@ -2962,13 +2977,19 @@ class TestAppCspHeaderName(SimpleTestCase):
     )
     @patch("posthog.middleware.posthoganalytics.feature_enabled")
     def test_each_flag_enforces_only_its_own_pages(
-        self, _name: str, path: str, distinct_id: str | None, enabled_flag: str | None, expected: str, mock_flag
+        self,
+        _name: str,
+        path: str,
+        distinct_id: str | None,
+        enabled_flag: str | None,
+        expected: str,
+        mock_flag: MagicMock,
     ) -> None:
         mock_flag.side_effect = lambda key, *args, **kwargs: key == enabled_flag
         assert app_csp_header_name(self._request(path, distinct_id=distinct_id)) == expected
 
     @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
-    def test_each_signed_out_document_draws_its_own_bucket(self, mock_flag) -> None:
+    def test_each_signed_out_document_draws_its_own_bucket(self, mock_flag: MagicMock) -> None:
         app_csp_header_name(self._request("/login", distinct_id=None))
         app_csp_header_name(self._request("/login", distinct_id=None))
         # A fixed id would put every signed-out visitor in one bucket, so a rollout percentage
@@ -2980,7 +3001,9 @@ class TestAppCspHeaderName(SimpleTestCase):
 
     @parameterized.expand([("signed_in", "abc"), ("signed_out", None)])
     @patch("posthog.middleware.posthoganalytics.feature_enabled", side_effect=Exception("flags unavailable"))
-    def test_a_failing_flag_lookup_leaves_the_policy_report_only(self, _name, distinct_id, _mock_flag):
+    def test_a_failing_flag_lookup_leaves_the_policy_report_only(
+        self, _name: str, distinct_id: str | None, _mock_flag: MagicMock
+    ) -> None:
         # Fail safe: an enforced policy that nobody meant to turn on breaks the page.
         assert (
             app_csp_header_name(self._request("/login", distinct_id=distinct_id))
