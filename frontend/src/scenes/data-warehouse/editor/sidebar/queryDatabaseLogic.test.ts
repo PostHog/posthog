@@ -508,7 +508,15 @@ describe('queryDatabaseLogic', () => {
         initKeaTests()
         const logic = queryDatabaseLogic()
         logic.mount()
-        const names = ['sessions', 'events', 'groups', 'persons', 'logs', 'posthog.flag_evaluations']
+        const names = [
+            'sessions',
+            'events',
+            'groups',
+            'persons',
+            'logs',
+            'posthog.flag_evaluations',
+            'posthog.ai_events',
+        ]
         databaseTableListLogic.findMounted()?.actions.loadDatabaseSuccess({
             tables: Object.fromEntries(names.map((name) => [name, { id: name, name, type: 'posthog', fields: {} }])),
             joins: [],
@@ -517,6 +525,7 @@ describe('queryDatabaseLogic', () => {
         expect(sources.map((item) => item.name)).toEqual(['Popular', 'PostHog'])
         expect(sources[0].children?.map((item) => item.name)).toEqual(['events', 'groups', 'persons', 'sessions'])
         expect(sources[1].children?.map((item) => item.name)).toEqual([
+            'posthog.ai_events',
             'posthog.events',
             'posthog.flag_evaluations',
             'posthog.groups',
@@ -535,6 +544,7 @@ describe('queryDatabaseLogic', () => {
         expect(searchSources.map((item) => item.name)).toEqual(['Popular', 'PostHog'])
         expect(searchSources.flatMap((item) => item.children!.map((table) => table.name))).toEqual([
             'events',
+            'posthog.ai_events',
             'posthog.events',
         ])
         logic.actions.setSearchTerm('posthog.flag_evaluations')
@@ -566,6 +576,12 @@ describe('queryDatabaseLogic', () => {
                 tables: {
                     events: { id: 'events', name: 'events', type: 'posthog', fields: {} },
                     persons: { id: 'persons', name: 'persons', type: 'posthog', fields: {} },
+                    'posthog.ai_events': {
+                        id: 'posthog.ai_events',
+                        name: 'posthog.ai_events',
+                        type: 'posthog',
+                        fields: {},
+                    },
                 },
                 joins: [],
             })
@@ -680,51 +696,59 @@ describe('queryDatabaseLogic', () => {
             expect(performQuery).toHaveBeenLastCalledWith(expect.objectContaining({ tables: ['persons'] }))
         })
 
-        it.each(['events', 'posthog.events'])('hydrates %s and defers joined fields until expansion', async (name) => {
-            const placeholder = findTableNode(name)?.children?.[0]
-            expect(placeholder?.type).toEqual('loading-indicator')
-            expect(placeholder?.record?.pendingTableName).toEqual('events')
+        it.each(['events', 'posthog.events', 'posthog.ai_events'])(
+            'hydrates %s and defers joined fields until expansion',
+            async (name) => {
+                const schemaName = name === 'posthog.ai_events' ? name : 'events'
+                const placeholder = findTableNode(name)?.children?.[0]
+                expect(placeholder?.type).toEqual('loading-indicator')
+                expect(placeholder?.record?.pendingTableName).toEqual(schemaName)
 
-            expect(performQuery).not.toHaveBeenCalled()
-            logic.actions.toggleFolderOpen(`table-${name}`, false)
-            await expectLogic(dbLogic).toFinishAllListeners()
+                expect(performQuery).not.toHaveBeenCalled()
+                logic.actions.toggleFolderOpen(`table-${name}`, false)
+                await expectLogic(dbLogic).toFinishAllListeners()
 
-            expect(performQuery).toHaveBeenCalledWith(expect.objectContaining({ tables: ['events'] }))
+                expect(performQuery).toHaveBeenCalledWith(expect.objectContaining({ tables: [schemaName] }))
 
-            dbLogic.actions.hydrateTableFieldsSuccess(['events'], {
-                events: {
-                    id: 'events',
-                    name: 'events',
-                    type: 'posthog',
-                    fields: {
-                        uuid: { name: 'uuid', hogql_value: 'uuid', type: 'string', schema_valid: true },
-                        person: {
-                            name: 'person',
-                            hogql_value: 'person',
-                            type: 'lazy_table',
-                            table: 'persons',
-                            schema_valid: true,
+                dbLogic.actions.hydrateTableFieldsSuccess([schemaName], {
+                    [schemaName]: {
+                        id: schemaName,
+                        name: schemaName,
+                        type: 'posthog',
+                        fields: {
+                            uuid: { name: 'uuid', hogql_value: 'uuid', type: 'string', schema_valid: true },
+                            person: {
+                                name: 'person',
+                                hogql_value: 'person',
+                                type: 'lazy_table',
+                                table: 'persons',
+                                schema_valid: true,
+                            },
                         },
-                    },
-                } as any,
-            })
+                    } as any,
+                })
 
-            const columnNames = findTableNode(name)?.children?.map((child: any) => child.name)
-            expect(columnNames).toEqual(['uuid', 'person'])
-            expect(performQuery).toHaveBeenCalledTimes(1)
-            logic.actions.toggleFolderOpen(`table-${name === 'events' ? 'posthog.events' : 'events'}`, false)
-            logic.actions.selectSchema(findTableNode(name).record.table)
-            await expectLogic(dbLogic).toFinishAllListeners()
-            expect(performQuery).toHaveBeenCalledTimes(1)
-            expect(
-                logic.values.sidebarOverlayTreeItems.map((item) => ('name' in item ? item.name : undefined))
-            ).toEqual(['uuid', 'person'])
-            const joinNode = findTableNode(name)?.children?.find((child: any) => child.record?.type === 'lazy-table')
-            expect(joinNode).toBeTruthy()
-            logic.actions.toggleFolderOpen(joinNode.id, false)
-            await expectLogic(dbLogic).toFinishAllListeners()
-            expect(performQuery).toHaveBeenLastCalledWith(expect.objectContaining({ tables: ['persons'] }))
-        })
+                const columnNames = findTableNode(name)?.children?.map((child: any) => child.name)
+                expect(columnNames).toEqual(['uuid', 'person'])
+                expect(performQuery).toHaveBeenCalledTimes(1)
+                if (schemaName === 'events') {
+                    logic.actions.toggleFolderOpen(`table-${name === 'events' ? 'posthog.events' : 'events'}`, false)
+                }
+                logic.actions.selectSchema(findTableNode(name).record.table)
+                await expectLogic(dbLogic).toFinishAllListeners()
+                expect(performQuery).toHaveBeenCalledTimes(1)
+                expect(
+                    logic.values.sidebarOverlayTreeItems.map((item) => ('name' in item ? item.name : undefined))
+                ).toEqual(['uuid', 'person'])
+                const joinNode = findTableNode(name)?.children?.find(
+                    (child: any) => child.record?.type === 'lazy-table'
+                )
+                expect(joinNode).toBeTruthy()
+                logic.actions.toggleFolderOpen(joinNode.id, false)
+                await expectLogic(dbLogic).toFinishAllListeners()
+                expect(performQuery).toHaveBeenLastCalledWith(expect.objectContaining({ tables: ['persons'] }))
+            }
+        )
 
         it.each(['view', 'materialized_view'] as const)(
             'hydrates a saved %s on expansion and shares fields with the overlay and joins',

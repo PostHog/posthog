@@ -263,6 +263,9 @@ export const LazySchema: Story = {
                                     'cohort_people',
                                     'session_replay_events',
                                     'posthog.flag_evaluations',
+                                    'posthog.trace_spans',
+                                    'posthog.metrics',
+                                    'posthog.metric_series',
                                 ].map((name) => [
                                     name,
                                     {
@@ -295,6 +298,27 @@ export const LazySchema: Story = {
                                         type: 'lazy_table',
                                         schema_valid: true,
                                         table: 'persons',
+                                    },
+                                },
+                            },
+                            'posthog.ai_events': {
+                                id: 'posthog.ai_events',
+                                name: 'posthog.ai_events',
+                                type: 'posthog',
+                                fields: {
+                                    uuid: { name: 'uuid', hogql_value: 'uuid', type: 'string', schema_valid: true },
+                                    event: { name: 'event', hogql_value: 'event', type: 'string', schema_valid: true },
+                                    timestamp: {
+                                        name: 'timestamp',
+                                        hogql_value: 'timestamp',
+                                        type: 'datetime',
+                                        schema_valid: true,
+                                    },
+                                    properties: {
+                                        name: 'properties',
+                                        hogql_value: 'properties',
+                                        type: 'json',
+                                        schema_valid: true,
                                     },
                                 },
                             },
