@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import {
   buildSessionContext,
   type FileEntry,
@@ -187,7 +188,6 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
 
       this.taskMetadataRepository.upsert(taskId, {
         piSessionFile: state.sessionFile,
-        piSubscriptionProvider: input.piSubscriptionProvider ?? null,
       });
 
       await client.prompt(input.prompt);
@@ -235,9 +235,6 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       taskId,
     });
 
-    this.taskMetadataRepository.upsert(taskId, {
-      piSubscriptionProvider: null,
-    });
     await this.stopLocked(taskId);
     await this.resumeLocked({ taskContext: { taskId, cwd } });
   }
@@ -261,10 +258,9 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       throw new Error(`Pi session metadata is missing for task ${taskId}`);
     }
 
+    const resumedModel = piSubscriptionModelFromSessionFile(sessionFile);
     const piSubscriptionProvider =
-      metadata?.piSubscriptionProvider === "openai-codex"
-        ? "openai-codex"
-        : undefined;
+      resumedModel?.provider === "openai-codex" ? "openai-codex" : undefined;
 
     await this.stopLocked(taskId);
 
@@ -272,6 +268,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       taskContext: input.taskContext,
       sessionFile,
       piSubscriptionProvider,
+      model: piSubscriptionProvider ? resumedModel?.modelId : undefined,
     });
     const client = runtime.client;
     const session = this.registerSession(taskId, runtime, cwd);
@@ -799,5 +796,22 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
         return;
       }
     }
+  }
+}
+
+export function piSubscriptionModelFromSessionFile(
+  sessionFile: string,
+): { provider: string; modelId: string } | null {
+  try {
+    const fileEntries = parseSessionEntries(
+      readFileSync(sessionFile, "utf8"),
+    ) as FileEntry[];
+    migrateSessionEntries(fileEntries);
+    const entries = fileEntries.filter(
+      (entry): entry is SessionEntry => entry.type !== "session",
+    );
+    return buildSessionContext(entries).model;
+  } catch {
+    return null;
   }
 }
