@@ -126,7 +126,7 @@ function CheckSummaryList({
         <span
             className={
                 compact
-                    ? 'flex w-full items-center justify-between gap-3 text-[0.6875rem]'
+                    ? 'inline-flex items-center gap-x-2.5 text-[0.6875rem]'
                     : 'flex w-full flex-wrap items-center gap-x-2.5 gap-y-1 text-[0.6875rem]'
             }
         >
@@ -182,7 +182,14 @@ export function PrChecksSection({ report }: { report: SignalReport }): JSX.Eleme
             title="CI checks"
             collapsible
             defaultCollapsed={sorted.length > 0 && !hasChecksNeedingAttention}
-            summary={sorted.length > 0 ? (open) => <CheckSummaryList counts={counts} compact={!open} /> : undefined}
+            meta={
+                sorted.length > 0 ? (open) => (open ? null : <CheckSummaryList counts={counts} compact />) : undefined
+            }
+            summary={
+                sorted.length > 0
+                    ? (open) => (open ? <CheckSummaryList counts={counts} compact={false} /> : null)
+                    : undefined
+            }
         >
             {prChecksError ? (
                 <div className="rounded border border-danger bg-danger-highlight px-3 py-2.5 text-sm text-danger">

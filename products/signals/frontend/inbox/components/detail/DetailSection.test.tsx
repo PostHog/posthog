@@ -15,13 +15,15 @@ describe('DetailSection', () => {
                 title="Example section"
                 collapsible
                 defaultCollapsed
-                summary={(open) => (open ? 'Open summary' : 'Closed summary')}
+                meta={(open) => (open ? null : 'Closed summary')}
+                summary={(open) => (open ? 'Open summary' : null)}
             >
                 Section body
             </DetailSection>
         )
 
         expect(screen.getByText('Closed summary')).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /Example section/i })).toHaveTextContent('Closed summary')
         expect(screen.queryByText('Open summary')).not.toBeInTheDocument()
         expect(screen.queryByText('Section body')).not.toBeInTheDocument()
 
@@ -29,6 +31,7 @@ describe('DetailSection', () => {
 
         expect(screen.getByText('Open summary')).toBeInTheDocument()
         expect(screen.queryByText('Closed summary')).not.toBeInTheDocument()
+        expect(screen.getByRole('button', { name: /Example section/i })).not.toHaveTextContent('Open summary')
         expect(screen.getByText('Section body')).toBeInTheDocument()
     })
 })
