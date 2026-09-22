@@ -152,6 +152,48 @@ describe('ticketViewsLogic', () => {
         expect(sceneLogic.values.viewWithUnsavedChanges).toBeNull()
     })
 
+    it('discards an edit by restoring the filters the view was loaded with', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadView(existingView)
+        }).toFinishAllListeners()
+
+        await expectLogic(sceneLogic, () => {
+            sceneLogic.actions.setPriorityFilter(['high'])
+            sceneLogic.actions.setSearchQuery('refund')
+        }).toFinishAllListeners()
+        expect(sceneLogic.values.viewWithUnsavedChanges?.short_id).toBe('view-old')
+
+        await expectLogic(sceneLogic, () => {
+            sceneLogic.actions.restoreLoadedView()
+        }).toFinishAllListeners()
+
+        // The view pins only the status, so the rest has to come from the applied snapshot.
+        expect(sceneLogic.values.priorityFilter).toEqual([])
+        expect(sceneLogic.values.searchQuery).toBe('')
+        expect(sceneLogic.values.statusFilter).toEqual(['pending'])
+        expect(sceneLogic.values.activeView?.short_id).toBe('view-old')
+        expect(sceneLogic.values.viewWithUnsavedChanges).toBeNull()
+    })
+
+    it('keeps an edit unsaved when the detached view is only renamed', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadView(existingView)
+        }).toFinishAllListeners()
+
+        await expectLogic(sceneLogic, () => {
+            sceneLogic.actions.setPriorityFilter(['high'])
+        }).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.updateView('view-old', { name: 'Renamed view' })
+        }).toFinishAllListeners()
+
+        expect(updatedFilters).toBeUndefined()
+        expect(sceneLogic.values.activeView).toBeNull()
+        expect(sceneLogic.values.viewWithUnsavedChanges?.short_id).toBe('view-old')
+        expect(sceneLogic.values.priorityFilter).toEqual(['high'])
+    })
+
     it('stops offering the detached view once the filters match it again', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadView(existingView)

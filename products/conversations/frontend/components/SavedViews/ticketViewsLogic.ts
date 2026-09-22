@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { createFuseSearch } from 'lib/utils/fuseSearch'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -66,6 +67,9 @@ export interface ticketViewsLogicActions {
         appliedFilters?: TicketViewFilters
     } // supportTicketsSceneLogic
     resetFilters: () => {
+        value: true
+    } // supportTicketsSceneLogic
+    restoreLoadedView: () => {
         value: true
     } // supportTicketsSceneLogic
     closeModal: () => {
@@ -181,7 +185,10 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
             supportTicketsSceneLogic(props.ticketListProps),
             ['currentFilters', 'activeView', 'viewWithUnsavedChanges'],
         ],
-        actions: [supportTicketsSceneLogic(props.ticketListProps), ['applyView', 'setActiveView', 'resetFilters']],
+        actions: [
+            supportTicketsSceneLogic(props.ticketListProps),
+            ['applyView', 'setActiveView', 'resetFilters', 'restoreLoadedView'],
+        ],
     })),
 
     actions({
@@ -345,10 +352,15 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
                 )) as unknown as SavedTicketView
                 actions.viewUpdated(updated)
                 // Keep the header indicator and URL state in sync when the loaded view
-                // changes. A drifted view re-attaches, because its filters are now saved.
+                // changes. A detached view only re-attaches when this write is the one
+                // that saved the filters on screen — a rename must not mark an edit saved.
                 if (values.activeView?.short_id === shortId) {
                     actions.setActiveView(updated)
-                } else if (values.viewWithUnsavedChanges?.short_id === shortId) {
+                } else if (
+                    values.viewWithUnsavedChanges?.short_id === shortId &&
+                    changes.filters &&
+                    objectsEqual(changes.filters, values.currentFilters)
+                ) {
                     actions.setActiveView(updated, { ...values.currentFilters })
                 }
                 // Favoriting is a quiet, high-frequency action — no toast for it

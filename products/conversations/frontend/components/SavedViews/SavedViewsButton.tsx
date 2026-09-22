@@ -13,7 +13,8 @@ import { type TicketViewsLogicProps, ticketViewsLogic } from './ticketViewsLogic
 function SavedViewsButtonInner({ ticketListProps }: TicketViewsLogicProps): JSX.Element {
     const logic = ticketViewsLogic({ ticketListProps })
     const { favoriteViews, viewsLoading, activeView, viewWithUnsavedChanges: editedView } = useValues(logic)
-    const { openModal, openSaveModal, loadView, loadViews, saveViewChanges, resetFilters } = useActions(logic)
+    const { openModal, openSaveModal, loadView, loadViews, saveViewChanges, restoreLoadedView, resetFilters } =
+        useActions(logic)
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
     const shownView = activeView ?? editedView
@@ -37,7 +38,7 @@ function SavedViewsButtonInner({ ticketListProps }: TicketViewsLogicProps): JSX.
                                       },
                                       {
                                           label: 'Discard changes',
-                                          onClick: () => loadView(editedView),
+                                          onClick: restoreLoadedView,
                                       },
                                   ],
                               },

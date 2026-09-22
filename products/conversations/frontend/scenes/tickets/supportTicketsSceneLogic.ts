@@ -270,6 +270,9 @@ export interface supportTicketsSceneLogicActions {
     clearFiltersKeepingSearch: () => {
         value: true
     }
+    restoreLoadedView: () => {
+        value: true
+    }
     clearSelectedTickets: () => {
         value: true
     }
@@ -439,6 +442,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             appliedFilters,
         }),
         clearActiveView: true,
+        restoreLoadedView: true,
         resetFilters: true,
         clearFiltersKeepingSearch: true,
         setDateRangeBeforeView: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -909,6 +913,17 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             // Snapshot the filters the view actually put on screen, so a later edit is
             // measured against them rather than against the sparse stored filter set.
             actions.setActiveView(view, { ...values.currentFilters })
+        },
+        restoreLoadedView: () => {
+            const loadedView = values.loadedView
+            if (!loadedView) {
+                return
+            }
+            // The stored filters are sparse, so only the applied snapshot puts every
+            // filter back the way the view left it. An absent search means no search,
+            // because applyViewFilters keeps the current text for an undefined one.
+            actions.applyViewFilters({ ...loadedView.filters, search: loadedView.filters.search ?? '' })
+            actions.setActiveView(loadedView.view, loadedView.filters)
         },
         loadSavedView: async ({ shortId }) => {
             // Track the view the URL currently names. Rapidly switching views leaves
