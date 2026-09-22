@@ -145,6 +145,7 @@ export class ToolInputValidationError extends Error {
 
 export type ExecCommandErrorReason =
     | 'unknown_command'
+    | 'tool_as_command'
     | 'batched_command'
     | 'unknown_tool'
     | 'deprecated_tool'

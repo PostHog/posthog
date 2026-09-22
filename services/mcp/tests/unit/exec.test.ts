@@ -1679,6 +1679,17 @@ describe('exec tool', () => {
             expect(message.includes(redirectHint)).toBe(kept)
         })
 
+        // The guidance names tools in prose ("call `docs-search`"), and agents type the
+        // name as a command. A generic unknown-command reply reads as "the tool does not
+        // exist" and the agent abandons the path, so the reply must carry the call form.
+        it('routes a tool name typed as a command to the call form', async () => {
+            const exec = createExec([makeMockTool({ name: 'docs-search' })])
+
+            await expect(exec.handler(mockContext, { command: 'docs-search {"query":"funnels"}' })).rejects.toThrow(
+                /"docs-search" is a tool, not a command[\s\S]*call docs-search/
+            )
+        })
+
         it('still reports a name we do not own as unknown', async () => {
             const exec = createExec([notebooksCreateMarkdown], undefined, {
                 flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
@@ -1810,6 +1821,10 @@ describe('exec tool', () => {
             // A removed tool is still one of our own names, so the redirect it
             // triggers stays diagnosable.
             ['call query-run {}', 'call', 'query-run'],
+            // A tool name typed as a verb is the `call` prefix being dropped. Recording
+            // the tool separates that mistake from a genuine typo, which records nothing.
+            ['execute-sql {"query":"select 1"}', 'unrecognized', 'execute-sql'],
+            ['frobnicate now', 'unrecognized', undefined],
             // Verb present, target absent: nothing to record for the tool, but the
             // verb still is.
             ['info', 'info', undefined],

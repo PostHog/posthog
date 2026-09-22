@@ -566,6 +566,7 @@ describe('ToolExecutor metrics', () => {
         it.each([
             ['call nonexistent-tool-xyz {}', 'unknown_tool'],
             ['frobnicate', 'unknown_command'],
+            ['docs-search {"query":"funnels"}', 'tool_as_command'],
             ['call docs-search {not json}', 'invalid_json'],
         ])('classifies %s as validation', async (command, reason) => {
             await executor.handleToolCall({ name: 'exec', arguments: { command } }, execState())

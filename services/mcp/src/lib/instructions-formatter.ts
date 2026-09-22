@@ -43,7 +43,7 @@ import { type ExecLearnGuide, LEARN_COMMAND_LINE } from '@/tools/exec-learn'
 
 /** Naming a command the catalog withholds sends the agent down a path it cannot take. */
 const WHATS_NEW_WITH_DOCS_SEARCH =
-    "Check what's new via the `docs-search` tool or the changelog (https://posthog.com/changelog.md)."
+    "Check what's new with `call docs-search <json_input>` or the changelog (https://posthog.com/changelog.md)."
 const WHATS_NEW_CHANGELOG_ONLY = "Check what's new in the changelog (https://posthog.com/changelog.md)."
 
 export interface InstructionsContext {
@@ -71,6 +71,13 @@ export interface InstructionsContext {
     docsSearchEnabled?: boolean | undefined
 }
 
+function businessKnowledgeSearchLine(execSyntax: boolean): string {
+    const search = execSyntax
+        ? 'run `call business-knowledge-documents-search <json_input>`'
+        : 'call `business-knowledge-documents-search`'
+    return `- First, ${search} with a short, broad query based on the user's topic. If \`business-knowledge-document-window-retrieve\` is also available, use it when a result needs more context.`
+}
+
 /** Resolve the field, falling back to the advertised tool list for callers that
  *  build a context without it (the CLI's `--agent-help`). */
 function docsSearchAvailable(ctx: InstructionsContext): boolean {
@@ -88,23 +95,32 @@ export class InstructionsFormatter {
         const businessKnowledgeSearchEnabled = ctx.tools?.some(
             ({ name }) => name === 'business-knowledge-documents-search'
         )
+        // Tools mode registers each tool separately, so the agent calls them by name.
         return this.knowledgeFirstSectionsForCapabilities({
             docsSearchEnabled: docsSearchAvailable(ctx),
             businessKnowledgeSearchEnabled,
+            execSyntax: false,
         })
     }
 
+    /** The mandate leads the exec tool description, ahead of the section that teaches
+     *  the dispatcher grammar, so on that surface it must spell the invocation out.
+     *  A bare tool name reads as a command there, and the dispatcher rejects it. */
     private knowledgeFirstSectionsForCapabilities(opts: {
         docsSearchEnabled?: boolean
         businessKnowledgeSearchEnabled?: boolean
+        execSyntax: boolean
     }): string[] {
         if (!opts.docsSearchEnabled) {
             return []
         }
         return [
             formatPrompt(BUSINESS_KNOWLEDGE_FIRST, {
+                docs_search_call: opts.execSyntax
+                    ? 'Run `call docs-search <json_input>`'
+                    : 'Call the `docs-search` tool',
                 business_knowledge_search: opts.businessKnowledgeSearchEnabled
-                    ? "- First, call `business-knowledge-documents-search` with a short, broad query based on the user's topic. If `business-knowledge-document-window-retrieve` is also available, use it when a result needs more context."
+                    ? businessKnowledgeSearchLine(opts.execSyntax)
                     : '',
             }),
         ]
@@ -177,7 +193,7 @@ export class InstructionsFormatter {
             businessKnowledgeSearchEnabled?: boolean
         } = {}
     ): string {
-        const knowledgeSections = this.knowledgeFirstSectionsForCapabilities(opts)
+        const knowledgeSections = this.knowledgeFirstSectionsForCapabilities({ ...opts, execSyntax: true })
         const hasMandate = opts.skillsEnabled || knowledgeSections.length > 0
         return [
             ...(opts.skillsEnabled ? [SKILLS_FIRST] : []),
