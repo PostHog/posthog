@@ -40,8 +40,7 @@ POOLS = {
         },
     },
     "flags-cache-jumphost": {
-        # Golden-chart deployment in the per-app namespace, in every environment
-        # (PostHog/charts#14843).
+        # Golden-chart deployment in the per-app namespace, in every environment.
         "default_namespace": "flags-cache-jumphost",
         "app_label": "flags-cache-jumphost",
         "claimed_label_key": "flags-jumphost-claimed",
@@ -131,8 +130,7 @@ def main():
         # namespaces also host other workloads that share that label (e.g. the
         # golden chart deploys a per-app pgbouncer under the same name in the
         # `posthog-toolbox-django` namespace), so we may need a further
-        # discriminator to pick only the main pool pods. Resolved after the
-        # context, because the namespace can depend on the chosen environment.
+        # discriminator to pick only the main pool pods.
         extra_selector = pool.get("extra_selectors_by_namespace", {}).get(namespace)
 
         print(f"🛠️  Connecting to {args.pool} pool in namespace {namespace}...")  # noqa: T201
