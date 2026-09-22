@@ -40,6 +40,8 @@ import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
 import { calculateMovePath } from './utils'
 
 interface ProjectTreeBaseProps {
+    layout?: 'panel' | 'inline'
+    showShortcutHelp?: boolean
     logicKey?: string // key override?
     root?: string
     showRecents?: boolean // whether to show recents in the tree
@@ -186,7 +188,11 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
     }
 
     if (fullFileSystemFiltered.length <= 5) {
-        if (root === 'shortcuts://' && (fullFileSystemFiltered.length === 0 || !shortcutHelperDismissed)) {
+        if (
+            props.showShortcutHelp !== false &&
+            root === 'shortcuts://' &&
+            (fullFileSystemFiltered.length === 0 || !shortcutHelperDismissed)
+        ) {
             treeData.push({
                 id: 'products/shortcuts-helper-category',
                 name: 'Starred items',
@@ -620,6 +626,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
     return (
         <PanelLayoutPanel
             panelName={props.panelName}
+            layout={props.layout}
             searchField={
                 <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
                     <TreeSearchField

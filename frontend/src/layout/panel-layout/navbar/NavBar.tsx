@@ -7,7 +7,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { Suspense, useEffect, useRef } from 'react'
 
-import { IconApps, IconChat, IconChevronRight } from '@posthog/icons'
+import { IconApps, IconChat, IconChevronRight, IconFolderOpen } from '@posthog/icons'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -15,7 +15,6 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { Label } from 'lib/ui/Label/Label'
@@ -28,7 +27,6 @@ import {
     NavExperimentTab,
     PANEL_NAVBAR_COLLAPSE_THRESHOLD,
     PANEL_NAVBAR_DEFAULT_WIDTH,
-    PanelLayoutNavIdentifier,
     panelLayoutLogic,
 } from '~/layout/panel-layout/panelLayoutLogic'
 import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
@@ -37,12 +35,12 @@ import { NavSearchBar, NavSearchButton } from '../../../lib/components/NavSearch
 import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
 import { NavBarFooter } from './NavBarFooter'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
-import { FlatNavBrowse } from './tabs/flat-nav/FlatNavBrowse'
-import { NavTabBrowse } from './tabs/NavTabBrowse'
+import { NavTabApps } from './tabs/NavTabApps'
+import { NavTabFiles } from './tabs/NavTabFiles'
 const NavTabChat = lazyWithRetry(() => import('./tabs/NavTabChat').then((m) => ({ default: m.NavTabChat })))
 
 const navBarStyles = cva({
-    base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r lg:border-r-transparent',
+    base: '@container/sidebar flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r lg:border-r-transparent',
     variants: {
         isLayoutNavCollapsed: {
             true: 'w-[var(--project-navbar-width-collapsed)]',
@@ -98,8 +96,10 @@ export function PanelIndicatorIcon(): JSX.Element | null {
     )
 }
 
+// The Apps tab keeps the persisted tab ID and analytics identifiers used by Browse.
 const TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] = [
-    { id: 'home', label: 'Browse', icon: <IconApps /> },
+    { id: 'home', label: 'Apps', icon: <IconApps /> },
+    { id: 'files', label: 'Files', icon: <IconFolderOpen /> },
     { id: 'chat', label: 'Chat', icon: <IconChat className="text-ai" /> },
 ]
 
@@ -108,22 +108,15 @@ export function NavBar(): JSX.Element {
     const {
         toggleLayoutNavCollapsed,
         setNavExperimentTab,
-        setActivePanelIdentifier,
         showLayoutPanel,
         clearActivePanelIdentifier,
         setNavbarWidth,
     } = useActions(panelLayoutLogic)
-    const {
-        isLayoutPanelVisible,
-        isLayoutNavCollapsed,
-        navExperimentActiveTab,
-        activePanelIdentifier,
-        visitedNavTabs,
-    } = useValues(panelLayoutLogic)
+    const { isLayoutPanelVisible, isLayoutNavCollapsed, navExperimentActiveTab, visitedNavTabs } =
+        useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { toggleCommand } = useActions(commandLogic)
     const { sidebarDensity } = useValues(uiCustomizationLogic)
-    const isFlatNavEnabled = useFeatureFlag('FLAT_NAV', 'test')
 
     const resizerLogicProps: ResizerLogicProps = {
         logicKey: 'panel-layout-navbar',
@@ -154,16 +147,6 @@ export function NavBar(): JSX.Element {
         callback: toggleLayoutNavCollapsed,
     })
 
-    function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
-        if (activePanelIdentifier !== item) {
-            setActivePanelIdentifier(item)
-            showLayoutPanel(true)
-        } else {
-            clearActivePanelIdentifier()
-            showLayoutPanel(false)
-        }
-    }
-
     return (
         <div className="flex gap-0 relative">
             <nav
@@ -192,43 +175,6 @@ export function NavBar(): JSX.Element {
 
                         {/* Collapsed nav has no room for the search bar, so it keeps the icon-only trigger */}
                         {isLayoutNavCollapsed && <NavSearchButton toggleCommand={toggleCommand} />}
-
-                        {isLayoutNavCollapsed && (
-                            <ButtonPrimitive
-                                className="group w-full justify-center"
-                                data-attr="nav-tab-chat-collapsed"
-                                iconOnly
-                                tooltip="Chat"
-                                tooltipPlacement="right"
-                                active={activePanelIdentifier === 'Chat'}
-                                onClick={() => {
-                                    const isOpening = activePanelIdentifier !== 'Chat'
-                                    posthog.capture('nav chat panel toggled', {
-                                        is_open: isOpening,
-                                    })
-                                    handlePanelTriggerClick('Chat')
-                                    if (isOpening) {
-                                        router.actions.push(urls.ai())
-                                    }
-                                }}
-                            >
-                                <span
-                                    className={cn(
-                                        'relative flex size-4 text-secondary group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all duration-50',
-                                        activePanelIdentifier === 'Chat' && 'text-primary opacity-100'
-                                    )}
-                                >
-                                    <IconChat
-                                        className={cn(
-                                            'text-secondary group-hover:text-ai',
-                                            activePanelIdentifier === 'Chat' && 'text-primary'
-                                        )}
-                                    />
-
-                                    <PanelIndicatorIcon />
-                                </span>
-                            </ButtonPrimitive>
-                        )}
                     </div>
                 </div>
 
@@ -240,27 +186,49 @@ export function NavBar(): JSX.Element {
 
                 <Tabs.Root
                     className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-hidden"
-                    value={isLayoutNavCollapsed && navExperimentActiveTab === 'chat' ? 'home' : navExperimentActiveTab}
+                    value={navExperimentActiveTab}
                     onValueChange={(value) => {
                         posthog.capture('nav tab clicked', { tab: value })
                         setNavExperimentTab(value as NavExperimentTab)
+                        clearActivePanelIdentifier()
+                        showLayoutPanel(false)
+                        if (isLayoutNavCollapsed) {
+                            toggleLayoutNavCollapsed(false)
+                        }
                         if (value === 'chat') {
                             router.actions.push(urls.ai())
                         }
                     }}
                     orientation={isLayoutNavCollapsed ? 'vertical' : 'horizontal'}
                 >
-                    <div className={cn('p-1', isLayoutNavCollapsed && 'hidden')}>
-                        <Tabs.List className="relative flex items-center gap-1 shrink-0 z-0 p-1 rounded-lg bg-(--color-bg-fill-highlight-50) dark:bg-surface-primary">
+                    <div className="p-1">
+                        <Tabs.List
+                            className={cn(
+                                'relative flex items-center gap-1 shrink-0 z-0 p-1 rounded-lg bg-(--color-bg-fill-highlight-50) dark:bg-surface-primary',
+                                isLayoutNavCollapsed && 'flex-col'
+                            )}
+                        >
                             {TAB_CONFIG.map((tab) => (
                                 <Tabs.Tab
                                     key={tab.id}
                                     value={tab.id}
+                                    onClick={() => {
+                                        if (isLayoutNavCollapsed) {
+                                            toggleLayoutNavCollapsed(false)
+                                        }
+                                    }}
                                     render={(props) => (
                                         <ButtonPrimitive
                                             {...props}
-                                            className="group data-[composite-item-active]:bg-surface-tertiary w-1/2 justify-center"
-                                            data-attr={`nav-tab-${tab.id}`}
+                                            className="group data-[composite-item-active]:bg-surface-tertiary flex-1 min-w-0 justify-center"
+                                            iconOnly={isLayoutNavCollapsed}
+                                            tooltip={tab.label}
+                                            aria-label={tab.label}
+                                            data-attr={
+                                                isLayoutNavCollapsed && tab.id === 'chat'
+                                                    ? 'nav-tab-chat-collapsed'
+                                                    : `nav-tab-${tab.id}`
+                                            }
                                         >
                                             <span
                                                 className={cn(
@@ -272,16 +240,18 @@ export function NavBar(): JSX.Element {
                                             >
                                                 {tab.icon}
                                             </span>
-                                            <span
-                                                className={cn(
-                                                    'text-xs',
-                                                    navExperimentActiveTab === tab.id
-                                                        ? 'text-primary'
-                                                        : 'text-secondary group-hover:text-primary'
-                                                )}
-                                            >
-                                                {tab.label}
-                                            </span>
+                                            {!isLayoutNavCollapsed && (
+                                                <span
+                                                    className={cn(
+                                                        'text-xs @max-[200px]/sidebar:hidden',
+                                                        navExperimentActiveTab === tab.id
+                                                            ? 'text-primary'
+                                                            : 'text-secondary group-hover:text-primary'
+                                                    )}
+                                                >
+                                                    {tab.label}
+                                                </span>
+                                            )}
                                         </ButtonPrimitive>
                                     )}
                                 />
@@ -289,10 +259,20 @@ export function NavBar(): JSX.Element {
                         </Tabs.List>
                     </div>
 
-                    <div className="flex-1 overflow-hidden relative">
+                    <div className={cn('flex-1 overflow-hidden relative', isLayoutNavCollapsed && '[&>*]:hidden')}>
                         <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted tabIndex={-1}>
-                            {isFlatNavEnabled ? <FlatNavBrowse /> : <NavTabBrowse />}
+                            <NavTabApps />
                         </Tabs.Panel>
+                        {visitedNavTabs.includes('files') && (
+                            <Tabs.Panel
+                                value="files"
+                                className="absolute inset-0 flex flex-col"
+                                keepMounted
+                                tabIndex={-1}
+                            >
+                                <NavTabFiles />
+                            </Tabs.Panel>
+                        )}
                         {/* Lazy until first activated: the visited list only ever grows, so once
                             mounted the panel never unmounts — keepMounted then preserves it across
                             tab switches. Users who never open chat never pay for its chunk. */}

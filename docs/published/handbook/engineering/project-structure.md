@@ -47,6 +47,13 @@ The PostHog web application, built with React and TypeScript. Uses [Kea](https:/
 - `src/queries` – Query builder and data visualization components
 - `src/toolbar` – Code for the [PostHog Toolbar](https://posthog.com/docs/user-guides/toolbar)
 
+The sidebar lives in `src/layout/panel-layout/navbar`.
+Apps lists all available product and data pages from the product manifests, with feature flags and access controls applied.
+Users can star apps and saved files for quick access; starred items use the existing project shortcuts.
+Files contains the project file tree, including search, filtering, sorting, folders, and recent items.
+Chat keeps the conversation list in its own tab.
+Add navigation destinations to the product manifest so they appear in Apps automatically.
+
 ### `posthog`
 
 The Django backend application. Key subdirectories:
