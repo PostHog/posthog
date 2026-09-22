@@ -84,6 +84,25 @@ class TestContextToolRuntime(NonAtomicBaseTest):
             **kwargs,
         )
 
+    def test_ensure_loaded_surfaces_unavailable_refs_without_any_dispatch(self) -> None:
+        # A ref that's already unavailable at load time (deleted, here) must show up as failed in
+        # `statuses` even when the model never calls a tool — ensure_loaded runs the lazy load on
+        # its own so a subscription with an entirely stale selection doesn't silently report nothing.
+        deleted = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Deleted",
+            query=_trends_query("deleted event"),
+            deleted=True,
+        )
+        runtime = self._runtime(insight_ids=(deleted.id,))
+
+        async_to_sync(runtime.ensure_loaded)()
+
+        statuses = {insight.id: insight.status for insight in runtime.statuses.insights}
+        assert statuses == {deleted.id: "failed"}
+        assert runtime.fetched_refs == ()
+
     def test_fetch_insight_outside_selection_is_refused(self) -> None:
         attached = Insight.objects.create(
             team=self.team, created_by=self.user, name="Attached", query=_trends_query("attached event")

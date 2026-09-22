@@ -32,7 +32,7 @@ from products.exports.backend.models.subscription import (
     get_unsubscribe_token,
 )
 from products.exports.backend.models.subscription_context import ReportContextSelection, SubscriptionContext
-from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import resolve_report_context
+from products.exports.backend.temporal.subscriptions.ai_subscription.context_tools import ContextToolRuntime
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
     generate_ai_report,
@@ -262,7 +262,14 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
             "AI subscription creator is unavailable or no longer has required project or query access; cannot deliver."
         )
 
-    report_context = await resolve_report_context(subscription, context.context_selection)
+    context_tools = ContextToolRuntime(
+        subscription_id=subscription.id,
+        team=context.team,
+        user=context.user,
+        selection=context.context_selection,
+    )
+    if context_tools.has_selection:
+        await context_tools.ensure_loaded()
 
     creator_still_can_query = await database_sync_to_async(creator_can_query, thread_sensitive=False)(
         user=context.user, team=context.team
@@ -279,7 +286,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
         prompt=context.prompt,
         window=context.window,
         ai_query_plan=context.ai_query_plan,
-        report_context=report_context,
+        context_tools=context_tools,
         trace_correlation_id=subscription.id,
         include_charts=include_images,
         include_manage_link=subscription.includes_delivery_part("include_manage_link"),

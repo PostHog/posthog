@@ -37,9 +37,8 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.charts impo
 from products.exports.backend.temporal.subscriptions.ai_subscription.context_tools import (
     AiReportContext,
     AiReportContexts,
-    AiReportDashboardContext,
-    AiReportInsightContext,
     ContextToolRuntime,
+    ReportContextSchema,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
     AI_SUBSCRIPTION_SYNTHESIS_PROMPT,
@@ -49,10 +48,6 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     prepend_hogql_query_writing_rules,
     render_prompt,
     resolve_prompt,
-)
-from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
-    ReportContextEvidence,
-    ReportContextSchema,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
     MAX_CHART_TITLE_LENGTH,
@@ -68,6 +63,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     AI_QUERY_PLAN_VERSION,
     DEFAULT_PLANNER_MODEL,
     DEFAULT_SYNTHESIS_MODEL,
+    RELEVANT_EVENTS_LIMIT,
     WINDOW_PLACEHOLDERS,
     PromptRejectedError,
     ReportWindow,
@@ -228,35 +224,6 @@ class PlanExecution:
     charts: list[ValidatedChart]
 
 
-def compact_report_context(evidence: ReportContextEvidence) -> AiReportContexts:
-    return AiReportContexts(
-        dashboards=tuple(
-            AiReportDashboardContext(
-                id=dashboard.id,
-                name=dashboard.name,
-                status=dashboard.status,
-                insights=tuple(
-                    AiReportInsightContext(
-                        id=insight.id,
-                        name=insight.name,
-                        status=insight.status,
-                    )
-                    for insight in dashboard.insights
-                ),
-            )
-            for dashboard in evidence.dashboards
-        ),
-        insights=tuple(
-            AiReportInsightContext(
-                id=insight.id,
-                name=insight.name,
-                status=insight.status,
-            )
-            for insight in evidence.insights
-        ),
-    )
-
-
 @frozen
 class AiReportResult:
     markdown: str
@@ -275,9 +242,6 @@ class AiReportResult:
     query_plan_status: AIQueryPlanStatus = AIQueryPlanStatus.NOT_FROZEN
 
 
-EMPTY_AI_REPORT_CONTEXTS = AiReportContexts()
-
-
 async def generate_ai_report(
     *,
     team: Team,
@@ -285,17 +249,14 @@ async def generate_ai_report(
     prompt: Optional[str],
     window: ReportWindow,
     ai_query_plan: dict | None = None,
-    report_context: ReportContextEvidence | None = None,
+    context_tools: ContextToolRuntime | None = None,
     trace_correlation_id: Optional[Union[int, str]] = None,
     include_charts: bool = True,
     include_manage_link: bool = True,
 ) -> AiReportResult:
     if user is None:
         raise PromptRejectedError("AI report must have a user to run.")
-    compact_contexts = (
-        compact_report_context(report_context) if report_context is not None else EMPTY_AI_REPORT_CONTEXTS
-    )
-    has_successful_context = report_context.has_successful_evidence if report_context is not None else False
+    has_selected_context = context_tools is not None and context_tools.has_selection
 
     initial_query_plan_status = get_ai_query_plan_status(ai_query_plan)
 
@@ -311,8 +272,7 @@ async def generate_ai_report(
     ) as slo:
         try:
             # A stored plan that no longer validates self-heals by re-planning live.
-            has_selected_context = compact_contexts.has_selection
-            if ai_query_plan is not None and not has_selected_context:
+            if ai_query_plan is not None:
                 try:
                     spec = await _spec_from_frozen_plan(
                         team=team,
@@ -333,9 +293,10 @@ async def generate_ai_report(
                         prompt=prompt,
                         window=window,
                         trace_id=trace_correlation_id,
-                        runtime=None,
+                        runtime=context_tools,
                     )
                     freshly_planned = True
+                    spec = _spec_with_fetched_events(spec, context_tools)
             else:
                 spec = await _plan(
                     team=team,
@@ -343,9 +304,10 @@ async def generate_ai_report(
                     prompt=prompt,
                     window=window,
                     trace_id=trace_correlation_id,
-                    runtime=None,
+                    runtime=context_tools,
                 )
                 freshly_planned = True
+                spec = _spec_with_fetched_events(spec, context_tools)
             # A report that will not show its charts must not build or render them: each render is a
             # headless PNG export holding a slot in a pool every concurrent report shares.
             charts_enabled_for_team = include_charts and await database_sync_to_async(
@@ -358,7 +320,7 @@ async def generate_ai_report(
                 window,
                 trace_correlation_id,
                 charts_enabled_for_team=charts_enabled_for_team,
-                context_schema=report_context.schema if report_context is not None else ReportContextSchema(),
+                context_schema=context_tools.schema_snapshot if context_tools is not None else ReportContextSchema(),
             )
             failed_count, diagnostics, charts = execution.failed_count, execution.diagnostics, execution.charts
             chart_spec_failures = sum(
@@ -374,7 +336,7 @@ async def generate_ai_report(
                     selected=len(selected),
                 )
             synthesis_task = asyncio.ensure_future(
-                _synthesize(spec, execution.rendered, team, user, trace_correlation_id, runtime=None)
+                _synthesize(spec, execution.rendered, team, user, trace_correlation_id, runtime=context_tools)
             )
             render_task = asyncio.ensure_future(render_charts(selected, team=team, user=user))
             try:
@@ -402,20 +364,25 @@ async def generate_ai_report(
                 )
         # A degraded report (a step failed but synthesis still shipped) is an SLO success, tagged so the
         # coverage signal survives. A raised stage error is recorded as a failure by slo_operation itself.
+        statuses = context_tools.statuses if context_tools is not None else AiReportContexts()
         context_statuses = [
-            *(dashboard.status for dashboard in compact_contexts.dashboards),
-            *(insight.status for insight in compact_contexts.insights),
+            *(dashboard.status for dashboard in statuses.dashboards),
+            *(insight.status for insight in statuses.insights),
         ]
         failed_contexts = sum(status == "failed" for status in context_statuses)
-        truncated_contexts = sum(status == "truncated" for status in context_statuses)
+        has_usable_context = context_tools.has_usable_context if context_tools is not None else False
         slo.tag(
             total_steps=total_steps,
             failed_steps=failed_count,
             query_coverage=(total_steps - failed_count) / total_steps if total_steps else 1.0,
-            degraded=bool(failed_count or failed_contexts or truncated_contexts),
+            degraded=bool(failed_count or failed_contexts),
             selected_contexts=len(context_statuses),
             failed_contexts=failed_contexts,
-            truncated_contexts=truncated_contexts,
+            # No status the runtime produces is "truncated" (a single tool result's own truncation
+            # doesn't fail the fetch) — kept at 0 rather than removed so the dashboard built on this
+            # tag doesn't lose the field.
+            truncated_contexts=0,
+            context_fetches=len(context_tools.fetched_refs) if context_tools is not None else 0,
             charts_requested=len(charts),
             charts_rendered=len(rendered_charts),
             chart_failures=len(chart_failures),
@@ -431,16 +398,16 @@ async def generate_ai_report(
             )
         if dropped and rendered_charts:
             report = report + _charts_truncated_footnote(len(rendered_charts), len(charts))
-        if total_steps and failed_count == total_steps and not has_successful_context:
+        if total_steps and failed_count == total_steps and not has_usable_context:
             # Every query failed, so the body is all "could not be computed" placeholders. Lead with a
             # deterministic notice (not left to the synthesis LLM) so the recipient gets a clear signal
             # instead of a confident-looking but empty report.
             report = _all_queries_failed_notice(total_steps, include_manage_link=include_manage_link) + report
-        if has_selected_context and not has_successful_context:
+        if has_selected_context and not has_usable_context:
             report = _all_contexts_failed_notice() + report
         plan_to_persist = _plan_to_freeze(
             spec.plan,
-            freshly_planned=freshly_planned and not has_selected_context,
+            freshly_planned=freshly_planned,
             failed_count=failed_count,
             total_steps=total_steps,
             relevant_events=spec.relevant_events,
@@ -459,9 +426,9 @@ async def generate_ai_report(
             prompt=prompt,
             plan_to_persist=plan_to_persist,
             charts=tuple(rendered_charts),
-            context=AiReportContext(contexts=compact_contexts),
-            authorized_context_refs=report_context.authorized_context_refs if report_context is not None else (),
-            has_usable_context=has_successful_context,
+            context=AiReportContext(contexts=statuses),
+            authorized_context_refs=context_tools.fetched_refs if context_tools is not None else (),
+            has_usable_context=has_usable_context,
             query_plan_status=query_plan_status,
         )
 
@@ -554,6 +521,19 @@ async def _plan(
         raise
     except Exception as exc:
         raise AiReportStageError(ReportStage.PLANNER, exc) from exc
+
+
+def _spec_with_fetched_events(spec: EnrichedPromptSpec, context_tools: ContextToolRuntime | None) -> EnrichedPromptSpec:
+    # A fresh plan's relevant_events is set before the planner's tool loop runs, so it can't include
+    # events from context fetched during planning. Folding them in here — before the spec is frozen
+    # or handed to synthesis — keeps a reused frozen plan's rebuilt context_blob property-aware
+    # instead of schema-blind for any saved-query event the prompt itself never named.
+    if context_tools is None or not context_tools.relevant_events:
+        return spec
+    merged_events = list(dict.fromkeys((*spec.relevant_events, *context_tools.relevant_events)))
+    return spec.model_copy(
+        update={"relevant_events": merged_events[: max(RELEVANT_EVENTS_LIMIT, len(spec.relevant_events))]}
+    )
 
 
 async def _spec_from_frozen_plan(
@@ -879,7 +859,6 @@ async def _arequest_hogql_fix(
 __all__ = [
     "generate_ai_report",
     "AiReportResult",
-    "compact_report_context",
     "QueryStepDiagnostic",
     "AiReportStageError",
     "ReportStage",

@@ -36,7 +36,6 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import ReportContextEvidence
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PromptRejectedError,
@@ -918,8 +917,11 @@ class TestFreezePlanPersistence:
         )
 
     @staticmethod
-    def _empty_evidence() -> ReportContextEvidence:
-        return ReportContextEvidence(dashboards=(), insights=())
+    def _stub_context_tools() -> MagicMock:
+        # build_ai_subscription_report only reads `has_selection` off the runtime it constructs
+        # before deciding whether to call `ensure_loaded()`; generation itself is mocked in these
+        # tests, so a bare selection-less stub is all the freeze-persistence contract needs.
+        return MagicMock(has_selection=False)
 
     @parameterized.expand(
         [
@@ -938,7 +940,7 @@ class TestFreezePlanPersistence:
         }
         with (
             patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
-            patch(f"{_DELIVERY}.resolve_report_context", new=AsyncMock(return_value=self._empty_evidence())),
+            patch(f"{_DELIVERY}.ContextToolRuntime", return_value=self._stub_context_tools()),
             patch(
                 f"{_DELIVERY}.generate_ai_report",
                 new=AsyncMock(
@@ -978,7 +980,7 @@ class TestFreezePlanPersistence:
         )
         with (
             patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
-            patch(f"{_DELIVERY}.resolve_report_context", new=AsyncMock(return_value=self._empty_evidence())),
+            patch(f"{_DELIVERY}.ContextToolRuntime", return_value=self._stub_context_tools()),
             patch(f"{_DELIVERY}.generate_ai_report", new=AsyncMock(return_value=result)),
             patch(f"{_DELIVERY}._persist_ai_query_plan", side_effect=Exception("db blip")),
             patch(f"{_DELIVERY}.capture_exception") as mock_capture,
@@ -1013,7 +1015,7 @@ class TestFreezePlanPersistence:
         sub = self._subscription(ai_query_plan=frozen)
         with (
             patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)) as mock_ctx,
-            patch(f"{_DELIVERY}.resolve_report_context", new=AsyncMock(return_value=self._empty_evidence())),
+            patch(f"{_DELIVERY}.ContextToolRuntime", return_value=self._stub_context_tools()),
             patch(
                 f"{_DELIVERY}.generate_ai_report",
                 new=AsyncMock(
@@ -1045,23 +1047,20 @@ class TestFreezePlanPersistence:
                 f"{_DELIVERY}._resolve_subscription_context",
                 return_value=self._context(sub, creator_can_query=False),
             ),
-            patch(f"{_DELIVERY}.resolve_report_context", new=AsyncMock()) as resolve_context,
+            patch(f"{_DELIVERY}.ContextToolRuntime") as mock_runtime_cls,
             patch(f"{_DELIVERY}.generate_ai_report", new=AsyncMock()) as generate,
             pytest.raises(PromptRejectedError, match="query access"),
         ):
             await build_ai_subscription_report(sub)
 
-        resolve_context.assert_not_awaited()
+        mock_runtime_cls.assert_not_called()
         generate.assert_not_awaited()
 
     async def test_query_access_revoked_after_context_resolution_blocks_planner_work(self) -> None:
         sub = self._subscription(ai_query_plan=None)
         with (
             patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
-            patch(
-                f"{_DELIVERY}.resolve_report_context",
-                new=AsyncMock(return_value=self._empty_evidence()),
-            ),
+            patch(f"{_DELIVERY}.ContextToolRuntime", return_value=self._stub_context_tools()),
             patch(f"{_DELIVERY}.creator_can_query", return_value=False),
             patch(
                 f"{_DELIVERY}.generate_ai_report",

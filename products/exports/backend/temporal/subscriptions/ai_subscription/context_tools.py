@@ -212,12 +212,18 @@ class ContextToolRuntime:
         self._insight_fetch_status: dict[_RegistrationKey, ReportContextStatus] = {}
         self._schema_parts: list[str] = []
 
-    async def dispatch(self, tool_name: str, args: dict[str, Any]) -> str:
+    async def ensure_loaded(self) -> None:
+        # Runs the lazy load exactly once with no fetches, so a selected ref that is already
+        # unavailable (deleted, revoked access) surfaces in `statuses` even if the model never
+        # calls a tool.
         if not self._loaded:
             async with self._load_lock:
                 if not self._loaded:
                     await database_sync_to_async(self._load, thread_sensitive=False)()
                     self._loaded = True
+
+    async def dispatch(self, tool_name: str, args: dict[str, Any]) -> str:
+        await self.ensure_loaded()
 
         if self._load_error:
             result = json.dumps(_CONTEXT_UNAVAILABLE_ERROR)
