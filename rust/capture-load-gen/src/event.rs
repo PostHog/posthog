@@ -112,16 +112,16 @@ impl EventFactory {
         if roll < share {
             // Fixed pairs bound a person to two pool users. Only the even user
             // merges, so the pair has one survivor on every backend.
-            return match (index % 2 == 0)
-                .then(|| self.distinct_ids.get(index + 1))
-                .flatten()
-            {
-                Some(partner) => Self::dangerous_merge_event(base, partner),
-                None => RawEvent {
+            let pairs = self.distinct_ids.len() / 2;
+            if pairs == 0 {
+                return RawEvent {
                     event: self.random_event_name(rng),
                     ..base
-                },
-            };
+                };
+            }
+            let even = 2 * rng.gen_range(0..pairs);
+            let sender = self.base_event(&self.distinct_ids[even]);
+            return Self::dangerous_merge_event(sender, &self.distinct_ids[even + 1]);
         }
         let event = self.random_event_name(rng);
         share += u16::from(self.mix.person_updates);
@@ -392,15 +392,14 @@ mod tests {
         let plain = batch.len() - attaches - seeds - dangerous - updates;
 
         // Percentages are drawn per event; allow ±5 points on 2000 samples.
-        // Odd users drawn for a dangerous merge send a plain event instead.
         assert!((attaches as i64 - 400).abs() < 100, "attaches: {attaches}");
         assert!((seeds as i64 - 200).abs() < 100, "seeds: {seeds}");
         assert!(
-            (dangerous as i64 - 100).abs() < 100,
+            (dangerous as i64 - 200).abs() < 100,
             "dangerous: {dangerous}"
         );
         assert!((updates as i64 - 600).abs() < 100, "updates: {updates}");
-        assert!((plain as i64 - 700).abs() < 100, "plain: {plain}");
+        assert!((plain as i64 - 600).abs() < 100, "plain: {plain}");
     }
 
     #[test]
@@ -497,23 +496,15 @@ mod tests {
                 .unwrap()
         };
 
-        let batch = f.batch(200, &mut rng);
-        let merges = batch.iter().filter(|e| e.event == "$merge_dangerously");
-        let mut seen = 0;
-        for event in merges {
-            let sender = index(distinct_id(event));
+        for event in f.batch(200, &mut rng) {
+            assert_eq!(event.event, "$merge_dangerously");
+            let sender = index(distinct_id(&event));
             assert_eq!(sender % 2, 0, "only the even user of a pair merges");
             assert_eq!(
                 index(event.properties["alias"].as_str().unwrap()),
                 sender + 1
             );
-            seen += 1;
         }
-        assert!(seen > 0);
-        assert!(batch
-            .iter()
-            .filter(|e| index(distinct_id(e)) % 2 == 1)
-            .all(|e| e.event != "$merge_dangerously"));
     }
 
     #[test]
