@@ -674,7 +674,7 @@ A trends chart and a graph built from SQL, as they arrive in `charts`:
       "kind": "DataVisualizationNode",
       "source": {{"kind": "HogQLQuery", "query": "SELECT toDate(timestamp) AS day, exception_type, count() AS occurrences FROM ... GROUP BY day, exception_type ORDER BY day"}},
       "display": "ActionsLineGraph",
-      "chartSettings": {{"xAxis": {{"column": "day"}}, "yAxis": [{{"column": "occurrences"}}], "seriesBreakdownColumn": "exception_type"}}
+      "chartSettings": {{"xAxis": {{"column": "day"}}, "yAxis": [{{"column": "occurrences"}}], "seriesBreakdownColumn": "exception_type", "showLegend": true}}
     }}
   }}
 ]

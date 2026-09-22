@@ -365,7 +365,8 @@ A trends chart and a graph built from SQL, as they arrive in `charts`:
       "chartSettings": {
         "xAxis": { "column": "day" },
         "yAxis": [{ "column": "occurrences" }],
-        "seriesBreakdownColumn": "exception_type"
+        "seriesBreakdownColumn": "exception_type",
+        "showLegend": true
       }
     }
   }
