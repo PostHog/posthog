@@ -4,6 +4,7 @@ from posthog.test.base import BaseTest
 
 from posthog.api.advanced_activity_logs.fields_cache import _get_cache_key, get_client
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.user import User
 
 from .field_discovery import AdvancedActivityLogFieldDiscovery
 
@@ -110,3 +111,45 @@ class FieldDiscoveryTest(BaseTest):
                 self._create_activity_log("Dashboard", detail)
                 results = self._run_field_discovery()
                 self._assert_field_discovered(results, "Dashboard", field_pattern, expected_types)
+
+    def test_static_filters_dedupe_in_sql_under_the_viewset_ordering(self):
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
+        ActivityLog.objects.filter(organization_id=self.organization.id).delete()
+
+        for user in (self.user, other_user):
+            for scope in ("Dashboard", "Insight"):
+                ActivityLog.objects.create(
+                    organization_id=self.organization.id,
+                    team_id=self.team.id,
+                    user=user,
+                    scope=scope,
+                    activity="updated",
+                    item_id="test-item",
+                    detail={},
+                    client="posthog-web",
+                )
+        ActivityLog.objects.create(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=None,
+            scope="Dashboard",
+            activity="deleted",
+            item_id="test-item",
+            detail={},
+        )
+
+        queryset = (
+            ActivityLog.objects.filter(organization_id=self.organization.id)
+            .select_related("user")
+            .order_by("-created_at", "-id")
+        )
+        filters = self.discovery._get_static_filters(queryset)
+
+        # One entry per distinct value, not one per activity log row
+        self.assertEqual([entry["value"] for entry in filters["scopes"]], ["Dashboard", "Insight"])
+        self.assertEqual([entry["value"] for entry in filters["activities"]], ["deleted", "updated"])
+        self.assertEqual([entry["value"] for entry in filters["clients"]], ["posthog-web"])
+        self.assertEqual(
+            sorted(entry["value"] for entry in filters["users"]),
+            sorted([str(self.user.uuid), str(other_user.uuid)]),
+        )
