@@ -316,12 +316,6 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
     description = serializers.CharField(
         help_text="The emitted finding prose — the signal's `description` as surfaced to the inbox.",
     )
-    confidence = serializers.FloatField(
-        min_value=0.0,
-        max_value=1.0,
-        allow_null=True,
-        help_text="Deprecated and no longer set on new findings. Null unless the run supplied one.",
-    )
     severity = serializers.ChoiceField(
         choices=[(p.value, p.value) for p in Priority],
         allow_null=True,
@@ -343,7 +337,6 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
             "run_id",
             "finding_id",
             "description",
-            "confidence",
             "severity",
             "tags",
             "source_id",
@@ -1313,13 +1306,6 @@ class EmitFindingRequestSerializer(serializers.Serializer):
     description = serializers.CharField(
         max_length=MAX_FINDING_DESCRIPTION_LENGTH,
         help_text="Canonical evidence-bundle prose. Becomes the signal's `description`.",
-    )
-    confidence = serializers.FloatField(
-        min_value=0.0,
-        max_value=1.0,
-        required=False,
-        allow_null=True,
-        help_text="Deprecated and ignored. Nothing reads it; omit it. Still range-checked when supplied.",
     )
     evidence = serializers.ListField(
         child=EvidenceEntrySerializer(),
