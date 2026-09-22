@@ -592,3 +592,30 @@ class TestPlanGatedEndpoints:
                 )
             )
         logger.warning.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "endpoint,wrong_status",
+        [
+            # teams is plan-gated at 402, not 404; priorities is plan-gated at 404, not 402. The
+            # gated status is endpoint-specific, so the other status on that same endpoint is a
+            # genuine failure and must still raise rather than being read as "plan lacks it".
+            ("teams", 404),
+            ("priorities", 402),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_plan_gated_endpoint_fails_on_the_other_endpoints_gated_status(
+        self, MockSession, endpoint: str, wrong_status: int
+    ) -> None:
+        session = MockSession.return_value
+        path = PAGERDUTY_ENDPOINTS[endpoint].path
+        _wire(session, [_error_response(wrong_status, path=path)])
+        logger = mock.MagicMock()
+
+        with pytest.raises(HTTPError):
+            _rows(
+                pagerduty_source(
+                    "tok", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager(), logger=logger
+                )
+            )
+        logger.warning.assert_not_called()

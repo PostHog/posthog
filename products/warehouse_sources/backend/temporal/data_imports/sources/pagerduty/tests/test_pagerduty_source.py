@@ -67,6 +67,10 @@ class TestPagerDutySource:
             # The same statuses on a table no plan gates are real failures.
             ("incidents", 402, False),
             ("users", 404, False),
+            # Each gated table has one specific gated status; the other status on that same table
+            # is a genuine failure, not "plan lacks it".
+            ("teams", 404, False),
+            ("priorities", 402, False),
         ],
     )
     def test_validate_credentials_accepts_plan_gated_statuses(

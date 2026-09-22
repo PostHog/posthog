@@ -17,10 +17,15 @@ class PagerDutyEndpointConfig:
     # ascending watermark. Endpoints without a controllable sort stay full-refresh so the
     # cursor can't advance past unread rows.
     supports_since: bool = False
-    # Names the PagerDuty feature an account needs before this endpoint answers at all.
-    # Accounts whose plan lacks it get 402 (error code 2014, required abilities unavailable)
-    # or 404 on every request, so the table syncs zero rows instead of failing every run.
+    # Names the PagerDuty feature an account needs before this endpoint answers at all, and the
+    # single HTTP status that endpoint answers with when the plan lacks it (402 with error code
+    # 2014, "required abilities are unavailable", or 404). The two fields are set together: a
+    # config with a feature but no status is a mistake, not "accept anything". Kept endpoint-
+    # specific rather than a shared {402, 404} set, because the other status is a genuine failure
+    # on that endpoint (e.g. a 404 on /teams is a real missing resource, not a plan gate) and must
+    # still raise instead of being swallowed as an empty table.
     plan_gated_feature: Optional[str] = None
+    plan_gated_status: Optional[int] = None
 
 
 _CREATED_AT_INCREMENTAL: list[IncrementalField] = [
@@ -68,6 +73,7 @@ PAGERDUTY_ENDPOINTS: dict[str, PagerDutyEndpointConfig] = {
         # PagerDuty gates teams behind an account ability; accounts without it answer 402 with
         # error code 2014 on every /teams request.
         plan_gated_feature="teams",
+        plan_gated_status=402,
     ),
     "escalation_policies": PagerDutyEndpointConfig(
         path="/escalation_policies",
@@ -84,6 +90,7 @@ PAGERDUTY_ENDPOINTS: dict[str, PagerDutyEndpointConfig] = {
         # no path parameter, and an account that has the feature but no priority configured still
         # answers 200 with an empty list, so a 404 here can only mean the plan lacks the feature.
         plan_gated_feature="incident priorities",
+        plan_gated_status=404,
     ),
     "vendors": PagerDutyEndpointConfig(
         path="/vendors",

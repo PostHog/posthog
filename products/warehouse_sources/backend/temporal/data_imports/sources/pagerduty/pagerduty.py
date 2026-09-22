@@ -33,11 +33,10 @@ PAGE_SIZE = 100
 # on very large accounts.
 MAX_OFFSET = 10_000
 
-# Statuses PagerDuty answers for a feature the account's plan does not include: 402 with error code
-# 2014 ("required abilities are unavailable"), and 404 for a collection the plan does not expose at
-# all. Only consulted for endpoints that declare a `plan_gated_feature`, so a 404 from any other
-# endpoint still fails the sync as a genuine missing resource.
-PLAN_GATED_STATUSES = frozenset({402, 404})
+# The statuses PagerDuty answers for a feature the account's plan does not include: 402 with error
+# code 2014 ("required abilities are unavailable") for /teams, and 404 for /priorities. Each gated
+# endpoint's `PagerDutyEndpointConfig.plan_gated_status` says which one applies to it — the other
+# status on that same endpoint is a genuine failure and must still raise.
 
 
 @dataclasses.dataclass
@@ -140,12 +139,16 @@ def _non_secret_headers() -> dict[str, str]:
 
 
 def _skip_when_plan_gated(
-    items: Iterator[Any], endpoint: str, plan_gated_feature: str, logger: FilteringBoundLogger
+    items: Iterator[Any],
+    endpoint: str,
+    plan_gated_feature: str,
+    plan_gated_status: int,
+    logger: FilteringBoundLogger,
 ) -> Iterator[Any]:
     try:
         yield from items
     except HTTPError as err:
-        if err.response is None or err.response.status_code not in PLAN_GATED_STATUSES:
+        if err.response is None or err.response.status_code != plan_gated_status:
             raise
         logger.warning(
             f"Your PagerDuty plan does not include {plan_gated_feature}, so the {endpoint} table synced no rows. "
@@ -255,12 +258,13 @@ def pagerduty_source(
     )
 
     plan_gated_feature = config.plan_gated_feature
+    plan_gated_status = config.plan_gated_status
 
     def items() -> Iterator[Any]:
-        if plan_gated_feature is None:
+        if plan_gated_feature is None or plan_gated_status is None:
             yield from resource
             return
-        yield from _skip_when_plan_gated(iter(resource), endpoint, plan_gated_feature, logger)
+        yield from _skip_when_plan_gated(iter(resource), endpoint, plan_gated_feature, plan_gated_status, logger)
 
     return SourceResponse(
         name=endpoint,

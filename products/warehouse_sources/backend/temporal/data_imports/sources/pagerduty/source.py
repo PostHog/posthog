@@ -22,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     PagerDutySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pagerduty.pagerduty import (
-    PLAN_GATED_STATUSES,
     PagerDutyResumeConfig,
     pagerduty_source,
     validate_credentials as validate_pagerduty_credentials,
@@ -110,11 +109,16 @@ You can create a read-only API key in your PagerDuty account under **Integration
         if status == 403 and schema_name is None:
             return True, None
 
-        # A plan-gated endpoint answers 402 or 404 for every account whose plan lacks the feature.
-        # The sync already skips that table with a warning, so the credentials are fine and the
-        # schema settings must stay reachable.
+        # A plan-gated endpoint answers its declared status (402 for teams, 404 for priorities) for
+        # every account whose plan lacks the feature. The sync already skips that table with a
+        # warning, so the credentials are fine and the schema settings must stay reachable. Any
+        # other status on that same endpoint is a genuine failure and still falls through below.
         endpoint_config = PAGERDUTY_ENDPOINTS.get(schema_name) if schema_name else None
-        if endpoint_config is not None and endpoint_config.plan_gated_feature and status in PLAN_GATED_STATUSES:
+        if (
+            endpoint_config is not None
+            and endpoint_config.plan_gated_feature
+            and status == endpoint_config.plan_gated_status
+        ):
             return True, None
 
         return False, error
