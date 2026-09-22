@@ -3068,15 +3068,33 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
         assert self.organization.usage["signals_credits"]["usage"] == 0
         assert self.organization.usage["signals_credits"]["todays_usage"] == 0
 
+    @parameterized.expand(
+        [
+            ("active", "2026-07-01", "2026-07-01", "2026-07-01"),
+            ("active_earlier_expiry", "2026-06-16", "2026-06-16", "2026-06-16"),
+            ("expired", "2026-06-01", "2026-06-01", None),
+            ("expired_with_active_redis", "2026-06-01", "2026-07-01", "2026-07-01"),
+            ("redis_only", None, "2026-07-01", "2026-07-01"),
+        ]
+    )
     @time_machine.travel("2026-06-15T00:30:00Z", tick=False)
-    def test_failed_period_recount_preserves_existing_block(self) -> None:
+    def test_failed_period_recount_preserves_existing_block(
+        self, _name: str, persisted_expiry: str | None, redis_expiry: str, expected_expiry: str | None
+    ) -> None:
         self._set_self_driving_usage(0)
         assert self.organization.usage is not None
-        self.organization.usage["signals_credits"]["quota_limited_until"] = 1782864000
+        if persisted_expiry:
+            self.organization.usage["signals_credits"]["quota_limited_until"] = round(
+                datetime.datetime.fromisoformat(persisted_expiry).replace(tzinfo=datetime.UTC).timestamp()
+            )
         self.organization.save()
         add_limited_team_tokens(
             QuotaResource.SIGNALS_CREDITS,
-            {self.team.api_token: 1782864000},
+            {
+                self.team.api_token: round(
+                    datetime.datetime.fromisoformat(redis_expiry).replace(tzinfo=datetime.UTC).timestamp()
+                )
+            },
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
         )
 
@@ -3090,8 +3108,17 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
         ):
             update_all_orgs_billing_quotas()
 
-        assert self.team.api_token in list_limited_team_attributes(
-            QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        expected_timestamp = (
+            datetime.datetime.fromisoformat(expected_expiry).replace(tzinfo=datetime.UTC).timestamp()
+            if expected_expiry
+            else None
+        )
+        assert (
+            get_client().zscore(
+                f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{QuotaResource.SIGNALS_CREDITS.value}",
+                self.team.api_token,
+            )
+            == expected_timestamp
         )
 
     @patch("posthoganalytics.capture")

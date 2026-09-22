@@ -388,9 +388,10 @@ def org_quota_limited_until(
         limit is not None and current_usage >= limit + OVERAGE_BUFFER[resource],
     )
     if resource == QuotaResource.SIGNALS_CREDITS and current_usage - refund_offset < limit:
-        if team_tokens is None and previously_quota_limited_team_tokens and not quota_limited_until:
+        active_persisted_limit = quota_limited_until is not None and quota_limited_until > timezone.now().timestamp()
+        if team_tokens is None and previously_quota_limited_team_tokens and not active_persisted_limit:
             team_tokens = get_team_attribute_by_quota_resource(organization)
-        was_limited = quota_limited_until or any(
+        was_limited = active_persisted_limit or any(
             token in previously_quota_limited_team_tokens for token in (team_tokens or [])
         )
         if was_limited:
@@ -405,7 +406,9 @@ def org_quota_limited_until(
             except Exception as error:
                 capture_exception(error, {"organization_id": str(organization.id)})
                 return {
-                    "quota_limited_until": round(period_end.timestamp()),
+                    "quota_limited_until": (
+                        quota_limited_until if active_persisted_limit else round(period_end.timestamp())
+                    ),
                     "quota_limiting_suspended_until": None,
                 }
             current_usage = max(current_usage, period_usage)
