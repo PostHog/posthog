@@ -326,16 +326,16 @@ pub async fn otel_handler(
     // the budget, matching the order both analytics pipelines use.
     drop_ai_byte_limited(&mut processed_events, state.ai_byte_rate_limiter.as_ref()).await;
 
-    // Apply the in-process OverflowLimiter governor to every AnalyticsMain
-    // span in the batch before handing off to the sink. OTEL bypasses
+    // Stamp overflow reasons on every overflowing-lane span in the batch
+    // before handing off to the sink. OTEL bypasses
     // `events::analytics::process_events`, so this call is what preserves
-    // OverflowLimiter parity on `capture-ai-*` deploys (where
+    // overflow parity on `capture-ai-*` deploys (where
     // `OVERFLOW_ENABLED=true`). Per-span key evaluation matches the analytics
     // batch path: spans with different `token:distinct_id` keys can land
     // with different `overflow_reason` stamps in the same batch.
     stamp_overflow_reason(
         &mut processed_events,
-        state.overflow_limiter.as_ref(),
+        state.overflow_forced_keys.as_ref(),
         state.ai_events_overflow_limiter.as_ref(),
     );
 

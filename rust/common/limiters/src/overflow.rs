@@ -22,11 +22,54 @@ pub enum OverflowLimiterResult {
     ForceLimited,
 }
 
+/// Keys rerouted to overflow on sight, independent of measured volume. An
+/// entry is either a full event key (`<token>:<distinct_id>`) or a bare token,
+/// which covers every distinct_id under it.
+#[derive(Clone, Debug, Default)]
+pub struct ForcedOverflowKeys {
+    keys: HashSet<String>,
+}
+
+impl ForcedOverflowKeys {
+    /// `keys` is the comma-delimited operator setting.
+    pub fn new(keys: Option<String>) -> Self {
+        let keys: HashSet<String> = match keys {
+            None => HashSet::new(),
+            Some(values) => values
+                .split(',')
+                .map(String::from)
+                .filter(|s| !s.is_empty())
+                .collect(),
+        };
+
+        ForcedOverflowKeys { keys }
+    }
+
+    // event_key is the candidate partition key for the outbound event. It is
+    // either "<token>:<distinct_id>" for std events or "<token>:<ip_addr>" for
+    // cookieless.
+    pub fn is_forced(&self, event_key: &str) -> bool {
+        if event_key.is_empty() {
+            return false;
+        }
+
+        if self.keys.contains(event_key) {
+            return true;
+        }
+
+        // is the token (first component of the event key) in the list?
+        match event_key.split(':').find(|s| !s.trim().is_empty()) {
+            Some(token) => self.keys.contains(token),
+            None => false,
+        }
+    }
+}
+
 // See: https://docs.rs/governor/latest/governor/_guide/index.html#usage-in-multiple-threads
 #[derive(Clone)]
 pub struct OverflowLimiter {
     limiter: Arc<RateLimiter<String, DefaultKeyedStateStore<String>, clock::DefaultClock>>,
-    keys_to_reroute: HashSet<String>,
+    forced_keys: ForcedOverflowKeys,
     preserve_locality: bool, // should we retain partition keys when rerouting to overflow?
 }
 
@@ -40,18 +83,9 @@ impl OverflowLimiter {
         let quota = Quota::per_second(per_second).allow_burst(burst);
         let limiter = Arc::new(governor::RateLimiter::dashmap(quota));
 
-        let keys_to_reroute: HashSet<String> = match keys_to_reroute {
-            None => HashSet::new(),
-            Some(values) => values
-                .split(',')
-                .map(String::from)
-                .filter(|s| !s.is_empty())
-                .collect(),
-        };
-
         OverflowLimiter {
             limiter,
-            keys_to_reroute,
+            forced_keys: ForcedOverflowKeys::new(keys_to_reroute),
             preserve_locality,
         }
     }
@@ -65,16 +99,8 @@ impl OverflowLimiter {
             return OverflowLimiterResult::NotLimited;
         }
 
-        // is the event key in the forced_keys list?
-        if self.keys_to_reroute.contains(event_key.as_str()) {
+        if self.forced_keys.is_forced(event_key) {
             return OverflowLimiterResult::ForceLimited;
-        }
-
-        // is the token (first component of the event key) in the forced_keys list?
-        if let Some(token) = event_key.split(':').find(|s| !s.trim().is_empty()) {
-            if self.keys_to_reroute.contains(token) {
-                return OverflowLimiterResult::ForceLimited;
-            }
         }
 
         // should rate limiting be triggered for this event?
@@ -96,8 +122,8 @@ impl OverflowLimiter {
 
     /// Reports the number of tracked keys to prometheus every 10 seconds,
     /// needs to be spawned in a separate task. `lane` labels the series so
-    /// deployments running several limiter instances (e.g. capture's
-    /// analytics and AI lanes) don't overwrite each other's gauge.
+    /// deployments running several limiter instances don't overwrite each
+    /// other's gauge.
     pub async fn report_metrics(&self, lane: &'static str) {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
         loop {
@@ -128,8 +154,34 @@ impl OverflowLimiter {
 mod tests {
     use crate::overflow::OverflowLimiterResult;
 
-    use super::OverflowLimiter;
+    use super::{ForcedOverflowKeys, OverflowLimiter};
     use std::num::NonZeroU32;
+
+    #[test]
+    fn forced_keys_match_full_key_or_bare_token() {
+        let forced = ForcedOverflowKeys::new(Some(String::from("token1,token2:user2,")));
+
+        // bare token covers every distinct_id under it
+        assert!(forced.is_forced("token1"));
+        assert!(forced.is_forced("token1:user1"));
+        assert!(forced.is_forced("token1:other_user"));
+
+        // full key covers only that distinct_id
+        assert!(forced.is_forced("token2:user2"));
+        assert!(!forced.is_forced("token2:other_user"));
+
+        // unlisted keys and an empty incoming key are never forced
+        assert!(!forced.is_forced("token3:user3"));
+        assert!(!forced.is_forced(""));
+    }
+
+    #[test]
+    fn empty_forced_keys_force_nothing() {
+        let forced = ForcedOverflowKeys::new(None);
+
+        assert!(!forced.is_forced("token1"));
+        assert!(!forced.is_forced("token1:user1"));
+    }
 
     #[tokio::test]
     async fn low_limits() {

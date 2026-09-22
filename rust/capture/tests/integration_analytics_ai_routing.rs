@@ -22,7 +22,7 @@ use capture::v0_request::{DataType, OverflowReason, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
 use integration_utils::{test_lifecycle_handlers, DEFAULT_CONFIG, DEFAULT_TEST_TIME};
-use limiters::overflow::OverflowLimiter;
+use limiters::overflow::{ForcedOverflowKeys, OverflowLimiter};
 use limiters::token_dropper::TokenDropper;
 use rstest::rstest;
 use serde_json::json;
@@ -70,13 +70,13 @@ impl PublishEvents for CapturingSink {
 
 fn setup_analytics_router(
     ai_events_overflow_enabled: bool,
-    overflow_limiter: Option<Arc<OverflowLimiter>>,
+    overflow_forced_keys: Option<Arc<ForcedOverflowKeys>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
 ) -> (Router, CapturingSink) {
     setup_router_for_mode(
         CaptureMode::Events,
         ai_events_overflow_enabled,
-        overflow_limiter,
+        overflow_forced_keys,
         ai_events_overflow_limiter,
     )
 }
@@ -84,7 +84,7 @@ fn setup_analytics_router(
 fn setup_router_for_mode(
     capture_mode: CaptureMode,
     ai_events_overflow_enabled: bool,
-    overflow_limiter: Option<Arc<OverflowLimiter>>,
+    overflow_forced_keys: Option<Arc<ForcedOverflowKeys>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
 ) -> (Router, CapturingSink) {
     let (readiness, liveness, _monitor) = test_lifecycle_handlers();
@@ -128,7 +128,7 @@ fn setup_router_for_mode(
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
-        overflow_limiter,
+        overflow_forced_keys,
         ai_events_overflow_limiter,
         None, // ai_byte_rate_limiter
         None, // replay_overflow_limiter
@@ -359,11 +359,17 @@ fn force_keyed_limiter() -> Arc<OverflowLimiter> {
     ))
 }
 
+fn force_keyed_analytics_keys() -> Arc<ForcedOverflowKeys> {
+    Arc::new(ForcedOverflowKeys::new(Some(format!(
+        "{TOKEN}:{DISTINCT_ID}"
+    ))))
+}
+
 /// With `secondary` routing, a force-limited key on the AI limiter
 /// overflow-stamps the diverted AI event only when the AI overflow
 /// valve is armed (setup wires the AI limiter exactly then, so the test
 /// mirrors that coupling), while the `$pageview` on the same hot key
-/// (force-limited on the analytics limiter) stamps in both cases (the
+/// (on the analytics forced-key list) stamps in both cases (the
 /// analytics lane is valve-independent). Catches the router failing to
 /// thread the AI limiter into the pipeline, which the process-level tests
 /// cannot see.
@@ -377,7 +383,7 @@ async fn ai_lane_overflow_stamping_gated_on_valve(
 ) {
     let (router, sink) = setup_analytics_router(
         ai_events_overflow_enabled,
-        Some(force_keyed_limiter()),
+        Some(force_keyed_analytics_keys()),
         ai_events_overflow_enabled.then(force_keyed_limiter),
     );
     let client = TestClient::new(router);
@@ -406,12 +412,12 @@ async fn ai_lane_overflow_stamping_gated_on_valve(
     );
 }
 
-/// The two lanes consult separate limiter instances end-to-end: a key that
-/// the analytics limiter force-routes must not drag the same key's diverted
-/// AI event into AI overflow (and the pageview must still stamp).
-/// Catches the router wiring one limiter instance into both slots.
+/// The two lanes are checked separately end-to-end: a key on the analytics
+/// forced-key list must not drag the same key's diverted AI event into AI
+/// overflow (and the pageview must still stamp). Catches the router wiring
+/// the analytics forced keys into the AI slot.
 #[tokio::test]
-async fn ai_lane_overflow_isolated_from_analytics_limiter() {
+async fn ai_lane_overflow_isolated_from_analytics_forced_keys() {
     let clean_ai_limiter = Arc::new(OverflowLimiter::new(
         NonZeroU32::new(1_000).unwrap(),
         NonZeroU32::new(1_000).unwrap(),
@@ -421,7 +427,7 @@ async fn ai_lane_overflow_isolated_from_analytics_limiter() {
 
     let (router, sink) = setup_analytics_router(
         true, // valve armed
-        Some(force_keyed_limiter()),
+        Some(force_keyed_analytics_keys()),
         Some(clean_ai_limiter),
     );
     let client = TestClient::new(router);
@@ -438,7 +444,7 @@ async fn ai_lane_overflow_isolated_from_analytics_limiter() {
     assert_eq!(ai_event.metadata.data_type, DataType::AiEvents);
     assert_eq!(
         ai_event.metadata.overflow_reason, None,
-        "the analytics limiter's force-routed key must not stamp the AI lane"
+        "the analytics forced-key list must not stamp the AI lane"
     );
 
     let pageview = events
@@ -455,14 +461,15 @@ async fn ai_lane_overflow_isolated_from_analytics_limiter() {
 /// events in a historical batch land on `AnalyticsHistorical`; AI events
 /// divert to the AI lane (only the AI lane has AI processing, so imports must
 /// divert too). With the AI overflow valve unset — the capture-import config —
-/// neither lane can stamp overflow, even with the overflow limiter force-keyed
-/// on the batch's `token:distinct_id`, and the GRL never runs.
+/// neither lane can stamp overflow, even with the batch's
+/// `token:distinct_id` on the analytics forced-key list, and the GRL never
+/// runs.
 #[tokio::test]
 async fn import_mode_historical_batch_never_overflows() {
     let (router, sink) = setup_router_for_mode(
         CaptureMode::Import,
         false,
-        Some(force_keyed_limiter()),
+        Some(force_keyed_analytics_keys()),
         None,
     );
     let client = TestClient::new(router);

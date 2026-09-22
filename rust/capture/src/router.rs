@@ -24,7 +24,7 @@ use crate::v0_request::DataType;
 use crate::{ai_endpoint, time::TimeSource, v0_endpoint};
 use common_ingestion_warnings::WarningEmitter;
 use common_redis::Client;
-use limiters::overflow::OverflowLimiter;
+use limiters::overflow::{ForcedOverflowKeys, OverflowLimiter};
 use limiters::redis::RedisLimiter;
 use limiters::token_dropper::TokenDropper;
 
@@ -74,26 +74,21 @@ pub struct State {
     pub body_read_chunk_size_kb: usize,
     pub capture_v1_max_compressed_body_bytes: usize,
     pub capture_v1_max_decompressed_body_bytes: usize,
-    /// In-process overflow limiter (governor-backed) for `DataType::AnalyticsMain`
-    /// events. When present, every handler that emits analytics events runs
-    /// the shared `events::overflow_stamping::stamp_overflow_reason` helper,
-    /// which calls `is_limited` per event and stamps
-    /// `ProcessedEventMetadata::overflow_reason` with `ForceLimited` or
-    /// `RateLimited { .. }` so the kafka sink can route to the overflow topic.
-    /// Call sites that consult this limiter:
-    /// * `events::analytics::process_events` (analytics batch path)
-    /// * `ai_endpoint::ai_handler` (`/i/v0/ai`)
-    /// * `otel::otel_handler` (`/i/v0/ai/otel`)
+    /// Keys that `DataType::AnalyticsMain` events are rerouted to overflow on
+    /// sight (`INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID`). Hot keys
+    /// beyond this list are the global rate limiter's business. Consulted via
+    /// `events::overflow_stamping::stamp_overflow_reason` by
+    /// `events::analytics::process_events`, `ai_endpoint::ai_handler` and
+    /// `otel::otel_handler`.
     ///
     /// This lives in `State` (not in the sink) so routing policy sits in the
     /// pipeline alongside every other routing decision, and so the sink stays
     /// a pure mechanism layer with cheap Arc-based clones.
-    pub overflow_limiter: Option<Arc<OverflowLimiter>>,
-    /// Dedicated overflow limiter for the AI lane (`DataType::AiEvents` /
-    /// `Destination::AiEvents`). Same knobs as `overflow_limiter` but a
-    /// separate governor instance, so per-key budgets are isolated: analytics
-    /// volume never pushes a key's AI events into AI overflow and AI volume
-    /// never burns the analytics budget. Only built when both
+    pub overflow_forced_keys: Option<Arc<ForcedOverflowKeys>>,
+    /// Overflow limiter for the AI lane (`DataType::AiEvents` /
+    /// `Destination::AiEvents`): the same forced-key list plus a
+    /// governor-backed per-key token bucket, so a bursting key is rerouted to
+    /// AI overflow on measured volume alone. Only built when both
     /// `OVERFLOW_ENABLED` and the AI overflow valve are set; `None` leaves
     /// the AI lane subject to restriction-driven `force_overflow` only.
     pub ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
@@ -106,7 +101,7 @@ pub struct State {
     /// When present, the recordings pipeline calls `is_limited(session_id)`
     /// and stamps `ProcessedEventMetadata::overflow_reason = ReplayLimited` so
     /// the kafka sink can route to the replay overflow topic. Same rationale
-    /// as `overflow_limiter` above.
+    /// as `overflow_forced_keys` above.
     pub replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     /// V1 sink router for the new capture analytics pipeline.
     /// When present, the v1 analytics handler publishes events through this.
@@ -120,7 +115,7 @@ pub struct State {
     /// Best-effort v2 ingestion warnings emitter (fire-and-forget Kafka
     /// producer behind a per-(token, type) throttle). `None` when disabled —
     /// emit points skip on `is_none()`, same optionality pattern as
-    /// `overflow_limiter` / `event_restriction_service`. Never awaited and
+    /// `overflow_forced_keys` / `event_restriction_service`. Never awaited and
     /// never allowed to fail a request.
     pub ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
     /// Deployment capture mode. Threaded into the analytics processing paths
@@ -190,7 +185,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     body_read_chunk_size_kb: usize,
     capture_v1_max_compressed_body_bytes: usize,
     capture_v1_max_decompressed_body_bytes: usize,
-    overflow_limiter: Option<Arc<OverflowLimiter>>,
+    overflow_forced_keys: Option<Arc<ForcedOverflowKeys>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
@@ -221,7 +216,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         body_read_chunk_size_kb,
         capture_v1_max_compressed_body_bytes,
         capture_v1_max_decompressed_body_bytes,
-        overflow_limiter,
+        overflow_forced_keys,
         ai_events_overflow_limiter,
         ai_byte_rate_limiter,
         replay_overflow_limiter,

@@ -218,12 +218,12 @@ pub struct WrappedEvent {
     pub details: Option<&'static str>,
     pub destination: Destination,
     pub force_disable_person_processing: bool,
-    /// Set when the overflow limiter decided this key is bursting and should
-    /// be spread across the overflow topic's partitions. Deliberately separate
-    /// from `force_disable_person_processing`: spreading a hot key is a
+    /// Set when overflow stamping decided this key should be spread across
+    /// the overflow topic's partitions. Deliberately separate from
+    /// `force_disable_person_processing`: spreading a hot key is a
     /// partitioning decision, while disabling person processing is a
-    /// customer-visible instruction to skip identity resolution, and the
-    /// overflow limiter only means the former. Consumed by `ordering()`,
+    /// customer-visible instruction to skip identity resolution, and a
+    /// bursting AI key only means the former. Consumed by `ordering()`,
     /// which realizes it only on lanes whose consumers do not write persons —
     /// elsewhere the key holds until person processing is off.
     pub spread_partitions: bool,
@@ -1075,7 +1075,7 @@ mod tests {
 
     /// The ordering rule, per lane and per reason for giving ordering up. The
     /// `spread`-without-`person_off` rows are the ones that matter most:
-    /// on the person-writing analytics lanes a bursting key must keep its
+    /// on the person-writing analytics lanes a spread key must keep its
     /// partition key while person processing is on (spreading one distinct id
     /// across partitions contends the consumer's person updates), while the
     /// read-only AI overflow lane spreads it immediately.

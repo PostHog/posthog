@@ -284,9 +284,8 @@ pub struct ProcessedEvent {
 ///
 /// Set by every handler that emits events to the kafka sink, via the shared
 /// `events::overflow_stamping::stamp_overflow_reason` helper for the
-/// in-process `OverflowLimiter` (governor-backed) paths and a separate inline
-/// check for the replay `RedisLimiter` (session-scoped, redis-backed). Call
-/// sites:
+/// analytics and AI lanes and a separate inline check for the replay
+/// `RedisLimiter` (session-scoped, redis-backed). Call sites:
 /// * `events::analytics::process_events` — `/e/`, `/batch/`, `/capture`, etc.
 /// * `events::recordings::process_replay_events` — `/s/` (stamps `ReplayLimited`)
 /// * `ai_endpoint::ai_handler` — `/i/v0/ai`
@@ -298,17 +297,16 @@ pub struct ProcessedEvent {
 /// for overflow beyond this mapping.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OverflowReason {
-    /// The overflow governor matched a configured `keys_to_reroute` entry
-    /// for this event's key, or the global rate limiter put the key over its
-    /// window. Routed to the overflow topic with a null partition key, with
+    /// The event's key matched a configured forced-overflow entry, or the
+    /// global rate limiter put the key over its window. Routed to the overflow topic with a null partition key, with
     /// person processing off: the reason itself implies the skip
     /// ([`ProcessedEventMetadata::person_processing_disabled`]), so a
     /// stamping site cannot keep person processing on for a force-limited
     /// key by forgetting the flag. Stamping sites still set
     /// `skip_person_processing = true` alongside for pipeline-level readers.
     ForceLimited,
-    /// Per-key rate exceeded the configured governor quota. Routed to the
-    /// overflow topic. `preserve_locality` mirrors the
+    /// A key's AI-lane rate exceeded the configured governor quota. Routed to
+    /// the overflow topic. `preserve_locality` mirrors the
     /// `overflow_preserve_partition_locality` config and determines whether
     /// the original partition key is preserved on the overflow topic.
     RateLimited { preserve_locality: bool },
