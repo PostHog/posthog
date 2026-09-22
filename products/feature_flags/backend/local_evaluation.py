@@ -32,6 +32,7 @@ from posthoganalytics import capture_exception
 from prometheus_client import Counter
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
+from posthog.dataclasses import frozen
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
     GroupTypesUnavailable,
@@ -50,7 +51,6 @@ from posthog.storage.hypercache_manager import HyperCacheManagementConfig
 from posthog.utils import capture_exception_throttled, get_safe_cache
 
 from products.cohorts.backend.models.cohort import Cohort, is_cohort_recalculation_only_save
-from products.cohorts.backend.models.util import get_nested_cohort_ids
 from products.experiments.backend.models.experiment import Experiment, live_experiment_exists
 from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
 from products.feature_flags.backend.facade.config import ConfigFormatError
@@ -62,7 +62,6 @@ from products.feature_flags.backend.flags_cache import (
 )
 from products.feature_flags.backend.legacy_definitions import (
     cohort_references,
-    retain_legacy_flags,
     sanitize_legacy_definitions,
     validate_legacy_filters,
 )
@@ -169,6 +168,11 @@ class _DependencyChainBuilder:
         return False
 
     def _dfs(self, current_key: str, visited: set[str], temp_visited: set[str], chain: list[str]) -> bool:
+        """Return False for a cycle or missing dependency.
+
+        Early failure leaves ``temp_visited`` populated. ``build_chain`` must use
+        fresh traversal sets for each call so failed paths cannot affect later flags.
+        """
         # Iterative DFS keeps a deep dependency chain from exhausting Python's call stack.
         pending = [(current_key, False)]
         while pending:
@@ -310,7 +314,7 @@ def _apply_flag_dependency_transformation(
     Returns:
         New response data dictionary with transformed flags
     """
-    flags_list = retain_legacy_flags(cast(list[dict[str, Any]], response_data["flags"]))
+    flags_list = cast(list[dict[str, Any]], response_data["flags"])
     transformed_flags = _transform_flag_property_dependencies(flags_list, flag_id_to_key)
     return {**response_data, "flags": transformed_flags}
 
@@ -524,13 +528,47 @@ def _get_flags_response_for_local_evaluation(team: Team) -> dict[str, Any]:
     )
 
 
+def _is_supported_legacy_flag(filters: object) -> bool:
+    try:
+        validate_legacy_filters(filters)
+        return True
+    except ConfigFormatError:
+        return False
+    except (TypeError, ValueError):
+        FLAG_PROCESSING_ERROR_COUNTER.inc()
+        return False
+
+
+@frozen
+class _LegacyCohortDefinition:
+    properties: dict[str, Any]
+    dependencies: set[int]
+
+
+def _serialize_legacy_cohort(cohort: Cohort) -> _LegacyCohortDefinition:
+    """Raise for malformed properties before model normalization can hide them.
+
+    Keep the serialized properties with their references so all flags sharing a
+    cohort use the same validated definition without repeating model conversion.
+    """
+    if cohort.filters is not None and not isinstance(cohort.filters, dict):
+        raise ValueError("Invalid legacy cohort filters")
+    references = None
+    if cohort.filters and cohort.filters.get("properties") is not None:
+        properties = cohort.filters["properties"]
+        references = cohort_references({"values": properties} if isinstance(properties, list) else properties)
+    serialized = cohort.properties.to_dict()
+    if references is None:
+        references = cohort_references(serialized)
+    return _LegacyCohortDefinition(properties=serialized, dependencies={int(reference) for reference in references})
+
+
 def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[int, dict[str, Any]]:
     """
     Build local-evaluation responses for multiple teams using bulk data loading.
 
-    Loads survey flag IDs, flags, cohorts, and group type mappings in bulk (one
-    query each regardless of team count), then iterates the materialized flag
-    list with itertools.groupby to process one team at a time.
+    Loads survey flag IDs, eligible flags, excluded flag references, cohorts, and
+    group type mappings in bulk, then processes one team's flags at a time.
     """
     from products.feature_flags.backend.api.feature_flag import EvaluationFeatureFlagSerializer
 
@@ -565,13 +603,24 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
     ):
         survey_flag_ids.update(fid for fid in row if fid is not None)
 
-    # Include soft-deleted targets so their original format can exclude dependents.
+    flag_queryset = FeatureFlag.objects_including_soft_deleted.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
+        team_id__in=team_ids
+    )
+    ineligible = Q(deleted=True) | Q(has_encrypted_payloads=True) | Q(pk__in=survey_flag_ids)
+    excluded_by_team: dict[int, set[str]] = defaultdict(set)
+    # Ineligible targets still exclude dependents when their format is unsupported.
+    # They need no model instances, evaluation contexts, or experiment annotations.
+    for flag_id, key, team_id, filters in flag_queryset.filter(ineligible).values_list(
+        "id", "key", "team_id", "filters"
+    ):
+        if not _is_supported_legacy_flag(filters):
+            excluded_by_team[team_id].update((str(flag_id), key))
+
     # Preserve ordering for groupby and ETag stability.
     # Materializing allows two passes: first to extract cohort IDs, then to
     # serialize — one DB round trip instead of two.
     all_flags = list(
-        FeatureFlag.objects_including_soft_deleted.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
-        .filter(team_id__in=team_ids)
+        flag_queryset.exclude(ineligible)
         .annotate(
             evaluation_tag_names_agg=ArrayAgg(
                 "flag_evaluation_contexts__evaluation_context__name",
@@ -584,19 +633,10 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
     )
 
     direct_cohort_ids: set[int] = set()
-    excluded_by_team: dict[int, set[str]] = defaultdict(set)
     eligible_flags: list[FeatureFlag] = []
     for flag in all_flags:
-        try:
-            validate_legacy_filters(flag.filters)
-        except ConfigFormatError:
+        if not _is_supported_legacy_flag(flag.filters):
             excluded_by_team[flag.team_id].update((str(flag.pk), flag.key))
-            continue
-        except (TypeError, ValueError):
-            excluded_by_team[flag.team_id].update((str(flag.pk), flag.key))
-            FLAG_PROCESSING_ERROR_COUNTER.inc()
-            continue
-        if flag.deleted or flag.has_encrypted_payloads or flag.pk in survey_flag_ids:
             continue
         flag._evaluation_tag_names = flag.evaluation_tag_names_agg or []
         flag._has_experiment = flag.has_experiment_agg
@@ -611,7 +651,7 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
     loaded_ids: set[int] = set()
 
     malformed_cohort_ids: set[int] = set()
-    cohort_dependencies: dict[int, set[int]] = {}
+    cohort_definitions: dict[int, _LegacyCohortDefinition] = {}
     while ids_to_load:
         newly_loaded: list[Cohort] = []
         cohort_qs = (
@@ -632,15 +672,9 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
         nested_ids: set[int] = set()
         for cohort in newly_loaded:
             try:
-                if cohort.filters is not None and not isinstance(cohort.filters, dict):
-                    raise ValueError("Invalid legacy cohort filters")
-                if cohort.filters and cohort.filters.get("properties") is not None:
-                    properties = cohort.filters["properties"]
-                    cohort_references({"values": properties} if isinstance(properties, list) else properties)
-                dependencies = get_nested_cohort_ids(cohort)
-                cohort_dependencies[cohort.pk] = dependencies
-                nested_ids.update(dependencies)
-                cohort.properties.to_dict()
+                definition = _serialize_legacy_cohort(cohort)
+                cohort_definitions[cohort.pk] = definition
+                nested_ids.update(definition.dependencies)
             except (AttributeError, TypeError, ValueError, KeyError, RecursionError):
                 malformed_cohort_ids.add(cohort.pk)
 
@@ -677,14 +711,12 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
                         raise ValueError("Malformed cohort in legacy flag definition")
                     if cid in project_cohorts and cid not in cohort_ids:
                         cohort_ids.add(cid)
-                        pending_cohorts.extend(cohort_dependencies.get(cid, ()))
+                        pending_cohorts.extend(cohort_definitions[cid].dependencies)
                 flag_cohorts: dict[str, Any] = {}
                 for cohort_id in cohort_ids:
                     str_id = str(cohort_id)
                     if str_id not in cohorts:
-                        cohort = project_cohorts.get(cohort_id)
-                        if cohort is not None and not cohort.is_static:
-                            flag_cohorts[str_id] = cohort.properties.to_dict()
+                        flag_cohorts[str_id] = cohort_definitions[cohort_id].properties
 
                 flags_data.append(EvaluationFeatureFlagSerializer(feature_flag, context={}).data)
                 cohorts.update(flag_cohorts)

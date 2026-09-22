@@ -37,6 +37,7 @@ from products.feature_flags.backend.local_evaluation import (
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
+from products.feature_flags.backend.sdk_cache_provider import HyperCacheFlagProvider
 from products.surveys.backend.models import Survey
 
 
@@ -1250,9 +1251,9 @@ class TestLocalEvaluationBatch(BaseTest):
             filters={"groups": [{"rollout_percentage": 100}]},
         )
 
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(4):
             # Expected queries: the minimal_flag_called_events gate, survey flag
-            # IDs, and flags (with evaluation tags via ArrayAgg). Group type
+            # IDs, ineligible flag references, and eligible flags (with evaluation tags via ArrayAgg). Group type
             # mappings are read from personhog, not SQL. No cohort query should
             # be issued.
             results = _get_flags_response_for_local_evaluation_batch([team])
@@ -1346,9 +1347,13 @@ class TestLocalEvaluationBatch(BaseTest):
             (None, False, True, True),
             (True, True, False, False),
             (3, True, False, True),
+            (2, True, False, False, "encrypted"),
+            (2, True, False, True, "survey"),
         ]
     )
-    def test_batch_drops_unsupported_config_format_and_keeps_siblings(self, version, active, deleted, expected):
+    def test_batch_drops_unsupported_config_format_and_keeps_siblings(
+        self, version, active, deleted, dependency_value, exclusion=None
+    ):
         team = self._create_team_with_project("Unsupported format")
         cohort = self._create_cohort(team, "sibling-cohort")
         FeatureFlag.objects.create(
@@ -1367,6 +1372,12 @@ class TestLocalEvaluationBatch(BaseTest):
         unsupported = FeatureFlag.objects.create(
             team=team, key="unsupported-format", filters=unsupported_filters, active=active, deleted=deleted
         )
+        if exclusion == "encrypted":
+            FeatureFlag.objects.filter(pk=unsupported.pk).update(
+                has_encrypted_payloads=True, is_remote_configuration=True
+            )
+        elif exclusion == "survey":
+            Survey.objects.create(team=team, name="Excluded survey", type="popover", targeting_flag=unsupported)
         FeatureFlag.objects.create(
             team=team,
             key="depends-on-unsupported",
@@ -1377,7 +1388,7 @@ class TestLocalEvaluationBatch(BaseTest):
                             {
                                 "key": str(unsupported.pk),
                                 "type": "flag",
-                                "value": expected,
+                                "value": dependency_value,
                                 "operator": "flag_evaluates_to",
                             }
                         ],
@@ -1404,9 +1415,11 @@ class TestLocalEvaluationBatch(BaseTest):
         FeatureFlag.objects.filter(pk=bad.pk).update(filters=filters)
         FeatureFlag.objects.create(team=self.team, key="healthy", filters={"groups": []})
         FeatureFlag.objects.create(team=other, key="other", filters={"groups": []})
+        dropped_before = FLAG_PROCESSING_ERROR_COUNTER._value.get()
         result = _get_flags_response_for_local_evaluation_batch([self.team, other])
         assert [flag["key"] for flag in result[self.team.id]["flags"]] == ["healthy"]
         assert [flag["key"] for flag in result[other.id]["flags"]] == ["other"]
+        assert FLAG_PROCESSING_ERROR_COUNTER._value.get() == dropped_before + 1
 
     @parameterized.expand([(None,), ([],), ([{"type": "person", "key": "tier", "value": "example"}],)])
     def test_batch_preserves_legacy_cohort_property_forms(self, properties):
@@ -1489,6 +1502,38 @@ class TestFlagDefinitionsCache(BaseTest):
         assert result is None
         mock_team_get.assert_not_called()
 
+    def test_cold_read_retries_when_group_mapping_would_be_emptied(self):
+        create_group_type_mapping(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        FeatureFlag.objects.create(team=self.team, key="healthy", filters={"groups": []})
+        assert update_flag_definitions_cache(self.team)
+        cached = flag_definitions_hypercache.get_from_cache(self.team)
+        assert cached is not None
+        assert cached["group_type_mapping"] == {"0": "organization"}
+        clear_flag_definition_caches(self.team, kinds=["redis", "s3"])
+        provider = HyperCacheFlagProvider.for_static_team(self.team.id)
+        provider._hypercache = flag_definitions_hypercache
+
+        with patch(
+            "products.feature_flags.backend.local_evaluation.get_group_types_for_projects",
+            return_value={self.team.project_id: []},
+        ):
+            assert provider.get_flag_definitions() is None
+            assert (
+                flag_definitions_hypercache.cache_client.get(flag_definitions_hypercache.get_cache_key(self.team))
+                is None
+            )
+            assert (
+                flag_definitions_hypercache.cache_client.get(flag_definitions_hypercache._provenance_key(self.team))
+                is None
+            )
+
+        result = provider.get_flag_definitions()
+        assert result is not None
+        assert [flag["key"] for flag in result["flags"]] == ["healthy"]
+        assert result["group_type_mapping"] == {"0": "organization"}
+
     def test_clear_flag_definition_caches(self):
         FeatureFlag.objects.create(
             team=self.team,
@@ -1544,6 +1589,10 @@ class TestFlagDefinitionsCache(BaseTest):
             dedicated_etag = caches[FLAGS_DEDICATED_CACHE_ALIAS].get(etag_key)
             assert dedicated_etag is not None
             assert caches["default"].get(etag_key) == dedicated_etag
+            provenance_key = hypercache._provenance_key(self.team.id)
+            dedicated_provenance = caches[FLAGS_DEDICATED_CACHE_ALIAS].get(provenance_key)
+            assert dedicated_provenance is not None
+            assert caches["default"].get(provenance_key) == dedicated_provenance
 
     def test_hypercache_uses_default_cache_without_mirror_when_alias_absent(self):
         with override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}):

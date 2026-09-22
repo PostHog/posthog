@@ -16,7 +16,7 @@ _MODULE = "products.feature_flags.backend.cross_region_flag_sync"
 def _mock_response(status_code: int, json_data: dict | list | None = None, json_error: bool = False) -> Mock:
     response = Mock()
     response.status_code = status_code
-    response.headers = {"x-posthog-legacy-definitions": "1"}
+    response.headers = {"x-posthog-legacy-definitions": "1"} if status_code == 200 else {}
     if json_error:
         response.json.side_effect = ValueError("bad json")
     else:
@@ -135,18 +135,23 @@ class TestSyncCrossRegionFlags(BaseTest):
 
     @parameterized.expand(
         [
-            ("server_error", 500, False, None),
-            ("bad_json_body", 200, True, None),
+            ("server_error", 503, False, None, "cross_region_flags_sync_bad_status"),
+            ("invalid_token", 401, False, None, "cross_region_flags_sync_bad_status"),
+            ("bad_json_body", 200, True, None, "cross_region_flags_sync_bad_json"),
             # A non-dict shape would otherwise be cached verbatim and served to every
             # EU pod until the next successful sync -- must fail safe like the others.
-            ("unexpected_shape", 200, False, ["not", "a", "dict"]),
+            ("unexpected_shape", 200, False, ["not", "a", "dict"], "cross_region_flags_sync_unexpected_shape"),
         ]
     )
-    def test_fails_safe_on_bad_response(self, _name, status_code, json_error, json_data):
+    def test_fails_safe_on_bad_response(self, _name, status_code, json_error, json_data, expected_warning):
         with (
             patch(f"{_MODULE}.requests.get", return_value=_mock_response(status_code, json_data, json_error)),
             patch.object(flag_definitions_hypercache, "set_cache_value") as mock_set,
+            patch(f"{_MODULE}.logger.warning") as warning,
         ):
             sync_cross_region_flags()
 
         mock_set.assert_not_called()
+        assert warning.call_args.args == (expected_warning,)
+        if status_code != 200:
+            assert warning.call_args.kwargs["status_code"] == status_code

@@ -186,6 +186,9 @@ Classification includes inactive and deleted targets before existing lifecycle f
 Unsupported formats are expected exclusions; malformed flags increment `posthog_flag_definitions_processing_error`.
 A malformed flag or reachable cohort removes the affected flag and its transitive dependents while independent flags remain available.
 Dependencies on excluded targets are omitted even when the condition expects false.
+An inconclusive dependency does not always force an SDK to use server evaluation: a later condition can return a different variant.
+For example, if the first condition selects `blue` when the target is true and the next always selects `green`, omitting only the target can make the SDK return `green` instead of `blue`.
+Removing the dependent prevents that local answer, at the cost of sending the whole flag to server evaluation or the caller's local-only default.
 Supported v1 missing targets, inactive targets, cycles, cohort scoping, mappings, and metadata retain their existing behavior.
 The internal `flags.json` producer keeps its separate rejection and inactive-filter behavior.
 
@@ -204,6 +207,12 @@ An unchanged body without provenance is rewritten during warmup, even when the c
 When enforcement is enabled, readers require matching provenance because an older builder can omit an unsupported target while leaving a dependent with an empty chain.
 The cached dependent alone cannot distinguish that case from an ordinary missing v1 target.
 The Python provider rebuilds unverified entries through the existing database loader.
+Python and Rust full reads apply the same checks: the body must match the provenance hash and contain a flags list, a cohorts object, and a group-type-mapping object.
+Readers trust the producer's filtering decision instead of filtering the body again.
+Tightening the producer's filtering rules requires rebuilding existing cache entries; a matching hash does not record which filtering rules ran.
+The Python loader also rejects a rebuild whose empty group mapping conflicts with known group types.
+On a cold cache, the SDK provider returns no definitions and retries on its next read, including for person flags that do not use groups.
+This avoids caching an incomplete bundle; warm verified entries remain available.
 The Rust definitions endpoint and its `local_evaluation` aliases retain their cache-only contract: an unverified entry follows the miss/self-heal path and returns a retryable error.
 Infrastructure failures keep their existing failure classification.
 An attested matching ETag can still return 304 before loading the body, with no duplicate billing.

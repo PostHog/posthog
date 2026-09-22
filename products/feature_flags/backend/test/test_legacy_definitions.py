@@ -4,13 +4,13 @@ from typing import Any
 
 from unittest.mock import Mock, patch
 
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
 from posthog.models.team import Team
-from posthog.storage.hypercache import HyperCacheDependencyUnavailable, KeyType
+from posthog.storage.hypercache import HYPERCACHE_MIRROR_FAILURE_COUNTER, HyperCacheDependencyUnavailable, KeyType
 
 from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
 from products.feature_flags.backend.cross_region_flag_sync import sync_cross_region_flags
@@ -94,17 +94,22 @@ class TestLegacyDefinitions(SimpleTestCase):
     def test_malformed_nested_cohort_omits_only_affected_flags(self) -> None:
         payload = feed(
             [
-                definition("healthy"),
+                definition("healthy", {"groups": [{"properties": [{"type": "cohort", "value": "3"}]}]}),
                 definition("uses-cohort", {"groups": [{"properties": [{"type": "cohort", "value": "1"}]}]}),
                 definition(
                     "depends", {"groups": [{"properties": [{"type": "flag", "key": "uses-cohort", "value": False}]}]}
                 ),
             ]
         )
-        payload["cohorts"] = {"1": {"type": "AND", "values": [{"type": "cohort", "value": 2}]}, "2": {"values": [None]}}
+        payload["cohorts"] = {
+            "1": {"type": "AND", "values": [{"type": "cohort", "value": 2}]},
+            "2": {"values": [None]},
+            "3": {"type": "AND", "values": [{"type": "cohort", "value": 4}]},
+            "4": {"type": "AND", "values": [{"type": "person", "key": "tier", "value": "example"}]},
+        }
         result = sanitize_legacy_definitions(payload)
         assert [flag["key"] for flag in result["flags"]] == ["healthy"]
-        assert result["cohorts"] == {}
+        assert result["cohorts"] == {key: payload["cohorts"][key] for key in ("3", "4")}
 
 
 @override_settings(
@@ -228,6 +233,42 @@ class TestLegacyDefinitionsCache(SimpleTestCase):
         assert result is not None
         assert result["flags"] == self.payload["flags"]
         assert self.loads == 1
+
+    @parameterized.expand([("flags", {}), ("cohorts", []), ("group_type_mapping", [])])
+    def test_matching_provenance_does_not_allow_an_invalid_envelope(self, field: str, value: Any) -> None:
+        raw = json.dumps({**self.payload, field: value}, sort_keys=True)
+        cache.set(self.hypercache.get_cache_key(1), raw)
+        cache.set(self.hypercache._provenance_key(1), json.dumps({"etag": self.hypercache._compute_etag(raw)}))
+        assert self.hypercache.get_from_cache_with_source(1) == (self.payload, "db")
+        assert self.loads == 1
+
+    @parameterized.expand([("primary",), ("secondary",)])
+    @override_settings(
+        CACHES={
+            "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "legacy-primary"},
+            "secondary": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "legacy-secondary"},
+        }
+    )
+    def test_corrupt_provenance_reports_etag_read_failures(self, tier: str) -> None:
+        self.hypercache.secondary_cache_client = caches["secondary"]
+        self.hypercache.set_cache_value(1, self.payload)
+        client = cache if tier == "primary" else caches["secondary"]
+        client.set(self.hypercache._provenance_key(1), "{invalid json")
+        counter = HYPERCACHE_MIRROR_FAILURE_COUNTER.labels(
+            namespace=self.hypercache.namespace, value=self.hypercache.value
+        )
+        failures_before = counter._value.get()
+        with patch("products.feature_flags.backend.legacy_definitions_cache.capture_exception") as capture:
+            if tier == "primary":
+                assert self.hypercache.get_etag(1) is None
+            else:
+                self.hypercache.set_cache_value(1, self.payload, skip_if_unchanged=True)
+                assert caches["secondary"].get(self.hypercache._provenance_key(1)) == cache.get(
+                    self.hypercache._provenance_key(1)
+                )
+        capture.assert_called_once()
+        assert isinstance(capture.call_args.args[0], ValueError)
+        assert counter._value.get() == failures_before + (tier == "secondary")
 
     def test_supplied_payload_filters_before_publishing_to_both_tiers(self) -> None:
         objects = {}

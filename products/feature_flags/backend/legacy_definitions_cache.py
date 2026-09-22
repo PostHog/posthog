@@ -13,6 +13,7 @@ from posthog.storage.hypercache import (
     _HYPER_CACHE_EMPTY_VALUE,
     _REDIS_READ_ERRORS,
     HYPERCACHE_CACHE_COUNTER,
+    HYPERCACHE_MIRROR_FAILURE_COUNTER,
     HyperCache,
     HyperCacheDependencyUnavailable,
     HyperCacheStoreMissing,
@@ -21,15 +22,24 @@ from posthog.storage.hypercache import (
 )
 
 from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
-from products.feature_flags.backend.legacy_definitions import sanitize_legacy_definitions
+from products.feature_flags.backend.legacy_definitions import (
+    sanitize_legacy_definitions,
+    validate_legacy_definitions_envelope,
+)
 
 PROVENANCE_OBJECT = "flags_with_cohorts.provenance.json"
 PROVENANCE_HEADER = "x-posthog-legacy-definitions"
 
 
 class LegacyDefinitionsHyperCache(HyperCache):
-    # Old builders can erase an excluded target before caching its dependent.
-    # Only a content-bound publication record proves the complete graph was guarded.
+    """Cache definitions filtered for legacy SDKs with a companion hash of the body.
+
+    Producers write the hash after excluding unsupported or malformed flags and
+    their dependents. Old producers can remove a target without its dependents,
+    so readers need this record to identify bodies written by a filtering producer.
+    Python and Rust readers verify the hash and envelope without filtering again.
+    """
+
     def _provenance_key(self, key: KeyType) -> str:
         return self.get_cache_key(key).rsplit("/", 1)[0] + "/" + PROVENANCE_OBJECT
 
@@ -40,8 +50,8 @@ class LegacyDefinitionsHyperCache(HyperCache):
             if json.loads(provenance) != {"etag": self._compute_etag(raw)}:
                 return None
             payload = json.loads(raw)
-            sanitized = sanitize_legacy_definitions(payload)
-            return payload if sanitized == payload else None
+            validate_legacy_definitions_envelope(payload)
+            return payload
         except (TypeError, ValueError):
             return None
 
@@ -57,8 +67,8 @@ class LegacyDefinitionsHyperCache(HyperCache):
             provenance = values.get(self._provenance_key(key))
             if etag and provenance and json.loads(provenance) == {"etag": etag}:
                 return etag
-        except (*_REDIS_READ_ERRORS, TypeError, ValueError):
-            pass
+        except (*_REDIS_READ_ERRORS, TypeError, ValueError) as error:
+            capture_exception(error)
         return None
 
     def _secondary_etag_matches(self, key: KeyType, etag: str) -> bool:
@@ -69,7 +79,9 @@ class LegacyDefinitionsHyperCache(HyperCache):
             return values.get(self.get_etag_key(key)) == etag and json.loads(
                 values.get(self._provenance_key(key)) or "null"
             ) == {"etag": etag}
-        except (*_REDIS_READ_ERRORS, TypeError, ValueError):
+        except (*_REDIS_READ_ERRORS, TypeError, ValueError) as error:
+            HYPERCACHE_MIRROR_FAILURE_COUNTER.labels(namespace=self.namespace, value=self.value).inc()
+            capture_exception(error)
             return False
 
     def set_cache_value(
@@ -129,8 +141,9 @@ class LegacyDefinitionsHyperCache(HyperCache):
         publish_provenance: bool = True,
     ) -> int | None:
         if isinstance(data, dict):
-            data = sanitize_legacy_definitions(data)
-            json_data = json.dumps(data, sort_keys=True)
+            if json_data is None:
+                data = sanitize_legacy_definitions(data)
+                json_data = json.dumps(data, sort_keys=True)
         elif data is not None and not isinstance(data, HyperCacheStoreMissing):
             raise ValueError("Invalid legacy definitions envelope")
         if not publish_provenance:
@@ -158,8 +171,6 @@ class LegacyDefinitionsHyperCache(HyperCache):
         *,
         publish_provenance: bool = True,
     ) -> None:
-        if isinstance(data, dict):
-            data = sanitize_legacy_definitions(data)
         if not publish_provenance:
             object_storage.delete(self._provenance_key(key))
             return super()._set_cache_value_s3(key, data, ttl)
@@ -199,8 +210,9 @@ class LegacyDefinitionsHyperCache(HyperCache):
                 provenance = object_storage.read(provenance_key, missing_ok=True)
                 payload = self._read_payload(raw, provenance)
                 if payload is not None:
+                    verified = self._verified_payload(raw, provenance) is not None
                     self._set_cache_value_redis(
-                        key, payload, publish_provenance=self._verified_payload(raw, provenance) is not None
+                        key, payload, json_data=raw if verified else None, publish_provenance=verified
                     )
                     HYPERCACHE_CACHE_COUNTER.labels(result="hit_s3", namespace=self.namespace, value=self.value).inc()
                     return payload, "s3"

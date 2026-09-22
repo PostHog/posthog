@@ -83,11 +83,6 @@ def sync_cross_region_flags() -> None:
         logger.warning("cross_region_flags_sync_request_failed", error=str(e))
         return
 
-    verified = response.headers.get(PROVENANCE_HEADER) == "1"
-    if settings.FLAG_DEFINITIONS_REQUIRE_PROVENANCE and not verified:
-        logger.warning("cross_region_flags_sync_unverified_definitions")
-        return
-
     if response.status_code == 304:
         return
 
@@ -96,6 +91,11 @@ def sync_cross_region_flags() -> None:
             "cross_region_flags_sync_bad_status",
             status_code=response.status_code,
         )
+        return
+
+    verified = response.headers.get(PROVENANCE_HEADER) == "1"
+    if settings.FLAG_DEFINITIONS_REQUIRE_PROVENANCE and not verified:
+        logger.warning("cross_region_flags_sync_unverified_definitions")
         return
 
     try:
