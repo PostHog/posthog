@@ -241,14 +241,23 @@ class TestBatchedGetPersonsByDistinctIds(SimpleTestCase):
             calls = fake.assert_called("get_persons_by_distinct_ids_in_team", times=1)
             assert list(calls[0].request.read_options.field_mask) == ["uuid", "id", "team_id"]
 
-    def test_no_read_options_by_default(self):
+    def test_converter_shaped_mask_by_default(self):
         with fake_personhog_client() as fake:
             fake.add_person(team_id=1, person_id=1, uuid="uuid-1", distinct_ids=["did-1"])
 
             _batched_get_persons_by_distinct_ids(1, ["did-1"], "test")
 
             calls = fake.assert_called("get_persons_by_distinct_ids_in_team", times=1)
-            assert list(calls[0].request.read_options.field_mask) == []
+            assert set(calls[0].request.read_options.field_mask) == {
+                "id",
+                "uuid",
+                "team_id",
+                "properties",
+                "is_identified",
+                "created_at",
+                "last_seen_at",
+                "version",
+            }
 
     @patch("posthog.models.person.util.PERSONHOG_BATCH_SIZE", 2)
     def test_read_options_forwarded_to_all_batches(self):
