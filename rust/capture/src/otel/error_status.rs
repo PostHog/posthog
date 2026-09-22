@@ -201,7 +201,7 @@ pub fn apply_error_status_properties(span: &Span, properties: &mut Map<String, V
     if !properties.contains_key("$ai_error") {
         let error = latest_exception_event(span)
             .and_then(error_message_from_exception)
-            .or_else(|| error_message_from_attrs(properties))
+            .or_else(|| error_message_from_attrs(&attributes_to_map(&span.attributes)))
             .or_else(|| (!status.message.is_empty()).then(|| status.message.clone()))
             .unwrap_or_else(|| {
                 counter!("capture_ai_otel_error_message_missing").increment(1);
@@ -350,6 +350,26 @@ mod tests {
 
             assert_eq!(properties["$ai_error"], Value::String(expected.to_string()));
         }
+    }
+
+    #[test]
+    fn test_error_status_ignores_error_details_from_resource_attributes() {
+        let mut span = make_span(vec![]);
+        span.status = Some(Status {
+            code: StatusCode::Error as i32,
+            message: "provider failed".to_string(),
+        });
+        let mut properties = Map::from_iter([(
+            "exception.message".to_string(),
+            Value::String("an unrelated resource level failure".to_string()),
+        )]);
+
+        apply_error_status_properties(&span, &mut properties);
+
+        assert_eq!(
+            properties["$ai_error"],
+            Value::String("provider failed".to_string())
+        );
     }
 
     #[test]
