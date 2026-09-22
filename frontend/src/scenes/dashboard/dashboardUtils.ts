@@ -136,7 +136,7 @@ export function getDashboardTileDisplayName(tile: DashboardTile<InsightModel>): 
 
 /** Which widget payload is set on a dashboard tile row. Add a branch per `DashboardWidgetType` when new tile kinds ship. */
 export function getDashboardWidgetType(
-    tile: Pick<DashboardTile<InsightModel | InsightModel>, 'insight' | 'text' | 'button_tile' | 'widget'>
+    tile: Pick<DashboardTile, 'insight' | 'text' | 'button_tile' | 'widget'>
 ): DashboardWidgetType {
     if (tile.insight) {
         return 'insight'
