@@ -1052,7 +1052,9 @@ class Task(DeletedMetaFields, models.Model):
         )
 
         # Validated before the Task row exists, so a bad template leaves nothing behind.
-        requested_template = parse_requested_sandbox_template(sandbox_template) if sandbox_template else None
+        requested_template = (
+            parse_requested_sandbox_template(sandbox_template) if sandbox_template is not None else None
+        )
         from products.tasks.backend.temporal.process_task.utils import (
             PrAuthorshipMode,
             RunSource,
@@ -1409,6 +1411,11 @@ class Task(DeletedMetaFields, models.Model):
             enqueue_or_start_workflow,
         )
         from products.tasks.backend.temporal.client import _normalize_slack_context
+
+        # extra_run_state overwrites the derived run state below, so the template it carries is
+        # the one provisioning reads. Route it through the same validation as the parameter.
+        if extra_run_state and "sandbox_template" in extra_run_state:
+            sandbox_template = extra_run_state["sandbox_template"]
 
         task, extra_state = Task._build_task(
             team=team,

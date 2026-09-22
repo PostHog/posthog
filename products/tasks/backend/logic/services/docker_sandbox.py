@@ -649,6 +649,7 @@ class DockerSandbox(AgentServerLaunchMixin):
             SandboxTemplate.DEFAULT_BASE,
             SandboxTemplate.VM_BASE,
             SandboxTemplate.PI_BASE,
+            SandboxTemplate.AUTORESEARCH_BASE,
         }:
             return None
         source = os.environ.get("POSTHOG_DESKTOP_SKILLS")

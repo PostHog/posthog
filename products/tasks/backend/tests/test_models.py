@@ -221,9 +221,15 @@ class TestTask(TestCase):
         self.assertEqual(task.runtime, Task.Runtime.PI)
         self.assertEqual(task.origin_product, Task.OriginProduct.SLACK)
 
-    @parameterized.expand([("unknown", "no_such_template"), ("vm", "vm_base")])
+    @parameterized.expand(
+        [
+            ("unknown", {"sandbox_template": "no_such_template"}),
+            ("vm", {"sandbox_template": "vm_base"}),
+            ("vm_via_extra_run_state", {"extra_run_state": {"sandbox_template": "vm_base"}}),
+        ]
+    )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_and_run_rejects_a_template_a_caller_may_not_select(self, _name, template, mock_execute_workflow):
+    def test_create_and_run_rejects_a_template_a_caller_may_not_select(self, _name, kwargs, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
 
@@ -235,7 +241,7 @@ class TestTask(TestCase):
                 origin_product=Task.OriginProduct.SLACK,
                 user_id=user.id,
                 repository="posthog/posthog",
-                sandbox_template=template,
+                **kwargs,
             )
 
         mock_execute_workflow.assert_not_called()

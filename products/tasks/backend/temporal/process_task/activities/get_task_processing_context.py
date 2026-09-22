@@ -59,6 +59,7 @@ from products.tasks.backend.logic.services.network_policy import (
     NetworkPolicyValidationError,
     compile_network_policy,
 )
+from products.tasks.backend.logic.services.sandbox import SandboxTemplate
 from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_CPU_CORES,
     MAX_SANDBOX_MEMORY_GB,
@@ -933,12 +934,13 @@ def _resolve_sandbox_backend(
 ) -> str:
     """Pick the sandbox provider for this run.
 
-    Hogland only takes plain golden-template ACP runs. A user/environment custom image
-    or the Pi runtime are hard incapabilities — hogland runs only its own golden, so
-    those force Modal even with the flag on. The Modal VM-sandbox / network-allowlist
-    flags and the org *default* image are runtime preferences, not incapabilities: a
-    run the hogland flag (or override) selects wins hogland over them, and the caller
-    forces them off so the run provisions on hogland's golden. Egress stays enforced
+    Hogland only takes plain golden-template ACP runs. A user/environment custom image,
+    the Pi runtime or a non-default sandbox template are hard incapabilities — hogland
+    runs only its own golden, so those force Modal even with the flag on. The Modal
+    VM-sandbox / network-allowlist flags and the org *default* image are runtime
+    preferences, not incapabilities: a run the hogland flag (or override) selects wins
+    hogland over them, and the caller forces them off so the run provisions on hogland's
+    golden. Egress stays enforced
     in-box by agentsh via the run's allowed_domains. Fails closed to Modal.
     """
     raw_override = (state or {}).get("sandbox_backend")
@@ -959,11 +961,15 @@ def _resolve_sandbox_backend(
     # Hogland runs in the US only; EU runs stay on Modal regardless of flag/override state.
     if getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU":
         return "modal"
-    # Hard hogland incapabilities: a user/environment custom image or the Pi runtime
-    # cannot run on hogland's golden, so keep those on Modal even when the flag is on.
-    # The org default image (default_custom_image) is NOT gated here — hogland serves
-    # its golden equivalent — nor are the Modal VM-sandbox / network-allowlist flags; a
-    # flagged run wins hogland over all of them (the caller forces them off).
+    # Hard hogland incapabilities: a user/environment custom image, the Pi runtime or a
+    # non-default sandbox template cannot run on hogland's golden, so keep those on Modal
+    # even when the flag is on. The org default image (default_custom_image) is NOT gated
+    # here — hogland serves its golden equivalent — nor are the Modal VM-sandbox /
+    # network-allowlist flags; a flagged run wins hogland over all of them (the caller
+    # forces them off).
+    requested_template = (state or {}).get("sandbox_template")
+    if requested_template not in (None, SandboxTemplate.DEFAULT_BASE.value):
+        return "modal"
     if has_user_custom_image or task_runtime == Task.Runtime.PI:
         return "modal"
 

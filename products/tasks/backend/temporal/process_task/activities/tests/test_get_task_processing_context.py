@@ -1696,13 +1696,14 @@ class TestResolveSandboxBackend:
         [
             {"has_user_custom_image": True},
             {"task_runtime": "pi"},
+            {"state": {"sandbox_template": "autoresearch_base"}},
         ],
-        ids=["user_custom_image", "pi_runtime"],
+        ids=["user_custom_image", "pi_runtime", "custom_sandbox_template"],
     )
     @override_settings(**_HOGLAND_SETTINGS)
     def test_hard_incapabilities_fall_back_to_modal_even_with_the_flag_on(self, overrides):
-        # A real user/environment custom image or the Pi runtime cannot run on hogland's
-        # golden, so they force Modal even with the flag on. The Modal VM-sandbox /
+        # A real user/environment custom image, the Pi runtime or a non-default sandbox template
+        # cannot run on hogland's golden, so they force Modal even with the flag on. The Modal VM-sandbox /
         # network-allowlist preferences and the org default image are deliberately not
         # gated here — a flagged run wins hogland over them (covered by the caller
         # force-off test).
@@ -1759,14 +1760,17 @@ class TestResolveSandboxBackend:
         [
             {"has_user_custom_image": True},
             {"task_runtime": "pi"},
+            {"state": {"sandbox_template": "autoresearch_base"}},
         ],
-        ids=["user_custom_image", "pi_runtime"],
+        ids=["user_custom_image", "pi_runtime", "custom_sandbox_template"],
     )
     @override_settings(**_HOGLAND_SETTINGS)
     def test_hogland_override_cannot_defeat_hard_incapabilities(self, overrides):
         # A stale or forged hogland override surviving a cloud resume must not route a
-        # user-custom-image or Pi run to hogland — the capability gates sit ahead of the override.
-        assert self._resolve_with_flag(True, state={"sandbox_backend": "hogland"}, **overrides) == "modal"
+        # user-custom-image, Pi or custom-template run to hogland — the capability gates sit
+        # ahead of the override.
+        state = {"sandbox_backend": "hogland", **overrides.pop("state", {})}
+        assert self._resolve_with_flag(True, state=state, **overrides) == "modal"
 
     @override_settings(**_HOGLAND_SETTINGS)
     def test_modal_override_still_wins_even_when_hogland_is_available(self):
