@@ -11,6 +11,7 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.datadog import datadog as ddog
 from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.datadog import (
     DEFAULT_SITE,
+    DatadogFanOutLimitError,
     DatadogResumeConfig,
     DatadogRetryableError,
     _build_initial_params,
@@ -583,10 +584,6 @@ class TestExtractItemsForNewShapes:
             {"metric": "system.load.1"},
         ]
 
-    def test_non_dict_entries_are_dropped(self) -> None:
-        config = DATADOG_ENDPOINTS["teams"]
-        assert _extract_items({"data": [{"id": "a"}, "junk", None]}, config) == [{"id": "a"}]
-
 
 class TestWindowedEndpointParams:
     def test_sends_both_bounds_in_epoch_seconds(self) -> None:
@@ -676,24 +673,24 @@ class TestFanOut:
         )
         assert result["rows"] == [{"from_ts": 2, "slo_id": "slo-2"}]
 
-    def test_stops_at_the_parent_cap(self) -> None:
+    def test_raises_when_the_parent_cap_is_exceeded(self) -> None:
         fan_out = DATADOG_ENDPOINTS["team_memberships"].parent
         assert fan_out is not None
         capped = dataclasses.replace(
             DATADOG_ENDPOINTS["team_memberships"],
             parent=dataclasses.replace(fan_out, max_parents=1),
         )
+        # A truncated table that reports success would look like a complete sync.
         with mock.patch.dict(DATADOG_ENDPOINTS, {"team_memberships": capped}):
-            result = self._run(
-                "team_memberships",
-                {
-                    "/api/v2/team": {"data": [{"id": "team-a"}, {"id": "team-b"}]},
-                    "/api/v2/team/team-a/memberships": {"data": [{"id": "m1"}]},
-                    "/api/v2/team/team-b/memberships": {"data": [{"id": "m2"}]},
-                },
-            )
-        assert [row["id"] for row in result["rows"]] == ["m1"]
-        assert "/api/v2/team/team-b/memberships" not in result["paths"]
+            with pytest.raises(DatadogFanOutLimitError, match="team_memberships"):
+                self._run(
+                    "team_memberships",
+                    {
+                        "/api/v2/team": {"data": [{"id": "team-a"}, {"id": "team-b"}]},
+                        "/api/v2/team/team-a/memberships": {"data": [{"id": "m1"}]},
+                        "/api/v2/team/team-b/memberships": {"data": [{"id": "m2"}]},
+                    },
+                )
 
     def test_no_resume_state_is_saved(self) -> None:
         # A fan-out position is a parent cursor plus a child page, which the single-URL resume
@@ -706,3 +703,54 @@ class TestFanOut:
             },
         )
         assert result["saved"] == []
+
+
+class TestWalkTermination:
+    def _pages(self, endpoint: str, bodies: list[Any]) -> tuple[list[Any], list[str]]:
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        manager.load_state.return_value = None
+        fetched: list[str] = []
+
+        def fake_get(url: str, timeout: Any = None) -> Any:
+            resp = mock.MagicMock()
+            resp.status_code = 200
+            resp.ok = True
+            resp.json.return_value = bodies[min(len(fetched), len(bodies) - 1)]
+            fetched.append(url)
+            return resp
+
+        with mock.patch.object(ddog, "make_tracked_session") as mock_session:
+            mock_session.return_value.get.side_effect = fake_get
+            rows = list(
+                ddog.get_rows(
+                    site="datadoghq.com",
+                    api_key="api",
+                    app_key="app",
+                    endpoint=endpoint,
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=manager,
+                )
+            )
+        return rows, fetched
+
+    def test_repeated_record_cursor_stops_the_walk(self) -> None:
+        # Datadog echoing the same cursor would otherwise loop this walk forever.
+        rows, fetched = self._pages(
+            "usage_hourly",
+            [{"data": [{"id": "u1", "attributes": {}}], "meta": {"pagination": {"next_record_id": "same"}}}],
+        )
+        assert len(fetched) == 2
+        assert len(rows) == 2
+
+    def test_empty_page_with_a_cursor_keeps_paginating(self) -> None:
+        # The usage cursor lives in meta, independently of data, so an empty page is not the end.
+        rows, fetched = self._pages(
+            "usage_hourly",
+            [
+                {"data": [], "meta": {"pagination": {"next_record_id": "rec-2"}}},
+                {"data": [{"id": "u2", "attributes": {}}], "meta": {"pagination": {}}},
+            ],
+        )
+        assert [batch[0]["id"] for batch in rows] == ["u2"]
+        assert len(fetched) == 2

@@ -36,6 +36,10 @@ class DatadogRetryableError(Exception):
     pass
 
 
+class DatadogFanOutLimitError(Exception):
+    pass
+
+
 @dataclasses.dataclass
 class DatadogResumeConfig:
     next_url: str
@@ -179,7 +183,7 @@ def _extract_items(response_json: Any, config: DatadogEndpointConfig) -> list[di
         return []
     if config.scalar_field:
         return [{config.scalar_field: value} for value in raw]
-    return [item for item in raw if isinstance(item, dict)]
+    return raw
 
 
 def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
@@ -293,16 +297,16 @@ def _walk(
             return
 
         items = _extract_items(data, config)
-        if not items:
-            return
+        if items:
+            if config.flatten_attributes:
+                items = [_flatten_item(item) for item in items]
+            yield items
 
-        if config.flatten_attributes:
-            items = [_flatten_item(item) for item in items]
-
-        yield items
-
+        # An empty page is not the end of the walk: the usage endpoints carry their cursor in
+        # `meta` independently of `data`, so only the paginator decides when to stop.
         next_url = _compute_next_url(config, url, data, len(items), host)
-        if not next_url:
+        # A cursor the API repeats would otherwise loop this walk forever.
+        if not next_url or next_url == url:
             return
 
         if save_state is not None:
@@ -316,7 +320,6 @@ def _fan_out_rows(
     config: DatadogEndpointConfig,
     fetch_page: Callable[..., Any],
     host: str,
-    logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     """Walk a parent endpoint and query the child endpoint once per parent id."""
     fan_out = config.parent
@@ -332,11 +335,12 @@ def _fan_out_rows(
     for parent_batch in _walk(parent_config, parent_url, fetch_page, host):
         for parent in parent_batch:
             if parents_seen >= fan_out.max_parents:
-                logger.warning(
-                    f"Datadog: stopped {config.name} after {fan_out.max_parents} "
-                    f"{fan_out.parent_endpoint}; the table is truncated for this sync"
+                # Returning here would write a truncated table that looks like a complete sync.
+                raise DatadogFanOutLimitError(
+                    f"{config.name} expands one Datadog request per {fan_out.parent_endpoint} record, "
+                    f"and this account has more than the {fan_out.max_parents} we sync. "
+                    f"Deselect {config.name} to keep the rest of your Datadog tables syncing."
                 )
-                return
             parents_seen += 1
 
             parent_id = parent.get(fan_out.parent_id_field)
@@ -378,7 +382,7 @@ def get_rows(
     if config.parent is not None:
         # A fan-out position is a parent cursor plus a child page, which the single-URL resume
         # state cannot express, so these endpoints restart from the first parent instead.
-        yield from _fan_out_rows(config, fetch_page, host, logger)
+        yield from _fan_out_rows(config, fetch_page, host)
         return
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None

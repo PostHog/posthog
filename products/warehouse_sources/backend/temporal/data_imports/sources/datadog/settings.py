@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 PaginationStyle = Literal["cursor", "page", "offset", "record_id", "none"]
@@ -10,7 +12,7 @@ PaginationStyle = Literal["cursor", "page", "offset", "record_id", "none"]
 TimestampFormat = Literal["iso_ms", "month", "hour", "epoch_seconds"]
 
 
-@dataclass
+@frozen
 class DatadogFanOutConfig:
     """Wires a child endpoint to the parent endpoint whose ids fill its path placeholder."""
 
