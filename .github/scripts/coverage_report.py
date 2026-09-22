@@ -569,45 +569,38 @@ def main() -> int:
         results, patch_data = read_report_data(args.report_data_in)
         if args.patch_json_out is not None and patch_data is not None:
             args.patch_json_out.write_text(json.dumps(patch_data, separators=(",", ":")))
-        markdown = render_markdown(results, patch_data)
-        if args.out:
-            args.out.write_text(markdown)
-        sys.stdout.write(markdown + "\n")
-        return 0
+    else:
+        if args.artifacts is None:
+            parser.error("--artifacts is required unless --report-data-in is used")
 
-    if args.artifacts is None:
-        parser.error("--artifacts is required unless --report-data-in is used")
+        def from_source_commit(artifacts_dir: Path) -> bool:
+            return args.source_commit is None or artifacts_match_commit(artifacts_dir, args.source_commit)
 
-    product_artifacts_valid = args.source_commit is None or artifacts_match_commit(args.artifacts, args.source_commit)
-    covered, valid = aggregate(args.artifacts) if product_artifacts_valid else ({}, {})
+        covered, valid = aggregate(args.artifacts) if from_source_commit(args.artifacts) else ({}, {})
 
-    core_covered: dict[str, set[int]] = {}
-    core_valid: dict[str, set[int]] = {}
-    if (
-        args.core_artifacts is not None
-        and args.core_artifacts.exists()
-        and (args.source_commit is None or artifacts_match_commit(args.core_artifacts, args.source_commit))
-    ):
-        core_covered, core_valid = aggregate_core(args.core_artifacts)
+        core_covered: dict[str, set[int]] = {}
+        core_valid: dict[str, set[int]] = {}
+        if args.core_artifacts is not None and args.core_artifacts.exists() and from_source_commit(args.core_artifacts):
+            core_covered, core_valid = aggregate_core(args.core_artifacts)
 
-    results = collect(covered, valid)  # per-product table is products only; core feeds patch coverage
+        results = collect(covered, valid)  # per-product table is products only; core feeds patch coverage
 
-    patch_data: dict | None = None
-    if args.combined_out is not None and (results or core_valid):
-        write_combined_cobertura(covered, valid, core_covered, core_valid, args.combined_out)
-        patch_data = run_diff_cover(args.combined_out, args.compare_branch, args.patch_json_out)
-    elif not results and not core_valid and diff_touches_backend(args.compare_branch) is False:
-        # No coverage collected because nothing measured changed (e.g. a PR that dropped its
-        # backend changes) — emit an explicit zero-line payload so a stale warning section
-        # from an earlier run gets cleared rather than left standing.
-        patch_data = empty_patch_data()
-        if args.patch_json_out is not None:
-            args.patch_json_out.write_text(json.dumps(patch_data))
+        patch_data = None
+        if args.combined_out is not None and (results or core_valid):
+            write_combined_cobertura(covered, valid, core_covered, core_valid, args.combined_out)
+            patch_data = run_diff_cover(args.combined_out, args.compare_branch, args.patch_json_out)
+        elif not results and not core_valid and diff_touches_backend(args.compare_branch) is False:
+            # No coverage collected because nothing measured changed (e.g. a PR that dropped its
+            # backend changes) — emit an explicit zero-line payload so a stale warning section
+            # from an earlier run gets cleared rather than left standing.
+            patch_data = empty_patch_data()
+            if args.patch_json_out is not None:
+                args.patch_json_out.write_text(json.dumps(patch_data))
+
+        if args.report_data_out is not None:
+            write_report_data(args.report_data_out, results, patch_data)
 
     markdown = render_markdown(results, patch_data)
-
-    if args.report_data_out is not None:
-        write_report_data(args.report_data_out, results, patch_data)
 
     if args.out:
         args.out.write_text(markdown)

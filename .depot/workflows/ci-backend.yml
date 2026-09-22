@@ -3624,13 +3624,12 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   mkdir -p cov-artifacts core-artifacts
-                  git rev-parse HEAD > /tmp/coverage-source-commit
                   uv run --script .github/scripts/coverage_report.py \
                       --artifacts cov-artifacts \
                       --core-artifacts core-artifacts \
                       --combined-out combined-coverage.xml \
                       --compare-branch HEAD^1 \
-                      --source-commit "$(cat /tmp/coverage-source-commit)" \
+                      --source-commit "$(git rev-parse HEAD)" \
                       --patch-json-out patch-coverage.json \
                       --report-data-out coverage-report-data.json \
                       --out coverage-comment.md
