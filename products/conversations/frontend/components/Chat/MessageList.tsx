@@ -19,10 +19,8 @@ export interface MessageListProps {
     maxHeight?: string
     /** When true, flips alignment so customer messages appear on the right (for customer-facing views) */
     isCustomerView?: boolean
-    /** Number of team messages that haven't been read by the customer */
-    unreadCustomerCount?: number
-    /** Whether to show delivery status on team messages */
-    showDeliveryStatus?: boolean
+    /** Delivery status for team messages, keyed by message ID. */
+    deliveryStatusByMessageId?: Map<string, MessageDeliveryStatus>
     /** ID of the latest AI message eligible for reviewer feedback */
     latestAiMessageId?: string | null
     /** ID of the latest AI draft the ticket logic selected for applying. */
@@ -58,6 +56,7 @@ export interface TimelineExtra {
 const EMPTY_EXTRAS: TimelineExtra[] = []
 const EMPTY_FEEDBACK_BY_MESSAGE_ID: Record<string, AiReplyFeedbackRating> = {}
 const EMPTY_AI_SOURCES: AITriageSource[] = []
+const EMPTY_DELIVERY_STATUS_BY_MESSAGE_ID = new Map<string, MessageDeliveryStatus>()
 
 export function MessageList({
     messages,
@@ -70,8 +69,7 @@ export function MessageList({
     minHeight = '300px',
     maxHeight = '400px',
     isCustomerView = false,
-    unreadCustomerCount = 0,
-    showDeliveryStatus = false,
+    deliveryStatusByMessageId = EMPTY_DELIVERY_STATUS_BY_MESSAGE_ID,
     latestAiMessageId = null,
     latestAiDraftId = null,
     feedbackByMessageId = EMPTY_FEEDBACK_BY_MESSAGE_ID,
@@ -189,30 +187,6 @@ export function MessageList({
         }
     }
 
-    // Compute delivery status for team messages (non-customer, non-private messages)
-    // The last unreadCustomerCount team messages are "sent", the rest are "read"
-    const deliveryStatusMap = useMemo((): Map<string, MessageDeliveryStatus> => {
-        if (!showDeliveryStatus) {
-            return new Map()
-        }
-
-        const statusMap = new Map<string, MessageDeliveryStatus>()
-        const teamMessages = messages.filter((m) => m.authorType !== 'customer' && !m.isPrivate)
-
-        let unreadRemaining = unreadCustomerCount
-        for (let i = teamMessages.length - 1; i >= 0; i--) {
-            const msg = teamMessages[i]
-            if (unreadRemaining > 0) {
-                statusMap.set(msg.id, 'sent')
-                unreadRemaining--
-            } else {
-                statusMap.set(msg.id, 'read')
-            }
-        }
-
-        return statusMap
-    }, [messages, showDeliveryStatus, unreadCustomerCount])
-
     // Messages and extras share one chronological stream, so an agent's findings sit at the point in
     // the conversation they arrived rather than always at the bottom. Ties keep messages first, and
     // the original order within each kind, so a same-second reply never reshuffles.
@@ -235,7 +209,7 @@ export function MessageList({
                                 key={`${message.id}-${message.version ?? 0}`}
                                 message={message}
                                 isCustomer={isCustomerView ? !isCustomer : isCustomer}
-                                deliveryStatus={deliveryStatusMap.get(message.id)}
+                                deliveryStatus={deliveryStatusByMessageId.get(message.id)}
                                 showAiReplyFeedback={
                                     showAiReplyFeedback &&
                                     message.id === latestAiMessageId &&
@@ -280,7 +254,7 @@ export function MessageList({
             aiSources,
             canEditTicket,
             currentUserId,
-            deliveryStatusMap,
+            deliveryStatusByMessageId,
             extras,
             feedbackByMessageId,
             fullEmailLoadingMessageId,

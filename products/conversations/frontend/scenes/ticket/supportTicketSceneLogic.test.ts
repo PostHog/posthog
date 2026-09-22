@@ -315,6 +315,18 @@ describe('supportTicketSceneLogic chatMessages mapping', () => {
 
         expect(logic.values.latestAiDraftId).toBe('new-draft')
     })
+
+    it('selects widget delivery statuses for public team messages', () => {
+        logic.actions.setTicket({ ...makeTicket(), unread_customer_count: 1 })
+        logic.actions.setMessages([
+            makeSupportComment({ id: 'read', created_at: '2026-01-01T00:00:00Z' }),
+            makeCustomerComment('customer'),
+            makeSupportComment({ id: 'private', item_context: { author_type: 'support', is_private: true } }),
+            makeSupportComment({ id: 'sent', created_at: '2026-01-01T00:03:00Z' }),
+        ])
+
+        expect(logic.values.deliveryStatusByMessageId).toEqual(new Map([['read', 'read'], ['sent', 'sent']]))
+    })
 })
 
 describe('supportTicketSceneLogic applyAiDraft', () => {
