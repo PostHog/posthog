@@ -349,7 +349,6 @@ export interface heatmapToolbarMenuLogicValues {
         min: number
     } // heatmapDataLogic
     posthog: PostHog | null // toolbarConfigLogic
-    isAuthenticated: boolean // toolbarConfigLogic
     areaCandidates: HTMLElement[]
     areaHoverAnchor: HTMLElement | null
     areaHoverElement: HTMLElement | null
@@ -459,6 +458,15 @@ export interface heatmapToolbarMenuLogicActions {
     setHrefMatchType: (matchType: HrefMatchType) => {
         matchType: HrefMatchType
     } // heatmapDataLogic
+    setOAuthTokens: (
+        accessToken: string,
+        refreshToken: string | null,
+        clientId: string
+    ) => {
+        accessToken: string
+        clientId: string
+        refreshToken: string | null
+    } // toolbarConfigLogic
     cancelAreaSelection: () => {
         value: true
     }
@@ -658,7 +666,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             currentPageLogic,
             ['href', 'wildcardHref'],
             toolbarConfigLogic,
-            ['posthog', 'isAuthenticated'],
+            ['posthog'],
             heatmapDataLogic,
             [
                 'commonFilters',
@@ -674,6 +682,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         actions: [
             currentPageLogic,
             ['setHref', 'setWildcardHref'],
+            toolbarConfigLogic,
+            ['setOAuthTokens'],
             heatmapDataLogic,
             [
                 'setHeatmapColorPalette',
@@ -1066,18 +1076,16 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             viewportRange: () => {
                 actions.maybeLoadHeatmap()
             },
-            // heatmapDataLogic skips a request made before the toolbar holds a token, so replay it
-            // as soon as the OAuth handshake lands instead of leaving an empty overlay.
-            isAuthenticated: (isAuthenticated: boolean) => {
-                if (isAuthenticated) {
-                    actions.maybeLoadHeatmap()
-                }
-            },
             windowWidth: updateAreaBoundsIfFiltered,
             windowHeight: updateAreaBoundsIfFiltered,
         }
     }),
     listeners(({ actions, values, cache }) => ({
+        // heatmapDataLogic skips a request made before the toolbar holds a token, so replay it as
+        // soon as the OAuth handshake lands instead of leaving an empty overlay.
+        setOAuthTokens: () => {
+            actions.maybeLoadHeatmap()
+        },
         processElements: async ({ trigger }, breakpoint) => {
             const startedAt = performance.now()
 
