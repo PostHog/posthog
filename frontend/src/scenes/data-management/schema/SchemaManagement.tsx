@@ -3,10 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconApps, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -61,14 +58,9 @@ function PropertyRow({ property }: { property: SchemaPropertyGroupProperty }): J
 }
 
 export function SchemaManagement(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { filteredPropertyGroups, propertyGroupsLoading, searchTerm } = useValues(schemaManagementLogic)
     const { setSearchTerm, setPropertyGroupModalOpen, setEditingPropertyGroup, deletePropertyGroup } =
         useActions(schemaManagementLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.SCHEMA_MANAGEMENT]) {
-        return <NotFound object="page" caption="Schema management is not available." />
-    }
 
     const columns: LemonTableColumns<SchemaPropertyGroup> = [
         {

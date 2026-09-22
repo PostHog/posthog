@@ -2920,7 +2920,6 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         category: 'Schema',
         iconType: 'event_definition',
         href: urls.schemaManagement(),
-        flag: FEATURE_FLAGS.SCHEMA_MANAGEMENT,
         sceneKeys: [],
     },
     {

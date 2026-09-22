@@ -105,7 +105,6 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         url: urls.schemaManagement(),
         label: 'Property Groups',
         content: <SchemaManagement />,
-        flag: FEATURE_FLAGS.SCHEMA_MANAGEMENT,
     },
     [DataManagementTab.History]: {
         url: urls.dataManagementHistory(),

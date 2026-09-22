@@ -5,9 +5,8 @@ import { LemonButton, LemonLabel, Link } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
@@ -110,7 +109,6 @@ export function CustomerAnalyticsDashboardEvents(): JSX.Element {
     const { addProductIntent } = useActions(teamLogic)
     const { reportCustomerAnalyticsDashboardConfigurationViewed, reportCustomerAnalyticsDashboardEventsSaved } =
         useActions(eventUsageLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -144,17 +142,15 @@ export function CustomerAnalyticsDashboardEvents(): JSX.Element {
                 </Link>{' '}
                 first, then select it here.
             </p>
-            {featureFlags[FEATURE_FLAGS.SCHEMA_MANAGEMENT] && (
-                <p>
-                    Don't have events yet? You can{' '}
-                    <Link to={urls.eventDefinitions()} target="_blank">
-                        create event definitions
-                    </Link>{' '}
-                    upfront and configure your dashboard now.
-                    <br />
-                    Metrics will populate once you start capturing events.
-                </p>
-            )}
+            <p>
+                Don't have events yet? You can{' '}
+                <Link to={urls.eventDefinitions()} target="_blank">
+                    create event definitions
+                </Link>{' '}
+                upfront and configure your dashboard now.
+                <br />
+                Metrics will populate once you start capturing events.
+            </p>
 
             <div className="space-y-2">
                 {eventSelectors.map((eventSelector, index) => (
