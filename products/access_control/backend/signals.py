@@ -14,13 +14,14 @@ from products.access_control.backend.facade.user_access_control import model_to_
 def _drop_rules_when_object_is_gone(
     sender: type[Model], instance: Model, signal: ModelSignal, raw: bool = False, **_kwargs: Any
 ) -> None:
-    # Rules have no foreign key to their object, so nothing cascades when the object goes away.
-    # Only a save that leaves the object soft-deleted pays for the lookup
+    # A rule points at its object by id and has no foreign key to it. Django does not delete the
+    # rule when the object is deleted. Skip a save that does not set the deleted flag, so that a
+    # normal save runs no query.
     if raw or (signal is post_save and getattr(instance, "deleted", None) is not True):
         return
     resource = model_to_resource(sender)
     team_id = getattr(instance, "team_id", None)
-    # Project access is a resource-level control on the team row, never an object rule
+    # Project access is a resource-level rule on the team row. It is not an object rule.
     if resource is None or resource == "project" or team_id is None:
         return
     delete_object_access_controls_for_object(team_id=team_id, resource=resource, resource_id=str(instance.pk))

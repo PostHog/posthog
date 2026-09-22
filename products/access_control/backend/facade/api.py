@@ -479,10 +479,10 @@ def set_object_access_control(
 
 
 def delete_object_access_controls_for_object(*, team_id: int, resource: str, resource_id: str) -> int:
-    """Remove every rule on one object, for every subject. Returns the number of rules removed.
+    """Delete all rules on one object, for all subjects. Return the number of deleted rules.
 
-    For the moment an object stops existing: a soft-deleted object cannot be reached, so its
-    rules decide nothing, and a restored object starts from the project defaults.
+    Call this when the object is deleted or soft-deleted. A soft-deleted object is not reachable,
+    so its rules have no effect. A restored object gets the project defaults.
     """
     deleted, _ = AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=resource_id).delete()
     return deleted
