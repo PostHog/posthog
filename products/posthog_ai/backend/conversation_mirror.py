@@ -80,7 +80,7 @@ class CopyConflict(ApplicationError):
     """
 
     def __init__(self, message: str) -> None:
-        super().__init__(message, type=type(self).__name__, non_retryable=False)
+        super().__init__(message, type=type(self).__name__)
 
 
 @frozen
