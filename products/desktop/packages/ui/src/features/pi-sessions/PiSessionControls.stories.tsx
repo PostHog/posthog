@@ -27,7 +27,7 @@ function groupedModelOption(currentValue: string): SessionConfigOption {
         name: "Anthropic",
         options: [
           option("claude", "claude-fable-5-1", "Claude Fable 5.1"),
-          option("claude", "claude-opus-5", "Claude Opus 5"),
+          option("claude", "claude-opus-5-5", "Claude Opus 5.5"),
           option("claude", "claude-sonnet-5", "Claude Sonnet 5"),
         ],
       },
@@ -51,7 +51,11 @@ function groupedModelOption(currentValue: string): SessionConfigOption {
 }
 
 const piModels = [
-  { provider: "posthog" as const, id: "claude-opus-5", name: "Claude Opus 5" },
+  {
+    provider: "posthog" as const,
+    id: "claude-opus-5-5",
+    name: "Claude Opus 5.5",
+  },
   { provider: "posthog" as const, id: "gpt-5.6-terra", name: "GPT-5.6 Terra" },
   { provider: "posthog" as const, id: "zai-org/glm-5.3", name: "GLM-5.3" },
 ];
