@@ -1446,7 +1446,7 @@ Rows that no longer parse name no edge, the same tolerance every other read of t
 | `skip_reason`           | Rule                                                                                                                                |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `duplicate_of`          | The report has an outgoing `duplicate_of` edge, and its root is `resolved` or carries a pull request that is not known to be closed |
-| `blocked_by_dependency` | Some outgoing `depends_on` target carries no pull request, or only ones known to be closed                                            |
+| `blocked_by_dependency` | Some outgoing `depends_on` target carries no pull request, or only ones known to be closed                                          |
 | `plan_parent`           | The report has incoming `part_of` edges, so it is the plan and the steps do the work                                                |
 
 The implementation path checks these gates again under the report lock before task creation. A gate returns `AutostartOutcome(status="blocked")`, writes an `autostart_skip` artefact naming the deciding report, and fires `signals_autostart_skipped`. The artefact exists only for the link gates: every other skip is a property of the report a reader can already see, while a link gate's reason lives on a different report. The gates hold the automatic path only, so pressing Implement in the inbox still starts a run. Nothing re-evaluates a blocked report when its dependency's pull request opens: a blocked child starts on the next pipeline evaluation of that report, or by hand.
