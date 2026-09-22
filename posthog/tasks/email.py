@@ -51,7 +51,7 @@ from posthog.models.organization_notification_lock import (
 )
 from posthog.models.scoping import with_team_scope
 from posthog.models.utils import UUIDT
-from posthog.ph_client import feature_enabled_or_false, get_client, ph_scoped_capture
+from posthog.ph_client import get_client, ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
@@ -1779,19 +1779,7 @@ def login_from_new_device_notification(
 
     user: User = User.objects.get(pk=user_id)
 
-    # Send email if feature flag is enabled or in tests
-    if settings.TEST:
-        enabled = True
-    elif user.current_organization is None:
-        enabled = False
-    else:
-        enabled = feature_enabled_or_false(
-            key="login-from-new-device-notification",
-            distinct_id=str(user.distinct_id),
-            groups={"organization": str(user.current_organization.id)},
-        )
-
-    if not enabled:
+    if not settings.TEST and user.current_organization is None:
         return
 
     login_time_str = login_time.strftime("%B %-d, %Y at %H:%M UTC")
