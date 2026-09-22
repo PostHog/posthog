@@ -17,7 +17,7 @@ from products.access_control.backend.models.role import RoleMembership
 
 from .. import logic, weekly_digest, weekly_digest_delivery
 from ..indexed_embedding import EMBEDDING_TABLES
-from ..logic import external_references, github_external_references, rules
+from ..logic import external_references, github_external_references, linear_external_references, rules
 from ..models import (
     ErrorTrackingIssue,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
@@ -710,6 +710,16 @@ def prepare_github_external_reference_jobs(
 
 def link_github_external_reference(job: contracts.GitHubExternalReferenceJob) -> bool:
     return github_external_references.link_reference(job)
+
+
+def prepare_linear_external_reference_jobs(
+    event_type: str, payload: dict[str, Any]
+) -> list[contracts.LinearExternalReferenceJob]:
+    return linear_external_references.prepare_jobs(event_type, payload)
+
+
+def link_linear_external_reference(job: contracts.LinearExternalReferenceJob) -> bool:
+    return linear_external_references.link_reference(job)
 
 
 def get_issue_values(team_id: int, key: str | None, value: str | None) -> list[str]:

@@ -24,6 +24,7 @@ from posthog.ingress.verify.schemes import SignatureScheme, Verification, Verifi
 # and may expose `CORE_CONSUMERS` (consumers core owns rather than a product).
 _INCARNATION_MODULES = (
     "posthog.ingress.github.provider",
+    "posthog.ingress.linear.provider",
     "posthog.ingress.slack.provider",
     "posthog.ingress.teams.provider",
     "posthog.ingress.pandadoc.provider",
