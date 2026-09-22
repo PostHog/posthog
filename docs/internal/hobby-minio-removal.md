@@ -79,3 +79,9 @@ Dev and CI register an `anonymous` SeaweedFS identity with Admin rights, so unsi
 Hobby does not, because Caddy proxies `/posthog/*` straight to `objectstorage`.
 An anonymous identity there makes every object readable and writable from the internet.
 Only the `posthog` identity is registered, so SeaweedFS rejects unsigned requests and the presigned URLs Django hands out keep working.
+
+## SDK assets for self-capture
+
+When the hobby UI captures into its own instance, it loads SDK extensions from `/static/<asset>.js?v=<sdk-version>`.
+The local static files do not include the version directories used by the cloud CDN, so same-origin self-capture disables strict script versioning.
+Capture directed to a cloud host keeps the SDK's default versioning behavior.
