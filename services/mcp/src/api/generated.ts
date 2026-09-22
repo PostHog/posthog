@@ -52938,6 +52938,18 @@ export namespace Schemas {
      */
     export type LLMPromptListConfig = { [key: string]: unknown } | null;
 
+    export interface LLMPromptResolvedReference {
+      /** Name of the referenced prompt that was spliced in. */
+      name: string;
+      /** Exact version whose content was spliced in. */
+      version: number;
+      /**
+         * Label the reference used, or null when it pinned a version directly.
+         * @nullable
+         */
+      label: string | null;
+    }
+
     export interface LLMPromptList {
       readonly id: string;
       /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
@@ -52971,6 +52983,8 @@ export namespace Schemas {
       readonly prompt_preview: string;
       readonly prompt_size_bytes: number;
       readonly all_labels: readonly LLMPromptLabelSummary[];
+      /** @nullable */
+      readonly resolved_references: readonly LLMPromptResolvedReference[] | null;
     }
 
     /**
@@ -52978,18 +52992,6 @@ export namespace Schemas {
      * @nullable
      */
     export type LLMPromptPublicConfig = { [key: string]: unknown } | null;
-
-    export interface LLMPromptResolvedReference {
-      /** Name of the referenced prompt that was spliced in. */
-      name: string;
-      /** Exact version whose content was spliced in. */
-      version: number;
-      /**
-         * Label the reference used, or null when it pinned a version directly.
-         * @nullable
-         */
-      label: string | null;
-    }
 
     export interface LLMPromptPublic {
       id: string;
@@ -108290,6 +108292,10 @@ export namespace Schemas {
      * @minLength 1
      */
     order_by?: string;
+    /**
+     * Replace @@@prompt:...@@@ references with the referenced prompts' content in labeled results with full content. Set to false to get the raw text with the reference tags.
+     */
+    resolve?: boolean;
     /**
      * Optional substring filter applied to prompt names and prompt content.
      */

@@ -8,6 +8,7 @@ from django.db import IntegrityError
 from django.db.models import Func, IntegerField, Q, QuerySet, TextField
 from django.db.models.functions import Cast
 
+import structlog
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import mixins, serializers, status, viewsets
@@ -78,10 +79,13 @@ from products.ai_observability.backend.activity_logging import log_llm_prompt_ac
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel, get_prompt_outline
 from products.ai_observability.backend.prompt_references import (
+    PROMPT_REFERENCE_REGEX,
     PromptReferenceResolutionError,
     assemble_prompt_payload,
     get_active_references_to,
 )
+
+logger = structlog.get_logger(__name__)
 
 PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
 PROMPT_FETCHED_EVENT_SOURCE = "llm_prompt_management"
@@ -271,13 +275,41 @@ class LLMPromptViewSet(
 
         report_team_action(self.team, "llma prompt fetched", properties)
 
-    def _track_list_fetch(self, prompts: Sequence[LLMPrompt], label: str | None) -> None:
+    def _resolve_labeled_list_items(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Splice references into labeled list rows, mirroring get_by_name.
+
+        A row whose references cannot resolve is omitted rather than served
+        with raw tags: the SDKs cache these rows for single fetches too, and a
+        code-level fallback covers a missing prompt while a tag inside content
+        would reach the caller's LLM as literal text.
+        """
+        if not any(
+            isinstance(item.get("prompt"), str) and PROMPT_REFERENCE_REGEX.search(item["prompt"]) for item in items
+        ):
+            return items
+        if not prompt_partials_enabled(self.team):
+            return items
+        resolved_items: list[dict[str, Any]] = []
+        for item in items:
+            try:
+                resolved_items.append(assemble_prompt_payload(self.team, item))
+            except PromptReferenceResolutionError as err:
+                logger.warning(
+                    "llm_prompt_labeled_list_reference_unresolved",
+                    prompt_name=item.get("name"),
+                    reference_name=err.reference_name,
+                    team_id=self.team.id,
+                )
+        return resolved_items
+
+    def _track_list_fetch(self, prompts: Sequence[LLMPrompt], label: str | None, resolved_reference_count: int) -> None:
         # One event per request, not per prompt: the event is billed into the calling
         # team's own project, so a page of N prompts would bill N events per call.
         properties = {
             "prompt_fetch_path": "list",
             "prompt_label": label,
             "prompt_count": len(prompts),
+            "prompt_resolved_reference_count": resolved_reference_count,
         }
         if not settings.TEST:
             try:
@@ -772,16 +804,22 @@ class LLMPromptViewSet(
         context["prompt_labels_by_name"] = self._get_prompt_labels_map([prompt.name for prompt in prompts])
         serializer = LLMPromptListSerializer(prompts, many=True, context=context)
 
-        label = self._get_list_params(request).get("label")
+        params = self._get_list_params(request)
+        label = params.get("label")
+        data = list(serializer.data)
+        if label is not None and params.get("content", "full") == "full" and cast(bool, params.get("resolve", True)):
+            data = self._resolve_labeled_list_items(data)
+
         if label or not self._is_browser_session(request):
             # The unlabeled list also backs the prompts UI page, where reading the
             # page is not a prompt fetch. The browser session separates a prompt
             # served to an application from someone looking at the list.
-            self._track_list_fetch(prompts, label)
+            resolved_reference_count = sum(len(item.get("resolved_references") or []) for item in data)
+            self._track_list_fetch(prompts, label, resolved_reference_count)
 
         if page is not None:
-            return self.get_paginated_response(serializer.data)
-        return Response({"count": len(serializer.data), "results": serializer.data})
+            return self.get_paginated_response(data)
+        return Response({"count": len(data), "results": data})
 
     @llma_track_latency("llma_prompts_create")
     @monitor(feature=None, endpoint="llma_prompts_create", method="POST")
