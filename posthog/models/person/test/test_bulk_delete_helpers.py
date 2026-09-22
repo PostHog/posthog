@@ -634,6 +634,24 @@ class RepublishUnresolvedTombstonesTests(BaseTest):
         assert after - before == 1
         assert publish.call_args.args[1].uuid == p.uuid
 
+    def test_republish_calls_the_rpc_per_chunk_and_isolates_a_failed_chunk(self):
+        uuids = [uuid4() for _ in range(3)]
+
+        def rpc(_team_id, chunk):
+            if chunk == uuids[2:]:
+                raise RuntimeError("deadline exceeded")
+            return PersonTombstones(
+                tombstones=[PersonTombstone(uuid=u, version=1, distinct_ids=[]) for u in chunk], newly_tombstoned=0
+            )
+
+        with (
+            patch("posthog.models.person.bulk_delete.REPUBLISH_UUIDS_PER_CALL", 2),
+            patch("posthog.models.person.bulk_delete.tombstone_persons_in_postgres", side_effect=rpc) as call,
+            patch("posthog.models.person.bulk_delete.publish_person_tombstone"),
+        ):
+            assert republish_tombstones(self.team.pk, uuids) == [uuids[2]]
+        assert [c.args[1] for c in call.call_args_list] == [uuids[:2], uuids[2:]]
+
     def test_does_not_republish_after_a_failed_resolve(self):
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
         with (

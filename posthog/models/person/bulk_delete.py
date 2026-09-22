@@ -84,6 +84,10 @@ PERSON_DELETION_UNPUBLISHED_TOMBSTONES_COUNTER = Counter(
 # UUIDs per log line, so a large give-up is split across lines instead of truncated.
 UNPUBLISHED_TOMBSTONES_LOG_CHUNK = 500
 
+# Persons per republish call. Their width is unknown, because they no longer resolve, so the
+# person count is the only bound. A call runs in one transaction under the router's deadline.
+REPUBLISH_UUIDS_PER_CALL = 100
+
 PERSON_DELETION_REPUBLISH_TOMBSTONED_LIVE_COUNTER = Counter(
     "posthog_person_deletion_republish_tombstoned_live_total",
     "Persons that a republish found live and tombstoned. A republish expects persons tombstoned by an "
@@ -658,8 +662,15 @@ def _republish_tombstones(
     already counted and logged these persons. The call also tombstones a person that is
     live, which the counter and log below make visible.
     """
-    if not person_uuids:
-        return
+    for start in range(0, len(person_uuids), REPUBLISH_UUIDS_PER_CALL):
+        _republish_tombstone_chunk(team_id, person_uuids[start : start + REPUBLISH_UUIDS_PER_CALL], failures)
+
+
+def _republish_tombstone_chunk(
+    team_id: int,
+    person_uuids: builtins.list[uuid_lib.UUID],
+    failures: builtins.list[PersonDeletionFailure],
+) -> None:
     try:
         result = tombstone_persons_in_postgres(team_id, person_uuids)
     except Exception as exc:
@@ -670,15 +681,12 @@ def _republish_tombstones(
     if result.newly_tombstoned:
         PERSON_DELETION_REPUBLISH_TOMBSTONED_LIVE_COUNTER.inc(result.newly_tombstoned)
         # The response does not say which persons were live, so every uuid of the call is logged.
-        uuids = [str(u) for u in person_uuids]
-        for start in range(0, len(uuids), UNPUBLISHED_TOMBSTONES_LOG_CHUNK):
-            logger.warning(
-                "person_deletion.republish_tombstoned_live_persons",
-                team_id=team_id,
-                newly_tombstoned=result.newly_tombstoned,
-                person_count=len(uuids),
-                person_uuids=uuids[start : start + UNPUBLISHED_TOMBSTONES_LOG_CHUNK],
-            )
+        logger.warning(
+            "person_deletion.republish_tombstoned_live_persons",
+            team_id=team_id,
+            newly_tombstoned=result.newly_tombstoned,
+            person_uuids=[str(u) for u in person_uuids],
+        )
     for tombstone in result.tombstones:
         try:
             publish_person_tombstone(team_id, tombstone)
