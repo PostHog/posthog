@@ -52,16 +52,10 @@ class ReviewTrigger(StrEnum):
 
 
 class ReviewRequestRefusal(StrEnum):
-    """Why a manual review request did not queue a run."""
+    """Why a manual review request did not queue a run. The message carries the specific reason."""
 
-    REPOSITORY_NOT_REVIEWABLE = "repository_not_reviewable"
-    PULL_REQUEST_NOT_FOUND = "pull_request_not_found"
-    PULL_REQUEST_NOT_OPEN = "pull_request_not_open"
-    DRAFT = "draft"
-    BOT_AUTHOR = "bot_author"
-    UNTRUSTED_AUTHOR = "untrusted_author"
-    AUTHOR_BELOW_WRITE = "author_below_write"
-    PULL_REQUEST_CHANGED = "pull_request_changed"
+    NOT_FOUND = "not_found"
+    NOT_REVIEWABLE = "not_reviewable"
     GITHUB_UNAVAILABLE = "github_unavailable"
 
 

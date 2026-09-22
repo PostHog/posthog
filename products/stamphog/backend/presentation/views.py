@@ -443,14 +443,8 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
 
 
 _REFUSAL_STATUS = {
-    ReviewRequestRefusal.REPOSITORY_NOT_REVIEWABLE: 404,
-    ReviewRequestRefusal.PULL_REQUEST_NOT_FOUND: 404,
-    ReviewRequestRefusal.PULL_REQUEST_NOT_OPEN: 409,
-    ReviewRequestRefusal.DRAFT: 409,
-    ReviewRequestRefusal.BOT_AUTHOR: 409,
-    ReviewRequestRefusal.UNTRUSTED_AUTHOR: 409,
-    ReviewRequestRefusal.AUTHOR_BELOW_WRITE: 409,
-    ReviewRequestRefusal.PULL_REQUEST_CHANGED: 409,
+    ReviewRequestRefusal.NOT_FOUND: 404,
+    ReviewRequestRefusal.NOT_REVIEWABLE: 409,
     ReviewRequestRefusal.GITHUB_UNAVAILABLE: 503,
 }
 

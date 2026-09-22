@@ -1632,19 +1632,10 @@ def process_inbox_pr_review(
     )
 
 
-_MANUAL_SKIP_REFUSALS = {
-    "draft": (
-        ReviewRequestRefusal.DRAFT,
-        "Stamphog does not review draft pull requests. Mark the pull request as ready for review, then request again.",
-    ),
-    "bot_author": (
-        ReviewRequestRefusal.BOT_AUTHOR,
-        "Stamphog does not review pull requests opened by bots. This change needs a human reviewer.",
-    ),
-    "untrusted_author_association": (
-        ReviewRequestRefusal.UNTRUSTED_AUTHOR,
-        "Stamphog only reviews pull requests from members and collaborators of the repository.",
-    ),
+_MANUAL_SKIP_MESSAGES = {
+    "draft": "Stamphog does not review draft pull requests. Mark the pull request as ready for review, then request again.",
+    "bot_author": "Stamphog does not review pull requests opened by bots. This change needs a human reviewer.",
+    "untrusted_author_association": "Stamphog only reviews pull requests from members and collaborators of the repository.",
 }
 
 # Transport-level GitHub failures. StamphogGitHubError is caught next to each call instead, because a
@@ -1682,7 +1673,7 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
     repo_config = _reviewable_repo_config(team_id, repository)
     if repo_config is None:
         raise ReviewRequestRefusedError(
-            ReviewRequestRefusal.REPOSITORY_NOT_REVIEWABLE,
+            ReviewRequestRefusal.NOT_FOUND,
             f"Stamphog is not connected and enabled for {repository} in this project. "
             "Connect the repository in Stamphog settings and turn on reviews first.",
         )
@@ -1692,31 +1683,26 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
     except StamphogGitHubError as e:
         if e.status_code == 404:
             raise ReviewRequestRefusedError(
-                ReviewRequestRefusal.PULL_REQUEST_NOT_FOUND, f"Pull request #{pr_number} was not found in {repo}."
+                ReviewRequestRefusal.NOT_FOUND, f"Pull request #{pr_number} was not found in {repo}."
             )
         raise _github_unavailable(repo, pr_number) from e
     except _GITHUB_ERRORS as e:
         raise _github_unavailable(repo, pr_number) from e
     if (pr.get("state") or "") != "open":
         raise ReviewRequestRefusedError(
-            ReviewRequestRefusal.PULL_REQUEST_NOT_OPEN,
+            ReviewRequestRefusal.NOT_REVIEWABLE,
             f"Pull request #{pr_number} is closed, so Stamphog will not review it.",
         )
-    head_sha = ((pr.get("head") or {}).get("sha") or "").strip()
-    if not head_sha:
-        # The head-keyed dedupe would collide every request on "", so refuse rather than guess.
-        raise _github_unavailable(repo, pr_number)
     skip_reason = _review_skip_reason(pr)
     if skip_reason is not None:
-        refusal, message = _MANUAL_SKIP_REFUSALS[skip_reason]
-        raise ReviewRequestRefusedError(refusal, message)
+        raise ReviewRequestRefusedError(ReviewRequestRefusal.NOT_REVIEWABLE, _MANUAL_SKIP_MESSAGES[skip_reason])
     try:
         author_below_write = _author_lacks_write_permission(repo_config, repo, pr)
     except (StamphogGitHubError, *_GITHUB_ERRORS) as e:
         raise _github_unavailable(repo, pr_number) from e
     if author_below_write:
         raise ReviewRequestRefusedError(
-            ReviewRequestRefusal.AUTHOR_BELOW_WRITE,
+            ReviewRequestRefusal.NOT_REVIEWABLE,
             f"The author of pull request #{pr_number} does not have write access to {repo}, "
             "so Stamphog will not review it.",
         )
@@ -1724,12 +1710,12 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
     queued = _queue_review_at_head(
         repo_config,
         pr,
-        head_sha,
+        pr["head"]["sha"],
         output={"manual_review": {"acting_user_id": user_id}, "review_trigger": ReviewTrigger.MANUAL.value},
     )
     if queued.run is None:
         raise ReviewRequestRefusedError(
-            ReviewRequestRefusal.PULL_REQUEST_CHANGED,
+            ReviewRequestRefusal.NOT_REVIEWABLE,
             f"Pull request #{pr_number} changed while the request was checked. Request the review again.",
         )
     logger.info(

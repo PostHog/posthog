@@ -722,23 +722,21 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("draft", {"draft": True}, "read", 409, "draft"),
-            ("bot_author", {"user": {"login": "renovate[bot]", "type": "Bot"}}, "write", 409, "bot_author"),
-            ("fork_author", {"author_association": "NONE"}, "write", 409, "untrusted_author"),
-            ("closed", {"state": "closed"}, "write", 409, "pull_request_not_open"),
-            ("author_below_write", {}, "read", 409, "author_below_write"),
+            ("draft", {"draft": True}, "read"),
+            ("bot_author", {"user": {"login": "renovate[bot]", "type": "Bot"}}, "write"),
+            ("fork_author", {"author_association": "NONE"}, "write"),
+            ("closed", {"state": "closed"}, "write"),
+            ("author_below_write", {}, "read"),
         ]
     )
-    def test_refused_requests_create_no_run(
-        self, _name: str, pr_overrides: dict, author_permission: str, expected_status: int, expected_code: str
-    ) -> None:
+    def test_refused_requests_create_no_run(self, _name: str, pr_overrides: dict, author_permission: str) -> None:
         self.github.register_pr("PostHog/posthog", 5, self._pr(**pr_overrides))
         self.github.collaborator_permissions[("PostHog/posthog", "bob")] = author_permission
 
         response = self._request()
 
-        assert response.status_code == expected_status, response.content
-        assert response.json()["code"] == expected_code
+        assert response.status_code == status.HTTP_409_CONFLICT, response.content
+        assert response.json()["code"] == "not_reviewable"
         assert not ReviewRun.objects.unscoped().filter(team_id=self.team.id).exists()
         assert self.github.github_writes == []
 
