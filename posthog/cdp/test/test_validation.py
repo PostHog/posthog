@@ -1055,6 +1055,13 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         ):
             assert generate_template_bytecode(template, set(), function_type="destination"), template
 
+    def test_destination_templates_refuse_a_python_only_callback(self):
+        # max2 is in the Python standard library and not in the Node VM, so a template that passes it
+        # as a callback fails on every event.
+        with self.assertRaises(Exception) as ctx:
+            generate_template_bytecode("{arrayMap(max2, [1, 2])}", set(), function_type="destination")
+        assert "Variable not available in inputs: max2" in str(ctx.exception)
+
     def test_destination_templates_skip_the_globals_check_when_the_function_stays_off(self):
         with self.assertRaises(Exception):
             generate_template_bytecode("{distinct_id}", set(), function_type="destination")
