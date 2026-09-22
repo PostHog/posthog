@@ -188,8 +188,10 @@ function conditionReferencesCohorts(condition: { filters?: unknown }): boolean {
     )
 }
 
-// True when this wait is being evaluated at or past its max_wait_duration. calculatedScheduledAt
-// returns null once that instant has passed, which is the same test the timeout path uses.
+// True when this wait is being evaluated at or past the max_wait_duration it parked against.
+// calculatedScheduledAt returns null once that instant has passed, which is the same test the
+// timeout path uses. A wait that never parked, or that parked against a ceiling the flow has since
+// changed, reads false: neither is a wake the streams missed.
 function matchedAtMaxWait(
     invocation: CyclotronJobInvocationHogFlow,
     action: Extract<HogFlowAction, { type: 'conditional_branch' | 'wait_until_condition' }>
@@ -197,6 +199,9 @@ function matchedAtMaxWait(
     const startedAtTimestamp = invocation.state.currentAction?.startedAtTimestamp
     const maxWait = action.type === 'wait_until_condition' ? action.config.max_wait_duration : undefined
     if (!startedAtTimestamp || !maxWait) {
+        return false
+    }
+    if (invocation.state.currentAction?.parkedMaxWaitDuration !== maxWait) {
         return false
     }
     try {
@@ -259,6 +264,9 @@ export async function checkConditions(
         )
 
         if (scheduledAt) {
+            if (invocation.state.currentAction) {
+                invocation.state.currentAction.parkedMaxWaitDuration = repark.maxWaitDuration
+            }
             return {
                 scheduledAt,
             }

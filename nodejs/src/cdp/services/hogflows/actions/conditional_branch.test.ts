@@ -489,6 +489,7 @@ describe('action.conditional_branch', () => {
                 },
             }
             waitInvocation.state.currentAction!.startedAtTimestamp = DateTime.utc().minus({ hours: 5 }).toMillis()
+            waitInvocation.state.currentAction!.parkedMaxWaitDuration = '4h'
             waitAction.config.max_wait_duration = '4h'
 
             const result = await handler.execute({
@@ -515,6 +516,30 @@ describe('action.conditional_branch', () => {
                 },
             }
             waitInvocation.state.currentAction!.startedAtTimestamp = DateTime.utc().minus({ minutes: 5 }).toMillis()
+            waitAction.config.max_wait_duration = '4h'
+
+            const result = await handler.execute({
+                invocation: waitInvocation,
+                action: waitAction,
+                result: createInvocationResult(waitInvocation),
+            })
+
+            expect(result.nextAction).toEqual(findActionById(waitInvocation.hogFlow, 'matched_target'))
+            expect(await lateAdvanceCount()).toBe(0)
+        })
+
+        it('does not count a match woken by a sweep after the ceiling was shortened', async () => {
+            // The timing sweep moves `scheduled` with a bulk UPDATE and stamps no marker, so a run
+            // parked against a ceiling the author later cut wakes past the new one. That is an edit
+            // landing, not a wake the streams missed.
+            waitAction.config.condition = {
+                filters: {
+                    bytecode: ['_H', 1, 32, 'test', 32, 'event', 1, 1, 11],
+                    events: [{ id: 'test', name: 'test', type: 'events', order: 0 }],
+                },
+            }
+            waitInvocation.state.currentAction!.startedAtTimestamp = DateTime.utc().minus({ hours: 5 }).toMillis()
+            waitInvocation.state.currentAction!.parkedMaxWaitDuration = '7d'
             waitAction.config.max_wait_duration = '4h'
 
             const result = await handler.execute({

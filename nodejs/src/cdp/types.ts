@@ -466,6 +466,11 @@ export type HogFlowInvocationContext = {
         // Set when a distinct_id's first mapping fills a parked wait's missing person anchor and wakes
         // it. A matcher wake carrying no eventMatched, so the handler consumes it like rekeyWake.
         anchorWake?: boolean
+        // The max_wait_duration this wait parked against. The timing sweep moves `scheduled` with a
+        // bulk UPDATE and cannot stamp a marker the way the matcher does, so a wake that follows a
+        // shortened ceiling is otherwise indistinguishable from the deadline arriving. Comparing the
+        // parked ceiling with the action's current one tells the two apart.
+        parkedMaxWaitDuration?: string
         // Set by hog-function action handler when it returns `finished: false` without an
         // explicit `queueScheduledAt` — i.e. the reschedule is purely to move the job onto a
         // dedicated queue (e.g. 'email' for SES rate-limit gating) and the next dequeue will
