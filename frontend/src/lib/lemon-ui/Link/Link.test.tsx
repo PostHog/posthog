@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { fireEvent, render, screen } from '@testing-library/react'
+import { router } from 'kea-router'
 
 import { Link } from './Link'
 
@@ -37,10 +38,21 @@ describe('Link', () => {
     ]
 
     it.each(schemeCases)('keeps a %s: target out of the app routes', (scheme, target) => {
+        // The href alone is not enough: `router.actions.push` rejects a cross-origin URL with a
+        // `SecurityError`, so the click must reach the browser instead of the router.
+        const unmountRouter = router.mount()
+        const push = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
         const text = `launch ${scheme}`
         render(<Link to={target}>{text}</Link>)
 
-        expect(screen.getByText(text).closest('a')).toHaveAttribute('href', target)
+        const anchor = screen.getByText(text).closest('a')
+        expect(anchor).toHaveAttribute('href', target)
+
+        fireEvent.click(anchor!)
+        expect(push).not.toHaveBeenCalled()
+
+        push.mockRestore()
+        unmountRouter()
     })
 
     // The command palette depends on modifier clicks NOT reaching the passed onClick, so it
