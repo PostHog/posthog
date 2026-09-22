@@ -22,6 +22,7 @@ schemas below are rendered from the backend Pydantic models at build time, so th
 Valid `(evaluation_type, output_type)` pairs: `(hog, boolean)`, `(llm_judge, boolean)`,
 `(hog, numeric)`, `(llm_judge, numeric)`, `(sentiment, sentiment)`.
 The output type cannot change after creation.
+Numeric evaluations require the `llm-analytics-numeric-evaluations` rollout flag for the project. Existing numeric evaluations remain editable when it is off.
 
 ## `target` and `target_config`
 

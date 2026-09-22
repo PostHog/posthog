@@ -97,6 +97,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
     } = useValues(llmEvaluationLogic)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
+    const numericEvaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_NUMERIC_EVALS]
     const settlingStrategyEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_SETTLING_STRATEGY]
     const backfillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_BACKFILLS]
     const {
@@ -707,7 +708,14 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                         value={evaluation.output_type}
                                                         options={[
                                                             { value: 'boolean', label: 'Boolean' },
-                                                            { value: 'numeric', label: 'Numeric score' },
+                                                            {
+                                                                value: 'numeric',
+                                                                label: 'Numeric score',
+                                                                disabledReason:
+                                                                    isNewEvaluation && !numericEvaluationsEnabled
+                                                                        ? 'Numeric evaluations are not enabled for this project.'
+                                                                        : undefined,
+                                                            },
                                                         ]}
                                                         onChange={(value) =>
                                                             setOutputType(value as 'boolean' | 'numeric')

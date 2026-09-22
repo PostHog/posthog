@@ -148,8 +148,49 @@ class TestTargetConfigFieldSchema(SimpleTestCase):
 
 
 class TestEvaluationConfigsApi(APIBaseTest):
+    @patch("products.ai_observability.backend.api.evaluations.posthog_feature_flag_enabled", return_value=False)
+    def test_numeric_creation_requires_feature_flag(self, _mock_numeric_flag: Mock) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Gated score",
+                "evaluation_type": "hog",
+                "evaluation_config": {"source": "return 0;"},
+                "output_type": "numeric",
+                "output_config": {"min": 0, "max": 10},
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Numeric evaluations are not enabled", str(response.data))
+
+    @patch("products.ai_observability.backend.api.evaluations.posthog_feature_flag_enabled", return_value=False)
+    def test_existing_numeric_evaluation_remains_editable_when_flag_is_off(self, _mock_numeric_flag: Mock) -> None:
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Existing score",
+            evaluation_type="hog",
+            evaluation_config={"source": "return 0;"},
+            output_type="numeric",
+            output_config={"min": 0, "max": 10},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
+            {"name": "Renamed score"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        evaluation.refresh_from_db()
+        self.assertEqual(evaluation.name, "Renamed score")
+
     @parameterized.expand([(True, "scheduled"), (False, "scheduled"), (True, "every_n")])
-    def test_numeric_passing_rule_controls_report_creation_and_scheduling(self, enabled: bool, frequency: str) -> None:
+    @patch("products.ai_observability.backend.api.evaluations.posthog_feature_flag_enabled", return_value=True)
+    def test_numeric_passing_rule_controls_report_creation_and_scheduling(
+        self, enabled: bool, frequency: str, _mock_numeric_flag: Mock
+    ) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/",
             {
