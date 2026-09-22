@@ -397,7 +397,6 @@ class TestBearerJwt(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no_jwks_uri", None, AUDIENCE, frozenset({ISSUER})),
             ("no_audience", JWKS_URI, None, frozenset({ISSUER})),
             ("no_issuers", JWKS_URI, AUDIENCE, frozenset()),
         ]
@@ -409,6 +408,33 @@ class TestBearerJwt(SimpleTestCase):
 
         headers = {"Authorization": "Bearer " + self._token()}
         self.assertEqual(self._verify(scheme, headers).outcome, VerificationOutcome.NOT_CONFIGURED)
+
+    def test_a_signing_key_uri_the_getter_could_not_discover_is_unavailable(self) -> None:
+        # The getter fetches the URI from the issuer's metadata document and answers None when
+        # that fetch fails. Reading it as unconfigured gives a provider whose unconfigured status
+        # is a 4xx, which the issuer does not retry, and the outage then loses every delivery.
+        scheme = self._scheme(jwks_uri=None, audience=AUDIENCE, issuers=frozenset({ISSUER}))
+
+        headers = {"Authorization": "Bearer " + self._token()}
+        self.assertEqual(self._verify(scheme, headers).outcome, VerificationOutcome.UNAVAILABLE)
+
+    def test_an_unconfigured_instance_buys_no_signing_key_discovery(self) -> None:
+        # The getter reaches the issuer over the network, and this endpoint is public.
+        calls = 0
+
+        def jwks_uri_getter() -> str:
+            nonlocal calls
+            calls += 1
+            return JWKS_URI
+
+        scheme = BearerJwt(
+            jwks_uri_getter=jwks_uri_getter,
+            audience_getter=lambda: None,
+            issuers_getter=lambda: frozenset({ISSUER}),
+        )
+
+        self._verify(scheme, {"Authorization": "Bearer " + self._token()})
+        self.assertEqual(calls, 0)
 
     def test_reuses_one_jwks_client_per_uri(self) -> None:
         # The client holds the key cache, so a client per delivery is a JWKS fetch per delivery.
