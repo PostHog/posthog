@@ -19,7 +19,7 @@ from posthog.schema import (
 )
 
 from posthog.constants import AvailableFeature
-from posthog.models import Team, User
+from posthog.models import SharingConfiguration, Team, User
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -212,6 +212,30 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             await tool._save_insight_query(insight, {"kind": "TrendsQuery", "series": [], "interval": "week"})
         await insight.arefresh_from_db()
         self.assertEqual(insight.query, {"kind": "TrendsQuery", "series": []})
+
+    async def test_saved_update_blocks_restricted_query_on_public_share(self):
+        tool = await self._create_tool()
+        original_query = {"kind": "TrendsQuery", "series": []}
+        insight = await Insight.objects.acreate(team=self.team, query=original_query)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}
+        ]
+        await self.organization.asave()
+        self.team.organization = self.organization
+        self.user = await database_sync_to_async(User.objects.create_and_join)(
+            self.organization, "editor@example.com", "test-password"
+        )
+        tool = await self._create_tool()
+        await SharingConfiguration.objects.acreate(team=self.team, insight=insight, enabled=True)
+
+        with patch(
+            "products.product_analytics.backend.facade.api.blocked_access_for_user", return_value=["restricted table"]
+        ):
+            with self.assertRaisesRegex(MaxToolRetryableError, "publicly shared"):
+                await tool._save_insight_query(insight, {"kind": "TrendsQuery", "series": [], "interval": "week"})
+
+        await insight.arefresh_from_db()
+        self.assertEqual(insight.query, original_query)
 
     async def test_saved_update_preserves_query_settings_and_dashboard_tiles(self):
         tool = await self._create_tool()

@@ -19,6 +19,8 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import QuerySet
 
+from posthog.api.sharing_publish_gate import blocked_access_for_user, is_publicly_shared
+from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -180,6 +182,15 @@ def save_saved_insight_query(
             "insight", "editor"
         ) or not access_control.check_access_level_for_object(insight, "editor"):
             return "You no longer have permission to edit this insight."
+        if (
+            insight.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+            and not access_control.is_organization_admin
+            and is_publicly_shared(insight)
+        ):
+            blocked = blocked_access_for_user(user, insight.team, [query])
+            if blocked:
+                blocked_list = ", ".join(f"`{name}`" for name in blocked)
+                return f"Can't save this query: you don't have access to {blocked_list}, and this insight is publicly shared."
         insight.query = query
         insight.saved = True
         insight.last_modified_by = user
