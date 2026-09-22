@@ -71,11 +71,11 @@ describe('MetricsViewer', () => {
         logic?.unmount()
     })
 
-    it('shows series counts in the group-by dropdown and selects the attribute key', async () => {
+    it('shows distinct value counts in the group-by dropdown and selects the attribute key', async () => {
         jest.mocked(metricsAttributesRetrieve).mockResolvedValue({
             results: [
-                { name: 'service_name', series_count: 20 },
-                { name: 'env', series_count: 2 },
+                { name: 'service_name', value_count: 20 },
+                { name: 'env', value_count: 2 },
             ],
             count: 2,
         })
@@ -86,7 +86,7 @@ describe('MetricsViewer', () => {
         const envOption = screen.getByText('env')
         expect(serviceOption.compareDocumentPosition(envOption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
         await userEvent.hover(screen.getByText('20'))
-        expect(await screen.findByText('Number of series with this attribute')).toBeInTheDocument()
+        expect(await screen.findByText('Number of distinct values')).toBeInTheDocument()
         fireEvent.change(screen.getByPlaceholderText('Group by attribute…'), { target: { value: 'e' } })
         expect(serviceOption.compareDocumentPosition(envOption) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
         fireEvent.click(envOption)

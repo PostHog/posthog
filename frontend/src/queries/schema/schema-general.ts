@@ -3443,6 +3443,8 @@ export interface MCPToolCallBreakdownItem {
     calls: integer
 }
 
+export type MCPAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
+
 export interface MCPToolCallBreakdownQueryResponse extends AnalyticsQueryResponseBase {
     results: MCPToolCallBreakdownItem[]
 }
@@ -3451,7 +3453,7 @@ export interface MCPToolCallBreakdownQueryResponse extends AnalyticsQueryRespons
 export interface MCPToolCallBreakdownQuery extends DataNode<MCPToolCallBreakdownQueryResponse> {
     kind: NodeKind.MCPToolCallBreakdownQuery
     dateRange?: DateRange
-    properties?: AnyPropertyFilter[]
+    properties?: MCPAnalyticsPropertyFilter[]
     filterTestAccounts?: boolean
     /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
     interval?: IntervalType
@@ -3476,7 +3478,7 @@ export interface MCPToolCallsAndErrorsQueryResponse extends AnalyticsQueryRespon
 export interface MCPToolCallsAndErrorsQuery extends DataNode<MCPToolCallsAndErrorsQueryResponse> {
     kind: NodeKind.MCPToolCallsAndErrorsQuery
     dateRange?: DateRange
-    properties?: AnyPropertyFilter[]
+    properties?: MCPAnalyticsPropertyFilter[]
     filterTestAccounts?: boolean
     /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
     interval?: IntervalType
@@ -3502,7 +3504,7 @@ export interface MCPHarnessBreakdownQueryResponse extends AnalyticsQueryResponse
 export interface MCPHarnessBreakdownQuery extends DataNode<MCPHarnessBreakdownQueryResponse> {
     kind: NodeKind.MCPHarnessBreakdownQuery
     dateRange?: DateRange
-    properties?: AnyPropertyFilter[]
+    properties?: MCPAnalyticsPropertyFilter[]
     filterTestAccounts?: boolean
     /** When set, scope to a single effective tool's new-SDK calls (the per-tool "By harness" table). */
     toolName?: string
@@ -3526,7 +3528,7 @@ export interface MCPModelBreakdownQueryResponse extends AnalyticsQueryResponseBa
 export interface MCPModelBreakdownQuery extends DataNode<MCPModelBreakdownQueryResponse> {
     kind: NodeKind.MCPModelBreakdownQuery
     dateRange?: DateRange
-    properties?: AnyPropertyFilter[]
+    properties?: MCPAnalyticsPropertyFilter[]
     filterTestAccounts?: boolean
     /** Return individual reported models, excluding Unknown, instead of the top-six grouping. */
     includeAllModels?: boolean
@@ -3726,6 +3728,8 @@ export interface MCPToolQualityRowsQueryResponse extends AnalyticsQueryResponseB
 export interface MCPToolQualityRowsQuery extends DataNode<MCPToolQualityRowsQueryResponse> {
     kind: NodeKind.MCPToolQualityRowsQuery
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
     /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
     categories?: string[]
     /** Case-insensitive substring search on the effective tool name. */
@@ -3760,6 +3764,8 @@ export interface MCPToolQualityDailyStatsQueryResponse extends AnalyticsQueryRes
 export interface MCPToolQualityDailyStatsQuery extends DataNode<MCPToolQualityDailyStatsQueryResponse> {
     kind: NodeKind.MCPToolQualityDailyStatsQuery
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
     /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
     interval?: IntervalType
     /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
@@ -3784,6 +3790,8 @@ export interface MCPToolCategoryCountsQueryResponse extends AnalyticsQueryRespon
 export interface MCPToolCategoryCountsQuery extends DataNode<MCPToolCategoryCountsQueryResponse> {
     kind: NodeKind.MCPToolCategoryCountsQuery
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolCategoryCountsQueryResponse = CachedQueryResponse<MCPToolCategoryCountsQueryResponse>
@@ -3801,6 +3809,8 @@ export interface MCPToolCategoriesQueryResponse extends AnalyticsQueryResponseBa
 export interface MCPToolCategoriesQuery extends DataNode<MCPToolCategoriesQueryResponse> {
     kind: NodeKind.MCPToolCategoriesQuery
     dateRange?: DateRange
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolCategoriesQueryResponse = CachedQueryResponse<MCPToolCategoriesQueryResponse>
@@ -4375,6 +4385,8 @@ export type ErrorTrackingExternalReferenceIntegration = Pick<IntegrationType, 'i
 export interface ErrorTrackingExternalReference {
     id: string
     external_url: string
+    external_id: string
+    title: string
     integration: ErrorTrackingExternalReferenceIntegration
 }
 
@@ -5574,6 +5586,14 @@ export interface ExperimentApiEventSource {
     properties?: EventPropertyFilter[]
 }
 
+/** Slim start source for retention metrics in API payloads. kind stays required so a
+ *  payload without it fails validation instead of silently becoming an exposure start. */
+export interface ExperimentApiRetentionStart extends Omit<ExperimentApiEventSource, 'kind'> {
+    /** Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure
+     *  event; the other fields then stay unset. */
+    kind: 'EventsNode' | 'ActionsNode' | 'ExperimentExposureNode'
+}
+
 /** Experiment metric for API create/update. All metric-type-specific
  *  fields are optional; discriminated by metric_type at runtime. */
 export interface ExperimentApiMetric {
@@ -5626,8 +5646,9 @@ export interface ExperimentApiMetric {
     /** For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a
      *  binomial-style denominator, which is never clamped. */
     denominator_outlier_handling?: ExperimentMetricOutlierHandling
-    /** For retention metrics: start event. */
-    start_event?: ExperimentApiEventSource
+    /** For retention metrics: start event. Pass {"kind": "ExperimentExposureNode"} to start retention
+     *  from the experiment's exposure event; start_handling and conversion window are ignored then. */
+    start_event?: ExperimentApiRetentionStart
     /** For retention metrics: completion event. */
     completion_event?: ExperimentApiEventSource
     retention_window_start?: integer

@@ -259,9 +259,6 @@ export interface personsLogicActions {
             url: string | null
         }
     }
-    navigateToCohort: (cohort: CohortType) => {
-        cohort: CohortType
-    }
     navigateToTab: (tab: PersonsTabType) => {
         tab: PersonsTabType
     }
@@ -375,7 +372,6 @@ export const personsLogic = kea<personsLogicType>([
         setHiddenListProperties: (payload: AnyPropertyFilter[]) => ({ payload }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
         deleteProperty: (key: string) => ({ key }),
-        navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
         setActiveTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
@@ -759,9 +755,6 @@ export const personsLogic = kea<personsLogicType>([
                     lemonToast.error(`Failed to delete person property`)
                 }
             }
-        },
-        navigateToCohort: ({ cohort }) => {
-            router.actions.push(urls.cohort(cohort.id))
         },
     })),
     trackedActionToUrl(({ values, props }) => ({
