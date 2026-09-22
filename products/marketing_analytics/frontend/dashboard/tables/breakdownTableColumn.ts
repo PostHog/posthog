@@ -1,6 +1,6 @@
 import type React from 'react'
 
-import type { ChangeFormat } from './ChangeValueCell'
+import type { ChangeFormat } from './formatComparedValue'
 
 /** What every web analytics query returns per metric: this period and the one before it. */
 export type ComparedValue = [number, number | null]
