@@ -19,9 +19,7 @@ AI_CREDITS_LIMIT_MESSAGE = (
 
 def ai_credits_exhausted(team: Team) -> bool:
     from ee.billing.quota_limiting import (  # noqa: PLC0415 — keeps the billing deps off this module's import path
-        QuotaLimitingCaches,
-        QuotaResource,
-        is_team_limited,
+        is_team_over_ai_credit_budget,
     )
 
-    return is_team_limited(team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+    return is_team_over_ai_credit_budget(team.api_token)

@@ -1032,8 +1032,8 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
       applying it here refuses people who never asked for Desktop. ``origin_product`` is client
       input, and that is fine: a Desktop caller who sends it gets a run minted under PostHog AI and
       billed as AI credits, which is the web experience rather than free Desktop compute. The
-      AI-credits limit (``ai_credits_limit_response``, and ``SandboxWarmer``'s own gate on the warm
-      path) is the spend backstop.
+      AI-credits limit that the endpoints apply, and ``SandboxWarmer``'s own gate on the warm path,
+      are the spend backstop.
 
     - ``SIGNAL_REPORT`` linked to a report in this team, repo-less, and carrying no GitHub
       integration (the Inbox "Discuss" fallback). Reports are minted by scouts and the link is

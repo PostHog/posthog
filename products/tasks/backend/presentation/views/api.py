@@ -1811,6 +1811,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             201: OpenApiResponse(response=TaskRunDetailSerializer, description="Created task run"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid task run payload"),
+            402: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="A PostHog AI task hit the organization's AI credit limit (code `ai_credits_exhausted`)",
+            ),
             403: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
@@ -1852,6 +1856,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid start payload"),
+            402: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="A PostHog AI task hit the organization's AI credit limit (code `ai_credits_exhausted`)",
+            ),
             403: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
@@ -3557,6 +3565,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run resumed in cloud"),
             400: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Run already active or workflow failed"
+            ),
+            402: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="A PostHog AI task hit the organization's AI credit limit (code `ai_credits_exhausted`)",
             ),
             403: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
