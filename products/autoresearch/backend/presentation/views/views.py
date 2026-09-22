@@ -886,6 +886,12 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMix
                 response=AutoresearchSuggestionSerializer,
                 description="The updated suggestion with its new status and agent_response.",
             ),
+            400: OpenApiResponse(
+                description=(
+                    "The status would move the suggestion backwards, acted_on has no linked iteration, "
+                    "a dismissal has no explanation, or the pipeline is archived."
+                )
+            ),
         },
         summary="Respond to a suggestion",
         description=(
@@ -894,7 +900,8 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMix
             "agent_response), and write the agent_response note the human will read. Call this from the "
             "training loop after deciding what to do with a pending suggestion. Recording an iteration with "
             "parent_suggestion set already advances a suggestion to 'acted_on'; use this to add the narrative "
-            "or to mark a suggestion picked_up/dismissed without spawning an iteration."
+            "or to mark a suggestion picked_up/dismissed without spawning an iteration. A suggestion only "
+            "moves forward (queued, picked_up, then acted_on or dismissed); the same status again updates the note."
         ),
     )
     @action(detail=True, methods=["post"], url_path="respond")
@@ -910,4 +917,6 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMix
             )
         except SuggestionNotFound:
             raise NotFound("Suggestion not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
         return Response(AutoresearchSuggestionSerializer(instance=suggestion).data)

@@ -1372,10 +1372,17 @@ class RespondToSuggestionSerializer(serializers.Serializer):
     agent_response = serializers.CharField(
         required=False,
         allow_blank=True,
-        default="",
         max_length=2000,
-        help_text="Plain-English note on how the suggestion was interpreted and acted upon (or why it was dismissed).",
+        help_text=(
+            "Plain-English note on how the suggestion was interpreted and acted upon. Required when "
+            "dismissing. Omit it to keep the note already recorded; send an empty string to clear it."
+        ),
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs["status"] == "dismissed" and not (attrs.get("agent_response") or "").strip():
+            raise serializers.ValidationError({"agent_response": "Explain why the suggestion was dismissed."})
+        return attrs
 
 
 class CompleteTrainingRunSerializer(serializers.Serializer):
@@ -1550,7 +1557,9 @@ class AutoresearchSuggestionSerializer(DataclassSerializer):
         allow_blank=True,
         help_text="Agent's note on how the suggestion was interpreted and acted upon. Populated after pickup.",
     )
-    created_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="The user who submitted it; null for an agent-authored suggestion."
+    )
     linked_iteration_ids = serializers.ListField(
         child=serializers.UUIDField(),
         read_only=True,

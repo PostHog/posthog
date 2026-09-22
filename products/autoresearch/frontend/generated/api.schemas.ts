@@ -559,7 +559,8 @@ export interface AutoresearchSuggestionApi {
     readonly source: AutoresearchSuggestionSourceEnumApi
     /** Agent's note on how the suggestion was interpreted and acted upon. Populated after pickup. */
     readonly agent_response: string
-    readonly created_by: UserBasicApi
+    /** The user who submitted it; null for an agent-authored suggestion. */
+    readonly created_by: UserBasicApi | null
     /** UUIDs of iterations spawned from this suggestion. */
     readonly linked_iteration_ids: readonly string[]
     readonly created_at: string
@@ -625,7 +626,7 @@ export interface RespondToSuggestionApi {
      * * `dismissed` - dismissed */
     status: RespondToSuggestionStatusEnumApi
     /**
-     * Plain-English note on how the suggestion was interpreted and acted upon (or why it was dismissed).
+     * Plain-English note on how the suggestion was interpreted and acted upon. Required when dismissing. Omit it to keep the note already recorded; send an empty string to clear it.
      * @maxLength 2000
      */
     agent_response?: string

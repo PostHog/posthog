@@ -16,7 +16,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import F, Prefetch, Q
 from django.utils import timezone as django_timezone
 
 from posthog.models.team import Team
@@ -240,7 +240,7 @@ def _suggestion_to_contract(row: AutoresearchSuggestion) -> Suggestion:
         source=row.source,
         agent_response=row.agent_response,
         created_by=row.created_by,
-        linked_iteration_ids=list(row.iterations.values_list("id", flat=True)),
+        linked_iteration_ids=[iteration.id for iteration in row.iterations.all()],
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -1039,24 +1039,39 @@ def delete_artifact(
 def list_suggestions(
     team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int
 ) -> tuple[list[Suggestion], int]:
+    qs = _suggestion_rows(team_id, pipeline_id=pipeline_id).order_by("-created_at")
+    count = qs.count()
+    return [_suggestion_to_contract(row) for row in qs[offset : offset + limit]], count
+
+
+def _suggestion_rows(team_id: int, *, pipeline_id: str | UUID | None) -> Any:
+    """Suggestions in this team, and under ``pipeline_id`` when the route names one.
+
+    The contract lists the linked iteration ids, so they are prefetched here instead of read
+    once per row when a page is serialized.
+    """
     qs = (
         AutoresearchSuggestion.objects.for_team(team_id)
         .select_related("pipeline", "created_by")
-        .order_by("-created_at")
+        .prefetch_related(
+            Prefetch(
+                "iterations",
+                queryset=AutoresearchIteration.objects.for_team(team_id).only("id", "parent_suggestion_id"),
+            )
+        )
     )
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
-    count = qs.count()
-    return [_suggestion_to_contract(row) for row in qs[offset : offset + limit]], count
+    return qs
 
 
 def get_suggestion(
     team_id: int, suggestion_id: str | UUID, *, pipeline_id: str | UUID | None = None
 ) -> Suggestion | None:
-    qs = AutoresearchSuggestion.objects.for_team(team_id).filter(pk=str(suggestion_id))
-    if pipeline_id:
-        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
-    row = qs.first()
+    suggestion_uuid = _as_uuid(suggestion_id)
+    if suggestion_uuid is None:
+        return None
+    row = _suggestion_rows(team_id, pipeline_id=pipeline_id).filter(pk=suggestion_uuid).first()
     return _suggestion_to_contract(row) if row else None
 
 
@@ -1084,18 +1099,46 @@ def respond_to_suggestion(
     agent_response: str | None = None,
     pipeline_id: str | UUID | None = None,
 ) -> Suggestion:
-    """Record how the agent handled a suggestion."""
-    qs = AutoresearchSuggestion.objects.for_team(team_id).filter(pk=str(suggestion_id))
-    if pipeline_id:
-        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
-    row = qs.first()
-    if row is None:
+    """Record how the agent handled a suggestion.
+
+    A suggestion only moves forward: queued, then picked up, then acted on or dismissed. A
+    retried or delayed response therefore cannot undo the ``acted_on`` that recording an
+    iteration set, and ``acted_on`` itself is refused until an iteration is linked, because
+    that is what the status promises the reader. The same status again only updates the note.
+    """
+    suggestion_uuid = _as_uuid(suggestion_id)
+    if suggestion_uuid is None:
         raise SuggestionNotFound("Suggestion not found.")
-    row.status = status
-    if agent_response:
-        row.agent_response = agent_response
-    row.save(update_fields=["status", "agent_response", "updated_at"])
+    with transaction.atomic():
+        row = (
+            _suggestion_rows(team_id, pipeline_id=pipeline_id)
+            .select_for_update(of=("self",))
+            .filter(pk=suggestion_uuid)
+            .first()
+        )
+        if row is None:
+            raise SuggestionNotFound("Suggestion not found.")
+        if row.pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
+            raise AutoresearchConflict("This pipeline is archived, so its suggestions can no longer be answered.")
+        if status != row.status and _SUGGESTION_RANK[status] <= _SUGGESTION_RANK[row.status]:
+            raise AutoresearchConflict(f"A suggestion cannot move from '{row.status}' to '{status}'.")
+        if status == AutoresearchSuggestion.Status.ACTED_ON and not row.iterations.all():
+            raise AutoresearchConflict(
+                "Record an iteration with parent_suggestion set before marking a suggestion acted_on."
+            )
+        row.status = status
+        if agent_response is not None:
+            row.agent_response = agent_response
+        row.save(update_fields=["status", "agent_response", "updated_at"])
     return _suggestion_to_contract(row)
+
+
+_SUGGESTION_RANK: dict[str, int] = {
+    AutoresearchSuggestion.Status.QUEUED: 0,
+    AutoresearchSuggestion.Status.PICKED_UP: 1,
+    AutoresearchSuggestion.Status.ACTED_ON: 2,
+    AutoresearchSuggestion.Status.DISMISSED: 2,
+}
 
 
 # ── Recipe validation surface for the presentation layer ───────────────────

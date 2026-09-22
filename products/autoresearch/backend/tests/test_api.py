@@ -721,29 +721,120 @@ class TestAutoresearchSuggestionAPI(TeamScopedTestMixin, APIBaseTest):
 
     # ──────────────────────────────────────────── respond ─────────────────────────────────────────
 
-    def _make_suggestion(self, pipeline: AutoresearchPipeline) -> AutoresearchSuggestion:
+    def _make_suggestion(self, pipeline: AutoresearchPipeline, status_value: str = "queued") -> AutoresearchSuggestion:
         return AutoresearchSuggestion.objects.create(
             pipeline=pipeline,
             created_by=self.user,
             prompt="try a calibrated logistic regression",
             priority=AutoresearchSuggestion.Priority.TRY_NEXT,
             source=AutoresearchSuggestion.Source.USER,
+            status=status_value,
+        )
+
+    def _link_iteration(self, suggestion: AutoresearchSuggestion) -> AutoresearchIteration:
+        run = AutoresearchTrainingRun.objects.create(pipeline=suggestion.pipeline, status="running")
+        return AutoresearchIteration.objects.create(
+            pipeline=suggestion.pipeline,
+            training_run=run,
+            parent_suggestion=suggestion,
+            iteration_number=0,
+            recipe_hash="abc",
+            recipe_snapshot={"feature_sql": "SELECT 1"},
+            model_spec={"model_class": "m"},
+            status="kept",
+        )
+
+    def _respond(self, suggestion: AutoresearchSuggestion, body: dict):
+        return self.client.post(
+            f"{self._suggestions_url(suggestion.pipeline_id)}{suggestion.id}/respond/", body, format="json"
         )
 
     def test_respond_sets_status_and_agent_response(self):
         pipeline = self._make_pipeline()
         suggestion = self._make_suggestion(pipeline)
-        resp = self.client.post(
-            f"{self._suggestions_url(pipeline.id)}{suggestion.id}/respond/",
-            {"status": "acted_on", "agent_response": "Spawned iter 2 with LR + calibration."},
-            format="json",
+        iteration = self._link_iteration(suggestion)
+        resp = self._respond(
+            suggestion, {"status": "acted_on", "agent_response": "Spawned iter 2 with LR + calibration."}
         )
         assert resp.status_code == status.HTTP_200_OK, resp.json()
         data = resp.json()
         assert data["status"] == "acted_on"
         assert data["agent_response"] == "Spawned iter 2 with LR + calibration."
+        assert data["linked_iteration_ids"] == [str(iteration.id)]
         suggestion.refresh_from_db()
         assert suggestion.status == "acted_on"
+
+    def test_respond_acted_on_needs_a_linked_iteration(self):
+        suggestion = self._make_suggestion(self._make_pipeline())
+        resp = self._respond(suggestion, {"status": "acted_on", "agent_response": "done"})
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "parent_suggestion" in str(resp.json())
+
+    @parameterized.expand(
+        [
+            ("acted_on_back_to_picked_up", "acted_on", "picked_up"),
+            ("acted_on_to_dismissed", "acted_on", "dismissed"),
+            ("dismissed_back_to_picked_up", "dismissed", "picked_up"),
+        ]
+    )
+    def test_respond_refuses_a_backward_transition(self, _name: str, current: str, requested: str):
+        suggestion = self._make_suggestion(self._make_pipeline(), status_value=current)
+        resp = self._respond(suggestion, {"status": requested, "agent_response": "changed my mind"})
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        suggestion.refresh_from_db()
+        assert suggestion.status == current
+
+    def test_respond_same_status_updates_the_note_and_blank_clears_it(self):
+        suggestion = self._make_suggestion(self._make_pipeline())
+        assert self._respond(suggestion, {"status": "picked_up", "agent_response": "first"}).status_code == 200
+        resp = self._respond(suggestion, {"status": "picked_up"})
+        assert resp.json()["agent_response"] == "first"
+        resp = self._respond(suggestion, {"status": "picked_up", "agent_response": ""})
+        assert resp.json()["agent_response"] == ""
+
+    def test_respond_dismissed_without_a_reason_returns_400(self):
+        suggestion = self._make_suggestion(self._make_pipeline())
+        resp = self._respond(suggestion, {"status": "dismissed"})
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "agent_response" in resp.json()["attr"]
+
+    def test_respond_after_pipeline_archived_returns_400(self):
+        pipeline = self._make_pipeline()
+        suggestion = self._make_suggestion(pipeline)
+        pipeline.status = AutoresearchPipeline.Status.ARCHIVED
+        pipeline.save(update_fields=["status"])
+        resp = self._respond(suggestion, {"status": "picked_up"})
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "archived" in str(resp.json())
+
+    @parameterized.expand([("retrieve",), ("respond",)])
+    def test_non_uuid_suggestion_id_returns_404(self, action: str):
+        pipeline = self._make_pipeline()
+        url = f"{self._suggestions_url(pipeline.id)}not-a-uuid/"
+        if action == "retrieve":
+            resp = self.client.get(url)
+        else:
+            resp = self.client.post(f"{url}respond/", {"status": "picked_up"}, format="json")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_list_reads_linked_iterations_in_one_query(self):
+        pipeline = self._make_pipeline()
+        for _ in range(3):
+            self._link_iteration(self._make_suggestion(pipeline))
+        with CaptureQueriesContext(connection) as queries:
+            resp = self.client.get(self._suggestions_url(pipeline.id))
+        assert resp.status_code == status.HTTP_200_OK
+        assert all(len(row["linked_iteration_ids"]) == 1 for row in resp.json()["results"])
+        assert sum("autoresearchiteration" in q["sql"].lower() for q in queries.captured_queries) == 1
+
+    def test_agent_authored_suggestion_has_no_creator(self):
+        pipeline = self._make_pipeline()
+        suggestion = AutoresearchSuggestion.objects.create(
+            pipeline=pipeline, prompt="from the agent", source=AutoresearchSuggestion.Source.AGENT
+        )
+        resp = self.client.get(f"{self._suggestions_url(pipeline.id)}{suggestion.id}/")
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["created_by"] is None
 
     def test_respond_dismissed(self):
         pipeline = self._make_pipeline()
