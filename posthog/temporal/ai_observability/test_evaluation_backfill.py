@@ -222,15 +222,11 @@ class TestEvaluationBackfillWorkflow:
 
         continue_as_new = await _run(mocks)
 
-        advance = _advance_input(mocks)
-        assert advance.exhausted
-        # Measured first, so the write that completes the row carries the number with it. A row
-        # that completed without one would read as fully covered and no later tick would correct it.
+        assert _advance_input(mocks).exhausted
         called = _called(mocks)
-        assert called.index(measure_evaluation_backfill_remainder_activity) < called.index(
+        assert called.index(measure_evaluation_backfill_remainder_activity) > called.index(
             advance_evaluation_backfill_cursor_activity
         )
-        assert advance.remaining_count == 4
         continue_as_new.assert_not_called()
 
     @pytest.mark.asyncio

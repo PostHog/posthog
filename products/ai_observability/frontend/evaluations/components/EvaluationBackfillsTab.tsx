@@ -31,7 +31,7 @@ import type {
     EvaluationBackfillConditionApi,
     EvaluationBackfillStatusEnumApi,
 } from '../../generated/api.schemas'
-import { backfillRangeDateFormat, backfillSamplingLabel } from '../backfillConditions'
+import { backfillCoveredCount, backfillRangeDateFormat, backfillSamplingLabel } from '../backfillConditions'
 import { evaluationBackfillsLogic } from '../evaluationBackfillsLogic'
 import { EvaluationTriggers } from './EvaluationTriggers'
 
@@ -265,9 +265,7 @@ export function EvaluationBackfillsTab({
                 // truer number, because a unit the live path judged mid-run is covered too and the
                 // walk never saw it.
                 const measured = backfill.status === 'completed' && backfill.remaining_count !== null
-                const covered = measured
-                    ? backfill.total_count - (backfill.remaining_count ?? 0)
-                    : Math.min(backfill.dispatched_count + backfill.skipped_count, backfill.total_count)
+                const covered = backfillCoveredCount(backfill)
                 return (
                     <Tooltip
                         title={

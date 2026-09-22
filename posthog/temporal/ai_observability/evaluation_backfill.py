@@ -152,7 +152,6 @@ class AdvanceCursorInputs:
     dispatched_delta: int
     skipped_delta: int
     exhausted: bool
-    remaining_count: int | None = None
 
 
 @frozen
@@ -314,7 +313,6 @@ def _advance_backfill_cursor(inputs: AdvanceCursorInputs) -> AdvanceCursorOutput
     if inputs.exhausted:
         updates["status"] = EvaluationBackfillStatus.COMPLETED
         updates["finished_at"] = timezone.now()
-        updates["remaining_count"] = inputs.remaining_count
 
     expected_timestamp = (
         datetime.fromisoformat(inputs.expected_cursor_timestamp) if inputs.expected_cursor_timestamp else None
@@ -373,6 +371,9 @@ def _measure_backfill_remainder(inputs: EvaluationBackfillInputs) -> int:
         # Always the deduped count: on a rerun the units this run graded are judged now, and the
         # question is what holds no result at all.
         rerun_existing=False,
+    )
+    EvaluationBackfill.objects.for_team(inputs.team_id).filter(pk=inputs.backfill_id).update(
+        remaining_count=scope.to_evaluate
     )
     logger.info(
         "llma.evaluation_backfill_remainder",
@@ -444,19 +445,6 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
             )
         dispatched = sum(1 for result in results if result is True)
         skipped = sum(1 for result in results if result is False)
-        # Measured before the row completes, because a completed row with no number would claim
-        # full coverage, and a tick after completion never runs to correct it.
-        remaining = (
-            await temporalio.workflow.execute_activity(
-                measure_evaluation_backfill_remainder_activity,
-                inputs,
-                start_to_close_timeout=timedelta(seconds=120),
-                schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
-                retry_policy=ACTIVITY_RETRY_POLICY,
-            )
-            if found.exhausted
-            else None
-        )
         advance = await temporalio.workflow.execute_activity(
             advance_evaluation_backfill_cursor_activity,
             AdvanceCursorInputs(
@@ -469,12 +457,22 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
                 dispatched_delta=dispatched,
                 skipped_delta=skipped,
                 exhausted=found.exhausted,
-                remaining_count=remaining,
             ),
             start_to_close_timeout=ACTIVITY_TIMEOUT,
             schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
             retry_policy=ACTIVITY_RETRY_POLICY,
         )
+        if advance.finished:
+            # After the advance, never before it: inserting an activity ahead of one an in-flight
+            # history already recorded breaks replay. The row therefore completes with no count
+            # for a moment, and a null count states that rather than claiming full coverage.
+            await temporalio.workflow.execute_activity(
+                measure_evaluation_backfill_remainder_activity,
+                inputs,
+                start_to_close_timeout=timedelta(seconds=120),
+                schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
+                retry_policy=ACTIVITY_RETRY_POLICY,
+            )
         return advance.finished
 
     async def _handle_failed_tick(self, inputs: EvaluationBackfillInputs) -> None:
