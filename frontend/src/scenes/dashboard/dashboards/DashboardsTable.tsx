@@ -170,13 +170,14 @@ export function DashboardsTable({
         {
             title: 'Tags',
             dataIndex: 'tags' as keyof DashboardType,
+            width: 240,
             render: function Render(tags: DashboardType['tags']) {
                 return tags ? (
                     <ObjectTags
                         tags={[...tags].sort()}
                         staticOnly
-                        maxVisibleTags={5}
-                        wrap
+                        maxVisibleTags={1}
+                        showOverflowLabel
                         data-attr="dashboard-tags"
                         onTagClick={(tag) => setFilters({ tags: [tag] })}
                     />
