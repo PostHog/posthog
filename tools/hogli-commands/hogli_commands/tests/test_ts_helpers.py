@@ -142,7 +142,7 @@ export const load = async (): Promise<void> => {
     await api.signalReports.availableReviewers()
     await api.signalReports
         .setState(id, { state: 'resolved' })
-    await api.signalReports.createRule(SignalRuleType.Grouping, rule)
+    await api.signalReports.createRule(SignalRuleType.Grouping, values.rule.id)
     await api.signalReports.createRule(ruleTypeFromProps, rule)
     await api.signalReports.updateRule(SignalRuleType.Assignment, id, rule)
     await api.comments.list()
@@ -177,6 +177,14 @@ class TestParameterisedRoutes:
         ambiguous = next(name for name in picked if name is not None and " | " in name)
         assert "signalsAssignmentRulesCreate" in ambiguous
         assert "signalsGroupingRulesCreate" in ambiguous
+
+    # `values.rule.id` is not the selector - it's a plain object access - but its
+    # dotted tokens ("rule", "id") match every candidate's shared "Rules" suffix and
+    # used to turn a spelled-out literal selector ambiguous.
+    def test_a_later_dotted_argument_does_not_dilute_the_selector(self, repo: Path) -> None:
+        sites = codegen_call_sites(repo / "products/signals/frontend")
+        picked = [site.generated_equivalent for site in sites if site.verb == "signalReports.createRule"]
+        assert picked.count("signalsGroupingRulesCreate") == 1
 
     # An id hole and a rule-type hole both read as `{p}` in the mask. A static action
     # route sharing the id's position (`.../reorder/`) is a different operation, not

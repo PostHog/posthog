@@ -220,15 +220,34 @@ def _candidate_functions(request: NamespaceMember, generated_map: dict[tuple[str
     return sorted(fitting)
 
 
-def _narrow_by_arguments(candidates: list[str], arguments: str) -> list[str]:
-    """The candidates a literal in the call's arguments names, or all of them.
+def _first_call_argument(arguments: str) -> str:
+    """The text of a call's first argument, up to its own top-level comma."""
+    depth = 0
+    for index, char in enumerate(arguments):
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        elif char == "," and depth == 0:
+            return arguments[:index]
+    return arguments
 
-    `ErrorTrackingRuleType.Bypass` and `'bypass_rules'` both name the bypass routes, so
-    the token after the last dot or inside the quotes picks the function.
+
+def _narrow_by_arguments(candidates: list[str], arguments: str) -> list[str]:
+    """The candidates the call's selector argument names, or all of them.
+
+    The route the member's own path method builds takes its dynamic segment from the
+    first argument (`errorTrackingRule(ruleType, id)`) - later arguments are the
+    entity id or payload, not the selector, and a token from one of those
+    (`values.rule.id`) can match every candidate's shared `Rule`/`Rules` suffix and
+    defeat the narrowing entirely. `ErrorTrackingRuleType.Bypass` and `'bypass_rules'`
+    both name the bypass route, so the token after the last dot or inside the quotes
+    picks the function.
     """
+    selector = _first_call_argument(arguments)
     tokens = [
         token.lower()
-        for token in re.findall(r"""['"`](\w+)['"`]|\.(\w+)|\b([A-Z]\w+)""", arguments)
+        for token in re.findall(r"""['"`](\w+)['"`]|\.(\w+)|\b([A-Z]\w+)""", selector)
         for token in token
         if token
     ]
