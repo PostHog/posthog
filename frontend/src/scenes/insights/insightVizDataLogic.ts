@@ -32,6 +32,7 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/fil
 
 import { actionsModel } from '~/models/actionsModel'
 import {
+    extractErrorCode,
     extractValidationError,
     extractValidationErrorCode,
     getAllEventNames,
@@ -208,6 +209,9 @@ export interface insightVizDataLogicValues {
     display: ChartDisplayType | null | undefined
     enabledIntervals: Intervals
     erroredQueryId: any
+    queryErrorDetail: string | null
+    queryErrorStatus: number | null
+    queryErrorCode: string | null
     formula: string | null | undefined
     formulaNodes: TrendsFormulaNode[]
     formulas: string[] | null | undefined
@@ -1231,6 +1235,9 @@ export interface insightVizDataLogicMeta {
             featureFlags: FeatureFlagsSet
         ) => Intervals
         erroredQueryId: (insightDataError: Record<string, any> | null) => any
+        queryErrorDetail: (insightDataError: Record<string, any> | null) => string | null
+        queryErrorStatus: (insightDataError: Record<string, any> | null) => number | null
+        queryErrorCode: (insightDataError: Record<string, any> | null) => string | null
         validationError: (insightDataError: Record<string, any> | null) => string | null
         validationErrorCode: (insightDataError: Record<string, any> | null) => string | null
         timezone: (insightData: Record<string, any>) => any
@@ -2481,6 +2488,20 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (insightDataError: Record<string, any> | null) => {
                 return insightDataError?.queryId || null
             },
+        ],
+        // The error surface needs the reason the query failed, not only that one did: a deterministic
+        // failure tells the user what to change, where the generic copy sends them away.
+        queryErrorDetail: [
+            (s) => [s.insightDataError],
+            (insightDataError: Record<string, any> | null): string | null => insightDataError?.detail ?? null,
+        ],
+        queryErrorStatus: [
+            (s) => [s.insightDataError],
+            (insightDataError: Record<string, any> | null): number | null => insightDataError?.status ?? null,
+        ],
+        queryErrorCode: [
+            (s) => [s.insightDataError],
+            (insightDataError: Record<string, any> | null): string | null => extractErrorCode(insightDataError),
         ],
         validationError: [
             (s) => [s.insightDataError],

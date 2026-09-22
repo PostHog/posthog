@@ -27,7 +27,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { extractValidationError, extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
+import { extractErrorCode, extractValidationError, extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import { queryVizDefinitelyRendersToCanvas, queryVizRendersToCanvas } from '~/queries/utils'
@@ -390,22 +390,24 @@ function InsightCardInternal(
                         placement={placement}
                     />
                 )
-            } else if (apiError instanceof ApiError) {
-                return (
-                    <InsightErrorState
-                        title={apiError.detail}
-                        titleStatus={apiError.status}
-                        queryId={apiError.data?.queryId ?? queryId}
-                        retryAfter={apiError.formattedRetryAfter}
-                        retryLoading={loading}
-                        query={insight.query}
-                        excludeActions={sharedView}
-                        placement={placement}
-                        onRetry={sharedView ? undefined : refresh}
-                    />
-                )
             }
-            return <InsightErrorState />
+            // A failure that is not an ApiError still knows the query it came from, so the tile
+            // keeps its retry and debugger actions instead of dead-ending on bare copy.
+            const failure = apiError as Record<string, any> | null
+            return (
+                <InsightErrorState
+                    title={failure?.detail ?? (apiError instanceof Error ? apiError.message : null)}
+                    titleStatus={failure?.status ?? null}
+                    titleCode={extractErrorCode(apiError)}
+                    queryId={failure?.data?.queryId ?? failure?.queryId ?? queryId}
+                    retryAfter={(apiError as ApiError | null)?.formattedRetryAfter}
+                    retryLoading={loading}
+                    query={insight.query}
+                    excludeActions={sharedView}
+                    placement={placement}
+                    onRetry={sharedView ? undefined : refresh}
+                />
+            )
         }
 
         if (timedOut) {

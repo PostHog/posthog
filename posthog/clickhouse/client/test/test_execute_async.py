@@ -423,6 +423,22 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         assert result.error_message
         self.assertEqual(result.error_code, ClickHouseQueryMemoryLimitExceeded.default_code)
 
+    def test_async_query_exposed_query_error_carries_code_name(self):
+        query = build_query("SELECT * FROM events")
+        query_id = uuid.uuid4().hex
+
+        with patch(
+            "posthog.api.services.query.process_query_dict",
+            side_effect=ExposedCHQueryError("Unknown identifier", code_name="unknown_identifier"),
+        ):
+            client.enqueue_process_query_task(
+                self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
+            )
+
+        result = client.get_query_status(self.team.id, query_id)
+        self.assertTrue(result.error)
+        self.assertEqual(result.error_code, "unknown_identifier")
+
     def test_async_query_server_errors(self):
         query = build_query("SELECT * FROM events")
 

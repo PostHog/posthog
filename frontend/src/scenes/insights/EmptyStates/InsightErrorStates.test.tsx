@@ -59,6 +59,8 @@ describe('insight error states', () => {
         expect(shownCalls).toHaveLength(1)
         expect(shownCalls[0][1]).toEqual({
             error_type: 'server',
+            code: null,
+            error_kind: 'unknown',
             query_kind: null,
             query_id: 'test-query-id',
         })
@@ -181,10 +183,58 @@ describe('insight error states', () => {
     })
 
     it('uses user-facing copy for invalid query errors', () => {
-        render(<InsightErrorState title="This query is invalid" titleStatus={400} query={{ kind: 'InsightVizNode' }} />)
+        const { container } = render(
+            <InsightErrorState title="This query is invalid" titleStatus={400} query={{ kind: 'InsightVizNode' }} />
+        )
+
+        expect(container.querySelector('[data-attr="insight-loading-too-long"]')?.textContent).toBe(
+            "We couldn't run this query"
+        )
+        // The backend copy is the only thing that says why, so it stays, below the heading
+        expect(screen.getByText('This query is invalid')).toBeTruthy()
+    })
+
+    // A deterministic query error can arrive as a 5xx. The code, not the status, says the backend
+    // wrote this body for the user, so the reason survives and the copy stops promising a retry.
+    it('keeps the reason and the next step for a coded failure on a server status', () => {
+        render(
+            <InsightErrorState
+                title="Unknown identifier 'evnet' in the query."
+                titleStatus={500}
+                titleCode="hogql_error"
+                query={{ kind: 'InsightVizNode' }}
+                onRetry={() => {}}
+            />
+        )
 
         expect(screen.getByText("We couldn't run this query")).toBeTruthy()
-        expect(screen.queryByText('This query is invalid')).toBeNull()
+        expect(screen.getByText("Unknown identifier 'evnet' in the query.")).toBeTruthy()
+        expect(screen.getByText('Open the query debugger and correct the query.')).toBeTruthy()
+        expect(screen.queryByText(/Try again in a moment/)).toBeNull()
+    })
+
+    it('never renders a bare machine code as the message', () => {
+        render(<InsightErrorState title="query_does_not_return_any_result_columns" titleStatus={400} />)
+
+        expect(screen.queryByText('query_does_not_return_any_result_columns')).toBeNull()
+        expect(screen.getByText("We couldn't run this query")).toBeTruthy()
+    })
+
+    it('reports a recovery attempt when the user retries', () => {
+        render(
+            <InsightErrorState
+                title="The query failed."
+                titleStatus={503}
+                titleCode="at_capacity"
+                onRetry={jest.fn()}
+            />
+        )
+
+        screen.getByText('Try again').click()
+
+        const recoveryCalls = captureSpy.mock.calls.filter((call) => call[0] === 'insight error recovery attempted')
+        expect(recoveryCalls).toHaveLength(1)
+        expect(recoveryCalls[0][1]).toEqual({ action: 'retry', code: 'at_capacity', query_kind: null })
     })
 
     it.each([
@@ -192,10 +242,16 @@ describe('insight error states', () => {
         { status: 500, expectedTitle: "PostHog couldn't complete this query" },
         { status: 418, expectedTitle: "We couldn't complete this query" },
     ])('uses clear copy for server error $status', ({ status, expectedTitle }) => {
-        render(<InsightErrorState title="Internal server error" titleStatus={status} />)
+        const { container } = render(<InsightErrorState title="Internal server error" titleStatus={status} />)
 
-        expect(screen.getByText(expectedTitle)).toBeTruthy()
-        expect(screen.queryByText('Internal server error')).toBeNull()
+        expect(container.querySelector('[data-attr="insight-loading-too-long"]')?.textContent).toBe(expectedTitle)
+    })
+
+    it('hides an unlabelled server body, which can be any internal failure text', () => {
+        render(<InsightErrorState title="ClickHouse error while executing query." titleStatus={500} />)
+
+        expect(screen.queryByText('ClickHouse error while executing query.')).toBeNull()
+        expect(screen.getByText(/Try again in a moment/)).toBeTruthy()
     })
 
     it('preserves custom titles when the status is unknown', () => {

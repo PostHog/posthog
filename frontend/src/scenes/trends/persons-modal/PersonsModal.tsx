@@ -39,7 +39,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { Noun } from '~/models/groupsModel'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
-import { extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
+import { extractErrorCode, extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
 import { FunnelsActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
@@ -314,7 +314,12 @@ export function PersonsModal({
                                     validationErrorCode={extractValidationErrorCode(errorObject)}
                                 />
                             ) : (
-                                <InsightErrorState query={query} />
+                                <InsightErrorState
+                                    query={query}
+                                    title={errorObject.detail ?? null}
+                                    titleStatus={errorObject.status ?? null}
+                                    titleCode={extractErrorCode(errorObject)}
+                                />
                             )
                         ) : actors && actors.length > 0 ? (
                             <>
