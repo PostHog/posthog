@@ -1633,8 +1633,7 @@ class CSPMiddleware:
                         f"{POSTHOG_JS_CLOUD_HOST}/static/",
                         f"{POSTHOG_JS_CLOUD_HOST}/array/{POSTHOG_JS_CLOUD_TOKEN}/config.js",
                     ],
-                    # liveEventsHostOrigin() in the frontend streams from live.<region host>. Each region
-                    # names only its own hosts, so a request to the other region still reports.
+                    # liveEventsHostOrigin() in the frontend streams from live.<region host>.
                     "connect-src": [
                         *bundle,
                         POSTHOG_JS_CLOUD_HOST,
