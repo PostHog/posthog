@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from typing import Any, Optional
 
 from django.conf import settings
@@ -359,6 +361,17 @@ class _LowerConstantMembership(CloningVisitor):
         return super().visit_compare_operation(node)
 
 
+# Loaded rather than listed: the set belongs to the runtime, and a stale copy here would reject a
+# filter people can legitimately write. A test in the nodejs package pins the file to the type.
+_RUNTIME = json.loads((Path(__file__).parent / "filter_globals.json").read_text())
+# Callables belong here because the VM resolves a bare standard-library name through the same
+# GET_GLOBAL path, so `arrayMap(lower, ...)` is a working filter rather than an unknown global.
+# Generated from the runtime by `pnpm --filter=@posthog/plugin-server run build:filter-globals`.
+FILTER_GLOBALS: set[str] = set(_RUNTIME["roots"]) | set(_RUNTIME["callables"])
+
+_UNKNOWN_GLOBAL = "Unknown global variable: "
+
+
 def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> dict:
     filters = filters or {}
     try:
@@ -367,8 +380,19 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
             raise Exception("Select queries are not allowed in filters")
 
         expr = _LowerConstantMembership().visit(expr)
-        context = HogQLContext(team_id=team.id)
+        # Declaring the globals turns the compiler's field resolution into a check: it warns on a
+        # root that is neither a local, an upvalue, nor one of ours.
+        context = HogQLContext(team_id=team.id, globals=dict.fromkeys(FILTER_GLOBALS))
         filters["bytecode"] = create_bytecode(expr, context=context).bytecode
+
+        unknown = sorted(
+            {w.message.removeprefix(_UNKNOWN_GLOBAL) for w in context.warnings if w.message.startswith(_UNKNOWN_GLOBAL)}
+        )
+        if unknown:
+            raise Exception(
+                f"Real-time filters cannot read {', '.join(unknown)}. "
+                f"Those exist when a query runs, not while an event is being processed."
+            )
 
         # context.errors here only contains "function not implemented" errors from the
         # bytecode compiler (the resolver doesn't run during create_bytecode). These are
