@@ -623,6 +623,42 @@ class TestLLMSkillAPI(APIBaseTest):
         assert results[4]["matches"][0]["path"] == "SKILL.md"
         assert results[5]["matches"][0]["line"] == 2
 
+    @parameterized.expand(
+        [
+            (
+                "path",
+                [
+                    {"path": "references/a-support.txt", "content": "No match."},
+                    {"path": "references/z-support-queue.txt", "content": "No match."},
+                ],
+                "references/z-support-queue.txt",
+            ),
+            (
+                "content",
+                [
+                    {"path": "references/a.md", "content": "Support only.", "content_type": "text/markdown"},
+                    {
+                        "path": "references/z.md",
+                        "content": "Support queue.",
+                        "content_type": "text/markdown",
+                    },
+                ],
+                "references/z.md",
+            ),
+        ]
+    )
+    def test_search_skills_returns_the_file_that_produced_the_highest_score(
+        self, _label: str, files: list[dict[str, str]], expected_path: str
+    ) -> None:
+        skill = self.create_skill(name="ranked-file-match", description="A ranked file match.", body="# Body")
+        for file in files:
+            LLMSkillFile.objects.create(skill=skill, **file)
+
+        response = self.client.get(self._url("search?query=support%20queue"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["matches"][0]["path"] == expected_path
+
     def test_search_skills_ranks_multi_token_project_workflow_before_generic_matches(self):
         self.create_skill(
             name="self-driving-support-hero",
@@ -2287,6 +2323,7 @@ class TestSkillAccessControlRBAC(APIBaseTest):
                 {
                     "name": self.skill.name,
                     "description": self.skill.description,
+                    "score": 240,
                     "matches": [
                         {
                             "matched_field": "body",
