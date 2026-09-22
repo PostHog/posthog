@@ -10,6 +10,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
 from posthog.exceptions import Conflict
 
@@ -34,6 +35,10 @@ from products.wizard.backend.presentation.throttles import WizardRunCreateThrott
 
 
 class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    API endpoints for managing Wizard runs. For browser–based access.
+    """
+
     permission_classes = [WizardRunSessionAuthenticationRequired]
     scope_object = "wizard_session"
     scope_object_read_actions = ["list", "retrieve"]
@@ -167,3 +172,25 @@ class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise PermissionDenied("Only the user who started this Wizard run can update it.")
 
         return run
+
+
+class WizardRunTasksViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    API endpoints for managing Wizard run tasks. Access is scoped to the Wizard only.
+
+    The Wizard should be the only client that can update the tasks of a run.
+    """
+
+    scope_object = "wizard_run"
+    scope_object_read_actions = []
+    scope_object_write_actions = ["update"]
+    http_method_names = ["put", "head", "options"]
+    lookup_field = "run_id"
+    lookup_value_regex = "[0-9a-fA-F-]{36}"
+
+    # PUT /projects/:projectId/wizard/runs/:runId/tasks
+    @action(detail=True, methods=["put"], url_path="tasks")
+    def tasks(self, request: Request, *args: object, **kwargs: object) -> Response:
+        run_id = UUID(cast(str, self.kwargs["run_id"]))
+
+        return Response("hello world: " + str(run_id))
