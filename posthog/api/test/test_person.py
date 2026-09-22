@@ -614,7 +614,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @parameterized.expand(
         [
             ("publish_failed", PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE, 1, 1, status.HTTP_202_ACCEPTED),
-            ("tombstone_call_failed", PersonDeletionStep.TOMBSTONE_POSTGRES, 0, 1, status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("tombstone_call_failed", PersonDeletionStep.TOMBSTONE_POSTGRES, 0, 1, status.HTTP_202_ACCEPTED),
             ("legacy_clickhouse_failed", PersonDeletionStep.TOMBSTONE_CLICKHOUSE, 1, 0, status.HTTP_202_ACCEPTED),
             ("published", None, 1, 0, status.HTTP_202_ACCEPTED),
         ]

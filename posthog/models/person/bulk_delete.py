@@ -57,6 +57,11 @@ class PersonDeletionStep(StrEnum):
     LOG_ACTIVITY = "log_activity"
 
 
+# Failures that leave a person to be republished in the background rather than retried by the
+# caller, because a tombstoned person no longer resolves.
+REPUBLISHED_STEPS = frozenset({PersonDeletionStep.TOMBSTONE_POSTGRES, PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE})
+
+
 PERSON_DELETION_STEP_FAILURES_COUNTER = Counter(
     "posthog_person_deletion_step_failures_total",
     "Person deletion steps that raised, labelled by the step so a failing dependency is visible on its own.",
@@ -712,8 +717,7 @@ def unpublished_tombstone_uuids(failures: builtins.list[PersonDeletionFailure]) 
     return [
         failure.person_uuid
         for failure in failures
-        if failure.step in (PersonDeletionStep.TOMBSTONE_POSTGRES, PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE)
-        and failure.person_uuid is not None
+        if failure.step in REPUBLISHED_STEPS and failure.person_uuid is not None
     ]
 
 

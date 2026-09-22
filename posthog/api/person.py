@@ -54,6 +54,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.person.bulk_delete import (
+    REPUBLISHED_STEPS,
     delete_persons_profile,
     queue_person_event_deletion,
     queue_person_recording_deletion,
@@ -322,9 +323,11 @@ def _no_person_deleted(summary: dict[str, Any]) -> bool:
     """True when persons matched, a delete was attempted, and none of them left the database.
 
     A ``log_activity`` failure never triggers this: the person is gone by then, and a retry would
-    only find nothing to delete.
+    only find nothing to delete. A failure in ``REPUBLISHED_STEPS`` does not trigger it either: a
+    Celery task completes that delete, and a retry would 404.
     """
-    return summary["persons_found"] > 0 and summary["persons_deleted"] == 0 and bool(summary["deletion_errors"])
+    retryable = [error for error in summary["deletion_errors"] if error["step"] not in REPUBLISHED_STEPS]
+    return summary["persons_found"] > 0 and summary["persons_deleted"] == 0 and bool(retryable)
 
 
 class PersonSplitRequestSerializer(serializers.Serializer):
