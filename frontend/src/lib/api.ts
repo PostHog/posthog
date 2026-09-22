@@ -409,7 +409,7 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
  * with unparsable content) throws `ResponseBodyReadError`, so it can be recognized as wire-level
  * noise and left out of error tracking.
  */
-async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
+export async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
     const requestContext = (): string =>
         `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
     // A no-content response must not depend on reading its body: some engines (in our telemetry,
