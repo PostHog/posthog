@@ -581,9 +581,9 @@ export class ApiRequest {
         return this.projects().addPathComponent(id)
     }
 
-    // `/api/environments/` is a deprecated alias that EnvironmentsRewriteMiddleware rewrites to the
-    // projects viewset, so team-scoped paths build on `projects/` instead. The id stays the team id,
-    // because a child environment has a different id from its project and the route accepts either.
+    // The deprecated environments alias is one EnvironmentsRewriteMiddleware rewrites to the projects
+    // viewset, so team-scoped paths build on `projects/` instead. The id stays the team id, because a
+    // child environment has a different id from its project and the route accepts either.
     public teamProjectDetail(id: TeamType['id'] = ApiConfig.getCurrentTeamId()): ApiRequest {
         return this.projectsDetail(id)
     }

@@ -913,7 +913,7 @@ describe('insightLogic', () => {
             const mockCreateCalls = (api.create as jest.Mock).mock.calls
             expect(mockCreateCalls).toEqual([
                 [
-                    `api/environments/${MOCK_TEAM_ID}/insights`,
+                    `api/projects/${MOCK_TEAM_ID}/insights`,
                     expect.objectContaining({
                         derived_name: '* from events',
                         query: {
