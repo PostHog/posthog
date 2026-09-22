@@ -1775,19 +1775,20 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
 
     @parameterized.expand(
         [
-            ("warehouse table", "select * from warehouse_orders", set()),
+            ("warehouse table", "select * from warehouse_orders", set(), True),
             (
                 "system table with the source scope",
                 "select * from system.data_warehouse_sources",
                 {"external_data_source"},
+                False,
             ),
         ]
     )
-    def test_shared_link_viewer_partitions_only_on_scopes_a_table_carries(self, _name, sql, expected_restricted):
-        # A shared-link viewer bypasses warehouse access control, so a query on a synced table must land in
-        # the same cache entry as an unrestricted user's: the table's scope falls back to its source's scope,
-        # and if that fallback leaks into the fingerprint every shared-link view gets its own entry. A system
-        # table that carries the source scope itself is denied to shared links, so there it must still partition.
+    def test_shared_link_viewer_partitions_only_on_scopes_a_table_carries(
+        self, _name, sql, expected_restricted, same_key_as_user
+    ):
+        # A shared-link viewer bypasses warehouse access control, so on a synced table it must share the
+        # unrestricted user's entry, while a system table that carries the source scope is denied to it.
         DataWarehouseTable.objects.create(
             team=self.team,
             name="warehouse_orders",
@@ -1801,7 +1802,7 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
 
         restricted = set(shared_runner.get_cache_payload().get("restricted_resources") or [])
         assert restricted == expected_restricted
-        assert (shared_runner.get_cache_key() == user_runner.get_cache_key()) is (expected_restricted == set())
+        assert (shared_runner.get_cache_key() == user_runner.get_cache_key()) == same_key_as_user
 
     def test_hogql_fingerprint_partitions_only_on_queried_tables(self):
         # Two denied resources, but the query only reads notebooks - so only that scope partitions.
