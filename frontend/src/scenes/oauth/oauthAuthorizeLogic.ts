@@ -911,6 +911,16 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             const requestedScopes = searchParams['scope']?.split(' ')?.filter((scope: string) => scope.length) ?? []
             const oauthMcpConsent = getAppContext()?.oauth_mcp_consent
             const scopeResolution = getAppContext()?.oauth_scope_resolution
+            // An empty resolved list is not a usable consent screen: it renders no
+            // permissions and the Authorize button posts a blank scope, which the API
+            // rejects. `??` keeps an empty array, so the length is what to test. The
+            // requested list is what the server resolved to nothing, so fall back to the
+            // default set rather than to the tokens the server already refused.
+            const resolvedScopes = scopeResolution
+                ? scopeResolution.scopes.length
+                    ? scopeResolution.scopes
+                    : DEFAULT_OAUTH_SCOPES
+                : null
 
             const scopesWereDefaulted = scopeResolution?.was_defaulted ?? requestedScopes.length === 0
 
@@ -936,9 +946,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 actions.setScopes(oauthMcpConsent.scopes ?? DEFAULT_OAUTH_SCOPES)
             } else {
                 actions.setIsMcpResource(false)
-                actions.setScopes(
-                    scopeResolution?.scopes ?? (requestedScopes.length ? requestedScopes : DEFAULT_OAUTH_SCOPES)
-                )
+                actions.setScopes(resolvedScopes ?? (requestedScopes.length ? requestedScopes : DEFAULT_OAUTH_SCOPES))
             }
         }
 
