@@ -28,10 +28,6 @@ export const HogFlowsListQueryParams = () => zod.object({
     id: zod.string().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    origin_product: zod
-        .enum(['broadcasts', 'loops'])
-        .optional()
-        .describe('Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.'),
     search: zod
         .string()
         .optional()
@@ -104,7 +100,7 @@ export const HogFlowsCreateBody = () => zod
             ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?type=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
             ),
         trigger_masking: zod
             .union([
