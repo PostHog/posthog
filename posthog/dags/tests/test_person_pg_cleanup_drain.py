@@ -696,23 +696,26 @@ def test_chunks_for_page_groups_by_team_and_sweep_then_splits(rows, rpc_batch_si
 
 
 @pytest.mark.parametrize(
-    "exc,expected",
+    "exc,expected,is_conflict",
     [
-        (_pg_error("40001"), "retry"),
-        (_pg_error("40P01"), "retry"),
-        (_pg_error("55P03"), "retry"),
-        (_pg_error("57014"), "retry"),
+        (_pg_error("40001"), "retry", True),
+        (_pg_error("40P01"), "retry", True),
+        (_pg_error("55P03"), "retry", True),
+        # A statement timeout retries the same way, but it is slowness rather than contention, so
+        # it must stay out of the conflict counter the sweep overlap is read from.
+        (_pg_error("57014"), "retry", False),
         # lock_timeout arrives as an OperationalError subclass: the same connection retries it.
-        (type("_LockNotAvailable", (psycopg2.OperationalError,), {"pgcode": "55P03"})(), "retry"),
-        (psycopg2.OperationalError("server closed the connection unexpectedly"), "reconnect"),
-        (psycopg2.InterfaceError("connection already closed"), "reconnect"),
-        (_pg_error("23505"), None),
-        (_pg_error(None), None),
-        (RuntimeError("not postgres"), None),
+        (type("_LockNotAvailable", (psycopg2.OperationalError,), {"pgcode": "55P03"})(), "retry", True),
+        (psycopg2.OperationalError("server closed the connection unexpectedly"), "reconnect", False),
+        (psycopg2.InterfaceError("connection already closed"), "reconnect", False),
+        (_pg_error("23505"), None, False),
+        (_pg_error(None), None, False),
+        (RuntimeError("not postgres"), None, False),
     ],
 )
-def test_pg_recovery(exc, expected):
+def test_pg_recovery(exc, expected, is_conflict):
     assert pg_recovery(exc) == expected
+    assert drain.pg_is_queue_conflict(exc) is is_conflict
 
 
 @pytest.mark.parametrize(

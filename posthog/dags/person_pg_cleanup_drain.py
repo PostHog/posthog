@@ -80,6 +80,11 @@ SCHEDULED_MAX_RUNTIME_SECONDS = 20 * 3600
 # killed short of it.
 JOB_MAX_RUNTIME_SECONDS = 25 * 3600
 
+# Contention with the sweep, which writes the queue while we delete from it. A statement timeout
+# retries the same way but means something else, so it stays out of the conflict counter.
+PG_CONFLICT_CODES = frozenset({"40001", "40P01", "55P03"})
+PG_RETRYABLE_CODES = PG_CONFLICT_CODES | {"57014"}
+
 RETRY_BACKOFF_CAP_SECONDS = 60.0
 PG_RETRY_BACKOFF_SECONDS = 1.0
 LOG_EVERY_PAGES = 10
@@ -302,13 +307,18 @@ def chunks_for_page(rows: Sequence[QueueRow], rpc_batch_size: int) -> list[Chunk
 PgRecovery = Literal["retry", "reconnect"]
 
 
+def pg_is_queue_conflict(exc: BaseException) -> bool:
+    """Whether a failed statement lost a race for a row, rather than running too long."""
+    return isinstance(exc, psycopg2.Error) and getattr(exc, "pgcode", None) in PG_CONFLICT_CODES
+
+
 def pg_recovery(exc: BaseException) -> PgRecovery | None:
     """How a failed queue statement can be run again, or None when it cannot."""
     if not isinstance(exc, psycopg2.Error):
         return None
     # Serialization failure, deadlock, lock_timeout and statement_timeout: the same connection
     # can simply run the statement again.
-    if getattr(exc, "pgcode", None) in {"40001", "40P01", "55P03", "57014"}:
+    if getattr(exc, "pgcode", None) in PG_RETRYABLE_CODES:
         return "retry"
     # psycopg2 raises OperationalError for a dropped or refused connection and InterfaceError for
     # a connection already closed; both need a new connection first.
@@ -535,7 +545,7 @@ class _Drain:
                     ) from exc
                 if recovery == "reconnect":
                     self.close()
-                else:
+                elif pg_is_queue_conflict(exc):
                     self.totals.pg_queue_conflict_retries += 1
                 if self.out_of_time():
                     raise _OutOfTime from exc
