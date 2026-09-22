@@ -148,7 +148,7 @@ catalog:
     kea-window-values: ^3.0.1
     # PostHog packages
     '@posthog/icons': ^0.38.0
-    '@posthog/brand': 0.11.0
+    '@posthog/brand': 0.12.3
     '@posthog/react': ^1.11.1
     posthog-js: ^1.434.4
     # Build tools
