@@ -103,6 +103,20 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
 ])
 
 /**
+ * A 403 that states the session has not cleared an auth gate yet, rather than that the request
+ * failed. `apiStatusLogic` answers it by opening 2FA setup, re-verification, or a re-auth prompt,
+ * so the gate owns the screen until the user clears it.
+ *
+ * A loader that meets one has nothing to tell the user and nothing to retry: the same request
+ * returns the same 403 until the gate is cleared, and the clearing flow is already on screen. Use
+ * this to drop the failed surface instead of rendering an error state over the gate.
+ */
+export function isHandledAuthGateError(error: unknown): boolean {
+    const failure = error as { status?: number; code?: string | null } | null
+    return failure?.status === 403 && failure.code != null && HANDLED_AUTH_GATE_CODES.has(failure.code)
+}
+
+/**
  * How each browser engine words a `fetch` that never reached the server. Chromium says "Failed to
  * fetch", WebKit "Load failed", and Gecko "NetworkError when attempting to fetch resource.".
  */
@@ -213,7 +227,7 @@ export function shouldReportApiFailure(error: unknown): boolean {
     if (isAccessDeniedError(failure)) {
         return false
     }
-    if (status === 403 && failure.code != null && HANDLED_AUTH_GATE_CODES.has(failure.code)) {
+    if (isHandledAuthGateError(failure)) {
         return false
     }
     return !isApprovalRequiredError(failure)
