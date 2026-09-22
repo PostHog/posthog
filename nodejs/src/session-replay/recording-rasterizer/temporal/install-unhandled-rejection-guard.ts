@@ -16,23 +16,27 @@ type RejectionLogger = {
  * the guard removes itself, and the next rejection terminates the process as before,
  * so an unbounded failure still surfaces as a restart.
  *
- * The parameters are structural types rather than the logger and metrics modules so this
- * file compiles standalone for the child-process regression test.
+ * The parameters are structural types rather than the logger and metrics modules, and
+ * the clock is injectable, so this file compiles standalone for the regression test.
  */
-export function installUnhandledRejectionGuard(log: RejectionLogger, onSuppressed: () => void = () => {}): void {
+export function installUnhandledRejectionGuard(
+    log: RejectionLogger,
+    onSuppressed: () => void = () => {},
+    now: () => number = Date.now
+): void {
     const WINDOW_MS = 60_000
     const MAX_SUPPRESSED = 50
 
     const suppressedAt: number[] = []
     const listener = (reason: unknown): void => {
         onSuppressed()
-        const now = Date.now()
-        suppressedAt.push(now)
-        while (suppressedAt.length > 0 && now - suppressedAt[0] > WINDOW_MS) {
+        const timestamp = now()
+        suppressedAt.push(timestamp)
+        while (suppressedAt.length > 0 && timestamp - suppressedAt[0] > WINDOW_MS) {
             suppressedAt.shift()
         }
         if (suppressedAt.length > MAX_SUPPRESSED) {
-            log.error({ err: reason, suppressed: suppressedAt.length }, 'unhandled rejection flood, disarming guard')
+            log.error({ err: reason }, 'unhandled rejection flood, disarming guard')
             process.off('unhandledRejection', listener)
             return
         }

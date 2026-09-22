@@ -3,6 +3,8 @@ import * as fs from 'fs/promises'
 import * as os from 'os'
 import * as path from 'path'
 
+import { installUnhandledRejectionGuard } from '../temporal/install-unhandled-rejection-guard'
+
 // The guard exists because closing a page to abort a capture rejects the CDP call
 // puppeteer-capture has in flight, and that rejection belongs to no promise the worker
 // awaits. Node terminates the process on an unhandled rejection, so one bad render
@@ -12,9 +14,11 @@ import * as path from 'path'
 const FIXTURE_SCRIPT = `
 const { installUnhandledRejectionGuard } = require('./install-unhandled-rejection-guard')
 const noopLogger = { error: () => {} }
+const suppressedCount = { n: 0 }
+const countSuppressed = () => suppressedCount.n++
 const mode = process.argv[2]
 if (mode !== 'unguarded') {
-    installUnhandledRejectionGuard(noopLogger)
+    installUnhandledRejectionGuard(noopLogger, countSuppressed)
 }
 // The rejection shape from the bug: a promise nothing awaits rejects while the
 // process otherwise has work left to do.
@@ -31,7 +35,7 @@ if (mode === 'flood') {
     rejectUnawaited()
 }
 setTimeout(() => {
-    process.stdout.write('still-alive')
+    process.stdout.write('still-alive suppressed=' + suppressedCount.n)
 }, 50)
 `
 
@@ -90,8 +94,11 @@ describe('installUnhandledRejectionGuard', () => {
             dir,
         ])
         // Without this check a failed compile degrades into MODULE_NOT_FOUND in the child,
-        // and the failure points nowhere near the guard.
-        expect(compilation.code).toBe(0)
+        // and the failure points nowhere near the guard. Carrying stderr makes the
+        // failure also say why the compile failed.
+        if (compilation.code !== 0) {
+            throw new Error(`guard compile failed:\n${compilation.stderr}`)
+        }
         await fs.writeFile(path.join(dir, 'fixture.js'), FIXTURE_SCRIPT)
     })
 
@@ -105,7 +112,7 @@ describe('installUnhandledRejectionGuard', () => {
         const result = await run('guarded')
 
         expect(result.code).toBe(0)
-        expect(result.stdout).toContain('still-alive')
+        expect(result.stdout).toContain('still-alive suppressed=1')
     })
 
     it('fails without the guard, proving the survival case can catch the bug', async () => {
@@ -120,5 +127,94 @@ describe('installUnhandledRejectionGuard', () => {
 
         expect(result.code).not.toBe(0)
         expect(result.stdout).not.toContain('still-alive')
+    })
+
+    // The child-process cases above prove survival; the in-process cases below pin the
+    // guard's per-rejection contract with a fake clock, which the child cannot inject.
+
+    // Installs a guard and returns its listener plus a removal that undoes exactly the
+    // registration, leaving any other process listeners untouched.
+    function withGuard(
+        log: { error: (fields: Record<string, unknown>, message: string) => void },
+        onSuppressed: () => void,
+        now: () => number
+    ): { listener: (reason: unknown) => void; cleanup: () => void } {
+        installUnhandledRejectionGuard(log, onSuppressed, now)
+        const listener = process.listeners('unhandledRejection').slice(-1)[0] as (reason: unknown) => void
+        return {
+            listener,
+            cleanup: () => process.removeListener('unhandledRejection', listener),
+        }
+    }
+
+    it('counts every suppressed rejection through onSuppressed', () => {
+        const onSuppressed = jest.fn()
+        let fakeNow = 1_000
+        const { listener, cleanup } = withGuard({ error: () => {} }, onSuppressed, () => fakeNow)
+
+        try {
+            listener(new Error('one'))
+            fakeNow += 1
+            listener(new Error('two'))
+
+            expect(onSuppressed).toHaveBeenCalledTimes(2)
+        } finally {
+            cleanup()
+        }
+    })
+
+    it('expires entries older than the window so a slow drip never disarms', () => {
+        const onSuppressed = jest.fn()
+        const logged: string[] = []
+        const before = process.listenerCount('unhandledRejection')
+        // One rejection per 61s: each entry ages out of the 60s window before the next,
+        // so 100 rejections stay far under the bound and the guard stays armed.
+        let fakeNow = 0
+        const { listener, cleanup } = withGuard(
+            { error: (_fields: Record<string, unknown>, message: string) => logged.push(message) },
+            onSuppressed,
+            () => fakeNow
+        )
+
+        try {
+            for (let i = 0; i < 100; i++) {
+                fakeNow = i * 61_000
+                listener(new Error(`rejection ${i}`))
+            }
+
+            expect(logged).not.toContain('unhandled rejection flood, disarming guard')
+            expect(process.listenerCount('unhandledRejection')).toBe(before + 1)
+            expect(onSuppressed).toHaveBeenCalledTimes(100)
+        } finally {
+            cleanup()
+        }
+    })
+
+    it('disarms once the window holds more rejections than the bound', () => {
+        const onSuppressed = jest.fn()
+        const logged: string[] = []
+        const before = process.listenerCount('unhandledRejection')
+        const { listener, cleanup } = withGuard(
+            {
+                error: (_fields: Record<string, unknown>, message: string) => logged.push(message),
+            },
+            onSuppressed,
+            () => 0
+        )
+
+        try {
+            for (let i = 0; i < 50; i++) {
+                listener(new Error(`rejection ${i}`))
+            }
+            // The 51st rejection inside the window disarms and removes the listener.
+            listener(new Error('rejection 50'))
+
+            expect(logged).toContain('unhandled rejection flood, disarming guard')
+            expect(process.listenerCount('unhandledRejection')).toBe(before)
+            expect(onSuppressed).toHaveBeenCalledTimes(51)
+        } finally {
+            // The guard already removed itself on disarm; removal is a no-op then.
+            cleanup()
+        }
     })
 })
