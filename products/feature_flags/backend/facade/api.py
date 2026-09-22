@@ -3,6 +3,8 @@
 Every write routes through ``FeatureFlagSerializer`` — the only path that honors
 ``@approval_gate``, validation, and activity logging. Consumers (currently experiments)
 call these functions instead of driving the serializer and its DRF context by hand.
+``deactivate_trashed_flag`` and ``reactivate_restored_flag`` bypass the serializer, because
+file-system trash and restore flip ``active`` without the gate or validation.
 The read helpers (``user_can_edit_flag``, ``user_can_create_flags``, ``flag_disable_requires_approval``,
 ``serialize_flags``, ``get_feature_flag_request_usage``) expose the flag API's
 access-control, approval-policy, representation, and request-usage logic behind
@@ -176,6 +178,27 @@ def set_flag_active(
     the flip is passed straight through — no synthetic PATCH request is needed.
     """
     return update_flag(flag, {"active": active}, team=team, user=user, request=request)
+
+
+def deactivate_trashed_flag(flag: FeatureFlag) -> None:
+    """Disable a flag that the file system moves to trash. UNGATED on purpose.
+
+    It sets ``active`` on the instance only, and the file-system soft-delete save persists
+    it, so trash stays one write inside the caller's transaction. The serializer path would
+    add the dependents check, filter validation and the approval gate, and trash never had
+    those.
+    """
+    # TODO: trash disables a flag without passing a feature_flag.disable policy.
+    flag.active = False
+
+
+def reactivate_restored_flag(flag: FeatureFlag) -> None:
+    """Enable a flag that the file system restores from trash. UNGATED on purpose.
+
+    It sets ``active`` on the instance only, and the file-system restore save persists it.
+    See ``deactivate_trashed_flag`` for why it bypasses the serializer.
+    """
+    flag.active = True
 
 
 def archive_flag(
