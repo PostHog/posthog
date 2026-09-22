@@ -39,7 +39,9 @@
                 "SANDBOX_JWT_PRIVATE_KEY",
                 "MODAL_TOKEN_ID",
                 "MODAL_TOKEN_SECRET",
-                "AWS_S3_ALLOW_UNSAFE_RENAME"
+                "AWS_S3_ALLOW_UNSAFE_RENAME",
+                "COVERAGE_CORE",
+                "POSTHOG_PYTEST_HARD_EXIT"
             ]
         },
         "backend:lint": {

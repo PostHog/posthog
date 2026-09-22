@@ -1,4 +1,7 @@
 import gc
+import os
+import sys
+import atexit
 import warnings
 from collections.abc import Generator
 
@@ -242,6 +245,22 @@ def pytest_unconfigure() -> None:
     # gone — observed as exit code 139 (SIGSEGV) on the Temporal CI shards. Restore the
     # default heap state so shutdown behaves exactly as without the boot window.
     gc.unfreeze()
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_cmdline_main(config: pytest.Config) -> Generator[None, int | pytest.ExitCode, int | pytest.ExitCode]:
+    exit_code = yield
+    if os.environ.get("POSTHOG_PYTEST_HARD_EXIT") == "1" and "PYTEST_XDIST_WORKER" not in os.environ:
+        # Every report is written by now. Interpreter teardown would still free each object
+        # the session created, millions after a full-tree collection, which takes tens of
+        # seconds on a CI runner. Run the atexit handlers, then leave without the teardown.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        atexit._run_exitfuncs()
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(int(exit_code))
+    return exit_code
 
 
 @pytest.fixture(autouse=True)
