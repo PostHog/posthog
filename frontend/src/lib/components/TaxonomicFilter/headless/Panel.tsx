@@ -111,7 +111,11 @@ function TaxonomicFilterActivePanel({
                     <Empty>
                         <EmptyHeader>
                             <EmptyTitle>
-                                {list.needsMoreSearchCharacters ? 'Type more to search' : 'No results'}
+                                {list.searchQueryTooLong
+                                    ? 'Your search is too long'
+                                    : list.needsMoreSearchCharacters
+                                      ? 'Type more to search'
+                                      : 'No results'}
                             </EmptyTitle>
                         </EmptyHeader>
                     </Empty>
