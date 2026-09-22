@@ -106,7 +106,7 @@ def detector_rows_from_history(
     if scanned is None:
         return rebuild()
 
-    authoritative_from = now - timedelta(hours=scan_hours)
+    authoritative_from = _hour_floor(now) - timedelta(hours=scan_hours)
     _write(
         team_id=team_id,
         alert_id=alert.id,
@@ -176,18 +176,28 @@ def _load_cached(
 ) -> dict[datetime, float]:
     """Cached buckets still inside the window, at most ``window_hours`` of them, newest first.
 
-    The cutoff uses the app clock, which is at or after the hour the query anchors on, so it can
-    only drop the oldest bucket the full scan would have kept — never keep one it dropped. That
-    keeps the cached series a subset of the full scan's, so the cache can never report a value
-    where a full scan would report nothing.
+    The cutoff is the window bound the query itself anchors on, so the cached set is exactly the
+    full scan's. The newest-first slice caps the result at ``window_hours`` buckets, so even a
+    clock straddling an hour boundary can only drop the extra oldest bucket — never keep one the
+    full scan dropped.
     """
     rows = (
         _points(team_id, alert_id)
-        .filter(fingerprint=fingerprint, bucket__gte=now - timedelta(hours=matched.window_hours))
+        .filter(fingerprint=fingerprint, bucket__gte=_hour_floor(now) - timedelta(hours=matched.window_hours))
         .order_by("-bucket")
         .values_list("bucket", "value")[: matched.window_hours]
     )
     return dict(rows)
+
+
+def _hour_floor(now: datetime) -> datetime:
+    """The hour the query's toStartOfHour(now()) bounds anchor on, from the app clock.
+
+    The two clocks read the same hour except when a check straddles an hour boundary between
+    them. The app clock trailing costs one extra deleted or dropped bucket, which the next scan
+    re-reads; it never keeps a bucket the query dropped.
+    """
+    return now.replace(minute=0, second=0, microsecond=0)
 
 
 def _scan_hours(cached: dict[datetime, float], now: datetime) -> int:
@@ -229,7 +239,7 @@ def _assemble(merged: _Buckets, matched: DetectorSeriesQuery, now: datetime) -> 
     in_window = [
         (bucket, cell, value)
         for bucket, (cell, value) in merged.items()
-        if bucket >= now - timedelta(hours=matched.window_hours)
+        if bucket >= _hour_floor(now) - timedelta(hours=matched.window_hours)
     ]
     in_window.sort(key=lambda item: item[0])
     return [[cell, value] for _, cell, value in in_window[-matched.window_hours :]]
@@ -246,9 +256,8 @@ def _write(
 ) -> None:
     """Store what the scan read, drop what it proved is gone, and prune what aged out.
 
-    ``authoritative_from`` is at or after the instant the scan actually reached back to, so a
-    bucket after it that the scan did not return holds no rows any more and its cached value has
-    to go. A bucket with no rows is never written as a zero — it is a bucket with no row here,
+    ``authoritative_from`` is the bound the scan actually reached back to, so a bucket after it
+    that the scan did not return holds no rows any more and its cached value has to go. A bucket with no rows is never written as a zero — it is a bucket with no row here,
     which is what the full scan reports too.
     """
     with transaction.atomic():
@@ -291,7 +300,7 @@ def _rebuild(
             alert_id=alert.id,
             fingerprint=fingerprint,
             scanned=parsed,
-            authoritative_from=now - timedelta(hours=matched.window_hours),
+            authoritative_from=_hour_floor(now) - timedelta(hours=matched.window_hours),
             prune_before=now - timedelta(hours=matched.window_hours + PRUNE_EXTRA_HOURS),
         )
     return rows, column_names or matched.column_names

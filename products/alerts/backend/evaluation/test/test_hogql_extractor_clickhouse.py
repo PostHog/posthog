@@ -250,12 +250,13 @@ class TestHogQLDetectorIncrementalHistory(APIBaseTest, ClickhouseDestroyTablesMi
 
     @parameterized.expand(
         [
-            ("dense", list(range(1, 41))),
-            ("sparse", [h for h in range(1, 48) if h % 3]),
+            ("dense_on_the_hour", list(range(1, 41)), "2026-10-25T04:00:00Z"),
+            ("dense_mid_hour", list(range(1, 41)), "2026-10-25T04:37:00Z"),
+            ("sparse_mid_hour", [h for h in range(1, 48) if h % 3], "2026-10-25T04:37:00Z"),
         ]
     )
-    def test_matches_the_full_scan_series_and_outcome(self, _name: str, hours_ago: list[int]) -> None:
-        with time_machine.travel("2026-10-25T04:00:00Z", tick=False):
+    def test_matches_the_full_scan_series_and_outcome(self, _name: str, hours_ago: list[int], instant: str) -> None:
+        with time_machine.travel(instant, tick=False):
             self._events(hours_ago)
             self._freeze_clickhouse_clock()
             alert = self._alert()
