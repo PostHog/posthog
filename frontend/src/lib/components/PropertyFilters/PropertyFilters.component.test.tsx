@@ -4,9 +4,6 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -16,6 +13,7 @@ import { mockActionDefinition, mockGetEventDefinitions, mockGetPropertyDefinitio
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { recentTaxonomicFiltersLogic } from '../TaxonomicFilter/recentTaxonomicFiltersLogic'
+import { taxonomicFilterCategoryLayoutLogic } from '../TaxonomicFilter/taxonomicFilterCategoryLayoutLogic'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { PropertyFilters } from './PropertyFilters'
 
@@ -27,6 +25,8 @@ jest.mock('lib/components/AutoSizer', () => ({
 describe('PropertyFilters recent selections', () => {
     beforeEach(() => {
         initKeaTests()
+        taxonomicFilterCategoryLayoutLogic.mount()
+        taxonomicFilterCategoryLayoutLogic.actions.setCategoryRailPinned(true)
         actionsModel.mount()
         groupsModel.mount()
         propertyDefinitionsModel.mount()
@@ -92,22 +92,26 @@ describe('PropertyFilters recent selections', () => {
         await userEvent.click(screen.getByTestId(tabTestId))
     }
 
-    // Typing here pays taxonomicFilterLogic's real 500ms search breakpoint (plus stacked 100ms
-    // ones). Fake timers skip that wait; real timers resume immediately after so the resulting
-    // MSW round trip settles normally instead of fighting fake-timer polling. setImmediate is
-    // excluded like queueMicrotask (see jest.config.ts) — it also drives MSW v2's response pump.
-    async function searchFor(query: string): Promise<void> {
+    // Every debounced input in this flow settles the same way: fake timers skip the wait, then
+    // real timers resume so the MSW round trip settles normally instead of fighting fake-timer
+    // polling. One strategy for the property search (taxonomicFilterLogic's 500ms breakpoint) and
+    // for the value load (propertyDefinitionsModel's 300ms breakpoint) keeps the test deterministic.
+    // setImmediate is excluded like queueMicrotask (see jest.config.ts) — it also drives MSW v2's
+    // response pump.
+    async function typeWithDebounce(field: HTMLElement, text: string): Promise<void> {
         jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'setImmediate'] })
         try {
-            await userEvent
-                .setup({ advanceTimers: jest.advanceTimersByTime })
-                .type(screen.getByTestId('taxonomic-filter-searchfield'), query)
+            await userEvent.setup({ advanceTimers: jest.advanceTimersByTime }).type(field, text)
             await act(async () => {
                 jest.advanceTimersByTime(600)
             })
         } finally {
             jest.useRealTimers()
         }
+    }
+
+    async function searchFor(query: string): Promise<void> {
+        await typeWithDebounce(screen.getByTestId('taxonomic-filter-searchfield'), query)
     }
 
     async function selectItem(itemTestId: string, onChange: jest.Mock): Promise<void> {
@@ -162,7 +166,7 @@ describe('PropertyFilters recent selections', () => {
         })
 
         const valueInput = await screen.findByPlaceholderText('Enter value...')
-        await userEvent.type(valueInput, value)
+        await typeWithDebounce(valueInput, value)
         await waitFor(() => {
             expect(screen.getByTestId('prop-val-0')).toBeInTheDocument()
         })
@@ -469,23 +473,12 @@ describe('PropertyFilters recent selections', () => {
     })
 
     describe('category dropdown inside property modal', () => {
-        let unmountFeatureFlagLogic: (() => void) | null = null
-
         beforeEach(() => {
-            unmountFeatureFlagLogic = featureFlagLogic.mount()
+            taxonomicFilterCategoryLayoutLogic.actions.setCategoryRailPinned(false)
         })
 
-        afterEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {})
-            unmountFeatureFlagLogic?.()
-            unmountFeatureFlagLogic = null
-        })
-
-        it('pill variant: clicking the inline category trigger does not close the property modal', async () => {
+        it('clicking the inline category trigger does not close the property modal', async () => {
             useSetupMocks()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
-                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
-            })
 
             renderFilters({
                 taxonomicGroupTypes: [
@@ -502,11 +495,8 @@ describe('PropertyFilters recent selections', () => {
             expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
         })
 
-        it('pill variant: picking a category in the inline dropdown does not close the property modal', async () => {
+        it('picking a category in the inline dropdown does not close the property modal', async () => {
             useSetupMocks()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
-                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
-            })
 
             renderFilters({
                 taxonomicGroupTypes: [

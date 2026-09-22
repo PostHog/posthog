@@ -6,6 +6,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 use futures::StreamExt;
 use tokio::io::AsyncReadExt;
 
+use crate::extractors::{drain_rejected_body, REJECTED_BODY_DRAIN_DEADLINE};
 use crate::v1::constants::{CAPTURE_V1_BODY_READ_TIMEOUT, CAPTURE_V1_DECOMPRESSION_ERRORS};
 use crate::v1::Error;
 
@@ -58,6 +59,21 @@ pub async fn extract_body_with_timeout(
         match chunk_result {
             Some(Ok(chunk)) => {
                 if buf.len() + chunk.len() > payload_size_limit {
+                    // The drain can run for seconds. Holding the buffer and the
+                    // oversize chunk across it turns every rejection into a memory
+                    // spike the size of the limit we just refused.
+                    drop(buf);
+                    drop(chunk);
+                    // Consume what is left so the 413 reaches the client rather than a
+                    // connection reset. Bounded by the size we were willing to accept
+                    // in the first place.
+                    drain_rejected_body(
+                        &mut stream,
+                        payload_size_limit,
+                        REJECTED_BODY_DRAIN_DEADLINE,
+                        path,
+                    )
+                    .await;
                     return Err(Error::PayloadTooLarge(format!(
                         "Request body exceeds limit of {payload_size_limit} bytes"
                     )));
@@ -65,9 +81,11 @@ pub async fn extract_body_with_timeout(
                 buf.put(chunk);
             }
             Some(Err(e)) => {
-                // A body wrapped by axum's DefaultBodyLimit surfaces over-limit
-                // reads as a LengthLimitError in the stream; report those as 413
-                // rather than a generic decoding failure.
+                // A LengthLimitError reaches us only when something wraps the body
+                // in http_body_util::Limited. Nothing does on this route today:
+                // the v1 DefaultBodyLimit layer only inserts a request extension,
+                // and the `Body` extractor never reads it. Kept so the status stays
+                // correct if a limited body is ever introduced upstream.
                 if error_chain_has_length_limit(&e) {
                     return Err(Error::PayloadTooLarge(format!(
                         "Request body exceeds limit of {payload_size_limit} bytes"
@@ -249,6 +267,23 @@ mod tests {
         let body = Body::from("hello world this is a long message");
         let result = extract_body_with_timeout(body, 10, None, TEST_CHUNK_SIZE_KB, "/test").await;
         assert!(matches!(result, Err(Error::PayloadTooLarge(_))));
+    }
+
+    #[tokio::test]
+    async fn extract_body_drains_an_oversize_body_before_rejecting() {
+        use crate::extractors::test_support::counted_chunks;
+        use std::sync::atomic::Ordering;
+
+        // Four ten-byte chunks against a 25-byte limit: the third trips it, and the
+        // fourth must still be pulled so hyper can deliver the 413 on a live
+        // connection instead of resetting.
+        let (stream, pulled) = counted_chunks(4);
+        let body = Body::from_stream(stream);
+
+        let result = extract_body_with_timeout(body, 25, None, TEST_CHUNK_SIZE_KB, "/test").await;
+
+        assert!(matches!(result, Err(Error::PayloadTooLarge(_))));
+        assert_eq!(pulled.load(Ordering::SeqCst), 4);
     }
 
     #[tokio::test]

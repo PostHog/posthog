@@ -12,6 +12,8 @@ from typing import Literal
 import psycopg
 from psycopg import sql
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.slot_manager import (
     publication_exists,
     slot_exists,
@@ -20,24 +22,35 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
 logger = logging.getLogger(__name__)
 
 
+@frozen
+class _QualifiedTable:
+    schema: str
+    table: str
+
+
 def validate_cdc_prerequisites(
     conn: psycopg.Connection,
     management_mode: Literal["posthog", "self_managed"],
     tables: list[str],
-    schema: str = "public",
+    schema: str | None = "public",
     slot_name: str | None = None,
     publication_name: str | None = None,
 ) -> list[str]:
     """Validate that the database is ready for CDC.
 
+    `schema` is the single schema the source is configured to read. Pass None when the source
+    reads every schema, because schema discovery then names each table `schema.table` and the
+    entries in `tables` carry their own schema.
+
     Returns a list of user-facing error messages. Empty list = valid.
     """
     errors: list[str] = []
+    qualified_tables = _resolve_table_schemas(tables, schema)
 
     errors.extend(_check_pg_version(conn))
     errors.extend(_check_wal_level(conn))
-    errors.extend(_check_tables_have_primary_keys(conn, schema, tables))
-    errors.extend(_check_select_permission(conn, schema, tables))
+    errors.extend(_check_tables_have_primary_keys(conn, qualified_tables))
+    errors.extend(_check_select_permission(conn, qualified_tables))
 
     if management_mode == "posthog":
         errors.extend(_check_replication_role(conn))
@@ -97,7 +110,27 @@ def _check_wal_level(conn: psycopg.Connection) -> list[str]:
     return []
 
 
-def _check_tables_have_primary_keys(conn: psycopg.Connection, schema: str, tables: list[str]) -> list[str]:
+def _resolve_table_schemas(tables: list[str], schema: str | None) -> list[_QualifiedTable]:
+    """Pair each table with the schema that holds it.
+
+    A source configured for one schema lists bare table names, so they all take that schema. A
+    source that reads every schema lists them as `schema.table`, which must be split before a
+    catalog lookup, because `relname` holds the table name alone.
+    """
+    if schema is not None:
+        return [_QualifiedTable(schema=schema, table=table) for table in tables]
+
+    resolved: list[_QualifiedTable] = []
+    for table in tables:
+        schema_name, separator, table_name = table.partition(".")
+        if separator:
+            resolved.append(_QualifiedTable(schema=schema_name, table=table_name))
+        else:
+            resolved.append(_QualifiedTable(schema="public", table=table))
+    return resolved
+
+
+def _check_tables_have_primary_keys(conn: psycopg.Connection, tables: list[_QualifiedTable]) -> list[str]:
     """Each target table must have a primary key.
 
     Uses pg_catalog rather than information_schema because information_schema views
@@ -109,36 +142,41 @@ def _check_tables_have_primary_keys(conn: psycopg.Connection, schema: str, table
 
     errors: list[str] = []
     with conn.cursor() as cur:
-        for table in tables:
+        for qualified in tables:
             cur.execute(
                 sql.SQL(
                     "SELECT COUNT(*) FROM pg_index i "
                     "JOIN pg_class c ON c.oid = i.indrelid "
                     "JOIN pg_namespace n ON n.oid = c.relnamespace "
                     "WHERE i.indisprimary AND n.nspname = {} AND c.relname = {}"
-                ).format(sql.Literal(schema), sql.Literal(table))
+                ).format(sql.Literal(qualified.schema), sql.Literal(qualified.table))
             )
             row = cur.fetchone()
             if row is None or row[0] == 0:
-                errors.append(f"Table '{schema}.{table}' has no primary key. CDC requires a primary key on each table.")
+                errors.append(
+                    f"Table '{qualified.schema}.{qualified.table}' has no primary key. "
+                    "CDC requires a primary key on each table."
+                )
     return errors
 
 
-def _check_select_permission(conn: psycopg.Connection, schema: str, tables: list[str]) -> list[str]:
+def _check_select_permission(conn: psycopg.Connection, tables: list[_QualifiedTable]) -> list[str]:
     """Check SELECT permission on target tables."""
     errors: list[str] = []
     with conn.cursor() as cur:
-        for table in tables:
+        for qualified in tables:
             try:
                 cur.execute(
-                    sql.SQL("SELECT 1 FROM {}.{} LIMIT 0").format(sql.Identifier(schema), sql.Identifier(table))
+                    sql.SQL("SELECT 1 FROM {}.{} LIMIT 0").format(
+                        sql.Identifier(qualified.schema), sql.Identifier(qualified.table)
+                    )
                 )
             except psycopg.errors.InsufficientPrivilege:
                 conn.rollback()
-                errors.append(f"No SELECT permission on table '{schema}.{table}'.")
+                errors.append(f"No SELECT permission on table '{qualified.schema}.{qualified.table}'.")
             except psycopg.errors.UndefinedTable:
                 conn.rollback()
-                errors.append(f"Table '{schema}.{table}' does not exist.")
+                errors.append(f"Table '{qualified.schema}.{qualified.table}' does not exist.")
     return errors
 
 

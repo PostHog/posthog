@@ -1,7 +1,6 @@
 import { combineUrl } from 'kea-router'
 
-import { IconWarning } from '@posthog/icons'
-import { LemonTag, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -34,17 +33,13 @@ export function EndpointExecutionFailedSignalCard({ signal }: SignalCardProps): 
         return <SignalCardShell signal={signal}>{null}</SignalCardShell>
     }
 
-    const { endpoint_name, endpoint_version, materialized, error_class, error_message } = extra
+    const { endpoint_name, endpoint_version, error_class, error_message } = extra
     const endpointUrl = urls.endpoint(endpoint_name, endpoint_version ?? undefined)
     const logsUrl = combineUrl(endpointUrl, { tab: 'logs' }).url
 
     return (
         <SignalCardShell signal={signal}>
-            <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium">{endpoint_name}</span>
-                {endpoint_version != null && <LemonTag size="small">v{endpoint_version}</LemonTag>}
-                {materialized && <LemonTag size="small">Materialized</LemonTag>}
-            </div>
+            <div className="font-medium">{endpoint_name}</div>
 
             {signal.content && (
                 <LemonMarkdown className="text-sm text-secondary mt-2" disableImages>
@@ -52,11 +47,7 @@ export function EndpointExecutionFailedSignalCard({ signal }: SignalCardProps): 
                 </LemonMarkdown>
             )}
 
-            <div className="mt-2">
-                <LemonTag type="danger" size="small" icon={<IconWarning />}>
-                    {error_class}
-                </LemonTag>
-            </div>
+            <div className="mt-2 text-xs font-mono text-danger">{error_class}</div>
 
             {error_message && (
                 <div className="mt-2">

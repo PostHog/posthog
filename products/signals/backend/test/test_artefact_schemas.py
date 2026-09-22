@@ -11,6 +11,8 @@ from products.signals.backend.artefact_schemas import (
     CodeReference,
     Commit,
     NoteArtefact,
+    RelevantCommit,
+    SuggestedReviewerEntry,
     SummaryChange,
     TaskRunArtefact,
     TitleChange,
@@ -21,6 +23,12 @@ from products.signals.backend.models import SignalReportArtefact
 
 
 class TestArtefactSchemas(SimpleTestCase):
+    def test_reviewer_reasons_are_bounded_on_write(self):
+        with self.assertRaises(ValidationError):
+            SuggestedReviewerEntry(github_login="reviewer", reason="x" * 501)
+        with self.assertRaises(ValidationError):
+            RelevantCommit(sha="abc1234", url="https://example.com", reason="x" * 501)
+
     def test_registry_covers_every_artefact_type_exactly(self):
         assert set(ARTEFACT_CONTENT_SCHEMAS.keys()) == set(SignalReportArtefact.ArtefactType.values)
 
@@ -120,6 +128,7 @@ class TestValidateArtefactContent(SimpleTestCase):
             ),
             ("repo_selection", {"repository": None, "reason": "no candidates"}),
             ("suggested_reviewers", [{"github_login": "octocat", "github_name": None, "relevant_commits": []}]),
+            ("channel_assignment", {"channel_id": "00000000-0000-0000-0000-000000000001"}),
             ("dismissal", {"reason": "not_a_bug", "note": None, "user_id": 1, "user_uuid": None}),
             ("video_segment", {"anything": "goes"}),
             ("note", {"note": "hello"}),
@@ -136,6 +145,14 @@ class TestValidateArtefactContent(SimpleTestCase):
             ("task_run", {"task_id": "t1", "run_id": None, "product": "signals", "type": "implementation"}),
             ("title_change", {"old_title": "before", "new_title": "after"}),
             ("summary_change", {"old_summary": None, "new_summary": "after"}),
+            (
+                "report_link",
+                {
+                    "kind": "depends_on",
+                    "report_id": "00000000-0000-0000-0000-000000000002",
+                    "reason": "the fix lands second",
+                },
+            ),
         ]
     )
     def test_accepts_valid_content_for_type(self, artefact_type, content):
@@ -152,14 +169,22 @@ class TestValidateArtefactContent(SimpleTestCase):
             ("signal_finding", {"signal_id": "s1"}),
             ("repo_selection", {"reason": 5}),
             ("suggested_reviewers", [{"github_name": "no login"}]),
+            ("channel_assignment", {"channel_id": "not-a-uuid"}),
             ("note", {"note": "   "}),
             ("commit", {"repository": "PostHog/posthog", "branch": "b", "commit_sha": "  ", "message": "m"}),
             ("task_run", {"task_id": "t1", "product": "Not Safe!", "type": "research"}),
+            ("report_link", {"kind": "blocks", "report_id": "00000000-0000-0000-0000-000000000002"}),
+            ("report_link", {"kind": "depends_on", "report_id": "report-2"}),
         ]
     )
     def test_rejects_invalid_content_for_type(self, artefact_type, content):
         with self.assertRaises(ArtefactContentValidationError):
             parse_artefact_content(artefact_type, content)
+
+    def test_suggested_reviewer_login_is_stripped(self):
+        # Enrichment and autostart look logins up with `login.lower()` and no strip, so a padded
+        # login that survived to storage would count as suggested but never match a user.
+        assert SuggestedReviewerEntry(github_login=" Octocat ").github_login == "Octocat"
 
     def test_parsing_normalizes_to_the_schema(self):
         # Parsing into the typed model is the boundary: unknown keys are not persisted, and

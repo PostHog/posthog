@@ -17,25 +17,34 @@ to an operator as a capability that was granted.
 
 from __future__ import annotations
 
-from typing import Literal
+from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
-
-# Records who set the account-request rate limit, so a verification flip doesn't overwrite an
-# explicit admin override. Empty for rows that pre-date the field.
-RateLimitSource = Literal["", "default_unverified", "default_verified", "admin"]
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class ProvisioningRateLimits(BaseModel):
-    """Per-endpoint hourly overrides. None means "use the endpoint's default"."""
+class PartnerTier(StrEnum):
+    """Where a partner sits on the two trust axes, derived from the app row on every read.
 
-    model_config = ConfigDict(extra="ignore", frozen=True)
+    Auth axis: a client that must prove itself (private_key_jwt against a published key
+    set, or a client secret) sits in the JWKS rows; a PKCE-public client, whose client_id
+    anyone can send, sits in the PUBLIC rows. Attested axis: the app presented a valid
+    ``posthog_verification_token`` at CIMD registration, so abuse is traceable to a real
+    PostHog organization.
 
-    account_requests: int | None = None
-    token_exchanges: int | None = None
-    resource_creates: int | None = None
-    github_grants: int | None = None
-    wizard_runs: int | None = None
+    Derived, never stored: a partner moves tier the moment it publishes a key set or
+    attests, with no admin involvement and no persisted value to go stale.
+    """
+
+    PUBLIC = "public"
+    PUBLIC_ATTESTED = "public_attested"
+    JWKS = "jwks"
+    JWKS_ATTESTED = "jwks_attested"
+
+
+# Admin override value that disables an endpoint's limit outright. Distinct from the
+# BLOCKED tier multiplier (0) on purpose: an operator typing 0 into a form must not
+# accidentally grant infinity, so 0 is rejected at the write paths.
+UNLIMITED_OVERRIDE = -1
 
 
 class ProvisioningConfig(BaseModel):
@@ -73,5 +82,27 @@ class ProvisioningConfig(BaseModel):
     # Grandfathered: only the legacy Stripe app still mints a Personal API Key.
     issues_personal_api_key: bool = False
 
-    rate_limits: ProvisioningRateLimits = Field(default_factory=ProvisioningRateLimits)
-    rate_limit_source: RateLimitSource = ""
+    # Per-endpoint hourly overrides, keyed by rate-limit endpoint name. An absent key
+    # means the tier-derived budget applies; UNLIMITED_OVERRIDE disables the limit.
+    # Every value stored here is admin-authored: the self-serve tiers are derived at
+    # request time and never written, which is what made rate_limit_source obsolete.
+    rate_limits: dict[str, int] = Field(default_factory=dict)
+
+    @field_validator("rate_limits", mode="before")
+    @classmethod
+    def _normalize_rate_limits(cls, value: object) -> dict[str, int]:
+        """Load blobs written by any release: the old fixed-field shape stored null
+        for "no override" and 0 for "unlimited"."""
+        if not isinstance(value, dict):
+            return {}
+        limits: dict[str, int] = {}
+        for key, raw in value.items():
+            try:
+                parsed = int(raw)
+            except (TypeError, ValueError):
+                # Dropped like a null rather than raised: pydantic lets a TypeError out of a
+                # validator, and the config is re-parsed on every read, so one unreadable
+                # value would fail every request for that partner.
+                continue
+            limits[str(key)] = UNLIMITED_OVERRIDE if parsed <= 0 else parsed
+        return limits

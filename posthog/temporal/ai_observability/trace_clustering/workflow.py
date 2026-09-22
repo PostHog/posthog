@@ -3,6 +3,7 @@
 import json
 from datetime import timedelta
 
+import structlog
 import temporalio.exceptions
 from temporalio import workflow
 
@@ -51,6 +52,8 @@ from posthog.temporal.ai_observability.trace_clustering.models import (
     TraceLabelingMetadata,
 )
 from posthog.temporal.common.base import PostHogWorkflow
+
+logger = structlog.get_logger(__name__)
 
 
 def _compute_item_labeling_metadata(
@@ -200,7 +203,7 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
         record_noise_points(compute_result.num_noise_points, analysis_level)
 
         if not compute_result.items:
-            workflow.logger.info(
+            logger.info(
                 "Skipping label/aggregates/emit: compute returned no items",
                 team_id=inputs.team_id,
                 analysis_level=analysis_level,

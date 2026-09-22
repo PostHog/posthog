@@ -1,5 +1,5 @@
 import { Menu as BaseMenu } from "@base-ui/react/menu";
-import { Check } from "@phosphor-icons/react";
+import { Check, Star } from "@phosphor-icons/react";
 import {
   Autocomplete,
   AutocompleteCollection,
@@ -16,6 +16,8 @@ export type MenuFlyoutItem = {
   label: string;
   /** Marks the item with a tick — the one already in effect. */
   current: boolean;
+  /** Sorts the item above the rest and marks it with a star. */
+  starred?: boolean;
   icon?: ReactNode;
 };
 
@@ -84,22 +86,27 @@ export function SearchableMenuFlyout({
   onSelect,
 }: SearchableMenuFlyoutProps) {
   const [query, setQuery] = useState("");
-  // Active item first as the anchor when switching; the rest sorted the same way
-  // the web app orders them (locale-aware, which floats emoji-prefixed names
-  // above plain ones).
-  const sections = useMemo<MenuFlyoutSection[]>(
-    () => [
+  // Active item first as the anchor when switching, then the starred ones, the
+  // same order the sidebar puts them in. Within each group, sorted the way the
+  // web app orders them (locale-aware, which floats emoji-prefixed names above
+  // plain ones).
+  const sections = useMemo<MenuFlyoutSection[]>(() => {
+    const rest = items
+      .filter((item) => !item.current)
+      .sort((a, b) => a.label.localeCompare(b.label));
+    return [
       {
         items: [
           ...items.filter((item) => item.current),
-          ...items
-            .filter((item) => !item.current)
-            .sort((a, b) => a.label.localeCompare(b.label)),
+          ...rest.filter((item) => item.starred),
+          ...rest.filter((item) => !item.starred),
         ],
       },
-    ],
-    [items],
-  );
+    ];
+  }, [items]);
+  // A star column only where stars exist, and then on every row, so the labels
+  // of unstarred items stay on the same line as the starred ones.
+  const showStars = items.some((item) => item.starred);
 
   return (
     // Keep keystrokes away from the surrounding menu: its typeahead handler sits
@@ -163,6 +170,13 @@ export function SearchableMenuFlyout({
                         <Check size={14} className="text-accent-11" />
                       )}
                     </span>
+                    {showStars && (
+                      <span className="flex w-4 shrink-0 items-center justify-center">
+                        {item.starred && (
+                          <Star size={13} className="text-gray-9" />
+                        )}
+                      </span>
+                    )}
                     {item.icon && (
                       <span className="flex shrink-0 items-center">
                         {item.icon}

@@ -17,7 +17,7 @@ import { ActionFilter, AnyPropertyFilter, FeaturePropertyFilter, UniversalFilter
 
 import { EntityFilterInfo } from '../EntityFilterInfo'
 import { formatPropertyLabel } from '../PropertyFilters/utils'
-import { isActionFilter, isEditableFilter, isEventFilter, isFeatureFlagFilter } from './utils'
+import { isActionFilter, isEditableFilter, isEntityFilter, isEventFilter, isFeatureFlagFilter } from './utils'
 
 export interface UniversalFilterButtonProps {
     onClick?: () => void
@@ -26,10 +26,11 @@ export interface UniversalFilterButtonProps {
     filter: UniversalFilterValue
     disabledReason?: string
     className?: string
+    clickable?: boolean
 }
 
 export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilterButtonProps>(
-    function UniversalFilterButton({ onClick, onClose, filter, className }, ref): JSX.Element {
+    function UniversalFilterButton({ onClick, onClose, filter, className, clickable = false }, ref): JSX.Element {
         const closable = onClose !== undefined
 
         const isEditable = isEditableFilter(filter)
@@ -39,14 +40,17 @@ export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilt
         const button = (
             <div
                 ref={ref as any}
-                onClick={isEditable ? onClick : undefined}
+                onClick={isEditable || clickable ? onClick : undefined}
                 className={clsx('UniversalFilterButton inline-flex items-center', className, {
-                    'UniversalFilterButton--clickable': isEditable,
+                    'UniversalFilterButton--clickable': isEditable || clickable,
                     'UniversalFilterButton--closeable': closable,
                     'ph-no-capture': true,
                 })}
             >
                 <div className="flex items-center flex-1 truncate gap-1">
+                    {isEntityFilter(filter) && filter.negation && (
+                        <span className="shrink-0 text-muted">did not perform</span>
+                    )}
                     {isEvent ? (
                         <EventLabel filter={filter} onClick={onClick} />
                     ) : isAction ? (

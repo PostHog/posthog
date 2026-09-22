@@ -6,11 +6,16 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.models.integration import Integration
 
-from products.review_hog.backend.temporal.activities import _installation_auth
+from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
+from products.review_hog.backend.temporal.activities import (
+    RemoveTriggerLabelInput,
+    _installation_auth,
+    _remove_trigger_label,
+)
 
 # The true network boundary: first_for_team_repository probes GitHub with an authenticated
 # GET /repos/{repository} per candidate integration row.
-_CAN_ACCESS = "posthog.models.integration.GitHubIntegration.installation_can_access_repository"
+_CAN_ACCESS = "posthog.models.integration.github.GitHubIntegration.installation_can_access_repository"
 
 
 class TestInstallationAuth(BaseTest):
@@ -46,3 +51,35 @@ class TestInstallationAuth(BaseTest):
             _installation_auth(self.team.id, "PostHog/posthog")
 
         assert err.value.non_retryable is False
+
+
+class TestRemoveTriggerLabel:
+    @patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", "inst"))
+    @patch("products.review_hog.backend.temporal.activities.github_api_request")
+    def test_deletes_the_reviewhog_label(self, request: MagicMock, _auth: MagicMock) -> None:
+        _remove_trigger_label(RemoveTriggerLabelInput(team_id=1, owner="PostHog", repo="posthog", pr_number=7))
+
+        request.assert_called_once_with(
+            "DELETE",
+            "/repos/PostHog/posthog/issues/7/labels/reviewhog",
+            token="tok",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
+            installation_id="inst",
+        )
+
+    @patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", "inst"))
+    @patch(
+        "products.review_hog.backend.temporal.activities.github_api_request",
+        side_effect=GitHubAPIError("not found", status=404),
+    )
+    def test_already_removed_label_is_success(self, _request: MagicMock, _auth: MagicMock) -> None:
+        _remove_trigger_label(RemoveTriggerLabelInput(team_id=1, owner="PostHog", repo="posthog", pr_number=7))
+
+    @patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", "inst"))
+    @patch(
+        "products.review_hog.backend.temporal.activities.github_api_request",
+        side_effect=GitHubAPIError("server error", status=500),
+    )
+    def test_other_github_errors_are_retried(self, _request: MagicMock, _auth: MagicMock) -> None:
+        with pytest.raises(GitHubAPIError, match="server error"):
+            _remove_trigger_label(RemoveTriggerLabelInput(team_id=1, owner="PostHog", repo="posthog", pr_number=7))

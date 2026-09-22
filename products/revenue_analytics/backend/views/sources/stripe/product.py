@@ -1,10 +1,7 @@
-from typing import cast
-
 from posthog.hogql import ast
 
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_source
 from products.revenue_analytics.backend.views.schemas.product import SCHEMA
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 from products.warehouse_sources.backend.facade.sources import PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME
 
 
@@ -17,7 +14,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
 
     # Get all schemas for the source, avoid calling `filter` and do the filtering on Python-land
     # to avoid n+1 queries
-    schemas = source.schemas.all()
+    schemas = source.schemas
     product_schema = next((schema for schema in schemas if schema.name == STRIPE_PRODUCT_RESOURCE_NAME), None)
     if product_schema is None:
         return BuiltQuery(
@@ -27,7 +24,6 @@ def build(handle: SourceHandle) -> BuiltQuery:
             test_comments="no_schema",
         )
 
-    product_schema = cast(ExternalDataSchema, product_schema)
     if product_schema.table is None:
         return BuiltQuery(
             key=str(source.id),  # Using source rather than table because table hasn't been found
@@ -36,7 +32,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
             test_comments="no_table",
         )
 
-    table = cast(DataWarehouseTable, product_schema.table)
+    table = product_schema.table
 
     query = ast.SelectQuery(
         select=[

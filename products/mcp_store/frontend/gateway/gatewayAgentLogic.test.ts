@@ -41,6 +41,7 @@ function gatewayServer(id: string): MCPGatewayServerApi {
         description: '',
         category: 'dev',
         template_auth_type: null,
+        auth_type: null,
         is_team_enabled: true,
         icon_key: '',
         icon_domain: '',
@@ -88,6 +89,8 @@ function auditEvent(index: number): MCPAuditEventApi {
             handle: 'posthog-support',
         },
         actor_label: 'posthog-support',
+        credential_owner: null,
+        grant_scope: '',
     }
 }
 

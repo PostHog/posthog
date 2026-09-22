@@ -1,11 +1,8 @@
-from typing import cast
-
 from posthog.hogql import ast
 
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_source
 from products.revenue_analytics.backend.views.schemas.subscription import SCHEMA
 from products.revenue_analytics.backend.views.sources.helpers import extract_json_string
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 from products.warehouse_sources.backend.facade.sources import (
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
@@ -20,7 +17,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
 
     # Get all schemas for the source, avoid calling `filter` and do the filtering on Python-land
     # to avoid n+1 queries
-    schemas = source.schemas.all()
+    schemas = source.schemas
     subscription_schema = next((schema for schema in schemas if schema.name == STRIPE_SUBSCRIPTION_RESOURCE_NAME), None)
     if subscription_schema is None:
         return BuiltQuery(
@@ -30,7 +27,6 @@ def build(handle: SourceHandle) -> BuiltQuery:
             test_comments="no_schema",
         )
 
-    subscription_schema = cast(ExternalDataSchema, subscription_schema)
     if subscription_schema.table is None:
         return BuiltQuery(
             key=str(source.id),  # Using source rather than table because table hasn't been found
@@ -39,7 +35,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
             test_comments="no_table",
         )
 
-    table = cast(DataWarehouseTable, subscription_schema.table)
+    table = subscription_schema.table
 
     query = ast.SelectQuery(
         select=[

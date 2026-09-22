@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom'
 
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
-import { createRef } from 'react'
+import userEvent from '@testing-library/user-event'
+import { createRef, useState } from 'react'
 
 import { LemonTree, LemonTreeRef, TreeDataItem } from './LemonTree'
 
@@ -18,7 +19,7 @@ const cancelAnimationFrameMock = (handle: number): void => {
     window.clearTimeout(handle)
 }
 
-describe('LemonTree virtualization', () => {
+describe('LemonTree', () => {
     let requestAnimationFrameSpy: jest.SpyInstance<number, [FrameRequestCallback]>
     let cancelAnimationFrameSpy: jest.SpyInstance<void, [number]>
 
@@ -69,6 +70,18 @@ describe('LemonTree virtualization', () => {
         await flushAnimationFrame()
     }
 
+    it('renders a standalone side action without dropdown content', () => {
+        render(
+            <LemonTree
+                data={[{ id: 'properties', name: 'properties' }]}
+                itemSideAction={() => null}
+                itemSideActionButton={() => <button>Filter properties</button>}
+            />
+        )
+
+        expect(screen.getByText('Filter properties')).toBeInTheDocument()
+    })
+
     it('renders only the visible window while scrolling', async () => {
         const data: TreeDataItem[] = [
             {
@@ -96,6 +109,53 @@ describe('LemonTree virtualization', () => {
             expect(screen.getByLabelText('tree item: child-30')).toBeInTheDocument()
         })
         expect(screen.queryByLabelText('tree item: child-0')).not.toBeInTheDocument()
+    })
+
+    it.each([false, true])('expands scrolled folders on the first click (nested: %s)', async (nested) => {
+        const folders: TreeDataItem[] = Array.from({ length: 60 }, (_, index) => ({
+            id: `folder-${index}`,
+            name: `folder-${index}`,
+            children: [{ id: `field-${index}`, name: `field-${index}` }],
+        }))
+        const data: TreeDataItem[] = [
+            {
+                id: 'root',
+                name: 'root',
+                children: nested ? [{ id: 'nested', name: 'nested', children: folders }] : folders,
+            },
+        ]
+        function ControlledTree(): JSX.Element {
+            const [expandedIds, setExpandedIds] = useState(nested ? ['root', 'nested'] : ['root'])
+            return (
+                <LemonTree
+                    data={data}
+                    expandedItemIds={expandedIds}
+                    onSetExpandedItemIds={setExpandedIds}
+                    onFolderClick={(item, expanded) => {
+                        if (item) {
+                            setExpandedIds((ids) => (expanded ? ids.filter((id) => id !== item.id) : [...ids, item.id]))
+                        }
+                    }}
+                    virtualized
+                />
+            )
+        }
+
+        const { container } = render(<ControlledTree />)
+        const viewport = setViewportHeight(container, 66)
+        act(() => screen.getByLabelText(`tree item: ${nested ? 'nested' : 'root'}`).focus())
+        await scrollViewport(viewport, 31 * 30)
+
+        const folder = screen.getByLabelText('tree item: folder-30')
+        await userEvent.click(folder)
+
+        expect(screen.getByLabelText('tree item: field-30')).toBeInTheDocument()
+        expect(folder).toHaveFocus()
+
+        await userEvent.click(folder)
+
+        expect(screen.queryByLabelText('tree item: field-30')).not.toBeInTheDocument()
+        expect(folder).toHaveFocus()
     })
 
     it('keeps ancestor rows mounted when focusing a deep descendant', async () => {

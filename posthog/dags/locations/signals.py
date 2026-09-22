@@ -2,6 +2,8 @@ import dagster
 
 from products.signals.dags.inbox_ranking.common import is_inbox_ranking_registered
 from products.signals.dags.inbox_ranking.dataset import dag as inbox_ranking_dataset
+from products.signals.dags.inbox_ranking.shadow import dag as inbox_ranking_shadow
+from products.signals.dags.inbox_ranking.training import dag as inbox_ranking_training
 
 from . import loggers, resources
 
@@ -12,11 +14,27 @@ if is_inbox_ranking_registered():
         assets=[
             inbox_ranking_dataset.inbox_report_state,
             inbox_ranking_dataset.inbox_report_embeddings,
+            inbox_ranking_dataset.inbox_signal_embeddings,
             inbox_ranking_dataset.inbox_report_labels,
             inbox_ranking_dataset.inbox_report_model_data,
+            inbox_ranking_dataset.inbox_report_title_embeddings,
+            inbox_ranking_training.inbox_ranking_training_examples,
+            inbox_ranking_training.inbox_ranking_model_candidate,
+            inbox_ranking_training.inbox_ranking_model_champion,
+            inbox_ranking_training.inbox_ranking_unseen_scores,
+            inbox_ranking_training.inbox_ranking_unseen_graded,
+            inbox_ranking_shadow.inbox_ranking_shadow_eval,
         ],
-        jobs=[inbox_ranking_dataset.inbox_ranking_dataset_job],
-        schedules=[inbox_ranking_dataset.inbox_ranking_dataset_schedule],
+        jobs=[
+            inbox_ranking_dataset.inbox_ranking_dataset_job,
+            inbox_ranking_training.inbox_ranking_training_job,
+            inbox_ranking_shadow.inbox_ranking_shadow_job,
+        ],
+        schedules=[
+            inbox_ranking_dataset.inbox_ranking_dataset_schedule,
+            inbox_ranking_training.inbox_ranking_training_schedule,
+            inbox_ranking_shadow.inbox_ranking_shadow_schedule,
+        ],
         loggers=loggers,
         resources=resources,
     )

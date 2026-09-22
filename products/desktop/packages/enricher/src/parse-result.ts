@@ -181,7 +181,7 @@ export class ParseResult {
         .map((d) => [d.name, d]),
     );
 
-    const host = config.host.replace(/\/$/, "");
+    const host = (config.publicHost ?? config.host).replace(/\/$/, "");
     const flagUrls = new Map<string, string>();
     for (const [key, flag] of flags) {
       flagUrls.set(

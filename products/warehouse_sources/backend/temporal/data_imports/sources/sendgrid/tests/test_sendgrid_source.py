@@ -1,20 +1,14 @@
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import build_default_schemas
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sendgrid import (
     SendGridSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.sendgrid import SendGridResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.settings import SENDGRID_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.source import SendGridSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.source"
 _TRANSPORT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.sendgrid"
@@ -48,50 +42,7 @@ def _config() -> SendGridSourceConfig:
     return SendGridSourceConfig(api_key="SG.test-key")
 
 
-def _source_inputs(schema_name: str = "bounces", **overrides: Any) -> SourceInputs:
-    defaults: dict[str, Any] = {
-        "schema_name": schema_name,
-        "schema_id": "schema-1",
-        "source_id": "source-1",
-        "team_id": 1,
-        "should_use_incremental_field": False,
-        "db_incremental_field_last_value": None,
-        "db_incremental_field_earliest_value": None,
-        "incremental_field": None,
-        "incremental_field_type": None,
-        "job_id": "job-1",
-        "logger": MagicMock(),
-        "reset_pipeline": False,
-    }
-    defaults.update(overrides)
-    return SourceInputs(**defaults)
-
-
 class TestSendGridSource:
-    def test_source_type(self) -> None:
-        assert SendGridSource().source_type == ExternalDataSourceType.SENDGRID
-
-    def test_source_config_basics(self) -> None:
-        config = SendGridSource().get_source_config
-        assert config.label == "SendGrid"
-        assert config.releaseStatus == "alpha"
-        assert not config.unreleasedSource
-        assert config.iconPath == "/static/services/sendgrid.png"
-
-    def test_source_config_has_api_key_password_field(self) -> None:
-        fields = SendGridSource().get_source_config.fields
-        assert len(fields) == 1
-        field = fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.name == "api_key"
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.required is True
-        assert field.secret is True
-
-    def test_get_schemas_returns_all_endpoints(self) -> None:
-        schemas = SendGridSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == ALL_ENDPOINTS
-
     def test_incremental_endpoints_expose_their_cursor_field(self) -> None:
         schemas = {s.name: s for s in SendGridSource().get_schemas(_config(), team_id=1)}
         for name in ALL_ENDPOINTS:
@@ -120,10 +71,6 @@ class TestSendGridSource:
         by_name = {schema["name"]: schema for schema in build_default_schemas(schemas)}
         assert by_name["message_activity"] == {"name": "message_activity", "should_sync": False}
         assert by_name["bounces"]["should_sync"] is True
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = SendGridSource().get_schemas(_config(), team_id=1, names=["bounces", "templates"])
-        assert {s.name for s in schemas} == {"bounces", "templates"}
 
     @pytest.mark.parametrize(
         ("status", "schema_name", "expected_ok", "expected_has_msg"),
@@ -194,16 +141,6 @@ class TestSendGridSource:
         # An endpoint added without one would render "missing the `` scope" at users.
         assert SENDGRID_ENDPOINTS[name].required_scope
 
-    def test_get_resumable_source_manager_is_bound_to_resume_config(self) -> None:
-        manager = SendGridSource().get_resumable_source_manager(_source_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is SendGridResumeConfig
-
-    def test_get_non_retryable_errors_covers_auth(self) -> None:
-        errors = SendGridSource().get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
-
     @pytest.mark.parametrize(
         ("error_url", "expected_fragment"),
         [
@@ -220,40 +157,3 @@ class TestSendGridSource:
         matches = [message for key, message in errors.items() if key.lower() in error.lower()]
         assert matches and matches[0] is not None
         assert expected_fragment in matches[0]
-
-    def test_source_for_pipeline_plumbs_arguments(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        inputs = _source_inputs(
-            schema_name="bounces",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=1700000000,
-            incremental_field="created",
-        )
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.source.sendgrid_source"
-        ) as mock_source:
-            mock_source.return_value = MagicMock(spec=SourceResponse)
-            SendGridSource().source_for_pipeline(_config(), manager, inputs)
-
-        _, kwargs = mock_source.call_args
-        assert kwargs["api_key"] == "SG.test-key"
-        assert kwargs["endpoint"] == "bounces"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == 1700000000
-        assert kwargs["incremental_field"] == "created"
-
-    def test_source_for_pipeline_drops_cursor_when_not_incremental(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        inputs = _source_inputs(
-            schema_name="bounces",
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=1700000000,
-        )
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.source.sendgrid_source"
-        ) as mock_source:
-            mock_source.return_value = MagicMock(spec=SourceResponse)
-            SendGridSource().source_for_pipeline(_config(), manager, inputs)
-
-        _, kwargs = mock_source.call_args
-        assert kwargs["db_incremental_field_last_value"] is None

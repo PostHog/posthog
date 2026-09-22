@@ -142,7 +142,7 @@ interface DateAxisCellProps {
     title: string
     labels: string[]
     series: Series[]
-    interval: TimeInterval
+    interval?: TimeInterval
     timezone: string
 }
 
@@ -230,6 +230,23 @@ export const StartAtZero: Story = {
                 title="startAtZero: false (floated)"
                 series={OFFSET_SERIES}
                 config={{ suffix: ' ms', startAtZero: false }}
+            />
+        </div>
+    ),
+}
+
+/** `min` / `max` pin either end of the axis. Either may be omitted to keep the automatic bound, so
+ *  a lone `min` reads as "only show me above this". */
+export const YAxisRange: Story = {
+    render: () => (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, auto)', gap: 24 }}>
+            <YFormatCell title="automatic" series={OFFSET_SERIES} config={{ suffix: ' ms' }} />
+            <YFormatCell title="min: 800" series={OFFSET_SERIES} config={{ suffix: ' ms', min: 800 }} />
+            <YFormatCell
+                title="min: 800, max: 1000"
+                series={OFFSET_SERIES}
+                config={{ suffix: ' ms', min: 800, max: 1000 }}
             />
         </div>
     ),
@@ -333,9 +350,9 @@ export const ComparisonOf: Story = {
 
 export const DateAxis: Story = {
     render: () => {
-        const cells: { interval: TimeInterval; labels: string[]; series: Series[]; title: string }[] = [
+        const cells: { interval?: TimeInterval; labels: string[]; series: Series[]; title: string }[] = [
             { interval: 'hour', labels: HOURLY_LABELS, series: HOURLY_SERIES, title: 'hour' },
-            { interval: 'day', labels: DAILY_LABELS, series: DAILY_SERIES, title: 'day' },
+            { labels: DAILY_LABELS, series: DAILY_SERIES, title: 'day (inferred)' },
             { interval: 'month', labels: MONTHLY_LABELS, series: MONTHLY_SERIES, title: 'month' },
         ]
         return (

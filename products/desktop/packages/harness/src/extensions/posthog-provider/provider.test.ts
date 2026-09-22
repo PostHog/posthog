@@ -1,4 +1,5 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
+import type { CloudRegion } from "@posthog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getLlmGatewayUrl } from "./gateway";
 import {
@@ -55,6 +56,18 @@ describe("buildPosthogProvider", () => {
     expect(config.apiKey).toBe("pha_static");
   });
 
+  it("forwards attribution headers to the provider and every routed model", () => {
+    const headers = {
+      "x-posthog-property-task_execution_environment": "local",
+    };
+    const config = buildPosthogProvider(models, { headers });
+
+    expect(config.headers).toEqual(headers);
+    expect(config.models?.every((model) => model.headers === headers)).toBe(
+      true,
+    );
+  });
+
   it("routes every provider model through an explicit gateway override", () => {
     const config = buildPosthogProvider(models, {
       region: "us",
@@ -103,16 +116,24 @@ describe("buildPosthogProvider", () => {
     await config.oauth?.login(callbacks);
     expect(loginSpy).toHaveBeenCalledWith(callbacks, "eu");
 
-    await config.oauth?.refreshToken({
-      access: "old",
-      refresh: "old-r",
-      expires: 0,
-    });
-    expect(refreshSpy).toHaveBeenCalledWith("eu", {
-      access: "old",
-      refresh: "old-r",
-      expires: 0,
-    });
+    const refreshSignal = new AbortController().signal;
+    await config.oauth?.refreshToken(
+      {
+        access: "old",
+        refresh: "old-r",
+        expires: 0,
+      },
+      refreshSignal,
+    );
+    expect(refreshSpy).toHaveBeenCalledWith(
+      "eu",
+      {
+        access: "old",
+        refresh: "old-r",
+        expires: 0,
+      },
+      refreshSignal,
+    );
 
     loginSpy.mockRestore();
     refreshSpy.mockRestore();
@@ -235,7 +256,7 @@ describe("resolvePosthogProvider", () => {
 });
 
 describe("model classification", () => {
-  const byId = (region: "us" | "eu" | "dev") =>
+  const byId = (region: CloudRegion) =>
     new Map(fallbackModelConfigs(region).map((model) => [model.id, model]));
 
   it("routes Claude models through anthropic-messages on the product base", () => {
@@ -283,8 +304,14 @@ describe("model classification", () => {
     expect(deepseek?.contextWindow).toBe(1_048_000);
   });
 
-  it("keeps DeepSeek out of the offline fallback list", () => {
-    expect(byId("us").has("deepseek-ai/deepseek-v4-flash-0731")).toBe(false);
+  it.each([
+    "deepseek-ai/deepseek-v4-flash-0731",
+    "zai-org/glm-5.3",
+    "zai-org/glm-5.3-flash",
+  ])("offers %s from the offline fallback list", (id) => {
+    const model = byId("us").get(id);
+    expect(model).toBeDefined();
+    expect(model?.api).toBe("openai-completions");
   });
 
   it("points OpenAI models at the region-specific gateway", () => {

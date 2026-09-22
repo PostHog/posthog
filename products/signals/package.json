@@ -7,6 +7,7 @@
         "@pierre/diffs": "1.2.11",
         "@posthog/products-mcp-store": "workspace:*",
         "@posthog/quill": "workspace:*",
+        "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
@@ -26,6 +27,8 @@
         "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",
         "@storybook/react": "catalog:",
+        "@testing-library/dom": "*",
+        "@testing-library/user-event": "*",
         "@types/react": "*",
         "clsx": "*",
         "react": "*"

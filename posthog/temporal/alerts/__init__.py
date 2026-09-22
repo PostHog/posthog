@@ -3,6 +3,7 @@ from posthog.temporal.alerts.activities import (
     evaluate_alert,
     notify_alert,
     prepare_alert,
+    record_failed_evaluation,
     retrieve_due_alerts,
     run_investigation_safety_net,
 )
@@ -25,6 +26,7 @@ ACTIVITIES = [
     prepare_alert,
     evaluate_alert,
     notify_alert,
+    record_failed_evaluation,
     run_investigation_safety_net,
     cleanup_alert_checks,
 ]

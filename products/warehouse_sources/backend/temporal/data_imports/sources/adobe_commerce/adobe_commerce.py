@@ -12,6 +12,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from urllib3.util.retry import Retry
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce.settings import (
     ADOBE_COMMERCE_ENDPOINTS,
     VALIDATION_PROBE_ENDPOINTS,
@@ -70,6 +72,10 @@ HOST_NOT_ALLOWED_ERROR = "Adobe Commerce store URL is not allowed"
 INCOMPLETE_CREDENTIALS_ERROR = "Adobe Commerce credentials are incomplete"
 HTTPS_REQUIRED_ERROR = "Adobe Commerce store URL must use HTTPS"
 PAGINATION_LIMIT_ERROR = "Adobe Commerce pagination did not terminate"
+# Reached only after the tracked session's own transport-level retries for 429/5xx are exhausted
+# (see `_mint`), so this is self-recovering — matched by `AdobeCommerceSource.get_retryable_errors`
+# to keep it out of error tracking. The status code is left out of the constant since it varies.
+ADMIN_TOKEN_RETRYABLE_ERROR = "Adobe Commerce admin token request failed (retryable)"
 
 # A store code is a Magento code: letters, digits and underscores, starting with a letter.
 _STORE_CODE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
@@ -110,12 +116,12 @@ class AdobeCommerceResumeConfig:
     current_page: int
 
 
-@dataclasses.dataclass
+@frozen
 class AdobeCommerceCredentials:
     method: Literal["access_token", "admin"]
-    access_token: str | None = None
+    access_token: str | None = dataclasses.field(default=None, repr=False)
     username: str | None = None
-    password: str | None = None
+    password: str | None = dataclasses.field(default=None, repr=False)
 
     def secret_values(self) -> tuple[str, ...]:
         return tuple(v for v in (self.access_token, self.password) if v)
@@ -367,9 +373,7 @@ class AdobeCommerceTokenManager:
 
         try:
             if response.status_code == 429 or response.status_code >= 500:
-                raise AdobeCommerceRetryableError(
-                    f"Adobe Commerce admin token request failed (retryable): status={response.status_code}"
-                )
+                raise AdobeCommerceRetryableError(f"{ADMIN_TOKEN_RETRYABLE_ERROR}: status={response.status_code}")
             # A 3xx is not an error status, so refuse it explicitly rather than following it to a
             # potentially internal Location.
             if response.is_redirect or response.is_permanent_redirect:

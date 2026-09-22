@@ -21,7 +21,14 @@ function makeActions(
     pinDirection: "pin",
     pinLabel: "Pin 3 sessions",
     channels: [
-      { id: "c1", name: "support", channelType: "public", starred: false },
+      {
+        id: "c1",
+        name: "support",
+        channelType: "public",
+        starred: false,
+        repositories: [],
+        createdBy: null,
+      },
     ],
     archiveSelected: vi.fn(),
     pinSelected: vi.fn(),

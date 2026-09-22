@@ -7,10 +7,13 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.feature_flags.backend.api.filters_schema import (
+    PRESERVE_UNKNOWN_KEYS_CONTEXT_KEY,
     FeatureFlagFiltersSerializer,
     FlagConditionGroupSerializer,
+    FlagMultivariateVariantSerializer,
     FlagPropertySerializer,
 )
+from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 
 VALID_PROPERTY: dict[str, Any] = {"key": "email", "type": "person", "operator": "icontains", "value": "@posthog.com"}
 
@@ -261,6 +264,14 @@ class TestFiltersSchema(SimpleTestCase):
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["payloads"] == {"true": expected}
 
+    def test_redacted_payload_sentinel_passes_payload_validation(self) -> None:
+        # Pins the contract merged-state PATCH validation depends on: the sentinel substituted
+        # for stored ciphertext must be a JSON-parseable string, or every filters PATCH on
+        # every encrypted-payloads flag 400s. See the comment on REDACTED_PAYLOAD_VALUE.
+        serializer = FeatureFlagFiltersSerializer(data={"payloads": {"true": REDACTED_PAYLOAD_VALUE}})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["payloads"] == {"true": REDACTED_PAYLOAD_VALUE}
+
     def test_null_group_properties_normalized_to_empty_list(self) -> None:
         serializer = FlagConditionGroupSerializer(data={"properties": None})
         assert serializer.is_valid(), serializer.errors
@@ -288,15 +299,8 @@ class TestFiltersSchema(SimpleTestCase):
     @parameterized.expand(
         [
             ("filters", {"groups": [], "junk": 1}, ["junk"]),
-            (
-                "group",
-                {"groups": [{"properties": [], "description": "x", "sort_key": "y"}]},
-                [
-                    "description",
-                    "sort_key",
-                ],
-            ),
-            ("property", {"groups": [{"properties": [{**VALID_PROPERTY, "cohort_name": "x"}]}]}, ["cohort_name"]),
+            ("group", {"groups": [{"properties": [], "junk_g": 1}]}, ["junk_g"]),
+            ("property", {"groups": [{"properties": [{**VALID_PROPERTY, "junk_p": 1}]}]}, ["junk_p"]),
             (
                 "multivariate",
                 {"multivariate": {"variants": [{"key": "a", "rollout_percentage": 100}], "junk_m": 1}},
@@ -317,8 +321,90 @@ class TestFiltersSchema(SimpleTestCase):
         serializer = FeatureFlagFiltersSerializer(data=filters, context={"flag_id": 42})
         assert serializer.is_valid(), serializer.errors
         mock_logger.warning.assert_called_once_with(
-            "feature_flag_filters_unknown_keys_dropped", level=level, keys=expected_keys, flag_id=42
+            "feature_flag_filters_unknown_keys_dropped",
+            level=level,
+            key_count=len(expected_keys),
+            keys=expected_keys,
+            flag_id=42,
         )
+
+    def test_log_only_mode_preserves_non_legacy_unknown_keys_at_every_level(self) -> None:
+        filters = {
+            "groups": [{"properties": [{**VALID_PROPERTY, "property_extra": {"a": 1}}], "group_extra": "g"}],
+            "multivariate": {
+                "variants": [{"key": "a", "rollout_percentage": 100, "variant_extra": [1]}],
+                "multivariate_extra": True,
+            },
+            "holdout": {"id": 1, "exclusion_percentage": 10, "holdout_extra": "h"},
+            "filters_extra": "f",
+            "holdout_groups": [],
+        }
+        serializer = FeatureFlagFiltersSerializer(
+            data=filters,
+            context={PRESERVE_UNKNOWN_KEYS_CONTEXT_KEY: True},
+        )
+
+        assert serializer.is_valid(), serializer.errors
+        validated = serializer.validated_data
+        assert validated["filters_extra"] == "f"
+        assert validated["groups"][0]["group_extra"] == "g"
+        assert validated["groups"][0]["properties"][0]["property_extra"] == {"a": 1}
+        assert validated["multivariate"]["multivariate_extra"] is True
+        assert validated["multivariate"]["variants"][0]["variant_extra"] == [1]
+        assert validated["holdout"]["holdout_extra"] == "h"
+        assert "holdout_groups" not in validated
+
+    def test_display_passthrough_fields_survive_validation(self) -> None:
+        # Guards the #50084 passthrough addendum: if any of these declared fields is removed,
+        # enforcement silently deletes live UI display data (condition descriptions, cohort
+        # names) from thousands of flags on their next edit.
+        filters = {
+            "groups": [
+                {
+                    "properties": [
+                        {
+                            **VALID_PROPERTY,
+                            "label": "my label",
+                            "cohort_name": "my cohort",
+                            "group_key_names": {"k": "n"},
+                        }
+                    ],
+                    "description": "group description",
+                    "sort_key": "a1b2",
+                }
+            ],
+            "multivariate": {
+                "variants": [{"key": "control", "rollout_percentage": 100, "description": "variant description"}]
+            },
+        }
+        serializer = FeatureFlagFiltersSerializer(data=filters, context={"flag_id": 1})
+        assert serializer.is_valid(), serializer.errors
+        group = serializer.validated_data["groups"][0]
+        assert group["description"] == "group description"
+        assert group["sort_key"] == "a1b2"
+        prop = group["properties"][0]
+        assert prop["label"] == "my label"
+        assert prop["cohort_name"] == "my cohort"
+        assert prop["group_key_names"] == {"k": "n"}
+        assert serializer.validated_data["multivariate"]["variants"][0]["description"] == "variant description"
+
+    @parameterized.expand(
+        [
+            ("simple", "control", True),
+            # The API has never restricted the charset and stored flags depend on that: keys
+            # double as config values, and hundreds carry spaces or other characters the flag
+            # editor rejects. Only blank and over-length are structural violations.
+            ("llm_routing_style", "provider/model-1.2", True),
+            ("dots_underscores", "a.b_c-d", True),
+            ("space", "foo bar", True),
+            ("comma", "foo,bar", True),
+            ("blank", "", False),
+            ("too_long", "k" * 401, False),
+        ]
+    )
+    def test_variant_key_length_and_blank(self, _name: str, key: str, valid: bool) -> None:
+        serializer = FlagMultivariateVariantSerializer(data={"key": key, "rollout_percentage": 100})
+        assert serializer.is_valid() is valid, serializer.errors
 
     @patch("products.feature_flags.backend.api.filters_schema.logger")
     def test_sink_collects_unknown_keys_instead_of_logging(self, mock_logger: Any) -> None:

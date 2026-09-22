@@ -48,12 +48,11 @@ function controlledPanel(tab: HTMLElement): HTMLElement {
 }
 
 describe("LoopsListViewPresentation", () => {
-  it("does not render ownership groups while identity is loading", () => {
+  it("does not render visibility groups while loops are loading", () => {
     render(
       <Theme>
         <LoopsListViewPresentation
           loops={[loop("mine-team", "team")]}
-          currentUserId={null}
           isLoading
           onStartBlank={vi.fn()}
           onStartFromTemplate={vi.fn()}
@@ -67,7 +66,7 @@ describe("LoopsListViewPresentation", () => {
   // The triggers sit in the page header and the panels stay in the scrolling
   // body — one Tabs root spanning both, so switching has to keep working
   // across that split.
-  it("groups loops by ownership rather than visibility", async () => {
+  it("groups loops by visibility regardless of their creator", async () => {
     const currentUser: UserBasic = {
       id: 1,
       uuid: "current-user",
@@ -81,7 +80,6 @@ describe("LoopsListViewPresentation", () => {
             loop("mine-team", "team"),
             loop("teammate-team", "team", 2),
           ]}
-          currentUserId={1}
           members={[currentUser]}
           onStartBlank={vi.fn()}
           onStartFromTemplate={vi.fn()}
@@ -89,27 +87,59 @@ describe("LoopsListViewPresentation", () => {
       </Theme>,
     );
 
-    const personalTab = screen.getByRole("tab", { name: "My loops (2)" });
+    const personalTab = screen.getByRole("tab", { name: "My loops (1)" });
     expect(
       within(controlledPanel(personalTab)).getByText("personal loop"),
     ).toBeVisible();
-    expect(
-      within(controlledPanel(personalTab)).getByText(
-        "team loop by current@example.com",
-      ),
-    ).toBeVisible();
 
-    const teamTab = screen.getByRole("tab", { name: "Team loops (1)" });
+    const teamTab = screen.getByRole("tab", { name: "Team loops (2)" });
     await userEvent.click(teamTab);
 
     expect(teamTab).toHaveAttribute("aria-selected", "true");
     expect(
-      within(controlledPanel(teamTab)).getByText("team loop"),
+      within(controlledPanel(teamTab)).getByText(
+        "team loop by current@example.com",
+      ),
     ).toBeVisible();
+    expect(
+      within(controlledPanel(teamTab)).getAllByText(/team loop/),
+    ).toHaveLength(2);
     // The deselected panel is inert, then unmounts when its transition ends.
     await waitFor(() =>
       expect(screen.queryByText("personal loop")).not.toBeInTheDocument(),
     );
+  });
+
+  // The flag that switches loops onto workflows resolves after the first
+  // render. Workflow loops are all team-visible and the trigger strip is
+  // hidden for them, so a stale personal tab would show an empty page.
+  it("shows workflow loops when the mode flips after mount", () => {
+    const teamLoop = loop("mine-team", "team");
+    const { rerender } = render(
+      <Theme>
+        <LoopsListViewPresentation
+          loops={[teamLoop]}
+          workflowBacked={false}
+          onStartBlank={vi.fn()}
+          onStartFromTemplate={vi.fn()}
+        />
+      </Theme>,
+    );
+    expect(screen.queryByText("team loop")).not.toBeInTheDocument();
+
+    rerender(
+      <Theme>
+        <LoopsListViewPresentation
+          loops={[teamLoop]}
+          workflowBacked
+          onStartBlank={vi.fn()}
+          onStartFromTemplate={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+    expect(screen.getByText("team loop")).toBeVisible();
   });
 
   it("hides the header trigger strip while loops are loading", () => {

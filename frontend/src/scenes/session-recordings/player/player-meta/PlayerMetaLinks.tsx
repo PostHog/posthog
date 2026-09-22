@@ -13,6 +13,7 @@ import {
 import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { getVideoExportDisabledReason } from 'lib/components/ExportButton/exportStatus'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
@@ -132,7 +133,8 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
 }
 
 const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => {
-    const { logicProps, isMuted, hasReachedExportFullVideoLimit } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, isMuted, hasReachedExportFullVideoLimit, sessionPlayerData } =
+        useValues(sessionRecordingPlayerLogic)
     const { deleteRecording, setIsFullScreen, exportRecordingToFile, exportRecordingToVideoFile, setMuted } =
         useActions(sessionRecordingPlayerLogic)
     const { skipInactivitySetting } = useValues(playerSettingsLogic)
@@ -146,6 +148,8 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
 
     const isStandardMode =
         (logicProps.mode ?? SessionRecordingPlayerMode.Standard) === SessionRecordingPlayerMode.Standard
+
+    const tooLongToExportReason = getVideoExportDisabledReason(sessionPlayerData?.durationMs)
 
     const onDelete = useMemo(
         () => () => {
@@ -210,6 +214,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                     : 'Export PostHog recording data to MP4 video file.',
                 disabledReason:
                     (hasReachedExportFullVideoLimit ? 'You have reached your export limit.' : undefined) ??
+                    tooLongToExportReason ??
                     exportAccessControlDisabledReason ??
                     undefined,
                 'data-attr': 'replay-export-mp4',
@@ -243,6 +248,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
         isMuted,
         setMuted,
         hasReachedExportFullVideoLimit,
+        tooLongToExportReason,
         exportAccessControlDisabledReason,
     ])
 

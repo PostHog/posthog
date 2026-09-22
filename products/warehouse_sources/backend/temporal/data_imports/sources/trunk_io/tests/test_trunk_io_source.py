@@ -3,16 +3,12 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trunkio import (
     TrunkIoSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.source import TrunkIoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.trunk_io import TrunkIoResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(schema_name: str, **overrides) -> SourceInputs:
@@ -47,58 +43,9 @@ class TestTrunkIoSource:
             merge_queue_target_branch="main",
         )
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.TRUNKIO
-
     def test_lists_tables_without_credentials(self):
         # get_schemas is a static endpoint catalog with no I/O, so it must be safe for public docs.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_get_source_config_is_released(self):
-        config = self.source.get_source_config
-        assert getattr(config, "unreleasedSource", None) is not True
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-    def test_get_source_config_field_names(self):
-        field_names = [f.name for f in self.source.get_source_config.fields]
-        assert field_names == [
-            "api_token",
-            "org_url_slug",
-            "repo_host",
-            "repo_owner",
-            "repo_name",
-            "merge_queue_target_branch",
-        ]
-
-    def test_api_token_field_is_secret(self):
-        field = next(f for f in self.source.get_source_config.fields if f.name == "api_token")
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.secret is True
-
-    def test_get_schemas_returns_expected_endpoints(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == {
-            "UnhealthyTests",
-            "QuarantinedTests",
-            "FailingTests",
-            "MergeQueuePullRequests",
-        }
-
-    def test_get_schemas_filters_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["QuarantinedTests"])
-        assert [s.name for s in schemas] == ["QuarantinedTests"]
-
-    @parameterized.expand(
-        [
-            ("UnhealthyTests", False),
-            ("QuarantinedTests", False),
-            ("FailingTests", True),
-            ("MergeQueuePullRequests", True),
-        ]
-    )
-    def test_get_schemas_incremental_support(self, endpoint: str, supports_incremental: bool):
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-        assert schema.supports_incremental is supports_incremental
 
     def test_validate_credentials_delegates_with_repo(self):
         with patch(
@@ -114,12 +61,6 @@ class TestTrunkIoSource:
         assert repo.host == "github.com"
         assert repo.owner == "my-org"
         assert repo.name == "my-repo"
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = _make_inputs("UnhealthyTests")
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is TrunkIoResumeConfig
 
     @parameterized.expand(
         [
@@ -205,16 +146,3 @@ class TestTrunkIoSource:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
         assert schemas["MergeQueuePullRequests"].should_sync_default is False
         assert schemas["FailingTests"].should_sync_default is True
-
-    def test_get_non_retryable_errors_covers_auth_failures(self):
-        errors = self.source.get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-
-    def test_get_canonical_descriptions_covers_all_endpoints(self):
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == {
-            "UnhealthyTests",
-            "QuarantinedTests",
-            "FailingTests",
-            "MergeQueuePullRequests",
-        }

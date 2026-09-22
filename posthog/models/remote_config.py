@@ -213,7 +213,9 @@ class RemoteConfig(UUIDTModel):
 
         from products.error_tracking.backend.facade import build_error_tracking_config
         from products.feature_flags.backend.models.feature_flag import FeatureFlag
+        from products.messaging.backend.remote_config import build_push_config
         from products.surveys.backend.api.survey import get_surveys_opt_in, get_surveys_response
+        from products.web_analytics.backend.remote_config import build_heatmaps_config
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -248,6 +250,9 @@ class RemoteConfig(UUIDTModel):
         # MARK: Error tracking
         config["errorTracking"] = build_error_tracking_config(team)
 
+        # MARK: Push notifications
+        config["push"] = build_push_config(team)
+
         # MARK: Logs
         logs_settings = team.logs_settings or {}
         config["logs"] = {
@@ -277,7 +282,7 @@ class RemoteConfig(UUIDTModel):
                 config["quotaLimited"] = ["recordings"]
                 config["sessionRecording"] = False
 
-        config["heatmaps"] = True if team.heatmaps_opt_in else False
+        config["heatmaps"] = build_heatmaps_config(team) if team.heatmaps_opt_in else False
 
         # MARK: Conversations
         if team.conversations_enabled:
@@ -590,4 +595,40 @@ def error_tracking_suppression_rule_saved(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender="posthog.TeamJsSnippetConfig")
 def js_snippet_config_saved(sender, instance, created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_save, sender="posthog.TeamHeatmapConfig")
+def heatmap_config_saved(sender, instance, created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_save, sender="posthog.Organization")
+def organization_subscription_saved(sender, instance, created, **kwargs):
+    if created or not getattr(instance, "_has_active_subscription_changed", False):
+        return
+    team_ids = list(Team.objects.filter(organization_id=instance.pk, heatmaps_opt_in=True).values_list("id", flat=True))
+
+    def rebuild_heatmaps_enabled_teams() -> None:
+        for team_id in team_ids:
+            _update_team_remote_config(team_id)
+
+    transaction.on_commit(rebuild_heatmaps_enabled_teams)
+
+
+@receiver(post_save, sender="posthog.Integration")
+@receiver(post_delete, sender="posthog.Integration")
+def push_integration_changed(sender, instance, **kwargs):
+    from products.messaging.backend.remote_config import PUSH_APP_ID_CONFIG_KEYS
+
+    # Integrations cover every kind we support, and most of them have nothing to do with the SDK
+    # payload. Only refresh for the two push kinds, so an OAuth token refresh on an unrelated
+    # integration doesn't enqueue a rebuild for every team that has one.
+    if instance.kind not in PUSH_APP_ID_CONFIG_KEYS:
+        return
+    # The app_ids live in config, and integration code saves errors and created_by on their own —
+    # apns_integration alone does three saves per creation. Only config can change the payload.
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "config" not in update_fields:
+        return
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))

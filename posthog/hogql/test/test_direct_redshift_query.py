@@ -170,9 +170,8 @@ class TestDirectRedshiftQuery(APIBaseTest):
                 "posthog.hogql.direct_sql.redshift_adapter.RedshiftAdapter.validate_source_config",
                 return_value=(implementation, MagicMock()),
             ):
-                with patch.object(HogQLQueryExecutor, "_capture_send_raw_query_translation_error"):
-                    with self.assertRaisesRegex(ExposedHogQLError, "Add a LIMIT clause"):
-                        executor.execute()
+                with self.assertRaisesRegex(ExposedHogQLError, "Add a LIMIT clause"):
+                    executor.execute()
 
     def test_execute_raises_exposed_error_when_ssh_tunnel_fails(self):
         source = self._create_source()
@@ -191,9 +190,8 @@ class TestDirectRedshiftQuery(APIBaseTest):
             "posthog.hogql.direct_sql.redshift_adapter.RedshiftAdapter.validate_source_config",
             return_value=(implementation, MagicMock()),
         ):
-            with patch.object(HogQLQueryExecutor, "_capture_send_raw_query_translation_error"):
-                with self.assertRaises(ExposedHogQLError) as error:
-                    executor.execute()
+            with self.assertRaises(ExposedHogQLError) as error:
+                executor.execute()
 
         self.assertEqual(str(error.exception), "Could not establish session to SSH gateway")
 

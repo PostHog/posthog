@@ -16,16 +16,15 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.22.1",
-    "@json-render/core": "^0.19.0",
     "@posthog/agent": "workspace:*",
     "@posthog/core": "workspace:*",
-    "@posthog/di": "workspace:*",
     "@posthog/host-trpc": "workspace:*",
     "@posthog/platform": "workspace:*",
     "@posthog/shared": "workspace:*",
     "@posthog/workspace-client": "workspace:*",
     "@posthog/workspace-server": "workspace:*",
     "@trpc/client": "catalog:",
+    "inversify": "catalog:",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
@@ -39,6 +38,7 @@
     "@trpc/tanstack-react-query": "catalog:",
     "@types/react": "catalog:",
     "react": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "^4.1.8"
   }
 }

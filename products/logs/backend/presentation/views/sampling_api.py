@@ -18,7 +18,6 @@ from posthog.schema import PropertyGroupFilter
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.logs.backend.models import LogsExclusionRule
 from products.logs.backend.presentation.filter_group_validation import (
@@ -274,8 +273,6 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = LogsExclusionRule.objects.all().order_by("priority", "created_at")
     serializer_class = LogsSamplingRuleSerializer
     lookup_field = "id"
-    posthog_feature_flag = "logs-settings-drop-rules"
-    permission_classes = [PostHogFeatureFlagPermission]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.team_id)

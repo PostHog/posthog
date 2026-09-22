@@ -19,6 +19,7 @@ from products.data_modeling.backend.facade.models import (
 )
 from products.data_warehouse.backend.s3 import get_size_of_folder
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, asave_datawarehousetable
+from products.warehouse_sources.backend.facade.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 
 LOGGER = get_logger(__name__)
 
@@ -54,6 +55,7 @@ def _get_or_create_table_for_saved_query(
             url_pattern=url_pattern,
             team_id=team_id,
             queryable_folder=queryable_folder,
+            created_via=DataWarehouseTableCreatedVia.MATERIALIZED_VIEW,
         )
         saved_query.table = table
         saved_query.save(update_fields=["table", "updated_at"])
@@ -99,7 +101,7 @@ async def create_table_from_saved_query(
     try:
         table_name = f"{saved_query.name}"
         url_pattern = saved_query.url_pattern
-        table_format = DataWarehouseTable.TableFormat.DeltaS3Wrapper
+        table_format = DataWarehouseTableFormat.DeltaS3Wrapper
 
         table_created = await _get_or_create_table_for_saved_query(
             saved_query_id=saved_query_id_converted,
@@ -139,7 +141,7 @@ async def create_table_from_saved_query(
                 logger.debug(f"Table size delta in MiB = {table_size_delta:.2f}")
 
                 job.storage_delta_mib = (job.storage_delta_mib or 0) + table_size_delta
-                await job.asave()
+                await job.asave(update_fields=["storage_delta_mib", "updated_at"])
 
                 storage_delta_mib = job.storage_delta_mib
                 total_storage_mib = table_created.size_in_s3_mib

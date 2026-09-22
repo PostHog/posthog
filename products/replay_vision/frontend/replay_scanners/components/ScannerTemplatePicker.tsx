@@ -21,6 +21,7 @@ import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerTemplate, ScannerTemplateIcon, defaultScannerTemplates } from '../scannerTemplates'
 import { scannerTypeOutputHint } from '../types'
+import { scannerStartSearchParams } from './scannerStartParams'
 
 const TEMPLATE_ICONS: Record<ScannerTemplateIcon, JSX.Element> = {
     warning: <IconWarning />,
@@ -30,7 +31,7 @@ const TEMPLATE_ICONS: Record<ScannerTemplateIcon, JSX.Element> = {
     check: <IconCheckCircle />,
 }
 
-function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JSX.Element {
+export function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JSX.Element {
     const isBlank = template === 'blank'
     const { searchParams } = useValues(router)
     const { scannerDraftSavedAt } = useValues(replayScannerLogic({ id: 'new' }))
@@ -38,8 +39,9 @@ function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JS
     const start = (): void => {
         const templateKey = isBlank ? null : template.key
         replayScannerLogic({ id: 'new' }).actions.startFromTemplate(templateKey)
-        const params = isBlank ? searchParams : { ...searchParams, template: template.key }
-        router.actions.push(combineUrl(urls.replayVisionScannerConfigure('new'), params).url)
+        router.actions.push(
+            combineUrl(urls.replayVisionScannerDetails('new'), scannerStartSearchParams(searchParams, templateKey)).url
+        )
     }
 
     const handleClick = (): void => {
@@ -108,7 +110,7 @@ function ResumeDraftBanner(): JSX.Element | null {
 
     const handleResume = (): void => {
         const { template: _template, ...params } = searchParams
-        router.actions.push(combineUrl(urls.replayVisionScannerConfigure('new'), params).url)
+        router.actions.push(combineUrl(urls.replayVisionScannerDetails('new'), params).url)
     }
 
     return (
@@ -159,10 +161,10 @@ export function ScannerTemplatePicker(): JSX.Element {
         <div className="flex flex-col gap-6">
             <ResumeDraftBanner />
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <TemplateCard template="blank" />
                 {defaultScannerTemplates.map((template) => (
                     <TemplateCard key={template.key} template={template} />
                 ))}
+                <TemplateCard template="blank" />
             </div>
         </div>
     )

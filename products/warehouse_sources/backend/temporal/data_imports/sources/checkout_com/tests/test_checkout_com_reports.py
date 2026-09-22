@@ -10,6 +10,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.reports import (
     MAX_DISCOVERY_PAGES,
+    CheckoutComReportKeyError,
+    CheckoutComReportParseError,
     CheckoutComReportsListingError,
     _parse_report_file_rows,
     checkout_com_reports_source,
@@ -173,8 +175,8 @@ class TestReportTypeTableName:
 
 
 class TestParseReportFileRows:
-    def test_parses_rows_with_metadata_and_skips_malformed_lines(self):
-        text = "Action ID,Payment ID,Report ID\nact_1,pay_1,csv_value\n\nact_2,pay_2\nact_3,pay_3,csv_value\n"
+    def test_parses_current_layout_with_metadata_and_skips_blank_lines(self):
+        text = "Action ID,Payment ID,Report ID\nact_1,pay_1,csv_value\n\nact_2,pay_2,csv_value\n"
         logger = mock.MagicMock()
         metadata = {"report_id": "rpt_1", "file_id": "file_1"}
 
@@ -191,17 +193,100 @@ class TestParseReportFileRows:
                 "file_row_index": 0,
             },
             {
-                "action_id": "act_3",
-                "payment_id": "pay_3",
+                "action_id": "act_2",
+                "payment_id": "pay_2",
                 "report_id": "rpt_1",
                 "file_id": "file_1",
                 "file_row_index": 1,
             },
         ]
+        logger.warning.assert_not_called()
+
+    # Legacy report generators make header and data-row widths disagree without
+    # changing what a row means: a trailing delimiter on every data row adds an empty
+    # overflow cell, a trailing delimiter on the header line adds an unnamed column,
+    # and ragged writers omit trailing empty fields. Files like these used to parse to
+    # zero rows while the sync reported success.
+    @pytest.mark.parametrize(
+        "text, expected",
+        [
+            pytest.param(
+                "Action ID,Amount,Payout ID\nact_1,10,pout_1,\nact_2,20,pout_2,\n",
+                [("act_1", "10", "pout_1"), ("act_2", "20", "pout_2")],
+                id="trailing-delimiter-on-data-rows",
+            ),
+            pytest.param(
+                "Action ID,Amount,Payout ID,\nact_1,10,pout_1\nact_2,20,pout_2\n",
+                [("act_1", "10", "pout_1"), ("act_2", "20", "pout_2")],
+                id="trailing-delimiter-on-header",
+            ),
+            pytest.param(
+                "Action ID,Amount,Payout ID\nact_1,10,pout_1\nact_2,20\n",
+                [("act_1", "10", "pout_1"), ("act_2", "20", "")],
+                id="ragged-rows-omit-trailing-empty-fields",
+            ),
+        ],
+    )
+    def test_width_variant_layouts_parse_all_rows(self, text, expected):
+        logger = mock.MagicMock()
+
+        rows = list(_parse_report_file_rows(io.StringIO(text), {"file_id": "file_1"}, logger))
+
+        assert [(row["action_id"], row["amount"], row["payout_id"]) for row in rows] == expected
+        assert [row["file_row_index"] for row in rows] == [0, 1]
+        # Layout variants are parsed, not treated as malformed, so a large legacy file
+        # doesn't emit one warning per row.
+        logger.warning.assert_not_called()
+
+    def test_malformed_row_below_skip_threshold_warns_and_keeps_the_rest(self):
+        # An unquoted embedded delimiter adds a cell that carries a value, which no
+        # header assignment can make safe; that row is skipped, the rest survive.
+        good_rows = "\n".join(f"act_{i},{i}" for i in range(19))
+        text = f"Action ID,Amount\n{good_rows}\nact_bad,1,000\n"
+        logger = mock.MagicMock()
+
+        rows = list(_parse_report_file_rows(io.StringIO(text), {"file_id": "file_1"}, logger))
+
+        assert len(rows) == 19
+        assert all(row["action_id"] != "act_bad" for row in rows)
         logger.warning.assert_called_once()
 
-    def test_empty_file_yields_nothing(self):
-        assert list(_parse_report_file_rows(io.StringIO(""), {}, mock.MagicMock())) == []
+    def test_skip_ratio_above_threshold_fails_the_file(self):
+        good_rows = "\n".join(f"act_{i},10" for i in range(6))
+        malformed_rows = "\n".join(f"act_bad_{i},1,000" for i in range(4))
+        text = f"Action ID,Amount\n{good_rows}\n{malformed_rows}\n"
+
+        with pytest.raises(CheckoutComReportParseError, match="skipped 4 of 10"):
+            list(_parse_report_file_rows(io.StringIO(text), {"file_id": "file_1"}, mock.MagicMock()))
+
+    def test_file_whose_data_rows_all_fail_to_parse_raises(self):
+        text = "Action ID,Amount\nact_1,1,000\nact_2,2,000\n"
+
+        with pytest.raises(CheckoutComReportParseError, match="none parsed"):
+            list(_parse_report_file_rows(io.StringIO(text), {"file_id": "file_1"}, mock.MagicMock()))
+
+    # A scheduled report over a period with no activity is header-only (or empty) by
+    # design, so a file with no data lines at all yields nothing rather than raising —
+    # raising would wedge the sync permanently on a legitimately quiet period. Only a
+    # file whose data lines exist but all fail to parse is a defect (tested above).
+    @pytest.mark.parametrize(
+        "text",
+        [
+            pytest.param("", id="zero-byte-file"),
+            pytest.param("Action ID,Amount\n", id="header-only"),
+            pytest.param("Action ID,Amount\n\n  \n", id="header-and-blank-lines"),
+        ],
+    )
+    def test_file_with_no_data_lines_is_empty_not_a_defect(self, text):
+        assert list(_parse_report_file_rows(io.StringIO(text), {}, mock.MagicMock())) == []
+
+    def test_missing_key_column_raises_rather_than_loading_undedupable_rows(self):
+        # Without the key column the merge cannot match a restated row, so every
+        # regenerated file would add another copy instead of updating one.
+        text = "Payment ID,Amount\npay_1,10\n"
+
+        with pytest.raises(CheckoutComReportKeyError):
+            list(_parse_report_file_rows(io.StringIO(text), {"file_id": "file_1"}, mock.MagicMock(), "action_id"))
 
 
 class TestReportsMetadataTable:
@@ -355,6 +440,55 @@ class TestReportFileSync:
         # No redirect means no separate download session is ever built.
         assert mock_make_session.call_count == 1
 
+    @mock.patch(SESSION_PATCH)
+    def test_file_parsing_to_zero_rows_fails_the_sync_without_checkpointing(self, mock_make_session):
+        api_session = _FakeSession(
+            [
+                _listing([_report("rpt_1", "2024-02-01T00:00:00Z", files=[_csv_file("file_1")])]),
+                _FakeResponse(text="Action ID,Amount\nact_1,1,000\n"),
+            ]
+        )
+        mock_make_session.side_effect = [api_session]
+        manager = _FakeManager()
+
+        with pytest.raises(CheckoutComReportParseError):
+            _rows(_source("financial_actions_report", manager=manager))
+        # The failed report is not checkpointed, so a retry re-reads it instead of
+        # resuming past data that never loaded.
+        assert manager.saved_states == []
+
+    @mock.patch(SESSION_PATCH)
+    def test_restatements_are_read_oldest_first_so_the_newest_copy_wins(self, mock_make_session):
+        # The writer keeps the last occurrence of a key in a batch, so read order decides
+        # which copy of a restated action survives. Reports must be walked oldest-first and
+        # files within a report in id order, whatever order the listing returned them in.
+        api_session = _FakeSession(
+            [
+                _listing(
+                    [
+                        _report(
+                            "rpt_new",
+                            "2024-02-01T00:00:00Z",
+                            files=[_csv_file("file_z"), _csv_file("file_a")],
+                        ),
+                        _report("rpt_old", "2024-01-01T00:00:00Z", files=[_csv_file("file_m")]),
+                    ]
+                ),
+                _FakeResponse(text="Action ID,Amount\nact_1,10\n"),
+                _FakeResponse(text="Action ID,Amount\nact_1,20\n"),
+                _FakeResponse(text="Action ID,Amount\nact_1,30\n"),
+            ]
+        )
+        mock_make_session.side_effect = [api_session]
+
+        rows = _rows(_source("financial_actions_report"))
+
+        assert [(row["file_id"], row["amount"]) for row in rows] == [
+            ("file_m", "10"),
+            ("file_a", "20"),
+            ("file_z", "30"),
+        ]
+
     @pytest.mark.parametrize("location", [None, "http://files.example.com/signed"])
     @mock.patch(SESSION_PATCH)
     def test_non_https_redirect_location_raises(self, mock_make_session, location):
@@ -471,7 +605,13 @@ class TestCheckoutComReportsSourceResponse:
         "schema_name, primary_keys, partition_keys",
         [
             ("reports", ["id"], ["created_on"]),
-            ("financial_actions_report", ["file_id", "file_row_index"], ["report_created_on"]),
+            ("balances_report", ["file_id", "file_row_index"], ["report_created_on"]),
+            # Report types Checkout.com regenerates over an overlapping range key on the
+            # action instead, and stay unpartitioned: the merge matches on primary key and
+            # partition together, so partitioning on report creation time would put a
+            # restatement in a different partition and insert a copy instead of updating.
+            ("financial_actions_report", ["action_id", "breakdown_type"], None),
+            ("financial_actions_by_payout_report", ["action_id", "breakdown_type"], None),
         ],
     )
     def test_response_metadata(self, schema_name, primary_keys, partition_keys):
@@ -480,7 +620,7 @@ class TestCheckoutComReportsSourceResponse:
         assert response.name == schema_name
         assert response.primary_keys == primary_keys
         assert response.partition_keys == partition_keys
-        assert response.partition_mode == "datetime"
+        assert response.partition_mode == ("datetime" if partition_keys else None)
         # Reports are re-sorted oldest-first before yielding, so ascending watermark
         # commits are safe.
         assert response.sort_mode == "asc"

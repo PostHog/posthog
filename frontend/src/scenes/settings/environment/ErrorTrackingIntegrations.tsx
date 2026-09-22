@@ -28,7 +28,7 @@ export function ErrorTrackingIntegrations(): JSX.Element {
                     <img src={IconGitHub} alt="" className="w-5 h-5" />
                     GitHub
                 </h3>
-                <GithubIntegration next={NEXT_URL} />
+                <GithubIntegration next={NEXT_URL} connectSurface="settings" />
             </div>
             <div>
                 <h3 className="flex items-center gap-2">

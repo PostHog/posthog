@@ -3,6 +3,8 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 
+from parameterized import parameterized
+
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -149,13 +151,17 @@ class TestSetupPlanFeatureFlag(APIBaseTest):
         self.url = f"/api/projects/{self.team.pk}/marketing_analytics/setup_plan"
         cache.clear()
 
-    def test_the_endpoint_is_absent_when_the_flag_is_off(self):
-        with patch(_FLAG_TARGET, return_value=False), patch(_PLAN_TARGET, return_value=_plan()) as build:
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_setup_availability(self, setup: bool, dashboard: bool) -> None:
+        flags = {"marketing-analytics-setup": setup, "new-marketing-analytics-dashboard": dashboard}
+        with (
+            patch(_FLAG_TARGET, side_effect=lambda flag, *args, **kwargs: flags[flag]),
+            patch(_PLAN_TARGET, return_value=_plan()) as build,
+        ):
             response = self.client.get(self.url)
 
-        assert response.status_code == 404
-        # 404 rather than 403 so an unreleased endpoint looks absent, not forbidden.
-        assert build.call_count == 0
+        assert response.status_code == (200 if setup or dashboard else 404)
+        assert build.call_count == int(setup or dashboard)
 
     def test_the_flag_is_evaluated_once_per_request(self):
         # A second call in the same request would fire a redundant `$feature_flag_called`.
@@ -164,12 +170,19 @@ class TestSetupPlanFeatureFlag(APIBaseTest):
 
         assert flag.call_count == 1
 
-    def test_the_flag_is_grouped_on_the_organization(self):
-        # Every other marketing-analytics flag is org-grouped; a team-only evaluation
-        # here would let one project disagree with the rest of its org.
+    def test_the_flag_is_evaluated_for_the_requesting_person(self):
+        # The flag targets people, and the frontend renders the Setup tab off that same
+        # per-person answer. Evaluating it against the team instead answers for nobody, so
+        # the tab lands on an endpoint that 404s. Two people to also catch an answer
+        # cached somewhere that outlives one request.
+        other_user = User.objects.create_and_join(self.organization, "second@posthog.com", None)
+
         with patch(_FLAG_TARGET, return_value=True) as flag, patch(_PLAN_TARGET, return_value=_plan()):
             self.client.get(self.url)
+            self.client.force_login(other_user)
+            self.client.get(self.url)
 
+        assert [call.args[1] for call in flag.call_args_list] == [self.user.distinct_id, other_user.distinct_id]
         assert flag.call_args.kwargs["groups"] == {"organization": str(self.team.organization.id)}
 
 

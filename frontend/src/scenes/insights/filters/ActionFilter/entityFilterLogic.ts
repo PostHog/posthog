@@ -220,6 +220,7 @@ export interface entityFilterLogicActions {
               math_property?: string | null | undefined
               math_property_type?: TaxonomicFilterGroupType | null | undefined
               name?: string | null | undefined
+              negation?: boolean | undefined
               nestedFilters?: EntityFilter[] | null | undefined
               operator?: FilterLogicalOperator | null | undefined
               optionalInFunnel?: boolean | undefined
@@ -242,6 +243,7 @@ export interface entityFilterLogicActions {
               math_property?: string | null | undefined
               math_property_type?: TaxonomicFilterGroupType | null | undefined
               name?: string | null | undefined
+              negation?: boolean | undefined
               nestedFilters?: EntityFilter[] | null | undefined
               operator?: FilterLogicalOperator | null | undefined
               optionalInFunnel?: boolean | undefined
@@ -265,6 +267,7 @@ export interface entityFilterLogicActions {
               math_property?: string | null | undefined
               math_property_type?: TaxonomicFilterGroupType | null | undefined
               name?: string | null | undefined
+              negation?: boolean | undefined
               nestedFilters?: EntityFilter[] | null | undefined
               operator?: FilterLogicalOperator | null | undefined
               optionalInFunnel?: boolean | undefined
@@ -288,6 +291,7 @@ export interface entityFilterLogicActions {
               math_property?: string | null | undefined
               math_property_type?: TaxonomicFilterGroupType | null | undefined
               name?: string | null | undefined
+              negation?: boolean | undefined
               nestedFilters?: EntityFilter[] | null | undefined
               operator?: FilterLogicalOperator | null | undefined
               optionalInFunnel?: boolean | undefined
@@ -471,20 +475,23 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
-        renameFilter: async ({ custom_name }, breakpoint) => {
-            if (!values.selectedFilter) {
-                return
+        renameFilter: ({ custom_name }) => {
+            const selectedFilter = values.selectedFilter as LocalFilter | null
+            if (selectedFilter) {
+                const index = selectedFilter.uuid
+                    ? values.localFilters.findIndex((filter) => filter.uuid === selectedFilter.uuid)
+                    : selectedFilter.order
+
+                if (index !== -1) {
+                    actions.updateFilter({
+                        ...selectedFilter,
+                        index,
+                        custom_name,
+                    } as EntityFilter & {
+                        index: number
+                    })
+                }
             }
-
-            await breakpoint(100)
-
-            actions.updateFilter({
-                ...values.selectedFilter,
-                index: values.selectedFilter?.order,
-                custom_name,
-            } as EntityFilter & {
-                index: number
-            })
             actions.hideModal()
         },
         hideModal: () => {

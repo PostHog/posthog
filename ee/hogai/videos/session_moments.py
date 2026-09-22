@@ -19,11 +19,14 @@ from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
-from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
+from posthog.temporal.session_replay.rasterize_recording.types import (
+    RASTERIZE_WORKFLOW_TIMEOUT,
+    RasterizeRecordingInputs,
+)
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 
-from ee.hogai.session_summaries.constants import (
+from ee.hogai.videos.constants import (
     DEFAULT_VIDEO_UNDERSTANDING_MODEL,
     MOMENT_VIDEO_EXPORT_FORMAT,
     SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED,
@@ -162,7 +165,7 @@ class SessionMomentsLLMAnalyzer:
                 task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                execution_timeout=timedelta(minutes=30),
+                execution_timeout=RASTERIZE_WORKFLOW_TIMEOUT,
                 search_attributes=TypedSearchAttributes(
                     search_attributes=[
                         SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=self.team_id),

@@ -305,7 +305,19 @@ tools:
         enabled: false
     comments-create:
         operation: comments_create
-        enabled: false
+        enabled: true
+        scopes:
+            - comment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create a comment or reply
+        description: >
+            Create a comment on an accessible resource, or reply by passing `source_comment`. For a canvas use scope
+            `desktop_canvas`, the canvas id as `item_id`, and item_context.taskId from the canvas's
+            `discussion_task_id`. Canvas visibility is enforced: public-channel canvases and the authenticated user's
+            personal-channel canvases are accessible.
     comments-destroy:
         operation: comments_destroy
         enabled: false
@@ -485,6 +497,9 @@ tools:
     personal-api-keys-list:
         operation: personal_api_keys_list
         enabled: false
+    remove-blocked-members-and-enforce-verified-domains-create:
+        operation: remove_blocked_members_and_enforce_verified_domains_create
+        enabled: false
     request-ai-access-create:
         operation: request_ai_access_create
         enabled: false
@@ -548,6 +563,12 @@ tools:
         enabled: false
     teams-data-freshness-retrieve:
         operation: teams_data_freshness_retrieve
+        enabled: false
+    user-facet-settings-partial-update:
+        operation: user_facet_settings_partial_update
+        enabled: false
+    user-facet-settings-retrieve:
+        operation: user_facet_settings_retrieve
         enabled: false
     user-home-settings-get:
         operation: user_home_settings_retrieve

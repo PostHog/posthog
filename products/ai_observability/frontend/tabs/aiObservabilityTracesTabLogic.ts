@@ -15,6 +15,7 @@ import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
 import { LLM_TRACES_PAGE_SIZE } from '../utils'
 
 export interface AIObservabilityTracesTabLogicProps {
+    logicKey?: string
     personId?: string
     group?: {
         groupKey: string
@@ -89,11 +90,11 @@ export type aiObservabilityTracesTabLogicType = MakeLogicType<
 
 export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicType>([
     path(['products', 'ai_observability', 'frontend', 'tabs', 'aiObservabilityTracesTabLogic']),
-    key((props: AIObservabilityTracesTabLogicProps) => props?.personId || 'aiObservabilityScene'),
+    key((props: AIObservabilityTracesTabLogicProps) => props.logicKey || props.personId || 'aiObservabilityScene'),
     props({} as AIObservabilityTracesTabLogicProps),
     connect((props: AIObservabilityTracesTabLogicProps) => ({
         values: [
-            aiObservabilitySharedLogic({ personId: props.personId, group: props.group }),
+            aiObservabilitySharedLogic({ logicKey: props.logicKey, personId: props.personId, group: props.group }),
             ['dateFilter', 'shouldFilterTestAccounts', 'shouldFilterSupportTraces', 'propertyFilters', 'searchQuery'],
             groupsModel,
             ['groupsTaxonomicTypes'],

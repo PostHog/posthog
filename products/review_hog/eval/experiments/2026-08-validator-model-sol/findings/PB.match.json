@@ -1,0 +1,77 @@
+{
+    "PB1": {
+        "cluster": 13,
+        "confidence": "high",
+        "reason": "Identical to LA2/LB9 (cluster 13, members Y10/P1/M2/O1/Z1): _parse_pr_url at tasks.py:113-121 is an unanchored search, so an embedded github.com substring or a lookalike host such as evilgithub.com parses as a valid GitHub PR URL, and the validator refutes it the same way Z1 did (the host is discarded and the repo comes from the team-scoped config row). The trailing '/pull/42abc' boundary example is the same regex-strictness claim, not a separate defect. Runner-up cluster 34 is the fabricated backslash-s typo claim about this regex, which PB1 does not make."
+    },
+    "PB2": {
+        "cluster": 35,
+        "confidence": "high",
+        "reason": "Identical to PA2 and LA3/MA3/LB3/MB2/NA2/NB3 (cluster 35, KA7/KB2/KC5 precedent, Z6 verdict): _format_self_driving hard-codes 'It is a draft on purpose', so a synchronize re-review after the self-driving PR flips to ready feeds the trusted prompt a false draft state, with pass-pr.draft-into-the-formatter as the fix. Runner-up cluster 5 (trusted provenance rendered solely off the flag) is the broader framing, not the stale-draft claim."
+    },
+    "PB3": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Identical to PA4 and LA5/MA4/LB6/MB9/NA4/NB5 (cluster 58 stated at the facade publish site, KC4 precedent; facade/api.py:149 is already a cluster 58 file): the single post-commit .delay() is the only handoff for the initial review, the caller logs and suppresses the publish failure, and no durable outbox or retry worker reconciles it, with the validator refuting it via the deliberate receiver re-fire and the webhook carve-out (the Z7 verdict). Runner-up cluster 54 shares the line but claims the unguarded .delay raises into the caller's save path, whereas PB3 says the caller swallows it."
+    },
+    "PB4": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Identical to MA15/NB16/KB4 and the second half of LA6 (cluster 58's retry-exhaustion angle, members M6/L9): a Temporal start failure after the ReviewRun commits exhausts max_retries=3, the row stays QUEUED, and no scheduled reconciler restarts stale queued runs, with the cluster's durable-record-plus-reconciler fix as the remedy. Runner-up cluster 32 (Y13) names the same stranded-QUEUED symptom but via the disproven on_commit-runs-after-return mechanism, whereas PB4 states the correct retry semantics; cluster 41 is the opposite failure (a FAILED head retried without cooldown)."
+    },
+    "PB5": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Same claim as LB20 (verified real this week, matched null): the opt-out skip path at tasks.py:894-898 calls the dismissal helper but never supersedes non-terminal ReviewRuns, so a run that passed post_verdict's head check before the push posts its old-head approval after the dismissal finds nothing, and the fix is LB20's own supersede-before-dismiss reorder from _retract_approvals_on_base_retarget. No registry cluster covers the un-superseded live run, so null; reuse LB20's verdict. Runner-up cluster 29 (carve-out exception blocks the retraction) loses because PB5's retraction runs and the gap is what it cannot stop, and LB21/MB12/NB21 (approval with no saved posted_review_id) is a different orphan that PB5 does not claim."
+    },
+    "PB6": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Identical to NA7/MA6/MB14/LA10/KB5 (cluster 2 in AGENTS.md form; the registry already lists AGENTS.md:110): although anchored at the invariant text, PB6 states the code exploit itself (process_inbox_pr_review trusts the supplied IDs and pr_url, a signals run can name another PR in a configured repo, and the inbox_review stamp disarms the bot, draft, review-mode and author-permission gates) and asks only for code validation, so per the MA6/MB14/NA7 rule it is the code claim, not a doc gap. Runner-up null under the PA7/NA8 doc-form rule loses because PB6 requests no documentation change and its validator confirms the Z8 exploit chain; cluster 48 is the unrelated provenance-key-name doc claim, and the 're-check the acting reviewer toggle' clause is a cluster 31 aside carried by PB15."
+    },
+    "PB7": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Identical to PA11 and LA11/MA7/LB8/MB15/NA10/NB8 (cluster 2 at the receiver, KA10/KB6/KC6 precedent, Z8 verdict): the receiver forwards caller-writable TaskRun.output.pr_url after only a task-shape and toggle check, process_inbox_pr_review stamps inbox_review with no task.repository, run-linkage, head-repo or bot-author check, and the stamp disarms the bot, draft, author-permission and review-mode gates so an unrelated PR can be approved. Runner-up cluster 6 (engine-side relaxation keyed on the flag) loses because every PB7 remedy is server-side; the facade-side attestation ask that distinguishes LA15 is absent here, as it was in PA11."
+    },
+    "PB8": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Identical to PA8 and LA13/MA8/MB16/NB8 (cluster 2, KB6/KC6 precedent, Z8 verdict): process_inbox_pr_review checks only the repo config, open state and head SHA, never loads task_run_id or verifies the report, task repository, head repository or bot identity before stamping inbox_review from the Celery args, so a task:write caller can repoint a signals run at another PR and obtain a privileged review or approval. The 'recheck the acting reviewer and toggle' clause is a cluster 31 aside carried by PB15, and the 'expected PostHog Code bot identity' and 'server-owned attestation' clauses are the cluster 75 and LA15 asides that NA10/PA8 also carried without leaving cluster 2. Runner-up cluster 73 (branch fallback mis-binding) is the webhook-leg facade, which PB8 does not address."
+    },
+    "PB9": {
+        "cluster": 2,
+        "confidence": "medium",
+        "reason": "Engine-located restatement of cluster 2, same as MA10/LB10/MB8/NB10: the harm is the initial producer stamping self_driving_review without confirming the fetched PR is the linked, repo-owned bot PR, and every substantive remedy ('before the server writes this value, verify the task linkage, expected bot identity, repository-owned head, repository, and PR URL') is server-side; the validator itself narrows the real half to process_inbox_pr_review. Runner-up cluster 6 (where PA10/LA19/NA22 went) loses because PB9 never asks the engine to couple its relaxation to pr.author_is_bot, which was those findings' defining fix; the 'accept only literal True' clause is a cluster 3 aside (NA12/KA3/KC1, Z2 verdict) that the validator discounts. Medium because the title and opening sentences lead with the cluster 3 truthiness claim."
+    },
+    "PB10": {
+        "cluster": 57,
+        "confidence": "high",
+        "reason": "Identical to PA12 and LA17/MA11/LB11/MB19/NA1/NA13/NB11 (cluster 57, KA4/KB8/KC7 precedent, Z3 verdict): the receiver picks one canonical reviewer at receivers.py:111 before reading stamphog_review_inbox_prs at line 126 and the webhook resolver repeats it at 151-155, so an opted-in secondary assignee is ignored, contradicting the 'any opted-in assigned reviewer' contract, with scan-all-assignees-on-the-Stamphog-path as the fix. Code-located, so it is the code claim rather than PA7's doc-form twin. Runner-up cluster 11 (resolver identity drift between legs) is a different claim."
+    },
+    "PB11": {
+        "cluster": 39,
+        "confidence": "high",
+        "reason": "Identical to PA13 and LA16/MA12/LB16/MB18/NA18/NB12 (cluster 39, KA5/KB1/KC2 precedent, Z4 verdict): find_task_run selects one row before the facade at api.py:504-509 applies team_id, task__internal and task__signal_report_id, so another team's row wins and the facade returns None, hiding the valid run (the W8/T8 shadowing mode), with push-the-filters-into-the-query as the fix; the unordered .first() aside does not change the claim. Runner-up cluster 73 is the opposite direction (branch fallback mis-binds an unrelated run), and cluster 21 (failed/cancelled runs still match) is a different filter gap."
+    },
+    "PB12": {
+        "cluster": 15,
+        "confidence": "high",
+        "reason": "Identical to cluster 15 (X4/P23/W10): the find_task_run read behind find_signal_implementation_run at facade/api.py:504 is not pinned to the writer even though it gates the carve-out side effect, so claimed replica lag hides the recent pr_url or branch write and the webhook skips the review, with .using(router.db_for_write(TaskRun)) as the fix; the validator refutes it exactly as the W10 verdict did (TaskRun is main-DB and ReplicaRouter already reads default, fails closed). Runner-up cluster 76 (LA22/E3) is the same writer-pin misapplication aimed at ReviewUserSettings.load(), a different model and call site, which LA22's match already named as the sibling of this claim."
+    },
+    "PB13": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Identical to PA14 and LA1/MA14/LB15/MB3/NA16/NB4 (cluster 58 at the receiver, KA13/KB3/KC3 precedent, Z7 verdict): _start_stamphog_review's on_commit callback logs and swallows the broker publish failure after the TaskRun output is committed, no durable dispatch record or retrying worker exists, so a broker outage drops the initial review; the validator refutes it via the documented fire-and-forget contract and the webhook re-entry. Runner-up cluster 54 is the unguarded .delay raising into the caller, which PB13 does not claim."
+    },
+    "PB14": {
+        "cluster": 16,
+        "confidence": "high",
+        "reason": "Identical to cluster 16 (X13/Q3): the deferred facade import at receivers.py:222 sits one line above _start_stamphog_review's try, so an import failure escapes the callback after commit and surfaces as an error for a successful TaskRun write, with move-the-import-inside-the-try as the fix. KA12 and NA20 carried this exact import-placement point as the aside their matches assigned to cluster 16, and the S7 verdict discusses the same placement. Runner-up cluster 25 (robust=False lets the first hook cancel the Stamphog hook) loses because PB14 claims the escape from the Stamphog callback itself, not the sibling-hook cancellation; NA15 (null) is the import-weight claim about the same line, which PB14 does not make."
+    },
+    "PB15": {
+        "cluster": 31,
+        "confidence": "high",
+        "reason": "Identical to PA9 and LA20/MA18/MB1/NA9/NA21/NB22 (cluster 31, KA1/KB10 precedent, Z10 verdict) stated at the receiver's toggle read: the receiver checks stamphog_review_inbox_prs before publishing and process_inbox_pr_review trusts that queue-time result, so a task that waits in the queue can review and approve after the user opts out, with re-resolve-the-reviewer-in-the-worker as the fix; the validator refutes it via the documented 'safety is never preference-gated' design and the next-push opt-out dismissal, matching the cluster's 0/6 real record. Runner-up cluster 57 (single acting reviewer) is a different gate defect."
+    }
+}

@@ -1,14 +1,30 @@
-import { Message, TopicPartitionOffset } from 'node-rdkafka'
+import { Message, MessageHeader, TopicPartitionOffset } from 'node-rdkafka'
+import { gzipSync } from 'node:zlib'
 
-import { hashImageBytes, imageRef } from './content-ref'
-import { ImageBatcher, OffsetStore } from './image-batcher'
-import { ImageShardStore, ScrubbedImage } from './image-shard-store'
+import { MlKeyReader } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/reader'
+import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
+import { INGESTION_VERSION_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
+import { MlKafkaTransport } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
+
+import { hashImageBytes, imageRef, urlRef } from './content-ref'
+import { ImageBatcher, OffsetStore, WRITE_CONCURRENCY } from './image-batcher'
+import { ImageShardStore, ScrubbedImage, ScrubbedUrlImage, UrlImageWriteOutcome } from './image-shard-store'
+import { CAPTURE_TIMESTAMP_HEADER } from './image-transport'
+import { ImageScrubConsumerMetrics } from './metrics'
 import { ScrubClient, ScrubPoisoned } from './scrub-client'
 
 const pt = (n: number): string => String(n).padStart(32, '0')
 const CONTENT_KEY = 'fedcba9876543210fedcba9876543210'
+const CAPTURED_AT = 1_700_000_000_000
 
-function msg(partition: number, offset: number, pseudoTeam: string, bytes: Buffer, keyOverride?: string): Message {
+function msg(
+    partition: number,
+    offset: number,
+    pseudoTeam: string,
+    bytes: Buffer,
+    keyOverride?: string,
+    headers?: MessageHeader[]
+): Message {
     const ref = keyOverride ?? imageRef(pseudoTeam, hashImageBytes(CONTENT_KEY, bytes))
     return {
         topic: 'session_replay_image_scrub',
@@ -16,12 +32,16 @@ function msg(partition: number, offset: number, pseudoTeam: string, bytes: Buffe
         offset,
         key: Buffer.from(ref),
         value: bytes,
+        headers,
     } as unknown as Message
 }
 
 class FakeStore {
     public writes: ScrubbedImage[][] = []
+    public urlWrites: ScrubbedUrlImage[] = []
     public failNext = false
+    public failNextUrl = false
+    public urlWriteOutcome: UrlImageWriteOutcome = 'created'
     // eslint-disable-next-line @typescript-eslint/require-await
     async writeShard(images: ScrubbedImage[]): Promise<{ shard: string; bytes: number }> {
         if (this.failNext) {
@@ -29,6 +49,15 @@ class FakeStore {
         }
         this.writes.push(images)
         return { shard: 'shard', bytes: images.reduce((n, i) => n + i.bytes.length, 0) }
+    }
+
+    // eslint-disable-next-line @typescript-eslint/require-await
+    async writeUrlImage(image: ScrubbedUrlImage): Promise<UrlImageWriteOutcome> {
+        if (this.failNextUrl) {
+            throw new Error('url s3 down')
+        }
+        this.urlWrites.push(image)
+        return this.urlWriteOutcome
     }
 }
 
@@ -53,51 +82,386 @@ const options = {
     dedupMaxRefs: 1000,
 }
 
+/** Runs a batch and waits for its writes, for tests that assert on what reached the store. */
+async function handleAndWrite(batcher: ImageBatcher, messages: Message[]): Promise<void> {
+    await batcher.handleBatch(messages)
+    await batcher.drain()
+}
+
 describe('ImageBatcher', () => {
-    it('scrubs a multi-team batch into one shard for the flush, storing offsets after', async () => {
+    afterEach(() => jest.restoreAllMocks())
+
+    it.each([false, true])(
+        'retries malformed encrypted image parking and supports shutdown (stop: %s)',
+        async (stop) => {
+            jest.useFakeTimers()
+            try {
+                const store = new FakeStore()
+                const offsets = new FakeOffsets()
+                const park = jest.fn().mockRejectedValueOnce(new Error('dlq unavailable')).mockResolvedValue(undefined)
+                const keyManager = {
+                    kafka: new MlKafkaTransport({
+                        read: jest.fn().mockResolvedValue(new Map()),
+                    } as unknown as MlKeyReader),
+                } as MlKeyManager
+                const incrementVersion = jest.spyOn(ImageScrubConsumerMetrics, 'incrementVersion')
+                const batcher = new ImageBatcher(
+                    store as unknown as ImageShardStore,
+                    offsets,
+                    scrubClient,
+                    options,
+                    { park },
+                    keyManager
+                )
+                const invalid = msg(0, 0, pt(1), Buffer.from('invalid envelope'), undefined, [
+                    { [INGESTION_VERSION_HEADER]: Buffer.from('2') },
+                ])
+                const batch = batcher.handleBatch([invalid])
+                await jest.advanceTimersByTimeAsync(0)
+                expect(park).toHaveBeenCalledTimes(1)
+                expect(offsets.received).toEqual([])
+                // Neither bucket moves: a decryption outage must not read as a rollback to version 1.
+                expect(incrementVersion.mock.calls).toEqual([
+                    ['2', 0],
+                    ['1', 0],
+                ])
+                if (stop) {
+                    await batcher.stop()
+                } else {
+                    await jest.advanceTimersByTimeAsync(500)
+                }
+                await expect(batch).resolves.toBeUndefined()
+                expect(park).toHaveBeenCalledTimes(stop ? 1 : 2)
+                expect(park.mock.calls[0][0]).toEqual({
+                    ref: invalid.key!.toString(),
+                    bytes: invalid.value,
+                    headers: { [INGESTION_VERSION_HEADER]: '2' },
+                    detail: {
+                        reason: 'invalid_record',
+                        sourceTopic: invalid.topic,
+                        sourcePartition: 0,
+                        sourceOffset: 0,
+                    },
+                })
+                expect(store.writes).toEqual([])
+                if (!stop) {
+                    expect(offsets.received.flat().map((offset) => offset.offset)).toEqual([1])
+                }
+            } finally {
+                jest.useRealTimers()
+            }
+        }
+    )
+
+    it.each([false, true])('scrubs mixed teams and separates legacy records (mixed formats: %s)', async (mixed) => {
         const store = new FakeStore()
         const offsets = new FakeOffsets()
-        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, scrubClient, options, 0)
+        const observeCaptureToS3 = jest.spyOn(ImageScrubConsumerMetrics, 'observeCaptureToS3').mockImplementation()
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, scrubClient, options)
 
-        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a')), msg(0, 1, pt(2), Buffer.from('b'))], 1)
+        const captureHeader = [{ [CAPTURE_TIMESTAMP_HEADER]: Buffer.from(String(CAPTURED_AT)) }]
+        await handleAndWrite(batcher, [
+            msg(0, 0, pt(1), Buffer.from('a'), undefined, captureHeader),
+            msg(0, 1, mixed ? '42' : pt(2), Buffer.from('b'), undefined, captureHeader),
+        ])
 
-        expect(store.writes).toHaveLength(1)
-        expect(store.writes[0].map((i) => i.pseudoTeam).sort()).toEqual([pt(1), pt(2)])
+        expect(store.writes).toHaveLength(mixed ? 2 : 1)
+        expect(
+            store.writes
+                .flat()
+                .map((i) => i.teamId ?? i.pseudoTeam)
+                .sort()
+        ).toEqual([pt(1), mixed ? '42' : pt(2)])
+        if (mixed) {
+            expect(store.writes.flat().find((image) => image.teamId === '42')).toBeDefined()
+            expect(store.writes.flat().find((image) => image.pseudoTeam === pt(1))).toBeDefined()
+        }
         expect(offsets.stored).toBe(1)
+        expect(observeCaptureToS3).toHaveBeenCalledTimes(2)
+        expect(observeCaptureToS3).toHaveBeenNthCalledWith(1, 'inline', CAPTURED_AT, expect.any(Number))
+        expect(observeCaptureToS3).toHaveBeenNthCalledWith(2, 'inline', CAPTURED_AT, expect.any(Number))
     })
 
     it('trusts the producer ref: the bytes are indexed under the key hash without recomputing it', async () => {
         // The hash is a producer-side per-team HMAC; this consumer has no key and must not try to
         // validate — it indexes the scrubbed bytes under whatever hash the ref carries.
         const store = new FakeStore()
-        const batcher = new ImageBatcher(
-            store as unknown as ImageShardStore,
-            new FakeOffsets(),
-            scrubClient,
-            options,
-            0
-        )
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, new FakeOffsets(), scrubClient, options)
 
         const ref = imageRef(pt(1), hashImageBytes('some-opaque-producer-key', Buffer.from('a')))
-        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'), ref)], 1)
+        await handleAndWrite(batcher, [msg(0, 0, pt(1), Buffer.from('a'), ref)])
 
         expect(store.writes).toHaveLength(1)
         expect(store.writes[0][0].hash).toBe(ref.split(':')[2])
     })
 
-    it('does not store offsets when the shard write fails (at-least-once replay)', async () => {
+    it('counts a cleartext image as version 1', async () => {
+        const incrementVersion = jest.spyOn(ImageScrubConsumerMetrics, 'incrementVersion')
+        const batcher = new ImageBatcher(
+            new FakeStore() as unknown as ImageShardStore,
+            new FakeOffsets(),
+            scrubClient,
+            options
+        )
+
+        await handleAndWrite(batcher, [msg(0, 0, pt(1), Buffer.from('a'))])
+
+        expect(incrementVersion.mock.calls).toEqual([
+            ['2', 0],
+            ['1', 1],
+        ])
+    })
+
+    it('decodes and validates a URL image from its Kafka transport headers before scrubbing it', async () => {
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        const received: Buffer[] = []
+        const capturingClient = {
+            scrub: (bytes: Buffer) => {
+                received.push(bytes)
+                return Promise.resolve(bytes)
+            },
+        } as unknown as ScrubClient
+        const store = new FakeStore()
+        const observeCaptureToS3 = jest.spyOn(ImageScrubConsumerMetrics, 'observeCaptureToS3').mockImplementation()
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            new FakeOffsets(),
+            capturingClient,
+            options
+        )
+        const ref = urlRef(hashImageBytes(CONTENT_KEY, Buffer.from('https://example.com/image.png')))
+
+        await handleAndWrite(batcher, [
+            msg(0, 0, pt(1), gzipSync(png), ref, [
+                { 'content-type': Buffer.from('image/png') },
+                { 'content-encoding': Buffer.from('gzip') },
+                { [CAPTURE_TIMESTAMP_HEADER]: Buffer.from(String(CAPTURED_AT)) },
+            ]),
+        ])
+
+        expect(received).toEqual([png])
+        expect(store.urlWrites).toEqual([
+            {
+                hash: ref.slice('imageurl:'.length),
+                bytes: png,
+                sourcePartition: 0,
+                sourceOffset: 0,
+            },
+        ])
+        expect(store.writes).toHaveLength(0)
+        expect(observeCaptureToS3).toHaveBeenCalledWith('url', CAPTURED_AT, expect.any(Number))
+    })
+
+    it('does not observe URL latency when the object already exists', async () => {
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        const store = new FakeStore()
+        store.urlWriteOutcome = 'already_exists'
+        const observeCaptureToS3 = jest.spyOn(ImageScrubConsumerMetrics, 'observeCaptureToS3').mockImplementation()
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            new FakeOffsets(),
+            { scrub: (bytes: Buffer) => Promise.resolve(bytes) } as unknown as ScrubClient,
+            options
+        )
+        const ref = urlRef(hashImageBytes(CONTENT_KEY, Buffer.from('https://example.com/image.png')))
+
+        await handleAndWrite(batcher, [
+            msg(0, 0, pt(1), png, ref, [
+                { 'content-type': Buffer.from('image/png') },
+                { [CAPTURE_TIMESTAMP_HEADER]: Buffer.from(String(CAPTURED_AT)) },
+            ]),
+        ])
+
+        expect(store.urlWrites).toHaveLength(1)
+        expect(observeCaptureToS3).not.toHaveBeenCalled()
+    })
+
+    it('submits every valid URL image for the conditional store to select the first completed write', async () => {
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        const newer = Buffer.concat([png, Buffer.from('newer')])
+        const older = Buffer.concat([png, Buffer.from('older')])
+        const store = new FakeStore()
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            new FakeOffsets(),
+            { scrub: (bytes: Buffer) => Promise.resolve(bytes) } as unknown as ScrubClient,
+            options
+        )
+        const ref = urlRef(hashImageBytes(CONTENT_KEY, Buffer.from('https://example.com/image.png')))
+
+        await handleAndWrite(batcher, [
+            msg(0, 12, pt(1), newer, ref, [{ 'content-type': Buffer.from('image/png') }]),
+            msg(0, 10, pt(1), older, ref, [{ 'content-type': Buffer.from('image/png') }]),
+        ])
+
+        expect(store.urlWrites).toEqual([
+            {
+                hash: ref.slice('imageurl:'.length),
+                bytes: newer,
+                sourcePartition: 0,
+                sourceOffset: 12,
+            },
+            {
+                hash: ref.slice('imageurl:'.length),
+                bytes: older,
+                sourcePartition: 0,
+                sourceOffset: 10,
+            },
+        ])
+    })
+
+    it('uses a later valid URL image when an earlier candidate for the ref is invalid', async () => {
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        const store = new FakeStore()
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            new FakeOffsets(),
+            { scrub: (bytes: Buffer) => Promise.resolve(bytes) } as unknown as ScrubClient,
+            options
+        )
+        const ref = urlRef(hashImageBytes(CONTENT_KEY, Buffer.from('https://example.com/image.png')))
+
+        await handleAndWrite(batcher, [
+            msg(0, 10, pt(1), Buffer.from('not a png'), ref, [{ 'content-type': Buffer.from('image/png') }]),
+            msg(0, 11, pt(1), png, ref, [{ 'content-type': Buffer.from('image/png') }]),
+        ])
+
+        expect(store.urlWrites).toEqual([
+            {
+                hash: ref.slice('imageurl:'.length),
+                bytes: png,
+                sourcePartition: 0,
+                sourceOffset: 11,
+            },
+        ])
+    })
+
+    it('scrubs a newer URL version after an earlier version was persisted by the same pod', async () => {
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        const first = Buffer.concat([png, Buffer.from('first')])
+        const second = Buffer.concat([png, Buffer.from('second')])
+        const store = new FakeStore()
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            new FakeOffsets(),
+            { scrub: (bytes: Buffer) => Promise.resolve(bytes) } as unknown as ScrubClient,
+            options
+        )
+        const ref = urlRef(hashImageBytes(CONTENT_KEY, Buffer.from('https://example.com/image.png')))
+
+        await handleAndWrite(batcher, [msg(0, 10, pt(1), first, ref, [{ 'content-type': Buffer.from('image/png') }])])
+        await handleAndWrite(batcher, [msg(0, 11, pt(1), second, ref, [{ 'content-type': Buffer.from('image/png') }])])
+
+        expect(store.urlWrites.map((image) => [image.sourceOffset, image.bytes])).toEqual([
+            [10, first],
+            [11, second],
+        ])
+    })
+
+    it('bounds concurrent URL-image writes by the write concurrency, not the scrub slots', async () => {
+        // The writes run behind the next batch's scrub, so sharing the scrub slots would let a write
+        // burst take the sidecar's work away from it. The bound is the write lane's own.
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        let activeWrites = 0
+        let maximumActiveWrites = 0
+        const store = {
+            writeUrlImage: async () => {
+                activeWrites += 1
+                maximumActiveWrites = Math.max(maximumActiveWrites, activeWrites)
+                await Promise.resolve()
+                activeWrites -= 1
+            },
+            writeShard: () => Promise.resolve({ shard: 'unused', bytes: 0 }),
+        } as unknown as ImageShardStore
+        const batcher = new ImageBatcher(
+            store,
+            new FakeOffsets(),
+            { scrub: () => Promise.resolve(png) } as unknown as ScrubClient,
+            { ...options, scrubConcurrency: 2 }
+        )
+        const messages = Array.from({ length: WRITE_CONCURRENCY + 2 }, (_, index) => {
+            const ref = urlRef(hashImageBytes(CONTENT_KEY, Buffer.from(`https://example.com/${index}.png`)))
+            return msg(0, index, pt(1), png, ref, [{ 'content-type': Buffer.from('image/png') }])
+        })
+
+        await handleAndWrite(batcher, messages)
+
+        expect(maximumActiveWrites).toBe(WRITE_CONCURRENCY)
+    })
+
+    it('drops a URL image whose bytes do not match its Kafka content-type', async () => {
+        let scrubCalls = 0
+        const incSkipped = jest.spyOn(ImageScrubConsumerMetrics, 'incSkipped')
+        const batcher = new ImageBatcher(
+            new FakeStore() as unknown as ImageShardStore,
+            new FakeOffsets(),
+            {
+                scrub: () => {
+                    scrubCalls += 1
+                    return Promise.resolve(Buffer.from('scrubbed'))
+                },
+            } as unknown as ScrubClient,
+            options
+        )
+        const ref = urlRef(hashImageBytes(CONTENT_KEY, Buffer.from('https://example.com/image.png')))
+
+        await handleAndWrite(batcher, [
+            msg(0, 0, pt(1), Buffer.from([0xff, 0xd8, 0xff]), ref, [{ 'content-type': Buffer.from('image/png') }]),
+        ])
+
+        expect(scrubCalls).toBe(0)
+        expect(incSkipped).toHaveBeenCalledWith('content_type_mismatch')
+    })
+
+    it('does not store offsets when the shard write fails, and fails the next batch so the pod replays', async () => {
+        // The write runs behind the next batch, so the batch that scrubbed the image has already
+        // returned when S3 refuses it. The lane is poisoned instead: nothing behind the failed write
+        // stores an offset, and the next batch raises the failure, which is what exits the process.
         const store = new FakeStore()
         store.failNext = true
         const offsets = new FakeOffsets()
-        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, scrubClient, options, 0)
+        const observeCaptureToS3 = jest.spyOn(ImageScrubConsumerMetrics, 'observeCaptureToS3').mockImplementation()
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, scrubClient, options)
 
-        await expect(batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 1)).rejects.toThrow('s3 down')
+        await batcher.handleBatch([
+            msg(0, 0, pt(1), Buffer.from('a'), undefined, [
+                { [CAPTURE_TIMESTAMP_HEADER]: Buffer.from(String(CAPTURED_AT)) },
+            ]),
+        ])
+        // The failed write has settled and left the in-flight list before anyone drains.
+        for (let tick = 0; tick < 20; tick++) {
+            await new Promise((resolve) => setImmediate(resolve))
+        }
+        await expect(batcher.drain()).rejects.toThrow('s3 down')
+
+        store.failNext = false
+        await expect(batcher.handleBatch([msg(0, 1, pt(1), Buffer.from('b'))])).rejects.toThrow('s3 down')
+        expect(store.writes).toHaveLength(0)
+        expect(offsets.stored).toBe(0)
+        expect(observeCaptureToS3).not.toHaveBeenCalled()
+    })
+
+    it('does not create a random inline shard before deterministic URL writes succeed', async () => {
+        const store = new FakeStore()
+        store.failNextUrl = true
+        const offsets = new FakeOffsets()
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, scrubClient, options)
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        const ref = urlRef(hashImageBytes(CONTENT_KEY, Buffer.from('https://example.com/image.png')))
+
+        await batcher.handleBatch([
+            msg(0, 0, pt(1), Buffer.from('inline')),
+            msg(0, 1, pt(1), png, ref, [{ 'content-type': Buffer.from('image/png') }]),
+        ])
+        await expect(batcher.drain()).rejects.toThrow('url s3 down')
+
+        expect(store.writes).toHaveLength(0)
         expect(offsets.stored).toBe(0)
     })
 
-    it('stores offsets with each mid-batch flush, so a later failure replays only from the flush', async () => {
-        // A flush persists a randomly named shard; if the batch then fails (e.g. the scrub deadline)
-        // without having stored the flushed messages' offsets, Kafka replays them and every replay
+    it('stores offsets with each mid-batch hand-off, so a later failure replays only from there', async () => {
+        // A hand-off persists a randomly named shard; if the batch then fails (e.g. the scrub deadline)
+        // without having stored those messages' offsets, Kafka replays them and every replay
         // writes another duplicate shard — unbounded write amplification an attacker can induce.
         const store = new FakeStore()
         const offsets = new FakeOffsets()
@@ -108,48 +472,45 @@ describe('ImageBatcher', () => {
                 return scrubs <= 2 ? Promise.resolve(Buffer.alloc(16)) : Promise.reject(new Error('sidecar down'))
             },
         } as unknown as ScrubClient
-        const batcher = new ImageBatcher(
-            store as unknown as ImageShardStore,
-            offsets,
-            failsAfterFirstChunk,
-            { ...options, maxBytes: 32, scrubConcurrency: 2 },
-            0
-        )
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, failsAfterFirstChunk, {
+            ...options,
+            maxBytes: 32,
+            scrubConcurrency: 2,
+        })
 
         const messages = Array.from({ length: 4 }, (_, i) => msg(0, i, pt(1), Buffer.from(`img-${i}`)))
-        await expect(batcher.handleBatch(messages, 1)).rejects.toThrow('sidecar down')
+        await expect(batcher.handleBatch(messages)).rejects.toThrow('sidecar down')
+        await batcher.drain()
 
         expect(store.writes).toHaveLength(1)
-        // The flushed chunk's messages (offsets 0-1) are recorded, so only 2-3 replay.
+        // The handed-off chunk's messages (offsets 0-1) are recorded, so only 2-3 replay.
         expect(offsets.received).toEqual([[{ topic: 'session_replay_image_scrub', partition: 0, offset: 2 }]])
     })
 
-    it('flushes mid-batch when scrubbed bytes cross the byte bound instead of holding the whole batch', async () => {
+    it('hands off mid-batch when scrubbed bytes cross the byte bound instead of holding the whole batch', async () => {
         // Scrubbed outputs can be far larger than their inputs (full-resolution PNG re-encode), so
         // the byte bound must apply while a poll batch is still scrubbing — a reverted batcher that
-        // accumulates all outputs first can hold gigabytes before its first flush.
+        // accumulates all outputs first can hold gigabytes before its first hand-off.
         const store = new FakeStore()
         const offsets = new FakeOffsets()
         const bigOutputClient = { scrub: () => Promise.resolve(Buffer.alloc(16)) } as unknown as ScrubClient
-        const batcher = new ImageBatcher(
-            store as unknown as ImageShardStore,
-            offsets,
-            bigOutputClient,
-            { ...options, maxBytes: 32, scrubConcurrency: 2 },
-            0
-        )
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, bigOutputClient, {
+            ...options,
+            maxBytes: 32,
+            scrubConcurrency: 2,
+        })
 
         const messages = Array.from({ length: 6 }, (_, i) => msg(0, i, pt(1), Buffer.from(`img-${i}`)))
-        await batcher.handleBatch(messages, 1)
+        await handleAndWrite(batcher, messages)
 
         expect(store.writes.length).toBeGreaterThan(1)
         expect(store.writes.flat()).toHaveLength(6)
         expect(offsets.stored).toBe(store.writes.length)
     })
 
-    it('does not count mid-batch flush time against the scrub deadline', async () => {
+    it('does not count write time against the scrub deadline', async () => {
         // Slow-but-succeeding S3 writes must not exhaust the scrub budget: a reverted deadline that
-        // spans flushes turns degraded storage into an abort/replay loop blamed on the sidecar.
+        // spans the writes turns degraded storage into an abort/replay loop blamed on the sidecar.
         const slowStore = new FakeStore()
         const writeShard = slowStore.writeShard.bind(slowStore)
         slowStore.writeShard = async (images) => {
@@ -161,12 +522,11 @@ describe('ImageBatcher', () => {
             slowStore as unknown as ImageShardStore,
             offsets,
             { scrub: () => Promise.resolve(Buffer.alloc(16)) } as unknown as ScrubClient,
-            { ...options, maxBytes: 32, scrubConcurrency: 2 },
-            0
+            { ...options, maxBytes: 32, scrubConcurrency: 2 }
         )
 
         const messages = Array.from({ length: 6 }, (_, i) => msg(0, i, pt(1), Buffer.from(`img-${i}`)))
-        await batcher.handleBatch(messages, 1)
+        await handleAndWrite(batcher, messages)
 
         expect(slowStore.writes.flat()).toHaveLength(6)
         expect(offsets.stored).toBe(slowStore.writes.length)
@@ -185,11 +545,11 @@ describe('ImageBatcher', () => {
                 return Promise.resolve(b)
             },
         } as unknown as ScrubClient
-        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, countingClient, options, 0)
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, countingClient, options)
 
         const sprite = Buffer.from('sprite')
-        await batcher.handleBatch([msg(0, 0, pt(1), sprite), msg(0, 1, pt(1), sprite)], 1)
-        await batcher.handleBatch([msg(0, 2, pt(1), sprite)], 2)
+        await handleAndWrite(batcher, [msg(0, 0, pt(1), sprite), msg(0, 1, pt(1), sprite)])
+        await handleAndWrite(batcher, [msg(0, 2, pt(1), sprite)])
 
         expect(scrubs).toBe(1)
         expect(store.writes.flat()).toHaveLength(1)
@@ -219,13 +579,10 @@ describe('ImageBatcher', () => {
                     return b
                 },
             } as unknown as ScrubClient
-            const batcher = new ImageBatcher(
-                store as unknown as ImageShardStore,
-                new FakeOffsets(),
-                trackingClient,
-                { ...options, dedupMaxRefs },
-                0
-            )
+            const batcher = new ImageBatcher(store as unknown as ImageShardStore, new FakeOffsets(), trackingClient, {
+                ...options,
+                dedupMaxRefs,
+            })
 
             const batch: Message[] = []
             for (let sprite = 0; sprite < 4; sprite++) {
@@ -233,7 +590,7 @@ describe('ImageBatcher', () => {
                     batch.push(msg(0, batch.length, pt(1), Buffer.from(`sprite-${sprite}`)))
                 }
             }
-            await batcher.handleBatch(batch, 1)
+            await handleAndWrite(batcher, batch)
 
             expect(scrubs).toBe(4)
             expect(maxInFlight).toBe(4)
@@ -257,19 +614,13 @@ describe('ImageBatcher', () => {
                 return b.toString() === 'slow' ? slow.then(() => b) : Promise.resolve(b)
             },
         } as unknown as ScrubClient
-        const batcher = new ImageBatcher(
-            store as unknown as ImageShardStore,
-            new FakeOffsets(),
-            gatedClient,
-            options,
-            0
-        )
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, new FakeOffsets(), gatedClient, options)
 
         const batch: Message[] = [msg(0, 0, pt(1), Buffer.from('slow'))]
         for (let i = 1; i < 8; i++) {
             batch.push(msg(0, i, pt(1), Buffer.from(`img-${i}`)))
         }
-        const running = batcher.handleBatch(batch, 1)
+        const running = batcher.handleBatch(batch)
         for (let tick = 0; tick < 20; tick++) {
             await new Promise((resolve) => setImmediate(resolve))
         }
@@ -295,19 +646,17 @@ describe('ImageBatcher', () => {
         const gatedClient = {
             scrub: (b: Buffer) => (b.toString() === 'slow' ? slow.then(() => b) : Promise.resolve(b)),
         } as unknown as ScrubClient
-        const batcher = new ImageBatcher(
-            store as unknown as ImageShardStore,
-            offsets,
-            gatedClient,
-            { ...options, maxImages: 2, scrubConcurrency: 4 },
-            0
-        )
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, gatedClient, {
+            ...options,
+            maxImages: 2,
+            scrubConcurrency: 4,
+        })
 
         const batch: Message[] = [msg(0, 0, pt(1), Buffer.from('slow'))]
         for (let i = 1; i < 5; i++) {
             batch.push(msg(0, i, pt(1), Buffer.from(`img-${i}`)))
         }
-        const running = batcher.handleBatch(batch, 1)
+        const running = batcher.handleBatch(batch)
         for (let tick = 0; tick < 20; tick++) {
             await new Promise((resolve) => setImmediate(resolve))
         }
@@ -318,6 +667,7 @@ describe('ImageBatcher', () => {
 
         releaseSlow()
         await running
+        await batcher.drain()
 
         expect(store.writes.flat()).toHaveLength(5)
         expect(offsets.received.at(-1)).toEqual([{ topic: 'session_replay_image_scrub', partition: 0, offset: 5 }])
@@ -336,17 +686,11 @@ describe('ImageBatcher', () => {
             },
         } as unknown as ScrubClient
         const store = new FakeStore()
-        const batcher = new ImageBatcher(
-            store as unknown as ImageShardStore,
-            new FakeOffsets(),
-            flakyClient,
-            options,
-            0
-        )
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, new FakeOffsets(), flakyClient, options)
         const sprite = Buffer.from('sprite')
 
-        await expect(batcher.handleBatch([msg(0, 0, pt(1), sprite)], 1)).rejects.toThrow('sidecar down')
-        await batcher.handleBatch([msg(0, 0, pt(1), sprite)], 2)
+        await expect(batcher.handleBatch([msg(0, 0, pt(1), sprite)])).rejects.toThrow('sidecar down')
+        await handleAndWrite(batcher, [msg(0, 0, pt(1), sprite)])
 
         expect(store.writes.flat()).toHaveLength(1)
     })
@@ -356,20 +700,16 @@ describe('ImageBatcher', () => {
         // and that failure is silent permanent loss. Both partitions here end on a duplicate, so the
         // trailing skips are only covered if the final recordOffsets spans the whole batch.
         const offsets = new FakeOffsets()
-        const batcher = new ImageBatcher(
-            new FakeStore() as unknown as ImageShardStore,
-            offsets,
-            scrubClient,
-            options,
-            0
-        )
+        const batcher = new ImageBatcher(new FakeStore() as unknown as ImageShardStore, offsets, scrubClient, options)
         const a = Buffer.from('a')
         const b = Buffer.from('b')
 
-        await batcher.handleBatch(
-            [msg(0, 100, pt(1), a), msg(1, 200, pt(1), b), msg(0, 101, pt(1), a), msg(1, 201, pt(1), b)],
-            1
-        )
+        await handleAndWrite(batcher, [
+            msg(0, 100, pt(1), a),
+            msg(1, 200, pt(1), b),
+            msg(0, 101, pt(1), a),
+            msg(1, 201, pt(1), b),
+        ])
 
         expect(offsets.received.at(-1)).toEqual(
             expect.arrayContaining([
@@ -379,8 +719,8 @@ describe('ImageBatcher', () => {
         )
     })
 
-    it('leaves both partitions replayable when a chunk fails after a mid-batch flush', async () => {
-        // A mid-batch flush commits offsets for the prefix it persisted, and everything after it has
+    it('leaves both partitions replayable when a chunk fails after a mid-batch hand-off', async () => {
+        // A mid-batch hand-off commits offsets for the prefix it persisted, and everything after it has
         // to stay replayable. Multi-partition is where that can quietly go wrong, because each
         // partition carries its own maximum and only one of them appears in a given chunk's span.
         const store = new FakeStore()
@@ -392,25 +732,21 @@ describe('ImageBatcher', () => {
                 return scrubs > 2 ? Promise.reject(new Error('sidecar down')) : Promise.resolve(b)
             },
         } as unknown as ScrubClient
-        const batcher = new ImageBatcher(
-            store as unknown as ImageShardStore,
-            offsets,
-            failLateClient,
-            { ...options, maxImages: 2, scrubConcurrency: 2 },
-            0
-        )
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, failLateClient, {
+            ...options,
+            maxImages: 2,
+            scrubConcurrency: 2,
+        })
 
         await expect(
-            batcher.handleBatch(
-                [
-                    msg(0, 10, pt(1), Buffer.from('a')),
-                    msg(1, 20, pt(1), Buffer.from('b')),
-                    msg(0, 11, pt(1), Buffer.from('c')),
-                    msg(1, 21, pt(1), Buffer.from('d')),
-                ],
-                1
-            )
+            batcher.handleBatch([
+                msg(0, 10, pt(1), Buffer.from('a')),
+                msg(1, 20, pt(1), Buffer.from('b')),
+                msg(0, 11, pt(1), Buffer.from('c')),
+                msg(1, 21, pt(1), Buffer.from('d')),
+            ])
         ).rejects.toThrow('sidecar down')
+        await batcher.drain()
 
         expect(offsets.received).toHaveLength(1)
         expect(offsets.received[0]).toHaveLength(2)
@@ -436,34 +772,32 @@ describe('ImageBatcher', () => {
             new FakeStore() as unknown as ImageShardStore,
             new FakeOffsets(),
             rejectingClient,
-            options,
-            0
+            options
         )
         const broken = Buffer.from('broken')
+        const incSkipped = jest.spyOn(ImageScrubConsumerMetrics, 'incSkipped')
 
-        await batcher.handleBatch([msg(0, 0, pt(1), broken)], 1)
-        await batcher.handleBatch([msg(0, 1, pt(1), broken)], 2)
+        await handleAndWrite(batcher, [msg(0, 0, pt(1), broken)])
+        await handleAndWrite(batcher, [msg(0, 1, pt(1), broken)])
 
         expect(calls).toBe(1)
+        expect(incSkipped).toHaveBeenCalledWith('sidecar_rejected')
     })
 
     it('dedupMaxRefs 0 disables the cross-batch cache but never intra-batch dedup', async () => {
         const store = new FakeStore()
-        const batcher = new ImageBatcher(
-            store as unknown as ImageShardStore,
-            new FakeOffsets(),
-            scrubClient,
-            { ...options, dedupMaxRefs: 0 },
-            0
-        )
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, new FakeOffsets(), scrubClient, {
+            ...options,
+            dedupMaxRefs: 0,
+        })
 
         const sprite = Buffer.from('sprite')
-        await batcher.handleBatch([msg(0, 0, pt(1), sprite)], 1)
-        await batcher.handleBatch([msg(0, 1, pt(1), sprite)], 2)
+        await handleAndWrite(batcher, [msg(0, 0, pt(1), sprite)])
+        await handleAndWrite(batcher, [msg(0, 1, pt(1), sprite)])
         expect(store.writes.flat()).toHaveLength(2)
 
         // Intra-batch dedup keeps no state between batches, so turning the cache off cannot reach it.
-        await batcher.handleBatch([msg(0, 2, pt(1), sprite), msg(0, 3, pt(1), sprite)], 3)
+        await handleAndWrite(batcher, [msg(0, 2, pt(1), sprite), msg(0, 3, pt(1), sprite)])
         expect(store.writes.flat()).toHaveLength(3)
     })
 
@@ -472,13 +806,10 @@ describe('ImageBatcher', () => {
         // silently dropping the whole batch — both must fail loudly at boot instead.
         expect(
             () =>
-                new ImageBatcher(
-                    new FakeStore() as unknown as ImageShardStore,
-                    new FakeOffsets(),
-                    scrubClient,
-                    { ...options, scrubConcurrency },
-                    0
-                )
+                new ImageBatcher(new FakeStore() as unknown as ImageShardStore, new FakeOffsets(), scrubClient, {
+                    ...options,
+                    scrubConcurrency,
+                })
         ).toThrow('scrubConcurrency')
     })
 
@@ -491,19 +822,21 @@ describe('ImageBatcher', () => {
                 b.toString() === 'poison'
                     ? Promise.reject(
                           new ScrubPoisoned('cannot process', {
-                              reason: 'transport',
+                              reason: 'rejected',
                               lastError: 'sidecar responded 500',
                               attempts: 12,
                               waitedMs: 60_000,
+                              elapsedMs: 120_000,
+                              rejectedMs: 120_000,
                           })
                       )
                     : Promise.resolve(b),
         } as unknown as ScrubClient
-        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, poisonClient, options, 0, {
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, poisonClient, options, {
             park: (image) => Promise.resolve(void parked.push(image.ref)),
         })
 
-        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('poison')), msg(0, 1, pt(1), Buffer.from('ok'))], 1)
+        await handleAndWrite(batcher, [msg(0, 0, pt(1), Buffer.from('poison')), msg(0, 1, pt(1), Buffer.from('ok'))])
 
         expect(parked).toHaveLength(1)
         // The healthy image behind it still gets written, and the offset advances over both.
@@ -524,6 +857,8 @@ describe('ImageBatcher', () => {
                         lastError: 'sidecar responded 500',
                         attempts: 12,
                         waitedMs: 60_000,
+                        elapsedMs: 120_000,
+                        rejectedMs: 120_000,
                     })
                 ),
         } as unknown as ScrubClient
@@ -532,15 +867,62 @@ describe('ImageBatcher', () => {
             new FakeOffsets(),
             poisonClient,
             options,
-            0,
             { park: (image) => Promise.resolve(void parked.push(image.detail)) }
         )
 
         const replayed = msg(0, 0, pt(1), Buffer.from('poison'))
         ;(replayed as unknown as { headers: unknown[] }).headers = [{ replayCount: Buffer.from('1') }]
-        await batcher.handleBatch([replayed], 1)
+        await handleAndWrite(batcher, [replayed])
 
         expect(parked[0].replayCount).toBe(1)
+    })
+
+    it('preserves URL transport headers when it parks the original compressed bytes', async () => {
+        const parked: { headers: Record<string, string>; bytes: Buffer }[] = []
+        const poisonClient = {
+            scrub: () =>
+                Promise.reject(
+                    new ScrubPoisoned('cannot process', {
+                        reason: 'rejected',
+                        lastError: 'sidecar responded 500',
+                        attempts: 12,
+                        waitedMs: 60_000,
+                        elapsedMs: 120_000,
+                        rejectedMs: 120_000,
+                    })
+                ),
+        } as unknown as ScrubClient
+        const batcher = new ImageBatcher(
+            new FakeStore() as unknown as ImageShardStore,
+            new FakeOffsets(),
+            poisonClient,
+            options,
+            {
+                park: (image) => Promise.resolve(void parked.push({ headers: image.headers, bytes: image.bytes })),
+            }
+        )
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        const compressed = gzipSync(png)
+        const ref = urlRef(hashImageBytes(CONTENT_KEY, Buffer.from('https://example.com/poison.png')))
+
+        await handleAndWrite(batcher, [
+            msg(0, 0, pt(1), compressed, ref, [
+                { 'content-type': Buffer.from('image/png') },
+                { 'content-encoding': Buffer.from('gzip') },
+                { [CAPTURE_TIMESTAMP_HEADER]: Buffer.from(String(CAPTURED_AT)) },
+            ]),
+        ])
+
+        expect(parked).toEqual([
+            {
+                bytes: compressed,
+                headers: {
+                    'content-type': 'image/png',
+                    'content-encoding': 'gzip',
+                    [CAPTURE_TIMESTAMP_HEADER]: String(CAPTURED_AT),
+                },
+            },
+        ])
     })
 
     it('refuses to start when concurrency is too low for dead-lettering to be reachable', () => {
@@ -556,7 +938,6 @@ describe('ImageBatcher', () => {
                     new FakeOffsets(),
                     scrubClient,
                     { ...options, scrubConcurrency: 2 },
-                    0,
                     { park: () => Promise.resolve() }
                 )
         ).toThrow('scrubConcurrency must exceed')
@@ -577,22 +958,24 @@ describe('ImageBatcher', () => {
             scrub: () =>
                 Promise.reject(
                     new ScrubPoisoned('cannot process', {
-                        reason: 'transport',
+                        reason: 'rejected',
                         lastError: 'sidecar responded 500',
                         attempts: 12,
                         waitedMs: 60_000,
+                        elapsedMs: 120_000,
+                        rejectedMs: 120_000,
                     })
                 ),
         } as unknown as ScrubClient
         let parkAttempts = 0
-        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, poisonClient, options, 0, {
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, poisonClient, options, {
             park: () => {
                 parkAttempts += 1
                 return parkAttempts < 3 ? Promise.reject(new Error('dlq produce failed')) : Promise.resolve()
             },
         })
 
-        await expect(batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('poison'))], 1)).resolves.toBeUndefined()
+        await expect(batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('poison'))])).resolves.toBeUndefined()
 
         expect(parkAttempts).toBe(3)
         // The offset only moves once the bytes are somewhere, never while parking is still failing.
@@ -611,12 +994,17 @@ describe('ImageBatcher', () => {
                     signal.addEventListener('abort', () => reject(new Error('scrub batch aborted')), { once: true })
                 ),
         } as unknown as ScrubClient
-        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, hangingClient, options, 0)
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, hangingClient, options)
+        const startBatch = jest.spyOn(ImageScrubConsumerMetrics, 'startBatch')
+        const finishBatch = jest.spyOn(ImageScrubConsumerMetrics, 'finishBatch')
 
-        const running = batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 1)
-        batcher.stop()
+        const running = batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))])
+        expect(startBatch).toHaveBeenCalledTimes(1)
+        expect(finishBatch).not.toHaveBeenCalled()
+        await batcher.stop()
 
         await expect(running).resolves.toBeUndefined()
+        expect(finishBatch).toHaveBeenCalledTimes(1)
         // Nothing finished, so nothing may be committed over: the image replays under the next owner.
         expect(offsets.received.flat()).toEqual([])
         expect(store.writes).toHaveLength(0)
@@ -631,20 +1019,296 @@ describe('ImageBatcher', () => {
         revoked.offsetsStore = () => {
             throw Object.assign(new Error('Local: Erroneous state'), { code: -172 })
         }
-        const batcher = new ImageBatcher(store as unknown as ImageShardStore, revoked, scrubClient, options, 0)
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, revoked, scrubClient, options)
 
-        await expect(batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 1)).resolves.toBeUndefined()
+        await expect(batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))])).resolves.toBeUndefined()
+        await batcher.drain()
         expect(store.writes).toHaveLength(1)
     })
 
-    it('still fails the batch when storing offsets fails for any other reason', async () => {
+    it('still fails when storing offsets fails for any other reason', async () => {
         const store = new FakeStore()
         const broken = new FakeOffsets()
         broken.offsetsStore = () => {
             throw Object.assign(new Error('Broker: Not coordinator'), { code: 16 })
         }
-        const batcher = new ImageBatcher(store as unknown as ImageShardStore, broken, scrubClient, options, 0)
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, broken, scrubClient, options)
 
-        await expect(batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 1)).rejects.toThrow('Not coordinator')
+        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))])
+        await expect(batcher.drain()).rejects.toThrow('Not coordinator')
+        await expect(batcher.handleBatch([msg(0, 1, pt(1), Buffer.from('b'))])).rejects.toThrow('Not coordinator')
+    })
+
+    it('writes the shards of one batch while it scrubs the next batch', async () => {
+        // A batch's images spread over as many shard groups as team-months, and each group costs S3
+        // round trips. A write that blocks its batch leaves the sidecar idle for the sum of them.
+        const store = new FakeStore()
+        let releaseWrite = (): void => {}
+        const writeGate = new Promise<void>((resolve) => (releaseWrite = resolve))
+        const writeShard = store.writeShard.bind(store)
+        store.writeShard = async (images) => {
+            await writeGate
+            return writeShard(images)
+        }
+        const offsets = new FakeOffsets()
+        const scrubbed: string[] = []
+        const recordingClient = {
+            scrub: (b: Buffer) => {
+                scrubbed.push(b.toString())
+                return Promise.resolve(b)
+            },
+        } as unknown as ScrubClient
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, recordingClient, options)
+
+        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('first'))])
+        let secondSettled = false
+        const second = batcher.handleBatch([msg(0, 1, pt(1), Buffer.from('second'))]).then(() => {
+            secondSettled = true
+        })
+        for (let tick = 0; tick < 20; tick++) {
+            await new Promise((resolve) => setImmediate(resolve))
+        }
+
+        // Both batches scrubbed while the first write is still held open, and nothing is stored yet.
+        // The second batch then waits at its hand-off, because one write is running and one is queued.
+        expect(scrubbed).toEqual(['first', 'second'])
+        expect(store.writes).toHaveLength(0)
+        expect(offsets.received).toEqual([])
+        expect(secondSettled).toBe(false)
+
+        releaseWrite()
+        await second
+        await batcher.drain()
+
+        expect(store.writes.flat()).toHaveLength(2)
+        expect(offsets.received.flat().map((offset) => offset.offset)).toEqual([1, 2])
+    })
+
+    it('writes the shard groups of one hand-off concurrently', async () => {
+        const store = new FakeStore()
+        let active = 0
+        let maximumActive = 0
+        const writeShard = store.writeShard.bind(store)
+        store.writeShard = async (images) => {
+            active += 1
+            maximumActive = Math.max(maximumActive, active)
+            await new Promise((resolve) => setImmediate(resolve))
+            active -= 1
+            return writeShard(images)
+        }
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, new FakeOffsets(), scrubClient, options)
+
+        await handleAndWrite(batcher, [msg(0, 0, pt(1), Buffer.from('a')), msg(0, 1, '42', Buffer.from('b'))])
+
+        expect(store.writes).toHaveLength(2)
+        expect(maximumActive).toBe(2)
+    })
+
+    it('waits on the oldest hand-off once one is writing and one is queued, so a stalled S3 bounds what a pod holds', async () => {
+        const store = new FakeStore()
+        let releaseWrite = (): void => {}
+        const writeGate = new Promise<void>((resolve) => (releaseWrite = resolve))
+        const writeShard = store.writeShard.bind(store)
+        store.writeShard = async (images) => {
+            await writeGate
+            return writeShard(images)
+        }
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, new FakeOffsets(), scrubClient, options)
+
+        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))])
+        let secondSettled = false
+        const second = batcher.handleBatch([msg(0, 1, pt(1), Buffer.from('b'))]).then(() => {
+            secondSettled = true
+        })
+        for (let tick = 0; tick < 20; tick++) {
+            await new Promise((resolve) => setImmediate(resolve))
+        }
+        expect(secondSettled).toBe(false)
+
+        releaseWrite()
+        await second
+        await batcher.drain()
+        expect(store.writes.flat()).toHaveLength(2)
+    })
+
+    it('drains the write lane before a failed batch is raised, so its offsets are stored while Kafka is still connected', async () => {
+        // The Kafka loop disconnects the client as soon as a batch rejects, before shutdown reaches
+        // stop(). A hand-off still writing at that point would find no client for its offsets and its
+        // shards would be written again after the restart.
+        const store = new FakeStore()
+        let releaseWrite = (): void => {}
+        const writeGate = new Promise<void>((resolve) => (releaseWrite = resolve))
+        const writeShard = store.writeShard.bind(store)
+        store.writeShard = async (images) => {
+            await writeGate
+            return writeShard(images)
+        }
+        const offsets = new FakeOffsets()
+        const failingClient = {
+            scrub: (b: Buffer) =>
+                b.toString() === 'boom' ? Promise.reject(new Error('sidecar down')) : Promise.resolve(b),
+        } as unknown as ScrubClient
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, failingClient, options)
+
+        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))])
+        let outcome: unknown = 'pending'
+        const failing = batcher.handleBatch([msg(0, 1, pt(1), Buffer.from('boom'))]).then(
+            () => (outcome = 'resolved'),
+            (error) => (outcome = error)
+        )
+        for (let tick = 0; tick < 20; tick++) {
+            await new Promise((resolve) => setImmediate(resolve))
+        }
+        expect(outcome).toBe('pending')
+        expect(offsets.received).toEqual([])
+
+        releaseWrite()
+        await failing
+        expect(outcome).toBeInstanceOf(Error)
+        expect(store.writes.flat()).toHaveLength(1)
+        expect(offsets.received.flat().map((offset) => offset.offset)).toEqual([1])
+    })
+
+    it('accumulates images across batches until the flush interval, so shards stay batched', async () => {
+        // A hand-off per poll would split one team-month across many small shards and multiply the
+        // shard, index and lookup objects per image.
+        const store = new FakeStore()
+        const offsets = new FakeOffsets()
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, scrubClient, {
+            ...options,
+            flushIntervalMs: 30_000,
+        })
+
+        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 0)
+        await batcher.drain()
+        expect(store.writes).toHaveLength(1)
+
+        await batcher.handleBatch([msg(0, 1, pt(1), Buffer.from('b'))], 1_000)
+        await batcher.handleBatch([msg(0, 2, pt(1), Buffer.from('c'))], 20_000)
+        await batcher.drain()
+        expect(store.writes).toHaveLength(1)
+        expect(offsets.received.flat().map((offset) => offset.offset)).toEqual([1])
+
+        await batcher.handleBatch([msg(0, 3, pt(1), Buffer.from('d'))], 30_000)
+        await batcher.drain()
+        expect(store.writes).toHaveLength(2)
+        expect(store.writes[1]).toHaveLength(3)
+        expect(offsets.received.flat().map((offset) => offset.offset)).toEqual([1, 4])
+    })
+
+    it('hands off the tail of a batch once the interval has passed, even after a capacity hand-off in the same batch', async () => {
+        // The batch clock is read once per batch, so a capacity hand-off must not reset the interval
+        // or the tail behind it would wait for a later batch and hold its offsets uncommitted.
+        const store = new FakeStore()
+        const offsets = new FakeOffsets()
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, scrubClient, {
+            ...options,
+            flushIntervalMs: 30_000,
+            maxImages: 2,
+            scrubConcurrency: 1,
+        })
+
+        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 0)
+        await batcher.drain()
+        expect(store.writes).toHaveLength(1)
+
+        const late = Array.from({ length: 5 }, (_, i) => msg(0, 1 + i, pt(1), Buffer.from(`late-${i}`)))
+        await batcher.handleBatch(late, 40_000)
+        await batcher.drain()
+
+        expect(store.writes.flat()).toHaveLength(6)
+        expect(offsets.received.at(-1)).toEqual([{ topic: 'session_replay_image_scrub', partition: 0, offset: 6 }])
+    })
+
+    it('stop() waits for the write lane, so finished images reach S3 and their offsets are stored', async () => {
+        // disconnect() commits whatever offsets are stored when it runs, so a stop that returned
+        // before the lane finished would leave the last written images to be scrubbed again.
+        const store = new FakeStore()
+        let releaseWrite = (): void => {}
+        const writeGate = new Promise<void>((resolve) => (releaseWrite = resolve))
+        const writeShard = store.writeShard.bind(store)
+        store.writeShard = async (images) => {
+            await writeGate
+            return writeShard(images)
+        }
+        const offsets = new FakeOffsets()
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, scrubClient, options)
+        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))])
+
+        let stopped = false
+        const stopping = batcher.stop().then(() => {
+            stopped = true
+        })
+        for (let tick = 0; tick < 20; tick++) {
+            await new Promise((resolve) => setImmediate(resolve))
+        }
+        expect(stopped).toBe(false)
+
+        releaseWrite()
+        await stopping
+        expect(store.writes.flat()).toHaveLength(1)
+        expect(offsets.received.flat().map((offset) => offset.offset)).toEqual([1])
+    })
+
+    it('discards a hand-off queued behind one that found its partitions revoked', async () => {
+        // The new owner rescrubs that span, so writing it here leaves a second shard under a random
+        // key. The discarded refs are unmarked, or a replay on this pod would dedup them away unwritten.
+        const store = new FakeStore()
+        let releaseWrite = (): void => {}
+        const writeGate = new Promise<void>((resolve) => (releaseWrite = resolve))
+        const writeShard = store.writeShard.bind(store)
+        store.writeShard = async (images) => {
+            await writeGate
+            return writeShard(images)
+        }
+        const revoked = new FakeOffsets()
+        revoked.offsetsStore = () => {
+            throw Object.assign(new Error('Local: Erroneous state'), { code: -172 })
+        }
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, revoked, scrubClient, options)
+
+        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))])
+        // The second batch queues its hand-off behind the gated first one and waits for it.
+        const second = batcher.handleBatch([msg(0, 1, pt(1), Buffer.from('b'))])
+        releaseWrite()
+        await second
+        await batcher.drain()
+        expect(store.writes.flat()).toHaveLength(1)
+
+        await handleAndWrite(batcher, [msg(0, 1, pt(1), Buffer.from('b'))])
+        expect(store.writes.flat()).toHaveLength(2)
+    })
+
+    it('lets sibling object writes settle before a hand-off reports the first failure', async () => {
+        // The lane's failure ends the process, and a write still in flight at that point leaves a
+        // partial shard behind that nothing indexes.
+        const store = new FakeStore()
+        let releaseWrite = (): void => {}
+        const writeGate = new Promise<void>((resolve) => (releaseWrite = resolve))
+        let settledWrites = 0
+        store.writeShard = async (images) => {
+            if (images[0].teamId === '42') {
+                throw new Error('s3 down')
+            }
+            await writeGate
+            settledWrites += 1
+            return { shard: 'shard', bytes: 0 }
+        }
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, new FakeOffsets(), scrubClient, options)
+        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a')), msg(0, 1, '42', Buffer.from('b'))])
+
+        let failed = false
+        const drain = batcher.drain().catch(() => {
+            failed = true
+        })
+        for (let tick = 0; tick < 20; tick++) {
+            await new Promise((resolve) => setImmediate(resolve))
+        }
+        expect(failed).toBe(false)
+
+        releaseWrite()
+        await drain
+        expect(failed).toBe(true)
+        expect(settledWrites).toBe(1)
     })
 })

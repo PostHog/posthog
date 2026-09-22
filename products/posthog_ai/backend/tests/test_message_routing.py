@@ -1,11 +1,13 @@
 from contextlib import contextmanager
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from rest_framework import exceptions
 
 from posthog.exceptions import Conflict, QuotaLimitExceeded
+from posthog.models.user import User
 
 from products.posthog_ai.backend.context_wrapper import MAX_ATTACHED_ITEMS, MAX_TEXT_LENGTH
 from products.posthog_ai.backend.message_routing import (
@@ -17,7 +19,10 @@ from products.posthog_ai.backend.message_routing import (
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.run_state import PostHogAIRunState
 from products.posthog_ai.backend.services.system_prompt.service import PromptService
-from products.tasks.backend.facade import warm as warm_facade
+from products.tasks.backend.facade import (
+    api as tasks_facade,
+    warm as warm_facade,
+)
 from products.tasks.backend.models import Task, TaskRun
 
 ROUTING = "products.posthog_ai.backend.message_routing"
@@ -51,7 +56,7 @@ class TestOpenSandboxMessage(APIBaseTest):
     def _patches(self, task: Task):
         return (
             patch.object(Task, "create_and_run", return_value=task),
-            patch(f"{ROUTING}.execute_task_processing_workflow"),
+            patch(f"{ROUTING}.dispatch_task_processing_workflow"),
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
         )
 
@@ -90,7 +95,7 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert run.state["systemPrompt"] == SYS_PROMPT
         assert run.state["initial_permission_mode"] == "auto"
         assert run.state["attached_context"] == [{"type": "dashboard", "id": 123, "name": "Funnel"}]
-        assert "<posthog_context>" in run.state["pending_user_message"]
+        assert "<posthog_untrusted_context>" in run.state["pending_user_message"]
         assert run.state["pending_user_message"].endswith("Why did checkout drop?")
 
         self.conversation.refresh_from_db()
@@ -101,6 +106,42 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert wf_kwargs["create_pr"] is False
         # The agent needs write scopes to create insights/dashboards/notebooks.
         assert wf_kwargs["posthog_mcp_scopes"] == "full"
+
+    def test_system_prompt_written_on_open_reaches_the_sandbox(self):
+        task, run = self._stub_task()
+        car, workflow, sysprompt = self._patches(task)
+        with car, workflow, sysprompt:
+            self._service().open({"content": "Why did checkout drop?", "trace_id": "trace-1"})
+
+        detail = tasks_facade.get_task_run_detail(run.id, task.id, self.team.id, include_agent_state=True)
+
+        assert detail is not None
+        assert detail.state["systemPrompt"] == SYS_PROMPT
+
+    def test_handoff_detaches_previous_owner_conversation(self):
+        new_owner = User.objects.create_user(
+            email="new-owner@example.com",
+            first_name="New owner",
+            password="password",
+        )
+        task = Task.objects.create(
+            team=self.team,
+            title="Transferred task",
+            created_by=new_owner,
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+        )
+        self.conversation.task = task
+        self.conversation.sandbox_task_id = task.id
+        self.conversation.sandbox_run_id = task.id
+        self.conversation.save(update_fields=["task", "sandbox_task_id", "sandbox_run_id"])
+
+        with pytest.raises(exceptions.PermissionDenied):
+            self._service().open({"content": "Keep going"})
+
+        self.conversation.refresh_from_db()
+        self.assertIsNone(self.conversation.task_id)
+        self.assertIsNone(self.conversation.sandbox_task_id)
+        self.assertIsNone(self.conversation.sandbox_run_id)
 
     def test_first_message_threads_routed_repository(self):
         task, _ = self._stub_task()
@@ -135,6 +176,22 @@ class TestOpenSandboxMessage(APIBaseTest):
         run.refresh_from_db()
         assert run.state["pending_user_message"] == "Hello"
         assert run.state["attached_context"] == []
+
+    def test_instructions_attachment_reaches_the_trusted_block(self):
+        # A provider that attaches its own guidance must not have the send rejected at the boundary.
+        task, run = self._stub_task()
+        car, workflow, sysprompt = self._patches(task)
+        with car, workflow, sysprompt:
+            self._service().open(
+                {
+                    "content": "Investigate",
+                    "attached_context": [{"type": "instructions", "value": "Prefer the live query."}],
+                }
+            )
+
+        run.refresh_from_db()
+        message = run.state["pending_user_message"]
+        assert "<posthog_trusted_context>\n- Prefer the live query.\n</posthog_trusted_context>" in message
 
     def test_unknown_attached_context_type_raises(self):
         with self.assertRaises(exceptions.ValidationError):
@@ -253,12 +310,17 @@ class TestOpenSandboxMessage(APIBaseTest):
     def test_terminal_followup_creates_new_run_with_resume(self):
         task, run = self._stub_task()
         run.status = TaskRun.Status.COMPLETED
-        run.state = {**(run.state or {}), "snapshot_external_id": "snap-9"}
+        run.state = {
+            **(run.state or {}),
+            "snapshot_external_id": "snap-9",
+            "snapshot_kind": "directory",
+            "snapshot_mount_path": "/tmp/workspace",
+        }
         run.save(update_fields=["status", "state"])
         self._attach_task(task)
 
         with (
-            patch(f"{ROUTING}.execute_task_processing_workflow") as m_workflow,
+            patch(f"{ROUTING}.dispatch_task_processing_workflow") as m_workflow,
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
         ):
             result = self._service().open({"content": "resume please", "trace_id": "trace-3"})
@@ -273,6 +335,8 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert str(new_run.id) != str(run.id)
         assert new_run.state["resume_from_run_id"] == str(run.id)
         assert new_run.state["snapshot_external_id"] == "snap-9"
+        assert new_run.state["snapshot_kind"] == "directory"
+        assert new_run.state["snapshot_mount_path"] == "/tmp/workspace"
         assert new_run.state["interaction_origin"] == POSTHOG_AI_INTERACTION_ORIGIN
         assert new_run.state["systemPrompt"] == SYS_PROMPT
         assert new_run.state["initial_permission_mode"] == "auto"
@@ -292,7 +356,7 @@ class TestOpenSandboxMessage(APIBaseTest):
         self._attach_task(task)
 
         with (
-            patch(f"{ROUTING}.execute_task_processing_workflow"),
+            patch(f"{ROUTING}.dispatch_task_processing_workflow"),
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
             patch(f"{ROUTING}.object_storage.read", return_value=""),
         ):
@@ -343,7 +407,7 @@ class TestOpenSandboxMessage(APIBaseTest):
 
         with (
             patch(f"{ROUTING}.lock_conversation_for_followup", side_effect=lock_granted_after_concurrent_winner),
-            patch(f"{ROUTING}.execute_task_processing_workflow") as m_workflow,
+            patch(f"{ROUTING}.dispatch_task_processing_workflow") as m_workflow,
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
         ):
             with self.assertRaises(Conflict):
@@ -371,7 +435,7 @@ class TestOpenSandboxMessage(APIBaseTest):
 
         with (
             patch(f"{ROUTING}.lock_conversation_for_followup", side_effect=lock_granted_after_winner_finished),
-            patch(f"{ROUTING}.execute_task_processing_workflow"),
+            patch(f"{ROUTING}.dispatch_task_processing_workflow"),
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
         ):
             result = self._service().open({"content": "resume please"})
@@ -648,11 +712,10 @@ class TestAwaitUserMessageStoredKey:
         assert dumped == {"await_user_message": True}
 
 
-class TestSandboxFirstMessageConversion(APIBaseTest):
-    """Converting an idle LangGraph conversation on its first sandbox message.
+class TestSandboxFirstMessageOnLangGraphConversation(APIBaseTest):
+    """A LangGraph conversation with no task takes the ordinary first-message path.
 
-    Conversion is just: flip the runtime + link the Task on the normal first-message path, with the
-    legacy window prepended to the first prompt. No ACP seeding, no synthetic historical run.
+    Linking the task marks the conversation sandbox; nothing else about the path changes.
     """
 
     def setUp(self):
@@ -665,20 +728,13 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
             status=Conversation.Status.IDLE,
         )
 
-    def _block(self) -> str:
-        return "<posthog_context>This session was resumed from the legacy implementation.\nUser: hi</posthog_context>"
-
-    def _open(self, *, resumed_context=None, convert_to_acp=False, content="continue here"):
-        with patch(f"{ROUTING}.execute_task_processing_workflow") as m_workflow:
-            result = SandboxSession(self.conversation, self.user).open(
-                {"content": content, "trace_id": "t"},
-                resumed_context=resumed_context,
-                convert_to_acp=convert_to_acp,
-            )
+    def _open(self, *, content="continue here"):
+        with patch(f"{ROUTING}.dispatch_task_processing_workflow") as m_workflow:
+            result = SandboxSession(self.conversation, self.user).open({"content": content, "trace_id": "t"})
         return result, m_workflow
 
-    def test_first_message_conversion_flips_runtime_and_links_task(self):
-        result, m_workflow = self._open(resumed_context=self._block(), convert_to_acp=True)
+    def test_first_message_links_task_and_marks_runtime_sandbox(self):
+        result, m_workflow = self._open()
 
         self.conversation.refresh_from_db()
         assert self.conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX
@@ -687,33 +743,16 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         task = self.conversation.task
         assert task is not None
         assert task.origin_product == Task.OriginProduct.POSTHOG_AI
-        # The live first run, not a synthetic terminal one.
         assert task.runs.count() == 1
         first_run = task.runs.first()
         assert first_run is not None
         assert first_run.status != TaskRun.Status.COMPLETED
+        assert first_run.state["pending_user_message"] == "continue here"
         assert result is not None
         assert result.just_created_run is True
         m_workflow.assert_called_once()
 
-    def test_first_message_conversion_does_not_seed_s3_log(self):
-        with patch.object(TaskRun, "append_log") as m_append:
-            self._open(resumed_context=self._block(), convert_to_acp=True)
-        m_append.assert_not_called()
-
-    def test_first_message_conversion_prepends_window_context(self):
-        self._open(resumed_context=self._block(), convert_to_acp=True)
-
-        self.conversation.refresh_from_db()
-        task = self.conversation.task
-        assert task is not None
-        run = task.runs.first()
-        assert run is not None
-        pending = run.state["pending_user_message"]
-        assert pending.startswith(self._block())
-        assert pending.endswith("continue here")
-
-    def test_first_message_conversion_idempotent_under_lock(self):
+    def test_first_message_idempotent_under_lock(self):
         # Simulate a concurrent winner: the DB row is linked to a Task after this request's entry
         # check but before it takes the lock. The under-lock re-check must surface a Conflict.
         other_task = Task.objects.create(
@@ -726,19 +765,15 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         Conversation.objects.filter(id=self.conversation.id).update(task=other_task)
 
         with self.assertRaises(Conflict):
-            self._open(resumed_context=self._block(), convert_to_acp=True)
+            self._open()
 
         self.conversation.refresh_from_db()
         assert self.conversation.task_id == other_task.id
 
-    def test_first_message_conversion_reverts_on_workflow_start_failure(self):
-        with patch(f"{ROUTING}.execute_task_processing_workflow", side_effect=RuntimeError("boom")):
+    def test_first_message_reverts_on_workflow_start_failure(self):
+        with patch(f"{ROUTING}.dispatch_task_processing_workflow", side_effect=RuntimeError("boom")):
             with self.assertRaises(RuntimeError):
-                SandboxSession(self.conversation, self.user).open(
-                    {"content": "continue here", "trace_id": "t"},
-                    resumed_context=self._block(),
-                    convert_to_acp=True,
-                )
+                SandboxSession(self.conversation, self.user).open({"content": "continue here", "trace_id": "t"})
 
         # A failed start leaves a clean idle LangGraph conversation the user can retry.
         self.conversation.refresh_from_db()
@@ -758,7 +793,7 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         assert result.just_created_run is True
         m_workflow.assert_called_once()
 
-    def test_born_sandbox_first_message_has_no_resumed_context(self):
+    def test_born_sandbox_first_message_carries_only_the_user_message(self):
         self.conversation.agent_runtime = Conversation.AgentRuntime.SANDBOX
         self.conversation.save(update_fields=["agent_runtime"])
 

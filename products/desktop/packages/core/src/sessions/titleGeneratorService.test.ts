@@ -1,6 +1,6 @@
+import type { FileReadClient } from "@posthog/core/files/identifiers";
 import type { LlmGatewayService } from "@posthog/core/llm-gateway/llm-gateway";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { FileReadClient } from "./titleGeneratorIdentifiers";
 import { TitleGeneratorService } from "./titleGeneratorService";
 
 const readAbsoluteFile = vi.fn<FileReadClient["readAbsoluteFile"]>();

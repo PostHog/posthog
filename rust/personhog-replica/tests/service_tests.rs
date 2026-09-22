@@ -4,8 +4,8 @@ use common::TestContext;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
-    DeleteHashKeyOverridesByTeamsRequest, DeletePersonlessDistinctIdsBatchForTeamRequest,
-    DeletePersonsBatchForTeamRequest, GetDistinctIdsForPersonRequest,
+    DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest,
+    DeleteTombstonedPersonsRequest, GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsRequest,
@@ -18,6 +18,7 @@ use personhog_proto::personhog::types::v1::{
 use personhog_replica::service::PersonHogReplicaService;
 use rstest::rstest;
 use tonic::Request;
+use uuid::Uuid;
 
 /// Test context that wraps TestContext and adds a service instance.
 pub struct ServiceTestContext {
@@ -279,6 +280,7 @@ async fn test_get_distinct_ids_for_person() {
             person_id: person.id,
             read_options: None,
             limit: None,
+            cursor_id: None,
         }))
         .await
         .expect("RPC failed");
@@ -314,10 +316,116 @@ async fn test_get_distinct_ids_for_person_with_limit(
             person_id: person.id,
             read_options: None,
             limit,
+            cursor_id: None,
         }))
         .await
         .expect("RPC failed");
     assert_eq!(response.into_inner().distinct_ids.len(), expected_count);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_distinct_ids_for_person_cursor_pagination() {
+    let ctx = ServiceTestContext::new().await;
+    // Mix of anonymous-format UUIDs and identified strings. The anonymous-
+    // deprioritizing sort would reorder these differently than ORDER BY id ASC.
+    let person = ctx
+        .insert_person("0190f8e1-1234-7abc-89de-f0123456789a", None)
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "user@example.com")
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "another_identified")
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "01234567-abcd-efab-cdef-0123456789ab")
+        .await
+        .unwrap();
+
+    let resp1 = ctx
+        .service
+        .get_distinct_ids_for_person(Request::new(GetDistinctIdsForPersonRequest {
+            team_id: ctx.team_id,
+            person_id: person.id,
+            read_options: None,
+            limit: Some(2),
+            cursor_id: Some(0),
+        }))
+        .await
+        .expect("page 1 failed");
+    let page1 = resp1.into_inner();
+    assert_eq!(page1.distinct_ids.len(), 2);
+    assert!(
+        page1.next_cursor_id.is_some(),
+        "page was full, next_cursor_id should be present"
+    );
+
+    let cursor1 = page1.next_cursor_id.unwrap();
+    let resp2 = ctx
+        .service
+        .get_distinct_ids_for_person(Request::new(GetDistinctIdsForPersonRequest {
+            team_id: ctx.team_id,
+            person_id: person.id,
+            read_options: None,
+            limit: Some(2),
+            cursor_id: Some(cursor1),
+        }))
+        .await
+        .expect("page 2 failed");
+    let page2 = resp2.into_inner();
+    assert_eq!(page2.distinct_ids.len(), 2);
+    assert!(page2.next_cursor_id.is_some());
+
+    let cursor2 = page2.next_cursor_id.unwrap();
+    let resp3 = ctx
+        .service
+        .get_distinct_ids_for_person(Request::new(GetDistinctIdsForPersonRequest {
+            team_id: ctx.team_id,
+            person_id: person.id,
+            read_options: None,
+            limit: Some(2),
+            cursor_id: Some(cursor2),
+        }))
+        .await
+        .expect("page 3 failed");
+    let page3 = resp3.into_inner();
+    assert_eq!(page3.distinct_ids.len(), 1);
+    assert!(
+        page3.next_cursor_id.is_none(),
+        "last page should have no cursor"
+    );
+
+    let mut all_dids: Vec<String> = page1
+        .distinct_ids
+        .iter()
+        .chain(page2.distinct_ids.iter())
+        .chain(page3.distinct_ids.iter())
+        .map(|d| d.distinct_id.clone())
+        .collect();
+    all_dids.sort();
+    let mut expected = vec![
+        "0190f8e1-1234-7abc-89de-f0123456789a",
+        "01234567-abcd-efab-cdef-0123456789ab",
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "another_identified",
+        "user@example.com",
+    ];
+    expected.sort();
+    assert_eq!(all_dids, expected);
+
+    for page in [&page1.distinct_ids, &page2.distinct_ids] {
+        for pair in page.windows(2) {
+            assert!(
+                pair[0].id.unwrap() < pair[1].id.unwrap(),
+                "rows within a page should be in ascending id order"
+            );
+        }
+    }
 
     ctx.cleanup().await.ok();
 }
@@ -689,6 +797,7 @@ async fn test_get_distinct_ids_for_person_limit_keeps_identified() {
             person_id: person.id,
             read_options: None,
             limit: Some(1),
+            cursor_id: None,
         }))
         .await
         .expect("RPC failed");
@@ -1252,8 +1361,71 @@ async fn test_delete_hash_key_overrides_by_teams_invalid_batch_size(#[case] batc
 }
 
 // ============================================================
-// Delete persons batch for team tests
+// Delete tombstoned persons tests
 // ============================================================
+
+#[rstest]
+#[case::server_default(0, 10)]
+#[case::caller_budget(5, 3)]
+#[tokio::test]
+async fn test_delete_tombstoned_persons_reports_each_outcome(
+    #[case] max_rows: i64,
+    #[case] expected_trimmed: i64,
+) {
+    // The test storage clamps max_rows to 12. The gone and blocked persons take 2 rows of the
+    // budget; the 20-row person is trimmed with what is left and comes back pending.
+    let ctx = ServiceTestContext::new().await;
+    let gone = ctx.insert_person("svc_tomb_gone", None).await.unwrap();
+    ctx.tombstone_person(gone.id, None).await.unwrap();
+    let live = ctx.insert_person("svc_tomb_live", None).await.unwrap();
+    let blocked = ctx.insert_person("svc_tomb_blocked", None).await.unwrap();
+    ctx.tombstone_person(blocked.id, Some("svc_tomb_blocked"))
+        .await
+        .unwrap();
+    let big = ctx.insert_person("svc_tomb_big", None).await.unwrap();
+    for i in 0..19 {
+        ctx.add_distinct_id_to_person(big.id, &format!("svc_tomb_big_{i}"))
+            .await
+            .unwrap();
+    }
+    ctx.tombstone_person(big.id, None).await.unwrap();
+
+    let response = ctx
+        .service
+        .delete_tombstoned_persons(Request::new(DeleteTombstonedPersonsRequest {
+            team_id: ctx.team_id,
+            person_uuids: vec![
+                gone.uuid.to_string(),
+                live.uuid.to_string(),
+                blocked.uuid.to_string(),
+                big.uuid.to_string(),
+                Uuid::now_v7().to_string(),
+            ],
+            max_rows,
+        }))
+        .await
+        .expect("RPC failed")
+        .into_inner();
+
+    assert_eq!(response.deleted_count, 1);
+    assert_eq!(response.skipped_live_count, 1);
+    assert_eq!(
+        response.blocked_person_uuids,
+        vec![blocked.uuid.to_string()]
+    );
+    assert_eq!(response.pending_person_uuids, vec![big.uuid.to_string()]);
+    assert_eq!(response.rows_deleted, 1 + expected_trimmed);
+    assert!(!ctx.person_row_exists(gone.id).await.unwrap());
+    assert!(ctx.person_row_exists(live.id).await.unwrap());
+    assert!(ctx.person_row_exists(blocked.id).await.unwrap());
+    assert!(ctx.person_row_exists(big.id).await.unwrap());
+    assert_eq!(
+        ctx.distinct_id_row_count(big.id).await.unwrap(),
+        20 - expected_trimmed
+    );
+
+    ctx.cleanup().await.ok();
+}
 
 #[tokio::test]
 async fn test_delete_persons_batch_for_team() {
@@ -1314,82 +1486,6 @@ async fn test_delete_persons_batch_for_team_invalid_batch_size(#[case] batch_siz
             team_id: ctx.team_id,
             batch_size,
         }))
-        .await;
-
-    let status = result.unwrap_err();
-    assert_eq!(status.code(), tonic::Code::InvalidArgument);
-    assert!(status.message().contains("batch_size"));
-
-    ctx.cleanup().await.ok();
-}
-
-#[tokio::test]
-async fn test_delete_personless_distinct_ids_batch_for_team() {
-    let ctx = ServiceTestContext::new().await;
-    ctx.insert_personless_distinct_id("svc_personless_1")
-        .await
-        .unwrap();
-    ctx.insert_personless_distinct_id("svc_personless_2")
-        .await
-        .unwrap();
-
-    let response = ctx
-        .service
-        .delete_personless_distinct_ids_batch_for_team(Request::new(
-            DeletePersonlessDistinctIdsBatchForTeamRequest {
-                team_id: ctx.team_id,
-                batch_size: 1,
-            },
-        ))
-        .await
-        .expect("RPC failed");
-    assert_eq!(response.into_inner().deleted_count, 1);
-
-    let response = ctx
-        .service
-        .delete_personless_distinct_ids_batch_for_team(Request::new(
-            DeletePersonlessDistinctIdsBatchForTeamRequest {
-                team_id: ctx.team_id,
-                batch_size: 100,
-            },
-        ))
-        .await
-        .expect("RPC failed");
-    assert_eq!(response.into_inner().deleted_count, 1);
-
-    let response = ctx
-        .service
-        .delete_personless_distinct_ids_batch_for_team(Request::new(
-            DeletePersonlessDistinctIdsBatchForTeamRequest {
-                team_id: ctx.team_id,
-                batch_size: 100,
-            },
-        ))
-        .await
-        .expect("RPC failed");
-    assert_eq!(response.into_inner().deleted_count, 0);
-
-    ctx.cleanup().await.ok();
-}
-
-#[rstest]
-#[case::zero(0)]
-#[case::negative(-1)]
-#[case::exceeds_max(50001)]
-#[tokio::test]
-async fn test_delete_personless_distinct_ids_batch_for_team_invalid_batch_size(
-    #[case] batch_size: i64,
-) {
-    let ctx = ServiceTestContext::new().await;
-
-    let result = ctx
-        .service
-        .delete_personless_distinct_ids_batch_for_team(Request::new(
-            DeletePersonlessDistinctIdsBatchForTeamRequest {
-                team_id: ctx.team_id,
-                batch_size,
-            },
-        ))
         .await;
 
     let status = result.unwrap_err();

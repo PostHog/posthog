@@ -32,7 +32,8 @@ use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use arrow_select::filter::filter_record_batch;
 use arrow_select::take::{take, take_record_batch};
 use deltalake::kernel::transaction::{CommitBuilder, CommitProperties};
-use deltalake::kernel::{Action, Remove};
+use deltalake::kernel::{Action, MetadataExt as _, Remove, StructType};
+use deltalake::protocol::checkpoints::{cleanup_metadata, create_checkpoint};
 use deltalake::protocol::{DeltaOperation, SaveMode};
 use deltalake::table::config::TablePropertiesExt;
 use deltalake::writer::{DeltaWriter, RecordBatchWriter};
@@ -45,7 +46,7 @@ use parquet::arrow::ProjectionMask;
 use parquet::file::metadata::ParquetMetaData;
 use serde_json::Value;
 use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
-use tracing::{debug, info, instrument};
+use tracing::{debug, info, instrument, warn};
 
 use crate::errors::{Error, Result};
 use crate::limits::{
@@ -247,6 +248,9 @@ pub struct UpsertStats {
     pub rewrite_ms: u64,
     /// Wall-clock ms spent committing the new file set to the Delta log.
     pub commit_ms: u64,
+    /// Non-nullable columns relaxed to nullable before this upsert because the table's
+    /// data (or this batch) already contains nulls in them.
+    pub columns_relaxed: usize,
 }
 
 /// A file selected for rewrite, with the metadata needed to tombstone it.
@@ -490,7 +494,7 @@ pub async fn upsert(
 ) -> Result<UpsertStats> {
     let started = Instant::now();
     let strategy = opts.prune_strategy.as_str();
-    let result = upsert_inner(table, source_batches, source_schema, opts).await;
+    let result = upsert_with_relax(table, source_batches, source_schema, opts).await;
 
     // Static label values only -- no per-call allocation (rust/CLAUDE.md).
     histogram!("deltalite_upsert_duration_seconds").record(started.elapsed().as_secs_f64());
@@ -518,6 +522,154 @@ pub async fn upsert(
         }
     }
     result
+}
+
+/// Relax lying non-nullable columns before the upsert proper.
+///
+/// A table can declare a column non-nullable while its files already hold nulls in it:
+/// the delta-rs MERGE writes such rows without complaint, so tables that ever took that
+/// path are permanently poisoned for deltalite, whose partition rewrite re-reads those
+/// files and fails Arrow's nullability validation on every subsequent upsert. Flipping
+/// the column to nullable in the table metadata is protocol-legal, matches the state a
+/// reset-and-resync would produce, and is the only honest description of the data that
+/// is already there. The same applies to a batch that carries (or null-pads) nulls in a
+/// non-nullable column: without the relax the write fails; with the fallback it writes
+/// nulls under a schema that denies them.
+async fn upsert_with_relax(
+    table: &DeltaTable,
+    source_batches: Vec<RecordBatch>,
+    source_schema: SchemaRef,
+    opts: UpsertOptions,
+) -> Result<UpsertStats> {
+    let relax = columns_needing_relax(table, &source_batches, &source_schema).await?;
+    if relax.is_empty() {
+        return upsert_inner(table, source_batches, source_schema, opts).await;
+    }
+
+    relax_columns_to_nullable(table, &relax).await?;
+    // Re-read the log so the writer (and every schema derived from the table) observes
+    // the relaxed metadata; the borrowed handle still sees the old snapshot.
+    let mut fresh = table.clone();
+    fresh.update_incremental(None).await?;
+    let mut stats = upsert_inner(&fresh, source_batches, source_schema, opts).await?;
+    stats.columns_relaxed = relax.len();
+    Ok(stats)
+}
+
+/// Non-nullable table columns that verifiably contain nulls -- in the incoming batch
+/// (present with nulls, or absent so the cast will null-pad it) or in the table's own
+/// files (Add-action `nullCount` stats). Only positive evidence relaxes: files without
+/// stats are left alone, so a clean table's schema is never touched.
+async fn columns_needing_relax(
+    table: &DeltaTable,
+    source_batches: &[RecordBatch],
+    source_schema: &Schema,
+) -> Result<Vec<String>> {
+    let snapshot = table.snapshot()?;
+    let non_nullable: Vec<String> = snapshot
+        .schema()
+        .fields()
+        .filter(|f| !f.nullable)
+        .map(|f| f.name().to_string())
+        .collect();
+    if non_nullable.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut relax: Vec<String> = Vec::new();
+    let mut unresolved: Vec<String> = Vec::new();
+    for name in non_nullable {
+        match source_schema.index_of(&name) {
+            Err(_) => relax.push(name),
+            Ok(idx) => {
+                if source_batches
+                    .iter()
+                    .any(|b| b.column(idx).null_count() > 0)
+                {
+                    relax.push(name);
+                } else {
+                    unresolved.push(name);
+                }
+            }
+        }
+    }
+
+    if !unresolved.is_empty() {
+        let views: Vec<_> = table
+            .get_active_add_actions_by_partitions(&[])
+            .try_collect()
+            .await?;
+        'files: for v in views {
+            let Some(stats) = v.stats() else { continue };
+            let Ok(parsed) = serde_json::from_str::<Value>(&stats) else {
+                continue;
+            };
+            let Some(nulls) = parsed.get("nullCount") else {
+                continue;
+            };
+            let mut i = 0;
+            while i < unresolved.len() {
+                if nulls
+                    .get(&unresolved[i])
+                    .and_then(Value::as_i64)
+                    .unwrap_or(0)
+                    > 0
+                {
+                    relax.push(unresolved.swap_remove(i));
+                    if unresolved.is_empty() {
+                        break 'files;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+        }
+    }
+
+    relax.sort();
+    Ok(relax)
+}
+
+/// Commit a metadata action flipping `columns` to nullable. Runs as its own commit so
+/// the upsert that follows plans against the relaxed schema; concurrent writers see a
+/// MetadataChanged conflict and re-plan (or fall back), exactly as for any other
+/// schema evolution.
+async fn relax_columns_to_nullable(table: &DeltaTable, columns: &[String]) -> Result<()> {
+    let snapshot = table.snapshot()?;
+    let schema = snapshot.schema();
+    let relaxed = StructType::try_new(schema.fields().map(|f| {
+        let mut field = f.clone();
+        if columns.iter().any(|c| c == f.name()) {
+            field.nullable = true;
+        }
+        field
+    }))
+    .map_err(|e| Error::Generic(format!("cannot build relaxed schema: {e}")))?;
+
+    let metadata = snapshot
+        .metadata()
+        .clone()
+        .with_schema(&relaxed)
+        .map_err(|e| Error::Generic(format!("cannot update table metadata: {e}")))?;
+    let operation = DeltaOperation::UpdateFieldMetadata {
+        fields: relaxed.fields().cloned().collect(),
+    };
+
+    CommitBuilder::from(
+        CommitProperties::default()
+            .with_create_checkpoint(false)
+            .with_cleanup_expired_logs(Some(false)),
+    )
+    .with_actions(vec![metadata.into()])
+    .build(Some(snapshot), table.log_store(), operation)
+    .await?;
+
+    info!(
+        columns = ?columns,
+        "relaxed non-nullable columns that already contain nulls to nullable"
+    );
+    counter!("deltalite_columns_relaxed_total").increment(columns.len() as u64);
+    Ok(())
 }
 
 async fn upsert_inner(
@@ -735,16 +887,31 @@ async fn upsert_inner(
         predicate,
     };
 
-    let mut props = CommitProperties::default().with_max_retries(opts.commit_max_retries);
+    // Checkpoint + expired-log cleanup are kept OUT of delta-rs's post-commit hook: a
+    // hook failure (e.g. an S3 hiccup on the DeleteObjects call behind log cleanup)
+    // propagates as an upsert error AFTER the commit is already durable, sending the
+    // caller back to the delta-rs MERGE for a write that has in fact happened. They run
+    // best-effort below instead.
+    let mut props = CommitProperties::default()
+        .with_max_retries(opts.commit_max_retries)
+        .with_create_checkpoint(false)
+        .with_cleanup_expired_logs(Some(false));
     if let Some(md) = opts.commit_metadata.clone() {
         props = props.with_metadata(md);
     }
+
+    let checkpoint_interval = snapshot.table_config().checkpoint_interval().get();
+    let cleanup_enabled = snapshot.table_config().enable_expired_log_cleanup();
 
     let finalized = CommitBuilder::from(props)
         .with_actions(actions)
         .build(Some(snapshot), table.log_store(), operation)
         .await?;
     let commit_ms = commit_started.elapsed().as_millis() as u64;
+
+    if (finalized.version() + 1) % checkpoint_interval == 0 {
+        best_effort_log_maintenance(table, finalized.version(), cleanup_enabled).await;
+    }
 
     stats.plan_ms = plan_ms;
     stats.rewrite_ms = rewrite_ms;
@@ -767,6 +934,42 @@ async fn upsert_inner(
         "upsert committed"
     );
     Ok(stats)
+}
+
+/// Checkpoint and expired-log cleanup after a durable commit, tolerating failure: the
+/// data is committed, so a maintenance error must never fail the upsert -- it is logged
+/// and the next boundary commit retries. The caller gates this on the table's
+/// `checkpoint_interval` boundary; cleanup therefore also runs per boundary rather than
+/// per commit (as delta-rs's hook does) -- cleanup can only delete logs behind a
+/// checkpoint anyway, and gating it cuts the bulk-delete traffic by the interval factor.
+async fn best_effort_log_maintenance(table: &DeltaTable, version: u64, cleanup_enabled: bool) {
+    let result: std::result::Result<(), (&'static str, deltalake::DeltaTableError)> = async {
+        let mut post = table.clone();
+        post.update_incremental(None)
+            .await
+            .map_err(|e| ("refresh", e))?;
+        create_checkpoint(&post, None)
+            .await
+            .map_err(|e| ("checkpoint", e))?;
+        if cleanup_enabled {
+            cleanup_metadata(&post, None)
+                .await
+                .map_err(|e| ("cleanup", e))?;
+        }
+        Ok(())
+    }
+    .await;
+
+    if let Err((op, e)) = result {
+        warn!(
+            version,
+            op,
+            error = %e,
+            "post-commit log maintenance failed; the commit itself is durable and the \
+             next checkpoint-boundary commit retries"
+        );
+        counter!("deltalite_log_maintenance_failures_total", "op" => op).increment(1);
+    }
 }
 
 /// Explicit argument > table property (already folded with delta-rs's default by the

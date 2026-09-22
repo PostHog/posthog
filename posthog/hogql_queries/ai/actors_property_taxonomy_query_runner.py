@@ -8,7 +8,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
@@ -29,7 +28,7 @@ class ActorsPropertyTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner
 
     def _calculate(self):
         query = self.to_query()
-        hogql = to_printed_hogql(query, self.team)
+        hogql = self.response_hogql(query)
 
         with tags_context(product=Product.MAX_AI):
             response = execute_hogql_query(
@@ -37,6 +36,7 @@ class ActorsPropertyTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner
                 query=query,
                 team=self.team,
                 user=self.user,
+                context=self.build_hogql_context(),
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,

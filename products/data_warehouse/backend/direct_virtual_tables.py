@@ -10,6 +10,7 @@ objects the pure-direct path derives from physical rows, but from each
 from typing import TYPE_CHECKING
 
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
+from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
@@ -19,6 +20,11 @@ from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from products.data_warehouse.backend.clickhouse_helpers import (
     clickhouse_schema_metadata_to_dwh_columns,
     get_clickhouse_source_location,
+)
+from products.data_warehouse.backend.motherduck_helpers import (
+    get_default_motherduck_catalog,
+    get_motherduck_source_location,
+    motherduck_schema_metadata_to_dwh_columns,
 )
 from products.data_warehouse.backend.mysql_helpers import (
     get_default_mysql_schema,
@@ -225,6 +231,39 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
             fields=fields,
             clickhouse_database=clickhouse_database,
             clickhouse_table_name=table_name,
+            external_data_source_id=str(source.id),
+            connection_metadata=source.connection_metadata,
+            # No column-picker restriction → these fields are the complete physical schema, so a
+            # `SELECT *` can pass through to the server literally.
+            has_complete_columns=schema.enabled_columns is None,
+        )
+
+    if engine == "motherduck":
+        columns = motherduck_schema_metadata_to_dwh_columns(metadata)
+        if not columns:
+            return None
+        columns = filter_dwh_columns_by_enabled_columns(
+            columns,
+            schema.enabled_columns,
+            schema.primary_key_columns,
+            schema.incremental_field,
+            # Direct-MotherDuck columns are keyed by raw, case-sensitive source names.
+            normalize=False,
+        )
+        fields, _ = hogql_fields_and_structure_for_columns(columns)
+        catalog, motherduck_schema, table_name = get_motherduck_source_location(
+            schema_name=schema.name,
+            schema_metadata=metadata,
+            default_catalog=get_default_motherduck_catalog(source),
+        )
+        if not catalog:
+            return None
+        return DirectMotherDuckTable(
+            name=schema.name,
+            fields=fields,
+            motherduck_database=catalog,
+            motherduck_schema=motherduck_schema,
+            motherduck_table_name=table_name,
             external_data_source_id=str(source.id),
             connection_metadata=source.connection_metadata,
             # No column-picker restriction → these fields are the complete physical schema, so a

@@ -179,12 +179,62 @@
             "evaluation_runtime": "all",
             "bucketing_identifier": null,
             "evaluation_contexts": []
+        },
+        {
+            "id": 6,
+            "team_id": 99,
+            "name": "Referenced disabled flag",
+            "key": "referenced-disabled-flag",
+            "has_experiment": false,
+            "filters": {
+                "groups": []
+            },
+            "deleted": false,
+            "active": false,
+            "ensure_experience_continuity": false,
+            "version": 1,
+            "evaluation_runtime": "all",
+            "bucketing_identifier": null,
+            "evaluation_contexts": []
+        },
+        {
+            "id": 7,
+            "team_id": 99,
+            "name": "Dependent on disabled flag",
+            "key": "disabled-dependent-flag",
+            "has_experiment": false,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "6",
+                                "label": "referenced-disabled-flag",
+                                "operator": "flag_evaluates_to",
+                                "type": "flag",
+                                "value": false
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                        "variant": null
+                    }
+                ],
+                "multivariate": null,
+                "payloads": {}
+            },
+            "deleted": false,
+            "active": true,
+            "ensure_experience_continuity": false,
+            "version": 1,
+            "evaluation_runtime": "all",
+            "bucketing_identifier": null,
+            "evaluation_contexts": []
         }
     ],
     "evaluation_metadata": {
         "dependency_stages": [
-            [1, 2, 3, 5],
-            [4]
+            [1, 2, 3, 5, 6],
+            [4, 7]
         ],
         "flags_with_missing_deps": [5],
         "transitive_deps": {
@@ -192,7 +242,9 @@
             "2": [],
             "3": [],
             "4": [2],
-            "5": []
+            "5": [],
+            "6": [],
+            "7": [6]
         }
     },
     "cohorts": [

@@ -12,7 +12,7 @@ We love contributions big and small. The PostHog desktop app is the IDE for unde
 3. Create a branch (`feat/my-change`, `fix/that-bug`)
 4. Make your changes and open a pull request
 
-Issues labeled [`good first issue`](https://github.com/PostHog/code/issues?q=sort%3Aupdated-desc%20is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22) are a great place to start!
+Issues labeled [`good first issue`](https://github.com/PostHog/posthog/issues?q=sort%3Aupdated-desc%20is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22) are a great place to start!
 
 If an issue does not yet exist for your change, please create one first so we can align on the approach before you invest time.
 
@@ -43,7 +43,7 @@ See [docs/LOCAL-DEVELOPMENT.md](./docs/LOCAL-DEVELOPMENT.md) for connecting to a
 
 ## Issues
 
-Spotted a bug? Something broken? [Raise an issue](https://github.com/PostHog/code/issues/new) for the fastest response.
+Spotted a bug? Something broken? [Raise an issue](https://github.com/PostHog/posthog/issues/new) for the fastest response.
 
 ## Feature requests
 

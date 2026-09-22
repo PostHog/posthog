@@ -34,9 +34,10 @@ export interface NotFoundProps {
         urlId?: string
     }
     className?: string
+    style?: React.CSSProperties
 }
 
-export function NotFound({ object, caption, meta, className }: NotFoundProps): JSX.Element {
+export function NotFound({ object, caption, meta, className, style }: NotFoundProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -51,6 +52,7 @@ export function NotFound({ object, caption, meta, className }: NotFoundProps): J
     return (
         <div
             className={cn('NotFoundComponent', className)}
+            style={style}
             data-attr={`not-found-${object.replace(/\s/g, '-').toLowerCase()}`}
         >
             {!nodeLogic ? <div className="NotFoundComponent__graphic" /> : null}

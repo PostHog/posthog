@@ -5,5 +5,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 
 @config.config
+class GooglePlayConsoleKeyFileConfig(config.Config):
+    client_email: str
+    private_key: str
+    private_key_id: str
+    token_uri: str
+
+
+@config.config
 class GooglePlayConsoleSourceConfig(config.Config):
-    pass
+    key_file: GooglePlayConsoleKeyFileConfig
+    app_package_names: str | None = None

@@ -13,6 +13,8 @@ import { urls } from 'scenes/urls'
 import { LogMessage } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+import { findQuietHoursIssues } from 'products/alerts/frontend/logic/scheduleRestrictionValidation'
+import type { ScheduleRestriction } from 'products/alerts/frontend/types'
 import {
     logsAlertsCreate,
     logsAlertsPartialUpdate,
@@ -22,7 +24,7 @@ import {
     LogsAlertConfigurationApi,
     LogsAlertSimulateResponseApi,
     PatchedLogsAlertConfigurationApi,
-    LogsAlertThresholdOperatorEnumApi,
+    LogsAlertConfigurationThresholdOperatorEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertingLogic } from './logsAlertingLogic'
@@ -42,17 +44,19 @@ export interface LogsAlertFormType {
     severityLevels: LogMessage['severity_text'][]
     serviceNames: string[]
     filterGroup: UniversalFiltersGroup
-    thresholdOperator: LogsAlertThresholdOperatorEnumApi
+    thresholdOperator: LogsAlertConfigurationThresholdOperatorEnumApi
     thresholdCount: number
     windowMinutes: number
     evaluationPeriods: number
     datapointsToAlarm: number
     cooldownMinutes: number
+    scheduleRestriction: ScheduleRestriction | null
 }
 
 export interface LogsAlertFormLogicProps {
     alert: LogsAlertConfigurationApi | null
     onCreateSuccess?: () => void
+    onSubmitSuccess?: () => void
 }
 
 function extractFilterGroup(alert: LogsAlertConfigurationApi | null): UniversalFiltersGroup {
@@ -81,12 +85,13 @@ export function buildFormDefaults(alert: LogsAlertConfigurationApi | null): Logs
             : DEFAULT_SEVERITY_LEVELS,
         serviceNames: (filters.serviceNames as string[]) ?? [],
         filterGroup: extractFilterGroup(alert),
-        thresholdOperator: alert?.threshold_operator ?? LogsAlertThresholdOperatorEnumApi.Above,
+        thresholdOperator: alert?.threshold_operator ?? LogsAlertConfigurationThresholdOperatorEnumApi.Above,
         thresholdCount: alert?.threshold_count ?? 100,
         windowMinutes: alert?.window_minutes ?? 10,
         evaluationPeriods: alert?.evaluation_periods ?? 1,
         datapointsToAlarm: alert?.datapoints_to_alarm ?? 1,
         cooldownMinutes: alert?.cooldown_minutes ?? 0,
+        scheduleRestriction: alert?.schedule_restriction ?? null,
     }
 }
 
@@ -324,6 +329,13 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                     form.name = 'Untitled alert'
                 }
 
+                if (form.scheduleRestriction?.blocked_windows) {
+                    const quietHoursIssue = findQuietHoursIssues(form.scheduleRestriction.blocked_windows)
+                    if (quietHoursIssue) {
+                        throw new Error(quietHoursIssue.message)
+                    }
+                }
+
                 if (!hasAnyFilter(form.severityLevels, form.serviceNames, form.filterGroup)) {
                     lemonToast.error('At least one filter is required')
                     throw new Error('At least one filter is required')
@@ -338,6 +350,7 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                     evaluation_periods: form.evaluationPeriods,
                     datapoints_to_alarm: form.datapointsToAlarm,
                     cooldown_minutes: form.cooldownMinutes,
+                    schedule_restriction: form.scheduleRestriction,
                 }
 
                 let savedAlertId: string
@@ -374,6 +387,7 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                 }
 
                 actions.loadAlerts()
+                props.onSubmitSuccess?.()
                 if (!props.alert) {
                     props.onCreateSuccess?.()
                     if (!notificationsConfigured) {

@@ -5,16 +5,19 @@ token resolves the team, so there is no project in the URL. Deliberately
 outside the OpenAPI spec (like the OAuth redirect): it is an external token
 surface, not part of the app schema.
 
-Each grant binds the credential its administrator delegated to the agent.
-Every tools/call resolves through the same policy engine as members, under the
-agent's own scope.
+Grants are per person: the token names the person whose credentials the run may
+use, and only that person's grants plus the team's team-scoped grants are
+visible or callable. A token with no credential owner reaches team-scoped grants
+alone. Every tools/call resolves through the same policy engine as members,
+under the agent's own scope.
 """
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import timedelta
 from typing import Any, cast
 from uuid import UUID
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http import HttpResponse
 from django.http.response import HttpResponseBase
 from django.utils import timezone
@@ -32,8 +35,14 @@ from rest_framework.views import APIView
 
 from posthog.rate_limit import MCPProxyBurstThrottle, MCPProxySustainedThrottle
 
-from ..agents import resolve_gateway_agent_token
-from ..gateway import installation_for_agent_access
+from ..agents import GatewayAgentPrincipal, resolve_gateway_agent_token
+from ..gateway import (
+    AGENT_GRANT_CREDENTIAL_OWNER_PARAM,
+    agent_grant_owner_label,
+    agent_grant_proxy_path,
+    installation_for_agent_access,
+    reachable_agent_grants,
+)
 from ..models import MCPServerInstallationTool, MCPServiceAccount, MCPServiceAccountServerAccess
 from ..policy import GatewayCaller, PolicyContext
 from ..proxy import proxy_mcp_request, validate_installation_auth
@@ -44,10 +53,16 @@ logger = structlog.get_logger(__name__)
 
 class _MCPGatewayAgentThrottle(SimpleRateThrottle):
     def get_cache_key(self, request: Request, view: APIView) -> str | None:
-        account = request.auth
-        if not isinstance(account, MCPServiceAccount):
+        principal = request.auth
+        if not isinstance(principal, GatewayAgentPrincipal):
             return None
-        return self.cache_format % {"scope": self.scope, "ident": account.id}
+        # The rate is sized for one person's traffic, so the key includes the
+        # credential owner: keyed on the shared agent account alone, one
+        # member's burst would throttle every teammate using the same agent.
+        return self.cache_format % {
+            "scope": self.scope,
+            "ident": f"{principal.account.id}:{principal.credential_owner_id}",
+        }
 
 
 class MCPGatewayAgentBurstThrottle(_MCPGatewayAgentThrottle):
@@ -66,17 +81,17 @@ class GatewayAgentAuthentication(BaseAuthentication):
     Returns no user — the agent is the principal; downstream code reads it from
     `request.auth`."""
 
-    def authenticate(self, request: Request) -> tuple[Any, MCPServiceAccount] | None:
+    def authenticate(self, request: Request) -> tuple[Any, GatewayAgentPrincipal] | None:
         header = request.headers.get("Authorization", "")
         if not header.startswith("Bearer "):
             return None
         token = header.split(" ", 1)[1].strip()
-        account = resolve_gateway_agent_token(token)
-        if account is None:
+        principal = resolve_gateway_agent_token(token)
+        if principal is None:
             raise AuthenticationFailed("Invalid gateway token.")
-        if account.status != "active":
+        if principal.account.status != "active":
             raise AuthenticationFailed("This agent is paused.")
-        return (None, account)
+        return (None, principal)
 
     def authenticate_header(self, request: Request) -> str:
         return "Bearer"
@@ -86,7 +101,7 @@ class GatewayAgentPermission(BasePermission):
     message = "A valid gateway token is required."
 
     def has_permission(self, request: Request, view: Any) -> bool:
-        return isinstance(request.auth, MCPServiceAccount)
+        return isinstance(request.auth, GatewayAgentPrincipal)
 
 
 class MCPGatewayAgentViewSet(viewsets.ViewSet):
@@ -96,14 +111,16 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
     permission_classes = [GatewayAgentPermission]
     throttle_classes = [MCPGatewayAgentBurstThrottle, MCPGatewayAgentSustainedThrottle]
 
-    def _accessible_server_access(self, account: MCPServiceAccount) -> list[MCPServiceAccountServerAccess]:
+    def _accessible_server_access(self, principal: GatewayAgentPrincipal) -> list[MCPServiceAccountServerAccess]:
         # The admin kill switch overrides grants: a server turned off for the
         # team disappears from the agent catalog like it does for members.
+        account = principal.account
         return list(
             MCPServiceAccountServerAccess.objects.for_team(account.team_id)
             .filter(service_account=account, gateway_server__is_team_enabled=True)
-            .select_related("gateway_server__template", "installation")
-            .order_by("gateway_server__name")
+            .filter(reachable_agent_grants(account.team_id, principal.credential_owner_id))
+            .select_related("gateway_server__template", "installation", "user")
+            .order_by("gateway_server__name", "created_at")
         )
 
     def _touch(self, account: MCPServiceAccount) -> None:
@@ -114,9 +131,10 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """The agent's server catalog: every enabled server it has access to,
         with each tool's effective policy state."""
-        account = cast(MCPServiceAccount, request.auth)
+        principal = cast(GatewayAgentPrincipal, request.auth)
+        account = principal.account
         catalog_entries = [
-            (access, installation_for_agent_access(access)) for access in self._accessible_server_access(account)
+            (access, installation_for_agent_access(access)) for access in self._accessible_server_access(principal)
         ]
         active_entries = [
             (access, installation)
@@ -140,6 +158,7 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
         ):
             tools_by_installation[tool.installation_id].append(tool)
 
+        grants_per_server = Counter(access.gateway_server_id for access, _installation in catalog_entries)
         results = []
         for access, installation in catalog_entries:
             server = access.gateway_server
@@ -165,32 +184,67 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
                         .state,
                     }
                 )
+            # Teammates who team-shared the same server each contribute their own
+            # credential, so the catalog carries one entry per grant and the name
+            # says whose connection it is.
+            name = (
+                f"{server.name} ({agent_grant_owner_label(access)})"
+                if grants_per_server[server.id] > 1
+                else server.name
+            )
             results.append(
                 {
                     "id": str(server.id),
-                    "name": server.name,
+                    "name": name,
                     "url": server.url,
                     "description": server.description,
-                    "proxy_path": f"/api/mcp_store/gateway/servers/{server.id}/proxy/",
+                    "credential_owner_id": access.user_id,
+                    "proxy_path": agent_grant_proxy_path(access),
                     "tools": tools,
                 }
             )
         self._touch(account)
         return Response({"results": results})
 
+    def _grant_for_proxy(
+        self, principal: GatewayAgentPrincipal, gateway_server_id: str, credential_owner_param: str | None
+    ) -> MCPServiceAccountServerAccess | None:
+        """Resolve which member's credential this call rides.
+
+        `credential_owner` in the query string picks between several members'
+        team shares of one server; it can only ever select a grant this
+        principal already reaches, so it selects rather than escalates. Without
+        it, the run's own credential owner wins and a team share is the
+        fallback, matching how the sandbox mounts them.
+        """
+        account = principal.account
+        candidates = (
+            MCPServiceAccountServerAccess.objects.for_team(account.team_id)
+            .filter(service_account=account, gateway_server_id=gateway_server_id)
+            .filter(reachable_agent_grants(account.team_id, principal.credential_owner_id))
+            .select_related("gateway_server", "installation")
+            .order_by("created_at", "id")
+        )
+        if credential_owner_param:
+            if not credential_owner_param.isdigit():
+                return None
+            return candidates.filter(user_id=int(credential_owner_param)).first()
+        rows = list(candidates)
+        own = [row for row in rows if row.user_id == principal.credential_owner_id]
+        return next(iter(own or rows), None)
+
     @action(detail=True, methods=["post"], url_path="proxy", renderer_classes=[MCPProxyRenderer])
     def proxy(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> HttpResponseBase:
         """Proxy one MCP request to the server as this agent."""
-        account = cast(MCPServiceAccount, request.auth)
+        principal = cast(GatewayAgentPrincipal, request.auth)
+        account = principal.account
         if not pk:
             return HttpResponse('{"error": "Server not found"}', content_type="application/json", status=404)
         try:
-            access = (
-                MCPServiceAccountServerAccess.objects.for_team(account.team_id)
-                .select_related("gateway_server", "installation")
-                .get(service_account=account, gateway_server_id=pk)
-            )
-        except (MCPServiceAccountServerAccess.DoesNotExist, ValueError):
+            access = self._grant_for_proxy(principal, pk, request.query_params.get(AGENT_GRANT_CREDENTIAL_OWNER_PARAM))
+        except (DjangoValidationError, ValueError):
+            access = None
+        if access is None:
             return HttpResponse(
                 '{"error": "Server not found or not shared with this agent"}',
                 content_type="application/json",
@@ -216,6 +270,8 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
             team_id=account.team_id,
             gateway_server_id=str(server.id),
             service_account_id=str(account.id),
+            credential_owner_id=access.user_id,
+            grant_scope=access.scope,
         )
 
         ok, error_response = validate_installation_auth(installation)
@@ -230,4 +286,6 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
             caller=caller,
             gateway_server=server,
             actor_label=account.handle,
+            credential_owner_id=access.user_id,
+            grant_scope=access.scope,
         )

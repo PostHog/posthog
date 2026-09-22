@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
@@ -255,9 +255,9 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertIsNotNone(results, "The query should execute without errors")
 
-    @freeze_time("2023-05-10T15:23:00Z")
+    @time_machine.travel("2023-05-10T15:23:00Z", tick=False)
     def test_persons_query_with_insight_actors_source_order_by_last_seen(self):
-        with freeze_time("2023-05-07T15:23:00Z"):
+        with time_machine.travel("2023-05-07T15:23:00Z", tick=False):
             _create_person(
                 properties={
                     "email": f"first@posthog.com",
@@ -268,7 +268,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 is_identified=True,
             )
             _create_event(distinct_id="jump-the-gun", event="clicky", team=self.team)
-        with freeze_time("2023-05-09T15:23:00Z"):
+        with time_machine.travel("2023-05-09T15:23:00Z", tick=False):
             _create_person(
                 properties={
                     "email": "last@posthog.com",
@@ -430,9 +430,9 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results, [[f"jacob4@{self.random_uuid}.posthog.com"]])
 
     def test_source_lifecycle_query(self):
-        with freeze_time("2021-01-01T12:00:00Z"):
+        with time_machine.travel("2021-01-01T12:00:00Z", tick=False):
             self.random_uuid = self._create_random_persons()
-        with freeze_time("2021-01-03T12:00:00Z"):
+        with time_machine.travel("2021-01-03T12:00:00Z", tick=False):
             source_query = LifecycleQuery(
                 series=[EventsNode(event="clicky-4")],
                 properties=[
@@ -728,7 +728,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert group["id"] == "org2"
         assert set(group.keys()) == {"id", "group_type_index"}
 
-    @patch("posthog.hogql_queries.insights.paginators.execute_hogql_query", wraps=execute_hogql_query)
+    @patch("posthog.hogql_queries.paginators.execute_hogql_query", wraps=execute_hogql_query)
     def test_funnel_source_with_poe_mode(self, spy_execute_hogql_query):
         self.team.modifiers = {
             **(self.team.modifiers or {}),
@@ -941,7 +941,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_person_strategy_batches_large_actor_sets(self):
         """Verify that PersonStrategy.get_actors batches queries."""
         from posthog.hogql_queries.actor_strategies import PersonStrategy
-        from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+        from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 
         # Create 5 persons
         person_uuids = []
@@ -967,7 +967,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         for uuid in person_uuids:
             self.assertIn(uuid, result)
 
-    @freeze_time("2023-05-07T15:23:00Z")
+    @time_machine.travel("2023-05-07T15:23:00Z", tick=False)
     def test_last_seen_for_persons(self):
         _create_person(
             properties={"email": "test@example.com"},

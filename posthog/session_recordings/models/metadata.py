@@ -64,6 +64,8 @@ class RecordingMetadata(TypedDict):
     expiry_time: datetime
     recording_ttl: int
     ongoing: bool
+    total_size: int
+    event_count: int
 
 
 class RecordingMatchingEvents(TypedDict):

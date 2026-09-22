@@ -63,6 +63,7 @@ describe('fetch', () => {
         jest.mocked(dns.lookup).mockImplementation(realDnsLookup)
         // NOTE: We are testing production-only features hence the override
         process.env.NODE_ENV = 'production'
+        delete process.env.DEBUG
     })
     describe('raiseIfUserProvidedUrlUnsafe', () => {
         it.each([
@@ -207,6 +208,14 @@ describe('fetch', () => {
             await expect(fetch(`http://example.com`)).rejects.toThrow(new SecureRequestError(`Hostname is not allowed`))
         })
 
+        it('uses secure DNS lookup when HTTP/2 is enabled', async () => {
+            jest.mocked(dns.lookup).mockResolvedValue([{ address: '10.0.0.1', family: 4 }] as any)
+
+            await expect(fetch('https://example.com', { allowH2: true })).rejects.toThrow(
+                new SecureRequestError('Hostname is not allowed')
+            )
+        })
+
         it.each([
             ['::ffff:169.254.169.254', 'IPv6-mapped IMDS'],
             ['::ffff:127.0.0.1', 'IPv6-mapped loopback'],
@@ -241,7 +250,7 @@ describe('fetch', () => {
     })
 
     describe('parallel requests execution', () => {
-        jest.retryTimes(3)
+        jest.retryTimes(3, { logErrorsBeforeRetry: true })
         // NOTE: This is inherently flakey so we disable it except when validating changes for it
         it.skip('should execute requests in parallel - completion time test', async () => {
             const delayMs = 200
@@ -271,6 +280,7 @@ describe('legacyFetch', () => {
         jest.mocked(dns.lookup).mockImplementation(realDnsLookup)
         // NOTE: We are testing production-only features hence the override
         process.env.NODE_ENV = 'production'
+        delete process.env.DEBUG
     })
 
     describe('calls', () => {
@@ -330,7 +340,7 @@ describe('legacyFetch', () => {
 
     // NOTE: Skipped as this is mostly to validate against the new request implementation
     describe.skip('parallel requests execution', () => {
-        jest.retryTimes(3)
+        jest.retryTimes(3, { logErrorsBeforeRetry: true })
         it('should execute requests in parallel', async () => {
             const start = performance.now()
             const timings: number[] = []

@@ -1,9 +1,5 @@
-import type {
-  Adapter,
-  GitHandoffCheckpoint,
-  HandoffLocalGitState as GitHandoffLocalGitState,
-  PostHogAPIConfig,
-} from "@posthog/shared";
+import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
+import type { Adapter, ModelAccess, PostHogAPIConfig } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
 
 export type {
@@ -14,6 +10,8 @@ export type {
   TaskRun,
   TaskRunArtifact,
   TaskRunEnvironment,
+  TaskRunState,
+  TaskRunStateField,
   TaskRunStatus,
 } from "@posthog/shared";
 
@@ -26,6 +24,10 @@ export interface StoredNotification {
   type: "notification";
   /** When this notification was stored */
   timestamp: string;
+  /** Shared identity with the event's Redis stream copy, when stamped */
+  event_id?: string;
+  /** First covered event id, on entries coalesced from a run of chunks */
+  first_event_id?: string;
   /** JSON-RPC 2.0 notification (no id field = notification, not request) */
   notification: {
     jsonrpc: "2.0";
@@ -54,6 +56,8 @@ export interface TaskExecutionOptions {
   adapter?: Adapter;
   model?: string;
   gatewayUrl?: string;
+  codexModelAccess?: ModelAccess;
+  claudeModelAccess?: ModelAccess;
   codexBinaryPath?: string;
   codexHome?: string;
   reasoningEffort?: EffortLevel;
@@ -67,6 +71,8 @@ export interface TaskExecutionOptions {
   onStructuredOutput?: (output: Record<string, unknown>) => Promise<void>;
   /** Additional directories the agent process can access beyond cwd. */
   additionalDirectories?: string[];
+  /** Per-session context wiki mount forwarded to the harness subprocess env. */
+  contextWiki?: ContextWikiEnv;
 }
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
@@ -126,17 +132,6 @@ export type FileStatus = "A" | "M" | "D";
 export interface FileChange {
   path: string;
   status: FileStatus;
-}
-
-export type HandoffLocalGitState = GitHandoffLocalGitState;
-
-export interface GitCheckpoint extends GitHandoffCheckpoint {
-  artifactPath?: string;
-  indexArtifactPath?: string;
-}
-
-export interface GitCheckpointEvent extends GitCheckpoint {
-  device?: DeviceInfo;
 }
 
 /**

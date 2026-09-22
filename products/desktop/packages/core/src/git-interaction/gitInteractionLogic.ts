@@ -1,6 +1,6 @@
 import type { GitMenuAction, GitMenuActionId } from "./types";
 
-interface GitState {
+export interface GitState {
   repoPath?: string;
   isRepo: boolean;
   isRepoLoading: boolean;
@@ -98,26 +98,52 @@ function getPushDisabledReason(
   return null;
 }
 
-function getCreatePrDisabledReason(
-  s: GitState,
-  repoReason: string | null,
-): string | null {
-  if (repoReason) return repoReason;
-  if (!s.isOnline) return OFFLINE_REASON;
+interface CreatePrGate {
+  reason: string | null;
+  /** An environment gap the user can fix (missing or logged-out GitHub CLI)
+   * keeps the disabled entry visible with its fix in the tooltip; routine
+   * states (PR exists, nothing to ship) hide the entry instead. */
+  visibleWhenDisabled: boolean;
+}
 
-  if (!s.ghStatus) return "Checking GitHub CLI status...";
-  if (!s.ghStatus.installed) return "Install GitHub CLI: `brew install gh`";
-  if (!s.ghStatus.authenticated)
-    return "Authenticate GitHub CLI with `gh auth login`";
-  if (!s.repoInfo) return "No GitHub remote detected.";
+function getCreatePrGate(s: GitState, repoReason: string | null): CreatePrGate {
+  if (repoReason) return { reason: repoReason, visibleWhenDisabled: false };
+  if (!s.isOnline)
+    return { reason: OFFLINE_REASON, visibleWhenDisabled: false };
 
-  if (s.prStatus?.prExists) return "PR already exists.";
+  if (!s.ghStatus) {
+    return {
+      reason: "Checking GitHub CLI status...",
+      visibleWhenDisabled: false,
+    };
+  }
+  if (!s.ghStatus.installed) {
+    return {
+      reason: "Install GitHub CLI: `brew install gh`",
+      visibleWhenDisabled: true,
+    };
+  }
+  if (!s.ghStatus.authenticated) {
+    return {
+      reason: "Authenticate GitHub CLI with `gh auth login`",
+      visibleWhenDisabled: true,
+    };
+  }
+  if (!s.repoInfo) {
+    return { reason: "No GitHub remote detected.", visibleWhenDisabled: false };
+  }
+
+  if (s.prStatus?.prExists) {
+    return { reason: "PR already exists.", visibleWhenDisabled: false };
+  }
 
   const hasShippableWork =
     s.hasChanges || s.aheadOfRemote > 0 || s.aheadOfDefault > 0 || !s.hasRemote;
-  if (!hasShippableWork) return "No changes to ship.";
+  if (!hasShippableWork) {
+    return { reason: "No changes to ship.", visibleWhenDisabled: false };
+  }
 
-  return null;
+  return { reason: null, visibleWhenDisabled: false };
 }
 
 function getCommitAction(
@@ -190,7 +216,8 @@ export function computeGitInteractionState(input: GitState): GitComputed {
   }
 
   const onDefaultBranch = isOnDefaultBranch(input);
-  const createPrDisabledReason = getCreatePrDisabledReason(input, repoReason);
+  const createPrGate = getCreatePrGate(input, repoReason);
+  const createPrDisabledReason = createPrGate.reason;
   const createPrAction = getCreatePrAction(createPrDisabledReason);
 
   if (onDefaultBranch) {
@@ -231,7 +258,9 @@ export function computeGitInteractionState(input: GitState): GitComputed {
   );
 
   const actions: GitMenuAction[] = [];
-  if (createPrAction.enabled) actions.push(createPrAction);
+  if (createPrAction.enabled || createPrGate.visibleWhenDisabled) {
+    actions.push(createPrAction);
+  }
   actions.push(commitAction, pushAction);
   if (viewPrAction) actions.push(viewPrAction);
 

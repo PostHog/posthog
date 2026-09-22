@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("./env", () => ({
+  getAppVersion: () => process.env.POSTHOG_CODE_VERSION,
+}));
+
 const mockEmit = vi.fn();
 const mockForceFlush = vi.fn(() => Promise.resolve());
 const mockShutdown = vi.fn(() => Promise.resolve());

@@ -41,6 +41,12 @@ ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_FIELDS: dict[str, FieldOrTable] = {
     "issue_status": StringDatabaseField(
         name="issue_status", nullable=True, description="Current status of the issue, e.g. 'active', 'resolved'."
     ),
+    "issue_severity": StringDatabaseField(
+        name="issue_severity",
+        nullable=True,
+        hidden=True,
+        description="Assigned issue severity, or null when unassigned.",
+    ),
     "assigned_user_id": IntegerDatabaseField(
         name="assigned_user_id", nullable=True, description="User the issue is assigned to, if any."
     ),
@@ -60,6 +66,7 @@ _ISSUE_STATE_COLUMNS: list[str] = [
     "issue_name",
     "issue_description",
     "issue_status",
+    "issue_severity",
     "assigned_user_id",
     "assigned_role_id",
     "first_seen",
@@ -106,6 +113,7 @@ _ARGMAX_FIELDS: tuple[str, ...] = (
     "issue_name",
     "issue_description",
     "issue_status",
+    "issue_severity",
     "assigned_user_id",
     "assigned_role_id",
     "first_seen",
@@ -226,6 +234,7 @@ def _pending_update_select(row: dict[str, Any]):
         "issue_name": ast.Constant(value=row.get("issue_name")),
         "issue_description": ast.Constant(value=row.get("issue_description")),
         "issue_status": ast.Constant(value=str(row["issue_status"])),
+        "issue_severity": ast.Constant(value=row.get("issue_severity")),
         "assigned_user_id": ast.Call(name="_toInt64", args=[ast.Constant(value=int(assigned_user_id))])
         if assigned_user_id is not None
         else ast.Constant(value=None),

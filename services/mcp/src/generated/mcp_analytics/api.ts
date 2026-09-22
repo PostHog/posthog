@@ -3,108 +3,15 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 7 enabled ops
+ * PostHog API - MCP 6 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
 /**
- * Create a new MCP feedback submission for the current project.
- */
-export const McpAnalyticsFeedbackCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const mcpAnalyticsFeedbackCreateBodyAttemptedToolDefault = ``
-export const mcpAnalyticsFeedbackCreateBodyAttemptedToolMax = 200
-
-export const mcpAnalyticsFeedbackCreateBodyMcpClientNameDefault = ``
-export const mcpAnalyticsFeedbackCreateBodyMcpClientNameMax = 200
-
-export const mcpAnalyticsFeedbackCreateBodyMcpClientVersionDefault = ``
-export const mcpAnalyticsFeedbackCreateBodyMcpClientVersionMax = 100
-
-export const mcpAnalyticsFeedbackCreateBodyMcpProtocolVersionDefault = ``
-export const mcpAnalyticsFeedbackCreateBodyMcpProtocolVersionMax = 50
-
-export const mcpAnalyticsFeedbackCreateBodyMcpTransportDefault = ``
-export const mcpAnalyticsFeedbackCreateBodyMcpTransportMax = 50
-
-export const mcpAnalyticsFeedbackCreateBodyMcpSessionIdDefault = ``
-export const mcpAnalyticsFeedbackCreateBodyMcpSessionIdMax = 200
-
-export const mcpAnalyticsFeedbackCreateBodyMcpTraceIdDefault = ``
-export const mcpAnalyticsFeedbackCreateBodyMcpTraceIdMax = 200
-
-export const mcpAnalyticsFeedbackCreateBodyGoalMax = 500
-
-export const mcpAnalyticsFeedbackCreateBodyFeedbackMax = 5000
-
-export const mcpAnalyticsFeedbackCreateBodyCategoryDefault = `other`
-
-export const McpAnalyticsFeedbackCreateBody = /* @__PURE__ */ zod.object({
-    attempted_tool: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyAttemptedToolMax)
-        .default(mcpAnalyticsFeedbackCreateBodyAttemptedToolDefault)
-        .describe('The tool the user tried before leaving feedback, if known.'),
-    mcp_client_name: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyMcpClientNameMax)
-        .default(mcpAnalyticsFeedbackCreateBodyMcpClientNameDefault)
-        .describe('MCP client name, for example Claude Desktop or Cursor.'),
-    mcp_client_version: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyMcpClientVersionMax)
-        .default(mcpAnalyticsFeedbackCreateBodyMcpClientVersionDefault)
-        .describe('Version string for the MCP client when available.'),
-    mcp_protocol_version: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyMcpProtocolVersionMax)
-        .default(mcpAnalyticsFeedbackCreateBodyMcpProtocolVersionDefault)
-        .describe('MCP protocol version negotiated for the session when available.'),
-    mcp_transport: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyMcpTransportMax)
-        .default(mcpAnalyticsFeedbackCreateBodyMcpTransportDefault)
-        .describe('Transport used for the MCP session, for example streamable_http or sse.'),
-    mcp_session_id: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyMcpSessionIdMax)
-        .default(mcpAnalyticsFeedbackCreateBodyMcpSessionIdDefault)
-        .describe('Stable MCP session identifier when available.'),
-    mcp_trace_id: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyMcpTraceIdMax)
-        .default(mcpAnalyticsFeedbackCreateBodyMcpTraceIdDefault)
-        .describe('Trace identifier for the surrounding MCP workflow when available.'),
-    goal: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyGoalMax)
-        .describe("The user's intended outcome when using MCP."),
-    feedback: zod
-        .string()
-        .max(mcpAnalyticsFeedbackCreateBodyFeedbackMax)
-        .describe('Concrete feedback about the MCP experience, tool result, or workflow friction.'),
-    category: zod
-        .enum(['results', 'usability', 'bug', 'docs', 'other'])
-        .describe(
-            '\* `results` - Results\n\* `usability` - Usability\n\* `bug` - Bug\n\* `docs` - Docs\n\* `other` - Other'
-        )
-        .default(mcpAnalyticsFeedbackCreateBodyCategoryDefault)
-        .describe(
-            'High-level category for the feedback.\n\n\* `results` - Results\n\* `usability` - Usability\n\* `bug` - Bug\n\* `docs` - Docs\n\* `other` - Other'
-        ),
-})
-
-/**
  * Return the most recent intent cluster snapshot for the current project. Returns an empty IDLE snapshot when no clustering run has happened yet.
  */
-export const McpAnalyticsIntentClustersRetrieveParams = /* @__PURE__ */ zod.object({
+export const McpAnalyticsIntentClustersRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -112,7 +19,7 @@ export const McpAnalyticsIntentClustersRetrieveParams = /* @__PURE__ */ zod.obje
         ),
 })
 
-export const McpAnalyticsIntentClustersRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const McpAnalyticsIntentClustersRetrieveQueryParams = () => zod.object({
     tool: zod
         .string()
         .optional()
@@ -124,7 +31,7 @@ export const McpAnalyticsIntentClustersRetrieveQueryParams = /* @__PURE__ */ zod
 /**
  * Trigger an asynchronous recompute of the intent cluster snapshot. The task runs in the background; poll the GET endpoint for progress (status transitions to 'idle' or 'error').
  */
-export const McpAnalyticsIntentClustersRecomputeParams = /* @__PURE__ */ zod.object({
+export const McpAnalyticsIntentClustersRecomputeParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -135,7 +42,7 @@ export const McpAnalyticsIntentClustersRecomputeParams = /* @__PURE__ */ zod.obj
 /**
  * Create a new missing capability report for the current project.
  */
-export const McpAnalyticsMissingCapabilitiesCreateParams = /* @__PURE__ */ zod.object({
+export const McpAnalyticsMissingCapabilitiesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -170,7 +77,7 @@ export const mcpAnalyticsMissingCapabilitiesCreateBodyMissingCapabilityMax = 500
 
 export const mcpAnalyticsMissingCapabilitiesCreateBodyBlockedDefault = true
 
-export const McpAnalyticsMissingCapabilitiesCreateBody = /* @__PURE__ */ zod.object({
+export const McpAnalyticsMissingCapabilitiesCreateBody = () => zod.object({
     attempted_tool: zod
         .string()
         .max(mcpAnalyticsMissingCapabilitiesCreateBodyAttemptedToolMax)
@@ -223,7 +130,7 @@ export const McpAnalyticsMissingCapabilitiesCreateBody = /* @__PURE__ */ zod.obj
 /**
  * List MCP sessions for the current project, derived by grouping $mcp_tool_call events by $mcp_session_id. Ordered by newest session start first by default.
  */
-export const McpAnalyticsSessionsListParams = /* @__PURE__ */ zod.object({
+export const McpAnalyticsSessionsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -240,7 +147,7 @@ export const mcpAnalyticsSessionsListQueryOffsetMin = 0
 export const mcpAnalyticsSessionsListQueryOrderByDefault = ``
 export const mcpAnalyticsSessionsListQuerySearchDefault = ``
 
-export const McpAnalyticsSessionsListQueryParams = /* @__PURE__ */ zod.object({
+export const McpAnalyticsSessionsListQueryParams = () => zod.object({
     date_from: zod
         .string()
         .optional()
@@ -281,7 +188,7 @@ export const McpAnalyticsSessionsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Generate (or return the cached) LLM summary of the agent's goal for a session, derived from its recorded $mcp_intents. The first call summarises and persists the result; subsequent calls return the stored summary.
  */
-export const McpAnalyticsSessionsGenerateIntentParams = /* @__PURE__ */ zod.object({
+export const McpAnalyticsSessionsGenerateIntentParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this mcp analytics submission.'),
     project_id: zod
         .string()
@@ -290,7 +197,7 @@ export const McpAnalyticsSessionsGenerateIntentParams = /* @__PURE__ */ zod.obje
         ),
 })
 
-export const McpAnalyticsSessionsGenerateIntentQueryParams = /* @__PURE__ */ zod.object({
+export const McpAnalyticsSessionsGenerateIntentQueryParams = () => zod.object({
     date_from: zod.iso
         .datetime({ offset: true })
         .optional()
@@ -302,7 +209,7 @@ export const McpAnalyticsSessionsGenerateIntentQueryParams = /* @__PURE__ */ zod
 /**
  * List a page of the $mcp_tool_call events that belong to a given $session_id, in chronological order.
  */
-export const McpAnalyticsSessionsToolCallsParams = /* @__PURE__ */ zod.object({
+export const McpAnalyticsSessionsToolCallsParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this mcp analytics submission.'),
     project_id: zod
         .string()
@@ -317,7 +224,7 @@ export const mcpAnalyticsSessionsToolCallsQueryLimitMax = 500
 export const mcpAnalyticsSessionsToolCallsQueryOffsetDefault = 0
 export const mcpAnalyticsSessionsToolCallsQueryOffsetMin = 0
 
-export const McpAnalyticsSessionsToolCallsQueryParams = /* @__PURE__ */ zod.object({
+export const McpAnalyticsSessionsToolCallsQueryParams = () => zod.object({
     date_from: zod.iso
         .datetime({ offset: true })
         .optional()

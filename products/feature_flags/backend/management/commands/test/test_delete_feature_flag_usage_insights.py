@@ -26,7 +26,9 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.feature_flags.backend.api.feature_flag import _create_usage_dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
+
+from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 
 class TestDeleteFeatureFlagUsageInsights(BaseTest):
@@ -104,6 +106,19 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
         assert logged is not None
         assert logged.is_system is True
 
+    def test_sweeps_a_soft_deleted_flags_insights_by_default_and_nulls_its_usage_dashboard(self) -> None:
+        # A default run must reach a soft-deleted flag's dashboard without --include-orphaned, and
+        # must still sever the FK on the soft-deleted row itself, not just on live flags.
+        flag = self._flag_with_usage_dashboard("soft-deleted")
+        insights = self._usage_insights(flag)
+        FeatureFlag.objects.filter(pk=flag.pk).update(deleted=True)
+
+        self._run()
+
+        assert Insight.objects.filter(id__in=[i.id for i in insights]).count() == 0
+        flag.refresh_from_db()
+        assert flag.usage_dashboard_id is None
+
     def test_matches_generated_names_when_descriptions_have_drifted(self) -> None:
         # The name arms are the classifier's only reach once description wording changes, and the
         # descriptions are prose that a copy edit can reword. Clearing them isolates the name arms.
@@ -117,7 +132,9 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
 
     def test_orphaned_insights_are_swept_only_with_the_opt_in(self) -> None:
         # Guards the opt-in gate in both directions: a default run must leave orphans alone, and
-        # --include-orphaned must actually delete them.
+        # --include-orphaned must actually delete them. Nulling usage_dashboard rather than deleting
+        # the row models a hard-deleted flag: a dashboard is orphaned only when no flag row, live or
+        # soft-deleted, points at it, and this update produces exactly that.
         flag = self._flag_with_usage_dashboard("orphan")
         insights = self._usage_insights(flag)
         FeatureFlag.objects.filter(id=flag.id).update(usage_dashboard=None)
@@ -209,7 +226,9 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
 
         assert Insight.objects.filter(id=unrelated.id).exists()
 
-    @parameterized.expand(["favorited", "edited", "sharing", "alert", "keep_list"])
+    @parameterized.expand(
+        ["favorited", "edited", "sharing", "subscription", "subscription_paused", "alert", "keep_list"]
+    )
     def test_keeps_insight_with_usage_signal_and_leaves_dashboard_linked(self, signal: str) -> None:
         flag = self._flag_with_usage_dashboard(f"flag-{signal}")
         insights = self._usage_insights(flag)
@@ -225,6 +244,8 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
             kept.save()
         elif signal == "sharing":
             SharingConfiguration.objects.create(team=self.team, insight=kept, enabled=True)
+        elif signal in ("subscription", "subscription_paused"):
+            create_subscription(team=self.team, insight=kept, enabled=signal != "subscription_paused")
         elif signal == "alert":
             AlertConfiguration.objects.create(team=self.team, insight=kept, created_by=self.user, name="a")
         elif signal == "keep_list":
@@ -237,6 +258,27 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
         assert Insight.objects.filter(id=kept.id).exists()
         assert not Insight.objects.filter(id=other.id).exists()
         # A kept insight still lives on the dashboard, so the flag must stay linked to it.
+        flag.refresh_from_db()
+        assert flag.usage_dashboard_id is not None
+
+    @parameterized.expand(["shared", "subscribed", "subscribed_paused"])
+    def test_keeps_every_insight_on_a_dashboard_someone_shared_or_subscribed_to(self, signal: str) -> None:
+        # A dashboard-level share link or scheduled delivery serves every tile, so no insight on such
+        # a dashboard may be swept even though no insight-level signal marks any of them. The
+        # insight-level cases above cannot catch a regression here: a dashboard's sharing and
+        # subscription rows carry no insight id.
+        flag = self._flag_with_usage_dashboard(f"dashboard-{signal}")
+        insights = self._usage_insights(flag)
+        if signal == "shared":
+            SharingConfiguration.objects.create(team=self.team, dashboard_id=flag.usage_dashboard_id, enabled=True)
+        else:
+            create_subscription(
+                team=self.team, dashboard_id=flag.usage_dashboard_id, enabled=signal != "subscribed_paused"
+            )
+
+        self._run()
+
+        assert Insight.objects.filter(id__in=[i.id for i in insights]).count() == len(insights)
         flag.refresh_from_db()
         assert flag.usage_dashboard_id is not None
 

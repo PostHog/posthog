@@ -97,12 +97,27 @@ def bulk_start_upload(
     release_id: str | None,
     force: bool,
     skip_on_conflict: bool,
-) -> dict[str, dict[str, str]]:
+) -> dict[str, dict[str, Any]]:
     return _logic.bulk_start_upload(
         team,
         symbol_sets=symbol_sets,
         chunk_ids=chunk_ids,
         release_id=release_id,
+        force=force,
+        skip_on_conflict=skip_on_conflict,
+    )
+
+
+def bulk_check_upload(
+    team: Any,
+    *,
+    symbol_sets: list[dict],
+    force: bool,
+    skip_on_conflict: bool,
+) -> list[str]:
+    return _logic.bulk_check_upload(
+        team,
+        symbol_sets=symbol_sets,
         force=force,
         skip_on_conflict=skip_on_conflict,
     )

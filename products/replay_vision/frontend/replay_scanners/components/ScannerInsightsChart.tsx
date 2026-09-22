@@ -140,7 +140,7 @@ function chartTitle(scannerType: ScannerType): string {
         return 'Yes rate (%) over time'
     }
     if (scannerType === 'classifier') {
-        return 'Tag mix over time'
+        return 'Category mix over time'
     }
     if (scannerType === 'scorer') {
         return 'Score percentiles over time'

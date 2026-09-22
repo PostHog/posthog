@@ -19,7 +19,7 @@ import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInpu
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 
 import { groupsModel } from '~/models/groupsModel'
 import { EntityTypes, HogFunctionConfigurationType, HogFunctionMappingType } from '~/types'

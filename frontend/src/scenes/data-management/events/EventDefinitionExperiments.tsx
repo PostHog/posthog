@@ -10,11 +10,12 @@ import {
     type ExperimentBasicApi,
     eventExperimentsLogic,
 } from 'scenes/data-management/events/eventExperimentsLogic'
-import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { EventDefinition, ExperimentStatus } from '~/types'
+
+import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
 
 export function EventDefinitionExperiments({ definition }: { definition: EventDefinition }): JSX.Element {
     const event = definition.name

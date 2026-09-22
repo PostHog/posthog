@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
-from posthog.management.commands.migrate_ses_tenants import migrate_ses_tenants
+from posthog.management.commands.migrate_ses_tenants import SesTenantMigrationCounts, migrate_ses_tenants
 from posthog.models.integration import Integration
 
 
@@ -161,4 +161,6 @@ class TestMigrateSESTenants(BaseTest):
 
         # The identity succeeded; both config-set associations failed and must be reported so the
         # rollout can't mistake a partial pass for a complete one
-        assert counts == {"tenants": 1, "associations_ok": 1, "tenant_failures": 0, "association_failures": 2}
+        assert counts == SesTenantMigrationCounts(
+            tenants=1, associations_ok=1, tenant_failures=0, association_failures=2
+        )

@@ -67,7 +67,7 @@ class TestProductDBCircuitBreaker(SimpleTestCase):
         # resumes. TTL uses fakeredis wall-clock, so assert right after opening.
         self._open_breaker(ProductDBCircuitBreaker())
 
-        _, open_until_key, _ = ProductDBCircuitBreaker()._keys(ALIAS)
+        open_until_key = ProductDBCircuitBreaker()._keys(ALIAS).open_until
         ttl = get_client().ttl(open_until_key)
         self.assertGreater(ttl, BREAKER_SETTINGS["PRODUCT_DB_CIRCUIT_BREAKER_COOLDOWN_SECONDS"])
 

@@ -1,0 +1,14 @@
+# Config for the Trunk CLI (https://docs.trunk.io/reference/trunk-yaml).
+# PostHog uses Trunk for the merge queue only (trunk merge / status / cancel),
+# not for linting: repo linters run through their own tooling and CI, so
+# keep this file free of lint, runtimes, and plugin config.
+version: 0.1
+cli:
+    version: 1.25.0
+actions:
+    disabled:
+        - git-lfs
+        - trunk-announce
+        - trunk-check-pre-push
+        - trunk-fmt-pre-commit
+        - trunk-upgrade-available

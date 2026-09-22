@@ -8,12 +8,14 @@ export function FilterPill<T extends string>({
     value,
     onChange,
     searchable = false,
+    searchPlaceholder,
 }: {
     label: string
     options: { value: T; label: string }[]
     value: T[]
     onChange: (next: T[]) => void
     searchable?: boolean
+    searchPlaceholder?: string
 }): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
     const filteredOptions = searchTerm
@@ -39,7 +41,7 @@ export function FilterPill<T extends string>({
                             <LemonInput
                                 type="search"
                                 size="small"
-                                placeholder="Search tags"
+                                placeholder={searchPlaceholder ?? `Search ${label.toLowerCase()}`}
                                 autoFocus
                                 fullWidth
                                 value={searchTerm}

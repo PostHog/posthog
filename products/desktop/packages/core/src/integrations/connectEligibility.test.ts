@@ -1,8 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
+  classifyGithubCallback,
   computeShouldUseTeamFlow,
   validateInstallUrl,
 } from "./connectEligibility";
+
+describe("classifyGithubCallback", () => {
+  it.each([
+    [null, "success"],
+    ["", "success"],
+    ["github_install_pending", "pending_org_approval"],
+    ["installation_not_authorized", "not_authorized"],
+    ["access_denied", "error"],
+  ])("maps %s to %s", (code, expected) => {
+    expect(classifyGithubCallback(code)).toBe(expected);
+  });
+});
 
 describe("computeShouldUseTeamFlow", () => {
   it("is true only for admins on a project without a team integration in a known region", () => {

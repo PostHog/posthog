@@ -1,19 +1,28 @@
+from rest_framework.exceptions import ValidationError as DRFValidationError
+
 from posthog.schema import AlertCondition, InsightThreshold, IntervalType, NodeKind
 
 from posthog.api.services.query import ExecutionMode
-from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.hogql_queries.validation.validate_query import rule_violation_message
+from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr
 
 from products.alerts.backend.evaluation.comparator import evaluate_threshold
-from products.alerts.backend.evaluation.contract import DetectorExtractor, Extractor, execution_mode_for_alert
+from products.alerts.backend.evaluation.contract import (
+    AlertExtractionError,
+    DetectorExtractor,
+    ExtractionResult,
+    Extractor,
+    execution_mode_for_alert,
+)
 from products.alerts.backend.evaluation.detector import TrendsDetectorExtractor, evaluate_with_detector
 from products.alerts.backend.evaluation.funnels import FunnelsExtractor
 from products.alerts.backend.evaluation.hogql import HogQLDetectorExtractor, HogQLExtractor
 from products.alerts.backend.evaluation.metrics import MetricsExtractor
 from products.alerts.backend.evaluation.trends import TrendsExtractor
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 # Each insight kind that supports threshold alerts maps to one extractor. The comparator is shared.
 EXTRACTORS: dict[NodeKind, Extractor] = {
@@ -42,6 +51,34 @@ def _resolve_execution_mode(alert: AlertConfiguration, kind: NodeKind, query: ob
     return execution_mode_for_alert(interval, high_frequency=alert.is_high_frequency_interval)
 
 
+def run_extractor(
+    extractor: Extractor,
+    alert: AlertConfiguration,
+    insight: Insight,
+    query: object,
+    execution_mode: ExecutionMode,
+) -> ExtractionResult:
+    """Run an extractor, routing a query the runner refuses to the auto-disable path.
+
+    The query layer raises a DRF ValidationError for an insight it can never run as written: a
+    validation rule the insight breaks, an action a step points at that no longer exists, a cohort
+    property it can no longer resolve. The alert cannot evaluate until someone fixes the insight,
+    so it is disabled and its owner emailed, rather than the same failure being captured on every
+    scheduled check.
+
+    A breaker replay is not such a verdict. It carries the remembered ClickHouse failure of a query
+    that is itself sound (see ``build_failure_exception`` in
+    ``posthog/hogql_queries/query_failure_handling.py``), and disabling on it would silence a
+    working alert over a load problem, so it keeps the ordinary failure path.
+    """
+    try:
+        return extractor.extract(alert, insight, query, execution_mode)
+    except DRFValidationError as err:
+        if getattr(err, "served_from_query_failure_cache", False):
+            raise
+        raise AlertExtractionError(rule_violation_message(err)) from err
+
+
 def check_detector_alert(alert: AlertConfiguration, insight: Insight, query: object) -> AlertEvaluationResult:
     """Route a detector (anomaly) alert to its kind's detector extractor, then score the series.
 
@@ -55,7 +92,7 @@ def check_detector_alert(alert: AlertConfiguration, insight: Insight, query: obj
     detector_extractor = DETECTOR_EXTRACTORS.get(kind)
     if detector_extractor is None:
         raise NotImplementedError(f"AlertCheckError: Detector alerts for {kind} are not supported yet")
-    result = detector_extractor.extract(alert, insight, query, _resolve_execution_mode(alert, kind, query))
+    result = run_extractor(detector_extractor, alert, insight, query, _resolve_execution_mode(alert, kind, query))
     return evaluate_with_detector(result, detector_config)
 
 
@@ -68,8 +105,10 @@ def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
     ``ExtractionResult`` and the comparator evaluates it against the threshold.
     """
     insight = alert.insight
+    if insight.query is None:
+        raise ValueError("Alert's insight has no valid query")
 
-    with upgrade_query(insight):
+    with upgrade_insight(insight):
         query = insight.query
         kind = get_from_dict_or_attr(query, "kind")
 
@@ -90,5 +129,5 @@ def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
             return AlertEvaluationResult(value=0, breaches=[])
 
         condition = AlertCondition.model_validate(alert.condition)
-        result = extractor.extract(alert, insight, query, _resolve_execution_mode(alert, kind, query))
+        result = run_extractor(extractor, alert, insight, query, _resolve_execution_mode(alert, kind, query))
         return evaluate_threshold(result, condition, threshold)

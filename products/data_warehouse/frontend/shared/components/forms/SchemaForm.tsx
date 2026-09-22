@@ -372,6 +372,11 @@ export default function SchemaForm(): JSX.Element {
     return (
         <>
             <div className="flex flex-col gap-2 flex-1 min-h-0">
+                {!isDirectQueryMode && (
+                    <p className="text-muted text-sm mb-0">
+                        You can enable more tables or change sync settings later on the source's Schemas tab.
+                    </p>
+                )}
                 {hasManySchemas && (
                     <div className="flex items-center gap-2">
                         <LemonInput

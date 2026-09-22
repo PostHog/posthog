@@ -18,6 +18,7 @@ import structlog
 from posthog.models.integration import Integration
 
 from products.slack_app.backend import inbox_channel, onboarding
+from products.slack_app.backend.services import slack_welcome_messages
 
 logger = structlog.get_logger(__name__)
 
@@ -30,8 +31,8 @@ def extract_inbox_hints(payload: dict) -> int | None:
     for action in payload.get("actions", []):
         action_id = action.get("action_id")
         if action_id in (
-            onboarding.INBOX_CREATE_ACTION_ID,
-            onboarding.INBOX_JOIN_ACTION_ID,
+            slack_welcome_messages.INBOX_CREATE_ACTION_ID,
+            slack_welcome_messages.INBOX_JOIN_ACTION_ID,
         ):
             try:
                 value = json.loads(action.get("value") or "{}")
@@ -42,7 +43,10 @@ def extract_inbox_hints(payload: dict) -> int | None:
                 return integration_id
             continue
         block_id = action.get("block_id", "")
-        for prefix in (onboarding.INBOX_SOURCES_BLOCK_PREFIX, onboarding.INBOX_AI_APPROVAL_BLOCK_PREFIX):
+        for prefix in (
+            slack_welcome_messages.INBOX_SOURCES_BLOCK_PREFIX,
+            slack_welcome_messages.INBOX_AI_APPROVAL_BLOCK_PREFIX,
+        ):
             if block_id.startswith(f"{prefix}:"):
                 suffix = block_id.split(":", 1)[1]
                 return int(suffix) if suffix.isdigit() else None
@@ -146,7 +150,11 @@ def handle_inbox_ai_approval(payload: dict) -> HttpResponse:
     integration = _inbox_integration_from_payload(payload)
     slack_user_id = payload.get("user", {}).get("id", "")
     action = next(
-        (a for a in payload.get("actions", []) if a.get("action_id") == onboarding.INBOX_AI_APPROVAL_ACTION_ID),
+        (
+            a
+            for a in payload.get("actions", [])
+            if a.get("action_id") == slack_welcome_messages.INBOX_AI_APPROVAL_ACTION_ID
+        ),
         None,
     )
     ticked = any(o.get("value") == "approve" for o in (action or {}).get("selected_options", []))
@@ -166,14 +174,13 @@ def handle_inbox_sources(payload: dict) -> HttpResponse:
     if integration is None or not slack_user_id:
         return HttpResponse(status=200)
     action = next(
-        (a for a in payload.get("actions", []) if a.get("action_id") == onboarding.INBOX_SOURCES_CHECKBOXES_ACTION),
+        (
+            a
+            for a in payload.get("actions", [])
+            if a.get("action_id") == slack_welcome_messages.INBOX_SOURCES_CHECKBOXES_ACTION
+        ),
         None,
     )
     selected = [o.get("value") for o in (action or {}).get("selected_options", []) if o.get("value")]
-    blocked = onboarding.apply_sources_selection(integration, slack_user_id, selected)
-    if blocked:
-        _post_ephemeral_via_response_url(
-            payload.get("response_url", ""),
-            f":warning: Approve AI data processing first to turn on *{', '.join(blocked)}*.",
-        )
+    onboarding.apply_sources_selection(integration, slack_user_id, selected)
     return HttpResponse(status=200)

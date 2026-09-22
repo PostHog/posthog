@@ -151,14 +151,14 @@ describe('RecordingApi', () => {
         })
 
         it('should configure forcePathStyle when endpoint is specified', async () => {
-            mockConfig.SESSION_RECORDING_V2_S3_ENDPOINT = 'http://localhost:4566'
+            mockConfig.SESSION_RECORDING_V2_S3_ENDPOINT = 'http://s3.test'
             const recordingApi = new RecordingApi(mockConfig as RecordingApiConfig, mockPostgres, mockOutputs)
 
             await recordingApi.start()
 
             expect(S3Client).toHaveBeenCalledWith({
                 region: 'us-west-2',
-                endpoint: 'http://localhost:4566',
+                endpoint: 'http://s3.test',
                 forcePathStyle: true,
             })
         })

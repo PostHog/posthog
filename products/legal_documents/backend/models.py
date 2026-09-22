@@ -39,6 +39,13 @@ class LegalDocument(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UU
     # join key for inbound PandaDoc webhooks.
     pandadoc_document_id = models.CharField(max_length=64, blank=True, db_index=True)
 
+    # True once the signed PDF has been pulled from PandaDoc and written to
+    # object storage. A row can be `signed` before this flips: the signature is
+    # recorded the moment the completion webhook lands, and the PDF is archived
+    # in a retried background job. The download link stays hidden until the file
+    # is actually there.
+    signed_pdf_stored = models.BooleanField(default=False, db_default=False)
+
     class Meta:
         ordering = ["-created_at"]
         # An org has at most one BAA and at most one DPA. If they need a new one (e.g.,

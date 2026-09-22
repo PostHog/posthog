@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 
 import { activeCloudRunLogic } from './activeCloudRunLogic'
@@ -39,6 +40,7 @@ export function WizardCloudRunBlock({
     const { activeCloudRun } = useValues(activeCloudRunLogic)
     const { setSelectedRepository, startCloudRun } = useActions(wizardCloudRunLogic)
     const { clearActiveCloudRun } = useActions(activeCloudRunLogic)
+    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
 
     // Fire onQueued once per kickoff, the moment the run is handed off. It advances the install step
     // (GROW-96), so it must not repeat while the status stays 'queued' (the callback identity changes
@@ -120,6 +122,7 @@ export function WizardCloudRunBlock({
                     disableClientSideRouting
                     data-attr="wizard-cloud-run-connect-github"
                     className={hideHog ? 'self-center' : 'self-start'}
+                    onClick={() => reportIntegrationConnectClicked('github', 'github', 'onboarding_wizard')}
                 >
                     Connect GitHub
                 </LemonButton>

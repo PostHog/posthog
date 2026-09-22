@@ -98,20 +98,45 @@ describe('toolResolver', () => {
             })
         })
 
-        it('resolves exec invocations when the canonical tool name only arrives in metadata', () => {
+        it.each([
+            { claudeCode: { toolName: 'mcp__posthog__exec' } },
+            { posthog: { toolName: 'mcp__posthog__exec' } },
+            { posthog: { mcp: { server: 'posthog', tool: 'exec' } } },
+        ])('resolves exec invocations from adapter metadata %j', (meta) => {
             expect(
                 resolveToolCall({
                     rawServerName: 'posthog',
                     rawToolName: '',
                     input: { command: 'call query-trends {"kind":"TrendsQuery","series":[]}' },
-                    meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
+                    meta,
                 })
             ).toEqual({
                 resolvedKey: 'query-trends',
                 innerToolName: 'query-trends',
                 innerInput: { kind: 'TrendsQuery', series: [] },
-                claudeToolName: 'mcp__posthog__exec',
+                claudeToolName: meta.claudeCode?.toolName,
             })
+        })
+
+        it.each([
+            [{ posthog: { mcp: { server: 'other', tool: 'exec' } } }, 'exec', 'mcp__other__exec'],
+            [{ posthog: { toolName: 'mcp__other__exec' } }, 'exec', 'mcp__other__exec'],
+            [
+                { posthog: { toolName: 'mcp__posthog__exec', mcp: { server: 'other', tool: 'exec' } } },
+                'exec',
+                'mcp__other__exec',
+            ],
+            [{ claudeCode: { toolName: 'mcp__gitlab__clone_repo' } }, '', 'mcp__gitlab__clone_repo'],
+            [{ posthog: { mcp: { server: 'gitlab', tool: 'list_repos' } } }, '', 'mcp__gitlab__list_repos'],
+        ])('preserves external MCP identity from metadata %j', (meta, rawToolName, resolvedKey) => {
+            expect(
+                resolveToolCall({
+                    rawServerName: 'posthog',
+                    rawToolName,
+                    input: { command: 'call query-trends {}' },
+                    meta,
+                })
+            ).toMatchObject({ resolvedKey })
         })
 
         it('resolves a raw built-in invocation from metadata at render time', () => {

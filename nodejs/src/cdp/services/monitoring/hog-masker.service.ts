@@ -117,6 +117,13 @@ export class HogMaskerService {
     ): Promise<{
         masked: T[]
         notMasked: T[]
+        /**
+         * Undoes the Redis increments this call made. The claims are written before the
+         * caller persists the invocations, so if that persistence fails, the caller must
+         * release the claims — otherwise a replay of the same batch sees every invocation
+         * as already-masked and silently drops it.
+         */
+        release: () => Promise<void>
     }> {
         const invocationsWithMasker: GenericHogInvocationWithMasker[] = [...invocations]
         const masks: Record<string, MaskContext> = {}
@@ -158,7 +165,7 @@ export class HogMaskerService {
         }
 
         if (Object.keys(masks).length === 0) {
-            return { masked: [], notMasked: invocations }
+            return { masked: [], notMasked: invocations, release: async () => {} }
         }
 
         const buildPipeline = (pipeline: RedisClientPipeline): void => {
@@ -170,10 +177,20 @@ export class HogMaskerService {
         }
 
         const maskContexts = Object.values(masks)
+        // Track which stores the increments actually landed on, so release() only
+        // decrements those — decrementing a store whose increment failed would push
+        // its counters negative and over-allow future executions.
+        let incrementedRedis: MaskPipelineResult = null
+        let incrementedMirror: MaskPipelineResult = null
         const result = await dualRead(
             'hog-masker.filterByMasking',
-            () => this.redis.usePipeline({ name: 'masker', failOpen: true }, buildPipeline),
-            () => this.redisMirror.usePipeline({ name: 'masker-mirror', failOpen: true }, buildPipeline),
+            async () =>
+                (incrementedRedis = await this.redis.usePipeline({ name: 'masker', failOpen: true }, buildPipeline)),
+            async () =>
+                (incrementedMirror = await this.redisMirror.usePipeline(
+                    { name: 'masker-mirror', failOpen: true },
+                    buildPipeline
+                )),
             (primary, secondary) =>
                 maskContexts.every(
                     (masker, index) =>
@@ -181,6 +198,25 @@ export class HogMaskerService {
                         allowedExecutionsForResult(secondary, index, masker)
                 )
         )
+
+        const release = async (): Promise<void> => {
+            const buildReleasePipeline = (pipeline: RedisClientPipeline): void => {
+                maskContexts.forEach(({ hogFunctionId, hash, increment }) => {
+                    pipeline.incrby(`${REDIS_KEY_TOKENS}/${hogFunctionId}/${hash}`, -increment)
+                })
+            }
+            await Promise.all([
+                incrementedRedis
+                    ? this.redis.usePipeline({ name: 'masker-release', failOpen: true }, buildReleasePipeline)
+                    : null,
+                incrementedMirror
+                    ? this.redisMirror.usePipeline(
+                          { name: 'masker-release-mirror', failOpen: true },
+                          buildReleasePipeline
+                      )
+                    : null,
+            ])
+        }
 
         maskContexts.forEach((masker, index) => {
             const allowedExecutions = allowedExecutionsForResult(result, index, masker)
@@ -205,9 +241,10 @@ export class HogMaskerService {
                 }
                 return acc
             },
-            { masked: [], notMasked: [] } as {
+            { masked: [], notMasked: [], release } as {
                 masked: T[]
                 notMasked: T[]
+                release: () => Promise<void>
             }
         )
     }

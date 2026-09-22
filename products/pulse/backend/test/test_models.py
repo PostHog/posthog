@@ -9,7 +9,7 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.models import (
     ActionStatus,
     ActionType,

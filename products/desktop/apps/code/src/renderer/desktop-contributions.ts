@@ -1,4 +1,3 @@
-import { agentChatCoreModule } from "@posthog/core/agent-chat/agentChat.module";
 import { autoresearchCoreModule } from "@posthog/core/autoresearch/autoresearch.module";
 import { taskThreadCoreModule } from "@posthog/core/canvas/taskThread.module";
 import { inboxCoreModule } from "@posthog/core/inbox/inbox.module";
@@ -33,7 +32,6 @@ import { container } from "@renderer/di/container";
 
 export function registerDesktopContributions(): void {
   for (const module of [
-    agentChatCoreModule,
     agentUiModule,
     authUiModule,
     autoresearchCoreModule,

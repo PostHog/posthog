@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 
 
 class TeamExperimentsConfig(models.Model):
+    class PrecomputationEnabledSetBy(models.TextChoices):
+        MANUAL = "manual", "Manual"
+        AUTO = "auto", "Auto"
+
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
 
     experiment_recalculation_time = models.TimeField(
@@ -39,6 +43,18 @@ class TeamExperimentsConfig(models.Model):
     experiment_precomputation_enabled = models.BooleanField(
         default=False,
         help_text="Whether to precompute experiment exposure data for faster query execution.",
+    )
+
+    precomputation_enabled_set_by = models.CharField(
+        max_length=10,
+        choices=PrecomputationEnabledSetBy.choices,
+        null=True,
+        blank=True,
+        help_text=(
+            "Who last set experiment_precomputation_enabled: a human (manual) or the auto-enrollment "
+            "job (auto). Null means never set. The job only writes when this is null or auto, so a "
+            "manual change in either direction sticks."
+        ),
     )
 
     default_only_count_matured_users = models.BooleanField(

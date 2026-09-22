@@ -1,6 +1,6 @@
 from posthog.models.team.team import Team
 
-from products.error_tracking.backend.logic import get_client_safe_suppression_rules
+from products.error_tracking.backend.logic.rules import get_client_safe_suppression_rules
 
 
 def build_error_tracking_config(team: Team) -> dict:

@@ -1,9 +1,16 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events
+
+from django.test import override_settings
+
+from parameterized import parameterized
 
 from posthog.schema import (
     ActionConversionGoal,
+    CompareFilter,
+    CustomEventConversionGoal,
     DateRange,
+    EventPropertyFilter,
     HogQLQueryModifiers,
     SessionTableVersion,
     WebStatsBreakdown,
@@ -23,7 +30,7 @@ from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_ba
 
 class TestWebStatsTablePreAggregatedConversions(WebAnalyticsPreAggregatedTestBase):
     def _setup_test_data(self, user_prefix="user"):
-        with freeze_time("2024-01-01T09:00:00Z"):
+        with time_machine.travel("2024-01-01T09:00:00Z", tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=[f"{user_prefix}1"])
             _create_person(team_id=self.team.pk, distinct_ids=[f"{user_prefix}2"])
 
@@ -82,7 +89,7 @@ class TestWebStatsTablePreAggregatedConversions(WebAnalyticsPreAggregatedTestBas
         )
         sync_execute(f"INSERT INTO web_pre_aggregated_stats {sql}")
 
-        with freeze_time("2024-01-02T00:00:00Z"):
+        with time_machine.travel("2024-01-02T00:00:00Z", tick=False):
             modifiers = HogQLQueryModifiers(
                 sessionTableVersion=SessionTableVersion.V2,
                 useWebAnalyticsPreAggregatedTables=True,
@@ -140,6 +147,113 @@ class TestWebStatsTablePreAggregatedConversions(WebAnalyticsPreAggregatedTestBas
             assert total_conversions_current == 0.0
             assert unique_conversions_current == 0.0
             assert conversion_rate_current == 0.0
+            query.includeTrafficMetrics = True
+            traffic_response = WebStatsTableQueryRunner(team=self.team, query=query, modifiers=modifiers).calculate()
+            assert traffic_response.columns is not None
+            traffic_row = dict(
+                zip(traffic_response.columns, next(row for row in traffic_response.results if row[0] == "/page1"))
+            )
+            assert traffic_row["context.columns.sessions"][0] >= 1
+            assert traffic_row["context.columns.views"][0] >= 1
+            assert traffic_row["context.columns.unique_conversions"][0] >= 1
+            query.conversionGoal = None
+            without_goal = WebStatsTableQueryRunner(team=self.team, query=query, modifiers=modifiers).calculate()
+            assert without_goal.columns is not None
+            without_goal_row = dict(
+                zip(without_goal.columns, next(row for row in without_goal.results if row[0] == "/page1"))
+            )
+            assert without_goal_row["context.columns.sessions"] == traffic_row["context.columns.sessions"]
+            assert without_goal_row["context.columns.views"] == traffic_row["context.columns.views"]
+
+    def test_traffic_population_excludes_goal_only_sessions(self):
+        for i in range(3):
+            distinct_id = f"goal_only_{i}"
+            _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+            _create_event(
+                team=self.team,
+                event="customer_created",
+                distinct_id=distinct_id,
+                timestamp="2024-01-01T12:00:00Z",
+                properties={
+                    "$session_id": str(uuid7("2024-01-01T12:00:00")),
+                    "$current_url": "https://example.com/page1",
+                    "$pathname": "/page1",
+                },
+            )
+        flush_persons_and_events()
+        sql = WEB_STATS_INSERT_SQL(
+            date_start="2024-01-01", date_end="2024-01-02", team_ids=[self.team.pk], select_only=True
+        )
+        sync_execute(f"INSERT INTO web_pre_aggregated_stats {sql}")
+        with time_machine.travel("2024-01-02T00:00:00Z", tick=False):
+            for preaggregated in [False, True]:
+                for goal in [CustomEventConversionGoal(customEventName="customer_created"), None]:
+                    response = WebStatsTableQueryRunner(
+                        team=self.team,
+                        query=WebStatsTableQuery(
+                            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
+                            breakdownBy=WebStatsBreakdown.PAGE,
+                            conversionGoal=goal,
+                            includeTrafficMetrics=True,
+                            properties=[],
+                        ),
+                        modifiers=HogQLQueryModifiers(
+                            sessionTableVersion=SessionTableVersion.V2,
+                            useWebAnalyticsPreAggregatedTables=preaggregated,
+                        ),
+                    ).calculate()
+                    assert response.columns is not None
+                    row = dict(zip(response.columns, next(row for row in response.results if row[0] == "/page1")))
+                    assert row["context.columns.visitors"][0] == 1
+                    assert row["context.columns.sessions"][0] == 1
+                    assert row["context.columns.views"][0] == 1
+                    if goal:
+                        assert row["context.columns.unique_conversions"][0] == 3
+                        assert row["context.columns.conversion_rate"][0] == 3
+
+    @parameterized.expand(
+        [
+            ("join_bounce", False, False, False),
+            ("join_time", False, False, True),
+            ("no_join_bounce", True, False, False),
+            ("no_join_time", True, False, True),
+            ("session_set_bounce", False, True, False),
+            ("session_set_time", False, True, True),
+        ]
+    )
+    def test_page_traffic_metrics_with_engagement(
+        self, _name: str, no_join: bool, session_set: bool, average_time: bool
+    ) -> None:
+        with (
+            override_settings(
+                WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk] if no_join else [],
+                WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk] if session_set else [],
+            ),
+            time_machine.travel("2024-01-02T00:00:00Z", tick=False),
+        ):
+            response = WebStatsTableQueryRunner(
+                team=self.team,
+                query=WebStatsTableQuery(
+                    dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
+                    compareFilter=CompareFilter(compare=True),
+                    breakdownBy=WebStatsBreakdown.PAGE,
+                    includeTrafficMetrics=True,
+                    includeBounceRate=True,
+                    includeAvgTimeOnPage=average_time,
+                    properties=[EventPropertyFilter(key="$pathname", value="/page1")] if session_set else [],
+                ),
+                modifiers=HogQLQueryModifiers(
+                    sessionTableVersion=SessionTableVersion.V2, useWebAnalyticsPreAggregatedTables=False
+                ),
+            ).calculate()
+            assert response.columns is not None
+            row = dict(zip(response.columns, next(row for row in response.results if row[0] == "/page1")))
+            assert row["context.columns.sessions"] == (1, 0)
+            assert row["context.columns.visitors"] == (1, 0)
+            assert row["context.columns.views"] == (1, 0)
+            assert row["context.columns.bounce_rate"][0] == 1
+            if average_time:
+                assert "context.columns.avg_time_on_page" in row
 
     def test_conversion_goal_with_preaggregated_tables_bounce_style(self):
         """Test conversion goals using bounce-rate-style query pattern (alternative implementation)"""
@@ -172,7 +286,7 @@ class TestWebStatsTablePreAggregatedConversions(WebAnalyticsPreAggregatedTestBas
             )
             sync_execute(f"INSERT INTO web_pre_aggregated_stats {sql}")
 
-            with freeze_time("2024-01-02T00:00:00Z"):
+            with time_machine.travel("2024-01-02T00:00:00Z", tick=False):
                 modifiers = HogQLQueryModifiers(
                     sessionTableVersion=SessionTableVersion.V2,
                     useWebAnalyticsPreAggregatedTables=True,

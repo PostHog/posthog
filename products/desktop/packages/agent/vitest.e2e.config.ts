@@ -1,11 +1,11 @@
 import { resolve } from "node:path";
 import { defineConfig } from "vitest/config";
 
-// Live, opt-in e2e suite. Separate from the default `vitest.config.ts` (which
-// only includes `src/**`), so these never run under `pnpm test` or per-PR CI —
-// only via `pnpm test:e2e`, which the opt-in `e2e` job in
-// .github/workflows/test.yml invokes when AGENT_E2E_ENABLED is set. Sequential,
-// generous timeouts: each test drives two real model turns end to end.
+// Live e2e suite. Separate from the default `vitest.config.ts` (which only
+// includes `src/**`), so `pnpm test` never runs it. The `e2e` job in
+// desktop-test.yml runs it on a branch that changes products/desktop/packages/,
+// and skips it in the merge queue. Run it by hand with `pnpm test:e2e`.
+// Sequential, generous timeouts: each test drives two real model turns end to end.
 export default defineConfig({
   resolve: {
     alias: {

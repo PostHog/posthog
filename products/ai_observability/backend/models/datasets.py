@@ -24,13 +24,9 @@ def _json_type_is_not(field_name: str, json_type: str) -> NegatedExpression:
 class Dataset(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     objects = TeamScopedManager()
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
 
     name = models.CharField(max_length=400)
@@ -76,13 +72,9 @@ class Dataset(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 class DatasetRevision(UUIDModel, CreatedMetaFields):
     objects = TeamScopedManager()
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
 
     dataset = models.ForeignKey(Dataset, on_delete=models.CASCADE, related_name="revisions")
@@ -110,13 +102,9 @@ class DatasetRevision(UUIDModel, CreatedMetaFields):
 class DatasetItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     objects = TeamScopedManager()
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
 
     dataset = models.ForeignKey(Dataset, on_delete=models.CASCADE, related_name="items")
@@ -154,13 +142,9 @@ class DatasetItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 class DatasetItemVersion(UUIDModel, CreatedMetaFields):
     objects = TeamScopedManager()
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
 
     dataset = models.ForeignKey(Dataset, on_delete=models.CASCADE, related_name="item_versions")

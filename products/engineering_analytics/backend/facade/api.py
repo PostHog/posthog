@@ -7,17 +7,18 @@ parameters and return canonical contract types.
 ``repo`` is an optional ``owner/name`` filter, applied against the curated repo
 identity (mapped from ``base.repo.full_name``). ``branch`` is an optional exact
 ``head_branch`` filter for workflow health, a workflow's runs list, and its runner
-costs; workflow health additionally takes a broader ``run_scope`` filter
-(``pull_request`` scopes to PR-attributed runs). ``date_from`` / ``date_to`` accept
+costs; the same surfaces also take a broader ``run_scope`` filter (see
+``WorkflowHealthRunScope``). ``date_from`` / ``date_to`` accept
 relative strings (``-30d``) or ISO8601 and are resolved against the team timezone.
 ``source_id`` selects a specific connected GitHub source when the team has more than
 one; it defaults to the oldest connected source. ``user_access_control`` enforces the
 requesting user's per-source warehouse access (pass the request's; ``None`` for system
 contexts). Each function resolves the team's authorized curated read handle once, here,
-then delegates to the read layer — source selection and access control live in this layer,
+then delegates to the read layer: source selection and access control live in this layer,
 not in the query builders below it.
 """
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from posthog.models.team import Team
@@ -31,13 +32,18 @@ from products.engineering_analytics.backend.facade.contracts import (
     CISignalsConfig,
     CITestRunner,
     CurrentBranchHealth,
+    DeliveryComparison,
+    DeliverySummary,
+    DoraOverview,
     FlakyTestList,
     GitHubSource,
     MasterFailureGroup,
     MergedPullRequest,
+    PathOwnership,
     PRCostSummary,
     PRLifecycle,
     PullRequestList,
+    PullRequestTimelines,
     QuarantineFile,
     QuarantineRequest,
     QuarantineRequestResult,
@@ -46,6 +52,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     TeamCIActivity,
     TeamCIHealthList,
     TeamMergeTrend,
+    TrunkQuarantineDebt,
     WorkflowCost,
     WorkflowHealthItem,
     WorkflowJob,
@@ -58,8 +65,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from posthog.rbac.user_access_control import UserAccessControl
-
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
     from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
 
@@ -69,11 +75,11 @@ def _authorized_source(
     user_access_control: "UserAccessControl | None",
     repo: str | None = None,
 ) -> "CuratedGitHubSource":
-    """Resolve this caller's curated read handle — the single place source selection and per-source
+    """Resolve this caller's curated read handle: the single place source selection and per-source
     warehouse access control happen. ``user_access_control`` (None for system/Temporal/CLI contexts)
     filters out sources the requesting user can't access; ``source_id`` selects a specific source,
     else the oldest connected. ``repo`` ('owner/name'), when the caller already scopes to one repo,
-    prefers the source connected for that repo — so a team with one source per repository reads the
+    prefers the source connected for that repo, so a team with one source per repository reads the
     right one. Raises ``GitHubSourceNotConnectedError`` / ``ValueError`` (bad source_id).
     """
     return logic.CuratedGitHubSource.for_team(
@@ -158,11 +164,11 @@ def resolve_branch(
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[BranchPRMatch]:
-    """Resolve a git branch to the pull request(s) it belongs to — the cross-product link seam
+    """Resolve a git branch to the pull request(s) it belongs to: the cross-product link seam
     (LLM analytics links a git branch to a PR detail page). ``branch`` is required; ``repo``
     ('owner/name') optionally narrows to one repository. ``timestamp`` (the trace's capture time)
     prefers the PR that was active at that moment when a branch name was reused across PRs over
-    time — a ranking hint only, never a filter.
+    time. It is a ranking hint only, never a filter.
     """
     return logic.build_resolve_branch(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
@@ -193,6 +199,7 @@ def list_workflow_runs(
     date_from: str | None = None,
     date_to: str | None = None,
     branch: str | None = None,
+    run_scope: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowRunDetail]:
@@ -203,6 +210,7 @@ def list_workflow_runs(
         date_from=date_from,
         date_to=date_to,
         branch=branch,
+        run_scope=run_scope,
     )
 
 
@@ -214,6 +222,7 @@ def get_workflow_run_activity(
     date_from: str | None = None,
     date_to: str | None = None,
     branch: str | None = None,
+    run_scope: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> WorkflowRunActivity:
@@ -224,6 +233,7 @@ def get_workflow_run_activity(
         date_from=date_from,
         date_to=date_to,
         branch=branch,
+        run_scope=run_scope,
     )
 
 
@@ -235,6 +245,7 @@ def get_workflow_runner_costs(
     date_from: str | None = None,
     date_to: str | None = None,
     branch: str | None = None,
+    run_scope: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowRunnerCost]:
@@ -245,6 +256,7 @@ def get_workflow_runner_costs(
         date_from=date_from,
         date_to=date_to,
         branch=branch,
+        run_scope=run_scope,
     )
 
 
@@ -261,6 +273,80 @@ def list_author_workflow_costs(
     return logic.build_author_workflow_costs(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         author=author,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+def get_delivery_summary(
+    *,
+    team: Team,
+    author: str | None = None,
+    github_team: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> DeliverySummary:
+    """Delivery figures for exactly one of ``author`` or ``github_team``, each against the repository."""
+    # Validate the scope before resolving the source, so a bad request reads as a bad scope.
+    scope = logic.SummaryScope.from_params(author=author, github_team=github_team, pr_number=None, repo=None)
+    return logic.build_delivery_summary(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        scope=scope,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+def get_delivery_comparison(
+    *,
+    team: Team,
+    author: str | None,
+    pr_number: int | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> DeliveryComparison:
+    """An author's ready-to-merge medians next to their team's and the repository's. ``pr_number`` names a
+    pull request by the author, and a team that this pull request asked to review wins the team choice."""
+    author = (author or "").strip()
+    if not author:
+        raise ValueError("author is required")
+    repo = (repo or "").strip() or None
+    # Pull request numbers restart in every repository, so a number alone names no pull request.
+    if pr_number is not None and repo is None:
+        raise ValueError("repo is required with pr_number")
+    return logic.build_delivery_comparison(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        author=author,
+        focus_pr=pr_number,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+def get_pull_request_timelines(
+    *,
+    team: Team,
+    author: str | None = None,
+    github_team: str | None = None,
+    pr_number: int | None = None,
+    repo: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> PullRequestTimelines:
+    """Timelines for exactly one of ``author``, ``github_team``, or ``pr_number`` (which needs ``repo``)."""
+    # Validate the scope before resolving the source, so a bad request reads as a bad scope.
+    scope = logic.DeliveryScope.from_params(author=author, github_team=github_team, pr_number=pr_number, repo=repo)
+    return logic.build_pull_request_timelines(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        scope=scope,
         date_from=date_from,
         date_to=date_to,
     )
@@ -316,7 +402,7 @@ def list_recently_merged_pull_requests(
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[MergedPullRequest]:
     """Merged pull requests in ``repository`` ('owner/name'), newest first, each with its branch-tip
-    ``head_sha`` — the discovery seam for ReviewHog telemetry. Raises
+    ``head_sha``: the discovery seam for ReviewHog telemetry. Raises
     ``GitHubSourceNotConnectedError`` (propagated to the caller) when no GitHub source is connected.
 
     Ask one of two ways. ``numbers`` returns exactly those PRs whatever their merge date, which is
@@ -340,6 +426,7 @@ def list_workflow_health(
     date_to: str | None = None,
     branch: str | None = None,
     run_scope: str | None = None,
+    workflow_name: str | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
@@ -350,6 +437,7 @@ def list_workflow_health(
         date_to=date_to,
         branch=branch,
         run_scope=run_scope,
+        workflow_name=workflow_name,
     )
 
 
@@ -382,6 +470,7 @@ def list_team_ci_health(
     date_to: str | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
+    owner_team: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> TeamCIHealthList:
@@ -391,6 +480,7 @@ def list_team_ci_health(
         date_to=date_to,
         min_failed_prs=min_failed_prs,
         limit=limit,
+        owner_team=owner_team,
     )
 
 
@@ -444,6 +534,16 @@ def list_github_sources(*, team: Team, user_access_control: "UserAccessControl |
     return logic.build_github_sources(team=team, user_access_control=user_access_control)
 
 
+def get_trunk_quarantine(
+    *,
+    team: Team,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> TrunkQuarantineDebt:
+    return logic.build_trunk_quarantine(curated=_authorized_source(team, source_id, user_access_control, repo=repo))
+
+
 def get_quarantine(
     *,
     team: Team,
@@ -452,7 +552,7 @@ def get_quarantine(
     user_access_control: "UserAccessControl | None" = None,
 ) -> QuarantineFile:
     # Quarantine resolves its source lazily (DEBUG reads the local checkout, an explicit ``repo`` needs
-    # no source) so it stays fail-open where the curated reads above don't — ``source_id`` /
+    # no source) so it stays fail-open where the curated reads above don't. ``source_id`` /
     # ``user_access_control`` only matter when it falls back to the connected source's most-active repo.
     return logic.build_quarantine(team=team, repo=repo, source_id=source_id, user_access_control=user_access_control)
 
@@ -481,6 +581,30 @@ def get_repo_overview(
         date_from=date_from,
         date_to=date_to,
         include_series=include_series,
+    )
+
+
+def get_dora_overview(
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    environments: list[str] | None = None,
+    github_team: str | None = None,
+    granularity: str | None = None,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> DoraOverview:
+    """Raises ``UnknownDoraEnvironmentError`` when ``environments`` names an environment the source
+    did not deploy to in the scan window."""
+    return logic.build_dora_overview(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        date_from=date_from,
+        date_to=date_to,
+        environments=environments,
+        github_team=github_team,
+        granularity=granularity,
     )
 
 
@@ -552,6 +676,7 @@ def list_job_aggregates(
     date_from: str | None = None,
     date_to: str | None = None,
     branch: str | None = None,
+    run_scope: str | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
@@ -562,4 +687,11 @@ def list_job_aggregates(
         date_from=date_from,
         date_to=date_to,
         branch=branch,
+        run_scope=run_scope,
     )
+
+
+def resolve_path_owners(repository: str, paths: Sequence[str]) -> PathOwnership:
+    """Name the team that owns each repository path, from the ownership files on the repository's
+    default branch. It takes no team, because nothing PostHog stores feeds the answer."""
+    return logic.resolve_path_owners(repository, paths)

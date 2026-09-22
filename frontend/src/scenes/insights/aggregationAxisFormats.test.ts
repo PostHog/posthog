@@ -17,6 +17,7 @@ describe('formatAggregationAxisValue', () => {
         { candidate: 500_000, filters: { aggregation_axis_format: 'duration_ns' }, expected: '500µs' },
         { candidate: 1_000_000, filters: { aggregation_axis_format: 'duration_ns' }, expected: '1ms' },
         { candidate: 1_500_000_000, filters: { aggregation_axis_format: 'duration_ns' }, expected: '1.5s' },
+        { candidate: 3.5, filters: { aggregation_axis_format: 'duration_ms' }, expected: '3.5ms' },
         { candidate: 3.944, filters: { aggregation_axis_format: 'percentage' }, expected: '3.94%' },
         { candidate: 3.956, filters: { aggregation_axis_format: 'percentage' }, expected: '3.96%' },
         { candidate: 3940, filters: { aggregation_axis_format: 'percentage' }, expected: '3,940%' },

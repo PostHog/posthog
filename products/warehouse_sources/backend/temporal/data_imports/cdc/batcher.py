@@ -5,6 +5,7 @@ from collections.abc import Callable
 
 import pyarrow as pa
 
+from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 
 # CDC metadata column names — database-agnostic
@@ -18,10 +19,25 @@ DELETED_AT_COLUMN = "_ph_deleted_at"
 # real positions never approach 2^63. Names the buffer files' position range
 # and (in Phase B) drives the merge's monotonicity guard.
 CDC_SEQ_COLUMN = "_ph_cdc_seq"
+# Marks CDC_SEQ_COLUMN as engine-produced, so readers can tell it from a source column of the same
+# name (see the collision skip in _events_to_table).
+CDC_SEQ_PROVENANCE = {b"posthog_cdc": b"engine_position"}
 
 # Suffix of the SCD2 companion table's resource name ({schema.name}_cdc). Shared
 # so lane classification (validate_cdc_buffer) can never drift from the writers.
 CDC_COMPANION_SUFFIX = "_cdc"
+
+
+def companion_resource_name(schema_name: str) -> str:
+    """Storage name for a schema's `_cdc` companion table.
+
+    Keyed on the schema's `name`, never its resolved folder: the companion is CDC-only and stays
+    self-consistent with its `name`-keyed snapshot seed. Capture, the snapshot seed and the
+    buffered consumer all write the same table, so they all resolve the name here.
+    """
+    return f"{schema_name}{CDC_COMPANION_SUFFIX}"
+
+
 # Per-row list of source columns the change stream omitted because they are
 # unchanged from the previous row version (Postgres: unchanged TOAST values).
 # Consumed by enrich_toast_omitted_rows; the load processor drops it before
@@ -424,7 +440,21 @@ def build_scd2_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
     A two-step merge + append in the load processor closes previous "current"
     rows (sets valid_to) when a new batch is written for the same PK.
     """
-    ts_type = pa.timestamp("us", tz="UTC")
+    taken = {SCD2_VALID_FROM_COLUMN, SCD2_VALID_TO_COLUMN} & set(pa_table.column_names)
+    if taken:
+        # Delta refuses a duplicate column name at write time; failing here names the column and
+        # keeps a half-built batch out of the writer.
+        raise CDCReservedColumnError(
+            f"Source column(s) {sorted(taken)} collide with the history table's validity columns"
+        )
+    # Taken from the batch rather than assumed: `valid_from` is the timestamp column's own values,
+    # and declaring a type it does not have makes pyarrow reject the append outright. The buffered
+    # path normalizes timestamps to naive before this runs, the legacy path does not.
+    ts_type = (
+        pa_table.schema.field(CDC_TIMESTAMP_COLUMN).type
+        if CDC_TIMESTAMP_COLUMN in pa_table.column_names
+        else pa.timestamp("us", tz="UTC")
+    )
 
     if pa_table.num_rows == 0:
         return pa_table.append_column(
@@ -543,12 +573,11 @@ def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str],
 
     # Skip on collision: a source column literally named _ph_cdc_seq must pass
     # through to the legacy lane untouched. The batch then carries no engine seq
-    # and the shadow writer skips it. Appended LAST by construction — the caller
-    # relies on that to strip our column without touching a same-named user one.
+    # and the shadow writer skips it.
     if position_to_seq is not None and CDC_SEQ_COLUMN not in column_names:
         seq_values = [position_to_seq(event.position_serialized) for event in events]
         arrays.append(pa.array(seq_values, type=pa.int64()))
-        fields.append(pa.field(CDC_SEQ_COLUMN, pa.int64()))
+        fields.append(pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE))
 
     schema = pa.schema(fields)
     return pa.table(arrays, schema=schema)

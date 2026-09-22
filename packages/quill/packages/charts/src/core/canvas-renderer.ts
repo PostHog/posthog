@@ -393,18 +393,26 @@ function resolvePartialIndex(idx: number | undefined, length: number): number | 
 const hatchPatternCache = new Map<string, CanvasPattern>()
 
 function getHatchPattern(ctx: CanvasRenderingContext2D, color: string): CanvasPattern | string {
-    const cached = hatchPatternCache.get(color)
+    // The draw context is transform-scaled to device pixels, so a tile authored in CSS pixels would
+    // be upscaled and blur. Read the ratio off the backing store rather than `window.devicePixelRatio`
+    // for the reason in `clearAndPrepare`: a redraw can run at a different ratio than sized the canvas.
+    const backing = ctx.canvas
+    const dpr = backing && backing.width > 0 ? backing.width / (backing.clientWidth || backing.width) : 1
+    const scale = dpr > 0 && Number.isFinite(dpr) ? dpr : 1
+    const size = 14
+    const key = `${color}@${scale}`
+    const cached = hatchPatternCache.get(key)
     if (cached) {
         return cached
     }
-    const size = 14
     const patCanvas = document.createElement('canvas')
-    patCanvas.width = size
-    patCanvas.height = size
+    patCanvas.width = Math.max(1, Math.round(size * scale))
+    patCanvas.height = Math.max(1, Math.round(size * scale))
     const patCtx = patCanvas.getContext('2d')
     if (!patCtx) {
         return color
     }
+    patCtx.scale(scale, scale)
     patCtx.strokeStyle = color
     patCtx.lineWidth = 4
     patCtx.beginPath()
@@ -421,7 +429,11 @@ function getHatchPattern(ctx: CanvasRenderingContext2D, color: string): CanvasPa
     patCtx.stroke()
     const pattern = ctx.createPattern(patCanvas, 'repeat')
     if (pattern) {
-        hatchPatternCache.set(color, pattern)
+        // Undo the backing scale so one bitmap pixel lands on one device pixel.
+        if (scale !== 1 && typeof pattern.setTransform === 'function' && typeof DOMMatrix === 'function') {
+            pattern.setTransform(new DOMMatrix([1 / scale, 0, 0, 1 / scale, 0, 0]))
+        }
+        hatchPatternCache.set(key, pattern)
         return pattern
     }
     return color
@@ -1156,11 +1168,33 @@ export function drawBars(
         // The hatch keeps the bar's own resolved color (per-bar override included) so a
         // flagged bar still reads as belonging to its series. Pattern lookups are cached.
         const barColor = barColorAt(series, bar.dataIndex)
-        ctx.fillStyle = useHatch ? getHatchPattern(ctx, barColor) : makeBarFill(ctx, barColor, bar, fillStyle)
         ctx.beginPath()
         traceRoundedBarPath(ctx, bar.x, bar.y, bar.width, bar.height, cornerRadius, bar.corners)
+        if (useHatch) {
+            drawHatchedBarFill(ctx, barColor)
+            continue
+        }
+        ctx.fillStyle = makeBarFill(ctx, barColor, bar, fillStyle)
         ctx.fill()
     }
+}
+
+// Deliberately higher than the `BAR_TRACK_*` pair above, which the same construction uses. A track
+// is a backdrop meant to recede, whereas a flagged bar carries the bucket's actual count, so at
+// track alpha it would read as an empty bucket rather than one that is still filling.
+const HATCHED_BAR_BASE_ALPHA = 0.25
+const HATCHED_BAR_HATCH_ALPHA = 0.65
+
+/** Fills the already-traced path as a hatched bar. Owns save/restore. */
+function drawHatchedBarFill(ctx: CanvasRenderingContext2D, color: string): void {
+    ctx.save()
+    ctx.globalAlpha = HATCHED_BAR_BASE_ALPHA
+    ctx.fillStyle = color
+    ctx.fill()
+    ctx.globalAlpha = HATCHED_BAR_HATCH_ALPHA
+    ctx.fillStyle = getHatchPattern(ctx, color)
+    ctx.fill()
+    ctx.restore()
 }
 
 // Tracks render as a tinted base under hatched stripes — same construction as the legacy
@@ -1289,6 +1323,15 @@ export interface DrawBoxOptions {
     lineWidth?: number
     /** Width of the whisker caps (as a fraction of the box width). Defaults to 0.6. */
     whiskerCapRatio?: number
+    /** The boxes lie along a horizontal value axis: `x`/`width` are band pixels on y, and the value
+     *  fields are pixels on x. Defaults to false. */
+    horizontal?: boolean
+}
+
+/** Swap the canvas x and y axes, so geometry laid out for vertical boxes draws horizontally. The
+ *  transpose is a reflection, so line widths and marker radii keep their size. */
+function transposeAxes(ctx: CanvasRenderingContext2D): void {
+    ctx.transform(0, 1, 1, 0, 0, 0)
 }
 
 /** Paint a whole series of box-and-whiskers, batching path operations so the number of
@@ -1307,8 +1350,13 @@ export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], optio
         meanRadius = 3,
         lineWidth = 1.5,
         whiskerCapRatio = 0.6,
+        horizontal = false,
     } = options
 
+    ctx.save()
+    if (horizontal) {
+        transposeAxes(ctx)
+    }
     ctx.lineWidth = lineWidth
     ctx.strokeStyle = color
     ctx.setLineDash([])
@@ -1377,17 +1425,28 @@ export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], optio
         ctx.fill()
         ctx.stroke()
     }
+    ctx.restore()
 }
 
 /** Translucent highlight overlay for a hovered box. Drawn on the overlay canvas so it
  *  composites over the static box without disturbing it — mirrors {@link drawBarHighlight}. */
-export function drawBoxHighlight(ctx: CanvasRenderingContext2D, box: BoxRect, overlayColor: string): void {
+export function drawBoxHighlight(
+    ctx: CanvasRenderingContext2D,
+    box: BoxRect,
+    overlayColor: string,
+    horizontal = false
+): void {
     const boxHeight = Math.max(0, box.bottom - box.top)
     if (box.width <= 0 || boxHeight <= 0) {
         return
     }
+    ctx.save()
+    if (horizontal) {
+        transposeAxes(ctx)
+    }
     ctx.fillStyle = overlayColor
     ctx.fillRect(box.x, box.top, box.width, boxHeight)
+    ctx.restore()
 }
 
 type DrawHoverFn = (args: ChartDrawArgs) => DrawHoverResult

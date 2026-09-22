@@ -18,6 +18,7 @@ import {
   type ThemePreference,
   usePreferencesStore,
 } from "@/features/preferences/stores/preferencesStore";
+import { DailyReportLimitRow } from "@/features/settings/components/DailyReportLimitRow";
 import { DebugInfoSection } from "@/features/settings/components/DebugInfoSection";
 import { FloatingSettingsHeader } from "@/features/settings/components/FloatingSettingsHeader";
 import { SettingsRow } from "@/features/settings/components/SettingsRow";
@@ -465,6 +466,7 @@ export default function SettingsScreen() {
 
         {/* Inbox */}
         <SettingsSection title="Inbox">
+          <DailyReportLimitRow />
           <SettingsRow
             label="Reviewed reports"
             description={`${decidedCount} report${decidedCount === 1 ? "" : "s"} reviewed in tinder mode`}
@@ -513,7 +515,7 @@ export default function SettingsScreen() {
           {canSwitchProject ? (
             <SettingsRow
               label="Active project"
-              description="Tasks, inbox and automations use this project"
+              description="Tasks and inbox use this project"
               onPress={() => setProjectSheetOpen(true)}
               showDivider={false}
               rightSlot={

@@ -48,7 +48,6 @@ const MOCK_ALERT: LogsAlertConfigurationApi = {
     last_checked_at: null,
     consecutive_failures: 0,
     last_error_message: null,
-    // Non-empty so runPreEnableChecks short-circuits past the "no destinations" warning.
     destination_types: ['slack'],
     state_timeline: [],
     first_enabled_at: null,

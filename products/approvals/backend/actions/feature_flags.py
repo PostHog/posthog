@@ -1,12 +1,33 @@
 from abc import abstractmethod
 from typing import Any, Optional
+from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Model
 
 from products.approvals.backend.actions.base import BaseAction
 from products.approvals.backend.exceptions import ApplyFailed, PreconditionFailed
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+
+def _to_wire_form(value: Any) -> Any:
+    """Convert deserialized related objects in a validated change back to primary keys.
+
+    A related field on FeatureFlagSerializer deserializes to model instances, so
+    `analytics_dashboards` reaches the gate as a list of Dashboard objects. The intent must hold
+    the wire form instead, because `intent` is a JSONField and because `validate_intent` and
+    `apply` both feed `full_request_data` back through the serializer, which accepts a primary
+    key and rejects an instance. A UUID primary key becomes a string, because JSON has no UUID
+    type and PrimaryKeyRelatedField accepts the string form.
+    """
+    if isinstance(value, Model):
+        return str(value.pk) if isinstance(value.pk, UUID) else value.pk
+    if isinstance(value, list | tuple):
+        return [_to_wire_form(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _to_wire_form(item) for key, item in value.items()}
+    return value
 
 
 def _get_validated_change(request, view, *args, **kwargs) -> dict[str, Any]:
@@ -44,7 +65,7 @@ def _get_validated_change(request, view, *args, **kwargs) -> dict[str, Any]:
         normalized.setdefault("filters", change["get_filters"])
         change = normalized
 
-    return change
+    return {key: _to_wire_form(value) for key, value in change.items()}
 
 
 def _get_flag_instance(view, *args, **kwargs) -> Optional[FeatureFlag]:
@@ -131,6 +152,9 @@ def _apply_create(validated_intent: dict[str, Any], context: Optional[dict[str, 
         "project_id": context.get("project_id"),
         # Already approved — keep the gate from re-firing on this serializer.
         "approval_apply": True,
+        # A change request can hold its flag payload as ciphertext, separate from the
+        # change being replayed. The serializer swaps it in after validation.
+        "approval_encrypted_payloads": validated_intent.get("encrypted_payloads") or {},
     }
     if "request" in context:
         serializer_context["request"] = context["request"]
@@ -240,6 +264,11 @@ class FeatureFlagActionBase(BaseAction):
             if field in change:
                 gated_changes[field] = change[field]
 
+        # A caller exempt from the serializer's opportunistic filter cleanup stays exempt when
+        # the approved change replays, otherwise approving a lifecycle action strips the legacy
+        # keys the direct call preserves.
+        skip_cleanup = bool(getattr(request, "skip_opportunistic_filter_cleanup", False))
+
         if flag is None:
             # Create: no row yet — baseline is a disabled flag and the payload is the create body.
             return {
@@ -249,6 +278,7 @@ class FeatureFlagActionBase(BaseAction):
                 "gated_changes": gated_changes,
                 "full_request_data": dict(change),
                 "preconditions": {"version": None, "updated_at": None},
+                "skip_opportunistic_filter_cleanup": skip_cleanup,
             }
 
         return {
@@ -261,6 +291,7 @@ class FeatureFlagActionBase(BaseAction):
                 "version": flag.version,
                 "updated_at": flag.updated_at.isoformat() if flag.updated_at else None,
             },
+            "skip_opportunistic_filter_cleanup": skip_cleanup,
         }
 
     @classmethod
@@ -288,6 +319,9 @@ class FeatureFlagActionBase(BaseAction):
                 "project_id": context.get("project_id") if context else flag.team.project_id,
                 # Already approved — keep the gate from re-firing on this serializer.
                 "approval_apply": True,
+                # A change request can hold its flag payload as ciphertext, separate from the
+                # change being replayed. The serializer swaps it in after validation.
+                "approval_encrypted_payloads": validated_intent.get("encrypted_payloads") or {},
             }
 
             if context and "request" in context:
@@ -331,7 +365,10 @@ class EnableFeatureFlagAction(FeatureFlagActionBase):
         return {
             "description": f"Enable feature flag '{intent_data.get('flag_key', 'unknown')}'",
             "before": intent_data.get("current_state", {}),
-            "after": intent_data.get("gated_changes", {}),
+            # The applied change, not just the gated subset. Archiving an enabled flag writes
+            # `archived` alongside `active`, and only `active` is gated — showing `gated_changes`
+            # asked an approver to consent to a disable and then archived the flag too.
+            "after": intent_data.get("full_request_data") or intent_data.get("gated_changes", {}),
         }
 
 
@@ -348,7 +385,10 @@ class DisableFeatureFlagAction(FeatureFlagActionBase):
         return {
             "description": f"Disable feature flag '{intent_data.get('flag_key', 'unknown')}'",
             "before": intent_data.get("current_state", {}),
-            "after": intent_data.get("gated_changes", {}),
+            # The applied change, not just the gated subset. Archiving an enabled flag writes
+            # `archived` alongside `active`, and only `active` is gated — showing `gated_changes`
+            # asked an approver to consent to a disable and then archived the flag too.
+            "after": intent_data.get("full_request_data") or intent_data.get("gated_changes", {}),
         }
 
 
@@ -513,6 +553,11 @@ class UpdateFeatureFlagAction(BaseAction):
 
         triggered_paths = cls._get_triggered_paths(old_filters, new_filters)
 
+        # A caller exempt from the serializer's opportunistic filter cleanup stays exempt when
+        # the approved change replays, the way the lifecycle base records it. Without this an
+        # approved rollout writes the filters back without `super_groups` and `holdout_groups`.
+        skip_cleanup = bool(getattr(request, "skip_opportunistic_filter_cleanup", False))
+
         return {
             "flag_id": flag.id if flag is not None else None,
             "flag_key": flag.key if flag is not None else change.get("key"),
@@ -528,6 +573,7 @@ class UpdateFeatureFlagAction(BaseAction):
                 "version": flag.version if flag is not None else None,
                 "updated_at": (flag.updated_at.isoformat() if flag.updated_at else None) if flag is not None else None,
             },
+            "skip_opportunistic_filter_cleanup": skip_cleanup,
         }
 
     @classmethod
@@ -580,6 +626,9 @@ class UpdateFeatureFlagAction(BaseAction):
                 "project_id": context.get("project_id") if context else flag.team.project_id,
                 # Already approved — keep the gate from re-firing on this serializer.
                 "approval_apply": True,
+                # A change request can hold its flag payload as ciphertext, separate from the
+                # change being replayed. The serializer swaps it in after validation.
+                "approval_encrypted_payloads": validated_intent.get("encrypted_payloads") or {},
             }
 
             if context and "request" in context:

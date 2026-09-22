@@ -21,6 +21,8 @@ export interface SidebarCustomizableItem {
     label: string
     /** Very brief explanation of what the item opens, shown under the label in settings. */
     description: string
+    /** Link to this item's page on posthog.com/docs, when it has one. */
+    docsHref?: string
     icon: JSX.Element
     /** Mirrors the flag gating the item in the navbar, so the toggle is only offered when the item can render at all. */
     flag?: string
@@ -30,6 +32,7 @@ export interface SidebarCustomizableSection {
     key: SidebarSectionKey
     label: string
     description: string
+    docsHref?: string
     icon: JSX.Element
     items: SidebarCustomizableItem[]
 }
@@ -50,20 +53,23 @@ export const SIDEBAR_CUSTOMIZABLE_SECTIONS: SidebarCustomizableSection[] = [
             { key: 'home', label: 'Home', description: 'Opens your homepage.', icon: <IconHome /> },
             {
                 key: 'inbox',
-                label: 'Inbox',
+                label: 'Self-driving',
                 description: 'Reports and signals that need your attention.',
+                docsHref: 'https://posthog.com/docs/self-driving',
                 icon: <IconNotification />,
                 flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
             },
             {
                 label: 'Activity',
                 description: 'A live stream of events coming into your project.',
+                docsHref: 'https://posthog.com/docs/activity',
                 icon: <IconClock />,
             },
             {
                 key: 'data',
                 label: 'Data',
                 description: 'Manage events, actions, properties, and people.',
+                docsHref: 'https://posthog.com/docs/data',
                 icon: <IconDatabase />,
             },
             {

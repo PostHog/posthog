@@ -2,30 +2,18 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    MarketingAnalyticsConversionGoalsCreateCreateBody,
-    MarketingAnalyticsConversionGoalsDeleteDestroyParams,
-    MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody,
-    MarketingAnalyticsConversionGoalsUpdatePartialUpdateParams,
-    MarketingAnalyticsDataSourcesRetrieveQueryParams,
-    MarketingAnalyticsDiagnoseRetrieveQueryParams,
-    MarketingAnalyticsExplainConversionGoalRetrieveQueryParams,
-    MarketingAnalyticsSuggestConversionGoalsRetrieveQueryParams,
-    MarketingAnalyticsSuggestUtmMappingsRetrieveQueryParams,
-    MarketingAnalyticsUtmAuditRetrieveQueryParams,
-} from '@/generated/marketing_analytics/api'
+import * as orvalSchemas from '@/generated/marketing_analytics/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const MarketingAnalyticsConversionGoalsSchema = z.object({})
+const MarketingAnalyticsConversionGoalsSchema = () => z.object({})
 
 const marketingAnalyticsConversionGoals = (): ToolBase<
-    typeof MarketingAnalyticsConversionGoalsSchema,
+    ReturnType<typeof MarketingAnalyticsConversionGoalsSchema>,
     Schemas.ConversionGoalsListResponse
 > => ({
     name: 'marketing-analytics-conversion-goals',
-    schema: MarketingAnalyticsConversionGoalsSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsConversionGoalsSchema>) => {
+    schema: MarketingAnalyticsConversionGoalsSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof MarketingAnalyticsConversionGoalsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ConversionGoalsListResponse>({
             method: 'GET',
@@ -35,15 +23,22 @@ const marketingAnalyticsConversionGoals = (): ToolBase<
     },
 })
 
-const MarketingAnalyticsCreateConversionGoalSchema = MarketingAnalyticsConversionGoalsCreateCreateBody
+const MarketingAnalyticsCreateConversionGoalSchema = () => {
+    const MarketingAnalyticsConversionGoalsCreateCreateBody =
+        orvalSchemas.MarketingAnalyticsConversionGoalsCreateCreateBody()
+    return MarketingAnalyticsConversionGoalsCreateCreateBody
+}
 
 const marketingAnalyticsCreateConversionGoal = (): ToolBase<
-    typeof MarketingAnalyticsCreateConversionGoalSchema,
+    ReturnType<typeof MarketingAnalyticsCreateConversionGoalSchema>,
     Schemas.ConversionGoalWriteResponse
 > => ({
     name: 'marketing-analytics-create-conversion-goal',
-    schema: MarketingAnalyticsCreateConversionGoalSchema,
-    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsCreateConversionGoalSchema>) => {
+    schema: MarketingAnalyticsCreateConversionGoalSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof MarketingAnalyticsCreateConversionGoalSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.goal !== undefined) {
@@ -58,15 +53,19 @@ const marketingAnalyticsCreateConversionGoal = (): ToolBase<
     },
 })
 
-const MarketingAnalyticsDataSourcesSchema = MarketingAnalyticsDataSourcesRetrieveQueryParams
+const MarketingAnalyticsDataSourcesSchema = () => {
+    const MarketingAnalyticsDataSourcesRetrieveQueryParams =
+        orvalSchemas.MarketingAnalyticsDataSourcesRetrieveQueryParams()
+    return MarketingAnalyticsDataSourcesRetrieveQueryParams
+}
 
 const marketingAnalyticsDataSources = (): ToolBase<
-    typeof MarketingAnalyticsDataSourcesSchema,
+    ReturnType<typeof MarketingAnalyticsDataSourcesSchema>,
     Schemas.DataSourceHealthResponse
 > => ({
     name: 'marketing-analytics-data-sources',
-    schema: MarketingAnalyticsDataSourcesSchema,
-    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsDataSourcesSchema>) => {
+    schema: MarketingAnalyticsDataSourcesSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MarketingAnalyticsDataSourcesSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DataSourceHealthResponse>({
             method: 'GET',
@@ -79,17 +78,22 @@ const marketingAnalyticsDataSources = (): ToolBase<
     },
 })
 
-const MarketingAnalyticsDeleteConversionGoalSchema = MarketingAnalyticsConversionGoalsDeleteDestroyParams.omit({
-    project_id: true,
-})
+const MarketingAnalyticsDeleteConversionGoalSchema = () => {
+    const MarketingAnalyticsConversionGoalsDeleteDestroyParams =
+        orvalSchemas.MarketingAnalyticsConversionGoalsDeleteDestroyParams()
+    return MarketingAnalyticsConversionGoalsDeleteDestroyParams.omit({ project_id: true })
+}
 
 const marketingAnalyticsDeleteConversionGoal = (): ToolBase<
-    typeof MarketingAnalyticsDeleteConversionGoalSchema,
+    ReturnType<typeof MarketingAnalyticsDeleteConversionGoalSchema>,
     Schemas.ConversionGoalWriteResponse
 > => ({
     name: 'marketing-analytics-delete-conversion-goal',
-    schema: MarketingAnalyticsDeleteConversionGoalSchema,
-    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsDeleteConversionGoalSchema>) => {
+    schema: MarketingAnalyticsDeleteConversionGoalSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof MarketingAnalyticsDeleteConversionGoalSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ConversionGoalWriteResponse>({
             method: 'DELETE',
@@ -99,15 +103,18 @@ const marketingAnalyticsDeleteConversionGoal = (): ToolBase<
     },
 })
 
-const MarketingAnalyticsDiagnoseSchema = MarketingAnalyticsDiagnoseRetrieveQueryParams
+const MarketingAnalyticsDiagnoseSchema = () => {
+    const MarketingAnalyticsDiagnoseRetrieveQueryParams = orvalSchemas.MarketingAnalyticsDiagnoseRetrieveQueryParams()
+    return MarketingAnalyticsDiagnoseRetrieveQueryParams
+}
 
 const marketingAnalyticsDiagnose = (): ToolBase<
-    typeof MarketingAnalyticsDiagnoseSchema,
+    ReturnType<typeof MarketingAnalyticsDiagnoseSchema>,
     Schemas.MarketingDiagnosticResponse
 > => ({
     name: 'marketing-analytics-diagnose',
-    schema: MarketingAnalyticsDiagnoseSchema,
-    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsDiagnoseSchema>) => {
+    schema: MarketingAnalyticsDiagnoseSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MarketingAnalyticsDiagnoseSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.MarketingDiagnosticResponse>({
             method: 'GET',
@@ -122,15 +129,22 @@ const marketingAnalyticsDiagnose = (): ToolBase<
     },
 })
 
-const MarketingAnalyticsExplainConversionGoalSchema = MarketingAnalyticsExplainConversionGoalRetrieveQueryParams
+const MarketingAnalyticsExplainConversionGoalSchema = () => {
+    const MarketingAnalyticsExplainConversionGoalRetrieveQueryParams =
+        orvalSchemas.MarketingAnalyticsExplainConversionGoalRetrieveQueryParams()
+    return MarketingAnalyticsExplainConversionGoalRetrieveQueryParams
+}
 
 const marketingAnalyticsExplainConversionGoal = (): ToolBase<
-    typeof MarketingAnalyticsExplainConversionGoalSchema,
+    ReturnType<typeof MarketingAnalyticsExplainConversionGoalSchema>,
     Schemas.GoalExplanation
 > => ({
     name: 'marketing-analytics-explain-conversion-goal',
-    schema: MarketingAnalyticsExplainConversionGoalSchema,
-    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsExplainConversionGoalSchema>) => {
+    schema: MarketingAnalyticsExplainConversionGoalSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof MarketingAnalyticsExplainConversionGoalSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.GoalExplanation>({
             method: 'GET',
@@ -145,15 +159,22 @@ const marketingAnalyticsExplainConversionGoal = (): ToolBase<
     },
 })
 
-const MarketingAnalyticsSuggestConversionGoalsSchema = MarketingAnalyticsSuggestConversionGoalsRetrieveQueryParams
+const MarketingAnalyticsSuggestConversionGoalsSchema = () => {
+    const MarketingAnalyticsSuggestConversionGoalsRetrieveQueryParams =
+        orvalSchemas.MarketingAnalyticsSuggestConversionGoalsRetrieveQueryParams()
+    return MarketingAnalyticsSuggestConversionGoalsRetrieveQueryParams
+}
 
 const marketingAnalyticsSuggestConversionGoals = (): ToolBase<
-    typeof MarketingAnalyticsSuggestConversionGoalsSchema,
+    ReturnType<typeof MarketingAnalyticsSuggestConversionGoalsSchema>,
     Schemas.EventSuggestionsResponse
 > => ({
     name: 'marketing-analytics-suggest-conversion-goals',
-    schema: MarketingAnalyticsSuggestConversionGoalsSchema,
-    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsSuggestConversionGoalsSchema>) => {
+    schema: MarketingAnalyticsSuggestConversionGoalsSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof MarketingAnalyticsSuggestConversionGoalsSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.EventSuggestionsResponse>({
             method: 'GET',
@@ -167,15 +188,22 @@ const marketingAnalyticsSuggestConversionGoals = (): ToolBase<
     },
 })
 
-const MarketingAnalyticsSuggestUtmMappingsSchema = MarketingAnalyticsSuggestUtmMappingsRetrieveQueryParams
+const MarketingAnalyticsSuggestUtmMappingsSchema = () => {
+    const MarketingAnalyticsSuggestUtmMappingsRetrieveQueryParams =
+        orvalSchemas.MarketingAnalyticsSuggestUtmMappingsRetrieveQueryParams()
+    return MarketingAnalyticsSuggestUtmMappingsRetrieveQueryParams
+}
 
 const marketingAnalyticsSuggestUtmMappings = (): ToolBase<
-    typeof MarketingAnalyticsSuggestUtmMappingsSchema,
+    ReturnType<typeof MarketingAnalyticsSuggestUtmMappingsSchema>,
     Schemas.UtmMappingSuggestionsResponse
 > => ({
     name: 'marketing-analytics-suggest-utm-mappings',
-    schema: MarketingAnalyticsSuggestUtmMappingsSchema,
-    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsSuggestUtmMappingsSchema>) => {
+    schema: MarketingAnalyticsSuggestUtmMappingsSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof MarketingAnalyticsSuggestUtmMappingsSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.UtmMappingSuggestionsResponse>({
             method: 'GET',
@@ -189,17 +217,26 @@ const marketingAnalyticsSuggestUtmMappings = (): ToolBase<
     },
 })
 
-const MarketingAnalyticsUpdateConversionGoalSchema = MarketingAnalyticsConversionGoalsUpdatePartialUpdateParams.omit({
-    project_id: true,
-}).extend(MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody.shape)
+const MarketingAnalyticsUpdateConversionGoalSchema = () => {
+    const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody =
+        orvalSchemas.MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody()
+    const MarketingAnalyticsConversionGoalsUpdatePartialUpdateParams =
+        orvalSchemas.MarketingAnalyticsConversionGoalsUpdatePartialUpdateParams()
+    return MarketingAnalyticsConversionGoalsUpdatePartialUpdateParams.omit({ project_id: true }).extend(
+        MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody.shape
+    )
+}
 
 const marketingAnalyticsUpdateConversionGoal = (): ToolBase<
-    typeof MarketingAnalyticsUpdateConversionGoalSchema,
+    ReturnType<typeof MarketingAnalyticsUpdateConversionGoalSchema>,
     Schemas.ConversionGoalWriteResponse
 > => ({
     name: 'marketing-analytics-update-conversion-goal',
-    schema: MarketingAnalyticsUpdateConversionGoalSchema,
-    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsUpdateConversionGoalSchema>) => {
+    schema: MarketingAnalyticsUpdateConversionGoalSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof MarketingAnalyticsUpdateConversionGoalSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.goal !== undefined) {
@@ -214,12 +251,18 @@ const marketingAnalyticsUpdateConversionGoal = (): ToolBase<
     },
 })
 
-const MarketingAnalyticsUtmAuditSchema = MarketingAnalyticsUtmAuditRetrieveQueryParams
+const MarketingAnalyticsUtmAuditSchema = () => {
+    const MarketingAnalyticsUtmAuditRetrieveQueryParams = orvalSchemas.MarketingAnalyticsUtmAuditRetrieveQueryParams()
+    return MarketingAnalyticsUtmAuditRetrieveQueryParams
+}
 
-const marketingAnalyticsUtmAudit = (): ToolBase<typeof MarketingAnalyticsUtmAuditSchema, Schemas.UtmAuditResponse> => ({
+const marketingAnalyticsUtmAudit = (): ToolBase<
+    ReturnType<typeof MarketingAnalyticsUtmAuditSchema>,
+    Schemas.UtmAuditResponse
+> => ({
     name: 'marketing-analytics-utm-audit',
-    schema: MarketingAnalyticsUtmAuditSchema,
-    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsUtmAuditSchema>) => {
+    schema: MarketingAnalyticsUtmAuditSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MarketingAnalyticsUtmAuditSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.UtmAuditResponse>({
             method: 'GET',

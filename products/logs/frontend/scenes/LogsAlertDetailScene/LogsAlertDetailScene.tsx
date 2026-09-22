@@ -181,23 +181,24 @@ function AlertHeader(): JSX.Element {
                                 {isEnabled ? 'Disable' : 'Enable'}
                             </LemonButton>
                         )}
-                        {isSnoozed ? (
-                            <LemonButton size="small" type="secondary" onClick={unsnoozeAlert}>
-                                Unsnooze
-                            </LemonButton>
-                        ) : (
-                            <LemonMenu
-                                placement="bottom-end"
-                                items={SNOOZE_DURATIONS.map((d) => ({
-                                    label: d.label,
-                                    onClick: () => snoozeAlert(d.minutes),
-                                }))}
-                            >
-                                <LemonButton size="small" type="secondary" sideIcon={<IconChevronDown />}>
-                                    Snooze
+                        {isEnabled &&
+                            (isSnoozed ? (
+                                <LemonButton size="small" type="secondary" onClick={unsnoozeAlert}>
+                                    Unsnooze
                                 </LemonButton>
-                            </LemonMenu>
-                        )}
+                            ) : (
+                                <LemonMenu
+                                    placement="bottom-end"
+                                    items={SNOOZE_DURATIONS.map((d) => ({
+                                        label: d.label,
+                                        onClick: () => snoozeAlert(d.minutes),
+                                    }))}
+                                >
+                                    <LemonButton size="small" type="secondary" sideIcon={<IconChevronDown />}>
+                                        Snooze
+                                    </LemonButton>
+                                </LemonMenu>
+                            ))}
                         <LemonButton
                             size="small"
                             type="primary"

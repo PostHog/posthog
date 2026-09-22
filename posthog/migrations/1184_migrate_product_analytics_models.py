@@ -41,12 +41,7 @@ def reverse_content_types(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("alerts", "0002_migrate_product_analytics_models"),
-        ("customer_analytics", "0006_migrate_product_analytics_models"),
-        ("dashboards", "0006_migrate_product_analytics_models"),
         ("posthog", "1183_migrate_product_analytics_models_state"),
-        ("product_analytics", "0001_migrate_product_analytics_models"),
-        ("surveys", "0005_migrate_product_analytics_models"),
     ]
 
     operations = [

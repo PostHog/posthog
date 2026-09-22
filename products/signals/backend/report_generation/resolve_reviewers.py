@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import json
 import logging
 from collections import Counter
@@ -8,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
+from uuid import UUID
 
 from django.db.models import Expression, Prefetch, Q, QuerySet, Subquery, Value
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
@@ -16,6 +18,7 @@ from django.utils import timezone
 
 from social_django.models import UserSocialAuth
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.organization import OrganizationMembership
@@ -24,22 +27,25 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.contracts import RelevantCommit
+from products.signals.backend.report_generation.author_activity import without_inactive_authors
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_WINDOW_DAYS,
     REPO_WIDE_AREA,
     ContributorActivity,
     area_fallback_chain,
     areas_for_paths,
+    days_since,
     get_area_activity,
     repository_activity_needs_rebuild,
 )
 
-from ..models import SignalReportArtefact
+from ..models import SignalReportArtefact, SignalScoutConfig
 
 logger = logging.getLogger(__name__)
 
 MAX_SUGGESTED_REVIEWERS = 3
 MAX_COMMIT_LOOKUPS = 15
+MAX_REVIEWER_REASON_LENGTH = 500
 
 RECENCY_FULL_WEIGHT_DAYS = 30
 RECENCY_DECAY_FLOOR = 0.3
@@ -58,20 +64,88 @@ GitHubLoginFieldLookup = Literal[
     "config__connecting_user_github_login",
 ]
 
+# Why a resolution ended with no reviewers. `no_repository` / `no_commit_hashes` are set by
+# callers that bail before calling into GitHub; the rest are decided here. Two caveats worth
+# knowing when reading the event:
+#   - `no_github_integration` means "no integration whose access probe said yes", which also
+#     covers a probe that failed transiently: `installation_can_access_repository` returns False
+#     for a GitHub 5xx or a token/transport failure just as it does for a repo the installation
+#     genuinely can't see. Distinguishing them needs probe-failure information that
+#     `first_for_team_repository` doesn't return today.
+#   - `no_repository` is unreachable from the research pipeline (the summary workflow bails to
+#     `repo_selection_required` before running research); it exists for the other callers of
+#     `resolve_suggested_reviewers`, which discard diagnostics.
+ReviewerResolutionOutcome = Literal[
+    "resolved",
+    "no_repository",
+    "no_commit_hashes",
+    "no_github_integration",
+    "github_rate_limited",
+    "no_commit_authors",
+    "only_bot_authors",
+    "only_inactive_authors",
+    "no_candidates",
+]
+
+
+@frozen
+class ReviewerResolutionDiagnostics:
+    """Counters explaining a resolution, so an empty suggestion list is attributable to a cause."""
+
+    outcome: ReviewerResolutionOutcome
+    commit_hash_count: int = 0
+    lookups_attempted: int = 0
+    # A lookup "resolves" when GitHub attributes the commit to an account (bot or human);
+    # "missing" covers non-200 responses, unattributed commits, and lookups lost to a rate limit.
+    lookups_resolved: int = 0
+    lookups_missing: int = 0
+    lookups_rate_limited: int = 0
+    bot_author_count: int = 0
+    blame_login_count: int = 0
+    # Blame authors dropped because their last commit in the repository is older than
+    # AUTHOR_ACTIVITY_WINDOW_DAYS. Counted before the fallbacks that may replace them.
+    inactive_author_count: int = 0
+    touched_path_count: int = 0
+    activity_login_count: int = 0
+
+
+@frozen
+class ReviewerResolution:
+    reviewers: list[_ResolvedReviewer]
+    diagnostics: ReviewerResolutionDiagnostics
+
 
 def enrich_reviewer_dicts_with_org_members(
     team_id: int,
     reviewer_dicts: list[dict],
     *,
     login_to_user: Mapping[str, User] | None = None,
+    uuid_to_user: Mapping[str, User] | None = None,
+    scout_display_names: Mapping[str, str] | None = None,
 ) -> list[dict]:
     """Enrich reviewer dicts (from artefact content) with fresh PostHog user info.
 
     Called at read time so that users who connect their GitHub account after the
     artefact was created show up properly.
+
+    An entry's `user_uuid` is tried first and its `github_login` second: the uuid is the reviewer's
+    stable identity, while a login can move to another GitHub account. Entries written before
+    reviewers carried a uuid have only the login, so they keep resolving through it.
     """
     if not reviewer_dicts:
         return reviewer_dicts
+
+    skill_names = {r.get("source_skill") for r in reviewer_dicts if isinstance(r.get("source_skill"), str)}
+    if scout_display_names is None:
+        scout_display_names = (
+            dict(
+                SignalScoutConfig.objects.for_team(team_id)
+                .filter(skill_name__in=skill_names)
+                .values_list("skill_name", "display_name")
+            )
+            if skill_names
+            else {}
+        )
 
     resolved_map: Mapping[str, User]
     if login_to_user is not None:
@@ -80,26 +154,91 @@ def enrich_reviewer_dicts_with_org_members(
         wanted = normalized_github_logins_from_reviewer_payloads(reviewer_dicts)
         resolved_map = resolve_org_github_login_to_users(team_id, wanted) if wanted else {}
 
+    resolved_by_uuid: Mapping[str, User]
+    if uuid_to_user is not None:
+        resolved_by_uuid = uuid_to_user
+    else:
+        wanted_uuids = normalized_user_uuids_from_reviewer_payloads(reviewer_dicts)
+        resolved_by_uuid = resolve_org_users_by_uuid(team_id, wanted_uuids) if wanted_uuids else {}
+
     enriched: list[dict] = []
     for r in reviewer_dicts:
-        login = r.get("github_login", "")
-        user = resolved_map.get(login.lower()) if login else None
-        enriched.append(
-            {
-                **r,
-                "user": {
-                    "id": user.id,
-                    "uuid": str(user.uuid),
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "email": user.email,
-                }
-                if user
-                else None,
-            }
-        )
+        login = r.get("github_login") or ""
+        user_uuid = _normalized_reviewer_user_uuid(r.get("user_uuid"))
+        user = resolved_by_uuid.get(user_uuid) if user_uuid else None
+        if user_uuid is None and login:
+            # strip + lower matches the resolver's key normalization, so a legacy padded login
+            # (stored before the schema stripped on write) still resolves.
+            user = resolved_map.get(login.strip().lower())
+        enriched.append(_with_reviewer_presentation(r, user, scout_display_names))
 
     return enriched
+
+
+def _prettify_scout_name(skill_name: str) -> str:
+    cleaned = re.sub(r"^signals-scout-?", "", skill_name).replace("_", " ").replace("-", " ").strip()
+    return cleaned[:1].upper() + cleaned[1:] if cleaned else "Scout"
+
+
+def bounded_reviewer_reason(reason: object) -> str | None:
+    return reason if isinstance(reason, str) and len(reason) <= MAX_REVIEWER_REASON_LENGTH else None
+
+
+def _commit_explanation(commits: list[object]) -> str:
+    if len(commits) == 1 and isinstance(commits[0], dict):
+        reason = commits[0].get("reason")
+        if isinstance(reason, str) and 0 < len(reason.split(maxsplit=12)) <= 12:
+            return reason.strip()
+    if len(commits) == 1:
+        return "Authored a relevant change to the affected code."
+    return f"Authored {len(commits)} relevant changes to the affected code."
+
+
+def _with_reviewer_presentation(reviewer: dict, user: User | None, scout_display_names: Mapping[str, str]) -> dict:
+    commits = reviewer.get("relevant_commits")
+    commit_list: list[object] = commits if isinstance(commits, list) else []
+    safe_commits = [
+        {**commit, "reason": bounded_reviewer_reason(commit.get("reason")) or ""}
+        if isinstance(commit, dict)
+        else commit
+        for commit in commit_list
+    ]
+    source_skill = reviewer.get("source_skill")
+    reason = reviewer.get("reason")
+    safe_reason = bounded_reviewer_reason(reason)
+    explanation: str | None
+
+    if safe_commits:
+        source_label = "Code history"
+        explanation = _commit_explanation(safe_commits)
+    elif isinstance(source_skill, str) and source_skill:
+        source_label = (
+            scout_display_names.get(source_skill, "").strip() or f"{_prettify_scout_name(source_skill)} scout"
+        )
+        explanation = safe_reason
+    elif isinstance(safe_reason, str) and safe_reason.startswith("Added as a reviewer by "):
+        source_label = "Added by teammate"
+        explanation = None
+    else:
+        source_label = "Agent suggestion"
+        explanation = safe_reason
+
+    return {
+        **reviewer,
+        "reason": safe_reason,
+        "relevant_commits": safe_commits,
+        "source_label": source_label,
+        "explanation": explanation,
+        "user": {
+            "id": user.id,
+            "uuid": str(user.uuid),
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "email": user.email,
+        }
+        if user
+        else None,
+    }
 
 
 def normalized_github_logins_from_suggested_reviewer_artefacts(
@@ -119,6 +258,23 @@ def normalized_github_logins_from_suggested_reviewer_artefacts(
     return frozenset(out)
 
 
+def source_skills_from_suggested_reviewer_artefacts(artefacts: Iterable[SignalReportArtefact]) -> frozenset[str]:
+    skills: set[str] = set()
+    for art in artefacts:
+        if art.type != SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
+            continue
+        try:
+            parsed_list = json.loads(art.content)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        if not isinstance(parsed_list, list):
+            continue
+        for row in parsed_list:
+            if isinstance(row, dict) and isinstance(row.get("source_skill"), str):
+                skills.add(row["source_skill"])
+    return frozenset(skills)
+
+
 def normalized_github_logins_from_reviewer_payloads(rows: Iterable[object]) -> frozenset[str]:
     logins: set[str] = set()
     for row in rows:
@@ -133,34 +289,158 @@ def normalized_github_logins_from_reviewer_payloads(rows: Iterable[object]) -> f
     return frozenset(logins)
 
 
+def _normalized_reviewer_user_uuid(raw: object) -> str | None:
+    """A reviewer payload's `user_uuid` in the canonical form readers match on, or None.
+
+    Artefact content is JSON written by several paths (and historically by the generic artefact API),
+    so a stored uuid may be padded or upper-cased. Every consumer normalizes through here so a
+    stored value and a live user's uuid compare the same way.
+    """
+    if not raw:
+        return None
+    try:
+        return str(UUID(str(raw).strip()))
+    except (ValueError, AttributeError):
+        return None
+
+
+@frozen
+class ReviewerIdentitySet:
+    """A set of people named the way a reviewer entry names them: by user uuid, by GitHub login, or
+    both. Callers hold one to test whether a reviewer entry falls in the set without caring which
+    identity the entry happens to carry — a member with no linked GitHub account is only ever
+    matched by uuid.
+    """
+
+    user_uuids: frozenset[str]
+    github_logins: frozenset[str]
+
+    @classmethod
+    def empty(cls) -> ReviewerIdentitySet:
+        return cls(user_uuids=frozenset(), github_logins=frozenset())
+
+    def covers(self, *, user_uuid: str | None = None, github_login: str | None = None) -> bool:
+        if user_uuid:
+            return user_uuid in self.user_uuids
+        return bool(github_login and github_login.strip().lower() in self.github_logins)
+
+    def __bool__(self) -> bool:
+        return bool(self.user_uuids or self.github_logins)
+
+
+@frozen
+class ReviewerPayloadIndex:
+    """Reviewer payloads looked up by either identity, for merging a new list onto a stored one.
+
+    A stored entry and the entry replacing it may not share an identity field: the stored one can
+    predate `user_uuid` and carry only a login, while the new one names a PostHog user whose GitHub
+    account is gone. Matching on the uuid first and the login second lets the two still recognize
+    each other, so a reviewer keeps their commit evidence, display name, and reason across an edit.
+    """
+
+    by_user_uuid: dict[str, dict]
+    by_github_login: dict[str, dict]
+
+    @classmethod
+    def build(cls, rows: Iterable[object]) -> ReviewerPayloadIndex:
+        by_user_uuid: dict[str, dict] = {}
+        by_github_login: dict[str, dict] = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            user_uuid = _normalized_reviewer_user_uuid(row.get("user_uuid"))
+            if user_uuid:
+                by_user_uuid.setdefault(user_uuid, row)
+            login = str(row.get("github_login") or "").strip().lower()
+            if login:
+                by_github_login.setdefault(login, row)
+        return cls(by_user_uuid=by_user_uuid, by_github_login=by_github_login)
+
+    def get(self, *, user_uuid: str | None = None, github_login: str | None = None) -> dict | None:
+        if user_uuid:
+            match = self.by_user_uuid.get(user_uuid)
+            if match is not None:
+                return match
+        if github_login:
+            return self.by_github_login.get(github_login.strip().lower())
+        return None
+
+    def __bool__(self) -> bool:
+        return bool(self.by_user_uuid or self.by_github_login)
+
+
+def normalized_user_uuids_from_reviewer_payloads(rows: Iterable[object]) -> frozenset[str]:
+    uuids: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        normalized = _normalized_reviewer_user_uuid(row.get("user_uuid"))
+        if normalized:
+            uuids.add(normalized)
+    return frozenset(uuids)
+
+
+def normalized_user_uuids_from_suggested_reviewer_artefacts(
+    artefacts: Iterable[SignalReportArtefact],
+) -> frozenset[str]:
+    out: set[str] = set()
+    for art in artefacts:
+        if art.type != SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
+            continue
+        try:
+            parsed_list = json.loads(art.content)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        if not isinstance(parsed_list, list):
+            continue
+        out.update(normalized_user_uuids_from_reviewer_payloads(parsed_list))
+    return frozenset(out)
+
+
 def resolve_suggested_reviewers(
     team_id: int,
     repository: str,
     commit_hashes_with_reasons: dict[str, str],
 ) -> list[_ResolvedReviewer]:
+    return resolve_suggested_reviewers_with_diagnostics(team_id, repository, commit_hashes_with_reasons).reviewers
+
+
+def resolve_suggested_reviewers_with_diagnostics(
+    team_id: int,
+    repository: str,
+    commit_hashes_with_reasons: dict[str, str],
+) -> ReviewerResolution:
     """Resolve commit hashes to up to 3 reviewers, preferring recently-active owners.
+
+    A commit author who has not committed to the repository for ``AUTHOR_ACTIVITY_WINDOW_DAYS``
+    is dropped before scoring — see ``_without_inactive_authors``.
 
     Blame candidates (commit authors, weighted by finding position) are recency-shaped
     against cached area activity, and recently-active area contributors enter as capped
     fallbacks — see ``_score_candidates``. With no activity data available at all, scoring
-    degrades to blame-only.
+    degrades to blame-only. This path never proposes nobody while activity data exists:
+    an unrouted report goes unreviewed, so crowded-area contributors are proposed as the
+    final fallback (``allow_crowd_fallback``).
     """
-    if not commit_hashes_with_reasons or not repository:
-        return []
+    commit_hash_count = len(commit_hashes_with_reasons)
+    if not repository:
+        return _empty_resolution("no_repository", commit_hash_count=commit_hash_count)
+    if not commit_hashes_with_reasons:
+        return _empty_resolution("no_commit_hashes")
 
     try:
         github = GitHubIntegration.first_for_team_repository(team_id, repository)
     except GitHubRateLimitError:
         # Suggested reviewers are an optional artefact — omit them rather than failing the report.
         logger.info("GitHub rate limited while probing %s, skipping reviewer resolution", repository)
-        return []
+        return _empty_resolution("github_rate_limited", commit_hash_count=commit_hash_count)
     if github is None:
         logger.info(
             "No GitHub integration for team %d can access %s, cannot resolve reviewers",
             team_id,
             repository,
         )
-        return []
+        return _empty_resolution("no_github_integration", commit_hash_count=commit_hash_count)
 
     # Cap lookups — we only need 3 reviewers, so diminishing returns past ~15 commits.
     items = list(commit_hashes_with_reasons.items())[:MAX_COMMIT_LOOKUPS]
@@ -168,6 +448,7 @@ def resolve_suggested_reviewers(
 
     # Fetch all commit author info in parallel (IO-bound GitHub API calls)
     author_results: dict[int, Any] = {}
+    lookups_rate_limited = 0
     with ThreadPoolExecutor(max_workers=min(total, 5)) as pool:
         future_to_idx = {
             pool.submit(github.get_commit_author_info, repository, sha): i for i, (sha, _reason) in enumerate(items)
@@ -177,30 +458,84 @@ def resolve_suggested_reviewers(
                 author_results[future_to_idx[future]] = future.result()
             except GitHubRateLimitError:
                 # Best-effort: score reviewers from whatever lookups landed before the limit.
+                lookups_rate_limited += 1
                 logger.info("GitHub rate limited during commit author lookups for %s", repository)
 
     # Weight earlier commits more heavily (position-based weighting)
     login_weights: Counter[str] = Counter()
     login_commits: dict[str, list[RelevantCommit]] = {}
     login_names: dict[str, str | None] = {}
+    bot_author_count = 0
 
     for i, (sha, reason) in enumerate(items):
         author_info = author_results.get(i)
-        if author_info and not author_info.is_bot:
-            # Lowercased to match the activity map's keys (and the persisted artefact shape).
-            login = author_info.login.lower()
-            weight = total - i
-            login_weights[login] += weight
-            login_commits.setdefault(login, []).append(
-                RelevantCommit(sha=sha, url=author_info.commit_url, reason=reason)
-            )
-            if login not in login_names:
-                login_names[login] = author_info.name
+        if author_info is None:
+            continue
+        if author_info.is_bot:
+            bot_author_count += 1
+            continue
+        # Lowercased to match the activity map's keys (and the persisted artefact shape).
+        login = author_info.login.lower()
+        weight = total - i
+        login_weights[login] += weight
+        login_commits.setdefault(login, []).append(
+            RelevantCommit(sha=sha, url=author_info.commit_url, reason=bounded_reviewer_reason(reason) or "")
+        )
+        if login not in login_names:
+            login_names[login] = author_info.name
 
     touched_paths = [path for info in author_results.values() if info is not None for path in info.file_paths]
     activity_by_login = _relevant_area_activity(team_id, repository, touched_paths)
 
-    return _rank_scored_candidates(login_weights, activity_by_login, login_commits, login_names)
+    proven_active = {
+        login for login, activity in activity_by_login.items() if activity.days_since_last_commit < ACTIVITY_WINDOW_DAYS
+    }
+    active_login_weights = without_inactive_authors(github, repository, login_weights, proven_active=proven_active)
+    inactive_author_count = len(login_weights) - len(active_login_weights)
+
+    reviewers = _rank_scored_candidates(
+        active_login_weights, activity_by_login, login_commits, login_names, allow_crowd_fallback=True
+    )
+    lookups_resolved = sum(1 for info in author_results.values() if info is not None)
+    outcome: ReviewerResolutionOutcome
+    if reviewers:
+        outcome = "resolved"
+    elif lookups_rate_limited:
+        # Any throttled lookup could have been the one holding the missing human author, so a
+        # mixed batch is attributed to the rate limit rather than to whatever the lookups that
+        # did land happened to return.
+        outcome = "github_rate_limited"
+    elif lookups_resolved == 0:
+        outcome = "no_commit_authors"
+    elif not login_weights:
+        outcome = "only_bot_authors"
+    elif not active_login_weights:
+        outcome = "only_inactive_authors"
+    else:
+        outcome = "no_candidates"
+    return ReviewerResolution(
+        reviewers=reviewers,
+        diagnostics=ReviewerResolutionDiagnostics(
+            outcome=outcome,
+            commit_hash_count=commit_hash_count,
+            lookups_attempted=total,
+            lookups_resolved=lookups_resolved,
+            lookups_missing=total - lookups_resolved,
+            lookups_rate_limited=lookups_rate_limited,
+            bot_author_count=bot_author_count,
+            blame_login_count=len(login_weights),
+            inactive_author_count=inactive_author_count,
+            touched_path_count=len(touched_paths),
+            activity_login_count=len(activity_by_login),
+        ),
+    )
+
+
+def _empty_resolution(outcome: ReviewerResolutionOutcome, *, commit_hash_count: int = 0) -> ReviewerResolution:
+    return ReviewerResolution(
+        reviewers=[],
+        diagnostics=ReviewerResolutionDiagnostics(outcome=outcome, commit_hash_count=commit_hash_count),
+    )
 
 
 def rank_assignee_candidates(
@@ -234,8 +569,10 @@ def _rank_scored_candidates(
     activity_by_login: dict[str, _AreaContributor],
     login_commits: dict[str, list[RelevantCommit]],
     login_names: dict[str, str | None],
+    *,
+    allow_crowd_fallback: bool = False,
 ) -> list[_ResolvedReviewer]:
-    scores = _score_candidates(login_weights, activity_by_login)
+    scores = _score_candidates(login_weights, activity_by_login, allow_crowd_fallback=allow_crowd_fallback)
 
     def rank_key(item: tuple[str, float]) -> tuple[float, int, str]:
         login, score = item
@@ -252,10 +589,11 @@ def _rank_scored_candidates(
                 RelevantCommit(
                     sha=activity.last_commit_sha,
                     url=activity.last_commit_url,
-                    reason=(
+                    reason=bounded_reviewer_reason(
                         f"Recently active in {_area_label(activity.area)} "
                         f"({activity.commit_count} commit(s) in the last {ACTIVITY_WINDOW_DAYS} days)."
-                    ),
+                    )
+                    or "Recently active in the affected code.",
                 )
             ]
         name = login_names.get(login)
@@ -284,8 +622,9 @@ class _AreaContributor:
     last_commit_url: str
     area: str  # the area of the evidence (freshest) commit, for evidence wording
     # True if *any* area this contributor was drawn from is focused enough to count as owned.
-    # Not tied to the evidence area: a crowded area still supplies recency, it just proposes
-    # nobody, and it must not cancel a claim earned in a focused one.
+    # Not tied to the evidence area: a crowded area still supplies recency, it proposes
+    # contributors only as the crowd fallback of last resort (see _score_candidates), and it
+    # must not cancel a claim earned in a focused one.
     is_likely_owner_of_area: bool
 
 
@@ -344,12 +683,12 @@ def _merge_contributor(
     now: datetime,
     is_likely_owner_of_area: bool,
 ) -> _AreaContributor:
-    days_since = max(0.0, (now - incoming.last_commit_at).total_seconds() / 86400)
+    days_since_commit = days_since(incoming.last_commit_at, now)
     if existing is None:
         return _AreaContributor(
             name=incoming.name,
             commit_count=incoming.commit_count,
-            days_since_last_commit=days_since,
+            days_since_last_commit=days_since_commit,
             last_commit_sha=incoming.last_commit_sha,
             last_commit_url=incoming.last_commit_url,
             area=area,
@@ -358,11 +697,11 @@ def _merge_contributor(
     # Evidence follows the freshest commit, so sha/url/area always agree with
     # days_since_last_commit. Ownership does not: it accumulates, so a fresher commit in a
     # crowded level can't erase a claim earned in a focused one.
-    keep_incoming_evidence = days_since < existing.days_since_last_commit
+    keep_incoming_evidence = days_since_commit < existing.days_since_last_commit
     return _AreaContributor(
         name=existing.name or incoming.name,
         commit_count=existing.commit_count + incoming.commit_count,
-        days_since_last_commit=min(existing.days_since_last_commit, days_since),
+        days_since_last_commit=min(existing.days_since_last_commit, days_since_commit),
         last_commit_sha=incoming.last_commit_sha if keep_incoming_evidence else existing.last_commit_sha,
         last_commit_url=incoming.last_commit_url if keep_incoming_evidence else existing.last_commit_url,
         area=area if keep_incoming_evidence else existing.area,
@@ -402,6 +741,8 @@ def _has_live_reviewer(
 def _score_candidates(
     login_weights: Counter[str],
     activity_by_login: dict[str, _AreaContributor],
+    *,
+    allow_crowd_fallback: bool = False,
 ) -> dict[str, float]:
     """Blend blame weights with area recency; add capped activity-only fallbacks.
 
@@ -410,6 +751,12 @@ def _score_candidates(
     last resort: no live reviewer, and an area focused enough to imply ownership. Their base
     starts above the stale floor, so they outrank authors who have left the area. With no
     activity data at all, blame weights pass through unchanged (legacy behavior).
+
+    ``allow_crowd_fallback`` decides what happens when even that yields nobody (no blame
+    candidate at all, and every relevant area too crowded to imply ownership): the pipeline
+    reviewer path proposes the crowded areas' most active contributors, because an empty
+    suggestion list leaves the report unrouted; the agent re-ranking path keeps returning
+    nothing, so the agent's own judgment (including a deliberate "no clear candidate") wins.
     """
     if not activity_by_login:
         return {login: float(weight) for login, weight in login_weights.items()}
@@ -424,13 +771,22 @@ def _score_candidates(
         return scores
 
     # If not, nobody the report points at is around to review, so fall back to area contributors.
-    max_blame_weight = float(max(login_weights.values(), default=0)) or 1.0
+    def activity_only_score(activity: _AreaContributor) -> float:
+        max_blame_weight = float(max(login_weights.values(), default=0)) or 1.0
+        saturation = min(activity.commit_count, ACTIVITY_BONUS_SATURATION_COMMITS) / ACTIVITY_BONUS_SATURATION_COMMITS
+        base = STALE_BLAME_MULTIPLIER + (ACTIVITY_ONLY_SCORE_CAP - STALE_BLAME_MULTIPLIER) * saturation
+        return max_blame_weight * base * _recency_multiplier(activity.days_since_last_commit)
+
     for login, activity in activity_by_login.items():
         if login in scores or not activity.is_likely_owner_of_area:
             continue
-        saturation = min(activity.commit_count, ACTIVITY_BONUS_SATURATION_COMMITS) / ACTIVITY_BONUS_SATURATION_COMMITS
-        base = STALE_BLAME_MULTIPLIER + (ACTIVITY_ONLY_SCORE_CAP - STALE_BLAME_MULTIPLIER) * saturation
-        scores[login] = max_blame_weight * base * _recency_multiplier(activity.days_since_last_commit)
+        scores[login] = activity_only_score(activity)
+
+    if scores or not allow_crowd_fallback:
+        return scores
+
+    for login, activity in activity_by_login.items():
+        scores[login] = activity_only_score(activity)
     return scores
 
 
@@ -444,29 +800,43 @@ class _ResolvedReviewer:
     weight: float
 
 
-def get_org_member_github_login_to_user_map(team_id: int) -> dict[str, User] | None:
-    """Build a mapping of GitHub login -> PostHog User for the team's org.
+def resolve_org_users_by_uuid(team_id: int, user_uuids: Iterable[str]) -> dict[str, User]:
+    """Map user UUID -> org member ``User`` for the team's organization, GitHub-linked or not.
 
-    Returns None if the team doesn't exist, otherwise a dict (possibly empty).
+    The uuid counterpart of ``resolve_org_github_login_to_users``: reviewer entries route to a
+    PostHog user, so this is what resolves one without asking whether they connected GitHub.
+    """
+    wanted = {u for u in (_normalized_reviewer_user_uuid(raw) for raw in user_uuids) if u}
+    if not wanted:
+        return {}
+
+    try:
+        org_id = str(Team.objects.values_list("organization_id", flat=True).get(id=team_id))
+    except Team.DoesNotExist:
+        return {}
+
+    member_ids = OrganizationMembership.objects.filter(organization_id=org_id, user__uuid__in=wanted).values_list(
+        "user_id", flat=True
+    )
+    users = User.objects.filter(id__in=member_ids, is_active=True).order_by("id")
+    return {str(user.uuid): user for user in users}
+
+
+def get_org_member_users_by_uuid(team_id: int) -> dict[str, User] | None:
+    """Every active org member on the team's organization, keyed by user UUID.
+
+    Backs the inbox reviewer picker. A linked GitHub identity is not required, so a member who
+    never connected GitHub can be picked (and can pick themselves). Returns None if the team doesn't
+    exist, otherwise a dict (possibly empty).
     """
     try:
         org_id = str(Team.objects.values_list("organization_id", flat=True).get(id=team_id))
     except Team.DoesNotExist:
         return None
 
-    candidate_ids = _candidate_user_ids_for_organization(org_id)
-    if not candidate_ids:
-        return {}
-
-    users = User.objects.filter(id__in=candidate_ids).prefetch_related(*_github_identity_prefetches()).order_by("id")
-
-    login_to_user: dict[str, User] = {}
-    for user in users:
-        login = user.get_github_login()
-        if login:
-            login_to_user[login.lower()] = user
-
-    return login_to_user
+    member_ids = OrganizationMembership.objects.filter(organization_id=org_id).values_list("user_id", flat=True)
+    users = User.objects.filter(id__in=member_ids, is_active=True).order_by("id")
+    return {str(user.uuid): user for user in users}
 
 
 def get_org_member_github_logins_by_user_uuid(team_id: int, user_uuids: list[str]) -> dict[str, str]:
@@ -581,26 +951,6 @@ def resolve_org_github_login_to_users(team_id: int, github_logins: Iterable[str]
         if k in logins_normalized:
             login_to_user[k] = user
     return login_to_user
-
-
-def _candidate_user_ids_for_organization(org_id: str) -> set[int]:
-    """Org member IDs that might have any GitHub identity."""
-    mid_sq = Subquery(OrganizationMembership.objects.filter(organization_id=org_id).values("user_id"))
-    candidates: set[int] = set()
-    candidates.update(
-        UserSocialAuth.objects.filter(provider="github", user_id__in=mid_sq).values_list("user_id", flat=True)
-    )
-    candidates.update(
-        UserIntegration.objects.filter(kind=UserIntegration.IntegrationKind.GITHUB, user_id__in=mid_sq).values_list(
-            "user_id", flat=True
-        )
-    )
-    candidates.update(
-        Integration.objects.filter(kind="github", created_by_id__in=mid_sq)
-        .exclude(config__connecting_user_github_login=None)
-        .values_list("created_by_id", flat=True)
-    )
-    return candidates
 
 
 def _candidate_user_ids_for_org_and_logins(org_id: str, logins_lower: frozenset[str]) -> set[int]:

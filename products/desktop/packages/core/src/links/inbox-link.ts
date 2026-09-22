@@ -15,12 +15,13 @@ export const InboxLinkEvent = {
   OpenReport: "openReport",
 } as const;
 
+/** A null `reportId` opens the inbox itself, from a link with no report segment. */
 export interface InboxLinkEvents {
-  [InboxLinkEvent.OpenReport]: { reportId: string };
+  [InboxLinkEvent.OpenReport]: { reportId: string | null };
 }
 
 export interface PendingInboxDeepLink {
-  reportId: string;
+  reportId: string | null;
 }
 
 @injectable()
@@ -45,21 +46,17 @@ export class InboxLinkService extends TypedEventEmitter<InboxLinkEvents> {
   }
 
   private handleInboxLink(path: string): boolean {
-    const reportId = path.split("/")[0];
-
-    if (!reportId) {
-      this.log.warn("Inbox link missing report ID");
-      return false;
-    }
+    const reportId = path.split("/")[0] || null;
+    const target = reportId ?? "(inbox)";
 
     const hasListeners = this.listenerCount(InboxLinkEvent.OpenReport) > 0;
 
     if (hasListeners) {
-      this.log.info(`Emitting inbox link event: reportId=${reportId}`);
+      this.log.info(`Emitting inbox link event: reportId=${target}`);
       this.emit(InboxLinkEvent.OpenReport, { reportId });
     } else {
       this.log.info(
-        `Queueing inbox link (renderer not ready): reportId=${reportId}`,
+        `Queueing inbox link (renderer not ready): reportId=${target}`,
       );
       this.pendingDeepLink = { reportId };
     }

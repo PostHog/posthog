@@ -26,6 +26,8 @@ import shlex
 import subprocess
 import dataclasses
 
+from . import timing
+
 
 @dataclasses.dataclass
 class ExecResult:
@@ -107,6 +109,10 @@ class PreviewBackend(abc.ABC):
         a visible chunk of pure waiting across them. Each probe is one cheap
         exec round-trip, so 3s is comfortably affordable.
         """
+        with timing.span(name):
+            return self._run_long(script, name=name, timeout=timeout, interval=interval)
+
+    def _run_long(self, script: str, *, name: str, timeout: int, interval: int) -> ExecResult:
         base = f"/tmp/hogbox-{name}"
         log, done, fail = f"{base}.log", f"{base}.done", f"{base}.fail"
         self.write_file(f"{base}.sh", script + "\n")

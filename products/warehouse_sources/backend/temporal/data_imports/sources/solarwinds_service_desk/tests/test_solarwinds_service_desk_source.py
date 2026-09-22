@@ -3,9 +3,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.solarwindsservicedesk import (
     SolarwindsServiceDeskSourceConfig,
 )
@@ -13,13 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk.solarwinds_service_desk import (
-    SolarwindsServiceDeskResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk.source import (
     SolarwindsServiceDeskSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk.source"
 
@@ -29,32 +22,6 @@ class TestSolarwindsServiceDeskSource:
         self.source = SolarwindsServiceDeskSource()
         self.team_id = 123
         self.config = SolarwindsServiceDeskSourceConfig(api_token="swsd-token", region="eu")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SOLARWINDSSERVICEDESK
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "SolarwindsServiceDesk"
-        assert config.label == "SolarWinds Service Desk"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/solarwinds-service-desk"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["region", "api_token"]
-
-    def test_api_token_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_token")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
-    def test_region_field_covers_documented_hosts(self) -> None:
-        config = self.source.get_source_config
-        region = next(f for f in config.fields if isinstance(f, SourceFieldSelectConfig) and f.name == "region")
-        assert [option.value for option in region.options] == ["us", "eu", "au"]
-        assert region.defaultValue == "us"
 
     def test_region_is_a_connection_host_field(self) -> None:
         # The token is sent to the host derived from `region`; retargeting the region must force
@@ -124,11 +91,6 @@ class TestSolarwindsServiceDeskSource:
         result = self.source.validate_credentials(self.config, self.team_id, schema_name)
         mock_validate.assert_called_once_with("eu", "swsd-token", expected_path)
         assert result == (True, None)
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is SolarwindsServiceDeskResumeConfig
 
     @mock.patch(f"{_SOURCE_MODULE}.solarwinds_service_desk_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

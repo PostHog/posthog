@@ -7,24 +7,37 @@ so import-linter's strict-mode contract holds.
 
 import math
 import datetime as dt
+from collections.abc import Sequence
 from typing import Any
 
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.database.schema.metrics import HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
+from products.error_tracking.backend.facade.api import list_spike_events
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
+from products.metrics.backend.diagnostics import decompose_bucket as _decompose_bucket
 from products.metrics.backend.facade.contracts import (
     CompanionMetric,
     IncidentContext,
     InvestigationResult,
     MetricAnomalyReport,
+    MetricBucketDecomposition,
+    MetricErrorSpike,
     MetricEventSample,
     MetricFilter,
     MetricPoint,
     MetricQueryClause,
     MetricQueryRequest,
     MetricSeries,
+    MetricsOverview,
 )
-from products.metrics.backend.facade.enums import FilterOp, MetricAggregation
+from products.metrics.backend.facade.enums import FilterOp, MetricAggregation, MetricType
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
 from products.metrics.backend.investigation import investigate as _investigate
@@ -33,8 +46,9 @@ from products.metrics.backend.metric_attributes_query_runner import (
     MetricAttributeValuesQueryRunner,
 )
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
-from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
+from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner, cached_metric_names
 from products.metrics.backend.metric_query_runner import MetricQueryRunner
+from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
 
 # MetricQueryRunner still speaks the legacy aggregation strings; this shrinks
 # as later PRs teach the runner the remaining MetricAggregation values.
@@ -42,6 +56,8 @@ _RUNNER_AGGREGATIONS: dict[MetricAggregation, str] = {
     MetricAggregation.SUM: "sum",
     MetricAggregation.AVG: "avg",
     MetricAggregation.COUNT: "count",
+    MetricAggregation.MIN: "min",
+    MetricAggregation.MAX: "max",
     MetricAggregation.RATE: "rate",
     MetricAggregation.INCREASE: "increase",
 }
@@ -52,21 +68,77 @@ def team_has_metrics(team: Team) -> bool:
     return _team_has_metrics(team)
 
 
+def _units_by_fingerprint(team: Team, metric_names: set[str]) -> dict[int, str]:
+    """One ClickHouse lookup of the ingested UCUM unit per physical series,
+    keyed by `series_fingerprint` and read from `metric_series` (the same table
+    the catalog reads). Per-fingerprint rather than per-name so a metric whose
+    series disagree on the unit never lends one series' unit to another.
+    Returns only series with a non-empty unit; a series with no unit is simply
+    absent, so callers use `.get(fingerprint)`. Kept separate from the
+    per-series data query so the unit costs one small grouped scan regardless
+    of how many series a query returns."""
+    if not metric_names:
+        return {}
+    names = sorted(metric_names)
+    query = parse_select(
+        """
+            SELECT series_fingerprint, any(unit) AS unit
+            FROM posthog.metric_series
+            WHERE metric_name IN {names}
+            GROUP BY series_fingerprint
+        """,
+        placeholders={"names": ast.Tuple(exprs=[ast.Constant(value=n) for n in names])},
+    )
+    response = execute_hogql_query(
+        query_type="MetricUnitsLookup",
+        query=query,
+        team=team,
+        workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+        # Same byte cap as the data queries: without it a high-cardinality name set
+        # would make this metadata scan the most expensive read of the request.
+        settings=HogQLGlobalSettings(
+            max_execution_time=30,
+            max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
+            read_overflow_mode="throw",
+        ),
+    )
+    return {int(row[0]): str(row[1]) for row in (response.results or []) if row[1]}
+
+
+def _unit_for_fingerprints(fingerprints: set[int], units_by_fingerprint: dict[int, str]) -> str | None:
+    """The unit of one output series, resolved from the physical series it
+    aggregated. The unit only applies when every contributing series carries
+    the same one — a disagreement, or a series with no unit at all, means the
+    merge has no correct single unit, so it carries none."""
+    units = {units_by_fingerprint.get(fp) for fp in fingerprints}
+    if len(units) != 1:
+        return None
+    (unit,) = units
+    return unit
+
+
 # Hard cap on series returned per clause; the largest series (by summed
 # absolute value) win so the most significant groups survive truncation.
 MAX_SERIES_PER_CLAUSE = 100
 
 
 def _assemble_series(
-    rows: list[dict[str, Any]], *, metric_name: str, clause_name: str, grid: list[str]
+    rows: list[dict[str, Any]],
+    *,
+    metric_name: str,
+    clause_name: str,
+    grid: list[str],
+    units_by_fingerprint: dict[int, str],
 ) -> list[MetricSeries]:
     """Split bucketed rows into one series per label-set, zero-filled onto
     the shared grid so every series (and later, every clause of a formula)
     has identical timestamps."""
     by_labels: dict[tuple[tuple[str, str], ...], dict[str, float | None]] = {}
+    fingerprints_by_labels: dict[tuple[tuple[str, str], ...], set[int]] = {}
     for row in rows:
         key = tuple(sorted(row["labels"].items()))
         by_labels.setdefault(key, {})[row["time"]] = row["value"]
+        fingerprints_by_labels.setdefault(key, set()).update(row["series_fingerprints"])
 
     # Rank and truncate on the sparse values BEFORE zero-filling, so a
     # high-cardinality group-by never materializes label_sets x grid points
@@ -81,6 +153,7 @@ def _assemble_series(
             points=tuple(MetricPoint(time=time, value=values.get(time, 0.0)) for time in grid),
             metric_name=metric_name,
             clause=clause_name,
+            unit=_unit_for_fingerprints(fingerprints_by_labels[key], units_by_fingerprint),
         )
         for key, values in ranked[:MAX_SERIES_PER_CLAUSE]
     ]
@@ -195,9 +268,21 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
         metric_name = None if formula_node_checked is not None else request.clauses[0].metric_name
         return [MetricSeries(labels={}, points=(), metric_name=metric_name, clause=empty_clause)]
 
+    # A formula combines clauses (possibly of different units), so its series
+    # carry no unit and the unit lookup is skipped entirely.
+    units_by_fingerprint = (
+        {}
+        if formula_node_checked is not None
+        else _units_by_fingerprint(team, {clause.metric_name for clause in request.clauses})
+    )
+
     series_by_clause = {
         clause.name: _assemble_series(
-            rows_by_clause[clause.name], metric_name=clause.metric_name, clause_name=clause.name, grid=grid
+            rows_by_clause[clause.name],
+            metric_name=clause.metric_name,
+            clause_name=clause.name,
+            grid=grid,
+            units_by_fingerprint=units_by_fingerprint,
         )
         for clause in request.clauses
     }
@@ -213,35 +298,80 @@ def list_metric_names(
     team: Team,
     search: str = "",
     limit: int = 100,
+    services: Sequence[str] = (),
+    names: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
     """List distinct metric names for the team's picker.
 
     Returns a list of `{"name": str, "metric_type": str}` dicts ordered by
     most-recently-seen, with exact-name matches floated to the top.
-    Raises `ValueError` for an out-of-range limit.
+    Passing `services` narrows the list to names those services reported.
+    Raises `ValueError` for an out-of-range limit or too many services.
+
+    The unsearched list is cached per team and service scope for a minute;
+    searches are not.
     """
-    runner = MetricNamesQueryRunner(team=team, search=search, limit=limit)
-    return runner.run()
+    if names:
+        return MetricNamesQueryRunner(team=team, services=services, names=names, limit=len(names)).run()
+    return cached_metric_names(team=team, search=search, limit=limit, services=services)
+
+
+def list_metric_picker_names(
+    *,
+    team: Team,
+    search: str = "",
+    limit: int = 100,
+    services: Sequence[str] = (),
+) -> list[dict[str, Any]]:
+    """List current metric names for the viewer picker without sparklines or caching."""
+    rows = MetricNamesQueryRunner(
+        team=team,
+        search=search,
+        limit=limit,
+        services=services,
+        include_sparklines=False,
+    ).run()
+    return [{"name": row["name"], "metric_type": row["metric_type"]} for row in rows]
+
+
+def get_metrics_overview(*, team: Team, lookback: dt.timedelta | None = None) -> MetricsOverview:
+    """Ingestion rollup for the overview page: freshness of the newest
+    datapoint plus window-scoped metric/series counts per service.
+
+    Raises `ValueError` for a non-positive lookback.
+    """
+    if lookback is None:
+        return MetricsOverviewQueryRunner(team=team).run()
+    return MetricsOverviewQueryRunner(team=team, lookback=lookback).run()
 
 
 def list_metric_attribute_keys(
     *,
     team: Team,
+    metric_name: str = "",
     search: str = "",
     date_from: dt.datetime | None = None,
     date_to: dt.datetime | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
-    """List distinct attribute keys seen on the team's metrics, most frequent
-    first, for the filter bar's key autocomplete.
+    """List attribute keys by distinct value count, from highest to lowest.
 
-    Datapoint and resource attributes are merged into one list (filters run
-    with scope 'auto', so the split doesn't matter to callers); `service_name`
-    is always surfaced when it matches the search. The window defaults to the
-    last 7 days. Returns `{"name": str}` dicts. Raises `ValueError` for an
-    out-of-range limit or an inverted window.
+    When a metric name is provided, only series that emitted that metric in the
+    recent window supply choices. Datapoint and resource attributes are merged
+    into one list (filters run with scope 'auto', so the split doesn't matter
+    to callers); `service_name` is always surfaced when it matches the search.
+    The window defaults to the last 7 days. Returns `{"name": str,
+    "value_count": int}` dicts. Raises `ValueError` for an out-of-range limit
+    or an inverted window.
     """
-    runner = MetricAttributeKeysQueryRunner(team=team, search=search, date_from=date_from, date_to=date_to, limit=limit)
+    runner = MetricAttributeKeysQueryRunner(
+        team=team,
+        metric_name=metric_name,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+    )
     return runner.run()
 
 
@@ -271,20 +401,32 @@ def list_metric_attribute_values(
 def list_metric_event_samples(
     *,
     team: Team,
-    metric_name: str,
+    metric_name: str | None = None,
     date_from: dt.datetime,
     date_to: dt.datetime,
     trace_id: str | None = None,
+    span_id: str | None = None,
+    filters: Sequence[MetricFilter] = (),
+    metric_type: MetricType | None = None,
     limit: int = 100,
 ) -> list[MetricEventSample]:
-    """List individual metric emissions (the events model) for a metric,
-    newest first.
+    """List individual metric emissions (the events model), newest first.
 
     Each sample carries its value, attributes, and trace linkage, so the
     Samples view can render raw rows and pivot to the trace behind any one.
-    Pass `trace_id` for the reverse pivot — every emission on a given trace.
-    Raises `ValueError` for an empty metric name, an inverted window, or an
-    out-of-range limit; the presentation layer surfaces these as 400s.
+    Pass `trace_id` for the reverse pivot — every emission on a given trace,
+    across all metric names when `metric_name` is omitted (the tracing
+    product's Metrics tab); `metric_name` or `trace_id` is required. Pass
+    `span_id` (with `trace_id`) to narrow to one span's emissions, so the
+    result stays exact even when the trace has more emissions than `limit`.
+    `filters` and `metric_type` narrow the emissions to the same series a
+    `run_metric_query` call with those arguments charts, so a filtered view
+    and its chart agree. Both are matched against the emission's series, so
+    an emission whose series row hasn't been ingested yet drops out once
+    either is set; both require `metric_name`.
+    Raises `ValueError` for a missing metric name and trace id, an inverted
+    window, an invalid regex filter, or an out-of-range limit; the
+    presentation layer surfaces these as 400s.
     """
     runner = MetricEventSamplesQueryRunner(
         team=team,
@@ -292,9 +434,41 @@ def list_metric_event_samples(
         date_from=date_from,
         date_to=date_to,
         trace_id=trace_id,
+        span_id=span_id,
+        filters=filters,
+        metric_type=metric_type,
         limit=limit,
     )
     return [MetricEventSample(**row) for row in runner.run()]
+
+
+# PoC cap: team-wide — Error Tracking spike events carry no service attribution,
+# so there is no correlation key to scope them to one metric's service yet.
+_ERROR_SPIKES_LIMIT = 200
+
+
+def list_metric_error_spikes(*, team: Team, date_from: dt.datetime, date_to: dt.datetime) -> list[MetricErrorSpike]:
+    """List Error Tracking issue spikes detected in a time window, for the
+    metrics chart's error-spike overlay.
+
+    Team-wide: Error Tracking issues carry no service attribution today, so
+    this cannot be scoped to the metric's own service yet.
+    """
+    events, _total = list_spike_events(
+        team_id=team.id,
+        date_from=date_from.isoformat(),
+        date_to=date_to.isoformat(),
+        limit=_ERROR_SPIKES_LIMIT,
+        include_total_count=False,
+    )
+    return [
+        MetricErrorSpike(
+            detected_at=event.detected_at.isoformat(),
+            issue_id=str(event.issue.id),
+            issue_name=event.issue.name,
+        )
+        for event in events
+    ]
 
 
 def characterize_metric_anomaly(
@@ -395,4 +569,35 @@ def investigate_incident(*, team: Team, context: IncidentContext) -> Investigati
         anomaly_to=context.fired_at + context.leadout,
         filters=filters,
         companions=context.companions,
+    )
+
+
+def explain_metric_bucket(
+    *,
+    team: Team,
+    metric_name: str,
+    aggregation: str,
+    bucket_start: dt.datetime,
+    interval: str,
+    filters: Sequence[MetricFilter] = (),
+    metric_type: MetricType | None = None,
+    quantile: float | None = None,
+) -> MetricBucketDecomposition:
+    """Take one chart point apart and show how it was built.
+
+    Returns the series that reported in the bucket, the samples each sent, and
+    the two reductions that combined them, alongside both the value the product
+    would plot and the value recomputed independently from the raw samples.
+    Reading them side by side is what makes an aggregation bug visible instead
+    of merely plausible. The presentation layer surfaces `ValueError` as a 400.
+    """
+    return _decompose_bucket(
+        team=team,
+        metric_name=metric_name,
+        aggregation=aggregation,
+        bucket_start=bucket_start,
+        interval=interval,
+        filters=filters,
+        metric_type=metric_type.value if metric_type is not None else None,
+        quantile=quantile,
     )

@@ -2,9 +2,8 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconArrowRight, IconBell, IconGithub, IconGraph, IconHeartPlus, IconLinear } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
-import { RecordingsUniversalFiltersDisplay } from 'lib/components/Cards/InsightCard/RecordingsUniversalFiltersDisplay'
 import { IconSlack } from 'lib/lemon-ui/icons'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -14,7 +13,6 @@ import iconZendesk from 'public/services/zendesk.svg'
 import { captureSignalSourceInterest } from './inboxAnalytics'
 import { PgAnalyzeIcon as IconPgAnalyze } from './PgAnalyzeIcon'
 import { signalSourcesLogic } from './signalSourcesLogic'
-import { SignalSourceConfigStatus } from './types'
 
 type SourceProps =
     | {
@@ -123,25 +121,8 @@ function Source(props: SourceProps): JSX.Element {
     )
 }
 
-function isNonEmptyFilters(obj: unknown): boolean {
-    return obj != null && typeof obj === 'object' && Object.keys(obj as Record<string, unknown>).length > 0
-}
-
-function SessionAnalysisStatusIndicator({ status }: { status: SignalSourceConfigStatus | null }): JSX.Element | null {
-    if (status === SignalSourceConfigStatus.RUNNING) {
-        return (
-            <div className="mt-2 flex items-center gap-2 rounded bg-accent-light text-xs text-accent">
-                <Spinner className="size-3.5" />
-                <span>Summarizing sessions…</span>
-            </div>
-        )
-    }
-    return null
-}
-
 export function SourcesList(): JSX.Element {
     const {
-        sessionAnalysisConfig,
         githubIssuesConfig,
         linearIssuesConfig,
         zendeskTicketsConfig,
@@ -149,7 +130,6 @@ export function SourcesList(): JSX.Element {
         errorTrackingIsFullyEnabled,
         healthChecksConfig,
         anomalyInvestigationConfig,
-        isSessionAnalysisToggling,
         isGithubIssuesToggling,
         isLinearIssuesToggling,
         isZendeskTicketsToggling,
@@ -158,48 +138,11 @@ export function SourcesList(): JSX.Element {
         isHealthChecksToggling,
         isAnomalyInvestigationToggling,
     } = useValues(signalSourcesLogic)
-    const {
-        toggleSessionAnalysis,
-        openSessionAnalysisSetup,
-        clearSessionAnalysisFilters,
-        initiateDataWarehouseSourceToggle,
-        toggleErrorTracking,
-        toggleHealthChecks,
-        toggleAnomalyInvestigation,
-    } = useActions(signalSourcesLogic)
-
-    const recordingFilters = sessionAnalysisConfig?.config?.recording_filters
-    const hasNonEmptyFilters = isNonEmptyFilters(recordingFilters)
+    const { initiateDataWarehouseSourceToggle, toggleErrorTracking, toggleHealthChecks, toggleAnomalyInvestigation } =
+        useActions(signalSourcesLogic)
 
     return (
         <div className="divide-y space-y-3">
-            <Source
-                icon={
-                    <div className="flex *:text-xl group/colorful-product-icons colorful-product-icons-true">
-                        {iconForType('session_replay')}
-                    </div>
-                }
-                title="PostHog Session replay"
-                description="Session recordings + event data → Signals"
-                variant="available"
-                checked={!!sessionAnalysisConfig?.enabled}
-                loading={isSessionAnalysisToggling}
-                onToggle={() => toggleSessionAnalysis()}
-                config={{
-                    buttonLabel: recordingFilters ? 'Edit' : 'Configure',
-                    onClick: openSessionAnalysisSetup,
-                    display: recordingFilters ? (
-                        <RecordingsUniversalFiltersDisplay filters={recordingFilters} />
-                    ) : (
-                        <div className="px-2 pb-2">
-                            <span className="text-xs text-secondary">All sessions</span>
-                        </div>
-                    ),
-                }}
-                onClearClick={hasNonEmptyFilters ? clearSessionAnalysisFilters : undefined}
-                statusSection={<SessionAnalysisStatusIndicator status={sessionAnalysisConfig?.status ?? null} />}
-            />
-
             <Source
                 icon={
                     <div className="flex *:text-xl group/colorful-product-icons colorful-product-icons-true">

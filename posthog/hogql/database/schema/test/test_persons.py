@@ -37,12 +37,12 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.models.person.util import create_person
 from posthog.uuidt import UUIDT
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import recalculate_cohortpeople
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))  # for persons-inner-where-optimization
@@ -108,6 +108,80 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         assert response.clickhouse
         self.assertIn("where_optimization", response.clickhouse)
         self.assertNotIn("in(tuple(person.id, person.version)", response.clickhouse)
+        self.assertIn("multiSearchAny(where_optimization.properties, [%(hogql_val_1)s])", response.clickhouse)
+
+    PREFILTER_PERSONS = [
+        ("escaped", {"$some_prop": 'some"thing'}),
+        ("non_ascii", {"$some_prop": "sömething"}),
+        ("other_key", {"$some_prop": "chrome", "$another_prop": "something"}),
+    ]
+
+    def _create_prefilter_persons(self) -> dict[str, str]:
+        uuids = {}
+        for name, properties in self.PREFILTER_PERSONS:
+            person = _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[name],
+                properties=properties,
+                created_at=datetime(2024, 1, 1, 15),
+            )
+            uuids[name] = str(person.uuid)
+        return uuids
+
+    @parameterized.expand(
+        [
+            ("eq", "properties.$some_prop = 'something'", "[%(hogql_val_1)s]", ["first", "second"]),
+            (
+                "in_list",
+                "properties.$some_prop in ('something', 'other')",
+                "[%(hogql_val_1)s, %(hogql_val_2)s]",
+                ["first", "second"],
+            ),
+            # The unbacked read strips the outer quotes off JSONExtractRaw without unescaping, so the stored value
+            # compares as `some\"thing` and matches nothing. Pre-existing, and the same with or without the pre-check.
+            ("quoted_value", """properties.$some_prop = 'some"thing'""", None, []),
+            ("non_ascii_value", "properties.$some_prop = 'sömething'", None, ["non_ascii"]),
+            (
+                "is_not",
+                "properties.$some_prop != 'something'",
+                None,
+                ["third", "escaped", "non_ascii", "other_key"],
+            ),
+        ]
+    )
+    def test_json_substring_prefilter(
+        self, _name: str, where: str, expected_values: str | None, expected_persons: list[str]
+    ):
+        person_uuids = {
+            "first": str(self.first_person.uuid),
+            "second": str(self.second_person.uuid),
+            "third": str(self.third_person.uuid),
+            **self._create_prefilter_persons(),
+        }
+        response = execute_hogql_query(
+            parse_select(f"select id from persons where {where}"),
+            self.team,
+            modifiers=self.modifiers,
+        )
+        assert response.clickhouse
+        if expected_values is None:
+            self.assertNotIn("multiSearchAny", response.clickhouse)
+        else:
+            self.assertIn(f"multiSearchAny(where_optimization.properties, {expected_values})", response.clickhouse)
+        assert {str(row[0]) for row in response.results} == {person_uuids[name] for name in expected_persons}
+
+    # ClickHouse rejects a multiSearchAny call with more than 255 needles against a nonconstant haystack
+    # ("passed 256, should be at most 255"), which failed the whole query rather than only the pre-check.
+    @parameterized.expand([("at_needle_limit", 255, True), ("past_needle_limit", 256, False)])
+    def test_json_substring_prefilter_needle_limit(self, _name: str, value_count: int, prefiltered: bool):
+        values = ", ".join(f"'needle_{i}'" for i in range(value_count))
+        response = execute_hogql_query(
+            parse_select(f"select id from persons where properties.$some_prop in ({values})"),
+            self.team,
+            modifiers=self.modifiers,
+        )
+        assert response.clickhouse
+        assert ("multiSearchAny" in response.clickhouse) is prefiltered
 
     @snapshot_clickhouse_queries
     def test_joins_are_left_alone_for_now(self):
@@ -244,6 +318,44 @@ class TestPersonsV2LimitPushDown(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         assert response.results[0][1] == "cohort_member@example.com"
 
+    @parameterized.expand(
+        [
+            # (name, query, LIMIT that a wrongly pushed-down limit+offset+1 would print in the inner subquery)
+            ("aggregate", "SELECT count() FROM persons", "LIMIT 101"),
+            ("distinct", "SELECT DISTINCT is_identified FROM persons LIMIT 2", "LIMIT 3"),
+            ("window", "SELECT id, count() OVER () FROM persons LIMIT 10", "LIMIT 11"),
+            # HAVING acts as a post-dedup filter, like the WHERE case test_v2_cohort_where covers.
+            ("having", "SELECT id FROM persons HAVING is_identified = 0 LIMIT 5", "LIMIT 6"),
+        ]
+    )
+    @snapshot_clickhouse_queries
+    def test_v2_full_row_set_selects_do_not_push_limit_down(self, _name, query, pushed_down_limit):
+        response = execute_hogql_query(query, self.team, modifiers=self._v2_modifiers(), pretty=False)
+        assert response.clickhouse is not None
+        assert "in(tuple(person.id, person.version)" in response.clickhouse
+        assert pushed_down_limit not in response.clickhouse
+
+    @parameterized.expand(
+        [
+            # (name, query, pin v2 modifiers, index of the total in the result row)
+            ("count_v2", "SELECT count() FROM persons LIMIT 1", True, 0),
+            ("count_default", "SELECT count() FROM persons LIMIT 1", False, 0),
+            ("window_total_v2", "SELECT id, count() OVER () AS total FROM persons LIMIT 1", True, 1),
+        ]
+    )
+    def test_totals_over_persons_are_not_capped_by_limit(self, _name, query, pin_v2, result_index):
+        for i in range(3):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"count_person_{i}"])
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            query,
+            self.team,
+            modifiers=self._v2_modifiers() if pin_v2 else None,
+            pretty=False,
+        )
+        assert response.results[0][result_index] == 3
+
 
 class TestPersons(ClickhouseTestMixin, APIBaseTest):
     person_properties = {"$initial_referring_domain": "https://google.com"}
@@ -308,10 +420,13 @@ class TestPersons(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0][0] == self.channel_type_virt_person_result
 
     def test_virtual_event_person_properties(self):
+        # Pin the joined mode so person.* resolves through the person table; the
+        # poe and pdi variants below cover the other resolutions explicitly.
         response = execute_hogql_query(
             parse_select("select person.$virt_initial_channel_type from events where person.id = {person_id}"),
             self.team,
             placeholders={"person_id": ast.Constant(value=self.person.uuid)},
+            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED),
         )
         assert len(response.results) == 1
         assert response.results[0][0] == self.channel_type_virt_person_result

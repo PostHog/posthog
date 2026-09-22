@@ -1,0 +1,12 @@
+{
+    "id": "PB14",
+    "file": "products/review_hog/backend/receivers.py",
+    "lines": "219-224",
+    "priority": "should_fix",
+    "title": "Deferred import can escape the save path",
+    "problem": "The deferred import runs before the `try` block. An import failure escapes when Django runs this callback after a transaction commits. This can return an error for a successful TaskRun write.",
+    "suggestion": "Move the import inside the `try` block so `_start_stamphog_review` contains all callback failures.",
+    "cluster": 16,
+    "cluster_issue": "Deferred (in-function) import of the Stamphog facade inside the on_commit callback in receivers.py can fail outside the try block",
+    "cluster_verified": "0/0"
+}

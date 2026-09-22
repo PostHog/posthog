@@ -4,18 +4,27 @@ from collections.abc import Iterable
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.workos.settings import ENDPOINTS, WORKOS_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.workos.workos import (
     WorkOSPaginator,
     WorkOSResumeConfig,
+    create_webhook,
+    delete_webhook,
     get_resource,
+    get_webhook_info,
+    sync_webhook_events,
     validate_credentials,
     workos_source,
+)
+
+WORKOS_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.workos.workos.make_tracked_session"
 )
 
 
@@ -132,6 +141,12 @@ def _page(ids: list[str], after: str | None) -> dict[str, Any]:
     return {"data": [{"id": i} for i in ids], "list_metadata": {"before": None, "after": after}}
 
 
+def _webhook_manager(enabled: bool) -> MagicMock:
+    manager = MagicMock(spec=WebhookSourceManager)
+    manager.webhook_enabled = AsyncMock(return_value=enabled)
+    return manager
+
+
 class TestWorkOSEndpoints:
     def test_all_endpoints_registered(self) -> None:
         assert set(ENDPOINTS) == set(WORKOS_ENDPOINTS)
@@ -159,6 +174,7 @@ class TestWorkOSEndpoints:
             team_id=123,
             job_id="job_1",
             resumable_source_manager=manager,
+            webhook_source_manager=_webhook_manager(enabled=False),
         )
 
         assert response.name == endpoint
@@ -166,11 +182,38 @@ class TestWorkOSEndpoints:
         assert response.partition_keys == ["created_at"]
         assert response.partition_mode == "datetime"
 
+    @pytest.mark.parametrize("webhook_enabled", [True, False])
+    def test_items_come_from_the_webhook_manager_only_once_webhooks_are_live(self, webhook_enabled: bool) -> None:
+        # Reading webhook files before the backfill finishes leaves the table seeded with only
+        # the rows a webhook happened to deliver; polling after it finishes never sees deletes.
+        resumable = MagicMock(spec=ResumableSourceManager)
+        resumable.can_resume.return_value = False
+        webhook_manager = _webhook_manager(enabled=webhook_enabled)
+        webhook_items = object()
+        webhook_manager.get_items.return_value = webhook_items
+
+        response = workos_source(
+            api_key="sk_test_123",
+            endpoint="users",
+            team_id=123,
+            job_id="job_1",
+            resumable_source_manager=resumable,
+            webhook_source_manager=webhook_manager,
+        )
+
+        if webhook_enabled:
+            assert response.items() is webhook_items
+        else:
+            assert response.items() is not webhook_items
+            webhook_manager.get_items.assert_not_called()
+
 
 class TestWorkOSSourceResumeBehavior:
     """End-to-end resume behaviour through the shared ``rest_api_resource`` path."""
 
-    def _drive(self, manager: MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    def _drive(
+        self, manager: MagicMock, responses: list[Response], endpoint: str = "organizations"
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         sent_params: list[dict[str, Any]] = []
         response_iter = iter(responses)
 
@@ -188,13 +231,14 @@ class TestWorkOSSourceResumeBehavior:
 
             source_response = workos_source(
                 api_key="sk_test_123",
-                endpoint="organizations",
+                endpoint=endpoint,
                 team_id=123,
                 job_id="job_1",
                 resumable_source_manager=manager,
+                webhook_source_manager=_webhook_manager(enabled=False),
             )
-            list(cast(Iterable[Any], source_response.items()))
-            return sent_params
+            pages = list(cast(Iterable[Any], source_response.items()))
+            return sent_params, [row for page in pages for row in page]
 
     def test_fresh_run_saves_cursor_after_each_non_terminal_page(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
@@ -205,7 +249,7 @@ class TestWorkOSSourceResumeBehavior:
             _make_http_response(_page(["org_3", "org_4"], after="org_4")),
             _make_http_response(_page(["org_5"], after=None)),
         ]
-        sent_params = self._drive(manager, responses)
+        sent_params, _ = self._drive(manager, responses)
 
         # First request omits the cursor (fresh run); subsequent requests carry it.
         assert [p.get("after") for p in sent_params] == [None, "org_2", "org_4"]
@@ -221,9 +265,9 @@ class TestWorkOSSourceResumeBehavior:
         responses = [
             _make_http_response(_page(["org_5"], after=None)),
         ]
-        sent_params = self._drive(manager, responses)
+        sent_params, _ = self._drive(manager, responses)
 
-        # First request goes out at the resumed cursor — no re-fetch of synced pages.
+        # First request goes out at the resumed cursor, so synced pages are not re-fetched.
         assert [p.get("after") for p in sent_params] == ["org_4"]
 
     def test_terminal_single_page_does_not_save_state(self) -> None:
@@ -236,6 +280,27 @@ class TestWorkOSSourceResumeBehavior:
         self._drive(manager, responses)
 
         manager.save_state.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_row"),
+        [
+            ("organizations", {"id": "org_1", "workos_deleted": False, "workos_deleted_at": None}),
+            ("connections", {"id": "org_1"}),
+        ],
+    )
+    def test_polled_rows_carry_a_tombstone_only_where_webhooks_can_set_one(
+        self, endpoint: str, expected_row: dict[str, Any]
+    ) -> None:
+        # A webhook delete merges a tombstone onto a row the backfill wrote, so the backfill has
+        # to write the same columns. Without this they read NULL for every backfilled row, and
+        # `where not workos_deleted` drops the rows no webhook has touched. Tables that never
+        # sync by webhook get no tombstone column, because nothing can ever set it.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        _, rows = self._drive(manager, [_make_http_response(_page(["org_1"], after=None))], endpoint=endpoint)
+
+        assert rows == [expected_row]
 
 
 class TestWorkOSValidateCredentials:
@@ -261,3 +326,116 @@ class TestWorkOSValidateCredentials:
         cfg = WorkOSResumeConfig(after="org_1500")
         reconstituted = WorkOSResumeConfig(**json.loads(json.dumps(dataclasses.asdict(cfg))))
         assert reconstituted == cfg
+
+
+WEBHOOK_URL = "https://webhooks.us.posthog.com/public/webhooks/dwh/hog_1"
+
+
+def _webhook_page(webhooks: list[dict[str, Any]], after: str | None) -> Response:
+    return _make_http_response({"object": "list", "data": webhooks, "list_metadata": {"before": None, "after": after}})
+
+
+class TestWorkOSWebhookManagement:
+    @patch(WORKOS_SESSION_PATCH)
+    def test_lookup_pages_past_the_first_page(self, MockSession: MagicMock) -> None:
+        # WorkOS lists 10 endpoints per page by default, so an account with more than that would
+        # report ours as missing — prompting a duplicate create, and a delete that removes nothing.
+        session = MockSession.return_value
+        session.get.side_effect = [
+            _webhook_page([{"id": "we_1", "endpoint_url": "https://other.example"}], after="we_1"),
+            _webhook_page(
+                [{"id": "we_2", "endpoint_url": WEBHOOK_URL, "events": ["user.created"], "status": "enabled"}],
+                after=None,
+            ),
+        ]
+
+        info = get_webhook_info("sk_test_123", WEBHOOK_URL)
+
+        assert info.exists is True
+        assert info.enabled_events == ["user.created"]
+        assert session.get.call_args_list[0].kwargs["params"] == {"limit": 100}
+        assert session.get.call_args_list[1].kwargs["params"] == {"limit": 100, "after": "we_1"}
+
+    @patch(WORKOS_SESSION_PATCH)
+    def test_lookup_reports_absence(self, MockSession: MagicMock) -> None:
+        MockSession.return_value.get.return_value = _webhook_page([], after=None)
+        assert get_webhook_info("sk_test_123", WEBHOOK_URL).exists is False
+
+    @patch(WORKOS_SESSION_PATCH)
+    def test_create_persists_the_one_time_secret(self, MockSession: MagicMock) -> None:
+        MockSession.return_value.post.return_value = _make_http_response({"id": "we_1", "secret": "whsec_abc"})
+
+        result = create_webhook("sk_test_123", WEBHOOK_URL, ["user.created"])
+
+        assert result.success is True
+        assert result.extra_inputs == {"signing_secret": "whsec_abc"}
+        assert MockSession.return_value.post.call_args.kwargs["json"] == {
+            "endpoint_url": WEBHOOK_URL,
+            "events": ["user.created"],
+        }
+
+    @patch(WORKOS_SESSION_PATCH)
+    def test_create_without_a_secret_asks_for_manual_entry(self, MockSession: MagicMock) -> None:
+        # Without the secret the hog function rejects every delivery, so success would be a lie.
+        MockSession.return_value.post.return_value = _make_http_response({"id": "we_1"})
+
+        result = create_webhook("sk_test_123", WEBHOOK_URL, ["user.created"])
+
+        assert result.success is False
+        assert result.pending_inputs == ["signing_secret"]
+
+    @patch(WORKOS_SESSION_PATCH)
+    def test_create_failure_is_reported_not_raised(self, MockSession: MagicMock) -> None:
+        MockSession.return_value.post.side_effect = Exception("boom")
+        assert create_webhook("sk_test_123", WEBHOOK_URL, ["user.created"]).success is False
+
+    @patch(WORKOS_SESSION_PATCH)
+    def test_sync_merges_missing_events_and_keeps_manual_ones(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        session.get.return_value = _webhook_page(
+            [{"id": "we_2", "endpoint_url": WEBHOOK_URL, "events": ["user.created", "invoice.paid"]}], after=None
+        )
+        session.patch.return_value = _make_http_response({})
+
+        result = sync_webhook_events("sk_test_123", WEBHOOK_URL, ["user.created", "user.deleted"])
+
+        assert result.success is True
+        assert session.patch.call_args.args[0].endswith("/webhook_endpoints/we_2")
+        assert session.patch.call_args.kwargs["json"] == {"events": ["invoice.paid", "user.created", "user.deleted"]}
+
+    @patch(WORKOS_SESSION_PATCH)
+    def test_sync_skips_the_write_when_events_already_match(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        session.get.return_value = _webhook_page(
+            [{"id": "we_2", "endpoint_url": WEBHOOK_URL, "events": ["user.created"]}], after=None
+        )
+
+        assert sync_webhook_events("sk_test_123", WEBHOOK_URL, ["user.created"]).success is True
+        session.patch.assert_not_called()
+
+    @patch(WORKOS_SESSION_PATCH)
+    def test_delete_removes_only_the_matching_endpoint(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        session.get.return_value = _webhook_page(
+            [
+                {"id": "we_1", "endpoint_url": "https://other.example"},
+                {"id": "we_2", "endpoint_url": WEBHOOK_URL},
+            ],
+            after=None,
+        )
+        session.delete.return_value = _make_http_response({})
+
+        result = delete_webhook("sk_test_123", WEBHOOK_URL)
+
+        assert result.success is True
+        assert [call.args[0] for call in session.delete.call_args_list] == [
+            "https://api.workos.com/webhook_endpoints/we_2"
+        ]
+
+    @patch(WORKOS_SESSION_PATCH)
+    def test_delete_surfaces_a_rejected_removal(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        session.get.return_value = _webhook_page([{"id": "we_2", "endpoint_url": WEBHOOK_URL}], after=None)
+        session.delete.return_value = _make_http_response({"message": "forbidden"}, status_code=403)
+
+        assert delete_webhook("sk_test_123", WEBHOOK_URL).success is False

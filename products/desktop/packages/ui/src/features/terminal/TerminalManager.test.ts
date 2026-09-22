@@ -7,6 +7,18 @@ const mocks = vi.hoisted(() => {
   const write = vi.fn();
   const resize = vi.fn();
   const openExternal = vi.fn();
+  const onData = vi.fn(
+    (
+      _sessionId: string,
+      _onEvent: (event: { sessionId: string; data: string }) => void,
+    ) => ({ unsubscribe: vi.fn() }),
+  );
+  const onExit = vi.fn(
+    (
+      _sessionId: string,
+      _onEvent: (event: { sessionId: string; exitCode: number | null }) => void,
+    ) => ({ unsubscribe: vi.fn() }),
+  );
   const logInfo = vi.fn();
   const logError = vi.fn();
   const logWarn = vi.fn();
@@ -55,6 +67,8 @@ const mocks = vi.hoisted(() => {
     write,
     resize,
     openExternal,
+    onData,
+    onExit,
     logInfo,
     logError,
     logWarn,
@@ -71,6 +85,8 @@ vi.mock("@posthog/di/container", () => ({
     write: mocks.write,
     resize: mocks.resize,
     openExternal: mocks.openExternal,
+    onData: mocks.onData,
+    onExit: mocks.onExit,
   }),
 }));
 
@@ -264,6 +280,73 @@ describe("TerminalManager.destroyForTask", () => {
     terminalManager.destroy("sess-parked");
     expect(parking?.childElementCount).toBe(0);
     host.remove();
+  });
+});
+
+describe("TerminalManager shell output subscription", () => {
+  const sessionId = "detached-output-test";
+  const rafCallbacks: FrameRequestCallback[] = [];
+
+  beforeEach(() => {
+    mocks.check.mockReset().mockResolvedValue(true);
+    mocks.create.mockReset().mockResolvedValue(undefined);
+    mocks.write.mockReset().mockResolvedValue(undefined);
+    mocks.resize.mockReset().mockResolvedValue(undefined);
+    mocks.onData.mockClear();
+    mocks.onExit.mockClear();
+    mocks.terminalInstances.length = 0;
+    rafCallbacks.length = 0;
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+  });
+
+  afterEach(() => {
+    terminalManager.destroy(sessionId);
+    vi.unstubAllGlobals();
+  });
+
+  it("writes shell data to the terminal without a mounted component", () => {
+    terminalManager.create({ sessionId, persistenceKey: "task-hidden" });
+
+    const emitShellData = mocks.onData.mock.calls[0][1];
+    emitShellData({ sessionId, data: "output while hidden" });
+    for (const cb of rafCallbacks) {
+      cb(0);
+    }
+
+    expect(mocks.terminalInstances[0].write).toHaveBeenCalledWith(
+      "output while hidden",
+    );
+  });
+
+  it("delivers shell exit to listeners without a mounted component", () => {
+    terminalManager.create({ sessionId, persistenceKey: "task-hidden" });
+    const exitListener = vi.fn();
+    const off = terminalManager.on("exit", exitListener);
+
+    const emitShellExit = mocks.onExit.mock.calls[0][1];
+    emitShellExit({ sessionId, exitCode: 1 });
+
+    expect(exitListener).toHaveBeenCalledWith({
+      sessionId,
+      persistenceKey: "task-hidden",
+      exitCode: 1,
+    });
+    off();
+  });
+
+  it("unsubscribes from shell data and exit on destroy", () => {
+    terminalManager.create({ sessionId, persistenceKey: "task-hidden" });
+    const dataUnsubscribe = mocks.onData.mock.results[0].value.unsubscribe;
+    const exitUnsubscribe = mocks.onExit.mock.results[0].value.unsubscribe;
+
+    terminalManager.destroy(sessionId);
+
+    expect(dataUnsubscribe).toHaveBeenCalledTimes(1);
+    expect(exitUnsubscribe).toHaveBeenCalledTimes(1);
   });
 });
 

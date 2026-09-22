@@ -53,7 +53,6 @@ function input(
     dashboardId: "dash-1",
     name: "Signups",
     instruction: "build a signups chart",
-    isEdit: false,
     channelId: "chan-1",
     channelName: "growth",
     cloudRegion: "us",
@@ -69,16 +68,18 @@ describe("CanvasApplicationService", () => {
     const result = await service.generateCanvas(input(), gateway);
 
     expect(result).toEqual({ ok: true, taskId: "task-1" });
+    // No caller pick: prefer Sonnet 5 over the gateway's default, validated
+    // by the resolver against the gateway's model list.
     expect(resolveDefaultModel).toHaveBeenCalledWith(
       "https://us.posthog.com",
       "claude",
-      undefined,
+      "claude-sonnet-5",
     );
     const [taskInput] = createTask.mock.calls[0];
     expect(taskInput.content).toContain("`building-canvases` skill");
     expect(taskInput.content).toContain('canvas id: "dash-1"');
     expect(taskInput).toMatchObject({
-      executionMode: "auto",
+      executionMode: "bypassPermissions",
       workspaceMode: "cloud",
       adapter: "claude",
       model: "model-1",
@@ -87,6 +88,76 @@ describe("CanvasApplicationService", () => {
     expect(gateway.fileTask).toHaveBeenCalledWith("chan-1", "task-1");
     expect(gateway.setGenerationTask).toHaveBeenCalledWith("dash-1", "task-1");
   });
+
+  it("scopes a placement fill to its tile: skill routing, no canvas-level generation state", async () => {
+    const { service, createTask, generateCanvasName } = makeDeps();
+    const gateway = makeGateway();
+
+    const result = await service.generateCanvas(
+      input({
+        name: "Untitled canvas",
+        placement: { placementId: "p-1", w: 2, h: 1 },
+      }),
+      gateway,
+    );
+
+    expect(result).toEqual({ ok: true, taskId: "task-1" });
+    const [taskInput] = createTask.mock.calls[0];
+    expect(taskInput.content).toContain("`composing-grid-canvases` skill");
+    expect(taskInput.content).toContain('placement id: "p-1"');
+    // Named after the widget, not the canvas — every fill on the same canvas
+    // would otherwise share one "Generate canvas ..." title.
+    expect(taskInput.taskDescription).toBe(
+      "Generate widget: build a signups chart",
+    );
+    expect(gateway.fileTask).toHaveBeenCalledWith("chan-1", "task-1");
+    // The placement row carries the task id; the canvas itself is not
+    // generating and must not be renamed from one widget's prompt.
+    expect(gateway.setGenerationTask).not.toHaveBeenCalled();
+    expect(generateCanvasName).not.toHaveBeenCalled();
+  });
+
+  it("routes a whole-grid-canvas run to the grid skill and records it on the canvas", async () => {
+    const { service, createTask } = makeDeps();
+    const gateway = makeGateway();
+
+    const result = await service.generateCanvas(
+      input({
+        name: "Home",
+        instruction: "fix the weather widget's query",
+        canvasKind: "grid",
+      }),
+      gateway,
+    );
+
+    expect(result).toEqual({ ok: true, taskId: "task-1" });
+    const [taskInput] = createTask.mock.calls[0];
+    expect(taskInput.content).toContain("`composing-grid-canvases` skill");
+    expect(taskInput.content).toContain("WHOLE grid canvas");
+    expect(taskInput.taskDescription).toBe(
+      'Update canvas "Home": fix the weather widget\'s query',
+    );
+    // The whole-canvas conversation is recorded so it can be reopened.
+    expect(gateway.setGenerationTask).toHaveBeenCalledWith("dash-1", "task-1");
+  });
+
+  // The effort default must follow the model: "high" sent alongside a
+  // fallback model that doesn't support it makes the task API reject the run.
+  it.each([
+    ["claude-sonnet-5", "high"],
+    ["model-1", undefined],
+  ])(
+    "defaults reasoning effort only when the preferred model resolved (%s)",
+    async (resolved, expectedEffort) => {
+      const { service, createTask } = makeDeps({
+        resolveDefaultModel: vi.fn().mockResolvedValue(resolved),
+      });
+
+      await service.generateCanvas(input(), makeGateway());
+
+      expect(createTask.mock.calls[0][0].reasoningLevel).toBe(expectedEffort);
+    },
+  );
 
   it.each([
     ["no signed-in region", input({ cloudRegion: null })],
@@ -159,28 +230,6 @@ describe("CanvasApplicationService", () => {
 
     await service.generateCanvas(input({ name: "Signups" }), gateway);
 
-    expect(generateCanvasName).not.toHaveBeenCalled();
-    expect(gateway.renameCanvas).not.toHaveBeenCalled();
-  });
-
-  it("creates directly without listing stored canvases when no target is given", async () => {
-    const { service, createTask, generateCanvasName } = makeDeps();
-    const gateway = makeGateway();
-
-    const result = await service.generateCanvas(
-      input({ dashboardId: undefined, name: undefined }),
-      gateway,
-    );
-
-    expect(result).toEqual({ ok: true, taskId: "task-1" });
-    const [taskInput] = createTask.mock.calls[0];
-    expect(taskInput.content).not.toContain("`canvas-list`");
-    expect(taskInput.content).toContain("`canvas-create`");
-    expect(taskInput.content).not.toContain("canvas id:");
-    expect(taskInput.taskDescription).toBe("Generate a canvas in #growth");
-    // The task still files into the channel, but no canvas record is touched.
-    expect(gateway.fileTask).toHaveBeenCalledWith("chan-1", "task-1");
-    expect(gateway.setGenerationTask).not.toHaveBeenCalled();
     expect(generateCanvasName).not.toHaveBeenCalled();
     expect(gateway.renameCanvas).not.toHaveBeenCalled();
   });

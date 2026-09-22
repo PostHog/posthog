@@ -24,7 +24,7 @@ export function CollapsibleFrameContent({
         return null
     }
     return (
-        <Collapsible.Panel>
+        <Collapsible.Panel className="border-t-[color:var(--frame-border,var(--color-border-primary))]">
             <div onClick={(e) => onFrameContextClick?.(record.context!, e)}>
                 <FrameContext context={record.context} language={getFrameLanguage(frame)} />
                 {hasCodeVariables ? <FrameVariables variables={code_variables!} /> : <CodeVariablesInlineBanner />}

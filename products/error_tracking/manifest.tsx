@@ -5,6 +5,7 @@ import { urls } from 'scenes/urls'
 import { DateRange, FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest, UniversalFiltersGroup } from '../../frontend/src/types'
+import { configurationRedirect, resolveSettingSlug } from './frontend/settingsRedirects'
 
 export const manifest: ProductManifest = {
     name: 'Error tracking',
@@ -15,18 +16,13 @@ export const manifest: ProductManifest = {
             name: 'Error tracking',
             iconType: 'error_tracking',
             description: 'Track and analyze your error tracking data to understand and fix issues.',
+            docsHref: 'https://posthog.com/docs/error-tracking',
         },
         ErrorTrackingIssue: {
             import: () => import('./frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
             projectBased: true,
             name: 'Error tracking issue',
             layout: 'app-raw',
-        },
-        ErrorTrackingIssueFingerprints: {
-            import: () =>
-                import('./frontend/scenes/ErrorTrackingFingerprintsScene/ErrorTrackingIssueFingerprintsScene'),
-            projectBased: true,
-            name: 'Error tracking issue fingerprints',
         },
         ErrorTrackingFingerprint: {
             import: () => import('./frontend/scenes/ErrorTrackingFingerprintScene/ErrorTrackingFingerprintScene'),
@@ -40,17 +36,30 @@ export const manifest: ProductManifest = {
         '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
         '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
         '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
-        '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
     },
     redirects: {
-        '/error_tracking/configuration': (_params, searchParams, hashParams) => {
-            const { tab, ...restSearchParams } = searchParams
-            return combineUrl(
-                '/error_tracking',
-                { ...restSearchParams, activeTab: 'configuration' },
-                { ...hashParams, ...(tab ? { selectedSetting: tab } : {}) }
-            ).url
-        },
+        // The fingerprints scene became a modal on the issue page. Keep old links working.
+        '/error_tracking/:id/fingerprints': (params) =>
+            combineUrl(`/error_tracking/${params.id}`, { manageFingerprints: 'true' }).url,
+        '/error_tracking/configuration': (_params, searchParams, hashParams) =>
+            configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
+        '/error_tracking/configuration/:tab': (params, searchParams, hashParams) =>
+            configurationRedirect(resolveSettingSlug(params.tab), searchParams, hashParams),
+        '/error_tracking/settings': (_params, searchParams, hashParams) =>
+            configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
+        '/error_tracking/settings/:tab': (params, searchParams, hashParams) =>
+            configurationRedirect(resolveSettingSlug(params.tab), searchParams, hashParams),
+        '/error_tracking/symbol_sets': (_params, searchParams, hashParams) =>
+            configurationRedirect('error-tracking-symbol-sets', searchParams, hashParams),
+        '/error_tracking/symbol-sets': (_params, searchParams, hashParams) =>
+            configurationRedirect('error-tracking-symbol-sets', searchParams, hashParams),
+    },
+    // Boot-time approximation of errorTrackingSetupLogic: a $exception definition
+    // existing means issues exist. The in-scene check stays the source of truth
+    // (it also reads the autocapture opt-in for the waiting state).
+    setupProbe: {
+        productKey: ProductKey.ERROR_TRACKING,
+        hasDataEvents: ['$exception'],
     },
     urls: {
         errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
@@ -69,7 +78,6 @@ export const manifest: ProductManifest = {
                 utm_medium?: string
             } = {}
         ): string => combineUrl(`/error_tracking/${id}`, params).url,
-        errorTrackingIssueFingerprints: (id: string): string => `/error_tracking/${id}/fingerprints`,
         errorTrackingFingerprint: (
             fingerprint: string,
             params: {

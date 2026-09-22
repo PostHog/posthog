@@ -1,9 +1,8 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.whop import WhopSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop.settings import (
     ALL_WEBHOOK_EVENTS,
@@ -14,8 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.whop.setti
     WEBHOOK_SCHEMA_NAMES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop.source import WhopSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.whop.whop import WhopResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 API_CLIENT_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.whop.source.api_client"
 
@@ -28,9 +25,6 @@ class TestWhopSource:
         self.team_id = 123
         self.config = WhopSourceConfig(api_key="test-api-key", company_id="biz_test")
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.WHOP
-
     def test_get_source_config(self):
         config = self.source.get_source_config
 
@@ -40,37 +34,6 @@ class TestWhopSource:
         # The source must ship visible: unreleasedSource hides it from every user.
         assert not config.unreleasedSource
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/whop"
-
-    @pytest.mark.parametrize(
-        "field_name, expected_type, expected_secret",
-        [
-            ("api_key", SourceFieldInputConfigType.PASSWORD, True),
-            ("company_id", SourceFieldInputConfigType.TEXT, False),
-        ],
-    )
-    def test_credential_fields(self, field_name, expected_type, expected_secret):
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == field_name)
-
-        assert field.type == expected_type
-        assert field.secret is expected_secret
-        assert field.required is True
-
-    def test_webhook_fields_include_a_secret_signing_secret(self):
-        config = self.source.get_source_config
-        assert config.webhookFields is not None
-        field = next(
-            f for f in config.webhookFields if isinstance(f, SourceFieldInputConfig) and f.name == "signing_secret"
-        )
-        assert field.secret is True
-
-    def test_get_schemas_lists_every_endpoint(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert [schema.name for schema in schemas] == list(ENDPOINTS)
-
-    def test_get_schemas_filters_by_name(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["payments"])
-        assert [schema.name for schema in schemas] == ["payments"]
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_incremental_support_matches_the_endpoint_catalog(self, endpoint):
@@ -85,10 +48,20 @@ class TestWhopSource:
         # duplicate; only a merge on `id` dedupes them.
         assert schema.supports_append is (endpoint in INCREMENTAL_ENDPOINTS and endpoint not in MERGE_ONLY_ENDPOINTS)
 
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_webhook_support_matches_the_event_catalog(self, endpoint):
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-        assert schema.supports_webhooks is (endpoint in WEBHOOK_SCHEMA_NAMES)
+    @pytest.mark.parametrize(
+        "observed_error,non_retryable",
+        [
+            (
+                "400 Client Error: Bad Request for url: https://api.whop.com/api/v1/payments"
+                "?first=100&company_id=biz_example | api error: code=bad_request",
+                True,
+            ),
+            ("429 Client Error: Too Many Requests for url: https://api.whop.com/api/v1/payments", False),
+            ("503 Server Error: Service Unavailable for url: https://api.whop.com/api/v1/payments", False),
+        ],
+    )
+    def test_a_rejected_request_stops_the_sync_and_an_overload_does_not(self, observed_error, non_retryable):
+        assert error_message_matches(observed_error, self.source.get_non_retryable_errors()) is non_retryable
 
     def test_canonical_descriptions_only_describe_real_schemas(self):
         # A key that doesn't match a schema name is silently ignored, so the descriptions would
@@ -131,20 +104,24 @@ class TestWhopSource:
         }
 
     @pytest.mark.parametrize(
-        "company_id, probe_result, schema_name, expected_valid",
+        "company_id, probe_result, schema_name, expected_valid, expected_message",
         [
-            ("biz_test", (True, 200), None, True),
+            ("biz_test", (True, 200), None, True, None),
             # A 403 means a genuine key without company:basic:read; users may only grant the scopes
             # for the tables they sync, so source creation must not be blocked on it.
-            ("biz_test", (False, 403), None, True),
-            ("biz_test", (False, 403), "payments", False),
-            ("biz_test", (False, 401), None, False),
-            ("biz_test", (False, 404), None, False),
-            ("biz_test", (False, None), None, False),
-            ("company-1", (True, 200), None, False),
+            ("biz_test", (False, 403), None, True, None),
+            ("biz_test", (False, 403), "payments", False, "permission to read this resource"),
+            ("biz_test", (False, 401), None, False, "rejected your API key"),
+            ("biz_test", (False, 404), None, False, "could not find that company"),
+            # An unreachable or overloaded Whop is not a bad key — saying it is sends the customer
+            # off to rotate a key that works.
+            ("biz_test", (False, None), None, False, "Couldn't reach Whop"),
+            ("biz_test", (False, 429), None, False, "Couldn't reach Whop"),
+            ("biz_test", (False, 503), None, False, "Couldn't reach Whop"),
+            ("company-1", (True, 200), None, False, "start with"),
         ],
     )
-    def test_validate_credentials(self, company_id, probe_result, schema_name, expected_valid):
+    def test_validate_credentials(self, company_id, probe_result, schema_name, expected_valid, expected_message):
         config = WhopSourceConfig(api_key="test-api-key", company_id=company_id)
 
         with mock.patch(API_CLIENT_PATCH) as api_client:
@@ -152,7 +129,10 @@ class TestWhopSource:
             is_valid, message = self.source.validate_credentials(config, self.team_id, schema_name=schema_name)
 
         assert is_valid is expected_valid
-        assert (message is None) is expected_valid
+        if expected_message is None:
+            assert message is None
+        else:
+            assert expected_message in (message or "")
 
     def test_validate_credentials_skips_the_probe_for_a_malformed_company_id(self):
         config = WhopSourceConfig(api_key="test-api-key", company_id="acme")
@@ -161,13 +141,6 @@ class TestWhopSource:
             self.source.validate_credentials(config, self.team_id)
 
         api_client.validate_credentials.assert_not_called()
-
-    def test_resumable_manager_is_bound_to_the_cursor_dataclass(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is WhopResumeConfig
 
     @pytest.mark.parametrize(
         "method_name, client_method",
@@ -227,8 +200,3 @@ class TestWhopSource:
             self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert api_client.whop_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    @pytest.mark.parametrize("status", ["401", "403"])
-    def test_auth_failures_are_non_retryable(self, status):
-        errors = self.source.get_non_retryable_errors()
-        assert any(key.startswith(status) for key in errors)

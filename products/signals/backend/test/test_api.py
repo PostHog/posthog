@@ -46,9 +46,20 @@ SESSION_PROBLEM_EXTRA = {
     ],
 }
 
+# Retired payload shape: one signal per evaluation run. Kept here to pin that it is rejected.
 EVALUATION_EXTRA = {
     "evaluation_id": "eval-001",
     "trace_id": "trace-abc",
+}
+
+EVALUATION_REPORT_EXTRA = {
+    "evaluation_id": "eval-001",
+    "evaluation_name": "Answer grounded in context",
+    "evaluation_description": "Checks that answers cite the retrieved context",
+    "report_id": "report-001",
+    "report_run_id": "report-run-001",
+    "period_start": "2025-06-01T00:00:00Z",
+    "period_end": "2025-06-08T00:00:00Z",
 }
 
 ZENDESK_TICKET_EXTRA = {
@@ -77,11 +88,11 @@ class TestEmitSignalValidation:
         "source_product, source_type, extra",
         [
             ("session_replay", "session_problem", SESSION_PROBLEM_EXTRA),
-            ("llm_analytics", "evaluation", EVALUATION_EXTRA),
+            ("llm_analytics", "evaluation_report", EVALUATION_REPORT_EXTRA),
             ("zendesk", "ticket", ZENDESK_TICKET_EXTRA),
             ("github", "issue", GITHUB_ISSUE_EXTRA),
         ],
-        ids=["session_problem", "evaluation", "ticket", "issue"],
+        ids=["session_problem", "evaluation_report", "ticket", "issue"],
     )
     async def test_emit_signal_accepts_valid_input(self, source_product, source_type, extra, team_stub):
         client = AsyncMock()
@@ -116,9 +127,16 @@ class TestEmitSignalValidation:
             ("session_replay", "nonexistent", {}),
             ("github", "issue", {}),
             ("zendesk", "ticket", {**ZENDESK_TICKET_EXTRA, "tags": "not-a-list"}),
-            ("llm_analytics", "evaluation", {**EVALUATION_EXTRA, "bogus": 1}),
+            ("llm_analytics", "evaluation_report", {**EVALUATION_REPORT_EXTRA, "bogus": 1}),
+            ("llm_analytics", "evaluation", EVALUATION_EXTRA),
         ],
-        ids=["unknown_source_type", "missing_extra_fields", "wrong_extra_field_type", "unexpected_extra_field"],
+        ids=[
+            "unknown_source_type",
+            "missing_extra_fields",
+            "wrong_extra_field_type",
+            "unexpected_extra_field",
+            "retired_per_evaluation_run_type",
+        ],
     )
     async def test_emit_signal_rejects_invalid_input(self, source_product, source_type, extra, team_stub):
         client = AsyncMock()
@@ -288,6 +306,7 @@ class TestTelemetryPropsFromExtra:
                 "labels": ["bug", "p1"],  # list — dropped
                 "references": [{"queryText": "SELECT * FROM customers"}],  # nested — dropped
                 "time_range": {"date_from": "a", "date_to": "b"},  # dict — dropped
+                "author_login": "octocat",  # identifies a person — dropped
             }
         )
         assert props == {"scout_run_id": "run-1", "number": 42, "confidence": 0.9, "locked": False}

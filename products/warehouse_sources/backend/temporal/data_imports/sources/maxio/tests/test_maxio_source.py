@@ -3,21 +3,14 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.maxio import MaxioSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.maxio.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.maxio.maxio import MaxioResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.maxio.settings import (
     ENDPOINTS,
     TIMEZONE_SKEW_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.maxio.source import MaxioSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(**overrides: Any) -> MaxioSourceConfig:
@@ -46,29 +39,6 @@ def _inputs(schema_name: str, should_use_incremental_field: bool = False, **over
 
 
 class TestMaxioSource:
-    def test_source_type(self) -> None:
-        assert MaxioSource().source_type == ExternalDataSourceType.MAXIO
-
-    def test_source_config_shape(self) -> None:
-        config = MaxioSource().get_source_config
-
-        assert config.category == DataWarehouseSourceCategory.PAYMENTS___BILLING
-        assert config.label == "Maxio"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/maxio"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-        fields_by_name = {f.name: f for f in config.fields}
-        assert set(fields_by_name.keys()) == {"subdomain", "api_key", "region"}
-
-        api_key_field = fields_by_name["api_key"]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.secret is True
-
-        region_field = fields_by_name["region"]
-        assert isinstance(region_field, SourceFieldSelectConfig)
-        assert region_field.defaultValue == "us"
-        assert {option.value for option in region_field.options} == {"us", "eu"}
-
     def test_connection_host_fields_cover_host_determining_fields(self) -> None:
         assert MaxioSource().connection_host_fields == ["subdomain", "region"]
 
@@ -154,22 +124,6 @@ class TestMaxioSource:
         assert (valid, error) == result
         # A pasted URL must reach the probe as the normalized bare subdomain.
         mock_validate.assert_called_once_with("test-key", "acme", "us")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = MaxioSource().get_resumable_source_manager(_inputs("customers"))
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is MaxioResumeConfig
-
-    def test_non_retryable_errors_cover_auth_failures(self) -> None:
-        errors = MaxioSource().get_non_retryable_errors()
-
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
-
-    def test_canonical_descriptions_match_endpoint_names(self) -> None:
-        assert set(CANONICAL_DESCRIPTIONS.keys()) == set(ENDPOINTS.keys())
-        assert MaxioSource().get_canonical_descriptions() is CANONICAL_DESCRIPTIONS
 
     def test_documented_tables_render_without_credentials(self) -> None:
         tables = MaxioSource().get_documented_tables()

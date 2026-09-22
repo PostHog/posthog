@@ -9,10 +9,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
+from products.access_control.backend.models.access_control import AccessControl
 
 
 class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):
@@ -20,7 +17,7 @@ class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
-        self.tile_layout = {"tile_layout": "here"}
+        self.tile_layout = {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
         self.tile_color = "red"
 
         dashboard_id, _ = self.dashboard_api.create_dashboard({})
