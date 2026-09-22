@@ -25,6 +25,11 @@
             "description": "The initial index from which to return the results.",
             "type": "number"
         },
+        "origin_product": {
+            "description": "Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
+            "enum": ["broadcasts", "loops"],
+            "type": "string"
+        },
         "search": {
             "description": "Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.",
             "type": "string"
