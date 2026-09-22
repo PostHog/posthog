@@ -219,7 +219,10 @@ def _skill_search_variants(token: str) -> tuple[str, ...]:
         return (token,)
 
     stem = token[: -len(suffix)]
-    return tuple(dict.fromkeys(variant for variant in (token, stem, stem[:-1]) if len(variant) >= 5))
+    variants = [token, stem]
+    if len(stem) >= 2 and stem[-1] == stem[-2]:
+        variants.append(stem[:-1])
+    return tuple(dict.fromkeys(variant for variant in variants if len(variant) >= 5))
 
 
 def _skill_search_variant_query(field: str, variants: Sequence[str]) -> Q:

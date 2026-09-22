@@ -267,16 +267,17 @@ describe('SkillCatalog and exec learn', () => {
     })
 
     it.each([
-        ['analyzing', 'trends', true], // analyzing → analy ⊂ "analysis"
+        ['analyzing', 'trends', true], // analyzing → analyz ⊂ "analyze"
         ['funnels', 'conversion', true], // funnels → funnel
         ['sessions', 'assessment', false], // min-5 guard: "sessions" must not reach "assessing"
+        ['states', 'statistics', false], // "states" must not lose the distinct final e in "state"
     ])('light stemming links query "%s" to %s content (match=%s)', (query, skill, shouldMatch) => {
         const catalog = SkillCatalog.fromZip(
             makeArchive({
                 'trends/SKILL.md': makeSkill(
                     'trends',
                     'Chart product metrics over time.',
-                    '# Trends\n\nRun a cohort analysis.'
+                    '# Trends\n\nAnalyze a cohort.'
                 ),
                 'conversion/SKILL.md': makeSkill(
                     'conversion',
@@ -287,6 +288,11 @@ describe('SkillCatalog and exec learn', () => {
                     'assessment',
                     'Review internal controls.',
                     '# Assessment\n\nStart by assessing exposure.'
+                ),
+                'statistics/SKILL.md': makeSkill(
+                    'statistics',
+                    'Calculate descriptive measures.',
+                    '# Statistics\n\nSummarize the sample.'
                 ),
             })
         )

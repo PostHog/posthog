@@ -469,7 +469,7 @@ function rankSkill(skill: SkillDefinition, query: NormalizedQuery): RankedSkill 
 
 interface QueryToken {
     // A token matches text if the text includes ANY variant. Variants add light
-    // stemming (analyzing → analyz → analy) so related word forms still match.
+    // stemming so related word forms still match.
     variants: string[]
 }
 
@@ -521,7 +521,10 @@ function stemVariants(token: string): string[] {
         return [token]
     }
     const stem = token.slice(0, -suffix.length)
-    const variants = [token, stem, stem.slice(0, -1)]
+    const variants = [token, stem]
+    if (stem.length >= 2 && stem.at(-1) === stem.at(-2)) {
+        variants.push(stem.slice(0, -1))
+    }
     return [...new Set(variants.filter((variant) => variant.length >= MIN_STEM_VARIANT_LENGTH))]
 }
 

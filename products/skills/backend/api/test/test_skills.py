@@ -658,6 +658,14 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"][0]["name"] == "support"
 
+    def test_search_skills_does_not_remove_distinct_final_stem_character(self):
+        self.create_skill(name="statistics", description="Analyze numerical data.", body="# Statistics")
+
+        response = self.client.get(self._url("search?query=states"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == []
+
     def test_search_skills_limits_file_queries_to_remaining_matches(self):
         path_skill = self.create_skill(name="path-skill", body="# Path\nContains needle.")
         content_skill = self.create_skill(name="content-skill", description="Contains needle.")
