@@ -26,6 +26,7 @@ describe('InsightScene', () => {
         insightSceneLogic.mount()
         render(<InsightScene />)
 
+        expect(screen.getAllByText('Loading…').length).toBeGreaterThan(0)
         expect(screen.queryByText('Insight not found')).toBeNull()
         expect(screen.queryByText("Couldn't load this insight")).toBeNull()
     })
