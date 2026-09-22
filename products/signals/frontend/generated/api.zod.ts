@@ -289,12 +289,14 @@ export const SignalsReportsReviewersUpdateBody = /* @__PURE__ */ zod
                             .string()
                             .max(signalsReportsReviewersUpdateBodyContentItemGithubLoginMax)
                             .optional()
-                            .describe('GitHub login (case-insensitive). Stored lowercased.'),
+                            .describe(
+                                'GitHub login (case-insensitive). Stored lowercased. Required unless `user_uuid` is given.'
+                            ),
                         user_uuid: zod
                             .uuid()
                             .optional()
                             .describe(
-                                "PostHog user UUID. Must be an org member on this team; a linked GitHub account is not required. If supplied together with `github_login`, the user's own identity wins."
+                                "PostHog user UUID. Must be an org member on this team; a linked GitHub account is not required. Required unless `github_login` is given. If supplied together with `github_login`, the user's own identity wins."
                             ),
                         github_name: zod
                             .string()
