@@ -41,6 +41,8 @@ conversations projects/{}/conversations
 conversationsTicket projects/{}/conversations/tickets/{}
 conversationsTickets projects/{}/conversations/tickets
 copyOrganizationFeatureFlags organizations/{}/feature_flags/copy_flags
+coreMemory projects/{}/core_memory
+coreMemoryDetail projects/{}/core_memory/{}
 customerJourneys projects/{}/customer_journeys
 customerJourneysDetail projects/{}/customer_journeys/{}
 customerProfileConfigs projects/{}/customer_profile_configs
