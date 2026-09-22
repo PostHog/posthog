@@ -18,10 +18,28 @@ Choose settings from the project's facts rather than asking, and say which choic
 The right bucketing, metric and running time depend on the project: who sees the page, which SDKs evaluate the flag, how often the metric event happens.
 Read that before configuring anything.
 
-1. From the request, infer the **target** (the event that marks someone reaching the change, usually `$pageview` plus a URL fragment for a page) and a **candidate metric event**.
+1. From the request, infer the **target** (the event that marks someone reaching the change, usually `$pageview` for a page) and a **candidate metric event**.
    Confirm both exist with `read-data-schema`. Don't ask the user for event names you can find.
-2. If the `experiment-setup-context` tool is available, call it once with `target_event`, `target_url_contains` (for a page) and `metric_event`.
-   If it is not available, continue without it and treat every choice below as a best guess. Never call a tool you can't see.
+2. If the `experiment-setup-context` tool is available, call it once with `target_event` and `metric_event`.
+   For one page, add `target_properties` with an exact `$host` and an exact `$pathname`.
+   A substring match on the URL cannot separate a homepage from the pages under it, so it overstates the traffic and the exposure rate.
+   Use `target_url_contains` only when a broad URL fragment is the surface the user asked for, such as every page under one path.
+   Add `metric_properties` in the same call when the candidate metric counts only some occurrences of its event.
+   If the tool is not available, continue without it and treat every choice below as a best guess. Never call a tool you can't see.
+
+   Each filter needs a `type` of `event` or `person`, a `key`, an `operator` and a `value`. For the homepage of one domain:
+
+   ```json
+   {
+     "target_event": "$pageview",
+     "target_properties": [
+       { "key": "$host", "type": "event", "operator": "exact", "value": ["example.com"] },
+       { "key": "$pathname", "type": "event", "operator": "exact", "value": ["/"] }
+     ],
+     "metric_event": "signed_up"
+   }
+   ```
+
 3. Apply [references/setup-decisions.md](references/setup-decisions.md) to the result. It maps each fact to a choice (bucketing, where the flag is evaluated, exposure, primary metric, running time, precedent) and to a tier for the summary.
 4. Carry those choices into steps 1 to 3.
 
