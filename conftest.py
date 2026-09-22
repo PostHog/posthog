@@ -250,14 +250,9 @@ def pytest_unconfigure() -> None:
 @pytest.hookimpl(wrapper=True, tryfirst=True)
 def pytest_cmdline_main(config: pytest.Config) -> Generator[None, int | pytest.ExitCode, int | pytest.ExitCode]:
     exit_code = yield
-    # An xdist worker still hands its results to the controller after this hook, so only the
-    # main process exits early.
+    # Every report is written by now. Skip the interpreter teardown, which frees each object of a
+    # large collection one by one. An xdist worker still sends its results after this hook.
     if os.environ.get("POSTHOG_PYTEST_HARD_EXIT") == "1" and "PYTEST_XDIST_WORKER" not in os.environ:
-        # pytest has written every report by now. A normal interpreter shutdown then frees each
-        # object of the session one by one, which is slow after a large collection. Run the
-        # atexit handlers, then leave without that teardown.
-        sys.stdout.flush()
-        sys.stderr.flush()
         atexit._run_exitfuncs()
         sys.stdout.flush()
         sys.stderr.flush()

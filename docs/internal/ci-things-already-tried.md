@@ -105,7 +105,7 @@ _Also asked as:_ session-scoped database fixture, build the test database once, 
 **Verdict: rejected** · Sep 2026 · measured, not built ([PR run](https://github.com/PostHog/posthog/actions/runs/35767882260), [master run](https://github.com/PostHog/posthog/actions/runs/35768184399))
 
 warehouse-sources collects about 58,000 tests. About 56,000 of them take less than 20 ms, and pytest-split puts almost all of them in one shard.
-Their cost was not the count. They took 89 s on master and 202 s on PR runs, because turbo removed `COVERAGE_CORE` and coverage used its slow tracer.
+Their cost was not the count. They took 89 s on master and 202 s on PR runs, because turbo dropped `COVERAGE_CORE` from the product jobs and coverage used its slow tracer.
 Four functions that run once per source give 5,392 tests and 15 s. Collapsing them saves little.
 The larger fixed cost is collection: each shard of the product collects all 58,000 tests, which takes about 90 s, before pytest-split selects its group.
 
@@ -254,7 +254,7 @@ Read this entry before you try a different solution for the pytest cleanup cost.
 That call is necessary. [#62707](https://github.com/PostHog/posthog/pull/62707) added it after the Temporal shards stopped with a segmentation fault and exit code 139. CI made the same crash again on #88759.
 Frozen objects do not get the final cyclic collections of `Py_FinalizeEx`. Thus their finalizers run late in the teardown, after Python removes the extension modules.
 
-Backend CI now skips this teardown. With `POSTHOG_PYTEST_HARD_EXIT=1`, the root conftest runs the `atexit` handlers and calls `os._exit` after pytest writes its reports.
+Backend CI skips this teardown. With `POSTHOG_PYTEST_HARD_EXIT=1`, the root conftest runs the `atexit` handlers and calls `os._exit` after pytest writes its reports.
 No finalizers run, so the crash cannot occur. Each shard saves 8 to 29 seconds ([before](https://github.com/PostHog/posthog/actions/runs/35777473197), [after](https://github.com/PostHog/posthog/actions/runs/35777464934)).
 Local runs keep the normal exit, and they still need the `gc.unfreeze()`.
 

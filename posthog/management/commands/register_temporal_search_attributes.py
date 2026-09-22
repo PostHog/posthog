@@ -32,6 +32,8 @@ def _resolve_type(key: SearchAttributeKey) -> enums.IndexedValueType.ValueType:
 
 class Command(BaseCommand):
     help = "Register PostHog custom search attributes in Temporal"
+    # A setup step before tests and dev runs. The system checks cost more than the command itself.
+    requires_system_checks: list[str] = []
 
     def add_arguments(self, parser):
         parser.add_argument(

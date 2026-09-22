@@ -317,6 +317,8 @@ _FEATURE_FLAG_TEMPLATE: dict[str, Any] = {
 
 class Command(BaseCommand):
     help = "Ensure default data from migrations exists for schema-only restores."
+    # A setup step of every schema restore. The system checks cost more than the seeding itself.
+    requires_system_checks: list[str] = []
 
     def _seed_streamlit_oauth_app(self, created_items: list[str], skipped_items: list[str]) -> None:
         # OAuthApplication.clean() rejects RS256 where no OIDC RSA private key is

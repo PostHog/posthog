@@ -180,8 +180,7 @@ def _manage(target_db: str, *args: str) -> None:
 
 
 def _ensure_migration_defaults(target_db: str) -> None:
-    # System checks inspect the code, not the restored rows, and take longer than the seeding.
-    _manage(target_db, "ensure_migration_defaults", "--skip-checks")
+    _manage(target_db, "ensure_migration_defaults")
 
 
 def _psql_write(target_db: str, sql: str) -> None:

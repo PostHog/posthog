@@ -1053,7 +1053,7 @@ jobs:
               # before tests run.
               run: |
                   bin/wait-for-docker temporal
-                  python manage.py register_temporal_search_attributes --skip-checks
+                  python manage.py register_temporal_search_attributes
 
             - name: Restore test durations from cache
               # pytest-split distributes this product's tests across shards using
