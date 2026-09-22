@@ -19,16 +19,26 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import { useSpacesTabs } from "@posthog/ui/features/browser-tabs/useSpacesTabs";
 import { ActivityHoverCard } from "@posthog/ui/features/canvas/components/ActivityHoverCard";
+import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
 import {
   pickRailDestination,
   type RailCounts,
   type RailDestination,
+  showWorkColumn,
   visibleRailDestinations,
+  visibleWorkRailDestinations,
 } from "@posthog/ui/features/canvas/components/railDestinations";
 import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
+import { railPaneFoldsIntoWork } from "@posthog/ui/features/canvas/railPane";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
+import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import {
+  closeWorkActivity,
+  useWorkActivityStore,
+} from "@posthog/ui/features/canvas/stores/workActivityStore";
 import {
   formatHotkey,
   SHORTCUTS,
@@ -197,13 +207,19 @@ function NavRailImpl() {
 
   const savedSearchesRailEnabled = useFeatureFlag(SAVED_SEARCHES_RAIL_FLAG);
   const hasSavedSearches = useProjectTaskFeeds().length > 0;
-  const destinations = visibleRailDestinations({
+  const workLayout = useWorkLayout();
+  const workActivityOpen = useWorkActivityStore((state) => state.open);
+  const toggleWorkActivity = useWorkActivityStore((state) => state.toggle);
+  const railFlags = {
     home: homeEnabled,
     inbox: inboxAvailable,
     loops: loopsEnabled,
     context: contextEnabled,
     savedSearches: savedSearchesRailEnabled && hasSavedSearches,
-  });
+  };
+  const destinations = workLayout
+    ? visibleWorkRailDestinations(railFlags)
+    : visibleRailDestinations(railFlags);
   const topDestinations = destinations.filter(
     ({ placement }) => placement !== "bottom",
   );
@@ -228,6 +244,8 @@ function NavRailImpl() {
   // light a destination the screen isn't on.
   const railPane = useRailPane();
   const toggleCommandMenu = useCommandMenuStore((s) => s.toggle);
+  // So the create button files into the space you are in, like the shortcut.
+  const currentChannelId = useCurrentChannelStore((s) => s.currentChannelId);
 
   const pick =
     (destination: RailDestination): MouseEventHandler<HTMLButtonElement> =>
@@ -242,12 +260,30 @@ function NavRailImpl() {
         openBrowserTab(destination.href);
         return;
       }
+      if (workLayout) {
+        if (destination.pane === "activity") {
+          if (!workActivityOpen) showWorkColumn();
+          toggleWorkActivity();
+          return;
+        }
+        closeWorkActivity();
+        if (destination.pane === "spaces" && railPaneFoldsIntoWork(railPane)) {
+          showWorkColumn();
+          return;
+        }
+      }
       pickRailDestination(destination, railPane);
     };
 
   const renderDestination = (destination: RailDestination): ReactNode => {
     const { pane, label, Icon, count, countTone } = destination;
-    const isActive = railPane === pane;
+    const isActive = workLayout
+      ? pane === "activity"
+        ? workActivityOpen
+        : pane === "spaces"
+          ? !workActivityOpen && railPaneFoldsIntoWork(railPane)
+          : !workActivityOpen && railPane === pane
+      : railPane === pane;
     const destinationCount = count?.(counts) ?? 0;
     const usesNotificationDot = pane === "activity" || pane === "inbox";
     let badge: ReactNode;
@@ -286,8 +322,8 @@ function NavRailImpl() {
         key={pane}
         icon={
           <Icon
-            className={pane === "spaces" ? "size-5" : undefined}
-            size={pane === "spaces" ? 20 : 16}
+            className={pane === "spaces" && !workLayout ? "size-5" : undefined}
+            size={pane === "spaces" && !workLayout ? 20 : 16}
             weight={isActive ? "fill" : "regular"}
           />
         }
@@ -312,6 +348,12 @@ function NavRailImpl() {
         {topDestinations.map(renderDestination)}
         <div className="mt-auto flex flex-col items-center gap-1.5">
           {bottomDestinations.map(renderDestination)}
+          {/* Every destination keeps the rail, sidebar or not, so the create
+              button is reachable from all of them here. */}
+          <ChannelsFab
+            channelId={currentChannelId ?? undefined}
+            placement="rail"
+          />
           <NavIcon
             icon={<MagnifyingGlass size={16} />}
             label="Search"

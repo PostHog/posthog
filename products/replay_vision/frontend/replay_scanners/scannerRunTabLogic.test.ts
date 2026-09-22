@@ -1,8 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { makeQuota } from '../utils/quotaTestUtils'
 import { scannerRunTabLogic } from './scannerRunTabLogic'
 
 describe('scannerRunTabLogic', () => {
@@ -108,5 +112,181 @@ describe('scannerRunTabLogic', () => {
         // The selected session ids reach the bulk endpoint, and the button's loading state is released.
         expect(postedBody).toEqual({ session_ids: ['a', 'b', 'c'] })
         expect(logic.values.bulkScanning).toBe(false)
+    })
+
+    it('splits a selection above the per-request cap into cap-sized batches', async () => {
+        const postedBatches: string[][] = []
+        useMocks({
+            post: {
+                '/api/projects/:team/vision/scanners/:id/bulk_observe/': async ({ request }: { request: Request }) => {
+                    const body = await request.json()
+                    postedBatches.push(body.session_ids)
+                    return [
+                        202,
+                        {
+                            started: body.session_ids.length,
+                            results: body.session_ids.map((session_id: string) => ({
+                                session_id,
+                                scan_outcome: 'started',
+                            })),
+                        },
+                    ]
+                },
+            },
+        })
+        const sessionIds = Array.from({ length: 250 }, (_, i) => `s${i}`)
+
+        await expectLogic(logic, () => logic.actions.startBulkScan(sessionIds)).toFinishAllListeners()
+
+        // One request of 250 is rejected whole by the API, so every session has to go in a batch it accepts.
+        expect(postedBatches.map((batch) => batch.length)).toEqual([200, 50])
+        expect(postedBatches.flat()).toEqual(sessionIds)
+    })
+
+    it('stops batching once a batch reports a skip', async () => {
+        const postedBatches: string[][] = []
+        useMocks({
+            post: {
+                '/api/projects/:team/vision/scanners/:id/bulk_observe/': async ({ request }: { request: Request }) => {
+                    const body = await request.json()
+                    postedBatches.push(body.session_ids)
+                    return [
+                        202,
+                        {
+                            started: 0,
+                            results: body.session_ids.map((session_id: string) => ({
+                                session_id,
+                                scan_outcome: 'skipped_quota',
+                            })),
+                        },
+                    ]
+                },
+            },
+        })
+
+        await expectLogic(logic, () =>
+            logic.actions.startBulkScan(Array.from({ length: 250 }, (_, i) => `s${i}`))
+        ).toFinishAllListeners()
+
+        // The quota that bound on the first batch binds on every later one, so asking again only burns requests.
+        expect(postedBatches).toHaveLength(1)
+    })
+
+    // A zero-start run has to name every outcome it produced. Dropping one tells the user to retry
+    // a selection that is already answered, or hides the failures behind a skip message.
+    test.each([
+        ['every session resolved', ['already_scanned', 'already_running'], 'info', ['Nothing new to scan']],
+        [
+            'resolved alongside a failure',
+            ['already_scanned', 'failed'],
+            'warning',
+            ['1 already scanned', '1 failed to start'],
+        ],
+        [
+            'resolved alongside a skip',
+            ['already_scanned', 'skipped_quota'],
+            'warning',
+            ['credit limit', '1 already scanned'],
+        ],
+    ])('names every outcome when nothing started: %s', async (_name, outcomes, level, fragments) => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+        const toast = jest.spyOn(lemonToast, level as 'info' | 'warning').mockImplementation(() => 'toast-id')
+        useMocks({
+            post: {
+                '/api/projects/:team/vision/scanners/:id/bulk_observe/': () => [
+                    202,
+                    {
+                        started: 0,
+                        results: outcomes.map((scan_outcome, i) => ({ session_id: `s${i}`, scan_outcome })),
+                    },
+                ],
+            },
+        })
+
+        await expectLogic(logic, () =>
+            logic.actions.startBulkScan(outcomes.map((_, i) => `s${i}`))
+        ).toFinishAllListeners()
+
+        // The scanner load in the mounted logic toasts its own error here, so match the message
+        // rather than the call count.
+        expect(errorToast).not.toHaveBeenCalledWith(expect.stringContaining('Please try again'))
+        const message = toast.mock.calls[0][0]
+        for (const fragment of fragments) {
+            expect(message).toContain(fragment)
+        }
+        errorToast.mockRestore()
+        toast.mockRestore()
+    })
+
+    // `already_running` waits on a row the same way a start does: the backend reports it while the
+    // running workflow is still enqueued, so nothing has been written for the session yet.
+    test.each([
+        ['started', { started: 1, results: [{ session_id: 's9', scan_outcome: 'started' }] }],
+        ['already running', { started: 0, results: [{ session_id: 's9', scan_outcome: 'already_running' }] }],
+    ])('keeps polling after a bulk scan whose refetch beats the new observation rows: %s', async (_name, response) => {
+        // toFinishAllListeners hangs under fake timers (msw resolves responses on the clock),
+        // so the whole test advances fake time instead, which also flushes microtasks.
+        jest.useFakeTimers()
+        try {
+            let lookups = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/vision/scanners/:id/observations/': ({ request }: { request: Request }) => {
+                        if (request.url.includes('session_id=')) {
+                            lookups += 1
+                        }
+                        // A bulk trigger only starts the workflows; the rows are written by their
+                        // first activity, so the refetch right after it can still see nothing.
+                        return [200, { results: [], count: 0 }]
+                    },
+                },
+                post: {
+                    '/api/projects/:team/vision/scanners/:id/bulk_observe/': () => [202, response],
+                },
+            })
+
+            logic.actions.setVisibleSessionIds(['s9'])
+            logic.actions.startBulkScan(['s9'])
+            await jest.advanceTimersByTimeAsync(1_000)
+            const afterScan = lookups
+            expect(afterScan).toBeGreaterThan(0)
+
+            await jest.advanceTimersByTimeAsync(3_000)
+            // Nothing is in progress and no row landed, so without a grace window the timer is
+            // disposed here and the scanning rows read "Not scanned" until the scene reloads.
+            expect(lookups).toBeGreaterThan(afterScan)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('refreshes the credit total after a bulk run starts scans', async () => {
+        let quotaLoads = 0
+        useMocks({
+            get: {
+                '/api/projects/:team/vision/quota/': () => {
+                    quotaLoads += 1
+                    return [200, makeQuota()]
+                },
+            },
+            post: {
+                '/api/projects/:team/vision/scanners/:id/bulk_observe/': () => [
+                    202,
+                    { started: 1, results: [{ session_id: 's1', scan_outcome: 'started' }] },
+                ],
+            },
+        })
+        const quotaLogic = visionQuotaLogic()
+        quotaLogic.mount()
+        await expectLogic(quotaLogic).toFinishAllListeners()
+        const loadsOnMount = quotaLoads
+
+        await expectLogic(logic, () => logic.actions.startBulkScan(['s1'])).toFinishAllListeners()
+        await expectLogic(quotaLogic).toFinishAllListeners()
+
+        // Every started scan reserves credits at once, so without this the credit banner on the scanner
+        // page keeps showing pre-scan usage until the scene remounts.
+        expect(quotaLoads).toBe(loadsOnMount + 1)
+        quotaLogic.unmount()
     })
 })

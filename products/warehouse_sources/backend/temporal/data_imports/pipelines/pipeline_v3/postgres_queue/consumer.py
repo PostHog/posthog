@@ -53,8 +53,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _Unset,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
+    BACKLOGGED_GROUPS,
+    BLOCKED_BATCHES,
     CLAIMABLE_BATCHES,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
+    ORPHANED_BATCHES_DRAINED_TOTAL,
     RUNS_RECONCILED_TOTAL,
     RUNS_TERMINALIZED_STALE_TOTAL,
     observe_queue_query,
@@ -77,6 +80,13 @@ DeltaProcessBatchFn = Callable[[PendingBatch, VerifyOwnership | None], Coroutine
 # timeout so a degraded probe can't starve the reconcile sweep it rides on.
 FRESHNESS_PROBE_TIMEOUT_SECONDS = 30.0
 
+# A group whose oldest claimable batch is older than this counts as backlogged.
+# Set above the reconcile cadence that samples it (300s) so a group cannot be
+# counted purely because it was enqueued between two probes, and well below the
+# lease TTL, so a group that is merely waiting its turn behind a sibling run
+# does not register while the loader is still working the group normally.
+BACKLOG_THRESHOLD_SECONDS = 900
+
 # Stamped on a run the loader abandoned: its extraction ended without a final batch, so nothing
 # finalized it and there is no failed queue batch for the failed-run reconcile to key on.
 # Shown to the customer verbatim as latest_error, so keep it plain and reassuring rather than
@@ -85,6 +95,10 @@ STRANDED_RUN_ERROR = (
     "This sync run stopped before it finished, so it did not complete. "
     "The next scheduled sync retries automatically. No action is needed."
 )
+
+# Stamped on batches retired by the orphan drain. Their run already failed and the customer has
+# already seen that failure on the job, so this text only has to explain the batch rows themselves.
+ORPHANED_BATCH_ERROR = "left over from a run that had already failed (orphan drain)"
 
 
 # Permanent failures the customer can fix. These stop the schedule as well as the run: the loader
@@ -134,6 +148,16 @@ EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
 # with dead entries alone.
 JOB_STATUS_CACHE_TTL_SECONDS = 30
 JOB_STATUS_CACHE_MAX_ENTRIES = 1000
+
+
+def _is_transient_queue_connection_drop(err: Exception, conn: psycopg.AsyncConnection[Any]) -> bool:
+    """Whether `err` is a queue-db connection dying mid-query rather than a real bug.
+
+    A network blip, server-side cull, or pgbouncer bounce leaves `conn` closed; the next
+    reconcile cycle reconnects and retries, so it isn't worth paging on (mirrors the
+    conn.closed check already applied to the stranded-run sweep's own OperationalError).
+    """
+    return isinstance(err, psycopg.OperationalError) and conn.closed
 
 
 class DeltaBatchConsumerAdapter:
@@ -420,6 +444,21 @@ class DeltaBatchConsumerAdapter:
                 )
             await self._release_run_lock(ref)
 
+        # The pass above is newest-first inside a lookback, so a run whose failure ages out of the
+        # window keeps its leftover batches forever. Drain those oldest-first here, on the same
+        # cadence and connection. Isolated so its failure can't take the sweep down.
+        try:
+            await self._drain_orphaned_batches(conn, limit=limit)
+        except psycopg.OperationalError as e:
+            if conn.closed:
+                logger.warning("orphaned_batch_drain_closed_connection", error=str(e))
+            else:
+                logger.exception("orphaned_batch_drain_failed")
+                capture_exception(e)
+        except Exception as e:
+            logger.exception("orphaned_batch_drain_failed")
+            capture_exception(e)
+
         # Runs the loader abandoned leave no 'failed' batch for get_failed_runs to key on, so sweep
         # them on the same cadence and connection. Isolated so its failure can't take the sweep down.
         try:
@@ -435,6 +474,39 @@ class DeltaBatchConsumerAdapter:
         except Exception as e:
             logger.exception("stranded_run_reconcile_sweep_failed")
             capture_exception(e)
+
+    async def _drain_orphaned_batches(self, conn: psycopg.AsyncConnection[Any], *, limit: int) -> None:
+        """Terminalize the leftovers of runs the newest-first reconcile pass never reached.
+
+        Their job is already terminal, so there is nothing to reconcile in the
+        app DB and no lock left to release — only queue rows to retire. Returns
+        nothing to sweep in a healthy fleet.
+        """
+        orphaned = await BatchQueue.get_runs_with_orphaned_batches(conn, limit=limit)
+        for ref in orphaned:
+            try:
+                drained = await BatchQueue.fail_run(
+                    conn,
+                    run_uuid=ref.run_uuid,
+                    team_id=ref.team_id,
+                    schema_id=ref.schema_id,
+                    reason=ORPHANED_BATCH_ERROR,
+                )
+            except Exception as e:
+                if _is_transient_queue_connection_drop(e, conn):
+                    raise
+                logger.exception("orphaned_batch_drain_run_failed", run_uuid=ref.run_uuid)
+                capture_exception(e)
+                continue
+            if drained:
+                ORPHANED_BATCHES_DRAINED_TOTAL.inc(drained)
+                logger.warning(
+                    "drained_orphaned_batches",
+                    run_uuid=ref.run_uuid,
+                    team_id=ref.team_id,
+                    external_data_schema_id=ref.schema_id,
+                    batch_count=drained,
+                )
 
     async def _sweep_straggler_batches(self, conn: psycopg.AsyncConnection[Any], ref: FailedRunRef) -> None:
         """Terminalize batches enqueued into a run that ``fail_run`` had already swept.
@@ -454,8 +526,11 @@ class DeltaBatchConsumerAdapter:
                 reason="enqueued into an already-failed run (reconcile sweep)",
             )
         except Exception as e:
-            logger.exception("reconcile_straggler_sweep_failed", run_uuid=ref.run_uuid)
-            capture_exception(e)
+            if _is_transient_queue_connection_drop(e, conn):
+                logger.warning("reconcile_straggler_sweep_closed_connection", run_uuid=ref.run_uuid, error=str(e))
+            else:
+                logger.exception("reconcile_straggler_sweep_failed", run_uuid=ref.run_uuid)
+                capture_exception(e)
             return
 
         if stragglers:
@@ -550,10 +625,13 @@ class DeltaBatchConsumerAdapter:
                     reason=STRANDED_RUN_ERROR,
                 )
             except Exception as e:
-                # Without the batches failed we'd fail the job while leaving claimable stragglers
-                # behind — the exact resurrection this ordering prevents. Skip the rest for this run.
-                logger.exception("stranded_run_batch_sweep_failed", run_uuid=ref.run_uuid)
-                capture_exception(e)
+                if _is_transient_queue_connection_drop(e, conn):
+                    logger.warning("stranded_run_batch_sweep_closed_connection", run_uuid=ref.run_uuid, error=str(e))
+                else:
+                    # Without the batches failed we'd fail the job while leaving claimable stragglers
+                    # behind — the exact resurrection this ordering prevents. Skip the rest for this run.
+                    logger.exception("stranded_run_batch_sweep_failed", run_uuid=ref.run_uuid)
+                    capture_exception(e)
                 continue
 
             try:
@@ -622,10 +700,14 @@ class DeltaBatchConsumerAdapter:
         try:
             async with asyncio.timeout(FRESHNESS_PROBE_TIMEOUT_SECONDS):
                 with observe_queue_query("oldest_unclaimed_probe"):
-                    age = await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn)
+                    freshness = await BatchQueue.get_queue_freshness(
+                        conn, backlog_threshold_seconds=BACKLOG_THRESHOLD_SECONDS
+                    )
                 # Set immediately, so a failure in the depth probe below can never
                 # blind the age gauge this alert hangs off.
-                OLDEST_UNCLAIMED_BATCH_SECONDS.set(age or 0.0)
+                OLDEST_UNCLAIMED_BATCH_SECONDS.set(freshness.oldest_age_seconds or 0.0)
+                BLOCKED_BATCHES.set(freshness.blocked_batches)
+                BACKLOGGED_GROUPS.set(freshness.backlogged_groups)
                 # Depth rides the same probe and timeout: age says how stale the head
                 # of the queue is, depth says how much sits behind it — a stall and a
                 # burst are indistinguishable on age alone.

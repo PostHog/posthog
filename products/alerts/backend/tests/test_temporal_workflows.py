@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator, Iterator
 from typing import Literal
 
 import pytest
+from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
@@ -14,9 +15,11 @@ from django.db import OperationalError
 import pytest_asyncio
 from opentelemetry import trace
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from parameterized import parameterized
 from temporalio import activity, workflow
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
+from temporalio.common import SearchAttributeKey, SearchAttributePair, TypedSearchAttributes
 from temporalio.contrib.opentelemetry import OpenTelemetryPlugin
 from temporalio.exceptions import (
     ActivityError,
@@ -30,22 +33,41 @@ from temporalio.runtime import MetricBuffer, Runtime, TelemetryConfig
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
+from posthog.models.scoping import team_scope
+
+from products.alerts.backend.facade.contracts import (
+    AlertBatchKey,
+    AlertDemand,
+    DemandDiscoveryInputs,
+    OrchestrateInputs,
+    OrchestrateResult,
+    SourceKind,
+)
 from products.alerts.backend.facade.temporal import (
     DELIVERY_ACTIVITIES,
     DELIVERY_WORKFLOWS,
     EVALUATION_ACTIVITIES,
     EVALUATION_WORKFLOWS,
+    SHARED_ORCHESTRATION_ACTIVITIES,
+    SHARED_ORCHESTRATION_WORKFLOWS,
     AlertsProductTelemetryInterceptor,
 )
+from products.alerts.backend.logic import demand
+from products.alerts.backend.models import PlatformAlertConfiguration
 from products.alerts.backend.temporal import postgres
-from products.alerts.backend.temporal.workflows import AlertsProductCheckDueWorkflow, AlertsProductInputs
+from products.alerts.backend.temporal.workflows import (
+    AlertsProductEvaluateWorkflow,
+    AlertsProductInputs,
+    AlertsProductOrchestrateWorkflow,
+    alerts_product_discover_demand_activity,
+)
 
 
 @workflow.defn(name="test-alerts-product-close-after-child-start")
 class CloseAfterChildStartWorkflow:
     @workflow.run
     async def run(self, close_mode: str) -> None:
-        await AlertsProductCheckDueWorkflow().run(AlertsProductInputs())
+        await AlertsProductEvaluateWorkflow().run(AlertsProductInputs())
         await workflow.execute_activity("test_confirm_child_start", start_to_close_timeout=dt.timedelta(seconds=5))
         if close_mode == "failed":
             raise ApplicationError("Test parent failure", non_retryable=True)
@@ -102,17 +124,26 @@ async def test_each_tick_starts_independent_delivery(
         if activity.info().attempt == 1:
             raise ApplicationError("sensitive retry exception")
 
-    async with Worker(
-        client,
-        task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
-        workflows=EVALUATION_WORKFLOWS,
-        activities=EVALUATION_ACTIVITIES,
-        interceptors=[AlertsProductTelemetryInterceptor()],
-        workflow_runner=UnsandboxedWorkflowRunner(),
+    async with (
+        Worker(
+            client,
+            task_queue=settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE,
+            workflows=SHARED_ORCHESTRATION_WORKFLOWS,
+            activities=SHARED_ORCHESTRATION_ACTIVITIES,
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ),
+        Worker(
+            client,
+            task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+            workflows=EVALUATION_WORKFLOWS,
+            activities=EVALUATION_ACTIVITIES,
+            interceptors=[AlertsProductTelemetryInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ),
     ):
         for _ in range(2):
             parent = await client.start_workflow(
-                "alerts-product-check-due",
+                "alerts-product-evaluate",
                 AlertsProductInputs(),
                 id=workflow_id,
                 task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
@@ -120,12 +151,14 @@ async def test_each_tick_starts_independent_delivery(
             )
             assert await parent.result() is None
             history = await parent.fetch_history()
+            evaluation_run_id = parent.first_execution_run_id
             scheduled = [
                 event.activity_task_scheduled_event_attributes
                 for event in history.events
                 if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
             ]
             assert len(scheduled) == 1
+            assert scheduled[0].task_queue.name == settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE
             assert scheduled[0].retry_policy.maximum_attempts == 1
             failure_count = sum(
                 event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED for event in history.events
@@ -139,8 +172,8 @@ async def test_each_tick_starts_independent_delivery(
             ]
             assert len(children) == 1
             child_id = children[0].workflow_execution.workflow_id
-            assert parent.first_execution_run_id is not None
-            assert parent.first_execution_run_id in child_id
+            assert evaluation_run_id is not None
+            assert evaluation_run_id in child_id
             assert children[0].workflow_type.name == "alerts-product-deliver"
             child_ids.add(child_id)
             child_description = await client.get_workflow_handle(child_id).describe()
@@ -168,11 +201,13 @@ async def test_each_tick_starts_independent_delivery(
                 if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
             ]
             assert len(scheduled) == 1
+            assert scheduled[0].task_queue.name == settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE
             assert scheduled[0].retry_policy.maximum_attempts == 3
 
     updates = sdk_metrics.retrieve_updates()
     for metric_name in ("temporal_activity_schedule_to_start_latency", "temporal_activity_execution_latency"):
         for task_queue, expected_attempts in (
+            (settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE, 0),
             (settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE, 2),
             (settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE, 4),
         ):
@@ -197,7 +232,7 @@ async def test_each_tick_starts_independent_delivery(
         assert child_start.parent is not None
         evaluation = spans_by_id[child_start.parent.span_id]
         assert child_start.name == "StartChildWorkflow:alerts-product-deliver"
-        assert evaluation.name == "RunWorkflow:alerts-product-check-due"
+        assert evaluation.name == "RunWorkflow:alerts-product-evaluate"
         assert delivery.context.trace_id == child_start.context.trace_id == evaluation.context.trace_id
         assert evaluation.end_time is not None and delivery.start_time is not None
         assert evaluation.end_time <= delivery.start_time
@@ -226,7 +261,7 @@ async def test_each_tick_starts_independent_delivery(
             "failure"
             if (
                 (attempt_span.name == "RunActivity:alerts_product_deliver_activity" and entries[1]["attempt"] == 1)
-                or (attempt_span.name == "RunActivity:alerts_product_check_due_activity" and database_error)
+                or (attempt_span.name == "RunActivity:alerts_product_probe_postgres_activity" and database_error)
             )
             else "success"
         )
@@ -290,7 +325,7 @@ async def test_probe_timeout_still_starts_independent_delivery(
     activity_started = asyncio.Event()
     release_activity = asyncio.Event()
 
-    @activity.defn(name="alerts_product_check_due_activity")
+    @activity.defn(name="alerts_product_probe_postgres_activity")
     async def blocked_probe() -> None:
         activity_started.set()
         await release_activity.wait()
@@ -303,7 +338,7 @@ async def test_probe_timeout_still_starts_independent_delivery(
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         parent = await client.start_workflow(
-            AlertsProductCheckDueWorkflow.run,
+            AlertsProductEvaluateWorkflow.run,
             AlertsProductInputs(),
             id=str(uuid.uuid4()),
             task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
@@ -368,7 +403,7 @@ async def test_probe_unrelated_activity_failures_do_not_start_delivery(cause: Ex
         scheduled_event_id=1,
         started_event_id=2,
         identity="test-worker",
-        activity_type="alerts_product_check_due_activity",
+        activity_type="alerts_product_probe_postgres_activity",
         activity_id="1",
         retry_state=None,
     )
@@ -378,7 +413,7 @@ async def test_probe_unrelated_activity_failures_do_not_start_delivery(cause: Ex
         patch.object(workflow, "start_child_workflow", AsyncMock()) as start_delivery,
         pytest.raises(ActivityError) as caught,
     ):
-        await AlertsProductCheckDueWorkflow().run(AlertsProductInputs())
+        await AlertsProductEvaluateWorkflow().run(AlertsProductInputs())
     assert caught.value is error
     start_delivery.assert_not_awaited()
 
@@ -389,5 +424,142 @@ async def test_probe_workflow_cancellation_does_not_start_delivery() -> None:
         patch.object(workflow, "start_child_workflow", AsyncMock()) as start_delivery,
         pytest.raises(asyncio.CancelledError),
     ):
-        await AlertsProductCheckDueWorkflow().run(AlertsProductInputs())
+        await AlertsProductEvaluateWorkflow().run(AlertsProductInputs())
     start_delivery.assert_not_awaited()
+
+
+class TestDemandDiscovery(APIBaseTest):
+    def _configuration(self, *, minutes_ago: int | None, enabled: bool = True, name: str = "alert"):
+        with team_scope(self.team.id):
+            return PlatformAlertConfiguration.objects.create(
+                team=self.team,
+                name=name,
+                enabled=enabled,
+                source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
+                source_config={},
+                threshold_count=1,
+                threshold_operator="above",
+                window_minutes=5,
+                check_interval_minutes=5,
+                next_check_at=None if minutes_ago is None else self.tick - dt.timedelta(minutes=minutes_ago),
+            )
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.tick = dt.datetime(2026, 9, 16, 10, tzinfo=dt.UTC)
+
+    def _key(self, minutes_ago: int) -> AlertBatchKey:
+        return AlertBatchKey(team_id=self.team.id, slot=(self.tick - dt.timedelta(minutes=minutes_ago)).isoformat())
+
+    def test_only_enabled_and_due_configurations_become_keys(self) -> None:
+        self._configuration(minutes_ago=1, name="due")
+        self._configuration(minutes_ago=-1, name="not yet due")
+        self._configuration(minutes_ago=1, enabled=False, name="disabled")
+
+        discovered = demand.discover_demand(self.tick.isoformat())
+
+        assert discovered.batch_keys_by_source == {SourceKind.LOGS: [self._key(1)]}
+
+    def test_configurations_due_in_one_minute_share_one_key(self) -> None:
+        self._configuration(minutes_ago=1, name="first")
+        self._configuration(minutes_ago=1, name="second")
+        self._configuration(minutes_ago=2, name="older")
+
+        discovered = demand.discover_demand(self.tick.isoformat())
+
+        # Two configurations, one key: a key is a team and a minute, not an alert.
+        assert discovered.batch_keys_by_source == {SourceKind.LOGS: [self._key(2), self._key(1)]}
+
+    def test_the_bound_keeps_the_oldest_due_keys_and_counts_the_rest(self) -> None:
+        self._configuration(minutes_ago=1, name="newer")
+        self._configuration(minutes_ago=5, name="oldest")
+
+        bounded = demand.discover_demand(self.tick.isoformat(), limit_per_source=1)
+
+        # Oldest first, so a key the bound leaves out grows more overdue and wins a later tick.
+        assert bounded.batch_keys_by_source == {SourceKind.LOGS: [self._key(5)]}
+        assert bounded.omitted_by_source == {SourceKind.LOGS: 1}
+
+    def test_a_configuration_never_checked_belongs_to_this_tick(self) -> None:
+        self._configuration(minutes_ago=None, name="never checked")
+
+        discovered = demand.discover_demand(self.tick.isoformat())
+
+        assert discovered.batch_keys_by_source == {SourceKind.LOGS: [self._key(0)]}
+
+    @parameterized.expand([("invalid",), ("2026-09-16T10:00:00",)])
+    def test_discovery_rejects_invalid_cutoff(self, cutoff: str) -> None:
+        with pytest.raises(ValueError):
+            demand.discover_demand(cutoff)
+
+    async def test_discovery_runs_off_the_event_loop(self) -> None:
+        # The activity is async and discovery reads Postgres, so calling it inline raises
+        # SynchronousOnlyOperation and takes the whole tick down. No mock catches that.
+        result = await alerts_product_discover_demand_activity(DemandDiscoveryInputs(cutoff=self.tick.isoformat()))
+
+        assert result.batch_keys_by_source == {}
+
+    def test_discovery_rejects_a_limit_below_one(self) -> None:
+        with pytest.raises(ValueError):
+            demand.discover_demand(self.tick.isoformat(), limit_per_source=0)
+
+
+@pytest.mark.parametrize("scheduled", [False, True])
+async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) -> None:
+    tick_time = dt.datetime(2026, 9, 16, 10, tzinfo=dt.UTC)
+    actual_start = tick_time + dt.timedelta(seconds=20)
+    attributes = TypedSearchAttributes(
+        [SearchAttributePair(SearchAttributeKey.for_datetime("TemporalScheduledStartTime"), tick_time)]
+        if scheduled
+        else []
+    )
+    info = MagicMock(
+        workflow_start_time=actual_start,
+        typed_search_attributes=attributes,
+        workflow_id="tick",
+        run_id="run",
+        execution_timeout=None,
+    )
+    with (
+        patch.object(workflow, "info", return_value=info),
+        patch.object(workflow, "now", return_value=actual_start),
+        patch.object(
+            workflow, "execute_activity", AsyncMock(return_value=AlertDemand(batch_keys_by_source={}))
+        ) as discover,
+        patch.object(workflow, "start_child_workflow", AsyncMock()) as dispatch,
+    ):
+        result = await AlertsProductOrchestrateWorkflow().run(OrchestrateInputs())
+    assert discover.await_args is not None
+    assert discover.await_args.args[1] == DemandDiscoveryInputs(
+        cutoff=(tick_time if scheduled else actual_start).isoformat()
+    )
+    dispatch.assert_not_awaited()
+    assert result == OrchestrateResult(pages=[], remaining=0, deadline_reached=False)
+
+
+def test_the_dispatcher_is_registered_on_the_fleet_the_tick_starts_it_on() -> None:
+    from posthog.management.commands.start_temporal_worker import WORKFLOWS_DICT
+
+    from products.alerts.backend.temporal.workflows import AlertsProductSourceDispatchWorkflow
+
+    # The tick awaits its dispatchers. One registered on a fleet the tick does not dispatch to
+    # leaves every page queued until it times out, and fails the tick with it.
+    registered = WORKFLOWS_DICT[settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE]
+    assert AlertsProductSourceDispatchWorkflow in registered
+
+
+def test_every_source_evaluation_binding_names_a_registered_workflow() -> None:
+    import temporalio.workflow
+
+    from posthog.management.commands.start_temporal_worker import WORKFLOWS_DICT
+
+    from products.alerts.backend.temporal.sources import SOURCE_EVALUATION_WORKFLOWS
+
+    definitions = (
+        temporalio.workflow._Definition.from_class(registered_workflow)
+        for registered_workflow in WORKFLOWS_DICT[settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE]
+    )
+    registered = {definition.name for definition in definitions if definition is not None}
+    # A binding naming a workflow no evaluation worker registers leaves every dispatch for
+    # that source queued until it times out.
+    assert set(SOURCE_EVALUATION_WORKFLOWS.values()) <= registered

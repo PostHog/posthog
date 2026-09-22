@@ -1,11 +1,9 @@
 //! Versions this pod put on the wire but never heard the outcome of.
 //!
 //! A changelog record can become durable without the write that produced
-//! it learning so. A request cancelled while its send is in flight leaves
-//! the record to ride its window's commit; a request cancelled while
-//! waiting on that commit has already been counted, and the commit lands
-//! with nobody to tell; and a commit whose outcome stays unknown is, by
-//! construction, a record that may or may not exist.
+//! it learning so: a commit whose outcome stays unknown is, by
+//! construction, a record that may or may not exist, and a commit task
+//! that unwinds or is torn down at shutdown never hears its outcome.
 //!
 //! In each case the version is spent. The cache still holds the version
 //! before the write, so the next write for that person derives the same

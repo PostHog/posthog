@@ -30,7 +30,6 @@ from posthog.models import Team, User
 
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig, get_cuped_config
-from products.experiments.stats.bayesian.enums import PriorType
 from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
 from products.experiments.stats.frequentist.method import (
     DEFAULT_SEQUENTIAL_TUNING_PARAMETER,
@@ -626,7 +625,6 @@ def get_bayesian_experiment_result(
         difference_type=_parse_enum_config(
             bayesian_config.get("difference_type", "RELATIVE"), DifferenceType, DifferenceType.RELATIVE
         ),
-        prior_type=_parse_enum_config(bayesian_config.get("prior_type", "RELATIVE"), PriorType, PriorType.RELATIVE),
     )
     method = BayesianMethod(config)
 

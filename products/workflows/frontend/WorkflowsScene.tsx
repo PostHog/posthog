@@ -139,7 +139,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
-    const { showNewWorkflowModal } = useActions(newWorkflowLogic)
+    const { startNewWorkflow } = useActions(newWorkflowLogic)
     const newChannelRestrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -269,7 +269,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                             product_type: ProductKey.WORKFLOWS,
                                             intent_context: ProductIntentContext.WORKFLOW_CREATED,
                                         })
-                                        showNewWorkflowModal()
+                                        startNewWorkflow()
                                     }}
                                     type="primary"
                                     size="small"

@@ -965,8 +965,8 @@ export const FeatureFlagsDisableCreateParams = () => zod.object({
  *
  * Sets `active` to true and changes nothing else. Targeting, variants, payloads, tags and
  * archived state are left as they are. An archived flag is refused: unarchive it first. A
- * flag whose own flag dependencies are disabled is also refused. An already-enabled flag
- * is returned unchanged.
+ * flag whose own flag dependencies are disabled or use an unsupported configuration
+ * format is also refused. An already-enabled flag is returned unchanged.
  */
 export const FeatureFlagsEnableCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
@@ -1186,7 +1186,7 @@ export const FeatureFlagsBulkUpdateTagsCreateBody = () => zod.object({
     tags: zod
         .array(zod.string().max(featureFlagsBulkUpdateTagsCreateBodyTagsItemMax))
         .max(featureFlagsBulkUpdateTagsCreateBodyTagsMax)
-        .describe('Tag names to add, remove, or set.'),
+        .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
 })
 
 /**

@@ -154,29 +154,20 @@ DISABLE_HIVE_PARTITIONING_SETTINGS: dict[str, int] = {"use_hive_partitioning": 0
 # drift is normal there and unreachable for JSON.
 STRUCTURE_KEEPS_TUPLE_ELEMENT_NAMES: frozenset[str] = frozenset({DataWarehouseTableFormat.JSON})
 
-# ClickHouse infers a schema from a bounded sample of the files, by default as little as the first
-# one. Each nested JSON object becomes a named Tuple of exactly the keys that sample held, and
-# `hogql_definition` pins that Tuple as the `structure` of every read, so a key the sample missed is
-# unreadable at query time and not merely absent from the catalog. The `union` mode reads the head of
-# every file and merges the result, which recovers the keys that only later files carry. ClickHouse
-# rejects the mode for a format that cannot read a subset of its columns, which rules out headerless
-# CSV but not CSVWithNames.
-UNION_SCHEMA_INFERENCE_FORMATS: frozenset[str] = frozenset(
-    {DataWarehouseTableFormat.JSON, DataWarehouseTableFormat.CSVWithNames}
-)
 
-# `union` adds a read per file, and introspection runs inside the POST that creates or refreshes a
-# table, so an unbounded read outlives the gateway and returns a 504 that records nothing anywhere.
-DESCRIBE_MAX_EXECUTION_TIME_SECONDS = 30
-DESCRIBE_RETRY_BUDGET_SECONDS = 90
-
-
+# Introspection keeps ClickHouse's default schema inference, which samples as little as the first
+# file and therefore misses a nested key that only later files carry. The `union` mode finds those
+# keys, but it reads the head of every object the pattern matches, and introspection runs inside the
+# POST that creates or refreshes a table. A table whose pattern spans many objects cannot finish that
+# in the time a request has, so the mode belongs on a path that is not a request. Until then the
+# narrow sample stays, and a column the sample missed is reachable by retyping it to String and
+# reading it with JSONExtract.
 def chdb_set_statements(describe_settings: dict[str, str | int]) -> str:
     """Render settings as SET statements to prefix a chdb query with.
 
-    chdb does not honour the CSV double-quote setting in any other form. The upstream fix
-    (https://github.com/chdb-io/chdb/pull/374) is merged but is not in the pinned 3.3.0, so these
-    SET statements stay until chdb is upgraded past that release.
+    `chdb.query` takes only SQL text, so query-level settings such as the CSV double-quote
+    flag can only travel inside the statement; a SET prefix applies them to every statement
+    that follows without splicing a SETTINGS clause into each one.
     """
     return "".join(
         f"SET {name} = {escape_param_clickhouse(value) if isinstance(value, str) else int(value)}; "
@@ -548,11 +539,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         # column count. ClickHouse reads the same files fine; only chdb refuses the mixed set.
         "reading from files with different schema is not possible",
     )
+    # chdb 4 links delta-kernel only in its Linux wheels, so macOS dev boxes have no deltaLake().
+    # On Linux the same error means the engine lost Delta support and has to reach error tracking.
+    _MACOS_ONLY_SUPPRESSED_CHDB_ERROR_SUBSTRING = "unknown table function deltalake"
 
     def _is_suppressed_chdb_error(self, err: Exception) -> bool:
         if not isinstance(err, RuntimeError):
             return False
         message = str(err).lower()
+        if sys.platform == "darwin" and self._MACOS_ONLY_SUPPRESSED_CHDB_ERROR_SUBSTRING in message:
+            return True
         return any(substring in message for substring in self._SUPPRESSED_CHDB_ERROR_SUBSTRINGS)
 
     def set_columns(self, columns: dict[str, Any]) -> None:
@@ -569,9 +565,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         settings: dict[str, str | int] = {**DISABLE_HIVE_PARTITIONING_SETTINGS}
         if self._is_csv_format() and self.csv_allow_double_quotes is not None:
             settings["format_csv_allow_double_quotes"] = 1 if self.csv_allow_double_quotes else 0
-        if self.format in UNION_SCHEMA_INFERENCE_FORMATS:
-            settings["schema_inference_mode"] = "union"
-            settings["max_execution_time"] = DESCRIBE_MAX_EXECUTION_TIME_SECONDS
         return settings
 
     def get_columns(
@@ -622,11 +615,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             # The cluster is a little broken right now, and so this can intermittently fail.
             # See https://posthog.slack.com/archives/C076R4753Q8/p1756901693184169 for context
             attempts = 5
-            # Only a bounded DESCRIBE gets a retry deadline, so the widened pass stays inside the
-            # budget of the request that runs it and every other format keeps its retry behavior.
-            retry_deadline = (
-                time.monotonic() + DESCRIBE_RETRY_BUDGET_SECONDS if "max_execution_time" in describe_settings else None
-            )
             for i in range(attempts):
                 try:
                     result = sync_execute(
@@ -636,7 +624,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                     )
                     break
                 except Exception as err:
-                    if i >= attempts - 1 or (retry_deadline is not None and time.monotonic() >= retry_deadline):
+                    if i >= attempts - 1:
                         capture_exception(err)
                         if safe_expose_ch_error:
                             self._safe_expose_ch_error(err)
@@ -1107,10 +1095,44 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         }
     )
 
+    # Code 636 also comes back when the path matches no file, or every file is empty, which no
+    # quote setting can fix. `_safe_expose_ch_error` already carries the copy for both.
+    _CSV_NO_DATA_ERRORS = ("there are no files with provided path", "file is empty")
+
+    def _csv_parses_with_double_quotes(self, allow_double_quotes: bool) -> bool:
+        """Read a few rows under one quote setting. False when the rows don't parse; any other
+        failure (credentials, a missing file) is raised for the caller to surface as-is."""
+        ctx = HogQLContext(team_id=self.team.pk)
+        func = build_function_call(
+            url=self.url_pattern,
+            queryable_folder=self.queryable_folder,
+            format=self.format,
+            access_key=self.credential.access_key if self.credential else None,
+            access_secret=self.credential.access_secret if self.credential else None,
+            context=ctx,
+            table_size_mib=0,
+        )
+        try:
+            sync_execute(
+                f"SELECT 1 FROM {func} LIMIT 100",
+                args=ctx.values,
+                settings={
+                    **DISABLE_HIVE_PARTITIONING_SETTINGS,
+                    "format_csv_allow_double_quotes": 1 if allow_double_quotes else 0,
+                },
+            )
+        except ClickHouseServerException as e:
+            if any(needle in e.message for needle in self._CSV_NO_DATA_ERRORS):
+                self._safe_expose_ch_error(e)
+            if e.code in self._CSV_PARSE_ERROR_CODES:
+                return False
+            raise
+        return True
+
     def _validate_csv_double_quotes_setting(self) -> None:
         """Validate the user-chosen csv_allow_double_quotes setting by trying to parse data rows.
         Raises Exception with a helpful message if parsing fails."""
-        setting = self.csv_allow_double_quotes
+        setting = bool(self.csv_allow_double_quotes)
         tag_queries(
             team_id=self.team.pk,
             table_id=self.id,
@@ -1119,29 +1141,21 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             product=Product.WAREHOUSE,
             feature=Feature.QUERY,
         )
-        try:
-            ctx = HogQLContext(team_id=self.team.pk)
-            func = build_function_call(
-                url=self.url_pattern,
-                queryable_folder=self.queryable_folder,
-                format=self.format,
-                access_key=self.credential.access_key if self.credential else None,
-                access_secret=self.credential.access_secret if self.credential else None,
-                context=ctx,
-                table_size_mib=0,
+        if self._csv_parses_with_double_quotes(setting):
+            return
+
+        # Naming the other setting is only useful when it actually parses the file. When neither
+        # does, the same advice sends the user toggling between two failing options.
+        if self._csv_parses_with_double_quotes(not setting):
+            other_label = "Literal quotes" if setting else "RFC 4180 double quotes"
+            raise Exception(
+                "Your CSV didn't parse with the quote setting you picked. "
+                f"Set CSV quote handling to '{other_label}', then save again."
             )
-            sync_execute(
-                f"SELECT 1 FROM {func} LIMIT 100",
-                args=ctx.values,
-                settings={**DISABLE_HIVE_PARTITIONING_SETTINGS, "format_csv_allow_double_quotes": 1 if setting else 0},
-            )
-        except ClickHouseServerException as e:
-            if e.code in self._CSV_PARSE_ERROR_CODES:
-                other_label = "Literal quotes" if setting else "RFC 4180 double quotes"
-                raise Exception(
-                    f"CSV parsing failed with the selected quote setting. Try selecting '{other_label}' instead."
-                )
-            raise
+        raise Exception(
+            "Your CSV didn't parse with either quote setting. Check that the file is comma-separated "
+            "and that every row has the same number of values."
+        )
 
     def _safe_expose_ch_error(self, err):
         # Match ExtractErrors against the raw ClickHouse message: wrap_clickhouse_query_error may

@@ -16,14 +16,16 @@ from posthog.models.comment import Comment
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.signals import secret_api_token_rotated
 
+from .ai.human_outcome import maybe_record_human_outcome
 from .cache import invalidate_identity_tickets_cache, invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_private_message_sent, capture_ticket_created
-from .models import EmailOutboxMessage, SigningSecret, Ticket
+from .models import ConversationDeliveryPart, EmailOutboxMessage, SigningSecret, Ticket
 from .models.constants import Channel
+from .services.delivery import enqueue_slack_body_delivery
 from .services.messages import visible_ticket_messages
 from .tasks.email import send_email_reply
 from .tasks.github import post_reply_to_github
-from .tasks.slack import post_reply_to_slack
+from .tasks.slack import wake_delivery_part
 from .tasks.teams import post_reply_to_teams, post_reply_to_teams_via_graph
 from .teams import parse_teams_root_message_id, resolve_shared_channel_team_id
 
@@ -63,6 +65,19 @@ def _is_outbound_reply(item_context: dict | None, created_by_id: int | None) -> 
 AI_BOT_DISPLAY_NAME = "AI assistant"
 
 
+def _clear_awaiting_clarification(*, team_id: int, ticket_id: str) -> None:
+    # Lock so a follow-up persist cannot read awaiting and post after a human took the ticket.
+    with transaction.atomic():
+        ticket = Ticket.objects.select_for_update().filter(id=ticket_id, team_id=team_id).first()
+        if ticket is None:
+            return
+        triage = ticket.ai_triage if isinstance(ticket.ai_triage, dict) else None
+        if not triage or triage.get("status") != "awaiting_clarification":
+            return
+        ticket.ai_triage = {**triage, "status": "done"}
+        ticket.save(update_fields=["ai_triage", "updated_at"])
+
+
 @receiver(post_save, sender=Ticket)
 def emit_ticket_created_event(sender, instance: Ticket, created: bool, **kwargs):
     """
@@ -71,7 +86,7 @@ def emit_ticket_created_event(sender, instance: Ticket, created: bool, **kwargs)
     being emitted uniformly for all sources.
 
     Deferred via `transaction.on_commit` so we don't emit phantom events for tickets
-    rolled back by the email duplicate-race `IntegrityError` in `email_events.py` (or
+    rolled back by the email duplicate-race `IntegrityError` in `mailgun_events.py` (or
     any future caller that wraps creation in `transaction.atomic`).
 
     Note: `Ticket.objects.bulk_create` does NOT trigger this signal. All current callers
@@ -135,6 +150,8 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
             if not (created_by_id and author_type != "customer"):
                 return
             try:
+                if author_type != "AI":
+                    _clear_awaiting_clarification(team_id=team_id, ticket_id=item_id)
                 ticket = Ticket.objects.select_related("team").get(id=item_id, team_id=team_id)
                 author = User.objects.filter(id=created_by_id).first()
                 capture_private_message_sent(ticket, comment_id, author=author)
@@ -169,6 +186,19 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
             if ticket.widget_session_id:
                 invalidate_tickets_cache(team_id, ticket.widget_session_id)
             invalidate_messages_cache(team_id, item_id)
+
+            if is_team_message and created_by_id:
+                try:
+                    if author_type != "AI":
+                        _clear_awaiting_clarification(team_id=team_id, ticket_id=item_id)
+                    maybe_record_human_outcome(
+                        team_id=team_id,
+                        ticket_id=item_id,
+                        comment_id=comment_id,
+                        human_content=content or "",
+                    )
+                except Exception as e:
+                    capture_exception(e, {"ticket_id": item_id})
 
             # Customer-facing analytics (to customer's project)
             if is_team_message:
@@ -287,8 +317,8 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
 @receiver(post_save, sender=Comment)
 def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, **kwargs):
     """
-    When a team member or AI bot replies to a Slack-sourced ticket, post the reply
-    back to the Slack thread via a Celery task.
+    When a team member or AI bot replies to a Slack-sourced ticket, persist a
+    durable delivery row with the comment, then wake a Celery task.
 
     Only triggers for:
     - Newly created comments (not edits)
@@ -311,51 +341,20 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
     if isinstance(item_context, dict) and item_context.get("from_slack"):
         return
 
-    # Capture values for the deferred callback
-    team_id = instance.team_id
+    part = enqueue_slack_body_delivery(instance)
+    if part is None or part.status in ConversationDeliveryPart.TERMINAL_STATUSES:
+        return
+
+    part_id = str(part.id)
     item_id = instance.item_id
-    content = instance.content or ""
-    rich_content = instance.rich_content
-    created_by = instance.created_by
 
-    def do_post_to_slack():
+    def do_wake_slack_delivery():
         try:
-            ticket = Ticket.objects.filter(
-                id=item_id,
-                team_id=team_id,
-                channel_source=Channel.SLACK,
-            ).first()
-
-            if not ticket or not ticket.slack_channel_id or not ticket.slack_thread_ts:
-                return
-
-            team = ticket.team
-            settings_dict = team.conversations_settings or {}
-            if not settings_dict.get("slack_enabled"):
-                return
-
-            author_name = ""
-            author_email = ""
-            if created_by:
-                author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
-                author_email = created_by.email
-            else:
-                author_name = settings_dict.get("slack_bot_display_name") or AI_BOT_DISPLAY_NAME
-
-            cast(Any, post_reply_to_slack).delay(
-                ticket_id=str(ticket.id),
-                team_id=team_id,
-                content=content,
-                rich_content=rich_content,
-                author_name=author_name,
-                author_email=author_email,
-                slack_channel_id=ticket.slack_channel_id,
-                slack_thread_ts=ticket.slack_thread_ts,
-            )
+            wake_delivery_part(ConversationDeliveryPart(id=part_id))
         except Exception:
             logger.exception("slack_reply_signal_failed", item_id=item_id)
 
-    transaction.on_commit(do_post_to_slack)
+    transaction.on_commit(do_wake_slack_delivery)
 
 
 @receiver(post_save, sender=Comment)

@@ -124,7 +124,7 @@ describe("ReportTriageFocus dismiss", () => {
     );
 
     await user.keyboard("a");
-    await screen.findByPlaceholderText("Optional: add detail");
+    await screen.findByLabelText("Details (optional)");
     await user.click(
       screen.getByRole("radio", { name: /Agent's analysis is wrong/ }),
     );
@@ -132,11 +132,31 @@ describe("ReportTriageFocus dismiss", () => {
 
     await waitFor(() => expect(mocks.updateState).toHaveBeenCalled());
     expect(
-      screen.queryByPlaceholderText("Optional: add detail"),
+      screen.queryByLabelText("Details (optional)"),
     ).not.toBeInTheDocument();
 
     await act(async () => {
       settle({ ...reports[0], status: "suppressed" });
     });
+  });
+  it("keeps the selected report when work returns and advances when it leaves", async () => {
+    const first = reports[0];
+    const second = { ...first, id: "report-2", title: "Second report" };
+    const third = { ...first, id: "report-3", title: "Third report" };
+    const props = {
+      allReports: [first, second, third],
+      scope: INBOX_SCOPE_ENTIRE_PROJECT,
+      hasActiveFilters: false,
+      onExit: vi.fn(),
+    };
+    const { rerender } = render(
+      <ReportTriageFocus {...props} reports={[second, third]} />,
+      { wrapper: createWrapper() },
+    );
+    expect(screen.getByText("Second report")).toBeInTheDocument();
+    rerender(<ReportTriageFocus {...props} reports={[first, second, third]} />);
+    expect(screen.getByText("Second report")).toBeInTheDocument();
+    rerender(<ReportTriageFocus {...props} reports={[first, third]} />);
+    expect(screen.getByText("Third report")).toBeInTheDocument();
   });
 });

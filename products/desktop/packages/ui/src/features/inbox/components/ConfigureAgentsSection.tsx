@@ -350,6 +350,7 @@ function SetupTaskSection() {
       });
       if (result.success) {
         track(ANALYTICS_EVENTS.TASK_CREATED, {
+          task_id: result.data.task.id,
           auto_run: true,
           created_from: "command-menu",
           repository_provider: "github",

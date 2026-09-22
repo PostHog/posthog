@@ -25,6 +25,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb, TeamType } from '~/types'
 
 import { conversationsViewsRetrieve } from '../../generated/api'
+import type { AiTriageResultEnumApi } from '../../generated/api.schemas'
 import { normalizeAssigneeFilter } from '../../types'
 import type {
     AITriageFilterValue,
@@ -270,7 +271,7 @@ export interface supportTicketsSceneLogicActions {
         view: SavedTicketView | null
     }
     setAiTriageResultFilter: (results: AITriageFilterValue[]) => {
-        results: AITriageFilterValue[]
+        results: AiTriageResultEnumApi[]
     }
     setAssigneeFilter: (assignees: AssigneeFilterEntry[]) => {
         assignees: AssigneeFilterEntry[]
@@ -351,7 +352,7 @@ export interface supportTicketsSceneLogicMeta {
             priorityFilter: TicketPriority[],
             channelFilter: TicketChannel | 'all',
             slaFilter: TicketSlaState | 'all',
-            aiTriageResultFilter: AITriageFilterValue[],
+            aiTriageResultFilter: AiTriageResultEnumApi[],
             assigneeFilterEntries: AssigneeFilterEntry[],
             tagsFilter: string[],
             tagsExcludeFilter: string[],
@@ -363,7 +364,7 @@ export interface supportTicketsSceneLogicMeta {
             priorityFilter: TicketPriority[],
             channelFilter: TicketChannel | 'all',
             slaFilter: TicketSlaState | 'all',
-            aiTriageResultFilter: AITriageFilterValue[],
+            aiTriageResultFilter: AiTriageResultEnumApi[],
             assigneeFilterEntries: AssigneeFilterEntry[],
             tagsFilter: string[],
             tagsMatch: TicketTagsMatch,

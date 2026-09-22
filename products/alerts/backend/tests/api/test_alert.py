@@ -1060,6 +1060,29 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert expected_error_fragment in response.json()["detail"].lower()
 
+    def test_create_alert_rejects_an_insight_the_query_runner_cannot_run(self) -> None:
+        seriesless_insight_data = deepcopy(self.default_insight_data)
+        seriesless_insight_data["query"]["series"] = []
+        seriesless_insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights", data=seriesless_insight_data
+        ).json()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": seriesless_insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "name": "alert name",
+                "calculation_interval": "daily",
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "require at least one series" in response.json()["detail"]
+
     @parameterized.expand(
         [
             (
@@ -1274,17 +1297,13 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("real_time", "real_time"),
-            ("every_15_minutes", "every_15_minutes"),
-            ("hourly", "hourly"),
-            ("daily", "daily"),
-            ("weekly", "weekly"),
-            ("monthly", "monthly"),
+            ("every_15_minutes", "every_15_minutes", "2026-03-18T09:05:00+00:00"),
+            ("hourly", "hourly", "2026-03-18T09:35:00+00:00"),
         ]
     )
     @time_machine.travel("2026-03-18T09:00:00Z", tick=False)
-    def test_patch_schedule_start_time_keeps_the_current_next_check(
-        self, _name: str, calculation_interval: str
+    def test_patch_schedule_start_time_recalculates_the_next_check(
+        self, _name: str, calculation_interval: str, expected_next_check_at: str
     ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.HIGH_FREQUENCY_ALERTS, "name": "High-frequency alerts"},
@@ -1316,10 +1335,12 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["schedule_start_time"] == "08:35"
-        assert datetime.fromisoformat(response.json()["next_check_at"].replace("Z", "+00:00")) == scheduled_check
+        assert datetime.fromisoformat(
+            response.json()["next_check_at"].replace("Z", "+00:00")
+        ) == datetime.fromisoformat(expected_next_check_at)
 
     @time_machine.travel("2026-03-18T09:00:00Z", tick=False)
-    def test_patch_schedule_start_time_with_schedule_restriction_keeps_the_current_next_check(self) -> None:
+    def test_patch_schedule_start_time_with_schedule_restriction_recalculates_the_next_check(self) -> None:
         alert = self.client.post(
             f"/api/projects/{self.team.id}/alerts",
             {
@@ -1347,7 +1368,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         )
 
         assert response.status_code == status.HTTP_200_OK, response.content
-        assert datetime.fromisoformat(response.json()["next_check_at"].replace("Z", "+00:00")) == scheduled_check
+        assert datetime.fromisoformat(response.json()["next_check_at"].replace("Z", "+00:00")) == datetime(
+            2026, 3, 18, 9, 35, tzinfo=UTC
+        )
 
     def test_create_alert_with_schedule_restriction(self) -> None:
         creation_request = {
