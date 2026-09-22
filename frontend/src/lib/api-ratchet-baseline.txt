@@ -175,6 +175,8 @@ integrationTwilioPhoneNumbers projects/{}/integrations/{}/twilio_phone_numbers
 integrations projects/{}/integrations
 integrationsDomainConnectApplyUrl projects/{}/integrations/domain-connect/apply-url
 integrationsDomainConnectCheck projects/{}/integrations/domain-connect/check
+link projects/{}/links/{}
+links projects/{}/links
 logsExplainWithAI projects/{}/logs/explainLogWithAI
 logsExport projects/{}/logs/export
 logsHasLogs projects/{}/logs/has_logs

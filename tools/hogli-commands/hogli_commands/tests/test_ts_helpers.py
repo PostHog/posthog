@@ -25,6 +25,14 @@ export class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('signals').addPathComponent(ruleType)
     }
 
+    public signalRule(ruleType: string, id: string): ApiRequest {
+        return this.signalRules(ruleType).addPathComponent(id)
+    }
+
+    public signalReorderRules(ruleType: string): ApiRequest {
+        return this.signalRules(ruleType).addPathComponent('reorder')
+    }
+
     public signalScoutRuns(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('signals').addPathComponent('scout').addPathComponent('runs')
     }
@@ -44,6 +52,12 @@ const api = {
         },
         async createRule(ruleType: string, data: any): Promise<any> {
             return await new ApiRequest().signalRules(ruleType).create({ data })
+        },
+        async updateRule(ruleType: string, id: string, data: any): Promise<any> {
+            return await new ApiRequest().signalRule(ruleType, id).update({ data })
+        },
+        async reorderRules(ruleType: string, orders: any): Promise<any> {
+            return await new ApiRequest().signalReorderRules(ruleType).update({ data: { orders } })
         },
         async availableReviewers(): Promise<any> {
             return await new ApiRequest().signalReports().withAction('available_reviewers').get()
@@ -89,6 +103,18 @@ export const signalsGroupingRulesCreate = async (projectId: string) => {
 export const getSignalsGroupingRulesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/grouping_rules/`
 }
+export const signalsAssignmentRulesPartialUpdate = async (projectId: string, id: string) => {
+    return apiMutator({ url: getSignalsAssignmentRulesPartialUpdateUrl(projectId, id), method: 'PATCH' })
+}
+export const getSignalsAssignmentRulesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/assignment_rules/${id}/`
+}
+export const signalsAssignmentRulesReorderPartialUpdate = async (projectId: string) => {
+    return apiMutator({ url: getSignalsAssignmentRulesReorderPartialUpdateUrl(projectId), method: 'PATCH' })
+}
+export const getSignalsAssignmentRulesReorderPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/assignment_rules/reorder/`
+}
 export const getSignalsScoutRunsListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/scout/runs/`
 }
@@ -118,6 +144,7 @@ export const load = async (): Promise<void> => {
         .setState(id, { state: 'resolved' })
     await api.signalReports.createRule(SignalRuleType.Grouping, rule)
     await api.signalReports.createRule(ruleTypeFromProps, rule)
+    await api.signalReports.updateRule(SignalRuleType.Assignment, id, rule)
     await api.comments.list()
     await api.get(`api/projects/${projectId}/signals/config/`)
 }
@@ -151,13 +178,21 @@ class TestParameterisedRoutes:
         assert "signalsAssignmentRulesCreate" in ambiguous
         assert "signalsGroupingRulesCreate" in ambiguous
 
+    # An id hole and a rule-type hole both read as `{p}` in the mask. A static action
+    # route sharing the id's position (`.../reorder/`) is a different operation, not
+    # this one with an id, so it must not survive as a second candidate.
+    def test_a_static_action_route_does_not_match_the_id_hole(self, repo: Path) -> None:
+        sites = codegen_call_sites(repo / "products/signals/frontend")
+        update = next(site for site in sites if site.verb == "signalReports.updateRule")
+        assert update.generated_equivalent == "signalsAssignmentRulesPartialUpdate"
+
 
 class TestManualApiCalls:
     # Guards the blind spot: an owned namespace used to score as zero manual calls.
     def test_counts_owned_namespaces_and_skips_foreign_ones(self, repo: Path) -> None:
-        # six api.signalReports calls, one of them broken across lines, one nested
+        # seven api.signalReports calls, one of them broken across lines, one nested
         # api.signalScout.runs.list, one api.get; api.comments belongs to platform_features
-        assert count_manual_api_calls(repo / "products/signals/frontend") == 8
+        assert count_manual_api_calls(repo / "products/signals/frontend") == 9
 
     def test_call_sites_mark_a_namespaced_call_as_covered(self, repo: Path) -> None:
         sites = codegen_call_sites(repo / "products/signals/frontend")
@@ -169,6 +204,7 @@ class TestManualApiCalls:
             "signalReports.list",
             "signalReports.setState",
             "signalReports.setState",
+            "signalReports.updateRule",
             # A nested chain counts once, with its full member path.
             "signalScout.runs.list",
         ]

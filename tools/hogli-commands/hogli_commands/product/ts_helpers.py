@@ -197,9 +197,10 @@ def _candidate_functions(request: NamespaceMember, generated_map: dict[tuple[str
     A member that takes a path segment from its caller
     (api.errorTracking.createRule(ErrorTrackingRuleType.Bypass, ...)) builds a mask
     rather than one route, and the client generates a function per concrete segment.
+    `_narrow_by_arguments` picks between the survivors using the call's own tokens.
     """
     mask = _generated_key(request).split("/")
-    matches: dict[str, str] = {}
+    fitting: dict[str, list[str]] = {}
     for (url, method), name in generated_map.items():
         if method != request.method:
             continue
@@ -207,8 +208,16 @@ def _candidate_functions(request: NamespaceMember, generated_map: dict[tuple[str
         if len(segments) != len(mask):
             continue
         if all(want in {have, "{p}"} for want, have in zip(mask, segments)):
-            matches[name] = url
-    return sorted(matches)
+            fitting[name] = segments
+    if not fitting:
+        return []
+    # A mask hole can be a real id or a resource-type selector - the mask alone can't
+    # say which. But when some candidate does vary by id in that spot, a literal
+    # action route sharing the spot (`.../reorder/`) is a different operation, not
+    # this one with an id, so it drops out rather than passing as an ambiguous match.
+    if mask[-1] == "{p}" and any(segments[-1] == "{p}" for segments in fitting.values()):
+        fitting = {name: segments for name, segments in fitting.items() if segments[-1] == "{p}"}
+    return sorted(fitting)
 
 
 def _narrow_by_arguments(candidates: list[str], arguments: str) -> list[str]:
@@ -326,6 +335,9 @@ def codegen_call_sites(frontend_dir: Path) -> list[ManualCallSite]:
     generated_map = _parse_generated_url_map(api_ts)
     generated_dir = frontend_dir / "generated"
     namespaced = owned_namespace_pattern(frontend_dir)
+    # Built once for the whole report: it parses all of lib/api.ts, and a product with
+    # many files importing it would otherwise repeat that parse once per file.
+    members = namespace_members() if namespaced is not None else {}
 
     sites: list[ManualCallSite] = []
 
@@ -370,7 +382,6 @@ def codegen_call_sites(frontend_dir: Path) -> list[ManualCallSite]:
 
         if namespaced is None:
             continue
-        members = namespace_members()
         for m in namespaced.finditer(content):
             namespace = m.group(1)
             member = re.sub(r"\s+", "", m.group(2)).lstrip(".")

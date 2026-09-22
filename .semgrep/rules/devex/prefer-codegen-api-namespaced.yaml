@@ -745,12 +745,8 @@ rules:
       severity: WARNING
       languages: [typescript, javascript]
       pattern-either:
-          - pattern: api.fileSystem.$METHOD(...)
-          - pattern: api.fileSystem.$MEMBER.$METHOD(...)
-          - pattern: api.integrations.$METHOD(...)
-          - pattern: api.integrations.$MEMBER.$METHOD(...)
-          - pattern: api.messaging.$METHOD(...)
-          - pattern: api.messaging.$MEMBER.$METHOD(...)
+          - pattern: api.links.$METHOD(...)
+          - pattern: api.links.$MEMBER.$METHOD(...)
       paths:
           include:
               - '/products/links/frontend/'
