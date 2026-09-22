@@ -1,11 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
+import { LemonInput, Spinner } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 
-import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { ProjectTree } from '../../ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
@@ -19,7 +17,6 @@ export function NavTabApps(): JSX.Element {
     const { fullFileSystemFiltered: starredApps } = useValues(
         projectTreeLogic({ key: APPS_STARRED_TREE_KEY, root: 'shortcuts://', shortcutScope: 'apps' })
     )
-    const { setActivePanelIdentifier, showLayoutPanel } = useActions(panelLayoutLogic)
 
     return (
         <div className="flex flex-col h-full min-h-0 group/colorful-product-icons colorful-product-icons-true">
@@ -42,19 +39,8 @@ export function NavTabApps(): JSX.Element {
                 innerClassName="px-1 pb-2"
                 styledScrollbars
             >
-                <div className="flex items-center justify-between px-2 pt-1">
+                <div className="px-2 pt-1 pb-1">
                     <span className="text-xs font-semibold text-secondary">Starred</span>
-                    <LemonButton
-                        size="xsmall"
-                        icon={<IconEllipsis />}
-                        tooltip="Manage starred items"
-                        aria-label="Manage starred items"
-                        data-attr="nav-apps-manage-starred"
-                        onClick={() => {
-                            setActivePanelIdentifier('Shortcuts')
-                            showLayoutPanel(true)
-                        }}
-                    />
                 </div>
                 {!shortcutDataHasLoaded ? (
                     <Spinner className="m-2" />

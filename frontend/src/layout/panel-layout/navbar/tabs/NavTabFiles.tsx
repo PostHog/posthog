@@ -1,7 +1,6 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
-import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { Spinner } from '@posthog/lemon-ui'
 
 import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { ProjectTree } from '../../ProjectTree/ProjectTree'
@@ -15,7 +14,6 @@ export function NavTabFiles(): JSX.Element {
     const { fullFileSystemFiltered: starredFiles } = useValues(
         projectTreeLogic({ key: 'navbar-files-starred', root: 'shortcuts://', shortcutScope: 'files' })
     )
-    const { setActivePanelIdentifier, showLayoutPanel } = useActions(panelLayoutLogic)
     return (
         <div className="flex flex-col h-full min-h-0">
             <div className="flex-1 min-h-0">
@@ -29,19 +27,8 @@ export function NavTabFiles(): JSX.Element {
                     beforeTree={
                         <>
                             <div className="max-h-1/3 overflow-y-auto px-1 pb-2">
-                                <div className="flex items-center justify-between px-2 pt-1">
+                                <div className="px-2 pt-1 pb-1">
                                     <span className="text-xs font-semibold text-secondary">Starred</span>
-                                    <LemonButton
-                                        size="xsmall"
-                                        icon={<IconEllipsis />}
-                                        tooltip="Manage starred items"
-                                        aria-label="Manage starred items"
-                                        data-attr="nav-files-manage-starred"
-                                        onClick={() => {
-                                            setActivePanelIdentifier('Shortcuts')
-                                            showLayoutPanel(true)
-                                        }}
-                                    />
                                 </div>
                                 {!shortcutDataHasLoaded ? (
                                     <Spinner className="m-2" />
