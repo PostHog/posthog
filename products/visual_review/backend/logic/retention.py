@@ -166,17 +166,19 @@ class RetentionSweep:
 
     def _expired_superseded_run_ids(self, limit: int) -> list[UUID]:
         merge_queue = Q(branch__startswith=MERGE_QUEUE_BRANCH_PREFIX)
+        # A PR-branch run's grace starts when its successor arrives, so a run left
+        # alone for days still keeps its window after the next push.
         expired = (
             (_PROTECTED_HISTORY & Q(created_at__lt=self.now - timedelta(days=DEFAULT_BRANCH_RUN_RETENTION_DAYS)))
             | (
                 ~_PROTECTED_HISTORY
                 & ~merge_queue
-                & Q(created_at__lt=self.now - timedelta(days=SUPERSEDED_RUN_RETENTION_DAYS))
+                & Q(superseded_by__created_at__lt=self.now - timedelta(days=SUPERSEDED_RUN_RETENTION_DAYS))
             )
             | (
                 ~_PROTECTED_HISTORY
                 & merge_queue
-                & Q(created_at__lt=self.now - timedelta(days=MERGE_QUEUE_RUN_RETENTION_DAYS))
+                & Q(superseded_by__created_at__lt=self.now - timedelta(days=MERGE_QUEUE_RUN_RETENTION_DAYS))
             )
         )
         return list(

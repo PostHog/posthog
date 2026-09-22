@@ -100,6 +100,15 @@ class TestRetentionSweep:
         assert Run.objects.filter(id=superseded.id).exists() is survives
         assert Run.objects.filter(id=latest.id).exists()
 
+    @pytest.mark.parametrize(("successor_age_days", "survives"), [(2, True), (4, False)])
+    def test_superseded_grace_starts_when_the_successor_arrives(self, successor_age_days, survives, repo, now):
+        latest = self._run(repo, now, age_days=successor_age_days)
+        superseded = self._run(repo, now, age_days=30, superseded_by=latest)
+
+        retention.sweep_repo_runs(repo, now=now)
+
+        assert Run.objects.filter(id=superseded.id).exists() is survives
+
     def test_default_branch_latest_run_survives_any_age(self, repo, now):
         latest = self._run(repo, now, age_days=400, branch="master", pr_number=None)
 
@@ -338,7 +347,7 @@ class TestRetentionSweep:
 
     def test_a_story_index_goes_with_the_last_run_that_names_it(self, repo, now, stub_object_delete):
         released, shared = "a" * 64, "b" * 64
-        latest = self._run(repo, now, age_days=1)
+        latest = self._run(repo, now, age_days=5)
         for story_index_hash, run in (
             (shared, latest),
             (released, self._run(repo, now, age_days=400, superseded_by=latest)),
