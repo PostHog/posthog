@@ -1,7 +1,9 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest import mock
+
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -284,7 +286,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
     def test_get_latest_returns_timeseries_fallback_on_cold_start(self):
         # No real recalc row, but a completed timeseries point exists → 200 with source=timeseries_fallback.
         exp = self._launched_experiment(flag_key="ts-fallback")
-        self._store_timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC))
+        self._store_timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1))
 
         resp = self.client.get(self._latest_url(exp.id))
         assert resp.status_code == status.HTTP_200_OK, resp.content
@@ -299,7 +301,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         # out the timeseries data on screen. The fallback keeps the results visible while active_run rides
         # along so the client still polls the executing run.
         exp = self._launched_experiment(flag_key="ts-fallback-active")
-        self._store_timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC))
+        self._store_timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1))
         active = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="pending")
 
         resp = self.client.get(self._latest_url(exp.id))
@@ -318,7 +320,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
     def test_get_latest_fallback_does_not_start_a_workflow(self, mock_connect):
         # GET stays a pure read: the fallback path must never connect to Temporal.
         exp = self._launched_experiment(flag_key="ts-pure-read")
-        self._store_timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC))
+        self._store_timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1))
 
         resp = self.client.get(self._latest_url(exp.id))
         assert resp.status_code == status.HTTP_200_OK

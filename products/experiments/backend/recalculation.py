@@ -50,6 +50,10 @@ from products.experiments.backend.temporal.recalculation_logic import discover_e
 # happy-path failure handling; this TTL is the defense-in-depth backstop if that rollback itself fails.
 _STALE_RECALC_THRESHOLD = timedelta(minutes=30)
 
+# A daily timeseries point older than this no longer stands in for a recalculation on the cold-start read. The
+# daily run happens once per day, so a fresh experiment always has a point inside the bound.
+TIMESERIES_FALLBACK_MAX_AGE = timedelta(hours=24)
+
 # `is_existing=True` reuse path — counts how often the idempotency guard saves us a workflow start.
 # A sustained climb here without a matching climb in requests is the signal the frontend is double-posting.
 _recalculation_reuse_counter = Counter(
@@ -435,9 +439,10 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
     metrics-recalculation run exists yet. Timeseries rows live in ExperimentMetricResult under the metric's
     CONFIG fingerprint (not a per-run recalc fingerprint), so they're found without any recalc row.
 
-    Returns None when no metric has a completed timeseries point (caller then keeps the 404). query_to and
-    completed_at both pin to the freshest point's date so the frontend's >24h staleness path fires its own
-    recompute trigger (GET never triggers anything itself).
+    Only points younger than TIMESERIES_FALLBACK_MAX_AGE count. The frontend accepts a fallback that covers every
+    metric without starting a run, so an older point must read as a gap or the page would show weeks-old numbers
+    as completed. Returns None when no metric has a fresh completed point (caller then keeps the 404). query_to
+    and completed_at both pin to the freshest point's date. GET never triggers anything itself.
     """
     with team_scope(experiment.team_id, canonical=True):
         metrics = discover_experiment_metrics(experiment)
@@ -463,6 +468,7 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
                     metric_uuid=metric.metric_uuid,
                     fingerprint=config_fp,
                     status=ExperimentMetricResult.Status.COMPLETED,
+                    query_to__gte=timezone.now() - TIMESERIES_FALLBACK_MAX_AGE,
                 )
                 .order_by("-query_to")
                 .first()

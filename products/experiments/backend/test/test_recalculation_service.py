@@ -471,8 +471,8 @@ class TestTimeseriesColdStartPayload(BaseTest):
 
     def test_builds_completed_fallback_from_latest_point(self):
         exp = self._experiment("ts-one", ["m1"])
-        older = datetime(2026, 2, 1, tzinfo=UTC)
-        latest = datetime(2026, 2, 2, tzinfo=UTC)
+        older = timezone.now() - timedelta(hours=3)
+        latest = timezone.now() - timedelta(hours=1)
         self._timeseries_point(exp, "m1", older, {"stale": True})
         self._timeseries_point(exp, "m1", latest, {"ok": True})
 
@@ -490,7 +490,7 @@ class TestTimeseriesColdStartPayload(BaseTest):
 
     def test_omits_metrics_without_a_timeseries_point(self):
         exp = self._experiment("ts-partial", ["m1", "m2"])
-        self._timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC), {"ok": True})
+        self._timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1), {"ok": True})
         # m2 has no point.
 
         payload = build_timeseries_cold_start_payload(exp)
@@ -500,10 +500,18 @@ class TestTimeseriesColdStartPayload(BaseTest):
         uuids = {r["metric_uuid"] for r in payload["results"]}
         assert uuids == {"m1"}
 
+    @parameterized.expand([("fresh_point", timedelta(hours=23), True), ("stale_point", timedelta(hours=25), False)])
+    def test_only_points_inside_the_max_age_feed_the_fallback(self, _name: str, age: timedelta, included: bool):
+        exp = self._experiment(f"ts-age-{_name}", ["m1"])
+        self._timeseries_point(exp, "m1", timezone.now() - age, {"ok": True})
+
+        payload = build_timeseries_cold_start_payload(exp)
+        assert (payload is not None) == included
+
     def test_config_fingerprint_mismatch_yields_no_point(self):
         exp = self._experiment("ts-drift", ["m1"])
         # Store a point under a stale fingerprint, then change config so the recomputed fp won't match.
-        self._timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC), {"ok": True})
+        self._timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1), {"ok": True})
         exp.exposure_criteria = {"filterTestAccounts": True}
         exp.save()
         assert build_timeseries_cold_start_payload(exp) is None
