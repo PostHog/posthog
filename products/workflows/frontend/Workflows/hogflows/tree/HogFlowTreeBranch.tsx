@@ -127,8 +127,7 @@ export function HogFlowTreeBranch({
                                         size={node.action.type === 'conditional_branch' ? 'medium' : 'small'}
                                         className={cn(
                                             'shrink-0',
-                                            node.action.type === 'conditional_branch' &&
-                                                '!px-1.5 !text-sm !font-semibold uppercase'
+                                            node.action.type === 'conditional_branch' && 'uppercase'
                                         )}
                                         style={{
                                             color:
