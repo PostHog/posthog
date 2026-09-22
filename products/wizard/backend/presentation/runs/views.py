@@ -26,10 +26,12 @@ from products.wizard.backend.presentation.runs.errors import (
 )
 from products.wizard.backend.presentation.runs.pagination import WizardRunPagination
 from products.wizard.backend.presentation.runs.serializers import (
+    UpdateWizardRunTaskListSerializer,
     WizardRunCreateRequestSerializer,
     WizardRunErrorSerializer,
     WizardRunSerializer,
     WizardRunStatusUpdateRequestSerializer,
+    WizardRunTaskListSerializer,
 )
 from products.wizard.backend.presentation.throttles import WizardRunCreateThrottle, WizardRunReadThrottle
 
@@ -189,8 +191,11 @@ class WizardRunTasksViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     lookup_value_regex = "[0-9a-fA-F-]{36}"
 
     # PUT /projects/:projectId/wizard/runs/:runId/tasks
+    @extend_schema(request=UpdateWizardRunTaskListSerializer, responses={200: WizardRunTaskListSerializer, 204: None})
     @action(detail=True, methods=["put"], url_path="tasks")
     def tasks(self, request: Request, *args: object, **kwargs: object) -> Response:
-        run_id = UUID(cast(str, self.kwargs["run_id"]))
+        serializer = UpdateWizardRunTaskListSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated_data = serializer.validated_data
 
-        return Response("hello world: " + str(run_id))
+        return Response(validated_data)

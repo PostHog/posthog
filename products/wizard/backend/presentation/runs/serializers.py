@@ -16,6 +16,7 @@ from products.wizard.backend.facade.enums import (
     WizardRunErrorCode,
     WizardRunStage,
     WizardRunStatus,
+    WizardTaskStatus,
     WizardWorkspaceType,
 )
 from products.wizard.backend.facade.errors import InvalidRepositoryError
@@ -200,6 +201,45 @@ class WizardRunCreatorSerializer(serializers.Serializer):
     first_name = serializers.CharField(read_only=True, help_text="First name of the user who created the Wizard run.")
     last_name = serializers.CharField(read_only=True, help_text="Last name of the user who created the Wizard run.")
     email = serializers.EmailField(read_only=True, help_text="Email address of the user who created the Wizard run.")
+
+
+class UpdateWizardRunTaskSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=255, help_text="Name of this specific task", allow_null=False, allow_blank=False
+    )
+
+    status = serializers.ChoiceField(
+        choices=[run_status.value for run_status in WizardTaskStatus],
+        help_text="Status of this particular task",
+        allow_null=False,
+        allow_blank=False,
+    )
+
+
+class UpdateWizardRunTaskListSerializer(serializers.Serializer):
+    tasks = UpdateWizardRunTaskSerializer(many=True)
+
+
+class WizardRunTaskSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=255, help_text="Name of this specific task")
+    name = serializers.CharField(max_length=255, help_text="Name of this specific task")
+
+    status = serializers.ChoiceField(
+        read_only=True,
+        choices=[run_status.value for run_status in WizardTaskStatus],
+        help_text="Status of this particular task",
+    )
+
+    created_at = serializers.DateTimeField(allow_null=True)
+    started_at = serializers.DateTimeField(allow_null=True)
+    completed_at = serializers.DateTimeField(allow_null=True)
+    failed_at = serializers.DateTimeField(allow_null=True)
+
+    error_message = serializers.CharField(max_length=2000, help_text="Reason for this run to have failed")
+
+
+class WizardRunTaskListSerializer(serializers.Serializer):
+    tasks = WizardRunTaskSerializer(many=True, read_only=True)
 
 
 class WizardRunSerializer(serializers.Serializer):
