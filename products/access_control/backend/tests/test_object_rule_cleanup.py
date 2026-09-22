@@ -2,6 +2,8 @@ from posthog.test.base import BaseTest
 
 from django.db.models.deletion import Collector
 
+from posthog.api.file_system.deletion import delete_file_system_object
+from posthog.models.file_system.file_system import FileSystem
 from posthog.session.models import Session
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -47,3 +49,13 @@ class TestObjectRuleCleanup(BaseTest):
         # fast-delete path application-wide: the scheduled expired-session cleanup would read every
         # row into memory instead of issuing one DELETE.
         assert Collector(using=Session.objects.db).can_fast_delete(Session.objects.all())
+
+    def test_deleting_an_object_from_the_project_tree_drops_its_rules(self) -> None:
+        # The tree deletes inside mute_selected_signals(), which a mutable receiver would skip.
+        entry = FileSystem.objects.create(
+            team=self.team, path="Doomed", type="dashboard", ref=str(self.dashboard.id), created_by=self.user
+        )
+        delete_file_system_object(entry)
+
+        assert self._rules_on(self.dashboard) == 0
+        assert self._rules_on(self.other) == 2

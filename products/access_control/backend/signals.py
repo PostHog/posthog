@@ -4,15 +4,10 @@ from django.apps import apps
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models import Model
 from django.db.models.signals import ModelSignal, post_delete, post_save
-
-from posthog.models.signals import mutable_receiver
+from django.dispatch import receiver
 
 from products.access_control.backend.facade.api import delete_object_access_controls_for_object
 from products.access_control.backend.facade.user_access_control import model_to_resource
-
-# A non-weak connection is never collected, so the uid is what keeps a repeated connect from
-# registering the same receiver twice.
-_DISPATCH_UID = "access_control_drop_object_rules"
 
 
 def _drop_rules_when_object_is_gone(
@@ -55,17 +50,16 @@ def connect_object_rule_cleanup() -> None:
     row into memory and dispatches per row instead of issuing one DELETE. Naming the sender leaves
     that path alone for the models that carry no object rules.
 
+    These are plain receivers, not mutable_receiver ones. The project tree deletes an object
+    inside mute_selected_signals(), and those are everyday single-item and folder deletes that must
+    still drop the rules. The product's other receivers are plain for the same reason.
+
     Call this from the app's ready(), where the model registry is populated.
     """
     for model in apps.get_models():
         if not _can_carry_object_rules(model):
             continue
-        # weak=False because each call builds its own wrapper, which nothing else would hold
-        mutable_receiver(post_delete, sender=model, weak=False, dispatch_uid=_DISPATCH_UID)(
-            _drop_rules_when_object_is_gone
-        )
+        receiver(post_delete, sender=model)(_drop_rules_when_object_is_gone)
         # Only a model that carries the flag can leave a save soft-deleted
         if _has_field(model, "deleted"):
-            mutable_receiver(post_save, sender=model, weak=False, dispatch_uid=_DISPATCH_UID)(
-                _drop_rules_when_object_is_gone
-            )
+            receiver(post_save, sender=model)(_drop_rules_when_object_is_gone)
