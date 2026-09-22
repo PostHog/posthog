@@ -115,28 +115,32 @@ def _resolve_saved_metrics(
     original: Experiment, team_id: int, *, migrate_shared_metrics: bool
 ) -> tuple[list[tuple[ExperimentToSavedMetric, ExperimentSavedMetric]], list[int]]:
     """Pick the shared metric each link should point at, migrating legacy ones when allowed."""
-    targets: list[tuple[ExperimentToSavedMetric, ExperimentSavedMetric]] = []
-    migrated_ids: list[int] = []
-    blocked: list[ExperimentSavedMetric] = []
+    # Ordered, because the links are what puts the shared metrics in order on the experiment.
+    links = list(
+        ExperimentToSavedMetric.objects.filter(experiment=original).select_related("saved_metric").order_by("id")
+    )
+    legacy_metrics = [link.saved_metric for link in links if saved_metric_has_legacy_query(link.saved_metric)]
+    blocked = [metric for metric in legacy_metrics if not (metric.metadata or {}).get("migrated_to")]
 
-    for link in ExperimentToSavedMetric.objects.filter(experiment=original).select_related("saved_metric"):
-        metric = link.saved_metric
-        if not saved_metric_has_legacy_query(metric):
-            targets.append((link, metric))
-            continue
-
-        migrated_to = (metric.metadata or {}).get("migrated_to")
-        if migrated_to:
-            targets.append((link, ExperimentSavedMetric.objects.get(pk=migrated_to, team_id=team_id)))
-        elif migrate_shared_metrics:
-            new_metric = migrate_saved_metric(metric.id, team_id)
-            migrated_ids.append(new_metric.id)
-            targets.append((link, new_metric))
-        else:
-            blocked.append(metric)
-
-    if blocked:
+    if blocked and not migrate_shared_metrics:
         names = ", ".join(f'"{metric.name}" (id {metric.id})' for metric in blocked)
         raise LegacyMigrationError(f"Migrate these shared metrics first, then migrate the experiment: {names}")
 
+    # In id order, so two experiments sharing these metrics can't migrate into a deadlock.
+    replacements = {
+        metric.id: migrate_saved_metric(metric.id, team_id) for metric in sorted(blocked, key=lambda metric: metric.id)
+    }
+    migrated_ids = [metric.id for metric in replacements.values()]
+
+    targets = [(link, _target_metric(link.saved_metric, replacements, team_id)) for link in links]
     return targets, migrated_ids
+
+
+def _target_metric(
+    metric: ExperimentSavedMetric, replacements: dict[int, ExperimentSavedMetric], team_id: int
+) -> ExperimentSavedMetric:
+    if not saved_metric_has_legacy_query(metric):
+        return metric
+    if metric.id in replacements:
+        return replacements[metric.id]
+    return ExperimentSavedMetric.objects.get(pk=metric.metadata["migrated_to"], team_id=team_id)
