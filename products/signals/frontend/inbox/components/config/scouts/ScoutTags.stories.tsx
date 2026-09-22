@@ -15,6 +15,7 @@ const config: SignalScoutConfigApi = {
     skill_name: 'signals-scout-revenue-watch',
     description: 'Watches revenue changes.',
     scout_origin: 'custom',
+    scout_role: 'specialist',
     owners: [],
     enabled: true,
     status: 'active',
@@ -36,6 +37,7 @@ const config: SignalScoutConfigApi = {
     source_product: null,
     source_id: null,
     created_at: '2026-08-05T00:00:00Z',
+    updated_at: '2026-08-05T00:00:00Z',
 }
 
 function ScoutTagsPreview(): JSX.Element {

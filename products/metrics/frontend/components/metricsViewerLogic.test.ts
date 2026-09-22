@@ -375,6 +375,27 @@ describe('metricsViewerLogic', () => {
         expect(insightsApi.create).toHaveBeenCalledTimes(2)
     })
 
+    // A group-by-requiring panel must not stay selected once nothing is grouped anymore:
+    // the bar gauge would otherwise render a single bar for an ungrouped result.
+    it('falls back to the default display when the last group-by is removed', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setGroupByKeys(['container'])
+        logic.actions.setDisplayType('bargauge')
+        expect(logic.values.displayType).toBe('bargauge')
+
+        logic.actions.setGroupByKeys([])
+        expect(logic.values.displayType).toBe('line')
+    })
+
+    it('keeps a group-by panel when a group-by is still present', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setGroupByKeys(['container'])
+        logic.actions.setDisplayType('bargauge')
+
+        logic.actions.setGroupByKeys(['namespace'])
+        expect(logic.values.displayType).toBe('bargauge')
+    })
+
     it('carries the configured chart settings onto the saved node', () => {
         logic.actions.setMetricName('queue_depth')
         logic.actions.setDisplayType('bar')
@@ -643,24 +664,25 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.queryFilters).toEqual([{ key: 'env', op: 'eq', value: 'prod' }])
     })
 
-    // The group-by picker shipped with `options={[]}` and never fetched, so it offered no
-    // attribute keys. Typing must query the attributes endpoint (scoped by search) and map
-    // `{ name }` rows into `{ key, label }` options.
-    it('group-by search fetches attribute keys and maps them into options', async () => {
+    it('group-by search keeps the series counts and order from the selected metric API response', async () => {
         jest.mocked(metricsAttributesRetrieve).mockResolvedValue({
-            results: [{ name: 'env' }, { name: 'service_name' }],
+            results: [
+                { name: 'service_name', value_count: 20 },
+                { name: 'env', value_count: 2 },
+            ],
             count: 2,
         })
+        logic.actions.setMetricName('requests_total')
         await expectLogic(logic, () => {
             logic.actions.setGroupBySearch('e')
         }).toDispatchActions(['loadAttributeKeyOptions', 'loadAttributeKeyOptionsSuccess'])
         expect(metricsAttributesRetrieve).toHaveBeenCalledWith(
             expect.any(String),
-            expect.objectContaining({ search: 'e' })
+            expect.objectContaining({ search: 'e', metricName: 'requests_total' })
         )
         expect(logic.values.attributeKeyOptions).toEqual([
-            { key: 'env', label: 'env' },
-            { key: 'service_name', label: 'service_name' },
+            { key: 'service_name', label: 'service_name', valueCount: 20 },
+            { key: 'env', label: 'env', valueCount: 2 },
         ])
     })
 

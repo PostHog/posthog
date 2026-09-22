@@ -16,9 +16,13 @@ import { HarnessBarChart } from './dashboard/HarnessBarChart'
 import { KpiTiles } from './dashboard/KpiTiles'
 import { ModelBarChart } from './dashboard/ModelBarChart'
 import { NotableSessionsTable } from './dashboard/NotableSessionsTable'
+import { RecentToolCallsCard } from './dashboard/RecentToolCallsCard'
 import { ToolErrorRateChart } from './dashboard/ToolErrorRateChart'
 import { ToolUsageChart } from './dashboard/ToolUsageChart'
+import { MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT } from './feedback/constants'
+import { MCPAnalyticsFeedbackPrompt } from './feedback/MCPAnalyticsFeedbackPrompt'
 import { MCPAnalyticsFirstLook } from './firstLook/MCPAnalyticsFirstLook'
+import { mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
 import { mcpDashboardOverviewLogic } from './mcpDashboardOverviewLogic'
 
 export function MCPAnalyticsDashboardOverview(): JSX.Element {
@@ -44,32 +48,40 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         toolRowsLoading,
         dateFilter,
         interval,
-        filterTestAccounts,
-        propertyFilters,
         queryFilters,
+        canShowFeedback,
+        feedbackContextKey,
     } = useValues(mcpDashboardOverviewLogic)
-    const { setDateFilter, setFilterTestAccounts, setPropertyFilters } = useActions(mcpDashboardOverviewLogic)
+    const { setDateFilter, markFilterInteraction } = useActions(mcpDashboardOverviewLogic)
+    const { filterTestAccounts, propertyFilters } = useValues(mcpAnalyticsFiltersLogic)
+    const { setFilterTestAccounts, setPropertyFilters } = useActions(mcpAnalyticsFiltersLogic)
     const { timezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const theme = useChartTheme()
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="@container/mcp-overview flex min-w-0 flex-col gap-6">
             <FilterBar
                 left={
                     <>
                         <McpDateFilter
                             dateFrom={dateFilter.dateFrom}
                             dateTo={dateFilter.dateTo}
-                            onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                            onChange={(dateFrom, dateTo) => {
+                                setDateFilter(dateFrom, dateTo)
+                                markFilterInteraction()
+                            }}
                             dataAttr="mcp-dashboard-date-filter"
                         />
                         <div data-attr="mcp-dashboard-property-filter">
                             <PropertyFilters
                                 pageKey="mcp-dashboard-overview"
                                 propertyFilters={propertyFilters}
-                                onChange={setPropertyFilters}
+                                onChange={(filters) => {
+                                    setPropertyFilters(filters)
+                                    markFilterInteraction()
+                                }}
                                 taxonomicGroupTypes={[
                                     TaxonomicFilterGroupType.MCPProperties,
                                     TaxonomicFilterGroupType.EventProperties,
@@ -84,13 +96,21 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                 right={
                     <TestAccountFilterSwitch
                         checked={filterTestAccounts}
-                        onChange={setFilterTestAccounts}
+                        onChange={(enabled) => {
+                            setFilterTestAccounts(enabled)
+                            markFilterInteraction()
+                        }}
                         data-attr="mcp-dashboard-test-account-filter"
                     />
                 }
             />
+            <MCPAnalyticsFeedbackPrompt
+                contextKey={feedbackContextKey}
+                eligible={canShowFeedback}
+                prompt={MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT}
+            />
             <MCPAnalyticsFirstLook />
-            <section data-quill>
+            <section className="flex min-w-0 flex-col gap-4" data-quill>
                 <h2 className="mb-4 text-xl font-semibold text-primary">Key metrics</h2>
                 <KpiTiles
                     kpis={kpis}
@@ -104,41 +124,45 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     incompleteTail={kpiIncompleteTail}
                 />
             </section>
-            <section data-quill>
+            <section className="flex min-w-0 flex-col gap-4" data-quill>
                 <h2 className="mb-4 text-xl font-semibold text-primary">Usage</h2>
-                <div className="flex flex-col gap-[22px]">
+                <div className="flex min-w-0 flex-col gap-4">
+                    <div className="grid min-w-0 grid-cols-1 gap-4 @min-[64rem]/mcp-overview:grid-cols-2">
+                        <ActivityChart
+                            daily={dailyActivity}
+                            loading={activityRowsLoading}
+                            theme={theme}
+                            timezone={timezone}
+                            interval={interval}
+                            incompleteTail={activityIncompleteTail}
+                        />
+                        <ToolUsageChart
+                            data={toolDailySeries}
+                            loading={toolDailyRowsLoading}
+                            theme={theme}
+                            timezone={timezone}
+                            interval={interval}
+                        />
+                    </div>
                     <div
                         className={cn(
-                            'grid grid-cols-1 gap-[22px]',
-                            hasModelData ? 'lg:grid-cols-4' : 'lg:grid-cols-3'
+                            'grid min-w-0 grid-cols-1 gap-4',
+                            hasModelData && '@min-[48rem]/mcp-overview:grid-cols-2'
                         )}
                     >
-                        <div className="flex lg:col-span-2">
-                            <ActivityChart
-                                daily={dailyActivity}
-                                loading={activityRowsLoading}
-                                theme={theme}
-                                timezone={timezone}
-                                interval={interval}
-                                incompleteTail={activityIncompleteTail}
-                            />
-                        </div>
                         <HarnessBarChart rows={harnessRows} loading={harnessRowsLoading} theme={theme} />
                         {hasModelData ? <ModelBarChart rows={modelRows} theme={theme} filters={queryFilters} /> : null}
                     </div>
-                    <div className="grid grid-cols-1 gap-[22px] lg:grid-cols-2">
-                        <ToolErrorRateChart rows={toolRows} loading={toolRowsLoading} theme={theme} />
-                        <NotableSessionsTable sessions={notableSessions} loading={sessionRowsLoading} />
-                    </div>
-                    <ToolUsageChart
-                        data={toolDailySeries}
-                        loading={toolDailyRowsLoading}
-                        theme={theme}
-                        timezone={timezone}
-                        interval={interval}
-                    />
                 </div>
             </section>
+            <section className="flex min-w-0 flex-col gap-4" data-quill>
+                <h2 className="mb-0 text-xl font-semibold text-primary">Reliability</h2>
+                <div className="grid min-w-0 grid-cols-1 gap-4 @min-[64rem]/mcp-overview:grid-cols-2">
+                    <ToolErrorRateChart rows={toolRows} loading={toolRowsLoading} theme={theme} />
+                    <NotableSessionsTable sessions={notableSessions} loading={sessionRowsLoading} />
+                </div>
+            </section>
+            <RecentToolCallsCard filters={queryFilters} />
         </div>
     )
 }

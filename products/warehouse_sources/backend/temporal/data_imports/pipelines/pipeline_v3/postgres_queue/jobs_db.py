@@ -387,6 +387,22 @@ def _stranded_candidate_runs_sql() -> str:
     The ``OFFSET 0`` in the failed-run gate is an optimization fence: without
     it the planner flattens the subquery back into that same hash anti-join.
     It changes no semantics; the plan-shape test pins the probe.
+
+    Loader progress anywhere in a (team_id, schema_id) group spares every run
+    in it. The loader serializes a group and claims its batches oldest-first,
+    so a run queued behind a long sibling makes no progress of its own until
+    the sibling drains, however many hours that takes. An active-state
+    transition in the group inside the stale window means the group is being
+    drained and its other runs are waiting their turn, not abandoned. Only
+    'executing', 'succeeded' and 'waiting_retry' count, as in
+    ``supersede_other_runs``: a 'failed' write is the reconcile sweep's own
+    output, and heartbeats refresh the status log but not ``state_changed_at``,
+    so a wedged-but-heartbeating loader cannot shield a group forever (its live
+    lease already protects it while it heartbeats). The group lease cannot
+    stand in for this check: the loader releases it between claim windows, so
+    a busy group is lease-less for an instant many times an hour. The probe
+    runs once per group rather than once per run, because a genuinely stale
+    group answers only after reading every batch it holds.
     """
     return f"""
         WITH stranded_runs AS (
@@ -396,6 +412,17 @@ def _stranded_candidate_runs_sql() -> str:
               AND b.created_at <= now() - make_interval(secs => %(stale)s)
               AND b.latest_state IN ('pending', 'waiting', 'waiting_retry', 'executing')
             GROUP BY b.run_uuid, b.team_id, b.schema_id
+        ),
+        progressing_groups AS (
+            SELECT g.team_id, g.schema_id
+            FROM (SELECT DISTINCT team_id, schema_id FROM stranded_runs) g
+            WHERE EXISTS (
+                SELECT 1 FROM {BATCH_TABLE} bp
+                WHERE bp.team_id = g.team_id AND bp.schema_id = g.schema_id
+                  AND bp.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                  AND bp.latest_state IN ('executing', 'succeeded', 'waiting_retry')
+                  AND bp.state_changed_at > now() - make_interval(secs => %(stale)s)
+            )
         )
         SELECT r.run_uuid, r.team_id, r.schema_id
         FROM stranded_runs r
@@ -410,6 +437,10 @@ def _stranded_candidate_runs_sql() -> str:
                 AND bf.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                 AND bf.latest_state = 'failed'
               OFFSET 0
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM progressing_groups p
+              WHERE p.team_id = r.team_id AND p.schema_id = r.schema_id
           )
         -- Oldest-batch-first, so the window can't be starved by an arbitrary set of
         -- not-yet-stale runs the outer HAVING later rejects: the longest-stranded runs
@@ -1265,7 +1296,9 @@ class BatchQueue:
         without this the batches strand until the retention prune (days later).
 
         Staleness is *loader progress only*: the newest status write across the run, or — when the
-        loader never claimed anything — the oldest batch's age. Batch inserts (producer activity)
+        loader never claimed anything — the oldest batch's age. Progress on any sibling run of the same
+        (team_id, schema_id) group also spares the run: the loader drains a group one run at a time, so
+        a run queued behind a long sibling is waiting, not abandoned. Batch inserts (producer activity)
         deliberately do not reset the clock, mirroring ``get_run_activity_summary``, so a live producer
         streaming into a dead loader still reads as stale. A live group lease means a pod is actively
         working the group (making progress, or the recovery sweep reclaims it on lease expiry), so those

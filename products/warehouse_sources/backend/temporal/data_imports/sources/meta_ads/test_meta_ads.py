@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaads import (
     MetaAdsSourceConfig,
 )
@@ -30,6 +31,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     META_ADS_API_VERSION_V26,
     META_ADS_MAX_HISTORY_DAYS,
     META_AUTH_ERROR_MESSAGE,
+    META_INVALID_CURSOR_ERROR_MESSAGE,
+    META_RATE_LIMIT_ERROR_MESSAGE,
     META_TRANSIENT_ERROR_MAX_ATTEMPTS,
     PAGE_LIMIT_FALLBACK_SIZES,
     SHRINK_EXHAUSTED_ERROR_MESSAGE,
@@ -37,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     MetaAdsResumeConfig,
     _earliest_supported_since,
     _fetch_integration_row,
+    _is_invalid_cursor_error,
     _is_permanent_auth_error,
     _is_transient_error,
     _iter_simple_pagination,
@@ -1343,6 +1347,8 @@ class TestNonRetryableErrors:
             'Meta API request failed: 400 - {"error":{"message":"(#200) Ad account owner has NOT granted ads_management or ads_read permission.","type":"OAuthException","code":200}}',
             # 400 when a specific endpoint cannot be accessed with the granted permissions.
             'Meta API request failed: 400 - {"error":{"message":"(#100) This endpoint cannot be loaded due to missing permissions."}}',
+            # 400 with the shorter, generic sibling message for the same missing-permission condition.
+            'Meta API request failed: 400 - {"error":{"message":"(#100) Missing perms","type":"OAuthException","code":100}}',
             # 400 when a business_management-gated field is requested without that scope.
             'Meta API request failed: 400 - {"error":{"message":"(#200) Requires business_management permission to manage the object.","type":"OAuthException","code":200}}',
             # 400 when the source's configured attribution windows include a value Meta's
@@ -1365,12 +1371,25 @@ class TestNonRetryableErrors:
             '{"error":{"message":"Error validating access token: The session has been invalidated because the '
             "user changed their password or Facebook has changed the session for security "
             'reasons.","type":"OAuthException","code":190,"error_subcode":460}})',
+            # code 2642 — a paging cursor was rejected as invalid mid-sync. Retrying this job
+            # would resume with the same saved cursor and fail identically every time.
+            f"{META_INVALID_CURSOR_ERROR_MESSAGE} (Meta API response: 400 - "
+            '{"error":{"message":"(#2642) Invalid cursors values","type":"OAuthException","code":2642}})',
         ],
     )
     def test_errors_match_pattern(self, error_message: str) -> None:
         patterns = MetaAdsSource().get_non_retryable_errors()
         assert any(pattern in error_message for pattern in patterns), (
             f"Meta Ads error '{error_message}' does not match any non-retryable pattern"
+        )
+
+    def test_missing_perms_has_reconnect_guidance(self) -> None:
+        # `error_message` isn't surfaced to the user as-is — the friendly value here is, so a
+        # blank or wrong one would leak the raw Graph API JSON instead of actionable guidance.
+        assert MetaAdsSource().get_non_retryable_errors()["Missing perms"] == (
+            "Meta blocked this request because the connected account is missing a permission "
+            "required to read your ads data. Please reconnect the Meta Ads integration and grant "
+            "all requested permissions."
         )
 
     @pytest.mark.parametrize(
@@ -1410,6 +1429,27 @@ class TestNonRetryableErrors:
     )
     def test_is_permanent_auth_error(self, body: dict, expected: bool) -> None:
         assert _is_permanent_auth_error(_mock_response(400, body)) is expected
+
+    @pytest.mark.parametrize(
+        "body,expected",
+        [
+            ({"error": {"code": 2642, "message": "(#2642) Invalid cursors values", "type": "OAuthException"}}, True),
+            # A different code must not be swept into the same reclassification.
+            ({"error": {"code": 1, "message": "An unknown error has occurred."}}, False),
+            ({"error": {}}, False),
+            ({}, False),
+        ],
+    )
+    def test_is_invalid_cursor_error(self, body: dict, expected: bool) -> None:
+        assert _is_invalid_cursor_error(_mock_response(400, body)) is expected
+
+    def test_invalid_cursor_error_raises_non_retryable_message(self) -> None:
+        # Confirms `_raise_meta_api_error` itself classifies a live 2642 response into the
+        # message `get_non_retryable_errors` matches on — the parametrized test above only
+        # checks the dict against a hand-written string, not the wiring that produces it.
+        body = {"error": {"code": 2642, "message": "(#2642) Invalid cursors values", "type": "OAuthException"}}
+        with pytest.raises(Exception, match=META_INVALID_CURSOR_ERROR_MESSAGE):
+            _raise_meta_api_error(_mock_response(400, body))
 
 
 class TestRetryableErrors:
@@ -1459,6 +1499,35 @@ class TestRetryableErrors:
         with pytest.raises(Exception) as exc_info:
             _raise_meta_api_error(response)
         assert any(pattern in str(exc_info.value) for pattern in patterns)
+
+    @pytest.mark.parametrize(
+        "error_message,expected_fragment",
+        [
+            (
+                'Meta API request failed (retryable): 500 - {"error":{"message":"An unexpected error has '
+                'occurred. Please retry your request later.","type":"OAuthException","is_transient":true,'
+                '"code":2,"fbtrace_id":"AaBbCcDdEeFf00112233"}}',
+                "temporary errors",
+            ),
+            (
+                f"{META_RATE_LIMIT_ERROR_MESSAGE} (Meta API response: 400 - "
+                '{"error":{"message":"User request limit reached","type":"OAuthException","code":17,'
+                '"fbtrace_id":"AaBbCcDdEeFf00112233"}})',
+                "rate limiting",
+            ),
+        ],
+    )
+    def test_retry_exhausted_message_replaces_the_raw_meta_response(
+        self, error_message: str, expected_fragment: str
+    ) -> None:
+        # Without this the job stores Meta's raw response body as what the customer reads.
+        messages = [
+            message for key, message in MetaAdsSource().get_retry_exhausted_errors().items() if key in error_message
+        ]
+        assert messages, f"An exhausted Meta Ads retry should store a customer-facing message: {error_message}"
+        assert expected_fragment in messages[0]
+        assert "fbtrace_id" not in messages[0]
+        assert "next sync runs on schedule" in messages[0]
 
     def test_too_much_data_timeout_does_not_match_retryable_pattern(self) -> None:
         # The too-much-data timeout keeps its own non-retryable classification (adaptive chunking
@@ -1780,8 +1849,22 @@ class TestEndpointCatalog:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_every_advertised_endpoint_has_a_resource_schema(self, endpoint: str) -> None:
         # `meta_ads_source` looks the endpoint up by name, so advertising one in `get_schemas`
-        # without a `RESOURCE_SCHEMAS` entry only fails at sync time with a KeyError.
+        # without a `RESOURCE_SCHEMAS` entry only fails at sync time, once a customer selects it.
         assert endpoint in get_meta_ads_schemas()
+
+    def test_resource_the_worker_does_not_know_raises_a_named_error(self) -> None:
+        # The web pods and the workers deploy separately, so a newly shipped table is selectable in
+        # the schema picker about an hour before every worker can resolve it. A bare KeyError there
+        # reports as a bug and reaches the customer as raw Python; the named error is classified
+        # retryable instead.
+        with pytest.raises(UnknownResourceError, match="ad_stats_by_a_future_breakdown"):
+            meta_ads_source(
+                resource_name="ad_stats_by_a_future_breakdown",
+                config=_source_config(),
+                team_id=1,
+                resumable_source_manager=_build_manager(),
+                api_version=META_ADS_API_VERSION_V26,
+            )
 
 
 class TestBreakdownStatsSchemas:
@@ -1791,10 +1874,16 @@ class TestBreakdownStatsSchemas:
     def test_breakdown_dimensions_are_part_of_the_primary_key(self, endpoint: str) -> None:
         schema = get_meta_ads_schemas()[endpoint]
         breakdowns = schema.extra_params["breakdowns"].split(",")
+        # A dimension Meta returns as an object stands in the key through a column hoisted out of
+        # it, because the JSON string the object is stored as makes the merge key depend on Meta's
+        # key ordering.
+        keyed = set(schema.primary_keys) | {
+            hoisted.source_field for hoisted in schema.hoisted_columns if hoisted.column in schema.primary_keys
+        }
 
         # Without the dimensions in the key, every combination for a campaign/day collapses onto
         # one key: duplicate rows seed the Delta table and each later merge multi-matches them.
-        assert set(breakdowns) <= set(schema.primary_keys)
+        assert set(breakdowns) <= keyed
 
     @pytest.mark.parametrize(
         "endpoint,level,grain_column",
@@ -1831,13 +1920,15 @@ class TestBreakdownStatsSchemas:
         # up unless the user asks for them.
         assert schemas[endpoint].should_sync_default is False
 
-    def test_hourly_table_omits_metrics_meta_cannot_report_hourly(self) -> None:
+    @pytest.mark.parametrize("endpoint", [MetaAdsResource.CampaignStatsHourly, MetaAdsResource.AdStatsByLinkUrl])
+    def test_tables_without_unique_metric_support_omit_them(self, endpoint: str) -> None:
         # "Hourly breakdowns do not support unique fields, which are any fields prepended with
         # `unique_*`, `reach` or `frequency`" — requesting them stores columns Meta zeroes out.
+        # The creative-asset breakdowns split one ad's delivery the same way.
         unique_metrics = {"reach", "frequency", "cpp", "cost_per_unique_click", "unique_clicks", "unique_ctr"}
         schemas = get_meta_ads_schemas()
 
-        assert unique_metrics.isdisjoint(schemas[MetaAdsResource.CampaignStatsHourly].field_names)
+        assert unique_metrics.isdisjoint(schemas[endpoint].field_names)
         assert unique_metrics <= set(schemas[MetaAdsResource.CampaignStatsByCountry].field_names)
 
 
@@ -1916,6 +2007,59 @@ class TestBreakdownStatsRequests:
 
         assert "action_attribution_windows" not in captured["params"]
         assert "use_unified_attribution_setting" not in captured["params"]
+
+
+class TestHoistedColumns:
+    """Scalar columns lifted out of the nested objects the Graph API returns."""
+
+    def _emit_rows(self, monkeypatch, resource_name: str, rows: list[dict]) -> list[dict]:
+        integration = mock.MagicMock()
+        integration.access_token = "token"
+        monkeypatch.setattr(meta_ads_module, "get_integration", lambda config, team_id: integration)
+
+        def fake_request(url, params, access_token, time_range, resumable_source_manager):
+            yield rows
+
+        monkeypatch.setattr(meta_ads_module, "_make_paginated_api_request", fake_request)
+
+        response = meta_ads_source(
+            resource_name=resource_name,
+            config=_source_config(),
+            team_id=1,
+            resumable_source_manager=_build_manager(),
+            api_version=META_ADS_API_VERSION_V26,
+        )
+        return [row for batch in cast(Any, response.items()) for row in batch]
+
+    @pytest.mark.parametrize(
+        "endpoint,row,expected",
+        [
+            (
+                MetaAdsResource.Ads,
+                {"id": "ad-1", "creative": {"id": "creative-1"}},
+                {"creative_id": "creative-1"},
+            ),
+            (
+                MetaAdsResource.Ads,
+                {"id": "ad-1"},
+                {"creative_id": None},
+            ),
+            (
+                MetaAdsResource.AdStatsByLinkUrl,
+                {"ad_id": "ad-1", "link_url_asset": {"id": "asset-1", "website_url": "https://example.com/pricing"}},
+                {"link_url": "https://example.com/pricing", "link_url_asset_id": "asset-1"},
+            ),
+        ],
+    )
+    def test_nested_objects_become_scalar_columns(self, monkeypatch, endpoint: str, row: dict, expected: dict) -> None:
+        # The pipeline stores a nested object as a JSON string. Without these columns an ad has no
+        # join key to `ad_creatives`, and spend cannot be grouped by landing page without unpacking
+        # JSON, which is the whole reason the breakdown table exists.
+        emitted = self._emit_rows(monkeypatch, endpoint, [row])
+
+        assert {column: emitted[0][column] for column in expected} == expected
+        # The nested field stays, because it carries more than the hoisted keys.
+        assert {column: emitted[0][column] for column in row} == row
 
 
 class TestSingleObjectEndpoint:

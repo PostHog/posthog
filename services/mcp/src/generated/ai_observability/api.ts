@@ -2163,6 +2163,8 @@ export const LlmPromptsNameRetrieveParams = () => zod.object({
 export const llmPromptsNameRetrieveQueryContentDefault = `full`
 export const llmPromptsNameRetrieveQueryLabelMax = 128
 
+export const llmPromptsNameRetrieveQueryResolveDefault = true
+
 export const LlmPromptsNameRetrieveQueryParams = () => zod.object({
     content: zod
         .enum(['full', 'preview', 'none'])
@@ -2177,6 +2179,12 @@ export const LlmPromptsNameRetrieveQueryParams = () => zod.object({
         .optional()
         .describe(
             "Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version."
+        ),
+    resolve: zod
+        .boolean()
+        .default(llmPromptsNameRetrieveQueryResolveDefault)
+        .describe(
+            "Replace @@@prompt:...@@@ references with the referenced prompts' content before returning. Set to false to get the raw text with the reference tags, e.g. for editing or export. Only applies when content is 'full'."
         ),
     version: zod
         .number()

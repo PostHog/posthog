@@ -98,14 +98,14 @@ function DropdownMenuItem({
             data-inset={inset}
             data-variant={variant}
             className={cn(
-                "group/dropdown-menu-item relative flex cursor-default items-center text-xs/relaxed outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "group/dropdown-menu-item relative flex cursor-default items-center outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 inset && 'quill-menu-item--inset',
                 className
             )}
             // The default render is a real <button>; only declare nativeButton when the
             // caller hasn't overridden render (their element may not be a button).
             nativeButton={!('render' in props)}
-            render={<Button variant={variant} className="w-full font-normal [&_kbd]:ml-auto" left />}
+            render={<Button variant={variant} size="row" className="[&_kbd]:ml-auto" left />}
             {...props}
         />
     )
@@ -128,14 +128,14 @@ function DropdownMenuSubTrigger({
             data-slot="dropdown-menu-sub-trigger"
             data-inset={inset}
             className={cn(
-                "flex cursor-default items-center text-xs outline-hidden select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "flex cursor-default items-center outline-hidden select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 inset && 'quill-menu-item--inset',
                 className
             )}
             // The default render is a real <button>; only declare nativeButton when the
             // caller hasn't overridden render (their element may not be a button).
             nativeButton={!('render' in props)}
-            render={<Button className="w-full font-normal" left />}
+            render={<Button size="row" left />}
             {...props}
         >
             {children}
@@ -179,14 +179,14 @@ function DropdownMenuCheckboxItem({
             data-slot="dropdown-menu-checkbox-item"
             data-inset={inset}
             className={cn(
-                "quill-menu-item--inset relative flex cursor-default items-center pe-2 text-xs outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "quill-menu-item--inset relative flex cursor-default items-center pe-2 outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 className
             )}
             checked={checked}
             // The default render is a real <button>; only declare nativeButton when the
             // caller hasn't overridden render (their element may not be a button).
             nativeButton={!('render' in props)}
-            render={<Button className="w-full font-normal" left />}
+            render={<Button size="row" left />}
             {...props}
         >
             <span
@@ -220,13 +220,13 @@ function DropdownMenuRadioItem({
             data-slot="dropdown-menu-radio-item"
             data-inset={inset}
             className={cn(
-                "quill-menu-item--inset relative flex min-h-7 cursor-default items-center pe-2 text-xs outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "quill-menu-item--inset relative flex min-h-7 cursor-default items-center pe-2 outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 className
             )}
             // The default render is a real <button>; only declare nativeButton when the
             // caller hasn't overridden render (their element may not be a button).
             nativeButton={!('render' in props)}
-            render={<Button className="w-full font-normal" left />}
+            render={<Button size="row" left />}
             {...props}
         >
             <span

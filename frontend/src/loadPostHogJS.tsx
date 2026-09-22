@@ -1,11 +1,10 @@
-import posthog, { BeforeSendFn, PostHogInterface, SessionRecordingOptions } from 'posthog-js'
+import posthog, { BeforeSendFn, BrowserMetricsConfig, SessionRecordingOptions } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
-import { startFramerateTracking } from './framerateTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-05-30'
 
@@ -20,13 +19,6 @@ export function isInDeferredInitSample(sessionId: string): boolean {
     return Math.abs(hash) % 100 < 50
 }
 
-const shouldTrackFramerate = (loadedInstance: PostHogInterface): boolean => {
-    return (
-        !!window.POSTHOG_APP_CONTEXT?.preflight?.is_debug ||
-        !!loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_REACT_FRAMERATE)
-    )
-}
-
 export interface LoadPostHogJSOptions {
     /**
      * Hook posthog-js's `before_send` so the caller can mutate or drop events before they leave
@@ -39,6 +31,13 @@ export interface LoadPostHogJSOptions {
      * / network-payload masking when the page renders sensitive bearer tokens in its own URL.
      */
     sessionRecording?: Partial<SessionRecordingOptions>
+    /**
+     * Extra `metrics` config merged on top of the defaults. `before_send` and
+     * `maskCapturedNetworkRequestFn` do not cover the network metrics channel, so the exporter
+     * app uses this to override `network.attributes` and keep the SharingConfiguration access
+     * token out of the captured `path`. See `frontend/src/exporter/index.tsx`.
+     */
+    metrics?: Partial<BrowserMetricsConfig>
 }
 
 export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
@@ -61,6 +60,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
+            metrics: { network: true, serviceName: 'posthog-app', ...options.metrics },
             before_send: options.beforeSend,
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
@@ -72,11 +72,6 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
                     loadedInstance.opt_out_capturing()
                 } else {
                     loadedInstance.opt_in_capturing()
-
-                    if (shouldTrackFramerate(loadedInstance)) {
-                        console.info('tracking react framerate')
-                        startFramerateTracking(loadedInstance)
-                    }
 
                     if (
                         !!window.POSTHOG_APP_CONTEXT?.preflight?.is_debug ||

@@ -54,6 +54,7 @@ from posthog.schema_enums import MaterializationMode, PropertyGroupsMode
 
 # In non-nullable materialized columns these stored strings are treated as NULL.
 MAT_COL_NULL_SENTINELS = ["", "null"]
+MAX_MATERIALIZED_LIKE_PATTERN_LENGTH = 16 * 1024
 
 # Leave the $ai_* bloom-filter columns to the printer: its comparison code already keeps them index-eligible
 # (`COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING`, imported above so the two lists stay in sync). The value-read side skips
@@ -236,6 +237,11 @@ def resolve_property_group_source(
 # A `PropertyAccess`'s own type is just its value type (a nullable String), so everything this pass needs comes from the
 # node's structure instead: `node.expr` is the blob `Field` (its `.type` points at the table and column), and
 # `node.keys` is the key path (keys[0] is the property name; deeper keys index into the extracted value).
+
+
+def _is_json_verbatim(value: str) -> bool:
+    """True when JSON text stores the string unchanged: non-empty printable ASCII with no quote or backslash."""
+    return bool(value) and all(" " <= char <= "~" and char not in '"\\' for char in value)
 
 
 def _blob_field_type_of(node: ast.PropertyAccess) -> ast.FieldType | None:
@@ -614,6 +620,10 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
 # A hint over a long IN list costs index analysis for every value and adds little pruning, since the bloom filter has
 # to keep every granule that could hold any of them.
 LOGS_BODY_IN_HINT_MAX_VALUES = 50
+
+# ClickHouse caps multiSearchAny at 255 values to search for, and going over fails the whole query. Past that we drop
+# the pre-check instead of splitting it up: hundreds of values match nearly every row, so it would prune nothing.
+PERSON_JSON_PREFILTER_MAX_NEEDLES = 255
 
 
 def _call(name: str, args: list[ast.Expr]) -> ast.Call:
@@ -1162,7 +1172,44 @@ class ClickHousePropertyResolver(CloningVisitor):
         # surviving PropertyAccess reads the scrubbed materialized column. An is-set check therefore treats both an empty
         # string and the literal text "null" as "not set", which over-matches a true "does this key exist in the blob"
         # test. Left this way deliberately — tightening it would change query results.
-        return super().visit_compare_operation(node)
+        prefilter = self._person_json_substring_prefilter(node)
+        compared = super().visit_compare_operation(node)
+        if prefilter is not None:
+            return _call("and", [prefilter, compared])
+        return compared
+
+    # --- unbacked person JSON: a substring pre-check ahead of the JSON parse ---
+
+    def _person_json_substring_prefilter(self, node: ast.CompareOperation) -> ast.Expr | None:
+        """`multiSearchAny(properties, [values])` to run before `properties.x = 'v'` / `IN (...)` on the raw person blob.
+
+        With no backing column the comparison parses JSON out of every person row's properties, which is CPU-bound on
+        large teams. A constant substring search over the same column is several times cheaper and rejects most rows
+        before the parse; the comparison still decides the row set. Only values that JSON text stores verbatim qualify,
+        because an escaped quote, backslash, or non-ASCII character would not match as a substring.
+        """
+        if self._index_hint_depth > 0 or node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.In):
+            return None
+        access = self._lowered_property_operand(node.left)
+        if access is None or len(access.keys) != 1:
+            return None
+        field_type = _blob_field_type_of(access)
+        if field_type is None or field_type.name != "properties":
+            return None
+        table_type = _unwrap_to_table_type(field_type)
+        if table_type is None or table_type.table.to_printed_clickhouse(self.context) != "person":
+            return None
+        key = str(access.keys[0])
+        if key in restricted_property_keys_for_table_type(field_type.table_type, self.context):
+            return None
+        if resolve_materialized_property_source(field_type, key, self.context) is not None:
+            return None
+        values = self._extract_string_constants(node.right)
+        if not values or len(values) > PERSON_JSON_PREFILTER_MAX_NEEDLES:
+            return None
+        if not all(_is_json_verbatim(value) for value in values):
+            return None
+        return _call("multiSearchAny", [self.visit(access.expr), ast.Array(exprs=[_const(v) for v in values])])
 
     # --- logs body: keep a constant comparison eligible for the lower(body) ngram index ---
 
@@ -1708,6 +1755,9 @@ class ClickHousePropertyResolver(CloningVisitor):
             return _call("ifNull", [_call("notILike", [prop.bare_column(), _const(pattern.value)]), _const(True)])
 
         # Non-nullable: bail if the pattern could match a stored sentinel.
+        # Skipping this optional rewrite bounds planning work without rejecting the query.
+        if len(cast(str, pattern.value)) > MAX_MATERIALIZED_LIKE_PATTERN_LENGTH:
+            return None
         if any(ilike_matches(cast(str, pattern.value), s) for s in MAT_COL_NULL_SENTINELS):
             return None
         if is_ilike:
@@ -1730,6 +1780,8 @@ class ClickHousePropertyResolver(CloningVisitor):
                 return _call("and", [_call("like", [prop.bare_column(), _const(pattern.value)]), prop.is_not_null()])
             return _call("ifNull", [_call("notLike", [prop.bare_column(), _const(pattern.value)]), _const(True)])
 
+        if len(cast(str, pattern.value)) > MAX_MATERIALIZED_LIKE_PATTERN_LENGTH:
+            return None
         if any(like_matches(cast(str, pattern.value), s) for s in MAT_COL_NULL_SENTINELS):
             return None
         if is_like:

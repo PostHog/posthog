@@ -1,8 +1,11 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -160,3 +163,28 @@ class TestFlagValueViewSet(APIBaseTest):
             {"name": "valid_variant"},
         ]
         self.assertEqual(data["results"], expected_values)
+
+    @parameterized.expand(
+        [
+            ("feature_flag_read", ["feature_flag:read"], status.HTTP_200_OK),
+            ("feature_flag_write", ["feature_flag:write"], status.HTTP_200_OK),
+            ("unrelated_scope", ["dashboard:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_flag_values_scoped_personal_api_key(self, _name, scopes, expected_status):
+        flag = FeatureFlag.objects.create(
+            name="Scoped Flag",
+            key="scoped-flag",
+            team=self.team,
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="scoped", user=self.user, scopes=scopes, secure_value=hash_key_value(token))
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.project_id}/flag_value/values?key={flag.id}",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.content)

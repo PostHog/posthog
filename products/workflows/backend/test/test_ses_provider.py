@@ -640,9 +640,7 @@ class TestGetIdentityIspMetrics(TestCase):
 
         self.mock_client.batch_get_metric_data.side_effect = lambda Queries: respond(Queries)
 
-    def test_daily_series_is_ordered_and_merged_across_domains(self):
-        # Two domains reporting the same days have to land in one bucket per day, or the trend
-        # draws each domain as its own point and every rate is computed against half the sends.
+    def test_counts_are_summed_across_domains(self):
         self._serve_series(
             {
                 ("Gmail", "SEND"): {"2026-08-02": 50, "2026-08-01": 100},
@@ -654,10 +652,8 @@ class TestGetIdentityIspMetrics(TestCase):
             [TEST_DOMAIN, "other.posthog.com"], window_days=30, isps=["Gmail"]
         )
 
-        assert [(point.date, point.emails_sent, point.delivery_rate) for point in rows[0].daily] == [
-            ("2026-08-01", 200, 0.95),
-            ("2026-08-02", 100, 0.2),
-        ]
+        assert rows[0].emails_sent == 300
+        assert rows[0].delivery_rate == 0.7
 
     def test_a_partial_query_failure_leaves_the_other_metrics_intact(self):
         # SES reports per-query failures in Errors while still returning Results. Logging one used
@@ -694,15 +690,14 @@ class TestGetIdentityIspMetrics(TestCase):
         assert rows[0].delivery_rate is None
         assert rows[0].bounce_rate is None
         assert rows[0].complaint_rate is None
-        assert set(rows[0].unavailable) == {"delivery", "bounce", "complaint"}
-        # No delivery series means no trend to draw, rather than a line flat at zero.
-        assert rows[0].daily == ()
+        assert rows[0].transient_bounce_rate is None
+        assert set(rows[0].unavailable) == {"delivery", "bounce", "transient_bounce", "complaint"}
 
     def test_a_provider_ses_rejects_does_not_take_its_batch_mates_with_it(self):
         # SES validates dimension values per request, so a name it will not accept fails every
-        # query sent with it. Five metrics per provider means a ten-query batch carries two, and a
-        # subject is keyed by provider and metric with no domain, so failing the batch dropped a
-        # good provider from every domain rather than from the one request.
+        # query sent with it. A subject is keyed by provider and metric with no domain, so failing
+        # the batch dropped a good provider from every domain rather than from the one request.
+        # Six metrics do not divide the ten-query batch, so a rejected name also straddles two.
         def respond(Queries):
             if any(_isp_of(query) == "Mail.ru" for query in Queries):
                 raise ClientError({"Error": {"Code": "BadRequestException"}}, "BatchGetMetricData")
@@ -723,18 +718,6 @@ class TestGetIdentityIspMetrics(TestCase):
 
         assert any("SES rejected a metric query" in line for line in logs.output)
         assert [row.isp for row in rows] == ["Gmail", "Yahoo"]
-
-    def test_daily_series_skips_buckets_with_no_sends(self):
-        self._serve_series(
-            {
-                ("Gmail", "SEND"): {"2026-08-01": 10, "2026-08-02": 0},
-                ("Gmail", "DELIVERY"): {"2026-08-01": 9, "2026-08-02": 0},
-            }
-        )
-
-        rows = self.provider.get_identity_isp_metrics([TEST_DOMAIN], window_days=30, isps=["Gmail"])
-
-        assert [point.date for point in rows[0].daily] == ["2026-08-01"]
 
     @parameterized.expand(
         [
@@ -761,6 +744,24 @@ class TestGetIdentityIspMetrics(TestCase):
         rows = self.provider.get_identity_isp_metrics([TEST_DOMAIN], window_days=30, isps=["Gmail"])
 
         assert [row.complaint_rate for row in rows] == [expected]
+        # The base travels with the rate: a caller weighing whether the rate rests on enough
+        # volume has to use it, since emails_sent is far larger and would clear any floor.
+        assert [row.complaint_base for row in rows] == [delivery_complaint]
+
+    def test_soft_rejections_are_reported_apart_from_permanent_bounces(self):
+        self._serve(
+            {
+                ("Icloud", "SEND"): 100,
+                ("Icloud", "DELIVERY"): 92,
+                ("Icloud", "PERMANENT_BOUNCE"): 1,
+                ("Icloud", "TRANSIENT_BOUNCE"): 7,
+            }
+        )
+
+        rows = self.provider.get_identity_isp_metrics([TEST_DOMAIN], window_days=30, isps=["Icloud"])
+
+        assert rows[0].bounce_rate == 0.01
+        assert rows[0].transient_bounce_rate == 0.07
 
     def test_counts_are_summed_across_the_projects_sending_domains(self):
         # Each domain is queried separately because EMAIL_IDENTITY is per verified domain, but a
@@ -782,11 +783,11 @@ class TestGetIdentityIspMetrics(TestCase):
         self.provider.get_identity_isp_metrics([TEST_DOMAIN], window_days=30, isps=["Gmail", "Yahoo", "Outlook"])
 
         batches = [kwargs["Queries"] for _, kwargs in self.mock_client.batch_get_metric_data.call_args_list]
-        # 3 providers plus the identity-wide totals, times 5 metrics, is 20 queries. SES rejects a
+        # 3 providers plus the identity-wide totals, times 6 metrics, is 24 queries. SES rejects a
         # batch of more than ten.
-        assert [len(batch) for batch in batches] == [10, 10]
+        assert [len(batch) for batch in batches] == [10, 10, 4]
         sent = {(_isp_of(query), query["Metric"]) for batch in batches for query in batch}
-        assert len(sent) == 20
+        assert len(sent) == 24
 
     def test_the_domain_cap_keeps_the_domains_that_actually_sent(self):
         # The cap used to take the first few domains in id order, which is the order they were

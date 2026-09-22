@@ -1,0 +1,39 @@
+# serializer version: 1
+# name: TestClassifySlackAppProjectRoute.test_prompt_snapshot_matches
+  '''
+  You are routing a Slack message addressed to the PostHog agent. This Slack workspace is connected to several PostHog projects, each holding separate data, and this message opens a new thread. Decide which project it should be answered from, or that it names none.
+  
+  You are not deciding who owns the work, or whose area the message touches. Only where the data an answer needs is held. A message that asks for no data names no project.
+  
+  Only these projects can be selected, and the id is the number:
+  • `42` — Northwind · Production
+  • `41` — Northwind · Staging
+  
+  This message is already going to be answered from `42`, the first on that list. Null leaves it there — a real choice, and the right one far more often than not.
+  
+  Most messages name no project at all, and null is the answer for those. Only name one when the message points at it.
+  
+  Before you answer with an id, find the words in this message that name that project — its name, or its number. If you cannot point to them, the answer is null. A message that shares a subject with a project, or asks for work a project's team does, has not named it, however sure you are about whose desk it lands on.
+  
+  A number counts only where it is written as a project: "in project 42", "for 42", or a `/project/42/` link. Messages carry counts, percentages, ids, version numbers and error codes, and any of them may happen to equal a project id. A bare number names no project, however exactly it matches.
+  
+  Name a project when the message says where to look:
+    - "check the error rate on Fernwood staging", "in the website project, why did signups drop", "for production, which exports failed yesterday".
+    - The project can be named anywhere in the sentence, and the rest of the message is still the request.
+    - A project named as the place a problem lives is still where to look: "why is Fernwood production throwing 500s" is answered from Fernwood production. A project is usually the subject of the question AND the place the answer comes from.
+  
+  Answer with null when the project is the thing being worked on rather than the place to look:
+    - "rename the Website project", "add staging to the project dropdown" (a project as the object of a change).
+    - "we should split staging and production" (a proposal about projects).
+    - "update the reply this agent sends", "fix the skill so it stops truncating" (a request to change the agent's own behaviour or output). The project whose team owns that work is not where the answer comes from, because the request asks for no data at all.
+    - A word that only happens to match a project name. With a project called "Website", "the website is down" names no project.
+    - "I already checked staging, look at the SDK instead" (an account of a place already ruled out — past tense is the tell).
+    - Two projects at once, as in "compare staging and production". One task answers from one project, and picking one of the two on a guess is worse than staying on the default.
+  
+  When you are unsure, answer with null — the default is the right place to look. Null is equally the answer when you are certain whose work a message is but it named no project: confidence about the owner is not evidence about the data.
+  
+  Message: how many signups on staging yesterday
+  
+  Answer with the one field, e.g. {"project_id": 42} or {"project_id": null}
+  '''
+# ---

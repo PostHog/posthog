@@ -58,9 +58,12 @@ rules:
                               |Account
                               |AccountChannelSummary
                               |AccountRelationship
+                              |AccountRelationshipControl
                               |AccountRelationshipDefinition
                               |AccountTrackRuleRun
                               |Action
+                              |AEOCitationCheck
+                              |AEOPrompt
                               |AgentApplication
                               |AgentArtifact
                               |AgentIdentityCredential
@@ -74,6 +77,7 @@ rules:
                               |AgentTransportBinding
                               |AgentUser
                               |AIObservabilityChecklistItemState
+                              |AITrainingDeletionRequest
                               |Alert
                               |AlertConfiguration
                               |Annotation
@@ -115,6 +119,8 @@ rules:
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
                               |Conversation
+                              |ConversationDelivery
+                              |ConversationDeliveryPart
                               |ConversationInboundEvent
                               |ConversationRestoreToken
                               |CoreMemory
@@ -206,6 +212,7 @@ rules:
                               |FeatureRequest
                               |FeatureRequestAccountLink
                               |FeatureRequestEvidence
+                              |FeatureRequestGitHubLink
                               |FeatureRequestHistory
                               |FeatureRequestProductArea
                               |FeatureRequestProductAreaLink
@@ -258,6 +265,7 @@ rules:
                               |LoopTrigger
                               |LLMModelConfiguration
                               |LLMPrompt
+                              |LLMPromptDependency
                               |LLMPromptLabel
                               |LLMProviderKey
                               |LLMSkill
@@ -308,6 +316,7 @@ rules:
                               |QuickFilterContext
                               |ReplayObservation
                               |ReplayObservationLabel
+                              |ReplayObservationMedia
                               |ReplayObservationUsage
                               |ReplayObservationView
                               |ReplayScanner
@@ -325,6 +334,7 @@ rules:
                               |ResourceLink
                               |ScoreDefinition
                               |SavedHeatmap
+                              |HeatmapCaptureConfigVersion
                               |ScheduledChange
                               |SessionGroupSummary
                               |SessionRecording
@@ -334,6 +344,8 @@ rules:
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
+                              |SignalReportCheck
+                              |SignalReportGithubComment
                               |SignalReportPullRequest
                               |SignalReportAssignment
                               |SignalReportRefund
@@ -356,7 +368,10 @@ rules:
                               |SourceGroupLease
                               |StreamlitApp
                               |Subscription
+                              |SubscriptionContext
                               |SubscriptionDelivery
+                              |PlatformAlert
+                              |PlatformAlertConfiguration
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -470,6 +485,7 @@ rules:
                         |Account
                         |AccountChannelSummary
                         |AccountRelationship
+                        |AccountRelationshipControl
                         |AccountRelationshipDefinition
                         |AccountTrackRuleRun
                         |Action
@@ -486,6 +502,7 @@ rules:
                         |AgentTransportBinding
                         |AgentUser
                         |AIObservabilityChecklistItemState
+                        |AITrainingDeletionRequest
                         |Alert
                         |AlertConfiguration
                         |Annotation
@@ -527,6 +544,8 @@ rules:
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
                         |Conversation
+                        |ConversationDelivery
+                        |ConversationDeliveryPart
                         |ConversationInboundEvent
                         |ConversationRestoreToken
                         |CoreMemory
@@ -615,6 +634,7 @@ rules:
                         |FeatureRequest
                         |FeatureRequestAccountLink
                         |FeatureRequestEvidence
+                        |FeatureRequestGitHubLink
                         |FeatureRequestHistory
                         |FeatureRequestProductArea
                         |FeatureRequestProductAreaLink
@@ -662,6 +682,7 @@ rules:
                         |NotebookWidgetInstance
                         |LLMModelConfiguration
                         |LLMPrompt
+                        |LLMPromptDependency
                         |LLMPromptLabel
                         |LLMProviderKey
                         |LLMSkill
@@ -710,6 +731,7 @@ rules:
                         |QuickFilterContext
                         |ReplayObservation
                         |ReplayObservationLabel
+                        |ReplayObservationMedia
                         |ReplayObservationUsage
                         |ReplayObservationView
                         |ReplayScanner
@@ -727,6 +749,7 @@ rules:
                         |ResourceLink
                         |ScoreDefinition
                         |SavedHeatmap
+                        |HeatmapCaptureConfigVersion
                         |ScheduledChange
                         |SessionGroupSummary
                         |SessionRecording
@@ -736,6 +759,8 @@ rules:
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
+                        |SignalReportCheck
+                        |SignalReportGithubComment
                         |SignalReportPullRequest
                         |SignalReportAssignment
                         |SignalReportRefund
@@ -758,7 +783,10 @@ rules:
                         |SourceGroupLease
                         |StreamlitApp
                         |Subscription
+                        |SubscriptionContext
                         |SubscriptionDelivery
+                        |PlatformAlert
+                        |PlatformAlertConfiguration
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification

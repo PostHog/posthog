@@ -1,5 +1,6 @@
 import re
 import json
+import math
 import time
 import random
 import datetime
@@ -38,6 +39,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter
 from social_django.strategy import DjangoStrategy
 from social_django.views import auth
@@ -76,6 +78,7 @@ from posthog.rate_limit import (
     CodeBasedVerificationResendThrottle,
     CodeBasedVerificationThrottle,
     LoginPrecheckThrottle,
+    SSOLoginThrottle,
     TwoFactorThrottle,
     UserPasswordResetThrottle,
 )
@@ -146,9 +149,18 @@ def axes_locked_out(*args, **kwargs):
 
 
 def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
+    sso_login_throttle = SSOLoginThrottle()
+    if not sso_login_throttle.allow_request(cast(Request, request), view=cast(APIView, None)):
+        response = HttpResponse("Too many requests. Please try again later.", status=429)
+        wait = sso_login_throttle.wait()
+        if wait is not None:
+            response["Retry-After"] = str(math.ceil(wait))
+        return response
+
     sso_providers = get_instance_available_sso_providers()
     # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance
     sso_providers["saml"] = settings.EE_AVAILABLE
+    sso_providers["oidc"] = settings.EE_AVAILABLE
 
     is_reauth = is_sso_reauth_begin(request)
 
@@ -161,8 +173,8 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
 
     # The one known `connect_from` value is "posthog_code" - what PH Code uses when linking GH profile to PostHog user
     connect_from = (request.GET.get("connect_from") or "").strip()
-    if connect_from:
-        # For linking a social provider, we keep the session and set the next URL to /account-connected/github-login
+    if connect_from and backend == "github":
+        # For linking GitHub, keep the session and set the next URL to /account-connected/github-login
         # (see frontend AccountConnected). QueryDict must be copied before mutation (GET is often immutable).
         query_dict = request.GET.copy()
         query_dict["next"] = (
@@ -438,16 +450,18 @@ class LoginPrecheckSerializer(serializers.Serializer):
         ]
 
         saml_available = IdentityProviderConfig.objects.get_is_saml_available_for_email(email)
+        oidc_available = IdentityProviderConfig.objects.get_is_oidc_available_for_email(email)
 
         return {
             "sso_enforcement": sso_enforcement_for_login_address(email, user),
             "saml_available": saml_available,
+            "oidc_available": oidc_available,
             "webauthn_credentials": webauthn_credentials,
-            **self._available_local_methods(email, saml_available=saml_available),
+            **self._available_local_methods(email, saml_available=saml_available, oidc_available=oidc_available),
         }
 
     @staticmethod
-    def _available_local_methods(email: str, *, saml_available: bool) -> dict[str, Any]:
+    def _available_local_methods(email: str, *, saml_available: bool, oidc_available: bool = False) -> dict[str, Any]:
         """
         Report whether this account can log in with a password, and which of its linked social
         identities are actually usable on this instance, so the login form can stop offering a
@@ -475,6 +489,8 @@ class LoginPrecheckSerializer(serializers.Serializer):
             # SAML is domain-configured rather than instance-configured, so it isn't covered above.
             usable_providers.add("saml")
         linked_providers = set(user.social_auth.values_list("provider", flat=True))
+        if oidc_available:
+            usable_providers.add("oidc")
 
         return {
             "password_login_available": password_login_available,
@@ -605,9 +621,8 @@ class DevLoginSerializer(serializers.Serializer):
             return self._create_fresh_account()
 
         request = self.context["request"]
-        try:
-            user = User.objects.get(email__iexact=validated_data["email"], is_active=True)
-        except User.DoesNotExist:
+        user = EmailLookupHandler.get_user_by_email(validated_data["email"])
+        if user is None:
             raise serializers.ValidationError("User not found", code="user_not_found")
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
@@ -1290,6 +1305,34 @@ def _sso_reauth_request(strategy: DjangoStrategy) -> HttpRequest | None:
         return None
 
     return request
+
+
+def social_identity_matches_session(
+    strategy: DjangoStrategy,
+    backend: Any,
+    details: dict[str, Any] | None = None,
+    user: User | None = None,
+    social: Any = None,
+    **kwargs: Any,
+) -> None:
+    request = strategy.request
+    if not request or not request.user.is_authenticated or social is not None:
+        return
+
+    is_github_account_link = getattr(backend, "name", "") == "github" and (
+        strategy.session_get("next") or ""
+    ).startswith("/account-connected/github-login")
+    if is_github_account_link:
+        return
+
+    identity_email = ((details or {}).get("email") or "").lower()
+    if user is None or user.pk != request.user.pk or identity_email != request.user.email.lower():
+        logger.warning(
+            "SSO identity mismatch for authenticated session",
+            backend=getattr(backend, "name", ""),
+            session_user_id=request.user.pk,
+        )
+        raise AuthFailed(backend, "reauth_user_mismatch")
 
 
 def social_reauth(

@@ -35,10 +35,7 @@ export interface AnalyticsTracker {
     route: string,
     visibilityAtSettle: DocumentVisibilityState,
   ): void;
-  captureSurveyResponse(params: {
-    surveyId: string;
-    responses: Array<{ questionId: string; response: string }>;
-  }): void;
+  getSessionId(): string | undefined;
 }
 
 export const ANALYTICS_TRACKER = Symbol.for("posthog.ui.AnalyticsTracker");
@@ -96,11 +93,6 @@ export function recordNavigationSettled(
   );
 }
 
-export function captureSurveyResponse(params: {
-  surveyId: string;
-  responses: Array<{ questionId: string; response: string }>;
-}): void {
-  resolveService<AnalyticsTracker>(ANALYTICS_TRACKER).captureSurveyResponse(
-    params,
-  );
+export function getAnalyticsSessionId(): string | undefined {
+  return resolveService<AnalyticsTracker>(ANALYTICS_TRACKER).getSessionId();
 }

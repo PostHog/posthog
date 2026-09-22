@@ -108,6 +108,9 @@ export function prettifyScoutSkillName(skillName: string): string {
     return cleaned.charAt(0).toUpperCase() + cleaned.slice(1)
 }
 
+/** Mirrors `SignalScoutConfig.MAX_DISPLAY_NAME_LENGTH`, so the field reports the cap the server enforces. */
+export const MAX_SCOUT_DISPLAY_NAME_LENGTH = 200
+
 export function scoutDisplayName(config: Pick<SignalScoutConfig, 'skill_name' | 'display_name'>): string {
     return config.display_name || prettifyScoutSkillName(config.skill_name)
 }

@@ -21,7 +21,7 @@ from posthog.ph_client import get_client
 
 from products.signals.dags.inbox_ranking.common import snapshot_bounds
 from products.signals.dags.inbox_ranking.training.promotion import PromotionDecision
-from products.signals.dags.inbox_ranking.training.unseen import HeadGrade
+from products.signals.dags.inbox_ranking.training.unseen import CANDIDATE_ROLE, HeadGrade
 
 # Not a person: one fixed id for the whole dag, and no person profile is created for it. Local dev
 # runs get their own id so they never blend into the prod series.
@@ -34,6 +34,8 @@ PROMOTION_DECIDED_EVENT = "inbox_ranking_promotion_decided"
 UNSEEN_REPORT_SCORED_EVENT = "inbox_ranking_unseen_report_scored"
 UNSEEN_HEAD_GRADED_EVENT = "inbox_ranking_unseen_head_graded"
 UNSEEN_REPORT_GRADED_EVENT = "inbox_ranking_unseen_report_graded"
+UNSEEN_CALIBRATION_EVENT = "inbox_ranking_unseen_calibration"
+HOLDOUT_CALIBRATION_EVENT = "inbox_ranking_holdout_calibration"
 
 # Candidate metadata copied onto every per-head event so a chart can filter or break down on it.
 _CANDIDATE_CONTEXT_KEYS = (
@@ -59,13 +61,18 @@ class TrainingEvent:
 class HeadExampleCounts:
     rows: int
     positives: int
+    # Of the positives, how many sit on their report's birth day: most outcomes land there, so a
+    # drop in this share is the first sign the birth-day rule stopped keeping them.
+    birth_day_positives: int
 
 
 def candidate_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
     """One event per head: the head's metrics plus the candidate context. A head the candidate
     could not fit still gets an event (`trained` false, `readable` false), so a per-head alert sees
-    a bad day instead of a missing one."""
-    context = {key: metadata.get(key) for key in _CANDIDATE_CONTEXT_KEYS}
+    a bad day instead of a missing one. The role is stamped rather than read from the metadata: this
+    asset only ever fits candidates, and the unseen events carry both roles, so without it a chart
+    filtered to the candidate keeps the unseen line and drops these rows."""
+    context = {key: metadata.get(key) for key in _CANDIDATE_CONTEXT_KEYS} | {"model_role": CANDIDATE_ROLE}
     trained = [
         TrainingEvent(
             event=CANDIDATE_TRAINED_EVENT,
@@ -113,6 +120,7 @@ def examples_events(
                 "head": head,
                 "rows": counts.rows,
                 "positives": counts.positives,
+                "birth_day_positives": counts.birth_day_positives,
             },
         )
         for head, counts in per_head.items()
@@ -161,6 +169,36 @@ def unseen_head_graded_events(*, run_id: str, grades: Sequence[HeadGrade]) -> li
     return [
         TrainingEvent(event=UNSEEN_HEAD_GRADED_EVENT, properties={**grade.as_dict(), "run_id": run_id})
         for grade in grades
+    ]
+
+
+def unseen_calibration_events(*, run_id: str, rows: Sequence[Mapping[str, Any]]) -> list[TrainingEvent]:
+    """One event per (model, head, score decile) of the unseen grade: how much the decile predicted
+    against how often the outcome happened. One event per bucket because a decile table on the head
+    event would be a JSON array, which no insight can break down."""
+    return [TrainingEvent(event=UNSEEN_CALIBRATION_EVENT, properties={**row, "run_id": run_id}) for row in rows]
+
+
+def holdout_calibration_events(
+    *, partition_key: str, run_id: str, model_name: str, rows: Sequence[Mapping[str, Any]]
+) -> list[TrainingEvent]:
+    """The same read on the candidate's holdout. The properties match the unseen event, so one
+    insight holds both lines and a gap between them points at holdout optimism. These rows score the
+    train-only fit and the unseen rows score the refit that ships, so the refit moves the gap too.
+    The role is stamped rather than grouped on: a run grades only the candidate it just fit, and
+    without it a chart filtered to the candidate keeps the unseen line and drops this one."""
+    return [
+        TrainingEvent(
+            event=HOLDOUT_CALIBRATION_EVENT,
+            properties={
+                "model_name": model_name,
+                "model_version": partition_key,
+                "model_role": CANDIDATE_ROLE,
+                "run_id": run_id,
+                **row,
+            },
+        )
+        for row in rows
     ]
 
 

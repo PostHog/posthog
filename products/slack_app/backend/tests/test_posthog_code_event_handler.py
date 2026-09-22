@@ -689,106 +689,58 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.kwargs["start_signal_args"][0]
         assert workflow_inputs.user_id == self.user.id
 
+    @parameterized.expand(
+        [
+            ("project_set", "<@UBOT123> project 2", "/posthog project <id>"),
+            ("project_show", "<@UBOT123> project", "/posthog project`"),
+            ("project_set_workspace", "<@UBOT123> project workspace 2", "/posthog project workspace <id>"),
+            ("rules_list", "<@UBOT123> rules list", "/posthog rules list"),
+            ("rules_add_no_repo", '<@UBOT123> rules add "investigate flaky tests"', "/posthog rules add"),
+            ("help", "<@UBOT123> help", "/posthog help"),
+            # Retired on both surfaces, so it points at the listing rather than its slash twin.
+            ("deprecated_default_repo", "<@UBOT123> default repo set org/repo", "/posthog help"),
+        ]
+    )
+    @patch("products.slack_app.backend.api._post_slack_user_ephemeral")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_command_workflow_receives_resolved_user_id(self, mock_sync_connect, mock_asyncio_run):
-        # Command path mirrors the mention path: routing resolves the user once
-        # and the command workflow gets ``user_id`` so it skips its legacy
-        # resolve-user activity on replay-safe code paths.
+    def test_mention_that_reads_as_a_command_is_redirected_and_starts_nothing(
+        self, _name, text, expected_pointer, mock_sync_connect, mock_asyncio_run, mock_ephemeral
+    ):
+        # Unrecognised, ``@PostHog project 2`` becomes a coding task about its own syntax.
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+
+        result = route_posthog_code_event_to_relevant_region(request, {**self.event, "text": text}, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_sync_connect.assert_not_called()
+        mock_asyncio_run.assert_not_called()
+        assert expected_pointer in mock_ephemeral.call_args.args[4]
+
+    @parameterized.expand(
+        [
+            ("top_level", {}, None),
+            ("thread_opener", {"thread_ts": "1234.5678"}, None),
+            ("thread_reply", {"thread_ts": "1111.2222"}, "1111.2222"),
+        ]
+    )
+    @patch("products.slack_app.backend.api._post_slack_user_ephemeral")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_mention_command_redirect_anchors_to_the_surface_the_user_is_viewing(
+        self, _name, extra_event_fields, expected_anchor, mock_ephemeral
+    ):
         from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
 
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
-        event = {**self.event, "text": "<@UBOT123> project 2"}
 
-        route_posthog_code_event_to_relevant_region(request, event, "T12345")
-
-        mock_sync_connect.return_value.start_workflow.assert_called_once()
-        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
-        assert workflow_inputs.user_id == self.user.id
-
-    @patch("products.slack_app.backend.api.asyncio.run")
-    @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_command_text_routes_to_command_workflow(self, mock_sync_connect, mock_asyncio_run):
-        # Command text in a mention must dispatch the command workflow, never the agent
-        # mention workflow — even when a single coding-agent integration exists.
-        from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import (
-            PostHogCodeSlackMentionCommandWorkflow,
+        route_posthog_code_event_to_relevant_region(
+            request, {**self.event, "text": "<@UBOT123> help", **extra_event_fields}, "T12345"
         )
 
-        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
-
-        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
-        event = {**self.event, "text": "<@UBOT123> project 2"}
-
-        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
-
-        assert result == ROUTE_HANDLED_LOCALLY
-        mock_sync_connect.return_value.start_workflow.assert_called_once()
-        kicked_off = mock_sync_connect.return_value.start_workflow.call_args.args[0]
-        assert kicked_off == PostHogCodeSlackMentionCommandWorkflow.run
-        mock_asyncio_run.assert_called_once()
-
-    @patch("products.slack_app.backend.api.asyncio.run")
-    @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_command_workflow_receives_all_workspace_candidates(self, mock_sync_connect, mock_asyncio_run):
-        # When multiple coding-agent integrations exist for the same workspace, all of
-        # their IDs must be forwarded to the command workflow so it can handle project
-        # commands without the caller having to pre-resolve a single target.
-        from posthog.models.team.team import Team
-
-        other_team = Team.objects.create(organization=self.organization, name="Other")
-        other_integration = Integration.objects.create(
-            team=other_team,
-            kind="slack",
-            integration_id="T12345",
-            config=self.posthog_code_integration.config,
-            sensitive_config={"access_token": "xoxb-other"},
-        )
-
-        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
-
-        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
-        event = {**self.event, "text": "<@UBOT123> project 2"}
-
-        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
-
-        assert result == ROUTE_HANDLED_LOCALLY
-        mock_sync_connect.return_value.start_workflow.assert_called_once()
-        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
-        assert set(workflow_inputs.integration_ids) == {
-            self.posthog_code_integration.id,
-            other_integration.id,
-        }
-
-    @patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False)
-    @patch("products.slack_app.backend.api.asyncio.run")
-    @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_rules_add_without_repo_routes_to_command_workflow_for_picker(
-        self, mock_sync_connect, mock_asyncio_run, _mock_us_claim
-    ):
-        # ``rules add "description"`` with no inline repo is still a command, so
-        # the webhook hands it to the command workflow. The command workflow
-        # itself drives the interactive repo picker (its own signal handlers and
-        # wait_condition); the agent mention workflow is never involved.
-        from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import (
-            PostHogCodeSlackMentionCommandWorkflow,
-        )
-
-        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
-
-        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
-        event = {**self.event, "text": '<@UBOT123> rules add "investigate flaky tests"'}
-
-        result = route_posthog_code_event_to_relevant_region(request, event, "T12345")
-
-        assert result == ROUTE_HANDLED_LOCALLY
-        mock_sync_connect.return_value.start_workflow.assert_called_once()
-        kicked_off = mock_sync_connect.return_value.start_workflow.call_args.args[0]
-        assert kicked_off == PostHogCodeSlackMentionCommandWorkflow.run
+        assert mock_ephemeral.call_args.args[3] == expected_anchor
 
     @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
@@ -1581,51 +1533,6 @@ class TestAssistantEvents(TestCase):
                 {"type": "message", "channel_type": "channel", "channel": "C1", "user": "U1", "text": "hi", "ts": "1"}
             )
             mock_start.assert_not_called()
-
-
-class TestAssistantInstallWelcome(TestCase):
-    def setUp(self):
-        self.organization = Organization.objects.create(name="Install Org")
-        self.team = Team.objects.create(organization=self.organization, name="Install Team")
-        self.integration = Integration.objects.create(
-            team=self.team,
-            kind="slack",
-            integration_id="T_INSTALL",
-            config={"authed_user": {"id": "U_INSTALLER"}},
-            sensitive_config={"access_token": "xoxb-test"},
-        )
-
-    def _run(self, *, enabled: bool):
-        from products.slack_app.backend.api import _ASSISTANT_INSTALL_WELCOME, send_assistant_install_welcome
-
-        enabled_p = patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=enabled)
-        slack = patch("products.slack_app.backend.api.SlackIntegration")
-        with enabled_p, slack as slack_cls:
-            send_assistant_install_welcome(self.integration)
-        return slack_cls, _ASSISTANT_INSTALL_WELCOME
-
-    def test_dms_installer_when_enabled(self):
-        slack_cls, welcome = self._run(enabled=True)
-        slack_cls.return_value.client.chat_postMessage.assert_called_once_with(channel="U_INSTALLER", text=welcome)
-
-    def test_silent_when_flag_off(self):
-        slack_cls, _ = self._run(enabled=False)
-        slack_cls.return_value.client.chat_postMessage.assert_not_called()
-
-    def test_no_post_without_authed_user(self):
-        self.integration.config = {}
-        self.integration.save()
-        slack_cls, _ = self._run(enabled=True)
-        slack_cls.return_value.client.chat_postMessage.assert_not_called()
-
-    def test_slack_error_is_swallowed(self):
-        from products.slack_app.backend.api import send_assistant_install_welcome
-
-        enabled_p = patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=True)
-        slack = patch("products.slack_app.backend.api.SlackIntegration")
-        with enabled_p, slack as slack_cls:
-            slack_cls.return_value.client.chat_postMessage.side_effect = Exception("slack down")
-            send_assistant_install_welcome(self.integration)  # must not raise
 
 
 class TestQueueWorkflowDispatch(TestCase):

@@ -1,16 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useMemo } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { pluralize } from 'lib/utils/strings'
-import { urls } from 'scenes/urls'
 
 import { DataModelingNodeType } from '~/types'
 
 import { LineageGraph } from 'products/data_modeling/frontend/lineage/LineageGraph'
+import { lineageNodeUrl } from 'products/data_modeling/frontend/lineage/lineageNodeUrl'
 import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
 import { NodeTypeLegend } from 'products/data_modeling/frontend/lineage/NodeTypeLegend'
 import { SEARCH_SYNTAX_HELP } from 'products/data_modeling/frontend/lineage/SearchSyntaxHelp'
@@ -30,12 +31,19 @@ export function ModelsLineageTab(): JSX.Element {
         searchTerm,
         typeFilter,
         legendCollapsed,
+        parsedSearch,
         highlightedNodeIds,
         visibleNodes,
         visibleEdges,
         isFiltered,
     } = useValues(modelsLineageLogic)
     const { setSearchTerm, setTypeFilter, toggleLegendCollapsed, resetFilters } = useActions(modelsLineageLogic)
+    // A fresh Set on every render would restart the graph's fitView animation each keystroke,
+    // so keep the identity stable while the underlying selectors are unchanged.
+    const focusNodeIds = useMemo(
+        () => (parsedSearch.mode === 'search' ? highlightedNodeIds : new Set(visibleNodes.map((node) => node.id))),
+        [parsedSearch.mode, highlightedNodeIds, visibleNodes]
+    )
 
     return (
         <div className="flex flex-col gap-2">
@@ -80,6 +88,7 @@ export function ModelsLineageTab(): JSX.Element {
                 <LineageGraph
                     nodes={visibleNodes}
                     edges={visibleEdges}
+                    focusNodeIds={focusNodeIds}
                     variant="canvas"
                     interactive
                     showControls
@@ -93,7 +102,7 @@ export function ModelsLineageTab(): JSX.Element {
                         isHighlighted: highlightedNodeIds.has(node.id),
                         isRunning: node.last_run_status === 'Running',
                     })}
-                    onNodeClick={(node) => router.actions.push(urls.nodeDetail(node.id))}
+                    onNodeClick={(node) => router.actions.push(lineageNodeUrl(node))}
                     panelPosition="bottom-left"
                     panels={<NodeTypeLegend collapsed={legendCollapsed} onToggleCollapse={toggleLegendCollapsed} />}
                 />

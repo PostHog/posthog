@@ -1029,6 +1029,7 @@ class TestToolbox(unittest.TestCase):
                 "namespace_by_environment": {
                     "dev": "flags-cache-jumphost",
                     "prod-eu": "flags-cache-jumphost",
+                    "prod-us": "flags-cache-jumphost",
                 },
                 "app_label": "flags-cache-jumphost",
                 "claimed_label_key": "flags-jumphost-claimed",
@@ -1037,21 +1038,31 @@ class TestToolbox(unittest.TestCase):
 
     @patch.dict(os.environ, {}, clear=False)
     def test_resolve_namespace_uses_golden_namespace_for_migrated_environments(self):
-        """dev and prod-eu run the jumphost on the golden chart, in its own namespace."""
+        """Every environment now runs the jumphost on the golden chart, in its own namespace."""
         os.environ.pop("KUBE_NAMESPACE", None)
         pool = toolbox_script.POOLS["flags-cache-jumphost"]
 
-        for context in ("dev-eks", "dev-admin", "prod-eu-eks", "prod-eu-admin", "prod-eu", "dev"):
+        for context in (
+            "dev-eks",
+            "dev-admin",
+            "prod-eu-eks",
+            "prod-eu-admin",
+            "prod-us-eks",
+            "prod-us-admin",
+            "prod-eu",
+            "dev",
+            "prod-us",
+        ):
             with self.subTest(context=context):
                 self.assertEqual(toolbox_script.resolve_namespace(pool, context), "flags-cache-jumphost")
 
     @patch.dict(os.environ, {}, clear=False)
     def test_resolve_namespace_keeps_unmigrated_environments_on_default(self):
-        """prod-us still runs the posthog-rust release, so it stays in `posthog`."""
+        """A context that names no migrated environment falls back to the default namespace."""
         os.environ.pop("KUBE_NAMESPACE", None)
         pool = toolbox_script.POOLS["flags-cache-jumphost"]
 
-        for context in ("prod-us-eks", "prod-us-admin", None):
+        for context in (None, "unknown-eks"):
             with self.subTest(context=context):
                 self.assertEqual(toolbox_script.resolve_namespace(pool, context), "posthog")
 
