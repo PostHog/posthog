@@ -1492,9 +1492,10 @@ describe('exec tool', () => {
             }
         )
 
-        // `experiment-create-from-prompt` takes a description too, but its serializer
-        // declared no max_length until #101164, so its schema carries no cap and the
-        // prose sentence is the only place the 3,000 limit appears.
+        // The cap is also stated in prose on all three description-taking tools, so an
+        // agent that reads only the tool description learns it without opening the
+        // schema. Pinned on `experiment-create-from-prompt`, the one whose schema the
+        // constraint assertions above do not cover.
         it('states the description cap in prose for experiment-create-from-prompt', () => {
             expect(getToolDefinition('experiment-create-from-prompt').description).toContain('3,000 characters')
         })
