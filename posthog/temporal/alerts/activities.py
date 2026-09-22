@@ -37,9 +37,18 @@ from posthog.tasks.alerts.utils import (
     record_alert_delivery,
     skip_because_of_weekend,
 )
+from posthog.temporal.alerts.admission import (
+    admit_evaluation_slots,
+    hold_evaluation_slot,
+    inflight_alert_ids,
+    max_inflight_evaluations,
+    release_evaluation_slot,
+)
 from posthog.temporal.alerts.investigation import claim_investigation_slot, decide_investigation
 from posthog.temporal.alerts.metrics import record_due_insight_alert_metrics
 from posthog.temporal.alerts.types import (
+    AdmitEvaluationsInputs,
+    AdmittedEvaluations,
     AlertInfo,
     EvaluateAlertActivityInputs,
     EvaluateAlertResult,
@@ -108,8 +117,12 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=polled_at))
             .filter(insight__deleted=False)
         )
+        # A check stays due until it finishes, so admitted alerts would otherwise be handed out again.
+        selectable_query = due_alerts_query
+        if in_flight := inflight_alert_ids():
+            selectable_query = selectable_query.exclude(id__in=in_flight)
         alerts_query = (
-            due_alerts_query.annotate(_interval_order=calculation_interval_order)
+            selectable_query.annotate(_interval_order=calculation_interval_order)
             .annotate(
                 _team_rank=Window(
                     expression=RowNumber(),
@@ -176,6 +189,12 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
     except Exception:
         logger.exception("Failed to record alert scheduler capacity metrics")
     return retrieved.alerts
+
+
+@temporalio.activity.defn
+async def admit_alert_evaluations(inputs: AdmitEvaluationsInputs) -> AdmittedEvaluations:
+    admitted = await asyncio.to_thread(admit_evaluation_slots, inputs.alert_ids, limit=max_inflight_evaluations())
+    return AdmittedEvaluations(alert_ids=admitted)
 
 
 def _has_active_destinations(alert: AlertConfiguration) -> bool:
@@ -286,7 +305,10 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
         return PrepareAlertResult(action=PrepareAction.EVALUATE)
 
     async with Heartbeater():
-        return await _prepare()
+        result = await _prepare()
+    if result.action != PrepareAction.EVALUATE:
+        await asyncio.to_thread(release_evaluation_slot, inputs.alert_id)
+    return result
 
 
 def _write_errored_alert_check(alert: AlertConfiguration, error: dict) -> tuple[AlertCheck, bool]:
@@ -446,8 +468,12 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             investigation_user_id=alert.created_by_id if should_start_investigation else None,
         )
 
-    async with Heartbeater():
-        return await _evaluate()
+    await asyncio.to_thread(hold_evaluation_slot, inputs.alert_id)
+    try:
+        async with Heartbeater():
+            return await _evaluate()
+    finally:
+        await asyncio.to_thread(release_evaluation_slot, inputs.alert_id)
 
 
 @temporalio.activity.defn

@@ -39,6 +39,16 @@ class ScheduleDueAlertChecksWorkflowInputs:
     max_alerts_per_run: int = DEFAULT_MAX_DUE_ALERTS_PER_SCHEDULE_RUN
 
 
+@frozen
+class AdmitEvaluationsInputs:
+    alert_ids: list[str]
+
+
+@frozen
+class AdmittedEvaluations:
+    alert_ids: list[str]
+
+
 @dataclasses.dataclass(frozen=True)
 class CheckAlertWorkflowInputs:
     alert_id: str

@@ -11,6 +11,7 @@ from posthog.schema import AlertState
 from posthog.slo.context import JsonValue
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.alerts.activities import (
+    admit_alert_evaluations,
     cleanup_alert_checks,
     evaluate_alert,
     notify_alert,
@@ -26,6 +27,8 @@ from posthog.temporal.alerts.retry_policy import (
     alert_timeouts,
 )
 from posthog.temporal.alerts.types import (
+    AdmitEvaluationsInputs,
+    AlertInfo,
     CheckAlertWorkflowInputs,
     EvaluateAlertActivityInputs,
     NotifyAlertActivityInputs,
@@ -43,6 +46,18 @@ with temporalio.workflow.unsafe.imports_passed_through():
     from posthog.temporal.ai.anomaly_investigation import AnomalyInvestigationWorkflowInputs
 
 
+# Runs started before the deploy replay the fan-out; drop the gate once no such run is left.
+_PATCH_INFLIGHT_ADMISSION = "alerts-inflight-admission-2026-09"
+_ADMISSION_POLL_INTERVAL = dt.timedelta(seconds=2)
+# Under the one-minute schedule cadence, so the next run takes over what this one did not reach.
+_ADMISSION_RUN_BUDGET = dt.timedelta(seconds=50)
+_ADMISSION_ACTIVITY_RETRY_POLICY = temporalio.common.RetryPolicy(
+    initial_interval=dt.timedelta(seconds=1),
+    maximum_interval=dt.timedelta(seconds=10),
+    maximum_attempts=5,
+)
+
+
 @temporalio.workflow.defn(name="schedule-due-alert-checks")
 class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
     @staticmethod
@@ -58,7 +73,43 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
         if inputs is None:
             inputs = ScheduleDueAlertChecksWorkflowInputs()
 
-        alerts = await temporalio.workflow.execute_activity(
+        if not temporalio.workflow.patched(_PATCH_INFLIGHT_ADMISSION):
+            self._raise_for_failed_starts(await self._start_checks(await self._retrieve_due_alerts(inputs)))
+            return
+
+        failed_ids: list[str] = []
+        pending: list[AlertInfo] = []
+        deadline = temporalio.workflow.now() + _ADMISSION_RUN_BUDGET
+        while temporalio.workflow.now() < deadline:
+            alerts = await self._retrieve_due_alerts(inputs)
+            pending = list(alerts)
+            while pending and temporalio.workflow.now() < deadline:
+                admitted = await temporalio.workflow.execute_activity(
+                    admit_alert_evaluations,
+                    AdmitEvaluationsInputs(alert_ids=[alert.alert_id for alert in pending]),
+                    start_to_close_timeout=dt.timedelta(seconds=30),
+                    retry_policy=_ADMISSION_ACTIVITY_RETRY_POLICY,
+                )
+                if admitted.alert_ids:
+                    admitted_ids = set(admitted.alert_ids)
+                    batch = [alert for alert in pending if alert.alert_id in admitted_ids]
+                    pending = [alert for alert in pending if alert.alert_id not in admitted_ids]
+                    failed_ids.extend(await self._start_checks(batch))
+                if pending:
+                    await temporalio.workflow.sleep(_ADMISSION_POLL_INTERVAL)
+            # A short page means nothing else is due; a full page may hide more behind it.
+            if pending or len(alerts) < inputs.max_alerts_per_run:
+                break
+
+        if pending:
+            temporalio.workflow.logger.info(
+                "check_alert.admission_budget_exhausted",
+                extra={"remaining": len(pending)},
+            )
+        self._raise_for_failed_starts(failed_ids)
+
+    async def _retrieve_due_alerts(self, inputs: ScheduleDueAlertChecksWorkflowInputs) -> list[AlertInfo]:
+        return await temporalio.workflow.execute_activity(
             retrieve_due_alerts,
             inputs,
             start_to_close_timeout=dt.timedelta(minutes=2),
@@ -69,9 +120,20 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
             ),
         )
 
-        # Fan-out child workflows — one per alert. Deterministic IDs prevent
-        # duplicate checks from retries or concurrent manual triggers. Wait
-        # only for Temporal to accept the start; the children run independently.
+    @staticmethod
+    def _raise_for_failed_starts(failed_ids: list[str]) -> None:
+        if failed_ids:
+            raise ApplicationError(
+                f"Alert checks failed to start for IDs: {failed_ids}",
+                non_retryable=True,
+            )
+
+    async def _start_checks(self, alerts: list[AlertInfo]) -> list[str]:
+        """Start one child workflow per alert and return the ids whose start failed.
+
+        Deterministic IDs prevent duplicate checks from retries or concurrent manual triggers. Wait
+        only for Temporal to accept the start; the children run independently.
+        """
         failed_ids: list[str] = []
         for alert in alerts:
             slo_properties: dict[str, JsonValue] = {
@@ -113,12 +175,7 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
                     "check_alert.start_failed",
                     extra={"alert_id": alert.alert_id, "error": str(error)},
                 )
-
-        if failed_ids:
-            raise ApplicationError(
-                f"Alert checks failed to start for IDs: {failed_ids}",
-                non_retryable=True,
-            )
+        return failed_ids
 
 
 @temporalio.workflow.defn(name="check-alert")

@@ -29,6 +29,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
 )
 from posthog.models import Team, User
+from posthog.redis import get_client
 from posthog.slo.types import SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import (
     AlertEvaluationResult,
@@ -42,6 +43,12 @@ from posthog.temporal.alerts.activities import (
     prepare_alert,
     record_failed_evaluation,
     retrieve_due_alerts,
+)
+from posthog.temporal.alerts.admission import (
+    INFLIGHT_KEY,
+    count_inflight_evaluations,
+    inflight_alert_ids,
+    reserve_evaluation_slots,
 )
 from posthog.temporal.alerts.retry_policy import alert_timeouts
 from posthog.temporal.alerts.types import (
@@ -62,6 +69,13 @@ from products.product_analytics.backend.facade.models import Insight
 
 def _email_delivery(target: str, at: str = "2026-08-11T00:00:00+00:00") -> AlertDelivery:
     return AlertDelivery(channel="email", target=target, at=at)
+
+
+@pytest.fixture(autouse=True)
+def clear_inflight_slots():
+    get_client().delete(INFLIGHT_KEY)
+    yield
+    get_client().delete(INFLIGHT_KEY)
 
 
 def _valid_trends_query() -> dict:
@@ -274,8 +288,10 @@ class TestPrepareAlert:
         ctx = time_machine.travel(frozen_time, tick=False) if frozen_time else contextlib.nullcontext()
         with ctx:
             a = await _create_alert(ateam, **setup_kwargs)
+            reserve_evaluation_slots([str(a.id)])
             env = ActivityEnvironment()
             result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id)))
+            assert count_inflight_evaluations() == 0
 
         assert result.action == PrepareAction.SKIP
         assert result.reason == expected_reason
@@ -422,13 +438,19 @@ class TestPrepareAlert:
 @pytest.mark.django_db
 class TestEvaluateAlert:
     async def test_evaluate_not_firing_no_breaches(self, alert) -> None:
+        def _check_while_holding_the_slot(evaluated_alert):
+            assert str(evaluated_alert.id) in inflight_alert_ids()
+            return AlertEvaluationResult(value=5.0, breaches=None)
+
+        reserve_evaluation_slots([str(alert.id)])
         with patch(
             "posthog.temporal.alerts.activities.check_alert_for_insight",
-            return_value=AlertEvaluationResult(value=5.0, breaches=None),
+            side_effect=_check_while_holding_the_slot,
         ):
             env = ActivityEnvironment()
             result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
 
+        assert count_inflight_evaluations() == 0
         assert result.new_state == AlertState.NOT_FIRING
         assert result.should_notify is False
         assert result.alert_check_id  # stringified UUID, truthy
