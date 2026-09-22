@@ -43,7 +43,7 @@ class TestLegacyDefinitions(SimpleTestCase):
         ]
         + [
             (f"dependency_{key}", {"groups": [{"properties": [{"type": "flag", "key": key}]}]})
-            for key in (None, True, False, 7.0, [], {})
+            for key in (None, True, False, 7.0, [7], {"id": 7})
         ]
     )
     def test_excludes_invalid_targets_and_transitive_dependents(self, _name: str, filters: Any) -> None:

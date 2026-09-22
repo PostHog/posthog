@@ -1246,8 +1246,7 @@ class TestLocalEvaluationBatch(BaseTest):
         assert str(cohort_a.pk) in cohort_ids
         assert str(cohort_b.pk) in cohort_ids
 
-    def test_batch_no_cohort_flags_skips_cohort_loading(self):
-        """When no flags reference cohorts, the cohort query should be skipped entirely."""
+    def test_batch_flags_without_dependencies_skip_cohort_and_ineligible_loading(self) -> None:
         team = self._create_team_with_project("No Cohort Team")
 
         Cohort.objects.create(
@@ -1267,11 +1266,8 @@ class TestLocalEvaluationBatch(BaseTest):
             filters={"groups": [{"rollout_percentage": 100}]},
         )
 
-        with self.assertNumQueries(4):
-            # Expected queries: the minimal_flag_called_events gate, survey flag
-            # IDs, ineligible flag references, and eligible flags (with evaluation tags via ArrayAgg). Group type
-            # mappings are read from personhog, not SQL. No cohort query should
-            # be issued.
+        with self.assertNumQueries(3):
+            # Group type mappings use personhog; SQL only loads team config, surveys, and eligible flags.
             results = _get_flags_response_for_local_evaluation_batch([team])
 
         assert results[team.id]["cohorts"] == {}
@@ -1374,10 +1370,18 @@ class TestLocalEvaluationBatch(BaseTest):
             (1, True, True, True),
             (1, True, False, True, "encrypted"),
             (1, True, False, False, "survey"),
+            (2, True, True, True, None, "key"),
+            (2, True, True, False, None, "integer"),
         ]
     )
     def test_batch_excludes_unsupported_targets_and_preserves_supported_missing_dependencies(
-        self, version: object, active: bool, deleted: bool, dependency_value: bool, exclusion: str | None = None
+        self,
+        version: object,
+        active: bool,
+        deleted: bool,
+        dependency_value: bool,
+        exclusion: str | None = None,
+        reference_kind: str = "string",
     ) -> None:
         team = self._create_team_with_project("Unsupported format")
         cohort = self._create_cohort(team, "sibling-cohort")
@@ -1403,6 +1407,7 @@ class TestLocalEvaluationBatch(BaseTest):
             )
         elif exclusion == "survey":
             Survey.objects.create(team=team, name="Excluded survey", type="popover", targeting_flag=unsupported)
+        reference = {"string": str(unsupported.pk), "integer": unsupported.pk, "key": unsupported.key}[reference_kind]
         FeatureFlag.objects.create(
             team=team,
             key="depends-on-unsupported",
@@ -1411,7 +1416,7 @@ class TestLocalEvaluationBatch(BaseTest):
                     {
                         "properties": [
                             {
-                                "key": str(unsupported.pk),
+                                "key": reference,
                                 "type": "flag",
                                 "value": dependency_value,
                                 "operator": "flag_evaluates_to",
@@ -1452,6 +1457,11 @@ class TestLocalEvaluationBatch(BaseTest):
         other = self._create_team_with_project("Independent")
         bad = FeatureFlag.objects.create(team=self.team, key="malformed", filters={})
         FeatureFlag.objects.filter(pk=bad.pk).update(filters=filters, deleted=deleted)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="depends-on-malformed",
+            filters={"groups": [{"properties": [{"type": "flag", "key": bad.pk, "value": False}]}]},
+        )
         FeatureFlag.objects.create(team=self.team, key="healthy", filters={"groups": []})
         FeatureFlag.objects.create(team=other, key="other", filters={"groups": []})
         dropped_before = FLAG_PROCESSING_ERROR_COUNTER._value.get()

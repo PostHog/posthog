@@ -49,7 +49,7 @@ from posthog.storage.hypercache import (
     emit_cache_sync_metrics,
 )
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
-from posthog.utils import capture_exception_throttled, get_safe_cache
+from posthog.utils import capture_exception_throttled, get_safe_cache, safe_int
 
 from products.cohorts.backend.models.cohort import Cohort, is_cohort_recalculation_only_save
 from products.experiments.backend.models.experiment import Experiment, live_experiment_exists
@@ -630,16 +630,6 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
     )
     ineligible = Q(deleted=True) | Q(has_encrypted_payloads=True) | Q(pk__in=survey_flag_ids)
     excluded_by_team: dict[int, set[str]] = defaultdict(set)
-    # Ineligible targets still exclude dependents when their format is unsupported.
-    # They need no model instances, evaluation contexts, or experiment annotations.
-    for flag_id, key, team_id, filters in flag_queryset.filter(ineligible).values_list(
-        "id", "key", "team_id", "filters"
-    ):
-        try:
-            validate_legacy_filters(filters)
-        except (ConfigFormatError, TypeError, ValueError):
-            excluded_by_team[team_id].update(flag_references({"id": flag_id, "key": key}))
-
     # Preserve ordering for groupby and ETag stability.
     # Materializing allows two passes: first to extract cohort IDs, then to
     # serialize — one DB round trip instead of two.
@@ -658,6 +648,7 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
 
     direct_cohort_ids: set[int] = set()
     eligible_flags: list[FeatureFlag] = []
+    dependency_references: set[str] = set()
     for flag in all_flags:
         if not _is_supported_legacy_flag(flag.filters):
             excluded_by_team[flag.team_id].update(flag_references({"id": flag.pk, "key": flag.key}))
@@ -665,7 +656,24 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
         flag._evaluation_tag_names = flag.evaluation_tag_names_agg or []
         flag._has_experiment = flag.has_experiment_agg
         direct_cohort_ids.update(referenced_cohort_ids(flag.filters))
+        dependency_references.update(str(prop["key"]) for prop in flag_dependency_properties(flag.filters))
         eligible_flags.append(flag)
+
+    if dependency_references:
+        dependency_ids = {
+            flag_id for reference in dependency_references if (flag_id := safe_int(reference)) is not None
+        }
+        # Ineligible targets still exclude dependents when their format is unsupported.
+        # They need no model instances, evaluation contexts, or experiment annotations.
+        for flag_id, key, team_id, filters in (
+            flag_queryset.filter(ineligible)
+            .filter(Q(pk__in=dependency_ids) | Q(key__in=dependency_references))
+            .values_list("id", "key", "team_id", "filters")
+        ):
+            try:
+                validate_legacy_filters(filters)
+            except (ConfigFormatError, TypeError, ValueError):
+                excluded_by_team[team_id].update(flag_references({"id": flag_id, "key": key}))
 
     # Load only the referenced cohorts and resolve nested dependencies
     # iteratively. Each iteration loads newly discovered nested cohort IDs
@@ -780,9 +788,7 @@ def _update_flag_definitions(team: Team | int, ttl: int | None = None) -> bool:
     resolved_team = _resolve_team(team)
     if resolved_team is None:
         return False
-    return flag_definitions_hypercache.update_cache(
-        resolved_team, ttl=ttl, should_skip_write=_skip_write_if_group_mapping_emptied
-    )
+    return flag_definitions_hypercache.update_cache(resolved_team, ttl=ttl)
 
 
 # HyperCache management config for warming/verification. Uses the same team-scoping
