@@ -106703,6 +106703,13 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type FileSystemDestroyParams = {
+    /**
+     * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
+     */
+    recursive?: boolean;
+    };
+
     export type FileSystemShortcutListParams = {
     /**
      * Number of results to return per page.
