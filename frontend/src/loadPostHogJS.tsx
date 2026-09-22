@@ -189,9 +189,9 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
         })
     } else {
         // Shared, embedded and exported pages clear the key so a customer's visitors are never
-        // logged to PostHog. init() still contacts posthog-js's default host for remote config and
-        // /flags/ before `loaded` can opt out, so those pages sent three requests per view from
-        // inside the customer's site. Disabling flags also skips the remote config fetch.
+        // logged to PostHog. Without this option init() fetches remote config and /flags/ from
+        // posthog-js's default host before `loaded` can opt out, which reaches PostHog from
+        // inside the customer's site.
         posthog.init('fake_token', {
             autocapture: false,
             advanced_disable_flags: true,

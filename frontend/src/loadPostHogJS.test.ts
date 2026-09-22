@@ -15,8 +15,6 @@ describe('loadPostHogJS', () => {
 
     describe('without a project key', () => {
         it('starts posthog-js with no request to PostHog', () => {
-            // Shared, embedded and exported pages take this path inside a customer's site. Without
-            // this option posthog-js fetches remote config and /flags/ from its default host.
             window.JS_POSTHOG_API_KEY = undefined
 
             loadPostHogJS()
