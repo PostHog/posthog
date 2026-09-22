@@ -377,8 +377,17 @@ pub const FLAG_DEFINITIONS_CACHE_HIT_COUNTER: &str = "flags_flag_definitions_cac
 pub const FLAG_DEFINITIONS_CACHE_MISS_COUNTER: &str = "flags_flag_definitions_cache_miss_total";
 
 // Flag definitions ETag metrics
-// Labels: result (hit = 304, miss = 200 with stale etag, none = 200 without etag, redis_error = etag read failed)
+// Labels: result (hit = 304, miss = 200 with stale etag, none = 200 without etag,
+// redis_missing = Redis answered and held no etag key,
+// redis_error = the etag read failed or the stored value did not decode)
 pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_total";
+
+// Per-pod resolved cluster for the /flags/definitions reader: 1 on the dedicated flags Redis,
+// 0 on the shared one. Every emission carries a `reason` label, so
+// `{reason="no_dedicated_client"}` separates a pod that wanted the dedicated cluster and could
+// not get one from a pod nobody has flipped yet.
+pub const FLAG_DEFINITIONS_READS_DEDICATED_REDIS_GAUGE: &str =
+    "flags_flag_definitions_reads_dedicated_redis";
 
 // Flag definitions self-heal: a cache miss enqueued a rebuild request for a Celery
 // worker to drain. Labels: result (ok = enqueued, error = redis zadd failed).
@@ -421,6 +430,9 @@ pub const FLAG_QUOTA_LIMITED_COUNTER: &str = "flags_quota_limited_total";
 // Conditions skipped during evaluation because required context was absent.
 // Labels: reason (missing_device_id, missing_group_type)
 pub const FLAG_CONDITION_SKIPPED_COUNTER: &str = "flags_condition_skipped_total";
+
+// V2 ingress outcomes use fixed labels and never include configuration values.
+pub const FLAG_V2_PARSE_COUNTER: &str = "flags_v2_config_parse_total";
 
 // Incremented once per flag left out of a team's payload because its `filters` JSON
 // does not deserialize into FlagFilters. A property filter with no `"type"` key is

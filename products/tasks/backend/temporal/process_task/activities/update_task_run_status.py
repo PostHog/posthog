@@ -11,6 +11,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.metrics import observe_prewarmed_unused_if_never_activated, observe_wizard_run_unbound
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
@@ -117,6 +118,9 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
         )
 
     # Side effects run after commit, outside the row lock (repo convention: no side effects in atomic).
+    if input.status in _TERMINAL_STATUSES:
+        resume_workflow_step_for_run(task_run)
+
     task_run.publish_stream_state_event()
     observe_wizard_run_unbound(task_run)
 
@@ -207,15 +211,10 @@ def _is_first_chat_run_of_task(task_run: TaskRun, state: dict[str, Any]) -> bool
     """Whether this run opened the conversation, the run-level reading of `is_new_conversation`.
 
     A terminal run resumes into a successor rather than reopening, so "no earlier run" is what
-    separates a new conversation from a continued one. Two kinds of earlier history do not count:
-
-    - A prewarm nobody typed into. It idles out on its own and the next message resumes into a
-      successor, so counting it would report the user's first real chat as a continuation.
-    - The LangGraph half of a converted conversation. That conversation already counted once on
-      the legacy runtime, and its sandbox side starts on a fresh task with no earlier run.
+    separates a new conversation from a continued one. One kind of earlier history does not count:
+    a prewarm nobody typed into. It idles out on its own and the next message resumes into a
+    successor, so counting it would report the user's first real chat as a continuation.
     """
-    if state.get("converted_from_langgraph"):
-        return False
     # Match the prewarm on the key's absence rather than with `exclude`. A queryset `exclude` on a
     # JSON key compares NULL for every row that lacks the key, so it would drop exactly the earlier
     # runs that did hold a chat and report every conversation as new.
@@ -252,6 +251,7 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                 {
                     "duration_seconds": task_run._duration_seconds(),
                     "termination_reason": termination_reason,
+                    "has_summary": bool((task_run.state or {}).get("task_summary")),
                     **relay_state,
                 },
             )

@@ -1,8 +1,9 @@
 import { IconTrash } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { EmailViewerChip } from '../EmailViewerModal'
 import { getHogFlowStep } from '../hogflows/steps/HogFlowSteps'

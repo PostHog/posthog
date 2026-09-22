@@ -3,7 +3,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { CountedPaginatedResponse } from 'lib/api'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { InsightModel, QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 
 import { insightUsesVariable } from './utils'
 
@@ -19,12 +19,9 @@ import { insightUsesVariable } from './utils'
  * @returns Array of insights that use the variable
  * @throws Error if the fetch fails
  */
-export async function fetchInsightsUsingVariable(
-    teamId: number,
-    variableId: string
-): Promise<QueryBasedInsightModel[]> {
+export async function fetchInsightsUsingVariable(teamId: number, variableId: string): Promise<InsightModel[]> {
     try {
-        const matchingInsights: QueryBasedInsightModel[] = []
+        const matchingInsights: InsightModel[] = []
         let offset = 0
         const limit = 100
 
@@ -34,9 +31,7 @@ export async function fetchInsightsUsingVariable(
                 `api/environments/${teamId}/insights/?basic=true&limit=${limit}&offset=${offset}`
             )
 
-            const insights = legacyResponse.results.map((legacyInsight) =>
-                getQueryBasedInsightModel(legacyInsight, 'variable_insights_list')
-            )
+            const insights = legacyResponse.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
 
             // Filter insights that use this variable
             const filtered = insights.filter((insight) => insightUsesVariable(insight, variableId))

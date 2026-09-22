@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import DatabaseError, OperationalError, connection, transaction
 from django.db.models import Model
@@ -21,6 +21,10 @@ from posthog.models.team import Team
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
+    DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE,
+    DUPLICATE_PRIMARY_KEYS_RAW_ERROR,
+    MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
+    MISSING_PRIMARY_KEYS_RAW_ERROR,
     REPARTITION_HOLD_MAX_AGE,
     ExternalDataSchema,
     apply_incremental_lookback,
@@ -1281,3 +1285,146 @@ class TestRepartitionHoldsImport:
         naive = (datetime.now(UTC) - timedelta(minutes=5)).replace(tzinfo=None).isoformat()
         schema = self._schema_with({"temp_uri": "s3://t", "held_at": naive})
         assert schema.repartition_holds_import is True
+
+
+class TestIncrementalSyncBlocked(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("friendly_missing", MISSING_PRIMARY_KEY_DISABLED_MESSAGE, "missing_primary_key"),
+            ("friendly_duplicate", DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE, "duplicate_primary_key"),
+            ("raw_missing", f"MissingPrimaryKeysException: {MISSING_PRIMARY_KEYS_RAW_ERROR}", "missing_primary_key"),
+            (
+                "raw_duplicate",
+                f"DuplicatePrimaryKeysException: {DUPLICATE_PRIMARY_KEYS_RAW_ERROR}. Primary keys being used are: ['id']",
+                "duplicate_primary_key",
+            ),
+            ("unrelated_failure", "Your SSH tunnel credentials are not valid", None),
+            ("healthy_schema", None, None),
+        ]
+    )
+    def test_only_a_key_failure_reports_a_blocked_sync(
+        self, _name: str, latest_error: str | None, expected: str | None
+    ) -> None:
+        assert ExternalDataSchema(latest_error=latest_error).incremental_sync_blocked == expected
+
+    def test_blocked_markers_match_the_raised_errors(self) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (  # noqa: PLC0415 — pulls pyarrow, which the model path must not import
+            DUPLICATE_PRIMARY_KEYS_ERROR,
+            MISSING_PRIMARY_KEYS_ERROR,
+        )
+
+        assert MISSING_PRIMARY_KEYS_RAW_ERROR == MISSING_PRIMARY_KEYS_ERROR
+        assert DUPLICATE_PRIMARY_KEYS_RAW_ERROR == DUPLICATE_PRIMARY_KEYS_ERROR
+
+
+class TestMergeConnectionMetadata(BaseTest):
+    def _source(self, connection_metadata: Any) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            source_type="MongoDB",
+            connection_metadata=connection_metadata,
+        )
+
+    def test_a_write_that_lands_before_the_merge_survives(self) -> None:
+        source = self._source({})
+        ExternalDataSource.objects.filter(pk=source.pk).update(connection_metadata={"database": "analytics"})
+
+        source.merge_connection_metadata({"engine": "mongodb", "wire_version": 7})
+
+        source.refresh_from_db()
+        assert source.connection_metadata == {"database": "analytics", "engine": "mongodb", "wire_version": 7}
+
+    def test_the_merged_value_wins_on_overlap(self) -> None:
+        source = self._source({"wire_version": 21})
+
+        source.merge_connection_metadata({"wire_version": 7})
+
+        source.refresh_from_db()
+        assert source.connection_metadata == {"wire_version": 7}
+
+    @parameterized.expand([("a_list", ["unexpected"]), ("null", None)])
+    def test_a_value_that_is_not_a_mapping_is_replaced(self, _name: str, stored: Any) -> None:
+        source = self._source(stored)
+
+        source.merge_connection_metadata({"engine": "mongodb"})
+
+        source.refresh_from_db()
+        assert source.connection_metadata == {"engine": "mongodb"}
+
+    def test_the_lock_stays_off_the_joined_config_row(self) -> None:
+        # The default manager joins revenue_analytics_config, so an unqualified FOR UPDATE would
+        # lock that table's rows as well as this one.
+        source = self._source({})
+
+        with CaptureQueriesContext(connection) as queries:
+            source.merge_connection_metadata({"engine": "mongodb"})
+
+        locking = [query["sql"] for query in queries.captured_queries if "FOR UPDATE" in query["sql"]]
+        assert len(locking) == 1
+        assert 'FOR UPDATE OF "posthog_externaldatasource"' in locking[0]
+
+    def test_updated_at_is_left_where_it_was(self) -> None:
+        # A probe is not a customer edit, so it must not move the source's updated_at.
+        source = self._source({})
+        before = source.updated_at
+
+        source.merge_connection_metadata({"engine": "mongodb"})
+
+        source.refresh_from_db()
+        assert source.updated_at == before
+
+
+class TestDeleteTable(BaseTest):
+    def _schema(self) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            source_type="Postgres",
+        )
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="orders",
+            format="Parquet",
+            external_data_source=source,
+        )
+        return ExternalDataSchema.objects.create(
+            team=self.team,
+            source=source,
+            name="orders",
+            table=table,
+            status=ExternalDataSchema.Status.COMPLETED,
+            last_synced_at=timezone.now(),
+        )
+
+    @parameterized.expand(
+        [
+            # s3fs raises FileNotFoundError when the prefix holds no objects. The files are
+            # already gone, so the delete succeeded and nothing needs reporting.
+            ("prefix_already_gone", FileNotFoundError("s3://bucket/prefix"), False),
+            ("access_denied", PermissionError("Access Denied"), True),
+        ]
+    )
+    def test_the_teardown_finishes_when_the_s3_delete_fails(
+        self, _name: str, error: Exception, expected_reported: bool
+    ) -> None:
+        schema = self._schema()
+        table_id = schema.table_id
+        assert table_id is not None
+        client = MagicMock()
+        client.delete.side_effect = error
+
+        with (
+            patch("products.data_warehouse.backend.facade.api.get_s3_client", return_value=client),
+            patch("products.warehouse_sources.backend.models.external_data_schema.capture_exception") as capture,
+        ):
+            schema.delete_table()
+
+        assert capture.called is expected_reported
+        schema.refresh_from_db()
+        assert schema.table_id is None
+        assert schema.status is None
+        assert schema.last_synced_at is None
+        assert DataWarehouseTable.objects.get(id=table_id).deleted is True

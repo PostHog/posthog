@@ -108,6 +108,10 @@ def recently_viewed_insights(*, team_id: int, user_id: int, limit: int) -> list[
     return logic.recently_viewed_insights(team_id=team_id, user_id=user_id, limit=limit)
 
 
+def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Collection[int]) -> list[Insight]:
+    return logic.insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
+
+
 def recent_viewers_by_insight(
     *, team_id: int, insight_ids: Collection[int], since: datetime, max_per_insight: int
 ) -> dict[int, list["User"]]:
@@ -128,3 +132,17 @@ def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVar
 def get_query_specific_instructions(kind: str) -> str:
     """Analysis guidance for a query kind, used by LLM insight and subscription summaries."""
     return logic.get_query_specific_instructions(kind)
+
+
+def get_or_create_saved_insight(
+    *,
+    team_id: int,
+    user_id: int,
+    short_id: str,
+    name: str | None,
+    description: str | None,
+    query: dict[str, object] | None,
+) -> tuple[int, bool]:
+    return logic.get_or_create_saved_insight(
+        team_id=team_id, user_id=user_id, short_id=short_id, name=name, description=description, query=query
+    )

@@ -33,6 +33,7 @@ from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
+from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime
 from posthog.temporal.ai_observability.evaluation_llm_judge import LLM_JUDGE_RETRY_POLICY
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EmitInternalTelemetryInputs,
@@ -245,6 +246,94 @@ def check_session_settled_activity(inputs: CheckSessionSettledInputs) -> str:
     return last_seen.isoformat()
 
 
+# Bounds the array the quiet-point query builds. A unit with more liveness events than this is
+# past every evaluation cap already, so the fetch skips it whatever window we pick.
+QUIET_POINT_MAX_EVENTS = SESSION_RUNAWAY_CIRCUIT_BREAKER_EVENTS
+
+# Reads the client-set `timestamp`, not the arrival `_timestamp` the live probe polls on: the gap
+# this looks for has to sit on the same clock the fetch bounds by, or the window would cut the
+# transcript somewhere the events do not.
+_QUIET_POINT_SQL = """
+SELECT arraySort(groupArray(timestamp)) AS timestamps
+FROM (
+    SELECT timestamp
+    FROM posthog.ai_events AS ai_events
+    WHERE event IN {liveness_events}
+      AND {unit_predicate}
+      AND timestamp >= {window_start}
+      AND timestamp <= {window_cap}
+    ORDER BY timestamp ASC
+    LIMIT {max_events}
+)
+"""
+
+
+@frozen
+class FindQuietPointInputs:
+    team_id: int
+    target: str
+    unit_id: str
+    window_start: str
+    quiet_period_seconds: int
+    max_age_seconds: int
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id, "target": self.target, "unit_id": self.unit_id}
+
+
+def _quiet_point(timestamps: list[datetime], window_start: datetime, quiet: timedelta, cap: datetime) -> datetime:
+    """The instant an inactivity-settled run would have graded this unit.
+
+    The live path polls until the unit has been silent for the quiet period, then reads up to that
+    moment, so events after the first long gap never reach its verdict. A historical unit has all
+    its events already, so the same point is the first gap of at least the quiet period.
+    """
+    for index, timestamp in enumerate(timestamps):
+        following = timestamps[index + 1] if index + 1 < len(timestamps) else None
+        if following is None or following - timestamp >= quiet:
+            return min(timestamp + quiet, cap)
+    return cap
+
+
+@temporalio.activity.defn
+@close_db_connections
+def find_evaluation_quiet_point_activity(inputs: FindQuietPointInputs) -> str:
+    """Where an inactivity-settled backfill stops reading a unit, as an ISO timestamp."""
+    team = Team.objects.get(id=inputs.team_id)
+    window_start = as_utc_datetime(inputs.window_start)
+    quiet = timedelta(seconds=inputs.quiet_period_seconds + INGESTION_LAG_MARGIN_SECONDS)
+    cap = window_start + timedelta(seconds=inputs.max_age_seconds + INGESTION_LAG_MARGIN_SECONDS)
+    unit_field = "session_id" if inputs.target == "session" else "trace_id"
+    with tags_context(product=Product.LLM_ANALYTICS):
+        result = query_ai_events(
+            query=parse_select(_QUIET_POINT_SQL),
+            placeholders={
+                "liveness_events": ast.Constant(value=list(_LIVENESS_EVENTS)),
+                "unit_predicate": ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["ai_events", unit_field]),
+                    right=ast.Constant(value=inputs.unit_id),
+                ),
+                "window_start": ast.Constant(value=window_start),
+                "window_cap": ast.Constant(value=cap),
+                "max_events": ast.Constant(value=QUIET_POINT_MAX_EVENTS),
+            },
+            team=team,
+            query_type="EvaluationBackfillQuietPoint",
+            fall_back_to_events=False,
+            workload=Workload.OFFLINE,
+        )
+    rows = result.results or []
+    timestamps = [as_utc_datetime(value) if isinstance(value, str) else value for value in (rows[0][0] if rows else [])]
+    return _quiet_point(
+        [timestamp.replace(tzinfo=UTC) if timestamp.tzinfo is None else timestamp for timestamp in timestamps],
+        window_start,
+        quiet,
+        cap,
+    ).isoformat()
+
+
 def _clamp(value: Any, floor: int, ceiling: int, default: int) -> int:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         return default
@@ -326,7 +415,7 @@ def resolve_settle_plan(settle: dict[str, Any] | None, target: str = "trace") ->
     return SettlePlan(strategy="fixed_window", primary_seconds=window, max_age_seconds=window)
 
 
-@dataclass
+@frozen
 class RunAggregateEvaluationInputs:
     evaluation_id: str
     team_id: int
@@ -336,6 +425,8 @@ class RunAggregateEvaluationInputs:
     ai_session_id: str | None = None
     target: str = "trace"
     settle: dict[str, Any] | None = None
+    anchor_timestamp: str | None = None
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -384,7 +475,15 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunAggregateEvaluationInputs) -> WorkflowResult:
-        window_start = temporalio.workflow.now()
+        # A historical unit is settled by definition, so a backfill skips the settle wait and
+        # aggregates from the anchor, its first matching generation. Live starts carry no anchor,
+        # so old histories never take this branch and it needs no patch marker.
+        is_backfill = inputs.anchor_timestamp is not None
+        window_start = (
+            as_utc_datetime(inputs.anchor_timestamp)
+            if inputs.anchor_timestamp is not None
+            else temporalio.workflow.now()
+        )
 
         # Fail loudly rather than falling through to the trace path, which would grade `trace_id`
         # and emit a trace-shaped verdict under a session evaluation's name. Unreachable from the
@@ -397,7 +496,38 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
 
         plan = resolve_settle_plan(inputs.settle, inputs.target)
         is_session = inputs.target == "session" and inputs.ai_session_id is not None
-        if plan.strategy == "inactivity":
+
+        # A backfilled unit is graded over the span the live path would have covered from its
+        # anchor, so events that arrived after that span stay out of the verdict.
+        window_end: str | None = None
+        if is_backfill:
+            window_end = (
+                window_start + timedelta(seconds=plan.max_age_seconds + INGESTION_LAG_MARGIN_SECONDS)
+            ).isoformat()
+            if plan.strategy == "inactivity":
+                # Under inactivity the live path stops at the first long gap, which is usually far
+                # short of the maximum age. Reading to the ceiling instead would hand the judge a
+                # transcript live never saw, and a long enough unit would cross the size cap and
+                # come back skipped where live returned a verdict.
+                unit_id = inputs.trace_id
+                if is_session and inputs.ai_session_id is not None:
+                    unit_id = inputs.ai_session_id
+                quiet_point: str = await temporalio.workflow.execute_activity(
+                    find_evaluation_quiet_point_activity,
+                    FindQuietPointInputs(
+                        team_id=inputs.team_id,
+                        target=inputs.target,
+                        unit_id=unit_id,
+                        window_start=window_start.isoformat(),
+                        quiet_period_seconds=plan.primary_seconds,
+                        max_age_seconds=plan.max_age_seconds,
+                    ),
+                    start_to_close_timeout=timedelta(seconds=60),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                window_end = quiet_point
+
+        if plan.strategy == "inactivity" and not is_backfill:
             # Sleep past the lag margin too: a probe at exactly quiet_period can never pass
             # the `quiet_period + margin` settled bar, so it would burn a poll for nothing.
             initial_sleep_seconds = min(plan.primary_seconds + INGESTION_LAG_MARGIN_SECONDS, plan.max_age_seconds)
@@ -450,7 +580,7 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                             await asyncio.sleep(remaining)
                     else:
                         raise
-        elif plan.primary_seconds:
+        elif plan.primary_seconds and not is_backfill:
             await asyncio.sleep(plan.primary_seconds)
 
         eval_start = temporalio.workflow.now()
@@ -481,6 +611,7 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 session_id=inputs.ai_session_id,
                 window_start=window_start.isoformat(),
+                window_end=window_end,
             )
             if evaluation_type == "hog":
                 result = await temporalio.workflow.execute_activity(
@@ -509,6 +640,7 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 trace_id=inputs.trace_id,
                 window_start=window_start.isoformat(),
+                window_end=window_end,
             )
 
             if evaluation_type == "hog":
@@ -555,6 +687,8 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                     start_time=eval_start,
                     target=inputs.target,
                     ai_session_id=inputs.ai_session_id,
+                    backfill_id=inputs.backfill_id,
+                    event_timestamp=inputs.anchor_timestamp,
                 ),
                 schedule_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=3),

@@ -65,6 +65,10 @@ class HogQLContext:
     # Every call site that sets this MUST include an inline comment explaining why.
     bypass_warehouse_access_control: bool = False
 
+    # Lets the lazy database build reuse recently fetched per-team sources (TTL-bounded staleness).
+    # Set ONLY by editor-assist paths (autocomplete, metadata); query execution must build fresh.
+    use_cached_sources: bool = False
+
     # Virtual database we're querying, will be populated from team_id if not present
     database: Optional["Database"] = None
     # Metadata discovered for a direct Postgres connection, if one is selected
@@ -93,6 +97,8 @@ class HogQLContext:
     limit_context: Optional[LimitContext] = None
     # Apply a FORMAT clause to output data in given format.
     output_format: str | None = None
+    emit_top_level_settings: bool = True
+    top_level_settings: dict[str, object] = field(default_factory=dict)
     # Globals that will be resolved in the context of the query
     globals: Optional[dict] = None
     property_type_overrides: Optional[dict[str, str]] = None
@@ -110,6 +116,7 @@ class HogQLContext:
     # Data warehouse sync warnings collected while resolving warehouse tables referenced by the query.
     # Keyed by (table_id, schema_name) to dedupe when a table is referenced multiple times.
     data_warehouse_sync_warnings: dict[tuple[str, str], "DataWarehouseSyncWarning"] = field(default_factory=dict)
+    referenced_saved_query_ids: set[str] = field(default_factory=set)
 
     # Resources with object-level access restrictions referenced by the query, collected while printing
     # system tables. A set dedupes when several system tables share an access scope (e.g. system.dashboards
@@ -158,6 +165,10 @@ class HogQLContext:
     # regardless of retention — notably the GDPR data-deletion mutation path — set this False. Deliberately NOT a
     # HogQLQueryModifier, so a query can't disable enforcement.
     apply_events_retention_floor: bool = True
+
+    # Backend-only opt-in for transforms/events_read_in_order.py. The prefix is slower when the range is short or
+    # the filter is selective, so set it only for a query shape that was measured to be faster with it.
+    order_events_reads_by_sort_key: bool = False
 
     # Entitlement-derived floors for federated tables that declare a `retention_field`, keyed by
     # Postgres table name so two such tables can never share one window. Resolved lazily by the

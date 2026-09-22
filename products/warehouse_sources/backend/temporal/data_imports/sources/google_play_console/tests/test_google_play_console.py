@@ -410,6 +410,50 @@ def test_metric_set_windows_the_timeline_and_stops_at_the_freshness_date() -> No
     assert manager.saved == [GooglePlayConsoleResumeConfig(app="com.example.app", date="2024-03-10")]
 
 
+def test_a_wider_metric_set_asks_play_for_the_extra_dimension() -> None:
+    endpoint = METRIC_SETS["crash_rate_by_device_model"]
+    bodies: list[dict[str, Any]] = []
+
+    def request(method: str, path: str, params: Any = None, body: Any = None) -> dict[str, Any]:
+        if path.endswith(":query"):
+            bodies.append(body)
+            return {"rows": [_metric_row(dt.date(2024, 3, 5), 12, "0.01")]}
+        return _freshness(dt.date(2024, 3, 10))
+
+    with mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request):
+        client = _client(mock.MagicMock())
+        list(
+            _iter_metric_set_rows(
+                client=client,
+                endpoint=endpoint,
+                package_names=["com.example.app"],
+                history_start=dt.date(2024, 3, 1),
+                manager=_manager(),
+                resume=None,
+            )
+        )
+
+    assert bodies[0]["dimensions"] == ["versionCode", "deviceModel"]
+    assert bodies[0]["metrics"] == list(METRIC_SETS["crash_rate"].metrics)
+
+
+def test_a_wider_metric_set_row_carries_its_extra_dimension_column() -> None:
+    row = _metric_row_to_dict(
+        {
+            "startTime": {"year": 2024, "month": 3, "day": 2},
+            "endTime": {"year": 2024, "month": 3, "day": 3},
+            "dimensions": [{"dimension": "deviceModel", "stringValue": "Pixel 8", "valueLabel": "Google Pixel 8"}],
+            "metrics": [],
+        },
+        "com.example.app",
+        METRIC_SETS["crash_rate_by_device_model"],
+    )
+
+    assert row["deviceModel"] == "Pixel 8"
+    assert row["deviceModelLabel"] == "Google Pixel 8"
+    assert row["versionCode"] is None
+
+
 def test_metric_set_skips_an_app_without_freshness() -> None:
     manager = _manager()
     calls: list[str] = []

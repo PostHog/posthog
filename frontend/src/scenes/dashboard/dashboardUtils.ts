@@ -28,13 +28,12 @@ import {
     DashboardWidgetType,
     InsightFilterOverrideContext,
     InsightModel,
-    QueryBasedInsightModel,
     TileLayout,
 } from '~/types'
 
 import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstants'
 
-export function getInsightQueryError(insight: QueryBasedInsightModel): ApiError | null {
+export function getInsightQueryError(insight: InsightModel): ApiError | null {
     const queryStatus = insight.query_status
     if (!queryStatus?.error) {
         return null
@@ -50,7 +49,7 @@ export function getInsightQueryError(insight: QueryBasedInsightModel): ApiError 
 
 /** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
 export function dashboardToSaveableTemplate(
-    dashboard: DashboardType<InsightModel> | null | undefined
+    dashboard: DashboardType | null | undefined
 ): DashboardTemplateEditorType | undefined {
     if (!dashboard) {
         return undefined
@@ -113,7 +112,7 @@ export function dashboardToSaveableTemplate(
     }
 }
 
-export function getDashboardTileDisplayName(tile: DashboardTile<QueryBasedInsightModel>): string {
+export function getDashboardTileDisplayName(tile: DashboardTile): string {
     if (tile.insight) {
         return tile.insight.name || tile.insight.derived_name || 'Unnamed insight'
     }
@@ -137,7 +136,7 @@ export function getDashboardTileDisplayName(tile: DashboardTile<QueryBasedInsigh
 
 /** Which widget payload is set on a dashboard tile row. Add a branch per `DashboardWidgetType` when new tile kinds ship. */
 export function getDashboardWidgetType(
-    tile: Pick<DashboardTile<InsightModel | QueryBasedInsightModel>, 'insight' | 'text' | 'button_tile' | 'widget'>
+    tile: Pick<DashboardTile, 'insight' | 'text' | 'button_tile' | 'widget'>
 ): DashboardWidgetType {
     if (tile.insight) {
         return 'insight'
@@ -179,14 +178,14 @@ export const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const SEARCH_PARAM_QUERY_VARIABLES_KEY = 'query_variables'
 export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 
-export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
+export const AUTO_PREVIEW_TILE_LIMIT: number = 22
 
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
 // A refresh that was rejected (concurrency limit, server-side calculation error) still resolves with an
 // insight-shaped payload: no result, an errored query_status. Committing it to the dashboard would wipe
 // the tile's existing data and render as an empty insight instead of an error.
-export function isRefreshRejectionStub(insight: QueryBasedInsightModel): boolean {
+export function isRefreshRejectionStub(insight: InsightModel): boolean {
     return !!insight.query_status?.error && insight.result == null
 }
 
@@ -274,7 +273,7 @@ export const layoutsByTile = (layouts: ResponsiveLayouts): Record<string, Record
  */
 export async function getInsightWithRetry(
     currentTeamId: number | null,
-    insight: QueryBasedInsightModel,
+    insight: InsightModel,
     dashboardId: number,
     queryId: string,
     refresh: 'force_blocking' | 'blocking',
@@ -284,7 +283,7 @@ export async function getInsightWithRetry(
     tileFiltersOverride?: TileFilters,
     maxAttempts: number = 5,
     initialDelay: number = 1200
-): Promise<QueryBasedInsightModel | null> {
+): Promise<InsightModel | null> {
     // Check if user has access to this insight before making API calls
     const canViewInsight = insight.user_access_level
         ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Viewer)
@@ -310,8 +309,7 @@ export async function getInsightWithRetry(
             })}`
             const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
             const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
-            const result =
-                legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight, 'dashboard_tile_refresh') : null
+            const result = legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : null
 
             if (result?.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE) {
                 attempt++
@@ -349,10 +347,7 @@ export async function getInsightWithRetry(
                                 )
                                 const legacyInsight: InsightModel | null = await getJSONOrNull(refreshedInsightResponse)
                                 if (legacyInsight) {
-                                    const queryBasedInsight = getQueryBasedInsightModel(
-                                        legacyInsight,
-                                        'dashboard_tile_refresh_async'
-                                    )
+                                    const queryBasedInsight = getQueryBasedInsightModel(legacyInsight)
                                     return { ...queryBasedInsight, query_status: finalStatus }
                                 }
                             }
@@ -408,8 +403,8 @@ export async function getInsightWithRetry(
     return null
 }
 
-export const parseURLVariables = (searchParams: Record<string, any>): Record<string, Partial<HogQLVariable>> => {
-    const variables: Record<string, Partial<HogQLVariable>> = {}
+export const parseURLVariables = (searchParams: Record<string, any>): Record<string, HogQLVariable['value']> => {
+    const variables: Record<string, HogQLVariable['value']> = {}
 
     const raw = searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY]
     if (raw) {
@@ -426,7 +421,7 @@ export const parseURLVariables = (searchParams: Record<string, any>): Record<str
     return variables
 }
 
-export const encodeURLVariables = (variables: Record<string, any>): Record<string, string> => {
+export const encodeURLVariables = (variables: Record<string, HogQLVariable['value']>): Record<string, string> => {
     const encodedVariables: Record<string, string> = {}
 
     if (Object.keys(variables).length > 0) {
@@ -561,15 +556,4 @@ const LAYOUT_EDIT_EVENT_SOURCES = new Set<DashboardEventSource>([
 
 export function isLayoutEditEventSource(source: DashboardEventSource | null): boolean {
     return source !== null && LAYOUT_EDIT_EVENT_SOURCES.has(source)
-}
-
-export function shouldSnapshotUrlAtEditModeEntry(source: DashboardEventSource | null): boolean {
-    return (
-        source !== null &&
-        (isLayoutEditEventSource(source) ||
-            source === DashboardEventSource.DashboardFilters ||
-            source === DashboardEventSource.DashboardVariableOverride ||
-            source === DashboardEventSource.DashboardInsightColorsModal ||
-            source === DashboardEventSource.DashboardHeaderOverridesBanner)
-    )
 }

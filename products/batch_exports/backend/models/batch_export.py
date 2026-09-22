@@ -28,6 +28,15 @@ TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 # type which has now been fully deprecated.
 S3_FAMILY_TYPES: frozenset[str] = frozenset({"AwsS3", "S3Compatible"})
 
+# Destinations that write files to object storage, as opposed to the data warehouse destinations
+# (BigQuery, Databricks, Postgres, Redshift, Snowflake) that write rows into a table. File format,
+# compression and object key layout are questions only this half has to answer.
+#
+# Also includes "FileDownload", which writes to a PostHog bucket rather than a customer one.
+# TODO: it probably makes sense to introduce a 'DestinationKind' abstraction in the future,
+# to properly categorize object storage and data warehouse destinations.
+OBJECT_STORAGE_DESTINATIONS: frozenset[str] = frozenset({"S3", "AwsS3", "S3Compatible", "AzureBlob", "FileDownload"})
+
 
 class DayOfWeek(IntEnum):
     """Day of the week enum for batch export schedules.
@@ -124,6 +133,7 @@ class BatchExportDestination(UUIDTModel):
         help_text="The integration for this destination.",
         null=True,
         blank=True,
+        related_name="+",
     )
 
 
@@ -148,6 +158,7 @@ class BatchExportSource(TeamScopedRootMixin, UUIDTModel):
         on_delete=models.CASCADE,
         db_constraint=False,
         help_text="The team this belongs to.",
+        related_name="+",
     )
     hogql_query = models.TextField(
         null=True,
@@ -320,7 +331,9 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         SESSIONS = "sessions"
         HOGQL = "hogql"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.", related_name="+"
+    )
     name = models.TextField(help_text="A human-readable name for this BatchExport.")
     destination = models.ForeignKey(
         "BatchExportDestination",
@@ -623,7 +636,9 @@ class BatchExportFileDownload(ModelActivityMixin, UUIDTModel):
             models.Index(fields=["team", "key"], name="team_key_idx"),
         ]
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.", related_name="+"
+    )
     batch_export_run = models.ForeignKey(
         "BatchExportRun",
         on_delete=models.CASCADE,
@@ -684,7 +699,9 @@ class BatchExportOnDemand(TeamScopedRootMixin, ModelActivityMixin, UUIDTModel):
         SESSIONS = "sessions"
         HOGQL = "hogql"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.", related_name="+"
+    )
     destination = models.ForeignKey(
         "BatchExportDestination",
         on_delete=models.CASCADE,

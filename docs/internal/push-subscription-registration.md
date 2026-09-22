@@ -9,6 +9,11 @@ A mobile SDK with push capture enabled posts its device token to `/api/push_subs
 app starts. The server resolves the `app_id` to a Firebase or APNs integration on the team and stores
 the token as a `$device_push_subscription_<app_id>` person property.
 
+`distinct_id`, `device_token` and `app_id` are required. SDKs also send a `platform` field, which the
+server ignores: nothing is stored or routed by it, and the provider is selected by `app_id`. A device
+whose registration is rejected re-posts on every app open and never registers, so the server does not
+reject a registration over a field it does not use.
+
 Push is opt-in per project, and the SDK cannot see whether a project opted in. So an app that ships
 with push capture on registers against every project it reports to, configured or not.
 
@@ -21,6 +26,12 @@ integration existed.
 The 200 is deliberate. A 4xx makes this the error path for the majority of the requests the endpoint
 receives, which is both wrong (nothing about the request was invalid) and expensive to everything
 that watches non-2xx rates.
+
+The body carries `reason` and `detail` as well, naming the `app_id` that matched no channel. The
+status code cannot say this, and without it a developer whose token goes nowhere sees a success
+indistinguishable from a working registration. This has cost real setup time: a project sending to
+the wrong project token gets the same 200, and the failure only surfaces later as
+`No active FCM device token found` in a workflow run.
 
 ## The `push.appIds` remote config key
 
@@ -91,3 +102,6 @@ SDK that implements rule 3.
 - Registration outcomes are observable through `push_subscription_rejection{code, method}`,
   `push_subscription_discarded{reason}`, and the `push_subscription_discarded` log line, which is
   emitted once per team per minute rather than once per request.
+- A `push_subscription_rejected` log line for an invalid project token carries the request's `app_id`
+  alongside the token fingerprint, so a burst of rejections from one shipped build can be traced to
+  the app rather than only to an opaque fingerprint.

@@ -2,6 +2,7 @@ import { CloudIcon, PlusIcon } from "@phosphor-icons/react";
 import { channelDisplayReference } from "@posthog/core/canvas/channelName";
 import { ChannelHeader } from "@posthog/ui/features/canvas/components/ChannelHeader";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { Button } from "@posthog/ui/primitives/Button";
 import {
@@ -23,7 +24,6 @@ import {
 } from "../../loops/components/LoopFallbacks";
 import { LoopRow } from "../../loops/components/LoopRow";
 import { LoopsEmptyState } from "../../loops/components/LoopsEmptyState";
-import { LoopsListView } from "../../loops/components/LoopsListView";
 import { LoopTemplatesSection } from "../../loops/components/LoopTemplatesSection";
 import { useLoopLimits, useLoops } from "../../loops/hooks/useLoops";
 import { useLoopDraftStore } from "../../loops/loopDraftStore";
@@ -54,9 +54,7 @@ function contextQuickStarts(name: string): { label: string; prompt: string }[] {
   ];
 }
 
-/** The "Loops" tab of a context: same layout as the main Loops page (list on top, agent
- * composer pinned at the bottom), but the build surface is tuned to automations that feed
- * this context. `channelId` is the desktop folder id, matching `context_target.folder_id`. */
+/** The "Loops" tab of a space, scoped to loops attached to it (Personal included; unattached loops live on the standalone Loops page). */
 export function WebsiteChannelLoops({ channelId }: { channelId: string }) {
   const { channels, isLoading } = useChannels();
   const channel = channels.find((candidate) => candidate.id === channelId);
@@ -65,19 +63,10 @@ export function WebsiteChannelLoops({ channelId }: { channelId: string }) {
     [channelId],
   );
 
-  // Don't mount the scoped scene while the route's space is unresolved. In
-  // particular, that would flash a raw-id empty state for Personal before the
-  // channel query identifies it as the project-level loops registry.
+  // Don't mount the scoped scene while the route's space is unresolved: it
+  // would flash a raw-id title and empty state before the name arrives.
   if (isLoading && !channel) {
     return <ChannelLoopsLoading headerContent={headerContent} />;
-  }
-
-  // The Personal space is the project-level home for loops in the spaces
-  // layout. API-created and other unattached loops have no context_target, so
-  // rendering the space-scoped list here incorrectly produces the global
-  // "Create your first loop" empty state while those loops already exist.
-  if (channel?.channelType === "personal") {
-    return <LoopsListView headerContent={headerContent} />;
   }
 
   return (
@@ -89,7 +78,7 @@ export function WebsiteChannelLoops({ channelId }: { channelId: string }) {
 }
 
 function ChannelLoopsLoading({ headerContent }: { headerContent: ReactNode }) {
-  useSetHeaderContent(headerContent);
+  useSetHeaderContent(headerContent, !useWorkLayout());
   return (
     <div className="mx-auto w-full max-w-5xl px-8 py-8">
       <LoopsSkeleton />
@@ -112,11 +101,13 @@ function SpaceAttachedLoops({
       ? `You've reached the limit of ${limits.max} loops for this project. Delete one to add another.`
       : null;
 
+  const workLayout = useWorkLayout();
   useSetHeaderContent(
     useMemo(
       () => <ChannelHeader channelId={channelId} page="loops" />,
       [channelId],
     ),
+    !workLayout,
   );
 
   const attachedLoops = useMemo(

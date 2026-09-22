@@ -15,6 +15,7 @@ import {
 import { AgentScopeToggle } from "@posthog/ui/features/mcp-gateway/components/parts/AgentScopeToggle";
 import { RobotAvatar } from "@posthog/ui/features/mcp-gateway/components/parts/avatars";
 import { ToolPolicyToggle } from "@posthog/ui/features/mcp-servers/components/parts/ToolPolicyToggle";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import {
   Badge,
   Button,
@@ -255,10 +256,14 @@ function GiveAccessDialogDraft({
           <Button
             variant="solid"
             disabled={!selected || pending}
-            loading={pending}
             onClick={grant}
           >
-            <Check size={12} weight="bold" /> Share access
+            {pending ? (
+              <Spinner size="sm" />
+            ) : (
+              <Check size={12} weight="bold" />
+            )}{" "}
+            Share access
           </Button>
         </Flex>
       </Dialog.Content>

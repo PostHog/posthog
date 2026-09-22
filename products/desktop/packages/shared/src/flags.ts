@@ -24,18 +24,14 @@ export const LOOPS_FLAG = featureFlagKeys.LOOPS_FLAG;
 /** Desktop Loops read and write workflows (`hog_flows`) instead of the loops API. */
 export const LOOPS_HOG_FLOWS_FLAG = featureFlagKeys.LOOPS_HOG_FLOWS_FLAG;
 export const DESKTOP_HOME_FLAG = featureFlagKeys.DESKTOP_HOME_FLAG;
+export const DESKTOP_WORK_LAYOUT_FLAG =
+  featureFlagKeys.DESKTOP_WORK_LAYOUT_FLAG;
 export const SAVED_SEARCHES_RAIL_FLAG =
   featureFlagKeys.SAVED_SEARCHES_RAIL_FLAG;
 export const TASKS_PREWARM_SANDBOX_FLAG =
   featureFlagKeys.TASKS_PREWARM_SANDBOX_FLAG;
-export const GLM_MODEL_FLAG = featureFlagKeys.GLM_MODEL_FLAG;
-export const GLM53_MODEL_FLAG = featureFlagKeys.GLM53_MODEL_FLAG;
-export const GLM53_FLASH_MODEL_FLAG = featureFlagKeys.GLM53_FLASH_MODEL_FLAG;
-/** PostHog Desktop: show DeepSeek V4 Flash in the model picker. Off = hidden. */
-export const DEEPSEEK_MODEL_FLAG = featureFlagKeys.DEEPSEEK_MODEL_FLAG;
 
 export const TASK_ANALYSIS_FLAG = featureFlagKeys.TASK_ANALYSIS_FLAG;
-export const KIMI_MODEL_FLAG = featureFlagKeys.KIMI_MODEL_FLAG;
 /** Gates the Fast Mode section of the reasoning dropdown. */
 export const FAST_MODE_FLAG = featureFlagKeys.FAST_MODE_FLAG;
 /** Spoken narration (agent speaks via the `speak` tool). Gated for a staged rollout. */
@@ -44,6 +40,8 @@ export const CODEX_OWN_SUBSCRIPTION_FLAG =
   featureFlagKeys.CODEX_OWN_SUBSCRIPTION_FLAG;
 export const CLAUDE_OWN_SUBSCRIPTION_FLAG =
   featureFlagKeys.CLAUDE_OWN_SUBSCRIPTION_FLAG;
+export const CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG =
+  featureFlagKeys.CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG;
 // Gates importing and relaying local MCP servers into cloud task runs.
 export const LOCAL_MCP_IMPORT_FLAG = featureFlagKeys.LOCAL_MCP_IMPORT_FLAG;
 /**
@@ -111,6 +109,8 @@ export const CONTEXT_LAYER_FLAG = featureFlagKeys.CONTEXT_LAYER_FLAG;
 
 export const BACKGROUND_AGENT_LOGS_FLAG =
   featureFlagKeys.BACKGROUND_AGENT_LOGS_FLAG;
+/** Gates the settings and sounds backup section in Advanced settings. */
+export const SETTINGS_BACKUP_FLAG = featureFlagKeys.SETTINGS_BACKUP_FLAG;
 export const CUSTOM_IMAGES_FEATURE_FLAG =
   featureFlagKeys.CUSTOM_IMAGES_FEATURE_FLAG;
 export const PI_HARNESS_FLAG = featureFlagKeys.PI_HARNESS_FLAG;

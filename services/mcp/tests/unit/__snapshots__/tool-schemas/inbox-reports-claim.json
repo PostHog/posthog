@@ -1,18 +1,37 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "claim_id": {
+            "description": "Active claim ID returned by an earlier call. Stale claims are rejected.",
+            "type": "string"
+        },
         "id": {
             "description": "A UUID string identifying this signal report.",
             "type": "string"
         },
         "pr_url": {
-            "description": "Optional GitHub pull request to attach to the claim. The report may be claimed without one.",
+            "description": "Compatibility alias for adding one PR. Prefer pull_requests for new callers.",
             "format": "uri",
             "type": "string"
+        },
+        "pull_requests": {
+            "description": "GitHub PR URLs to add to this report's work. Additive and deduplicated; may span repositories.",
+            "items": {
+                "format": "uri",
+                "maxLength": 2048,
+                "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
         },
         "release": {
             "default": false,
             "description": "Release ownership while preserving any attached pull request.",
+            "type": "boolean"
+        },
+        "takeover": {
+            "default": false,
+            "description": "Explicitly end another actor's claim and take ownership.",
             "type": "boolean"
         }
     },

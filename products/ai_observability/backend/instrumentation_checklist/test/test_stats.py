@@ -19,8 +19,6 @@ from products.ai_observability.backend.instrumentation_checklist.stats import (
     fetch_checklist_stats,
 )
 
-NOW = datetime(2026, 8, 19, 12, 0, tzinfo=UTC)
-
 _TOOL = {"type": "function", "function": {"name": "search"}}
 
 
@@ -39,7 +37,7 @@ def _ai_event(
         # the SDK falls back to the trace id, so every trace looks like its own user.
         "distinct_id": distinct_id if distinct_id is not None else trace_id,
         "team": team,
-        "timestamp": timestamp or NOW - timedelta(days=1),
+        "timestamp": timestamp or datetime.now(UTC) - timedelta(days=1),
         "properties": {"$ai_trace_id": trace_id, **(properties or {})},
     }
 

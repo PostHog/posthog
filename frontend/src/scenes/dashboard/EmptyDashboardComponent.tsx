@@ -15,13 +15,7 @@ import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    DashboardType,
-    QueryBasedInsightModel,
-    SidePanelTab,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, DashboardType, SidePanelTab } from '~/types'
 
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardAiPromptComposer } from './DashboardAiPromptComposer'
@@ -47,7 +41,7 @@ function DashboardEmptyActions({
     onOpenAiWithPrompt,
 }: {
     canEdit: boolean
-    dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
+    dashboard: DashboardType | null | undefined
     aiDisabledReason: string | false
     dashboardWidgetsEnabled: boolean
     onAddInsight: () => void
@@ -149,7 +143,6 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
 
     return (
         <ProductIntroduction
-            productName="Dashboard"
             thingName="insight"
             titleOverride="Build your dashboard"
             description={dataProcessingAccepted ? BASE_TEXT : 'Add a chart from your library.'}

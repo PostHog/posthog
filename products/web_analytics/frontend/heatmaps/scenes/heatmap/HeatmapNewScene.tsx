@@ -22,6 +22,7 @@ import { HeatmapAdvancedSettings } from '../../components/HeatmapAdvancedSetting
 import { HeatmapRecording } from '../../components/HeatmapRecording'
 import { HeatmapRecordingFallback } from '../../components/HeatmapRecordingFallback'
 import { heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
+import { HeatmapScreenshotAccessNotice } from '../../components/HeatmapScreenshotAccessNotice'
 import { HeatmapsEnableCapture } from '../../components/HeatmapsEnableCapture'
 import { HeatmapsInvalidURL } from '../../components/HeatmapsInvalidURL'
 import { HeatmapCreationStep, heatmapCreationLogic } from './heatmapCreationLogic'
@@ -262,7 +263,7 @@ function ChoosePageStep(): JSX.Element {
 
 function PublicBackgroundChoice(): JSX.Element {
     const logic = heatmapLogic({ id: 'new' })
-    const { type } = useValues(logic)
+    const { type, displayUrl } = useValues(logic)
     const { setType } = useActions(logic)
     const { isDisplayUrlAuthorized, authorizationDisabledReason, preflightMessage } = useValues(heatmapCreationLogic)
     const { authorizeDisplayUrl } = useActions(heatmapCreationLogic)
@@ -326,14 +327,17 @@ function PublicBackgroundChoice(): JSX.Element {
             ) : null}
 
             {type === 'screenshot' ? (
-                <HeatmapAdvancedSettings
-                    dataUrlPlaceholderFallback=""
-                    dataUrlHelp={null}
-                    consentHelp="Ask the browser to close cookie or consent popups before capturing the screenshot. This can slow down or fail the render on some sites, so it is off by default."
-                    showDataUrl={false}
-                    showConsent
-                    header="Screenshot options"
-                />
+                <>
+                    <HeatmapScreenshotAccessNotice url={displayUrl} />
+                    <HeatmapAdvancedSettings
+                        dataUrlPlaceholderFallback=""
+                        dataUrlHelp={null}
+                        consentHelp="Ask the browser to close cookie or consent popups before capturing the screenshot. This can slow down or fail the render on some sites, so it is off by default."
+                        showDataUrl={false}
+                        showConsent
+                        header="Screenshot options"
+                    />
+                </>
             ) : null}
         </div>
     )

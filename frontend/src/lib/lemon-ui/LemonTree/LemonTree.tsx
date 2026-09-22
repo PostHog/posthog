@@ -1531,7 +1531,11 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         const sortedRenderedIndexes = useMemo(() => {
             const renderedIndexes = new Set<number>()
 
-            for (let index = virtualizedStartIndex; index < virtualizedEndIndex; index++) {
+            for (
+                let index = virtualizedStartIndex;
+                index < Math.min(virtualizedEndIndex, parentIndexesByIndex.length);
+                index++
+            ) {
                 renderedIndexes.add(index)
 
                 let parentIndex = parentIndexesByIndex[index]
@@ -1546,40 +1550,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
             return [...renderedIndexes].sort((left, right) => left - right)
         }, [parentIndexesByIndex, virtualizedEndIndex, virtualizedStartIndex])
-
-        const virtualizedSegments = useMemo((): { startIndex: number; items: FlattenedTreeItem[] }[] => {
-            const segments: { startIndex: number; items: FlattenedTreeItem[] }[] = []
-
-            if (sortedRenderedIndexes.length === 0) {
-                return segments
-            }
-
-            let segmentStart = sortedRenderedIndexes[0]
-            let previousIndex = sortedRenderedIndexes[0]
-
-            for (let index = 1; index < sortedRenderedIndexes.length; index++) {
-                const currentIndex = sortedRenderedIndexes[index]
-                if (currentIndex === previousIndex + 1) {
-                    previousIndex = currentIndex
-                    continue
-                }
-
-                segments.push({
-                    startIndex: segmentStart,
-                    items: flattenedVisibleItems.slice(segmentStart, previousIndex + 1),
-                })
-
-                segmentStart = currentIndex
-                previousIndex = currentIndex
-            }
-
-            segments.push({
-                startIndex: segmentStart,
-                items: flattenedVisibleItems.slice(segmentStart, previousIndex + 1),
-            })
-
-            return segments
-        }, [flattenedVisibleItems, sortedRenderedIndexes])
 
         const findItem = (items: TreeDataItem[], itemId: string): TreeDataItem | undefined => {
             for (const item of items) {
@@ -1680,54 +1650,54 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                             height: `${flattenedVisibleItems.length * virtualizedRowHeight}px`,
                                         }}
                                     >
-                                        {virtualizedSegments.map((segment) => {
+                                        {/* Stable row parents preserve the click target when focus changes the virtual window. */}
+                                        {sortedRenderedIndexes.map((index) => {
+                                            const { item, depth, ariaSetSize, ariaPosInSet } =
+                                                flattenedVisibleItems[index]
                                             return (
                                                 <div
-                                                    key={`segment-${segment.startIndex}`}
+                                                    key={item.id}
                                                     className="absolute inset-x-0 top-0"
                                                     // eslint-disable-next-line react/forbid-dom-props
                                                     style={{
-                                                        transform: `translateY(${segment.startIndex * virtualizedRowHeight}px)`,
+                                                        transform: `translateY(${index * virtualizedRowHeight}px)`,
                                                     }}
                                                 >
-                                                    {segment.items.map(({ item, depth, ariaSetSize, ariaPosInSet }) => (
-                                                        <LemonTreeItemRow
-                                                            key={item.id}
-                                                            item={item}
-                                                            ariaSetSize={ariaSetSize}
-                                                            ariaPosInSet={ariaPosInSet}
-                                                            selectedId={selectedId}
-                                                            handleClick={handleClick}
-                                                            expandedItemIds={expandedItemIdsState}
-                                                            onSetExpandedItemIds={(ids) => {
-                                                                setExpandedItemIdsState(ids)
-                                                                onSetExpandedItemIds?.(ids)
-                                                            }}
-                                                            defaultNodeIcon={defaultNodeIcon}
-                                                            showFolderActiveState={showFolderActiveState}
-                                                            itemSideAction={itemSideAction}
-                                                            isItemEditing={isItemEditing}
-                                                            onItemNameChange={onItemNameChange}
-                                                            isItemDraggable={isItemDraggable}
-                                                            isItemDroppable={isItemDroppable}
-                                                            getItemDropMode={getItemDropMode}
-                                                            onReorderPositionChange={handleReorderPositionChange}
-                                                            enableDragAndDrop={enableDragAndDrop}
-                                                            disableKeyboardInput={(disable) => {
-                                                                setDisableKeyboardInput(disable)
-                                                            }}
-                                                            itemContextMenu={itemContextMenu}
-                                                            selectMode={selectMode}
-                                                            onItemChecked={onItemChecked}
-                                                            isDragging={isDragging}
-                                                            checkedItemCount={checkedItemCount}
-                                                            setFocusToElementFromId={focusElementFromId}
-                                                            depth={depth}
-                                                            size={size}
-                                                            virtualizedRowHeight={virtualizedRowHeight}
-                                                            {...props}
-                                                        />
-                                                    ))}
+                                                    <LemonTreeItemRow
+                                                        item={item}
+                                                        ariaSetSize={ariaSetSize}
+                                                        ariaPosInSet={ariaPosInSet}
+                                                        selectedId={selectedId}
+                                                        handleClick={handleClick}
+                                                        expandedItemIds={expandedItemIdsState}
+                                                        onSetExpandedItemIds={(ids) => {
+                                                            setExpandedItemIdsState(ids)
+                                                            onSetExpandedItemIds?.(ids)
+                                                        }}
+                                                        defaultNodeIcon={defaultNodeIcon}
+                                                        showFolderActiveState={showFolderActiveState}
+                                                        itemSideAction={itemSideAction}
+                                                        isItemEditing={isItemEditing}
+                                                        onItemNameChange={onItemNameChange}
+                                                        isItemDraggable={isItemDraggable}
+                                                        isItemDroppable={isItemDroppable}
+                                                        getItemDropMode={getItemDropMode}
+                                                        onReorderPositionChange={handleReorderPositionChange}
+                                                        enableDragAndDrop={enableDragAndDrop}
+                                                        disableKeyboardInput={(disable) => {
+                                                            setDisableKeyboardInput(disable)
+                                                        }}
+                                                        itemContextMenu={itemContextMenu}
+                                                        selectMode={selectMode}
+                                                        onItemChecked={onItemChecked}
+                                                        isDragging={isDragging}
+                                                        checkedItemCount={checkedItemCount}
+                                                        setFocusToElementFromId={focusElementFromId}
+                                                        depth={depth}
+                                                        size={size}
+                                                        virtualizedRowHeight={virtualizedRowHeight}
+                                                        {...props}
+                                                    />
                                                 </div>
                                             )
                                         })}

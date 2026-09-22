@@ -112,7 +112,9 @@ The snapshot is immutable only while the experiment is running, where each run p
 
 A recalc row records what caused it, in `trigger` (`Trigger` on the model). The set is more than a manual click: `MANUAL`, `AGENT_MCP`, `COLD_RUN`, `STALE_REFRESH`, `AUTO_REFRESH`, config-change triggers (`EXPERIMENT_CONFIG_CHANGE`, `METRIC_CONFIG_CHANGE`), and experiment lifecycle triggers (`EXPERIMENT_LAUNCH`, `EXPERIMENT_STOP`, `EXPERIMENT_UPDATE`). This lets the analytics and the UI tell a user click apart from an automatic refresh.
 
-`GET /metrics_recalculation/latest` returns a synthetic "completed" payload built from each metric's latest timeseries point (`build_timeseries_cold_start_payload`) when no real recalc run exists yet. This is the cold-start placeholder: the user sees the freshest cached timeseries values instead of a bare 404 on first open, with `query_to` pinned to the freshest point so the frontend's own staleness path can fire a real recompute. The GET path never triggers a recompute itself; it only reads.
+`TIMESERIES_SYNC` is the one trigger no user or lifecycle event emits. The daily timeseries workflows write it after their metric activities finish: one completed row per experiment per daily run, with the run's timeseries points copied under the recalc fingerprint at a shared `query_to`, so the `latest` read serves fresh daily data without a recompute. The inline and saved metric workflows share that row: the first to finish creates it, the second adds the copies it lacks. See "Handing fresh points to the recalculation reader" in `posthog/temporal/experiments/README.md`.
+
+`GET /metrics_recalculation/latest` returns a synthetic "completed" payload built from each metric's latest timeseries point (`build_timeseries_cold_start_payload`) when no real recalc run exists yet. This is the cold-start placeholder: the user sees the freshest cached timeseries values instead of a bare 404 on first open. Only points younger than `TIMESERIES_FALLBACK_MAX_AGE` (24 hours) count, so an older point reads as a gap and the frontend starts a `cold_run` for it; a fallback that covers every metric is accepted as is. The GET path never triggers a recompute itself; it only reads.
 
 ### Live query progress on the GET path
 
@@ -150,7 +152,10 @@ The split is intentional: Grafana tells you about the worker process, PostHog te
 
 - **In-query execution guard.** The calc activity sets ClickHouse `max_execution_time=270s` (`METRIC_CALC_MAX_EXECUTION_TIME_SECONDS`), deliberately below the 300s activity timeout. A slow query then fails inside the activity with a typed ClickHouse timeout error, so the FAILED result row and the terminal event still get written, instead of Temporal killing the attempt from the outside and losing all of that.
 
-- **5-minute per-attempt budget.** `start_to_close_timeout=timedelta(minutes=5)` on the calc activity is the real per-attempt ceiling. We deliberately don't set a heartbeat timeout: the activity has no progress hooks inside the ClickHouse query, so the heartbeat couldn't fire mid-query anyway.
+- **5-minute per-attempt budget.** `start_to_close_timeout=timedelta(minutes=5)` limits the attempt in Temporal, but cannot stop the synchronous calculation thread.
+  Local activity cancellation waits for that thread with a bounded cleanup deadline.
+  The activity has no heartbeats, so workflow cancellation does not promptly reach it.
+  See [cancellation and result-write protection](../../../../docs/internal/experiment-metric-recalculation.md) for the locking contract and cleanup limits.
 - **Calc queries run on the online ClickHouse cluster.** The calc activity builds its `ExperimentQueryRunner` with `workload=Workload.ONLINE`, so the queries hit the same replicas that serve interactive product traffic rather than the offline cluster that heavy background jobs use.
 
   This is a deliberate trade-off against the offline default that most background scans take. The offline replicas can trail ingestion, disable hedged requests (higher and more variable latency, higher failure rate), and share one global concurrency limit across every product. A recalc is a user-initiated snapshot the person is waiting on, so it wants the freshest data and the most reliable, lowest-latency path, which is the online cluster. The cost is that recalc scans now compete with live user queries instead of being isolated from them; the worker's activity-slot cap and the per-org ClickHouse app-query limiter are what keep that load bounded.

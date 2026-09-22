@@ -140,6 +140,41 @@ CHDB_QUERY_TIMEOUT_SECONDS = 30.0
 # raw ClickHouse queries below bypass that path and must opt out the same way.
 DISABLE_HIVE_PARTITIONING_SETTINGS: dict[str, int] = {"use_hive_partitioning": 0}
 
+# Formats whose structure carries the element names of a nested Tuple. JSONEachRow matches a nested
+# object's keys to those names, so a nameless Tuple inside an Array makes ClickHouse expect a
+# positional array instead, and every read of the table raises code 27 even when the query never
+# mentions that column.
+#
+# Parquet-backed formats keep the nameless Tuple on purpose, which is what the names were stripped
+# for in the first place (ClickHouse/ClickHouse#37594, still open). Their reader looks the nested
+# fields up by name once the structure names them, so a nested field that the files renamed, or a
+# glob over files whose nested schemas disagree, returns an empty array for every row that carries
+# the other name. A nameless Tuple matches by position and still returns that data. Every synced
+# source writes Delta, and its files keep the field names they had when they were written, so that
+# drift is normal there and unreachable for JSON.
+STRUCTURE_KEEPS_TUPLE_ELEMENT_NAMES: frozenset[str] = frozenset({DataWarehouseTableFormat.JSON})
+
+
+# Introspection keeps ClickHouse's default schema inference, which samples as little as the first
+# file and therefore misses a nested key that only later files carry. The `union` mode finds those
+# keys, but it reads the head of every object the pattern matches, and introspection runs inside the
+# POST that creates or refreshes a table. A table whose pattern spans many objects cannot finish that
+# in the time a request has, so the mode belongs on a path that is not a request. Until then the
+# narrow sample stays, and a column the sample missed is reachable by retyping it to String and
+# reading it with JSONExtract.
+def chdb_set_statements(describe_settings: dict[str, str | int]) -> str:
+    """Render settings as SET statements to prefix a chdb query with.
+
+    `chdb.query` takes only SQL text, so query-level settings such as the CSV double-quote
+    flag can only travel inside the statement; a SET prefix applies them to every statement
+    that follows without splicing a SETTINGS clause into each one.
+    """
+    return "".join(
+        f"SET {name} = {escape_param_clickhouse(value) if isinstance(value, str) else int(value)}; "
+        for name, value in describe_settings.items()
+    )
+
+
 _CHDB_SUBPROCESS_SCRIPT = """
 import sys
 
@@ -245,6 +280,7 @@ def hogql_fields_and_structure_for_columns(
     columns: dict[str, Any],
     modifiers: Optional["HogQLQueryModifiers"] = None,
     column_order: list[str] | None = None,
+    keep_tuple_element_names: bool = False,
 ) -> tuple[dict[str, FieldOrTable], list[str]]:
     """Shared columns → HogQL fields mapping for warehouse and direct virtual tables.
 
@@ -252,6 +288,10 @@ def hogql_fields_and_structure_for_columns(
     tables; direct virtual tables ignore them. ``column_order`` restores the SELECT order the
     jsonb column store drops (see ``reconstruct_ordered_columns``); omit it for column dicts
     whose insertion order is already meaningful.
+
+    ``keep_tuple_element_names`` decides how a nested ``Tuple`` reaches the structure, and only
+    ``STRUCTURE_KEEPS_TUPLE_ELEMENT_NAMES`` formats may set it. See that constant for why the two
+    answers differ by format.
     """
     fields: dict[str, FieldOrTable] = {}
     structure = []
@@ -268,8 +308,7 @@ def hogql_fields_and_structure_for_columns(
             clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
             is_nullable = True
 
-        # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
-        if clickhouse_type.startswith("Array("):
+        if not keep_tuple_element_names and clickhouse_type.startswith("Array("):
             clickhouse_type = remove_named_tuples(clickhouse_type)
 
         if isinstance(type, dict):
@@ -307,7 +346,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     name = models.CharField(max_length=128)
     format = models.CharField(max_length=128, choices=TableFormat)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     url_pattern = models.CharField(max_length=500)
     queryable_folder = models.CharField(max_length=500, null=True, blank=True)
@@ -500,11 +539,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         # column count. ClickHouse reads the same files fine; only chdb refuses the mixed set.
         "reading from files with different schema is not possible",
     )
+    # chdb 4 links delta-kernel only in its Linux wheels, so macOS dev boxes have no deltaLake().
+    # On Linux the same error means the engine lost Delta support and has to reach error tracking.
+    _MACOS_ONLY_SUPPRESSED_CHDB_ERROR_SUBSTRING = "unknown table function deltalake"
 
     def _is_suppressed_chdb_error(self, err: Exception) -> bool:
         if not isinstance(err, RuntimeError):
             return False
         message = str(err).lower()
+        if sys.platform == "darwin" and self._MACOS_ONLY_SUPPRESSED_CHDB_ERROR_SUBSTRING in message:
+            return True
         return any(substring in message for substring in self._SUPPRESSED_CHDB_ERROR_SUBSTRINGS)
 
     def set_columns(self, columns: dict[str, Any]) -> None:
@@ -517,11 +561,29 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self.columns = columns
         self.column_order = list(columns.keys())
 
+    def _nested_object_column_type(self, described_type: str) -> str:
+        """The type to store for a described column, as JSON where a key list would go stale.
+
+        Inference describes a JSON object as a named Tuple of the keys its sample held, and that Tuple becomes the
+        `structure` of every read, so a key outside the sample is unreadable. The JSON type carries no key list.
+        An array of objects and a Parquet-backed format keep the Tuple, which reads correctly and types each field.
+        """
+        if self.format != DataWarehouseTableFormat.JSON or clean_type(described_type) != "Tuple":
+            return described_type
+        return "JSON"
+
+    def _describe_settings(self) -> dict[str, str | int]:
+        settings: dict[str, str | int] = {**DISABLE_HIVE_PARTITIONING_SETTINGS}
+        if self._is_csv_format() and self.csv_allow_double_quotes is not None:
+            settings["format_csv_allow_double_quotes"] = 1 if self.csv_allow_double_quotes else 0
+        return settings
+
     def get_columns(
         self,
         safe_expose_ch_error: bool = True,
     ) -> DataWarehouseTableIntrospectedColumns:
         result: list[tuple[str, ...]] | None = None
+        describe_settings = self._describe_settings()
         placeholder_context = HogQLContext(team_id=self.team.pk)
         s3_table_func = build_function_call(
             url=self.url_pattern,
@@ -542,15 +604,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
             quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
             # chdb doesn't support parameterized queries
-            chdb_query = f"SET use_hive_partitioning = 0; DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
-
-            # Workaround for chdb not honouring the CSV double-quote setting. The upstream fix
-            # (https://github.com/chdb-io/chdb/pull/374) is merged but is not in the pinned 3.3.0,
-            # so this SET stays until chdb is upgraded past that release.
-            if self._is_csv_format() and self.csv_allow_double_quotes is not None:
-                chdb_query = (
-                    f"SET format_csv_allow_double_quotes = {1 if self.csv_allow_double_quotes else 0}; {chdb_query}"
-                )
+            chdb_query = f"{chdb_set_statements(describe_settings)}DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
             chdb_result = run_chdb_query(chdb_query)
             reader = csv.reader(StringIO(chdb_result))
             result = [tuple(row) for row in reader]
@@ -574,15 +628,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             attempts = 5
             for i in range(attempts):
                 try:
-                    get_columns_settings: dict[str, int] = dict(DISABLE_HIVE_PARTITIONING_SETTINGS)
-                    if self._is_csv_format() and self.csv_allow_double_quotes is not None:
-                        get_columns_settings["format_csv_allow_double_quotes"] = (
-                            1 if self.csv_allow_double_quotes else 0
-                        )
                     result = sync_execute(
                         f"""DESCRIBE TABLE {s3_table_func}""",
                         args=placeholder_context.values,
-                        settings=get_columns_settings,
+                        settings=describe_settings,
                     )
                     break
                 except Exception as err:
@@ -607,9 +656,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                     f"PostHog can't use the column name {column_name!r}. Column names can't contain "
                     "backticks, backslashes, line breaks, or null bytes. Rename the column, then try again."
                 )
+            clickhouse_type = self._nested_object_column_type(str(item[1]))
             columns[column_name] = DataWarehouseTableIntrospectedColumn(
-                hogql=CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
-                clickhouse=item[1],
+                hogql=CLICKHOUSE_HOGQL_MAPPING[clean_type(clickhouse_type)].__name__,
+                clickhouse=clickhouse_type,
                 valid=True,
             )
 
@@ -775,7 +825,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
         columns = self.columns or {}
 
-        fields, structure = hogql_fields_and_structure_for_columns(columns, modifiers, column_order=self.column_order)
+        fields, structure = hogql_fields_and_structure_for_columns(
+            columns,
+            modifiers,
+            column_order=self.column_order,
+            keep_tuple_element_names=self.format in STRUCTURE_KEEPS_TUPLE_ELEMENT_NAMES,
+        )
 
         if self.external_data_source and self.external_data_source.is_direct_postgres:
             postgres_catalog = (
@@ -1052,10 +1107,44 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         }
     )
 
+    # Code 636 also comes back when the path matches no file, or every file is empty, which no
+    # quote setting can fix. `_safe_expose_ch_error` already carries the copy for both.
+    _CSV_NO_DATA_ERRORS = ("there are no files with provided path", "file is empty")
+
+    def _csv_parses_with_double_quotes(self, allow_double_quotes: bool) -> bool:
+        """Read a few rows under one quote setting. False when the rows don't parse; any other
+        failure (credentials, a missing file) is raised for the caller to surface as-is."""
+        ctx = HogQLContext(team_id=self.team.pk)
+        func = build_function_call(
+            url=self.url_pattern,
+            queryable_folder=self.queryable_folder,
+            format=self.format,
+            access_key=self.credential.access_key if self.credential else None,
+            access_secret=self.credential.access_secret if self.credential else None,
+            context=ctx,
+            table_size_mib=0,
+        )
+        try:
+            sync_execute(
+                f"SELECT 1 FROM {func} LIMIT 100",
+                args=ctx.values,
+                settings={
+                    **DISABLE_HIVE_PARTITIONING_SETTINGS,
+                    "format_csv_allow_double_quotes": 1 if allow_double_quotes else 0,
+                },
+            )
+        except ClickHouseServerException as e:
+            if any(needle in e.message for needle in self._CSV_NO_DATA_ERRORS):
+                self._safe_expose_ch_error(e)
+            if e.code in self._CSV_PARSE_ERROR_CODES:
+                return False
+            raise
+        return True
+
     def _validate_csv_double_quotes_setting(self) -> None:
         """Validate the user-chosen csv_allow_double_quotes setting by trying to parse data rows.
         Raises Exception with a helpful message if parsing fails."""
-        setting = self.csv_allow_double_quotes
+        setting = bool(self.csv_allow_double_quotes)
         tag_queries(
             team_id=self.team.pk,
             table_id=self.id,
@@ -1064,29 +1153,21 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             product=Product.WAREHOUSE,
             feature=Feature.QUERY,
         )
-        try:
-            ctx = HogQLContext(team_id=self.team.pk)
-            func = build_function_call(
-                url=self.url_pattern,
-                queryable_folder=self.queryable_folder,
-                format=self.format,
-                access_key=self.credential.access_key if self.credential else None,
-                access_secret=self.credential.access_secret if self.credential else None,
-                context=ctx,
-                table_size_mib=0,
+        if self._csv_parses_with_double_quotes(setting):
+            return
+
+        # Naming the other setting is only useful when it actually parses the file. When neither
+        # does, the same advice sends the user toggling between two failing options.
+        if self._csv_parses_with_double_quotes(not setting):
+            other_label = "Literal quotes" if setting else "RFC 4180 double quotes"
+            raise Exception(
+                "Your CSV didn't parse with the quote setting you picked. "
+                f"Set CSV quote handling to '{other_label}', then save again."
             )
-            sync_execute(
-                f"SELECT 1 FROM {func} LIMIT 100",
-                args=ctx.values,
-                settings={**DISABLE_HIVE_PARTITIONING_SETTINGS, "format_csv_allow_double_quotes": 1 if setting else 0},
-            )
-        except ClickHouseServerException as e:
-            if e.code in self._CSV_PARSE_ERROR_CODES:
-                other_label = "Literal quotes" if setting else "RFC 4180 double quotes"
-                raise Exception(
-                    f"CSV parsing failed with the selected quote setting. Try selecting '{other_label}' instead."
-                )
-            raise
+        raise Exception(
+            "Your CSV didn't parse with either quote setting. Check that the file is comma-separated "
+            "and that every row has the same number of values."
+        )
 
     def _safe_expose_ch_error(self, err):
         # Match ExtractErrors against the raw ClickHouse message: wrap_clickhouse_query_error may

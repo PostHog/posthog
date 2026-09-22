@@ -97,7 +97,6 @@ const scannerFinding = makeSignal({
         scanner_type: 'ux',
         observation_id: 'obs-1',
         session_id: 'sess-2',
-        confidence: 0.82,
         problem_type: 'dead_end',
         start_time: 72,
         end_time: 90,
@@ -127,6 +126,18 @@ const conversationsTicket = makeSignal({
             { url: '/api/projects/997/exports/103/content/', author: 'Sam' },
             { url: '/api/projects/997/exports/104/content/', author: 'Sam' },
         ],
+    },
+})
+
+// Evidence stored without a ticket number still opens the ticket, from the uuid on the signal.
+const conversationsTicketWithoutNumber = makeSignal({
+    source_product: 'conversations',
+    source_type: 'ticket',
+    source_id: '0197c3d2-4f61-7a2b-9c88-5de1f0a3b774',
+    content: 'The export finishes but the emailed link 404s for everyone on the team.',
+    extra: {
+        channel_source: 'email',
+        status: 'open',
     },
 })
 
@@ -166,7 +177,6 @@ const scoutFinding = makeSignal({
         finding_id: 'finding-1a2b3c4d',
         skill_name: 'upload-health',
         skill_version: 3,
-        confidence: 0.85,
         severity: 'P1',
         hypothesis: 'The 2.4.0 release raised the client-side chunk size above the 413 limit on the upload endpoint.',
         evidence: [
@@ -175,6 +185,15 @@ const scoutFinding = makeSignal({
         ],
         tags: ['uploads', 'regression'],
         time_range: { date_from: '2026-06-09T00:00:00Z', date_to: '2026-06-10T00:00:00Z' },
+    },
+})
+
+const scoutFindingWithLongName = makeSignal({
+    ...scoutFinding,
+    signal_id: 'sig-scout-long-name',
+    extra: {
+        ...(scoutFinding.extra as unknown as Record<string, unknown>),
+        skill_name: 'signals-scout-upload-pipeline-throughput-and-chunked-transfer-failure-watch',
     },
 })
 
@@ -392,6 +411,9 @@ const meta: Meta = {
                     pngResponse(
                         ['103', '104'].includes(String(req.params.exportId)) ? ATTACHMENT_PNG : RECORDING_PREVIEW_PNG
                     ),
+                // A scanner finding takes its frame from Replay Vision, addressed by observation.
+                '/api/projects/:id/vision/observations/:observationId/thumbnail/': () =>
+                    pngResponse(RECORDING_PREVIEW_PNG),
             },
             post: {
                 '/api/environments/:id/session_recordings/batch_check_exists': () => [
@@ -427,6 +449,10 @@ export const RecordingPreviews: Story = {
 
 export const TicketAttachments: Story = {
     render: () => <Rail signals={[conversationsTicket]} />,
+}
+
+export const TicketWithoutNumber: Story = {
+    render: () => <Rail signals={[conversationsTicketWithoutNumber]} />,
 }
 
 export const GenericFallbacks: Story = {
@@ -477,6 +503,11 @@ export const ErrorTrackingStackTrace: Story = {
         }),
     ],
     render: () => <Rail signals={[errorTrackingIssueWithStackTrace]} />,
+}
+
+/** A scout name longer than the rail truncates, and the relative time stays at the end of the line. */
+export const LongScoutName: Story = {
+    render: () => <Rail signals={[scoutFindingWithLongName]} />,
 }
 
 /** One card per source with a dedicated renderer, so a layout change to any of them shows up here. */

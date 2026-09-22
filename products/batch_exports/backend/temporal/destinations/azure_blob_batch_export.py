@@ -1,4 +1,5 @@
 import json
+import asyncio
 import datetime as dt
 import dataclasses
 
@@ -12,6 +13,7 @@ from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.integration import AzureBlobIntegration, Integration
+from posthog.models.integration.azure_blob import EndpointNotAllowedError, validate_azure_blob_connection_string
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
@@ -31,6 +33,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
 )
 from products.batch_exports.backend.temporal.destinations.constants import (
     AZURE_BLOB_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS,
+    FILE_FORMAT_EXTENSIONS,
 )
 from products.batch_exports.backend.temporal.destinations.utils import EXTERNAL_LOGGER, get_manifest_key, get_object_key
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
@@ -54,19 +57,6 @@ NON_RETRYABLE_ERROR_TYPES = (
     "UnsupportedCompressionError",
     "UnsupportedFileFormatError",
 )
-
-FILE_FORMAT_EXTENSIONS = {
-    "Parquet": "parquet",
-    "JSONLines": "jsonl",
-}
-
-COMPRESSION_EXTENSIONS = {
-    "gzip": "gz",
-    "brotli": "br",
-    "zstd": "zst",
-    "lz4": "lz4",
-    "snappy": "sz",
-}
 
 LOGGER = get_write_only_logger(__name__)
 
@@ -101,7 +91,7 @@ class MalformedConnectionStringError(Exception):
 
     def __init__(self):
         super().__init__(
-            "The provided connection string was rejected by Azure. Ensure the connection string is made up of key=value pairs separated only by a semicolon (;) with no additional characters in between. Example: AccountName=name;AccountKey=key;SomeKey=somevalue"
+            "The provided connection string is malformed or invalid. Ensure the connection string is made up of key=value pairs separated only by a semicolon (;) with no additional characters in between. Additionally, ensure any endpoints point to valid URLs you control. Example: AccountName=name;AccountKey=key;SomeKey=somevalue"
         )
 
 
@@ -113,18 +103,7 @@ def _is_authorization_failure_response_error(err: HttpResponseError) -> bool:
     return getattr(err, "error_code", None) == StorageErrorCode.AUTHORIZATION_FAILURE
 
 
-def _strip_leading_whitespace(conn_str: str) -> str:
-    """Remove any leading whitespace from key=value pairs.
-
-    This is rejected by Azure SDK when parsing. In contrast, I like to help our users
-    get things right. I do not strip trailing whitespace as I cannot confirm whether
-    values can have trailing whitespace, in contrast to keys, which most definitely
-    don't.
-    """
-    return ";".join(value.lstrip() for value in conn_str.split(";"))
-
-
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class AzureBlobInsertInputs(BatchExportInsertInputs):
     container_name: str
     integration_id: int
@@ -132,6 +111,9 @@ class AzureBlobInsertInputs(BatchExportInsertInputs):
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
+    # Defaults to the legacy naming: an activity input recorded before this field existed has no
+    # value for it, so the missing field uses this default and the export keeps its existing names.
+    legacy_parquet_extension: bool = True
 
 
 async def _get_azure_blob_integration(integration_id: int, team_id: int) -> AzureBlobIntegration:
@@ -164,6 +146,7 @@ class AzureBlobConsumer(Consumer):
         compression: str | None = None,
         max_file_size_mb: int | None = None,
         max_concurrency: int = 5,
+        legacy_parquet_extension: bool = True,
     ):
         super().__init__(model=batch_export_model.name if batch_export_model else "events")
 
@@ -176,6 +159,7 @@ class AzureBlobConsumer(Consumer):
         self.compression = compression
         self.max_file_size_mb = max_file_size_mb
         self.max_concurrency = max_concurrency
+        self.legacy_parquet_extension = legacy_parquet_extension
 
         self.current_buffer = bytearray()
         self.current_file_index = 0
@@ -193,15 +177,19 @@ class AzureBlobConsumer(Consumer):
         # See: https://learn.microsoft.com/en-us/python/api/azure-storage-blob/azure.storage.blob.blobserviceclient
 
         try:
+            await asyncio.to_thread(validate_azure_blob_connection_string, connection_string)
             blob_service_client = BlobServiceClient.from_connection_string(
-                conn_str=_strip_leading_whitespace(connection_string),
+                conn_str=connection_string,
                 max_single_put_size=64 * 1024 * 1024,  # 64 MiB
                 max_block_size=4 * 1024 * 1024,  # 4 MiB
                 # Increase the read timeout to 10 minutes to account for large uploads.
                 read_timeout=600,
                 # Azure SDK defaults but we set them explicitly for visibility.
                 retry_policy=ExponentialRetry(initial_backoff=15, increment_base=3, retry_total=3),
+                permit_redirects=False,
             )
+        except EndpointNotAllowedError:
+            raise
         except ValueError:
             raise MalformedConnectionStringError()
 
@@ -217,6 +205,7 @@ class AzureBlobConsumer(Consumer):
             compression=inputs.compression,
             max_file_size_mb=inputs.max_file_size_mb,
             max_concurrency=max_concurrency,
+            legacy_parquet_extension=inputs.legacy_parquet_extension,
         )
 
     async def consume_chunk(self, data: bytes):
@@ -244,8 +233,9 @@ class AzureBlobConsumer(Consumer):
             data_interval_start=self.data_interval_start,
             data_interval_end=self.data_interval_end,
             batch_export_model=self.batch_export_model,
-            file_extension=FILE_FORMAT_EXTENSIONS[self.file_format],
-            compression_extension=COMPRESSION_EXTENSIONS[self.compression] if self.compression is not None else None,
+            file_format=self.file_format,
+            compression=self.compression,
+            legacy_parquet_extension=self.legacy_parquet_extension,
             file_number=self.current_file_index,
             include_file_number=bool(self.max_file_size_mb),
         )
@@ -318,8 +308,9 @@ async def insert_into_azure_blob_activity_from_stage(inputs: AzureBlobInsertInpu
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
         batch_export_model=inputs.batch_export_model,
-        file_extension=FILE_FORMAT_EXTENSIONS[inputs.file_format],
-        compression_extension=COMPRESSION_EXTENSIONS[inputs.compression] if inputs.compression is not None else None,
+        file_format=inputs.file_format,
+        compression=inputs.compression,
+        legacy_parquet_extension=inputs.legacy_parquet_extension,
         include_file_number=bool(inputs.max_file_size_mb),
     )
 
@@ -439,6 +430,7 @@ class AzureBlobBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             file_format=inputs.file_format,
             max_file_size_mb=inputs.max_file_size_mb,
+            legacy_parquet_extension=inputs.legacy_parquet_extension,
             run_id=run_id,
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,

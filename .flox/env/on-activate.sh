@@ -278,7 +278,7 @@ echo -e "\n${C_CYAN}PostHog dev${C_RESET} ${C_DIM}── ${_branch}${C_RESET}\n"
 
 _activation_start=$(date +%s)
 
-# ── Steps 1, 1b, 2 (kicked off in parallel, with AMI cache-skip) ───
+# ── Steps 1, 1b, 2 (kicked off in parallel; uv and pnpm have an AMI cache-skip) ───
 # uv sync, pnpm install, and `make phrocs build` are independent -- none
 # of them reads or writes the other's outputs. Kick the two non-spinner
 # ones off in the background BEFORE foregrounding uv sync, so the wall
@@ -287,23 +287,26 @@ _activation_start=$(date +%s)
 # depend on the venv it populates, and because its run_step spinner remains
 # the user-visible progress indicator for activate.
 #
-# Each step also checks an AMI-bake stamp file (sha256 of the source-of-
-# truth input recorded at bake time): when the on-disk hash matches the
-# baked hash, the workspace is in the same state as the bake and the
-# subprocess would be a no-op, so we skip it entirely. On laptops or
-# pre-stamp workspaces the stamps are missing and the checks fall back
-# to running normally -- no regression.
+# uv sync and pnpm install also check an AMI-bake stamp file (sha256 of the
+# lockfile recorded at bake time): when the on-disk hash matches the baked
+# hash, the workspace is in the same state as the bake and the subprocess
+# would be a no-op, so we skip it entirely. On laptops or pre-stamp
+# workspaces the stamps are missing and the checks fall back to running
+# normally -- no regression.
+#
+# The phrocs build gets no stamp. Its Makefile already compares source and
+# binary timestamps, so `make` is a no-op when nothing changed. A stamp on
+# the built binary would never expire: a devbox pulls master at boot while
+# the binary stays the baked one, so the hash matches forever and the box
+# keeps running a phrocs that predates the config hogli generates.
 _PNPM_LOCK="$FLOX_ENV_PROJECT/pnpm-lock.yaml"
 _UV_LOCK="$FLOX_ENV_PROJECT/uv.lock"
-_PHROCS_BIN="$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs"
 
 _PNPM_BAKED=$(_read_ami_stamp /etc/posthog-coder-ami-pnpm-stamp)
 _UV_BAKED=$(_read_ami_stamp /etc/posthog-coder-ami-uv-stamp)
-_PHROCS_BAKED=$(_read_ami_stamp /etc/posthog-coder-ami-phrocs-stamp)
 
 _PNPM_CURRENT=$(_sha256_file "$_PNPM_LOCK")
 _UV_CURRENT=$(_sha256_file "$_UV_LOCK")
-_PHROCS_CURRENT=$(_sha256_file "$_PHROCS_BIN")
 
 # A stamp says the lockfile matches the bake, not that this checkout has the
 # outputs. A fresh worktree matches every stamp and has neither, so require the
@@ -314,8 +317,6 @@ _PNPM_SKIP=0
 [[ -n "$_PNPM_BAKED" && -n "$_PNPM_CURRENT" && "$_PNPM_BAKED" == "$_PNPM_CURRENT" && -d "$FLOX_ENV_PROJECT/node_modules/.pnpm" ]] && _PNPM_SKIP=1
 _UV_SKIP=0
 [[ -n "$_UV_BAKED" && -n "$_UV_CURRENT" && "$_UV_BAKED" == "$_UV_CURRENT" && -x "$UV_PROJECT_ENVIRONMENT/bin/python" ]] && _UV_SKIP=1
-_PHROCS_SKIP=0
-[[ -n "$_PHROCS_BAKED" && -n "$_PHROCS_CURRENT" && "$_PHROCS_BAKED" == "$_PHROCS_CURRENT" ]] && _PHROCS_SKIP=1
 
 # Seed repo-local git settings here, because package.json's postinstall runs inside
 # the sandbox below, which write-denies .git/config. The postinstall still tries
@@ -362,12 +363,67 @@ if [[ "$_PNPM_SKIP" -eq 0 ]]; then
   _BG_PNPM_START=$(date +%s)
 fi
 
-if [[ "$_PHROCS_SKIP" -eq 0 ]]; then
-  _BG_PHROCS_LOG=$(mktemp)
-  _ACTIVATION_TMPFILES+=("$_BG_PHROCS_LOG")
-  ( make -C "$FLOX_ENV_PROJECT/tools/phrocs" build ) >"$_BG_PHROCS_LOG" 2>&1 &
-  _BG_PHROCS_PID=$!
-  _BG_PHROCS_START=$(date +%s)
+_BG_PHROCS_LOG=$(mktemp)
+_ACTIVATION_TMPFILES+=("$_BG_PHROCS_LOG")
+( make -C "$FLOX_ENV_PROJECT/tools/phrocs" build ) >"$_BG_PHROCS_LOG" 2>&1 &
+_BG_PHROCS_PID=$!
+_BG_PHROCS_START=$(date +%s)
+
+# CodeRabbit CLI, downloaded from the vendor's release server. The flox catalog
+# build omits x86_64-darwin, and the vendor install script edits the user's shell
+# profile, so neither is used. One store per machine and version serves every
+# checkout, and the venv symlink in Step 2b resolves each worktree's own pin.
+# A failed install must not break activation: the CLI is only needed at PR-open
+# time, and the reviewing-with-coderabbit skill opens the PR without it.
+_CODERABBIT_VERSION="0.7.6"
+_CODERABBIT_STORE="$HOME/.config/posthog/tools/coderabbit/$_CODERABBIT_VERSION"
+_CODERABBIT_BIN="$_CODERABBIT_STORE/coderabbit"
+
+# Release asset suffix for this host, empty when the host cannot install it.
+# Digests come from https://cli.coderabbit.ai/releases/<version>/SHA256SUMS.
+_CODERABBIT_PLATFORM=""
+_CODERABBIT_SHA256=""
+if command -v unzip >/dev/null 2>&1; then
+  case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64)
+      _CODERABBIT_PLATFORM="darwin-arm64"
+      _CODERABBIT_SHA256="f970e608e383114e1edf214eea71a99d6604ea1dd09c01e754ee6b8d4b852cb1" ;;
+    Darwin-x86_64)
+      _CODERABBIT_PLATFORM="darwin-x64"
+      _CODERABBIT_SHA256="1c6242dec8a0983ff70842bc1d0e8c888d1a92b1ad80afb969c00c94c482a704" ;;
+    Linux-aarch64 | Linux-arm64)
+      _CODERABBIT_PLATFORM="linux-arm64"
+      _CODERABBIT_SHA256="2270641a6314bef0da32e5903ddc6de6265354962f7cf651fc581a4a91f22447" ;;
+    Linux-x86_64 | Linux-amd64)
+      _CODERABBIT_PLATFORM="linux-x64"
+      _CODERABBIT_SHA256="853a1727609ab0ff1f56863fa6de7acf3de593a6dc1bd7f91a32f11c5724ffc9" ;;
+  esac
+fi
+
+_install_coderabbit() {
+  mkdir -p "$_CODERABBIT_STORE"
+  # A temp dir inside the store keeps the final mv an atomic rename, so a
+  # concurrent or interrupted install never leaves a partial binary behind.
+  tmp=$(mktemp -d "$_CODERABBIT_STORE/.tmp.XXXXXX")
+  trap 'rm -rf "$tmp"' EXIT
+  # The release path carries no leading "v", unlike the vendor script's example.
+  curl -fsSL --connect-timeout 10 --max-time 300 \
+    "https://cli.coderabbit.ai/releases/$_CODERABBIT_VERSION/coderabbit-$_CODERABBIT_PLATFORM.zip" \
+    -o "$tmp/coderabbit.zip"
+  [[ "$(_sha256_file "$tmp/coderabbit.zip")" == "$_CODERABBIT_SHA256" ]]
+  unzip -qo "$tmp/coderabbit.zip" -d "$tmp"
+  chmod +x "$tmp/coderabbit"
+  mv -f "$tmp/coderabbit" "$_CODERABBIT_BIN"
+}
+
+_CODERABBIT_SKIP=0
+[[ -x "$_CODERABBIT_BIN" ]] && _CODERABBIT_SKIP=1
+if [[ "$_CODERABBIT_SKIP" -eq 0 && -n "$_CODERABBIT_PLATFORM" ]]; then
+  _BG_CODERABBIT_LOG=$(mktemp)
+  _ACTIVATION_TMPFILES+=("$_BG_CODERABBIT_LOG")
+  ( _install_coderabbit ) >"$_BG_CODERABBIT_LOG" 2>&1 &
+  _BG_CODERABBIT_PID=$!
+  _BG_CODERABBIT_START=$(date +%s)
 fi
 
 # ── Step 1: Python packages (must run before hogli — it needs Click) ─
@@ -406,11 +462,7 @@ if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
 fi
 
 # ── Step 1b: Build phrocs from source ─────────────────────────────
-if [[ "$_PHROCS_SKIP" -eq 1 ]]; then
-  done_step "Build phrocs (cached)"
-else
-  wait_bg_step "Build phrocs" "$_BG_PHROCS_PID" "$_BG_PHROCS_START" "$_BG_PHROCS_LOG"
-fi
+wait_bg_step "Build phrocs" "$_BG_PHROCS_PID" "$_BG_PHROCS_START" "$_BG_PHROCS_LOG"
 if [[ -f "$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs" && -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   ln -sf "$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs" "$UV_PROJECT_ENVIRONMENT/bin/phrocs"
 fi
@@ -420,6 +472,20 @@ if [[ "$_PNPM_SKIP" -eq 1 ]]; then
   done_step "Node packages (cached)"
 else
   wait_bg_step "Node packages" "$_BG_PNPM_PID" "$_BG_PNPM_START" "$_BG_PNPM_LOG"
+fi
+
+# ── Step 2b: CodeRabbit CLI (reap; launched above with the other jobs) ──
+if [[ "$_CODERABBIT_SKIP" -eq 1 ]]; then
+  done_step "CodeRabbit CLI (cached)"
+elif [[ -z "$_CODERABBIT_PLATFORM" ]]; then
+  warn_step "CodeRabbit CLI skipped  ${C_DIM}(no release for this host, or unzip is missing)${C_RESET}"
+else
+  wait_bg_step "CodeRabbit CLI" "$_BG_CODERABBIT_PID" "$_BG_CODERABBIT_START" "$_BG_CODERABBIT_LOG" \
+    || warn_step "CodeRabbit CLI install failed  ${C_DIM}(reviews skip until it installs)${C_RESET}"
+fi
+if [[ -x "$_CODERABBIT_BIN" && -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
+  ln -sf "$_CODERABBIT_BIN" "$UV_PROJECT_ENVIRONMENT/bin/coderabbit"
+  ln -sf "$_CODERABBIT_BIN" "$UV_PROJECT_ENVIRONMENT/bin/cr"
 fi
 
 # ── Step 3: /etc/hosts ──────────────────────────────────────────────
@@ -474,6 +540,53 @@ if [[ -x "$_rustup_rustc" ]] && [[ -n "$_flox_rustc_ver" ]]; then
   fi
 elif [[ -n "$_flox_rustc_ver" ]]; then
   done_step "Rust toolchain (rustc ${_flox_rustc_ver})"
+fi
+
+# ── macOS SDK check for lld (aarch64-darwin only) ──────────────────
+# rust/.cargo/config.toml links Rust via lld here. Newer macOS SDKs drop the
+# arm64-macos slice from their libSystem/libc/libm .tbd stubs and add an
+# arm64e.x1 slice that lld cannot parse, which fails every Rust link with
+# undefined libc symbols. Pin SDKROOT to the newest SDK lld can still read.
+if [[ "$(uname -s)-$(uname -m)" == "Darwin-arm64" && -z "${SDKROOT:-}" ]] && command -v lld >/dev/null 2>&1; then
+  _sdk_links_arm64() {
+    local tbd="$1/usr/lib/libSystem.tbd"
+    [[ -r "$tbd" ]] || return 1
+    awk '/^targets:/{f=1} f{print} f&&/]/{exit}' "$tbd" |
+      grep -qE '(^|[][ ,])arm64-macos([],]|$)'
+  }
+
+  _active_sdk=$(xcrun --show-sdk-path 2>/dev/null)
+  if [[ -n "$_active_sdk" ]] && ! _sdk_links_arm64 "$_active_sdk"; then
+    _sdk_dirs=(/Library/Developer/CommandLineTools/SDKs)
+    _xcode_dev_dir=$(xcode-select -p 2>/dev/null)
+    [[ -n "$_xcode_dev_dir" ]] && _sdk_dirs+=("$_xcode_dev_dir/Platforms/MacOSX.platform/Developer/SDKs")
+
+    _lld_sdk=""
+    while IFS=$'\t' read -r _ _candidate; do
+      if _sdk_links_arm64 "$_candidate"; then
+        _lld_sdk="$_candidate"
+        break
+      fi
+    done < <(
+      for _dir in "${_sdk_dirs[@]}"; do
+        [[ -d "$_dir" ]] || continue
+        for _sdk in "$_dir"/MacOSX*.sdk; do
+          [[ -d "$_sdk" && ! -L "$_sdk" ]] || continue
+          printf '%s\t%s\n' "$(basename "$_sdk")" "$_sdk"
+        done
+      done | sort -Vr -k1,1
+    )
+
+    if [[ -n "$_lld_sdk" ]]; then
+      export SDKROOT="$_lld_sdk"
+      done_step "macOS SDK ${C_DIM}($(basename "$_lld_sdk") — newest one lld can link against)${C_RESET}"
+    else
+      warn_step "No macOS SDK found that lld can link against. Rust builds will fail."
+      echo -e "    ${C_DIM}$(basename "$_active_sdk") has no arm64-macos slice in its .tbd stubs.${C_RESET}"
+      echo -e "    ${C_DIM}Fix: install an older SDK, or drop -fuse-ld=lld from rust/.cargo/config.toml.${C_RESET}"
+    fi
+  fi
+  unset -f _sdk_links_arm64
 fi
 
 # Share a single Cargo target dir so worktrees skip redundant linking

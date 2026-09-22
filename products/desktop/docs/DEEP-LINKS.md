@@ -16,6 +16,16 @@ If the app is not running, the OS launches it and the link is queued until the r
 
 Links can also be dispatched from inside the app: the `deepLink.open` tRPC route forwards a URL through the same handlers, with no OS hop. Remote announcement CTAs use this — author payloads with the production scheme; dev builds swap in their scheme automatically.
 
+## Report references in the app
+
+Report references in agent messages open the full report page in the current app, including inside task chats. They do not open a general object preview or an external browser. The hover card's explicit **Open in PostHog** action still opens the web page.
+
+Quick Ask sends report navigation to the main Desktop window through `deepLink.openInboxReport`.
+This route accepts only a non-empty report ID and is included in the Quick Ask IPC allowlist.
+The broader `deepLink.openAgentAction` route remains blocked for Quick Ask.
+Report references bypass the panel's click suppression; other reference kinds keep their preview-only behavior.
+Its separate window does not use the main window's router or tab services.
+
 ## User-facing links
 
 These are the deep links you would share with someone or wire up from another tool.
@@ -113,7 +123,7 @@ posthog-code://inbox
 posthog-code://inbox/report_abc123
 ```
 
-### `posthog-code://scout/<skillSlug>`
+### `posthog-code://scout/<skillName>`
 
 Open a scout's detail page, optionally focused on a specific finding (expanded
 and scrolled into view). This is the link copied by the "Share" CTA on a scout
@@ -121,12 +131,12 @@ emission card.
 
 | Segment / Parameter | Required | Description |
 |---|---|---|
-| `<skillSlug>` | Yes | Scout route slug, i.e. the skill name with the `signals-scout-` prefix stripped (e.g. `error-tracking`) |
+| `<skillName>` | Yes | Full scout skill name (e.g. `signals-scout-error-tracking`, or a bare name such as `my-churn-watch`). Older links carrying the name with the `signals-scout-` prefix stripped still resolve. |
 | `finding` | No | Emission id to expand and scroll to. Best effort – only resolves while the finding is still inside the scout's runs window. |
 
 ```
-posthog-code://scout/error-tracking
-posthog-code://scout/error-tracking?finding=abc123
+posthog-code://scout/signals-scout-error-tracking
+posthog-code://scout/my-churn-watch?finding=abc123
 ```
 
 ### `posthog-code://loop/<loopId>`

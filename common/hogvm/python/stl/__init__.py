@@ -11,7 +11,18 @@ from typing import TYPE_CHECKING, Any, Optional
 import pytz
 
 from ..objects import is_hog_callable, is_hog_closure, is_hog_error, new_hog_error, to_hog_interval
-from ..utils import HogVMException, _require_string, get_nested_value, like
+from ..utils import (
+    COST_PER_UNIT,
+    MAX_MEMORY,
+    HogVMException,
+    HogVMMemoryExceededException,
+    _compile_regex,
+    _require_string,
+    _validate_regex_pattern,
+    get_nested_value,
+    like,
+    regex_extract,
+)
 from .crypto import md5, sha1, sha1HmacChain, sha256, sha256HmacChain
 from .date import (
     formatDateTime,
@@ -33,7 +44,7 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class STLFunction:
     fn: Callable[[list[Any], Optional["Team"], list[str] | None, float], Any]
     minArgs: Optional[int] = None
@@ -41,6 +52,7 @@ class STLFunction:
     # Blocks the thread on time or I/O the VM's cooperative timeout can't interrupt, so callers
     # that run untrusted Hog on a request thread (e.g. HogQL placeholders) must refuse it.
     is_blocking: bool = False
+    memory_cost: Callable[[list[Any]], int] | None = None
 
 
 def toString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
@@ -273,7 +285,6 @@ def decodeURLComponent(args: list[Any], team: Optional["Team"], stdout: Optional
 def tryDecodeURLComponent(
     args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float
 ) -> Optional[str]:
-    import re
     import urllib.parse
 
     s = args[0]
@@ -856,11 +867,30 @@ def today(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], 
     }
 
 
+# The stack charges a value for memory when it is pushed, after it is built. Check the requested
+# length up front so an oversized sequence is refused before it is built. The ceiling mirrors the
+# stack's own accounting: a list of N elements costs (N + 1) * COST_PER_UNIT (one unit for the
+# list itself), so the largest length the stack accepts is MAX_MEMORY // COST_PER_UNIT - 1.
+_MAX_SEQUENCE_LENGTH = MAX_MEMORY // COST_PER_UNIT - 1
+
+
+def _guard_sequence_length(length: int) -> None:
+    if length > _MAX_SEQUENCE_LENGTH:
+        raise HogVMMemoryExceededException(memory_limit=MAX_MEMORY, attempted_memory=(length + 1) * COST_PER_UNIT)
+
+
+def _range_memory_cost(args: list[Any]) -> int:
+    length = args[0] if len(args) == 1 else args[1] - args[0]
+    return (max(0, length) + 1) * COST_PER_UNIT
+
+
 def range_fn(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
     # range(a,b) -> [a..b-1], range(x) -> [0..x-1]
     if len(args) == 1:
+        _guard_sequence_length(args[0])
         return list(range(args[0]))
     elif len(args) == 2:
+        _guard_sequence_length(args[1] - args[0])
         return list(range(args[0], args[1]))
     else:
         raise ValueError("range function supports 1 or 2 arguments only")
@@ -947,37 +977,16 @@ def multiSearchAnyCaseInsensitive(args: list[Any], team, stdout, timeout):
 
 
 def extractRegex(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> str:
-    """
-    Extract substring matching a regex pattern.
-    Matches ClickHouse extract(haystack, pattern) behavior:
-    - Returns first capture group if pattern has groups
-    - Returns whole match if no capture groups
-    - Returns empty string if no match
-    """
-    if args[0] is None or args[1] is None:
-        return ""
-    haystack = str(args[0])
-    pattern = str(args[1])
-    try:
-        match = re.search(pattern, haystack)
-        if not match:
-            return ""
-        if match.lastindex and match.lastindex >= 1:
-            return match.group(1) or ""
-        return match.group(0) or ""
-    except re.error:
-        return ""
+    return regex_extract(args[0], args[1])
 
 
 def match(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
-    if args[1] is None or args[0] is None:
+    if args[0] is None or args[1] is None:
         return False
     input_string = _require_string(args[0], "input", "match")
     pattern = _require_string(args[1], "pattern", "match")
-    try:
-        return re.search(pattern, input_string) is not None
-    except re.error as e:
-        raise HogVMException(f"Invalid regex pattern: {e}") from e
+    _validate_regex_pattern(pattern)
+    return _compile_regex(pattern).search(input_string) is not None
 
 
 STL: dict[str, STLFunction] = {
@@ -1190,7 +1199,7 @@ STL: dict[str, STLFunction] = {
     "notEquals": STLFunction(fn=notEquals, minArgs=2, maxArgs=2),
     "or": STLFunction(fn=or_fn, minArgs=1, maxArgs=None),
     "plus": STLFunction(fn=plus, minArgs=2, maxArgs=2),
-    "range": STLFunction(fn=range_fn, minArgs=1, maxArgs=2),
+    "range": STLFunction(fn=range_fn, minArgs=1, maxArgs=2, memory_cost=_range_memory_cost),
     "round": STLFunction(fn=round_fn, minArgs=1, maxArgs=2),
     "startsWith": STLFunction(fn=startsWith, minArgs=2, maxArgs=2),
     "substring": STLFunction(fn=substring, minArgs=2, maxArgs=3),
