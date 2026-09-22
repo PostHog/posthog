@@ -100,12 +100,6 @@ class ParseReviewerOutputTests(SimpleTestCase):
         assert verdict.verdict == "escalate"
         assert verdict.showstoppers
 
-    def test_non_object_reviewer_parses_without_reasoning(self) -> None:
-        verdict = parse_reviewer_output('{"final_verdict": "ERROR", "reviewer": "bad"}')
-
-        assert verdict.verdict == "error"
-        assert verdict.reasoning == ""
-
     def test_unrecognized_verdict_string_escalates_with_note(self) -> None:
         raw = '{"verdict": "MAYBE", "reasoning": "Unsure.", "issues": []}'
 

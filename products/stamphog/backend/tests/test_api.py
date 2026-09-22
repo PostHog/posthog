@@ -8,7 +8,6 @@ from unittest.mock import patch
 from django.core import signing
 from django.db import transaction
 from django.test import SimpleTestCase, override_settings
-from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -688,26 +687,26 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             # A QUEUED run lost its workflow start, so a repeat request restarts it.
-            ("queued_restarts", ReviewRunStatus.QUEUED, False, False, True),
-            ("reviewing_is_returned", ReviewRunStatus.REVIEWING, False, False, False),
-            ("completed_is_returned", ReviewRunStatus.COMPLETED, False, False, False),
-            ("failed_is_replaced", ReviewRunStatus.FAILED, False, True, True),
-            # A base retarget dismisses the approval without moving the head.
-            ("dismissed_approval_is_replaced", ReviewRunStatus.COMPLETED, True, True, True),
+            ("queued_restarts", ReviewRunStatus.QUEUED, None, False, True),
+            ("reviewing_is_returned", ReviewRunStatus.REVIEWING, None, False, False),
+            ("completed_is_returned", ReviewRunStatus.COMPLETED, None, False, False),
+            ("failed_is_replaced", ReviewRunStatus.FAILED, "master", True, True),
+            ("same_base_is_returned", ReviewRunStatus.COMPLETED, "master", False, False),
+            # A base retarget changes the diff without moving the head.
+            ("other_base_is_replaced", ReviewRunStatus.COMPLETED, "feat/parent", True, True),
         ]
     )
     def test_repeat_request_dedupes_on_the_current_head(
         self,
         _name: str,
         existing_status: ReviewRunStatus,
-        approval_dismissed: bool,
+        reviewed_base_ref: str | None,
         expect_created: bool,
         expect_start: bool,
     ) -> None:
         first = self._request().json()["run"]["id"]
-        ReviewRun.objects.unscoped().filter(id=first).update(
-            status=existing_status, approval_dismissed_at=timezone.now() if approval_dismissed else None
-        )
+        output = {"pr": {"base": {"ref": reviewed_base_ref}}} if reviewed_base_ref else {}
+        ReviewRun.objects.unscoped().filter(id=first).update(status=existing_status, output=output)
         self.start_workflow.reset_mock()
 
         response = self._request()
@@ -755,12 +754,12 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert not ReviewRun.objects.unscoped().filter(team_id=self.team.id).exists()
 
-    @parameterized.expand([("reviewed", True), ("not_reviewed_yet", False)])
-    def test_retrieve_returns_the_reviewer_reasoning(self, _name: str, reviewed: bool) -> None:
+    @parameterized.expand([("reviewed", "ok"), ("not_reviewed_yet", None), ("malformed_output", "malformed")])
+    def test_retrieve_returns_the_reviewer_reasoning(self, _name: str, stored: str | None) -> None:
         pull_request = PullRequest.objects.unscoped().create(
             team_id=self.team.id, repo_config=self.repo_config, pr_number=5, pr_url="https://github.com/x/y/pull/5"
         )
-        engine_output = {
+        engine_output: dict[str, Any] = {
             "final_verdict": "REFUSED",
             "reviewer": {
                 "reasoning": "Touches auth. ![x](https://evil.example.com/leak.png)",
@@ -770,7 +769,9 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             "review_body": "Refused: touches auth.",
             "gates": [],
         }
-        output = {"reviewer_raw": f"uv noise\n{json.dumps(engine_output)}"} if reviewed else {}
+        if stored == "malformed":
+            engine_output = {"final_verdict": "ERROR", "reviewer": "bad", "gates": 1}
+        output = {"reviewer_raw": f"uv noise\n{json.dumps(engine_output)}"} if stored else {}
         run = ReviewRun.objects.unscoped().create(
             team_id=self.team.id, pull_request=pull_request, head_sha="head1", output=output
         )
@@ -778,7 +779,7 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         body = self.client.get(f"{self.url}{run.id}/").json()
 
         reasoning = body["reasoning"]
-        if reviewed:
+        if stored == "ok":
             # The image is removed before the text leaves the API, because an MCP client can render it.
             assert reasoning == {
                 "reasoning": "Touches auth. [image removed]",

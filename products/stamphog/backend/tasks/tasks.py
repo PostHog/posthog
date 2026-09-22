@@ -1424,6 +1424,12 @@ def _reviewable_repo_config(team_id: int, repository: str) -> StamphogRepoConfig
     )
 
 
+def _reviewed_base_ref(run: ReviewRun) -> str:
+    """The base branch the run reviewed against, or "" before the workflow recorded the PR."""
+    reviewed_pr = (run.output or {}).get("pr") or {}
+    return (reviewed_pr.get("base") or {}).get("ref") or ""
+
+
 @frozen
 class _HeadQueueResult:
     """What ``_queue_review_at_head`` did for one PR head."""
@@ -1462,13 +1468,16 @@ def _queue_review_at_head(
             ReviewRun.objects.for_team(team_id)
             .using(run_write_db)
             .select_for_update()
-            # A dismissed approval no longer covers the head: a base retarget dismisses it without
-            # moving the head, and in label mode no webhook run replaces it.
-            .filter(pull_request=pr_obj, head_sha=head_sha, approval_dismissed_at__isnull=True)
+            .filter(pull_request=pr_obj, head_sha=head_sha)
             .exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
             .order_by("-created_at")
             .first()
         )
+        # A retarget changes the diff without moving the head, and in label mode no webhook run
+        # replaces the old verdict. A run that reviewed another base branch does not cover this one.
+        reviewed_base_ref = _reviewed_base_ref(existing) if existing is not None else ""
+        if reviewed_base_ref and reviewed_base_ref != (pr.get("base") or {}).get("ref"):
+            existing = None
         if existing is not None:
             if existing.status == ReviewRunStatus.QUEUED:
                 existing_run_id = str(existing.id)

@@ -252,7 +252,12 @@ def get_review_reasoning(run: contracts.ReviewRunDTO) -> contracts.ReviewReasoni
     raw = (run.output or {}).get("reviewer_raw")
     if not isinstance(raw, str) or not raw:
         return contracts.ReviewReasoningDTO()
-    parsed = parse_reviewer_output(raw)
+    try:
+        parsed = parse_reviewer_output(raw)
+    except (AttributeError, TypeError, ValueError):
+        # A crashed or version-skewed engine can print a malformed verdict. Retrieve must still answer.
+        logger.warning("stamphog_review_reasoning_unparseable", review_run_id=str(run.id))
+        return contracts.ReviewReasoningDTO()
     return contracts.ReviewReasoningDTO(
         reasoning=_clean_reviewer_text(parsed.reasoning),
         showstoppers=[_clean_reviewer_text(item) for item in parsed.showstoppers],
