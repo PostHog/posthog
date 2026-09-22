@@ -364,18 +364,20 @@ AS {KAFKA_LOGS34_AVRO_MV_SELECT()}
 
 def LOGS34_TO_VOLUME_BUCKETS_MV_SELECT():
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
-    # Groups rows like _rollup_sql in
+    # Groups rows exactly like _rollup_sql in
     # products/logs/backend/temporal/volume_tick/aggregation.py, which carries
-    # the reasoning for the environment fallback and severity lowercasing.
-    # `retention_days` is the one dimension this MV adds on top of that
-    # grouping. The 300s grid literal is frozen into the DDL at migration time;
+    # the reasoning for the environment fallback and severity lowercasing;
+    # `retention_days` is a measure folded into each group, not a dimension.
+    # The 300s grid literal is frozen into the DDL at migration time;
     # BUCKET_SECONDS there must stay equal to it or the detector reads buckets
     # this MV never writes.
     #
     # `retention_days` re-derives what the ingest path applied to this row,
     # because logs34 keeps the resulting expiry rather than the input. It feeds
     # the rollup's TTL, so it is clamped: a corrupt expiry would otherwise pin
-    # a bucket in the table for centuries.
+    # a bucket in the table for centuries. 3650 is that guard, set clear of the
+    # product's own retention ceiling rather than tracking it. Folded with max
+    # so mixed retentions in one series never shorten its life.
     return f"""SELECT
     team_id,
     time_bucket,
@@ -383,7 +385,7 @@ def LOGS34_TO_VOLUME_BUCKETS_MV_SELECT():
     namespace,
     environment,
     severity_text,
-    retention_days,
+    maxSimpleState(retention_days) AS retention_days,
     sumSimpleState(1) AS log_count
 FROM
 (
@@ -409,7 +411,7 @@ FROM
         toUInt16(least(greatest(dateDiff('day', observed_timestamp, original_expiry_timestamp), 0), 3650)) AS retention_days
     FROM {db}.{TABLE_NAME}
 )
-GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, retention_days"""
+GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text"""
 
 
 def LOGS34_TO_VOLUME_BUCKETS_MV():
@@ -423,7 +425,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.logs34_to_volume_buckets TO {db}.log
     `namespace` LowCardinality(String),
     `environment` LowCardinality(String),
     `severity_text` LowCardinality(String),
-    `retention_days` UInt16,
+    `retention_days` SimpleAggregateFunction(max, UInt16),
     `log_count` SimpleAggregateFunction(sum, UInt64)
 )
 AS {LOGS34_TO_VOLUME_BUCKETS_MV_SELECT()}

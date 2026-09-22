@@ -3882,7 +3882,7 @@
       `namespace` LowCardinality(String),
       `environment` LowCardinality(String),
       `severity_text` LowCardinality(String),
-      `retention_days` UInt16,
+      `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
   AS SELECT
@@ -3892,7 +3892,7 @@
       namespace,
       environment,
       severity_text,
-      retention_days,
+      maxSimpleState(retention_days) AS retention_days,
       sumSimpleState(1) AS log_count
   FROM
   (
@@ -3918,7 +3918,7 @@
           toUInt16(least(greatest(dateDiff('day', observed_timestamp, original_expiry_timestamp), 0), 3650)) AS retention_days
       FROM posthog_test.logs34
   )
-  GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, retention_days
+  GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text
   
   '''
 # ---
@@ -4031,15 +4031,14 @@
       `namespace` LowCardinality(String),
       `environment` LowCardinality(String),
       `severity_text` LowCardinality(String),
-      `retention_days` UInt16,
+      `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_volume_buckets', '{replica}-{shard}')
   PARTITION BY toDate(time_bucket)
-  PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text)
-  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, retention_days)
+  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text)
   TTL time_bucket + toIntervalDay(greatest(42, retention_days))
-  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
+  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
   
   '''
 # ---
@@ -11938,15 +11937,14 @@
       `namespace` LowCardinality(String),
       `environment` LowCardinality(String),
       `severity_text` LowCardinality(String),
-      `retention_days` UInt16,
+      `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_volume_buckets', '{replica}-{shard}')
   PARTITION BY toDate(time_bucket)
-  PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text)
-  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, retention_days)
+  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text)
   TTL time_bucket + toIntervalDay(greatest(42, retention_days))
-  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
+  SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
   
   '''
 # ---

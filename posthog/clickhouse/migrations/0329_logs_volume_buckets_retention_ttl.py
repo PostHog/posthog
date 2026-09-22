@@ -1,10 +1,3 @@
-"""Written in the shape posthog/clickhouse/hcl/codegen/gen_migration.py emits for the declarative HCL.
-
-The sorting key statement is hand-written: codegen reports a key change as a
-recreate, but ClickHouse accepts a column appended to the sorting key when the
-same ALTER adds the column, which keeps the rollup's history.
-"""
-
 from django.conf import settings
 
 from posthog.clickhouse.client.connection import NodeRole
@@ -13,43 +6,30 @@ from posthog.clickhouse.logs import LOGS34_TO_VOLUME_BUCKETS_MV_SELECT
 
 DB = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 
-# Rows written before this migration read as `retention_days` 0, so they keep
-# the 42 day floor. MODIFY ORDER BY leaves the primary key alone, so the six
-# dimensions it already covers stay the primary key.
-ADD_RETENTION_DAYS = f"""
+operations = [
+    # Rows written before this runs read as `retention_days` 0, so greatest(42, 0)
+    # reproduces the TTL they already carry. materialize_ttl_after_modify would
+    # rewrite every part to arrive back at its current state, so it is turned off.
+    run_sql_with_exceptions(
+        f"""
 ALTER TABLE {DB}.logs_volume_buckets
-    ADD COLUMN IF NOT EXISTS retention_days UInt16 AFTER severity_text,
-    MODIFY ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, retention_days)
-"""
-
-# The TTL materialization is skipped: it rewrites every existing part to reach
-# the same 42 day expiry those rows already carry.
-MODIFY_TTL = f"""
-ALTER TABLE {DB}.logs_volume_buckets
+    ADD COLUMN IF NOT EXISTS retention_days SimpleAggregateFunction(max, UInt16) AFTER severity_text,
     MODIFY TTL time_bucket + toIntervalDay(greatest(42, retention_days))
     SETTINGS materialize_ttl_after_modify = 0
-"""
-
-ADD_RETENTION_DAYS_DISTRIBUTED = f"""
-ALTER TABLE {DB}.logs_volume_buckets_distributed
-    ADD COLUMN IF NOT EXISTS retention_days UInt16 AFTER severity_text
-"""
-
-operations = [
-    run_sql_with_exceptions(
-        ADD_RETENTION_DAYS,
+""",
         node_roles=[NodeRole.LOGS],
         sharded=False,
         is_alter_on_replicated_table=True,
     ),
     run_sql_with_exceptions(
-        MODIFY_TTL,
+        f"ALTER TABLE {DB}.logs_volume_buckets MODIFY SETTING ttl_only_drop_parts = 0",
         node_roles=[NodeRole.LOGS],
         sharded=False,
         is_alter_on_replicated_table=True,
     ),
     run_sql_with_exceptions(
-        ADD_RETENTION_DAYS_DISTRIBUTED,
+        f"ALTER TABLE {DB}.logs_volume_buckets_distributed "
+        "ADD COLUMN IF NOT EXISTS retention_days SimpleAggregateFunction(max, UInt16) AFTER severity_text",
         node_roles=[NodeRole.LOGS],
         sharded=False,
         is_alter_on_replicated_table=False,

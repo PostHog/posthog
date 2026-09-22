@@ -5,7 +5,7 @@ SELECT
   namespace,
   environment,
   severity_text,
-  retention_days,
+  maxSimpleState(retention_days) AS retention_days,
   sumSimpleState(1) AS log_count
 FROM
   (
@@ -34,4 +34,4 @@ FROM
     FROM posthog.logs34
   )
 GROUP BY
-  team_id, time_bucket, service_name, namespace, environment, severity_text, retention_days
+  team_id, time_bucket, service_name, namespace, environment, severity_text

@@ -1223,9 +1223,9 @@ CREATE TABLE posthog.logs_volume_buckets (
   namespace LowCardinality(String),
   environment LowCardinality(String),
   severity_text LowCardinality(String),
-  retention_days UInt16,
+  retention_days SimpleAggregateFunction(max, UInt16),
   log_count SimpleAggregateFunction(sum, UInt64)
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_volume_buckets', '{replica}-{shard}') PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text) ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, retention_days) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(greatest(42, retention_days)) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_volume_buckets', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(greatest(42, retention_days)) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0;
 CREATE TABLE posthog.logs_volume_buckets_distributed (
   team_id Int32,
   time_bucket DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
@@ -1233,7 +1233,7 @@ CREATE TABLE posthog.logs_volume_buckets_distributed (
   namespace LowCardinality(String),
   environment LowCardinality(String),
   severity_text LowCardinality(String),
-  retention_days UInt16,
+  retention_days SimpleAggregateFunction(max, UInt16),
   log_count SimpleAggregateFunction(sum, UInt64)
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs_volume_buckets');
 CREATE TABLE posthog.message_assets_data (
@@ -5182,14 +5182,14 @@ FROM
     GROUP BY
       team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, severity_text, resource_attributes
   );
-CREATE MATERIALIZED VIEW posthog.logs34_to_volume_buckets TO posthog.logs_volume_buckets (team_id Int32, time_bucket DateTime('UTC'), service_name LowCardinality(String), namespace LowCardinality(String), environment LowCardinality(String), severity_text LowCardinality(String), retention_days UInt16, log_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
+CREATE MATERIALIZED VIEW posthog.logs34_to_volume_buckets TO posthog.logs_volume_buckets (team_id Int32, time_bucket DateTime('UTC'), service_name LowCardinality(String), namespace LowCardinality(String), environment LowCardinality(String), severity_text LowCardinality(String), retention_days SimpleAggregateFunction(max, UInt16), log_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   time_bucket,
   service_name,
   namespace,
   environment,
   severity_text,
-  retention_days,
+  maxSimpleState(retention_days) AS retention_days,
   sumSimpleState(1) AS log_count
 FROM
   (
@@ -5218,7 +5218,7 @@ FROM
     FROM posthog.logs34
   )
 GROUP BY
-  team_id, time_bucket, service_name, namespace, environment, severity_text, retention_days;
+  team_id, time_bucket, service_name, namespace, environment, severity_text;
 CREATE MATERIALIZED VIEW posthog.message_assets_mv TO posthog.message_assets_data (team_id Int64, function_kind LowCardinality(String), function_id String, parent_run_id String, invocation_id String, action_id String, kind LowCardinality(String), distinct_id String, person_id String, recipient String, subject String, status LowCardinality(String), sent_at DateTime64(6, 'UTC'), version UInt64, is_deleted UInt8, html String, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   team_id,
   function_kind,

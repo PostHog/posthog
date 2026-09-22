@@ -1323,13 +1323,12 @@ SQL
   }
 
   table "logs_volume_buckets" {
-    primary_key  = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
-    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "retention_days"]
+    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
     partition_by = "toDate(time_bucket)"
     ttl          = "time_bucket + toIntervalDay(greatest(42, retention_days))"
     settings = {
       index_granularity   = "8192"
-      ttl_only_drop_parts = "1"
+      ttl_only_drop_parts = "0"
     }
     column "team_id" {
       type = "Int32"
@@ -1351,7 +1350,7 @@ SQL
       type = "LowCardinality(String)"
     }
     column "retention_days" {
-      type = "UInt16"
+      type = "SimpleAggregateFunction(max, UInt16)"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
@@ -1383,7 +1382,7 @@ SQL
       type = "LowCardinality(String)"
     }
     column "retention_days" {
-      type = "UInt16"
+      type = "SimpleAggregateFunction(max, UInt16)"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
@@ -4457,7 +4456,7 @@ SELECT
   namespace,
   environment,
   severity_text,
-  retention_days,
+  maxSimpleState(retention_days) AS retention_days,
   sumSimpleState(1) AS log_count
 FROM
   (
@@ -4486,7 +4485,7 @@ FROM
     FROM posthog.logs34
   )
 GROUP BY
-  team_id, time_bucket, service_name, namespace, environment, severity_text, retention_days
+  team_id, time_bucket, service_name, namespace, environment, severity_text
 SQL
 
     column "team_id" {
@@ -4508,7 +4507,7 @@ SQL
       type = "LowCardinality(String)"
     }
     column "retention_days" {
-      type = "UInt16"
+      type = "SimpleAggregateFunction(max, UInt16)"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"

@@ -19,18 +19,13 @@ from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, 
 # series per day are few enough that a dims-early key would make every granule
 # span the whole day.
 #
-# TTL is 42 days (6 weekly samples per time-of-week slot) or the team's log
-# retention, whichever is longer, so a team that keeps raw logs for longer than
-# the baseline window keeps the rollup alongside them. `retention_days` carries
-# the per-row retention the ingest path applied, which is why it sits in the
-# key: a team that changes retention gets new series rather than rows whose TTL
-# depends on merge order. With ttl_only_drop_parts a part waits for its longest
-# lived row, so mixed retentions round up, never down.
-#
-# PRIMARY KEY stops before `retention_days`. The six dimensions ahead of it
-# already prune granules, and MODIFY ORDER BY on a live table leaves the
-# primary key at the columns the table was created with, so declaring it here
-# keeps a table created from scratch identical to one the migration altered.
+# The TTL floor is 42 days, which buys 6 weekly samples per time-of-week slot.
+# A team whose raw logs outlive that keeps the rollup alongside them, so the
+# TTL takes whichever of the two is longer. `retention_days` is the retention
+# the ingest path applied, folded with max: a series whose rows carry mixed
+# retentions lives as long as its longest lived log. Rows in one partition
+# carry different TTLs, so ttl_only_drop_parts is off; a whole-part drop would
+# hold every team's rows to the longest retention in the part.
 
 TABLE_NAME = "logs_volume_buckets"
 
@@ -45,15 +40,14 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     `namespace` LowCardinality(String),
     `environment` LowCardinality(String),
     `severity_text` LowCardinality(String),
-    `retention_days` UInt16,
+    `retention_days` SimpleAggregateFunction(max, UInt16),
     `log_count` SimpleAggregateFunction(sum, UInt64)
 )
 ENGINE = {AggregatingMergeTree(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toDate(time_bucket)
-PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text)
-ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, retention_days)
+ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text)
 TTL time_bucket + toIntervalDay(greatest(42, retention_days))
-SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
 """
 
 
