@@ -144,10 +144,10 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
             cleanup()
         })
 
-        it('shows loading state when properties are loading', () => {
+        it('shows loading state when diagnostics are loading', () => {
             mockedUseValues.mockReturnValue({
-                sessionEventProperties: null,
-                sessionEventPropertiesLoading: true,
+                captureDiagnostics: null,
+                captureDiagnosticsLoading: true,
             })
 
             render(<ReplayCaptureDiagnosticsPanel sessionId="session-123" />)
@@ -157,8 +157,8 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
 
         it('renders diagnosis when properties are loaded', () => {
             mockedUseValues.mockReturnValue({
-                sessionEventProperties: { $recording_status: 'disabled' },
-                sessionEventPropertiesLoading: false,
+                captureDiagnostics: { properties: { $recording_status: 'disabled' }, recordingExists: false },
+                captureDiagnosticsLoading: false,
             })
 
             render(<ReplayCaptureDiagnosticsPanel sessionId="session-123" />)
@@ -168,8 +168,8 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
 
         it('renders nothing when properties are null after loading', () => {
             mockedUseValues.mockReturnValue({
-                sessionEventProperties: null,
-                sessionEventPropertiesLoading: false,
+                captureDiagnostics: { properties: null, recordingExists: false },
+                captureDiagnosticsLoading: false,
             })
 
             const { container } = render(<ReplayCaptureDiagnosticsPanel sessionId="session-123" />)
@@ -179,13 +179,41 @@ describe('ReplayCaptureDiagnosticsPanel', () => {
 
         it('renders sampled in as unknown from loaded properties', () => {
             mockedUseValues.mockReturnValue({
-                sessionEventProperties: { $recording_status: 'sampled' },
-                sessionEventPropertiesLoading: false,
+                captureDiagnostics: { properties: { $recording_status: 'sampled' }, recordingExists: null },
+                captureDiagnosticsLoading: false,
             })
 
             render(<ReplayCaptureDiagnosticsPanel sessionId="session-789" />)
 
             expect(screen.getByText('Unable to determine why this recording is missing')).toBeInTheDocument()
+        })
+
+        it('says a recording is stored and links to it when the server found one', () => {
+            mockedUseValues.mockReturnValue({
+                captureDiagnostics: {
+                    properties: { $recording_status: 'active', $sdk_debug_replay_flushed_size: 500 },
+                    recordingExists: true,
+                },
+                captureDiagnosticsLoading: false,
+            })
+
+            const { container } = render(<ReplayCaptureDiagnosticsPanel sessionId="session-456" />)
+
+            expect(screen.getByText('PostHog has a recording for this session')).toBeInTheDocument()
+            const hrefs = Array.from(container.querySelectorAll('a')).map((a) => a.getAttribute('href'))
+            expect(hrefs).toContain('/replay/session-456')
+            expect(hrefs.some((h) => h?.includes('session_ids'))).toBe(true)
+        })
+
+        it('renders the stored-recording answer even when no diagnostic event was found', () => {
+            mockedUseValues.mockReturnValue({
+                captureDiagnostics: { properties: null, recordingExists: true },
+                captureDiagnosticsLoading: false,
+            })
+
+            render(<ReplayCaptureDiagnosticsPanel sessionId="session-456" />)
+
+            expect(screen.getByText('PostHog has a recording for this session')).toBeInTheDocument()
         })
     })
 })

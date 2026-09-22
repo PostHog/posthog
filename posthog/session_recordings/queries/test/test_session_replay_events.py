@@ -529,10 +529,20 @@ class TestGetLatestSessionEventProperties(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         assert response.json()["properties"] is None
 
-    def test_capture_diagnostics_endpoint_returns_properties(self) -> None:
+    @parameterized.expand([("recording_stored", True), ("no_recording_stored", False)])
+    def test_capture_diagnostics_endpoint_returns_properties_and_existence(self, _name: str, stored: bool) -> None:
         session_start = (now() - relativedelta(minutes=10)).replace(microsecond=0)
         session_id = _uuidv7_session_id_for(session_start)
         self._seed_event(session_id, session_start, "endpoint")
+        if stored:
+            produce_replay_summary(
+                session_id=session_id,
+                team_id=self.team.pk,
+                first_timestamp=session_start,
+                last_timestamp=session_start,
+                distinct_id="d1",
+                ensure_analytics_event_in_session=False,
+            )
 
         response = self.client.get(
             f"/api/environments/{self.team.id}/session_recordings/{session_id}/capture_diagnostics"
@@ -540,3 +550,4 @@ class TestGetLatestSessionEventProperties(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200
         assert response.json()["properties"]["$recording_status"] == "endpoint"
+        assert response.json()["recording_exists"] is stored
