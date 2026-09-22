@@ -42,6 +42,7 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { VALIDATION_ERROR_STATUSES } from '~/queries/nodes/InsightViz/utils'
 import { FunnelsQuery, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
 import { isFunnelsDataWarehouseNode } from '~/queries/utils'
 import {
@@ -188,7 +189,29 @@ function QueryIdDisplay({ queryId }: { queryId?: string | null }): JSX.Element |
     )
 }
 
-function QueryDebuggerButton({ query }: { query?: Record<string, any> | null }): JSX.Element | null {
+/**
+ * An error state is only worth anything if people act on it, so the follow-up is measured next to
+ * the `insight error message shown` that precedes it.
+ */
+function captureErrorRecovery(
+    action: 'retry' | 'query_debugger',
+    query: Record<string, any> | Node | null | undefined,
+    errorCode?: string | null
+): void {
+    posthog.capture('insight error recovery attempted', {
+        action,
+        code: errorCode ?? null,
+        query_kind: queryKindForReporting(query),
+    })
+}
+
+function QueryDebuggerButton({
+    query,
+    errorCode,
+}: {
+    query?: Record<string, any> | null
+    errorCode?: string | null
+}): JSX.Element | null {
     if (!query) {
         return null
     }
@@ -201,6 +224,7 @@ function QueryDebuggerButton({ query }: { query?: Record<string, any> | null }):
             type="secondary"
             active
             to={urls.debugQuery(query)}
+            onClick={() => captureErrorRecovery('query_debugger', query, errorCode)}
             className="max-w-80"
         >
             Open in query debugger
@@ -212,10 +236,12 @@ const RetryButton = ({
     onRetry,
     query,
     loading = false,
+    errorCode,
 }: {
     onRetry: () => void
     query?: Record<string, any> | Node | null
     loading?: boolean
+    errorCode?: string | null
 }): JSX.Element => {
     const sideAction = query
         ? {
@@ -226,6 +252,7 @@ const RetryButton = ({
                               {
                                   label: 'Open in query debugger',
                                   to: urls.debugQuery(query),
+                                  onClick: () => captureErrorRecovery('query_debugger', query, errorCode),
                               },
                           ]}
                       />
@@ -241,7 +268,10 @@ const RetryButton = ({
             size="small"
             type="primary"
             loading={loading}
-            onClick={() => onRetry()}
+            onClick={() => {
+                captureErrorRecovery('retry', query, errorCode)
+                onRetry()
+            }}
             sideAction={sideAction}
         >
             Try again
@@ -617,7 +647,12 @@ export function InsightValidationError({
         placement !== DashboardPlacement.Export
     const shouldExcludeActions = excludeActions || placement === DashboardPlacement.Export
     const defaultCta =
-        cta ?? (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />)
+        cta ??
+        (onRetry ? (
+            <RetryButton onRetry={onRetry} query={query} errorCode={validationErrorCode} />
+        ) : (
+            <QueryDebuggerButton query={query} errorCode={validationErrorCode} />
+        ))
 
     // Raw error detail can echo query fragments, so telemetry only gets the code and coarse metadata
     useOnMountEffect(() => {
@@ -698,12 +733,16 @@ function getInsightValidationDetail(detail: string): string {
     return detail
 }
 
+/** A lone machine code such as `query_does_not_return_any_result_columns`, with no prose around it. */
+const BARE_ERROR_CODE_PATTERN = /^[a-z0-9]+(_[a-z0-9]+)+$/
+
 /**
  * A string title on this state can come straight from the backend, so it can be a raw exception
- * body instead of user-facing copy. Hide raw exception text and show curated remediation instead.
+ * body, or a bare machine code, instead of user-facing copy. Hide both and show curated
+ * remediation instead.
  */
 export function isRawServerErrorTitle(title: string, status?: number | null): boolean {
-    if (RAW_SERVER_ERROR_PATTERN.test(title)) {
+    if (RAW_SERVER_ERROR_PATTERN.test(title) || BARE_ERROR_CODE_PATTERN.test(title.trim())) {
         return true
     }
     return status != null && status >= 500
@@ -733,7 +772,27 @@ function InsightErrorHoggie({ kind }: { kind: InsightErrorKind }): JSX.Element {
     return <Hoggie className="w-24 h-24 mb-2" />
 }
 
-function getInsightErrorKind(status?: number | null): InsightErrorKind {
+/**
+ * A failure that carries a machine code was classified by the backend, which knows what went
+ * wrong far better than the transport status does. A deterministic query error keeps its
+ * actionable copy even when it arrives as a 5xx, where the status alone would read as transient.
+ */
+const ERROR_CODE_KINDS: Record<string, InsightErrorKind> = {
+    [CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE]: 'memory_limit',
+    // posthog/hogql/errors.py
+    hogql_error: 'invalid_query',
+    hogql_syntax_error: 'invalid_query',
+    hogql_query_error: 'invalid_query',
+    table_access_denied: 'permission',
+    throttled: 'rate_limit',
+    api_queries_budget_exceeded: 'rate_limit',
+}
+
+function getInsightErrorKind(status?: number | null, code?: string | null): InsightErrorKind {
+    const kindFromCode = code ? ERROR_CODE_KINDS[code] : undefined
+    if (kindFromCode) {
+        return kindFromCode
+    }
     if (status === 429) {
         return 'rate_limit'
     }
@@ -814,6 +873,8 @@ export interface InsightErrorStateProps {
     title?: string | JSX.Element | null
     /** HTTP status of the failed response a string `title` came from, used to tell raw errors from user-facing copy */
     titleStatus?: number | null
+    /** Machine-readable code of the failed response, which classifies the error better than its status */
+    titleCode?: string | null
     query?: Record<string, any> | Node | null
     queryId?: string | null
     retryAfter?: string | null
@@ -829,6 +890,7 @@ export interface InsightErrorStateProps {
 export function InsightErrorState({
     title,
     titleStatus,
+    titleCode,
     query,
     queryId,
     retryAfter,
@@ -840,15 +902,23 @@ export function InsightErrorState({
     fixWithAIComponent,
     onRetry,
 }: InsightErrorStateProps): JSX.Element {
-    const errorKind = getInsightErrorKind(titleStatus)
+    const errorKind = getInsightErrorKind(titleStatus, titleCode)
     const canRetry = errorKind !== 'invalid_query' && errorKind !== 'permission'
-    const safeTitle = typeof title === 'string' && isRawServerErrorTitle(title, titleStatus) ? null : title
+    // A machine code, or an actionable-validation status, means the backend wrote this body for
+    // the user. An unlabelled 5xx body can be any internal failure text, so it stays hidden — as
+    // does a raw ClickHouse trace, which a staff account gets back on any status.
+    const isCuratedBody =
+        titleCode != null || titleStatus == null || titleStatus < 500 || VALIDATION_ERROR_STATUSES.has(titleStatus)
+    const backendDetail = isCuratedBody && typeof title === 'string' && !isRawServerErrorTitle(title) ? title : null
+    const safeTitle = typeof title === 'string' ? backendDetail : title
     const displayTitle = getInsightErrorTitle(errorKind, safeTitle, titleStatus)
     const isExport = placement === DashboardPlacement.Export
     const showBugReport = !isExport && (errorKind === 'transient' || errorKind === 'server' || errorKind === 'unknown')
-    // A 513 body is curated backend copy, unless a staff account got the raw ClickHouse trace back.
-    const backendDetail = typeof title === 'string' && !isRawServerErrorTitle(title) ? title : null
     const remediation = getInsightErrorRemediation(errorKind, retryAfter, backendDetail)
+    // The curated heading says a query failed; only the backend copy says why. Show it above the
+    // next step, unless the heading or the next step is already that same sentence.
+    const reason =
+        backendDetail && backendDetail !== displayTitle && backendDetail !== remediation ? backendDetail : null
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -857,6 +927,8 @@ export function InsightErrorState({
     useOnMountEffect(() => {
         posthog.capture('insight error message shown', {
             error_type: 'server',
+            code: titleCode ?? null,
+            error_kind: errorKind,
             query_kind: queryKindForReporting(query),
             query_id: queryId ?? null,
         })
@@ -901,6 +973,7 @@ export function InsightErrorState({
 
             {!supportOnly && (
                 <div className="mt-4">
+                    {reason && <p className="max-w-120">{renderDetailWithLinks(reason)}</p>}
                     {remediation && <p className="max-w-120">{renderDetailWithLinks(remediation)}</p>}
                     {!excludeDetail && showBugReport && <p>{bugReportLink}</p>}
                 </div>
@@ -913,9 +986,9 @@ export function InsightErrorState({
             {!excludeActions && errorKind !== 'permission' && (
                 <div className="flex gap-2 mt-4">
                     {onRetry && canRetry ? (
-                        <RetryButton onRetry={onRetry} query={query} loading={retryLoading} />
+                        <RetryButton onRetry={onRetry} query={query} loading={retryLoading} errorCode={titleCode} />
                     ) : (
-                        <QueryDebuggerButton query={query} />
+                        <QueryDebuggerButton query={query} errorCode={titleCode} />
                     )}
                     {fixWithAIComponent ?? null}
                 </div>

@@ -113,6 +113,39 @@ export const QueryServerError: Story = {
     },
 }
 
+export const CodedQueryError: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/insights/': async () => {
+                    await delay(100)
+                    return HttpResponse.json({ count: 1, results: [insight] })
+                },
+            },
+            post: {
+                '/api/environments/:team_id/query/:kind/': async () => {
+                    await delay(100)
+                    return HttpResponse.json(
+                        {
+                            type: 'server_error',
+                            code: 'hogql_error',
+                            detail: "Unknown identifier 'evnet'. Did you mean 'event'?",
+                        },
+                        { status: 500 }
+                    )
+                },
+            },
+        })
+
+        return <App />
+    },
+    parameters: {
+        testOptions: {
+            waitForSelector: '[data-attr="insight-error-query"]',
+        },
+    },
+}
+
 export const ValidationError: Story = {
     render: () => {
         useStorybookMocks({

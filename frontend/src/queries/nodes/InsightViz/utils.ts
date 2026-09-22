@@ -184,11 +184,19 @@ export const extractValidationError = (error: Error | Record<string, any> | null
 
 export const extractValidationErrorCode = (error: Error | Record<string, any> | null | undefined): string | null => {
     if (hasValidationErrorStatus(error)) {
-        const anyError = error as Record<string, any>
-        return anyError.code ?? anyError.data?.code ?? null
+        return extractErrorCode(error)
     }
 
     return null
+}
+
+/**
+ * The machine-readable code of any failed query, whatever its status. A deterministic query
+ * failure can arrive as a 5xx, where the status alone says nothing about what went wrong.
+ */
+export const extractErrorCode = (error: Error | Record<string, any> | null | undefined): string | null => {
+    const anyError = error as Record<string, any> | null | undefined
+    return anyError?.code ?? anyError?.data?.code ?? anyError?.data?.query_status?.error_code ?? null
 }
 
 // 512 only (query estimated too expensive) — OOM is 513, so this can't misfire on a memory error.

@@ -209,6 +209,9 @@ export function InsightVizDisplay({
         insightData,
         validationError,
         validationErrorCode,
+        queryErrorDetail,
+        queryErrorStatus,
+        queryErrorCode,
         theme,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
@@ -315,6 +318,9 @@ export function InsightVizDisplay({
                 <InsightErrorState
                     query={query}
                     queryId={erroredQueryId}
+                    title={queryErrorDetail}
+                    titleStatus={queryErrorStatus}
+                    titleCode={queryErrorCode}
                     onRetry={() => {
                         loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
                     }}
