@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from uuid import UUID
-
 from django.db.models import Q
 from django.utils import timezone
 
@@ -46,15 +44,18 @@ def _is_unresolved(s: RunSnapshot) -> bool:
     return True
 
 
-def count_unresolved(run_id: UUID) -> int:
+def count_unresolved(run: Run) -> int:
     """How many of a run's snapshots `_is_unresolved` flags, counted in SQL.
 
     The run detail read needs only this number, and loading every snapshot to count a handful
-    costs seconds on a large run. The predicate must stay identical to `_is_unresolved`; a test
-    pins the two together.
+    costs seconds on a large run. Observe runs are never approvable, so nothing in them is
+    unresolved. The predicate must stay identical to `_is_unresolved`; a test pins the two
+    together.
     """
+    if run.purpose == RunPurpose.OBSERVE:
+        return 0
     return (
-        RunSnapshot.objects.filter(run_id=run_id)
+        RunSnapshot.objects.filter(run_id=run.id)
         .exclude(result=SnapshotResult.UNCHANGED)
         .exclude(is_quarantined=True)
         .exclude(review_state__in=(ReviewState.TOLERATED, ReviewState.APPROVED))

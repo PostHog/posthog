@@ -395,14 +395,11 @@ def get_toleration_pileups(
         min_intentional=min_tolerations,
         min_automatic=min_automatic_tolerations,
     )
-    matching = sorted(
-        (
-            (key, counts)
-            for key, counts in pileups.items()
-            if (include_quarantined or key not in quarantined_keys) and (run_type is None or key.run_type == run_type)
-        ),
-        key=lambda item: (-item[1].intentional, -item[1].automatic, item[0].run_type, item[0].identifier),
-    )
+    matching = [
+        (key, counts)
+        for key, counts in pileups
+        if (include_quarantined or key not in quarantined_keys) and (run_type is None or key.run_type == run_type)
+    ]
     return contracts.TolerationPileups(
         entries=[
             contracts.TolerationPileupEntry(
@@ -600,9 +597,7 @@ def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
     run = run_queries.get_run(run_id, team_id=team_id)
     user_ids = {run.approved_by_id} if run.approved_by_id else set()
     user_basic_infos = _fetch_user_basic_infos(user_ids)
-    # Observe runs are never approvable, so nothing in them is unresolved; see `_compute_unresolved`.
-    unresolved = 0 if run.purpose == RunPurpose.OBSERVE else gating.count_unresolved(run.id)
-    return _to_run(run, user_basic_infos, unresolved=unresolved)
+    return _to_run(run, user_basic_infos, unresolved=gating.count_unresolved(run))
 
 
 def get_run_scope(run_id: UUID, team_id: int) -> contracts.RunScope:
