@@ -114,18 +114,16 @@ export const createSegments = (
     const findWindowIdForTimestamp = (timestamp: number, preferredWindowId?: number): number | undefined => {
         // Check all the snapshotsByWindowId to see if the timestamp is within its range
         // prefer the preferredWindowId if it is within its range
-        // A snapshot with no windowId buckets under the "undefined" key, which Number() turns into NaN
-        let windowIds = Object.keys(snapshotsByWindowId)
-            .map(Number)
-            .filter((id) => !Number.isNaN(id))
+        let windowIds = Object.keys(snapshotsByWindowId).map(Number)
 
         if (preferredWindowId !== undefined) {
             windowIds = [preferredWindowId, ...windowIds.filter((id) => id !== preferredWindowId)]
         }
 
         for (const windowId of windowIds) {
-            // preferredWindowId comes from the viewer's tracked window, which can name a window whose snapshots are not loaded
             const snapshots = snapshotsByWindowId[windowId]
+            // A candidate window can have no snapshots: the viewer's tracked window may not be loaded,
+            // and a snapshot with no window id buckets under a key that reads back as NaN
             if (!snapshots?.length) {
                 continue
             }

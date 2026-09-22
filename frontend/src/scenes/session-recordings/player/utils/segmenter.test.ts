@@ -106,10 +106,10 @@ describe('segmenter', () => {
         const segments = createSegments(snapshots, start, end, trackedWindow, snapshotsByWindowId)
 
         const loadedWindowIds = windowIds.filter((id) => id !== undefined)
-        expect(segments.length).toBeGreaterThan(0)
-        for (const segment of segments) {
-            expect(segment.windowId === undefined || loadedWindowIds.includes(segment.windowId)).toBe(true)
-        }
+        expect(segments.filter((segment) => segment.kind === 'gap')).not.toHaveLength(0)
+        expect(
+            segments.filter((segment) => segment.windowId !== undefined && !loadedWindowIds.includes(segment.windowId))
+        ).toEqual([])
     })
 
     it('ends a segment if it is the last window', () => {
