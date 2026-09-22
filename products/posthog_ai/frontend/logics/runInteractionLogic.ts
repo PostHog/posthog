@@ -517,10 +517,12 @@ export interface runInteractionLogicMeta {
         ) => boolean
         isSubmitting: (sending: boolean, startingRun: boolean, clearing: boolean) => boolean
         pendingContextItems: (
-            contextItems: AttachedContextItem[],
+            arg:
+                | AttachedContextItem[]
+                | ((state: any, props?: RunInteractionLogicProps | undefined) => AttachedContextItem[]),
             sentContextKeysByTask: Record<string, string[]>,
             seenContextLinesByTask: Record<string, string[]>,
-            arg: string
+            arg2: string
         ) => AttachedContextItem[]
     }
 }

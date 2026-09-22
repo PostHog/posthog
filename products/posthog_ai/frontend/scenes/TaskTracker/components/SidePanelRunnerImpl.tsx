@@ -7,8 +7,8 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useAttachedContext } from '../../../hooks/useAttachedContext'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
 import { composerOverrideLogic } from '../../../logics/composerOverrideLogic'
-import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../../../utils/posthogContextBlock'
 import type { AttachedContextItem } from '../../../types/contextTypes'
+import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../../../utils/posthogContextBlock'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { StartupRunChat } from './StartupRunChat'
 import { TaskComposer } from './TaskComposer'
@@ -39,7 +39,11 @@ export function SidePanelRunnerImpl({
 }: SidePanelRunnerImplProps): JSX.Element {
     return (
         <BindLogic logic={taskTrackerSceneLogic} props={{ panelId, contextItems }}>
-            <SidePanelRunnerContent composer={composer} attachApplyBackInstructions={attachApplyBackInstructions} contextItems={contextItems} />
+            <SidePanelRunnerContent
+                composer={composer}
+                attachApplyBackInstructions={attachApplyBackInstructions}
+                contextItems={contextItems}
+            />
         </BindLogic>
     )
 }
@@ -127,7 +131,11 @@ function SidePanelRunnerContent({
                 </div>
             ) : (
                 <div className="flex-1 min-h-0 px-4">
-                    <StartupRunChat streamKey={activeCreation.streamKey} focusedRef={startupFocusedRef} contextItems={contextItems} />
+                    <StartupRunChat
+                        streamKey={activeCreation.streamKey}
+                        focusedRef={startupFocusedRef}
+                        contextItems={contextItems}
+                    />
                 </div>
             )}
         </div>

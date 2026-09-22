@@ -31,7 +31,11 @@ export function NotebookBtw({ session, onClose }: { session: NotebookBtwSession;
             width={640}
         >
             <div className="flex h-[65vh] min-h-0 flex-col overflow-hidden">
-                <SidePanelRunner panelId={session.panelId} contextItems={contextItems} attachApplyBackInstructions={false} />
+                <SidePanelRunner
+                    panelId={session.panelId}
+                    contextItems={contextItems}
+                    attachApplyBackInstructions={false}
+                />
             </div>
         </LemonModal>
     )
