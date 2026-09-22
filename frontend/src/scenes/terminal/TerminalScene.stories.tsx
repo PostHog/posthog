@@ -11,9 +11,10 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
 import { useStorybookMocks } from '~/mocks/browser'
 
-import { spyOn } from 'storybook/test'
+import { expect, spyOn, waitFor } from 'storybook/test'
 
 import { TerminalDock } from './TerminalDock'
+import { terminalDockLogic } from './terminalDockLogic'
 import { terminalLogic } from './terminalLogic'
 import { TerminalRuntime } from './terminalRuntime'
 import { TerminalScene } from './TerminalScene'
@@ -297,6 +298,10 @@ export const Docked: StoryObj<typeof TerminalScene> = {
         pageUrl: '/notebooks/demonote',
         layout: 'fullscreen',
         featureFlags: [FEATURE_FLAGS.POSTHOG_TERMINAL],
+    },
+    play: async () => {
+        terminalDockLogic.actions.setDockOpen(true)
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
     },
 }
 export const DockDisabled: StoryObj<typeof TerminalScene> = {
