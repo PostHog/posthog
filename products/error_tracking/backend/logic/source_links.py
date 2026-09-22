@@ -849,7 +849,7 @@ GITLAB_SEARCH_PAGE_SIZE = 100
 def prepare_gitlab_search_query(query: str | None) -> str:
     if not query:
         return ""
-    cleaned = ["" if char in ".,:;/\\=*!?#$&+^|~<>(){}[]\"'`" else char for char in query]
+    cleaned = [" " if char in ".,:;/\\=*!?#$&+^|~<>(){}[]\"'`" else char for char in query]
     return " ".join("".join(cleaned).split())
 
 

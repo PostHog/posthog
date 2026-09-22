@@ -26,6 +26,7 @@ from products.error_tracking.backend.logic.source_links import (
     match_sources,
     parse_repository,
     parse_source,
+    prepare_gitlab_search_query,
     read_source_map,
     source_map_sources,
 )
@@ -189,6 +190,19 @@ class TestSourceLinks(SimpleTestCase):
         else:
             provider, owner, name = expected
             assert repository == Repository(provider=provider, host=f"{provider}.com", owner=owner, name=name)
+
+    @parameterized.expand(
+        [
+            ("call", "user.name()", "user name"),
+            ("index_and_operator", "  const x = a[i]+b[j];  ", "const x a i b j"),
+            ("nothing_to_strip", "return value", "return value"),
+            ("empty", None, ""),
+        ]
+    )
+    def test_prepare_gitlab_search_query(self, _name: str, sample: str | None, expected: str) -> None:
+        # The stripped character has to leave a space behind. A search backend that splits the
+        # stored line on punctuation matches "user name" and matches no token of "username".
+        assert prepare_gitlab_search_query(sample) == expected
 
     def test_match_sources_places_a_single_package_at_the_root(self) -> None:
         tree = RepositoryTree(["src/a.ts", "src/b.ts", "README.md"])
