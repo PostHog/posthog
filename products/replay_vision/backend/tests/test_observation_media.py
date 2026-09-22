@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -8,6 +9,7 @@ from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from temporalio.testing import ActivityEnvironment
 
 from posthog.models.utils import uuid7
 
@@ -65,7 +67,7 @@ class TestObservationMedia(BaseTest):
             is_system=True,
         )
 
-    def _prepare(self, **overrides: Any) -> Any:
+    def _inputs(self, **overrides: Any) -> ObservationMediaInputs:
         fields: dict[str, Any] = {
             "team_id": self.team.id,
             "observation_id": self.observation.id,
@@ -73,7 +75,10 @@ class TestObservationMedia(BaseTest):
             "analysis_asset_id": self.analysis_asset.id,
         }
         fields.update(overrides)
-        return async_to_sync(prepare_observation_thumbnail_activity)(ObservationMediaInputs(**fields))
+        return ObservationMediaInputs(**fields)
+
+    def _prepare(self, **overrides: Any) -> Any:
+        return async_to_sync(prepare_observation_thumbnail_activity)(self._inputs(**overrides))
 
     def test_media_object_is_written_outside_the_exports_prefix(self) -> None:
         prepared = self._prepare()
@@ -137,6 +142,23 @@ class TestObservationMedia(BaseTest):
         assert media.kind == ReplayObservationMedia.Kind.THUMBNAIL
         assert media.asset_id == prepared.media_asset_id
         assert (media.asset.content_location or "").startswith("replay-vision/media/")
+
+    def test_a_retry_of_the_same_render_does_not_spend_another_attempt(self) -> None:
+        # The backfill sweep gives up after three attempts, so an activity retry must not count as one.
+        self._prepare()
+        self.observation.refresh_from_db()
+        assert self.observation.media_render_attempts == 1
+        assert self.observation.media_render_attempted_at is not None
+
+        async def retry_the_same_activity() -> None:
+            environment = ActivityEnvironment()
+            environment.info = dataclasses.replace(environment.info, attempt=2)
+            await environment.run(prepare_observation_thumbnail_activity, self._inputs())
+
+        async_to_sync(retry_the_same_activity)()
+
+        self.observation.refresh_from_db()
+        assert self.observation.media_render_attempts == 1
 
     def test_an_observation_deleted_mid_render_expires_the_asset_with_its_location(self) -> None:
         prepared = self._prepare()
