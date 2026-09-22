@@ -15,7 +15,7 @@ from posthog.models.scoping import team_scope
 from products.alerts.backend.facade.contracts import SourceBatchEvaluation, SourceKind
 from products.alerts.backend.facade.platform_alerts import due_checks, record_outcomes
 from products.alerts.backend.facade.temporal import SOURCE_EVALUATION_TIMEOUT
-from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
+from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertEvent
 from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
 from products.logs.backend.alert_source_cycle import BATCH_QUERY_BUDGET_SECONDS, MAX_QUERY_SECONDS, evaluate_logs_batch
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
@@ -225,9 +225,36 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         evaluation, _ = self._run(configuration)
 
-        assert [p.evaluation_key for p in evaluation.previews] == [
-            f"{configuration.id}:window:{self.cutoff.isoformat()}"
-        ]
+        # Scoped to the alert by the unique constraint on the history row, not by the string,
+        # so every source spells the key the same way.
+        assert [p.evaluation_key for p in evaluation.previews] == [f"window:{self.cutoff.isoformat()}"]
+
+    def test_a_breach_records_the_count_it_measured(self) -> None:
+        configuration = self._configuration()
+
+        evaluation, _ = self._run(configuration)
+        self._record(evaluation)
+
+        # The breach flags alone say an alert fired, not by how much. A comparison against the
+        # logs stack has nothing to diff without the count, and a message cannot name it.
+        with team_scope(self.team.id):
+            event = PlatformAlertEvent.objects.get(alert__configuration=configuration)
+        assert event.kind == PlatformAlertEvent.Kind.FIRING
+        assert event.value == 500.0
+        assert event.source_config_snapshot == configuration.source_config
+
+    def test_a_failed_query_records_the_error_rather_than_a_value(self) -> None:
+        configuration = self._configuration()
+
+        evaluation, _ = self._run(configuration, query_error=ExposedHogQLError("bad filter"))
+        self._record(evaluation)
+
+        # A recorded zero would read as a measured absence of logs, which resolves an alert
+        # that is actually unevaluable.
+        with team_scope(self.team.id):
+            event = PlatformAlertEvent.objects.get(alert__configuration=configuration)
+        assert event.value is None
+        assert event.error_message is not None
 
 
 class TestEvaluationTimeoutLadder(SimpleTestCase):

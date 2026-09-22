@@ -25,6 +25,7 @@ from posthog.models import Team
 
 from products.alerts.backend.facade.contracts import (
     AlertDeliveryPreview,
+    AlertEventKind,
     CheckOutcomeReason,
     GroupTransition,
     PlatformAlertCheckInput,
@@ -102,6 +103,26 @@ _NOTIFICATION_EVENT_KINDS: dict[NotificationAction, EventKind] = {
     NotificationAction.BROKEN: "broken",
 }
 
+# What the check decided, as the history row names it. A check that announced nothing is a
+# CHECK, whether or not it moved the alert; the row carries both states, so a silent move is
+# still visible in one.
+_NOTIFICATION_OUTCOME_KINDS: dict[NotificationAction, AlertEventKind] = {
+    NotificationAction.NONE: AlertEventKind.CHECK,
+    NotificationAction.FIRE: AlertEventKind.FIRING,
+    NotificationAction.RESOLVE: AlertEventKind.RESOLVED,
+    NotificationAction.ERROR: AlertEventKind.ERRORED,
+    NotificationAction.BROKEN: AlertEventKind.BROKEN,
+}
+
+
+def _evaluation_key(window_end: datetime) -> str:
+    """Names the window a check answered for.
+
+    Scoped to the alert by the unique constraint on the row rather than by the string, so the
+    key stays the same shape for every source and a retry recomputes it from the batch cutoff.
+    """
+    return f"window:{window_end.isoformat()}"
+
 
 def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now: datetime) -> tuple:
     return (
@@ -169,6 +190,8 @@ def _decide(
     window_end: datetime,
     now: datetime,
     reason: CheckOutcomeReason,
+    value: float | None = None,
+    query_duration_ms: int | None = None,
 ) -> Decision:
     """Runs one check through the shared machine and turns its verdict into a delivery.
 
@@ -176,11 +199,17 @@ def _decide(
     decision is the one the logs stack reaches without routing through the logs product.
     """
     outcome = evaluate_alert_check(_snapshot(check, prior_breached), check_input, now, policy=LOGS_ALERT_POLICY)
+    evaluation_key = _evaluation_key(window_end)
     recorded = PlatformAlertOutcome(
         configuration_id=check.id,
+        evaluation_key=evaluation_key,
+        kind=_NOTIFICATION_OUTCOME_KINDS[outcome.notification],
         new_state=outcome.new_state.value,
         notified=outcome.update_last_notified_at,
         consecutive_failures=outcome.consecutive_failures,
+        value=value,
+        error_message=check_input.error_message,
+        query_duration_ms=query_duration_ms,
         disable=outcome.disable,
     )
     _record_check_metrics(check, outcome.new_state.value, outcome.notification, reason, now)
@@ -197,7 +226,7 @@ def _decide(
         source=SourceKind.LOGS,
         alert_id=str(check.id),
         alert_name=check.name,
-        evaluation_key=f"{check.id}:window:{window_end.isoformat()}",
+        evaluation_key=evaluation_key,
         destination_names=tuple(destination.name for destination in destinations),
         # One transition with an empty grouping key. Logs does not group yet, and delivery
         # reads a list either way, so fan-out changes this call and nothing downstream.
@@ -206,11 +235,19 @@ def _decide(
 
 
 def _evaluate_one(
-    check: PlatformAlertCheckInput, buckets: list[BucketedCount], *, window_end: datetime, now: datetime
+    check: PlatformAlertCheckInput,
+    buckets: list[BucketedCount],
+    *,
+    window_end: datetime,
+    now: datetime,
+    query_duration_ms: int | None = None,
 ) -> Decision:
     current_breached, *prior_windows_breached = _derive_breaches(
         buckets, check.threshold_count, check.threshold_operator, check.evaluation_periods
     ) or (False,)
+    # The newest bucket, matching what the production activity records. ClickHouse emits no
+    # bucket for a window with no data, so an empty result is a count of zero rather than
+    # an absent value.
     return _decide(
         check,
         CheckInput(threshold_breached=current_breached),
@@ -218,6 +255,8 @@ def _evaluate_one(
         window_end=window_end,
         now=now,
         reason=CheckOutcomeReason.EVALUATED,
+        value=float(buckets[-1].count) if buckets else 0.0,
+        query_duration_ms=query_duration_ms,
     )
 
 
@@ -249,6 +288,10 @@ def _held(
     """A control-plane transition the check machine cannot express. The outcome advances the schedule."""
     recorded = PlatformAlertOutcome(
         configuration_id=check.id,
+        evaluation_key=_evaluation_key(now),
+        # Named here rather than derived from the notification, which is NONE on this path
+        # because the check machine never ran. A control-plane transition is still a transition.
+        kind=AlertEventKind.BROKEN,
         new_state=outcome.new_state.value,
         notified=False,
         consecutive_failures=outcome.consecutive_failures,
@@ -263,6 +306,7 @@ def _evaluate_cohort(
     window_minutes, evaluation_periods, cadence_minutes, projection_eligible, date_to = key
     lookback = rolling_check_lookback_minutes(window_minutes, cadence_minutes, evaluation_periods)
 
+    query_started_at = time.monotonic()
     try:
         result = BatchedAlertCheckQuery(
             team=team,
@@ -286,10 +330,22 @@ def _evaluate_cohort(
         # counter unmoved, never reaching the escalation that stops it.
         return [_failed(check, error, window_end=date_to, now=now) for check in checks]
 
+    # One query serves the whole cohort, so every check in it is recorded against the same
+    # duration. This is what the production activity measures too.
+    query_duration_ms = int((time.monotonic() - query_started_at) * 1000)
+
     decided: list[Decision] = []
     for check in checks:
         try:
-            decided.append(_evaluate_one(check, result.per_alert.get(str(check.id), []), window_end=date_to, now=now))
+            decided.append(
+                _evaluate_one(
+                    check,
+                    result.per_alert.get(str(check.id), []),
+                    window_end=date_to,
+                    now=now,
+                    query_duration_ms=query_duration_ms,
+                )
+            )
         except Exception as error:
             logger.exception("Failed to evaluate a logs alert", check_id=str(check.id), error=str(error))
             decided.append(_failed(check, error, window_end=date_to, now=now))

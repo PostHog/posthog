@@ -10,14 +10,19 @@ from datetime import datetime
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
 
-from products.alerts.backend.facade.contracts import PlatformAlertCheckInput, PlatformAlertOutcome, PlatformAlertUpsert
+from products.alerts.backend.facade.contracts import (
+    AlertEventKind,
+    PlatformAlertCheckInput,
+    PlatformAlertOutcome,
+    PlatformAlertUpsert,
+)
 from products.alerts.backend.facade.scheduling import (
     advance_next_check_at,
     compute_shard_offset_seconds,
     parse_blocked_windows_tuples,
     scan_next_unblocked_utc,
 )
-from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
+from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertEvent
 
 
 def due_q(moment: datetime) -> Q:
@@ -129,6 +134,58 @@ def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
     return (next_check_at or cutoff).replace(second=0, microsecond=0).isoformat()
 
 
+def _condition_snapshot(configuration: PlatformAlertConfiguration) -> dict[str, object]:
+    """What the check was evaluated against, as the message and the history need to read it.
+
+    Taken from the configuration rather than shipped with the outcome. The source's copy would
+    cost payload on every batch, and no path writes a configuration between an evaluation and
+    its record: a source keeps its own control plane and reaches these rows through a backfill.
+    """
+    return {
+        "threshold_count": configuration.threshold_count,
+        "threshold_operator": configuration.threshold_operator,
+        "window_minutes": configuration.window_minutes,
+        "evaluation_periods": configuration.evaluation_periods,
+        "datapoints_to_alarm": configuration.datapoints_to_alarm,
+        "cooldown_minutes": configuration.cooldown_minutes,
+    }
+
+
+def _is_worth_recording(outcome: PlatformAlertOutcome, previous_state: str, record_every_check: bool) -> bool:
+    """Whether one check earns a history row.
+
+    A transition always does. So does a check that moved the alert without announcing it, which
+    a cooldown produces: the move is the thing history is for, and the notification is not.
+    Everything else is a check that confirmed the alert, and only a configuration under
+    comparison keeps those.
+    """
+    return outcome.kind != AlertEventKind.CHECK or previous_state != outcome.new_state or record_every_check
+
+
+def _event(
+    configuration: PlatformAlertConfiguration,
+    alert: PlatformAlert,
+    outcome: PlatformAlertOutcome,
+    previous_state: str,
+    now: datetime,
+) -> PlatformAlertEvent:
+    return PlatformAlertEvent(
+        team_id=configuration.team_id,
+        alert=alert,
+        evaluation_key=outcome.evaluation_key,
+        kind=outcome.kind.value,
+        previous_state=previous_state,
+        state=outcome.new_state,
+        value=outcome.value,
+        labels=outcome.labels,
+        condition_snapshot=_condition_snapshot(configuration),
+        source_config_snapshot=configuration.source_config,
+        query_duration_ms=outcome.query_duration_ms,
+        error_message=outcome.error_message,
+        occurred_at=now,
+    )
+
+
 def record_outcomes(
     team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime, *, team_timezone: str
 ) -> int:
@@ -158,12 +215,16 @@ def record_outcomes(
         alerts = _alerts_for_write(team_id, configurations)
 
         unblocked: dict[tuple[datetime, tuple | None], datetime | None] = {}
+        events: list[PlatformAlertEvent] = []
         for configuration in configurations:
             outcome = by_id[str(configuration.id)]
             alert = alerts[str(configuration.id)]
+            previous_state = alert.state
             alert.state = outcome.new_state
             if outcome.notified:
                 alert.last_notified_at = now
+            if _is_worth_recording(outcome, previous_state, configuration.record_every_check):
+                events.append(_event(configuration, alert, outcome, previous_state, now))
 
             configuration.consecutive_failures = outcome.consecutive_failures
             if outcome.disable:
@@ -186,6 +247,10 @@ def record_outcomes(
                 unblocked[unblocked_key] = scan_next_unblocked_utc(next_check_at, team_timezone, windows)
             configuration.next_check_at = unblocked[unblocked_key] or next_check_at
 
+        # `ignore_conflicts` leans on the unique constraint, so an attempt that raced another
+        # cycle on the same evaluation writes the row once. The rows go in before the schedule
+        # advances past them, in the one transaction.
+        PlatformAlertEvent.objects.for_team(team_id).bulk_create(events, ignore_conflicts=True)
         PlatformAlert.objects.for_team(team_id).bulk_update(list(alerts.values()), ["state", "last_notified_at"])
         PlatformAlertConfiguration.objects.for_team(team_id).bulk_update(
             configurations, ["consecutive_failures", "enabled", "next_check_at"]

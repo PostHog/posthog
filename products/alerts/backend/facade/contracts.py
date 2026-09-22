@@ -150,6 +150,22 @@ class CheckOutcomeReason(StrEnum):
     QUERY_FAILED = "query_failed"
 
 
+class AlertEventKind(StrEnum):
+    """What one evaluation did to an alert.
+
+    `CHECK` is an evaluation that moved nothing. Every other member is a transition, which is
+    why a source reports the kind rather than the platform deriving it: the machine already
+    decided, and deriving it again from the states would be a second implementation of that
+    decision.
+    """
+
+    CHECK = "check"
+    FIRING = "firing"
+    RESOLVED = "resolved"
+    ERRORED = "errored"
+    BROKEN = "broken"
+
+
 @frozen
 class PlatformAlertOutcome:
     """What one check decided. The platform turns this into rows.
@@ -159,9 +175,18 @@ class PlatformAlertOutcome:
     """
 
     configuration_id: UUID
+    # Names the occasion, not the attempt. A retried batch recomputes the same key, so the
+    # unique constraint on the event row rejects the replay rather than recording it twice.
+    evaluation_key: str
+    kind: AlertEventKind
     new_state: str
     notified: bool
     consecutive_failures: int
+    # What the check measured. None when it reached no value, as a failed query does.
+    value: float | None = None
+    labels: dict[str, str] = field(default_factory=dict)
+    error_message: str | None = None
+    query_duration_ms: int | None = None
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an
     # evaluation that cannot succeed.
     disable: bool = False

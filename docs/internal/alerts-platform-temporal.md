@@ -259,6 +259,30 @@ source writes a real grouping key, and would bury them where Postgres cannot lif
 
 `alerts_platform_checks_skipped_total{source,reason}` counts these by reason.
 
+### What one check leaves behind
+
+`PlatformAlertEvent` is the history row, one per `(alert, evaluation_key)`.
+`kind` says whether the evaluation announced anything: `check` when it did not, and `firing`, `resolved`, `errored` or `broken` when it did.
+A transition and the check that produced it are one row rather than two, which is what keeps the unique constraint usable as the idempotency key.
+
+A row is kept when the check announced something, when it moved the alert without announcing anything, or when the configuration asks for every check.
+The middle case is a cooldown: the alert moves and the notification is held, and the move is the thing history is for.
+
+`record_every_check` on the configuration is off by default.
+A one-minute alert produces about 43,000 confirming checks a month, and the only reader that wants them is a comparison against the source's own stack, which runs on a cohort rather than on the fleet.
+Turn it on for the configurations under comparison and leave it off everywhere else.
+
+The row is self-sufficient by design.
+`condition_snapshot` and `source_config_snapshot` record what the check was evaluated against, so delivery renders a message from the row without reading the configuration, and a threshold edited between the check and a retried send cannot change what the message claims was breached.
+Both are taken from the configuration at write time rather than shipped with the outcome: the source's copy would cost payload on every batch, and no path writes a platform configuration between an evaluation and its record, because a source keeps its own control plane and reaches these rows through a backfill.
+
+`labels` stays empty until a source groups its results.
+It is the group's identity, not the alert's filter scope; the scope is in `source_config_snapshot`.
+
+`evaluation_key` is `window:<end>` for logs.
+It names the occasion rather than the attempt, and it is not scoped to the alert in the string, because `unique(alert, evaluation_key)` already scopes it.
+The rows go in with `ignore_conflicts`, inside the same transaction that advances the schedule, so a replayed batch writes each row once.
+
 ### Evaluating and writing are separate activities
 
 `evaluate_logs_alerts_activity` reads and decides; it writes nothing.
