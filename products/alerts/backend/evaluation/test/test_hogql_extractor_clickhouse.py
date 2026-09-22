@@ -1,16 +1,26 @@
+from datetime import UTC, datetime, timedelta
+
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.schema import HogQLAlertConfig
 
+from posthog.hogql import ast
+from posthog.hogql.printer.clickhouse import ClickHousePrinter
+
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 
-from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError, ExtractionResult
 from products.alerts.backend.evaluation.detector import evaluate_with_detector
-from products.alerts.backend.evaluation.hogql import HogQLExtractor, extract_hogql_detector_series
+from products.alerts.backend.evaluation.hogql import (
+    HogQLDetectorExtractor,
+    HogQLExtractor,
+    extract_hogql_detector_series,
+)
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
@@ -167,3 +177,129 @@ class TestHogQLDetectorPagination(APIBaseTest):
         assert isinstance(normal.result, list)
         assert [list(row) for row in normal.result] == [list(row) for row in calculation.result]
         assert insight.query == saved_query
+
+
+DETECTOR = {"type": "zscore", "threshold": 3.0, "window": 30}
+FLAG_PATH = "products.alerts.backend.evaluation.detector_history.feature_enabled_or_false"
+CALC_PATH = "products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight"
+SERIES_SQL = """SELECT toStartOfHour(timestamp) AS bucket, count() AS value FROM events
+    WHERE timestamp >= toStartOfHour(now()) - INTERVAL 48 HOUR
+      AND timestamp < toStartOfHour(now()) GROUP BY bucket ORDER BY bucket ASC"""
+
+
+class TestHogQLDetectorIncrementalHistory(APIBaseTest, ClickhouseDestroyTablesMixin):
+    """The series a second check assembles from cached buckets must be the series a full scan
+    would have read, and must score to the same detector outcome."""
+
+    def _events(self, hours_ago: list[int]) -> None:
+        for index, hour in enumerate(hours_ago):
+            for i in range(1 + index % 4):
+                _create_event(
+                    team=self.team,
+                    event="signup",
+                    distinct_id=f"actor-{hour}-{i}",
+                    timestamp=(datetime.now(UTC) - timedelta(hours=hour)).isoformat(),
+                )
+        flush_persons_and_events()
+
+    def _alert(self) -> AlertConfiguration:
+        insight = Insight.objects.create(team=self.team, query={"kind": "HogQLQuery", "query": SERIES_SQL})
+        return AlertConfiguration.objects.create(
+            team=self.team,
+            insight=insight,
+            name="hourly count anomaly",
+            condition={"type": "absolute_value"},
+            detector_config=DETECTOR,
+            config={
+                "type": "HogQLAlertConfig",
+                "evaluation": "last_row",
+                "column": "value",
+                "label_column": "bucket",
+            },
+            calculation_interval="hourly",
+        )
+
+    def _freeze_clickhouse_clock(self) -> None:
+        # time_machine freezes Python, not the ClickHouse server clock, and the cache reasons about
+        # which buckets the query anchored on now() can have returned.
+        original_visit_call = ClickHousePrinter.visit_call
+
+        def frozen_clock(printer: ClickHousePrinter, node: ast.Call) -> str:
+            if node.name == "now":
+                node = ast.Call(
+                    name="toDateTime",
+                    args=[
+                        ast.Constant(value=datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")),
+                        ast.Constant(value="UTC"),
+                    ],
+                )
+            return original_visit_call(printer, node)
+
+        clock_patch = patch.object(ClickHousePrinter, "visit_call", frozen_clock)
+        clock_patch.start()
+        self.addCleanup(clock_patch.stop)
+
+    def _extract(self, alert: AlertConfiguration) -> ExtractionResult:
+        return HogQLDetectorExtractor().extract(
+            alert, alert.insight, alert.insight.query, ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+        )
+
+    @staticmethod
+    def _values(result: ExtractionResult) -> list[float | None]:
+        return [point.value for point in result.series[0].points] if result.series else []
+
+    @parameterized.expand(
+        [
+            ("dense", list(range(1, 41))),
+            ("sparse", [h for h in range(1, 48) if h % 3]),
+        ]
+    )
+    def test_matches_the_full_scan_series_and_outcome(self, _name: str, hours_ago: list[int]) -> None:
+        with time_machine.travel("2026-10-25T04:00:00Z", tick=False):
+            self._events(hours_ago)
+            self._freeze_clickhouse_clock()
+            alert = self._alert()
+
+            with patch(FLAG_PATH, return_value=False):
+                full = self._extract(alert)
+            with patch(FLAG_PATH, return_value=True):
+                self._extract(alert)  # seeds the cache with a full scan
+                with patch(CALC_PATH, wraps=calculate_for_query_based_insight) as calculator:
+                    incremental = self._extract(alert)
+
+        assert len(self._values(full)) == 31
+        assert self._values(incremental) == self._values(full)
+        assert calculator.call_count == 1
+        assert calculator.call_args_list[-1].kwargs["query_override"] is not None
+        assert evaluate_with_detector(incremental, DETECTOR).breaches == evaluate_with_detector(full, DETECTOR).breaches
+
+    def test_an_event_arriving_inside_the_margin_reaches_its_bucket(self) -> None:
+        with time_machine.travel("2026-10-25T04:00:00Z", tick=False):
+            self._events(list(range(1, 41)))
+            self._freeze_clickhouse_clock()
+            alert = self._alert()
+
+            with patch(FLAG_PATH, return_value=True):
+                self._extract(alert)
+                self._events([2])
+                incremental = self._extract(alert)
+            with patch(FLAG_PATH, return_value=False):
+                full = self._extract(alert)
+
+        assert self._values(incremental) == self._values(full)
+
+    def test_an_event_arriving_beyond_the_margin_leaves_history_as_it_was_measured(self) -> None:
+        with time_machine.travel("2026-10-25T04:00:00Z", tick=False):
+            self._events(list(range(1, 41)))
+            self._freeze_clickhouse_clock()
+            alert = self._alert()
+
+            with patch(FLAG_PATH, return_value=True):
+                before = self._extract(alert)
+                self._events([20])
+                incremental = self._extract(alert)
+            with patch(FLAG_PATH, return_value=False):
+                full = self._extract(alert)
+
+        assert self._values(incremental) == self._values(before)
+        assert self._values(incremental) != self._values(full)
