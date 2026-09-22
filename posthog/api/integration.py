@@ -1157,6 +1157,7 @@ class GitHubLinkExistingRequestSerializer(serializers.Serializer):
     installation_id = serializers.CharField(
         required=False,
         allow_blank=True,
+        allow_null=True,
         help_text="GitHub installation ID to link; resolved within the organization when source_team_id is omitted.",
     )
 
@@ -2166,7 +2167,6 @@ class IntegrationViewSet(
             audit=GitHubAudit(organization_id=self.organization.id, team_id=self.team_id, user=user),
             discovery_id=str(uuid4()),
         )
-        personal_connected = user_has_personal_github_integration(user)
         installations = list_org_github_installations(
             user=user,
             organization=self.organization,
@@ -2175,7 +2175,7 @@ class IntegrationViewSet(
         )
         payload = {
             "installations": GitHubAvailableInstallationSerializer(installations, many=True).data,
-            "personal_github_connected": personal_connected,
+            "personal_github_connected": user_has_personal_github_integration(user),
             "personal_github_login": discovery.login,
             "personal_discovery_status": discovery.status,
             "discovery_id": discovery.discovery_id,
@@ -2203,8 +2203,8 @@ class IntegrationViewSet(
                 user=cast(User, request.user),
                 organization=self.organization,
                 team_id=self.team_id,
-                source_team_id=request.data.get("source_team_id"),
-                installation_id_param=request.data.get("installation_id"),
+                source_team_id=serializer.validated_data.get("source_team_id"),
+                installation_id_param=serializer.validated_data.get("installation_id"),
                 discovery_id=discovery_id,
             )
         except ValidationError as exc:

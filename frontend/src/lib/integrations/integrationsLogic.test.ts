@@ -14,7 +14,10 @@ import { initKeaTests } from '~/test/init'
 import { IntegrationKind, IntegrationType } from '~/types'
 
 import * as integrationsApi from 'products/integrations/frontend/generated/api'
-import type { GitHubAvailableInstallationsResponseApi } from 'products/integrations/frontend/generated/api.schemas'
+import type {
+    GitHubAvailableInstallationsResponseApi,
+    IntegrationConfigApi,
+} from 'products/integrations/frontend/generated/api.schemas'
 
 import { integrationsLogic } from './integrationsLogic'
 
@@ -113,7 +116,11 @@ describe('integrationsLogic', () => {
                         expect(logic.values.githubAvailableInstallations?.[0].installation_id).toBe('new')
                     )
                 } else {
-                    teamLogic.actions.loadCurrentTeamSuccess({ ...teamLogic.values.currentTeam!, id: 999 })
+                    teamLogic.actions.loadCurrentTeamSuccess({
+                        ...teamLogic.values.currentTeam!,
+                        id: 999,
+                        project_id: 999,
+                    })
                 }
                 resolve(discovery('old'))
                 await pending
@@ -150,6 +157,50 @@ describe('integrationsLogic', () => {
             expect(request).toHaveBeenCalled()
             logic.actions.stopPolling()
         })
+
+        it('discovers once when switching projects with a mounted GitHub surface', async () => {
+            const request = jest
+                .spyOn(integrationsApi, 'integrationsGithubAvailableInstallationsRetrieve')
+                .mockResolvedValue(discovery('fresh'))
+            logic.actions.startPolling()
+            await expectLogic(logic).toFinishAllListeners()
+            request.mockClear()
+            integrationsPayload = [githubIntegration()]
+
+            await expectLogic(logic, () =>
+                teamLogic.actions.loadCurrentTeamSuccess({ ...teamLogic.values.currentTeam!, id: 999, project_id: 999 })
+            ).toFinishAllListeners()
+
+            expect(request).toHaveBeenCalledTimes(1)
+            expect(request).toHaveBeenCalledWith('999')
+            logic.actions.stopPolling()
+        })
+
+        it.each([false, true])(
+            'discards a delayed link completion after switching projects, failure=%s',
+            async (fails) => {
+                let finish!: () => void
+                const pending = new Promise<IntegrationConfigApi>((resolve, reject) => {
+                    finish = () =>
+                        fails ? reject(new Error('synthetic failure')) : resolve({ id: 42 } as IntegrationConfigApi)
+                })
+                jest.spyOn(integrationsApi, 'integrationsGithubLinkExistingCreate').mockReturnValue(pending)
+                const toast = jest.spyOn(lemonToast, 'success')
+                const reload = jest.spyOn(logic.actions, 'loadIntegrations')
+                logic.actions.linkExistingGithubInstallation('12345')
+                teamLogic.actions.loadCurrentTeamSuccess({ ...teamLogic.values.currentTeam!, id: 999, project_id: 999 })
+                await expectLogic(logic).toDispatchActions(['loadIntegrationsSuccess'])
+                reload.mockClear()
+
+                finish()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(toast).not.toHaveBeenCalled()
+                expect(reload).not.toHaveBeenCalled()
+                expect(logic.values.linkedGithubInstallation).toBeNull()
+                expect(logic.values.linkedGithubInstallationLoading).toBe(false)
+            }
+        )
     })
 
     describe('GitHub repositories', () => {

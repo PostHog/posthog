@@ -16,7 +16,7 @@ from posthog.api.github_callback.state import (
     store_unified_authorize_state,
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
-from posthog.models import OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import (
     GitHubInstallationAccess,
     GitHubIntegrationError,
@@ -333,16 +333,17 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         mock_uninstall.assert_not_called()
 
     @patch(
-        "posthog.api.user_integration.UserGitHubIntegration.uninstall_if_last_reference",
+        "posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation_status",
         side_effect=Exception("GitHub API error"),
     )
-    def test_delete_still_returns_204_when_uninstall_fails(self, _mock_uninstall):
+    def test_delete_still_returns_204_when_uninstall_fails(self, mock_uninstall):
         _create_user_integration(self.user, integration_id="12345")
 
         response = self.client.delete("/api/users/@me/integrations/github/12345/")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(UserIntegration.objects.filter(integration_id="12345").exists())
+        mock_uninstall.assert_called_once_with("12345")
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id")
     @patch(
@@ -670,14 +671,17 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         )
 
         state = "tok_oauth_discover_empty"
-        store_unified_authorize_state(
-            GitHubAuthorizeState(
-                token=state,
-                flow=FlowKind.OAUTH_DISCOVER,
-                user_id=self.user.id,
-                connect_from="posthog_code",
-            ),
+        origin = GitHubAuthorizeState(
+            token=state,
+            flow=FlowKind.OAUTH_DISCOVER,
+            user_id=self.user.id,
+            connect_from="posthog_code",
         )
+        store_unified_authorize_state(origin)
+        other_org = Organization.objects.create(name="Synthetic other organization")
+        OrganizationMembership.objects.create(organization=other_org, user=self.user)
+        self.user.current_organization = other_org
+        self.user.save(update_fields=["current_organization"])
 
         response = self.client.get(
             "/complete/github-link/",
@@ -686,6 +690,14 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
         self.assertEqual(response.status_code, 302)
         self.assertIn("github.com/apps/posthog-dev/installations/new", response["Location"])
+
+        next_state = parse_qs(urlparse(response["Location"]).query)["state"][0]
+        next_token, _ = parse_github_authorize_state_param(next_state)
+        assert next_token is not None
+        resumed = load_authorize_state(next_token, user_id=self.user.id)
+        assert resumed is not None
+        assert resumed.originating_organization_id == self.organization.id
+        assert resumed.flow_id == origin.flow_id
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.egress.transport.transport.requests.request")

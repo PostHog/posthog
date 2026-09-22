@@ -317,7 +317,7 @@ export const IntegrationsGithubLinkExistingCreateBody = /* @__PURE__ */ zod.obje
         .describe('Sibling team in the same organization whose GitHub installation should be reused.'),
     installation_id: zod
         .string()
-        .optional()
+        .nullish()
         .describe('GitHub installation ID to link; resolved within the organization when source_team_id is omitted.'),
 })
 

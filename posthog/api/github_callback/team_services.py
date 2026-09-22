@@ -631,12 +631,10 @@ def _sibling_installation_account(integration: Integration) -> _InstallationAcco
 
     The name must be the GitHub account the app is installed on, never the login of the person who
     connected it: a reader who sees a colleague's handle where an account belongs reads it as a
-    stranger's account in their settings. When the stored name is missing or is still the numeric
-    placeholder, one throttled heal call tries to fetch the real one, and the name stays null when
-    that fails so the caller can fall back to the installation id.
+    stranger's account in their settings. Missing names use the installation ID fallback so discovery
+    does not wait for a GitHub metadata request for each sibling installation.
     """
     github_integration = GitHubIntegration(integration)
-    github_integration.ensure_account_name()
     account = (integration.config or {}).get("account") or {}
     name = account.get("name")
     if not name or str(name) == str(github_integration.github_installation_id):

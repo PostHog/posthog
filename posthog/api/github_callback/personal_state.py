@@ -92,8 +92,8 @@ def list_user_github_app_installations(
     personal GitHub link, a token refresh failure, a network error, or a non-200 response. Callers
     must treat None as "unknown" and degrade gracefully rather than fail the request.
     """
-    connected = user_has_personal_github_integration(user)
     credential = usable_personal_github_credential(user)
+    connected = user_has_personal_github_integration(user)
     if discovery:
         discovery.status = "unavailable" if connected else "not_connected"
     if credential is None:

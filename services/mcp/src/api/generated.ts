@@ -47537,8 +47537,11 @@ export namespace Schemas {
          * @nullable
          */
       source_team_id?: number | null;
-      /** GitHub installation ID to link; resolved within the organization when source_team_id is omitted. */
-      installation_id?: string;
+      /**
+         * GitHub installation ID to link; resolved within the organization when source_team_id is omitted.
+         * @nullable
+         */
+      installation_id?: string | null;
     }
 
     export interface GitHubOAuthAuthorizeRequest {

@@ -474,7 +474,11 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         page_params = parse_activity_page_params(request)
 
         activity_page = load_activity(
-            scope="ErrorTrackingIssue", team_id=self.team_id, limit=page_params.limit, page=page_params.page
+            user=request.user,
+            scope="ErrorTrackingIssue",
+            team_id=self.team_id,
+            limit=page_params.limit,
+            page=page_params.page,
         )
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
@@ -486,6 +490,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
+            user=request.user,
             scope="ErrorTrackingIssue",
             team_id=self.team_id,
             item_ids=[str(pk)],

@@ -64,12 +64,18 @@ from posthog.models.integration import (
     StripeIntegration,
     github_account_type,
 )
+from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.user_integration import GitHubInstallRequest, UserGitHubIntegration, UserIntegration
+from posthog.models.user_integration import (
+    GitHubInstallRequest,
+    ReauthorizationRequired,
+    UserGitHubIntegration,
+    UserIntegration,
+)
 from posthog.models.utils import hash_key_value
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.team_notifications.slack import is_shared_channel
@@ -4353,20 +4359,22 @@ class TestGitHubTeamIntegrationComplete:
         assert installations[0]["source_team_id"] == first.pk
         assert installations[0]["source_team_name"] == "Org Project"
 
+    @parameterized.expand([("missing", None), ("placeholder", "111")])
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
-    def test_list_org_github_installations_never_labels_an_install_with_a_persons_login(self, mock_client_request):
-        # An install whose account metadata never arrived used to be labelled with the login of
-        # whoever connected it, so a reader saw a colleague's handle where a GitHub account belongs
-        # and read it as a stranger's account. The heal path runs first; when GitHub still can't
-        # answer, the name stays empty so the caller falls back to the installation id.
-        mock_client_request.return_value = MagicMock(status_code=503, json=lambda: {"message": "unavailable"})
+    def test_list_org_github_installations_uses_id_fallback_without_fetching_names(
+        self, _name, account_name, mock_client_request
+    ):
         sibling = Team.objects.create(organization=self.organization, name="Org Project")
         Integration.objects.create(
             team=sibling,
             kind="github",
             integration_id="111",
-            config={"installation_id": "111", "connecting_user_github_login": "octocat"},
-            sensitive_config={"access_token": "ghs_a"},
+            config={
+                "installation_id": "111",
+                "account": {"name": account_name, "type": "Organization"},
+                "connecting_user_github_login": "synthetic-connector",
+            },
+            sensitive_config={"access_token": "synthetic-installation-token"},
         )
 
         installations = list_org_github_installations(
@@ -4374,30 +4382,9 @@ class TestGitHubTeamIntegrationComplete:
         )
 
         assert installations[0]["account_name"] is None
-        assert installations[0]["source_team_name"] == "Org Project"
-
-    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
-    def test_list_org_github_installations_heals_a_placeholder_account_name(self, mock_client_request):
-        # The picker is where a missing account name is read, so it heals the placeholder rather
-        # than showing the numeric installation id it was stored as.
-        mock_client_request.return_value = MagicMock(
-            status_code=200, json=lambda: {"account": {"login": "acme", "type": "Organization"}}
-        )
-        sibling = Team.objects.create(organization=self.organization, name="Org Project")
-        Integration.objects.create(
-            team=sibling,
-            kind="github",
-            integration_id="111",
-            config={"installation_id": "111", "account": {"name": "111", "type": None}},
-            sensitive_config={"access_token": "ghs_a"},
-        )
-
-        installations = list_org_github_installations(
-            user=self.user, organization=self.organization, exclude_team_id=self.team.pk
-        )
-
-        assert installations[0]["account_name"] == "acme"
         assert installations[0]["account_type"] == "Organization"
+        assert installations[0]["source_team_name"] == "Org Project"
+        mock_client_request.assert_not_called()
 
     def _org_member_with_access_control(self) -> User:
         self.organization.available_product_features = [
@@ -7392,6 +7379,13 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/integrations/github/available_installations/")
         assert response.json()["personal_discovery_status"] == "unavailable"
         assert [row["installation_id"] for row in response.json()["installations"]] == ["9003"]
+        older.config["user_refresh_token_expires_at"] = 1
+        older.save(update_fields=["config"])
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.get(f"/api/projects/{self.team.id}/integrations/github/available_installations/")
+        assert response.json()["personal_github_connected"] is False
+        assert response.json()["personal_discovery_status"] == "not_connected"
+        assert [row["installation_id"] for row in response.json()["installations"]] == ["9003"]
 
     @parameterized.expand([("uninstalled",), ("already_absent",), ("skipped",), ("failed",)])
     @patch("posthog.api.integration.GitHubIntegration.uninstall_app_installation_status")
@@ -7438,6 +7432,12 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
             "created",
             "deleted",
         }
+        assert "github_diagnostic" in {
+            row.activity for row in load_activity("Integration", self.team.id, user=self.user).results
+        }
+        assert "github_diagnostic" in {
+            row.activity for row in load_all_activity(["Integration"], self.team.id, user=self.user).results
+        }
         refreshed = self.client.get(f"/api/projects/{target.id}/integrations/github/available_installations/")
         assert refreshed.json()["installations"] == []
 
@@ -7456,7 +7456,7 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         )
         integration_id = str(integration.pk)
         with self.captureOnCommitCallbacks(execute=True):
-            with self.assertRaises(Exception):
+            with self.assertRaises(ReauthorizationRequired):
                 UserGitHubIntegration(integration).get_usable_user_access_token()
         log = ActivityLog.objects.get(item_id=integration_id, activity="github_diagnostic")
         assert log.team_id is None
@@ -7466,3 +7466,32 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         assert not UserIntegration.objects.filter(pk=integration_id).exists()
         assert "synthetic-private-secret" not in json.dumps(log.detail)
         produce.assert_not_called()
+
+    def test_github_audit_filters_unknown_fields_from_logs_and_durable_evidence(self) -> None:
+        candidate = {"installation_id": "9007", "account_name": "synthetic-owner", "token": "synthetic-secret"}
+        with capture_logs() as captured:
+            GitHubAudit(organization_id=self.organization.id, team_id=self.team.id).record(
+                "discovery_completed",
+                discovery_id="synthetic-discovery",
+                token="synthetic-secret",
+                response={
+                    "discovery_id": "synthetic-discovery",
+                    "installations": [candidate],
+                    "headers": {"authorization": "synthetic-secret"},
+                    "config": {"token": "synthetic-secret"},
+                },
+            )
+        log = ActivityLog.objects.get(activity="github_diagnostic")
+        assert log.detail is not None
+        payload = log.detail["trigger"]["payload"]
+        assert payload["response"]["installations"] == [{"installation_id": "9007", "account_name": "synthetic-owner"}]
+        assert "synthetic-secret" not in json.dumps(log.detail)
+        assert "synthetic-secret" not in json.dumps(captured, default=str)
+
+    @parameterized.expand([({},), ({"installation_id": None},)])
+    @patch("posthog.api.integration.link_existing_team_github_integration")
+    def test_link_accepts_omitted_or_null_installation_id(self, payload: dict, link: MagicMock) -> None:
+        link.return_value = Integration.objects.create(team=self.team, kind="github", integration_id="9008")
+        response = self.client.post(f"/api/projects/{self.team.id}/integrations/github/link_existing/", payload)
+        assert response.status_code == 200
+        assert link.call_args.kwargs["installation_id_param"] is None

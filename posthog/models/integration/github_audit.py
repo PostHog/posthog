@@ -18,6 +18,97 @@ if TYPE_CHECKING:
 logger = structlog.get_logger("posthog.github_diagnostics")
 
 
+class GitHubAuditPayload:
+    PERSONAL_FIELDS = frozenset(
+        {
+            "personal_integration_id",
+            "owning_user_id",
+            "github_user_id",
+            "github_login",
+            "credential_version",
+            "identity_verified_at",
+        }
+    )
+    CANDIDATE_FIELDS = frozenset(
+        {"installation_id", "account_name", "account_type", "source_team_id", "source_team_name"}
+    )
+    RESPONSE_FIELDS = frozenset(
+        {
+            "discovery_id",
+            "discovered_at",
+            "personal_github_connected",
+            "personal_github_login",
+            "personal_discovery_status",
+        }
+    )
+    EVENT_FIELDS = {
+        "created": {"outcome"},
+        "deleted": {"outcome"},
+        "credential_created": {"reason"},
+        "credential_replaced": {"reason"},
+        "credential_refreshed": {"reason"},
+        "credential_deleted": {"reason"},
+        "credential_delete_failed": {"failure_type"},
+        "discovery_credential_selected": {"discovery_id", *PERSONAL_FIELDS},
+        "discovery_github_response": {"discovery_id", "github_status", "github_request_id"},
+        "discovery_candidates": {"discovery_id", "source"},
+        "discovery_candidate_filtered": {"discovery_id", "installation_id", "source", "reason"},
+        "discovery_completed": {"discovery_id"},
+        "discovery_failed": {"discovery_id", "reason"},
+        "link_started": {"discovery_id", "installation_id", "path"},
+        "link_path": {"discovery_id", "path", "source_team_id"},
+        "link_completed": {"discovery_id", "installation_id", "path", "linked_integration_id"},
+        "link_rejected": {"discovery_id", "installation_id", "path"},
+        "link_failed": {"discovery_id", "installation_id", "failure_type"},
+        "disconnect_started": {"last_reference"},
+        "disconnect_failed": {"stage", "failure_type"},
+        "uninstall_completed": {"outcome", "reason", "failure_type"},
+        "personal_cleanup_failed": {"failure_type"},
+        "webhook_cleanup": {"outcome", "completed_deletion"},
+        "webhook_cleanup_failed": {"stage", "failure_type"},
+        "setup_failed": {"flow_id", "callback_type"},
+    }
+
+    @staticmethod
+    def fields(value: object, allowed: set[str] | frozenset[str]) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            return {}
+        return {
+            key: item
+            for key, item in value.items()
+            if key in allowed and (item is None or isinstance(item, (str, int, float, bool)))
+        }
+
+    @classmethod
+    def candidates(cls, value: object) -> list[dict[str, Any]]:
+        return [cls.fields(item, cls.CANDIDATE_FIELDS) for item in value] if isinstance(value, list) else []
+
+    @classmethod
+    def error_codes(cls, value: object) -> list[str]:
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, dict):
+            value = list(value.values())
+        if isinstance(value, list):
+            return [code for item in value for code in cls.error_codes(item)]
+        return []
+
+    @classmethod
+    def evidence(cls, event: str, value: dict[str, Any]) -> dict[str, Any]:
+        result = cls.fields(value, cls.EVENT_FIELDS.get(event, set()))
+        if event == "discovery_candidates":
+            result["candidates"] = cls.candidates(value.get("candidates"))
+        elif event == "discovery_completed":
+            response = value.get("response")
+            result["response"] = cls.fields(response, cls.RESPONSE_FIELDS)
+            if isinstance(response, dict):
+                result["response"]["installations"] = cls.candidates(response.get("installations"))
+        elif event in {"link_rejected", "setup_failed"}:
+            field = "rejection_reason" if event == "link_rejected" else "failure_category"
+            result[field] = cls.error_codes(value.get(field))
+        return result
+
+
 @frozen
 class GitHubAudit:
     organization_id: UUID | None = None
@@ -72,8 +163,8 @@ class GitHubAudit:
             "integration_id": self.integration_id,
             "installation_id": self.installation_id,
             "installation_owner": self.owner,
-            **(self.personal_metadata or {}),
-            **evidence,
+            **GitHubAuditPayload.fields(self.personal_metadata, GitHubAuditPayload.PERSONAL_FIELDS),
+            **GitHubAuditPayload.evidence(event, evidence),
         }
 
         def write() -> None:
@@ -105,7 +196,7 @@ class GitHubAudit:
                             name=self.owner or self.installation_id or "GitHub",
                             trigger=Trigger(
                                 job_type="github",
-                                job_id=str(evidence.get("discovery_id") or ""),
+                                job_id=str(payload.get("discovery_id") or ""),
                                 payload={"event": event, **payload},
                             ),
                         ),

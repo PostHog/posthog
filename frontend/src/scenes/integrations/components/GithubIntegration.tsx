@@ -65,10 +65,6 @@ export function GithubIntegration({
         return () => stopPolling()
     })
 
-    useEffect(() => {
-        loadGithubAvailableInstallations()
-    }, [currentTeam?.id, loadGithubAvailableInstallations])
-
     const settingsPath = next ?? urls.settings('environment-integrations')
     const authorizationUrl = api.integrations.authorizeUrl({
         next: currentTeam?.id ? urls.project(currentTeam.id, settingsPath) : settingsPath,

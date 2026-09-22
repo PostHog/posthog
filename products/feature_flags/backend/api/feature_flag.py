@@ -5466,7 +5466,9 @@ class FeatureFlagViewSet(
         limit = request.validated_query_data["limit"]
         page = request.validated_query_data["page"]
 
-        activity_page = load_activity(scope="FeatureFlag", team_id=self.team_id, limit=limit, page=page)
+        activity_page = load_activity(
+            user=request.user, scope="FeatureFlag", team_id=self.team_id, limit=limit, page=page
+        )
 
         return activity_page_response(activity_page, limit, page, request)
 
@@ -5931,6 +5933,7 @@ class FeatureFlagViewSet(
         item = self.get_object()
 
         activity_page = load_activity(
+            user=request.user,
             scope="FeatureFlag",
             team_id=self.team_id,
             item_ids=[str(item.id)],

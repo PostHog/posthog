@@ -2832,6 +2832,7 @@ class TeamViewSet(
         team = self.get_object()
 
         activity_page = load_activity(
+            user=request.user,
             scope="Team",
             team_id=team.pk,
             item_ids=[str(team.pk)],

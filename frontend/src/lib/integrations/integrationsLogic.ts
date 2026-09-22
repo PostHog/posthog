@@ -235,7 +235,7 @@ export interface integrationsLogicActions {
     invalidateGithubSuggestions: () => {
         value: true
     }
-    linkExistingGithubInstallation: (installationId?: string) => string
+    linkExistingGithubInstallation: (installationId: string | undefined) => string | undefined
     linkExistingGithubInstallationFailure: (
         error: string,
         errorObject?: any
@@ -244,11 +244,11 @@ export interface integrationsLogicActions {
         errorObject?: any
     }
     linkExistingGithubInstallationSuccess: (
-        linkedGithubInstallation: IntegrationConfigApi,
-        payload?: string
+        linkedGithubInstallation: IntegrationConfigApi | null,
+        payload?: string | undefined
     ) => {
-        linkedGithubInstallation: IntegrationConfigApi
-        payload?: string
+        linkedGithubInstallation: IntegrationConfigApi | null
+        payload?: string | undefined
     }
     loadGitHubRepositories: (integrationId: number) => {
         integrationId: number
@@ -897,7 +897,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             },
         ],
     }),
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         integrations: [
             null as IntegrationType[] | null,
             {
@@ -980,9 +980,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 // links the existing install without the fragile GitHub setup redirect roundtrip.
                 // When the org has more than one installation the caller passes the chosen
                 // installationId, since the backend can't auto-resolve between them.
-                linkExistingGithubInstallation: async (installationId?: string) => {
+                linkExistingGithubInstallation: async (installationId: string | undefined, breakpoint) => {
                     // The global kea-loaders failure handler shows the API detail. Do not add a
                     // local toast here because the rejected loader would then show both messages.
+                    const projectGeneration = cache.githubProjectGeneration
                     const discoveryId = values.githubAvailableInstallationsResponse?.discovery_id
                     const projectId = values.currentProjectId
                     actions.invalidateGithubSuggestions()
@@ -992,10 +993,26 @@ export const integrationsLogic = kea<integrationsLogicType>([
                             installation_id: installationId,
                             discovery_id: discoveryId,
                         })
+                    } catch (error) {
+                        await breakpoint()
+                        if (
+                            values.currentProjectId !== projectId ||
+                            cache.githubProjectGeneration !== projectGeneration
+                        ) {
+                            return values.linkedGithubInstallation
+                        }
+                        throw error
                     } finally {
-                        if (values.currentProjectId === projectId) {
+                        if (
+                            values.currentProjectId === projectId &&
+                            cache.githubProjectGeneration === projectGeneration
+                        ) {
                             actions.loadGithubAvailableInstallations()
                         }
+                    }
+                    await breakpoint()
+                    if (values.currentProjectId !== projectId || cache.githubProjectGeneration !== projectGeneration) {
+                        return values.linkedGithubInstallation
                     }
                     lemonToast.success('Linked the existing GitHub installation to this project.')
                     actions.loadIntegrations()
@@ -1024,6 +1041,13 @@ export const integrationsLogic = kea<integrationsLogicType>([
     })),
     listeners(({ actions, values, cache }) => ({
         loadCurrentTeamSuccess: () => {
+            if (cache.githubProjectId === values.currentProjectId) {
+                return
+            }
+            cache.githubProjectId = values.currentProjectId
+            cache.githubProjectGeneration = (cache.githubProjectGeneration ?? 0) + 1
+            actions.linkExistingGithubInstallationSuccess(null)
+            cache.githubConnectionFingerprint = undefined
             actions.invalidateGithubSuggestions()
             actions.loadIntegrations()
             if (values.pollingSubscribers > 0) {
@@ -1095,6 +1119,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             if (cache.disposables.registry.has('poll')) {
                 return
             }
+            actions.loadGithubAvailableInstallations()
             cache.disposables.add(() => {
                 const pollTimer = window.setInterval(() => actions.loadIntegrations(), INTEGRATIONS_POLL_INTERVAL_MS)
                 return () => clearInterval(pollTimer)
@@ -1262,7 +1287,8 @@ export const integrationsLogic = kea<integrationsLogicType>([
             })
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values, cache }) => {
+        cache.githubProjectId = values.currentProjectId
         actions.loadIntegrations()
 
         const params = new URLSearchParams(window.location.search)

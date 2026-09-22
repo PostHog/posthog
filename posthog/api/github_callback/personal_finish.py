@@ -154,6 +154,8 @@ def finish_personal(request: HttpRequest) -> FinishResult:
                 GitHubAuthorizeState(
                     token=token,
                     flow=FlowKind.PERSONAL_INSTALL,
+                    originating_organization_id=authorize_state.originating_organization_id,
+                    flow_id=authorize_state.flow_id,
                     user_id=user.id,
                     connect_from=connect_from_value,
                 ),

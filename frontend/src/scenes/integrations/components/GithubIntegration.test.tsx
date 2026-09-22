@@ -185,9 +185,9 @@ describe('GithubIntegration', () => {
             </Provider>
         )
 
-        await screen.findByRole('button', { name: 'Choose an account' })
+        await screen.findByText('Choose an account')
         expect(captureSpy.mock.calls.filter((call) => call[0] === 'integration_link_existing_offered')).toHaveLength(0)
-        await userEvent.click(screen.getByRole('button', { name: 'Choose an account' }))
+        await userEvent.click(screen.getByText('Choose an account'))
         await waitFor(() =>
             expect(
                 captureSpy.mock.calls
