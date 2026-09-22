@@ -22,6 +22,7 @@ import requests
 from fakeredis import FakeConnection
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from redis.exceptions import RedisError
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from slack_sdk.errors import SlackApiError
@@ -2287,7 +2288,15 @@ class TestIntegrationAPIKeyAccess:
 
     @pytest.mark.parametrize("owns_integration", [True, False])
     @pytest.mark.parametrize(
-        "cache_state", ["present", "missing", "expires_during_lookup", "concurrent_lookup", "expires_during_merge"]
+        "cache_state",
+        [
+            "present",
+            "missing",
+            "expires_during_lookup",
+            "concurrent_lookup",
+            "expires_during_merge",
+            "redis_error_during_merge",
+        ],
     )
     @override_settings(
         CACHES={
@@ -2352,6 +2361,8 @@ class TestIntegrationAPIKeyAccess:
                     IntegrationViewSet._cache_slack_channel(cache_key, competing_channel)
                 elif cache_state == "expires_during_merge":
                     cache.delete(cache_key)
+                elif cache_state == "redis_error_during_merge":
+                    raise RedisError("connection reset by peer")
             return original_eval(*args)
 
         with patch.object(redis_client, "eval", side_effect=merge_with_concurrent_write):
@@ -2376,6 +2387,8 @@ class TestIntegrationAPIKeyAccess:
             assert 0 < cast(Any, cache).ttl(cache_key) <= 30
             if cache_state == "concurrent_lookup":
                 assert {item["id"] for item in cache.get(cache_key)["channels"]} == {channel["id"], "C_OTHER"}
+        elif cache_state == "redis_error_during_merge":
+            assert cache.get(cache_key) == cached_data
         else:
             assert cache.get(cache_key) is None
         mock_slack_class.return_value.list_channels.assert_not_called()

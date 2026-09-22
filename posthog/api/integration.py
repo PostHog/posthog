@@ -18,8 +18,10 @@ from django.utils.dateparse import parse_datetime
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django_redis.cache import RedisCache
+from django_redis.exceptions import ConnectionInterrupted
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
 from prometheus_client import Counter
+from redis.exceptions import RedisError
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.exceptions import APIException, PermissionDenied, Throttled, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -1481,31 +1483,36 @@ class IntegrationViewSet(
         backend = caches["default"]
         if not isinstance(backend, RedisCache):
             return
-        client = backend.client
-        redis_client = client.get_client(write=True)
-        redis_key = client.make_key(key)
-        for _ in range(5):
-            previous = redis_client.get(redis_key)
-            if previous is None or redis_client.pttl(redis_key) <= 0:
-                return
-            data = client.decode(previous)
-            channels_by_id = {item["id"]: item for item in data["channels"]}
-            channels_by_id[channel["id"]] = channel
-            updated = client.encode({**data, "channels": list(channels_by_id.values())})
-            # Compare the encoded value so concurrent lookups and list refreshes cannot lose writes.
-            if redis_client.eval(
-                """
-                if redis.call('GET', KEYS[1]) == ARGV[1] and redis.call('PTTL', KEYS[1]) > 0 then
-                    return redis.call('SET', KEYS[1], ARGV[2], 'XX', 'KEEPTTL')
-                end
-                return false
-                """,
-                1,
-                redis_key,
-                previous,
-                updated,
-            ):
-                return
+        try:
+            client = backend.client
+            redis_client = client.get_client(write=True)
+            redis_key = client.make_key(key)
+            for _ in range(5):
+                previous = redis_client.get(redis_key)
+                if previous is None or redis_client.pttl(redis_key) <= 0:
+                    return
+                data = client.decode(previous)
+                channels_by_id = {item["id"]: item for item in data["channels"]}
+                channels_by_id[channel["id"]] = channel
+                updated = client.encode({**data, "channels": list(channels_by_id.values())})
+                # Compare the encoded value so concurrent lookups and list refreshes cannot lose writes.
+                if redis_client.eval(
+                    """
+                    if redis.call('GET', KEYS[1]) == ARGV[1] and redis.call('PTTL', KEYS[1]) > 0 then
+                        return redis.call('SET', KEYS[1], ARGV[2], 'XX', 'KEEPTTL')
+                    end
+                    return false
+                    """,
+                    1,
+                    redis_key,
+                    previous,
+                    updated,
+                ):
+                    return
+        except (ConnectionInterrupted, RedisError, OSError):
+            # The caller already resolved the channel, so a Redis failure here must not turn a
+            # successful lookup into a 500. The next list refresh rebuilds the cache.
+            logger.warning("slack_channel_cache_update_failed", cache_key=key, exc_info=True)
 
     @staticmethod
     def _filter_slack_channels_for_search(channels: list[dict], search: str) -> list[dict]:
