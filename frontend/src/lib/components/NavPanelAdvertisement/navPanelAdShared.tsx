@@ -1,7 +1,9 @@
 import { useActions } from 'kea'
+import { useRef } from 'react'
 
 import type { AssetSvgProps } from '@posthog/brand'
 import { IconX } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
@@ -84,26 +86,26 @@ const DEFAULT_HOGGIE_OFFSET: Required<HoggieOffset> = { x: 50, y: 22 }
  * Presentational product "text + hog" promo: the product name highlighted in its brand color, a
  * blurb, and a Hoggie illustration running off the card's bottom edge. Shared by the nav
  * advertisement card and the welcome dialog's flagship-products showcase so both read as one
- * visual. The illustration is clipped by the caller's `overflow-hidden`. ``topRight`` is an
- * optional slot for a control next to the title (e.g. a dismiss button); the welcome showcase
- * leaves it empty.
+ * visual. The illustration is clipped by the caller's `overflow-hidden`. ``topRightGutter`` keeps
+ * the title clear of a control the caller overlays on the card's top-right corner; the welcome
+ * showcase has no such control.
  */
 export function ProductHogHero({
     hero,
     title,
     text,
-    topRight,
+    topRightGutter,
 }: {
     hero: ProductPushDisplay
     title: string
     text: React.ReactNode
-    topRight?: JSX.Element
+    topRightGutter?: boolean
 }): JSX.Element {
     const { x, y } = { ...DEFAULT_HOGGIE_OFFSET, ...hero.hoggieOffset }
 
     return (
         <div className="flex flex-col gap-1 px-2 pt-2">
-            <div className="flex items-start justify-between gap-1">
+            <div className={`flex items-start ${topRightGutter ? 'pr-7' : ''}`}>
                 <strong
                     className="rounded-sm px-1 py-px text-sm leading-tight"
                     style={{
@@ -115,7 +117,6 @@ export function ProductHogHero({
                 >
                     {title}
                 </strong>
-                {topRight}
             </div>
             <p className="mb-0 text-secondary">{text}</p>
             {hero.Icon ? (
@@ -142,6 +143,15 @@ export function ProductHogHero({
     )
 }
 
+/**
+ * How long after the card appears a click on its dismiss control is ignored.
+ *
+ * The card loads after the nav is already interactive, so it can slide into the footer under a
+ * cursor that was aimed at a nav link. A click that lands in the first moments is a mis-aim, not a
+ * decision to dismiss, and dropping it costs a deliberate dismisser only a second click.
+ */
+export const DISMISS_SETTLE_MS = 500
+
 export function AdvertisementCard({
     emoji,
     emojiLabel,
@@ -149,6 +159,9 @@ export function AdvertisementCard({
     text,
     hero,
     onClose,
+    to,
+    target,
+    onLinkClick,
 }: {
     emoji?: string
     emojiLabel?: string
@@ -156,51 +169,62 @@ export function AdvertisementCard({
     text: React.ReactNode
     hero?: ProductPushDisplay
     onClose?: () => void
+    /** Destination the card body links to. The dismiss control stays outside this link. */
+    to?: string
+    target?: string
+    onLinkClick?: () => void
 }): JSX.Element {
     const { hideAdvertisement } = useActions(navPanelAdvertisementLogic)
+    const appearedAt = useRef(Date.now())
 
-    const dismissButton = (
-        <LemonButton
-            icon={<IconX className="text-muted" />}
-            tooltip="Dismiss"
-            tooltipPlacement="right"
-            size="xxsmall"
-            onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-
-                onClose?.()
-
-                hideAdvertisement()
-            }}
-            noPadding
-        />
+    const body = hero ? (
+        <ProductHogHero hero={hero} title={title} text={text} topRightGutter />
+    ) : (
+        <div className="flex flex-col gap-1 px-2 py-1.5">
+            <strong className="pr-7">
+                {emoji ? (
+                    <>
+                        <span role="img" aria-label={emojiLabel}>
+                            {emoji}
+                        </span>{' '}
+                    </>
+                ) : null}
+                {title}
+            </strong>
+            <p className="mb-0 text-secondary">{text}</p>
+        </div>
     )
 
     return (
         // The gap to the nav footer's buttons belongs to the card, not the footer, so it goes away
         // with the card when there is nothing to advertise.
-        <div className="mb-2 overflow-hidden rounded border bg-surface-primary text-xs shadow-sm transition-shadow hover:shadow-md">
-            {hero ? (
-                <ProductHogHero hero={hero} title={title} text={text} topRight={dismissButton} />
+        <div className="relative mb-2 overflow-hidden rounded border bg-surface-primary text-xs shadow-sm transition-shadow hover:shadow-md">
+            {to ? (
+                <Link to={to} target={target} className="block text-primary" onClick={onLinkClick}>
+                    {body}
+                </Link>
             ) : (
-                <div className="flex flex-col gap-1 px-2 py-1.5">
-                    <div className="flex items-start justify-between gap-2">
-                        <strong>
-                            {emoji ? (
-                                <>
-                                    <span role="img" aria-label={emojiLabel}>
-                                        {emoji}
-                                    </span>{' '}
-                                </>
-                            ) : null}
-                            {title}
-                        </strong>
-                        {dismissButton}
-                    </div>
-                    <p className="mb-0 text-secondary">{text}</p>
-                </div>
+                body
             )}
+            {/* Overlaid rather than placed next to the title, so the control sits outside the card's
+                link and a click only dismisses where the button is actually drawn. */}
+            <div className="absolute right-1 top-1">
+                <LemonButton
+                    icon={<IconX className="text-muted" />}
+                    tooltip="Dismiss"
+                    tooltipPlacement="right"
+                    size="small"
+                    onClick={() => {
+                        if (Date.now() - appearedAt.current < DISMISS_SETTLE_MS) {
+                            return
+                        }
+
+                        onClose?.()
+
+                        hideAdvertisement()
+                    }}
+                />
+            </div>
         </div>
     )
 }

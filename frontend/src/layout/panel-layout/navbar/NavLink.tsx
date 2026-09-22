@@ -62,7 +62,7 @@ export function NavLink({
                 to={to}
                 data-attr={dataAttr}
                 onClick={onClick}
-                tooltip={label}
+                tooltip={isCollapsed ? label : undefined}
                 tooltipPlacement="right"
             >
                 <span
