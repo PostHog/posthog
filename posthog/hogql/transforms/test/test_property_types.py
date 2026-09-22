@@ -148,13 +148,19 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
         )
         assert rows == [(None, 1, 0), (None, 1, 0), ("null", 0, 1), ("Chrome", 0, 1), ("[]", 0, 1), ("{}", 0, 1)]
 
-    @parameterized.expand([("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON")])
-    def test_numeric_casts_preserve_mixed_native_types(self, _name: str, json_type: str) -> None:
+    @parameterized.expand(
+        [
+            (kind, json_type, prop)
+            for kind, json_type in [("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON")]
+            for prop in ["$screen_height", "$ai_score", "$ai_score_min", "$ai_score_max"]
+        ]
+    )
+    def test_numeric_casts_preserve_mixed_native_types(self, _name: str, json_type: str, prop: str) -> None:
         context = self._context()
         with patch("posthog.hogql.printer.utils.build_property_swapper"):
             printed, _ = prepare_and_print_ast(
                 parse_select(
-                    "SELECT toFloat(properties.$screen_height), toFloat(properties.custom), "
+                    f"SELECT toFloat(properties.`{prop}`), toFloat(properties.custom), "
                     "toFloat(properties.nested.score), toFloat(properties.numbers[1]), toFloat(properties.objects[1].score) FROM events"
                 ),
                 context,
@@ -162,7 +168,7 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
             )
         for unwanted in ("dynamicElement", "JSONExtract", "replaceRegexpAll", "toJSONString"):
             assert unwanted not in printed, printed
-        values = [42, 2**63, 2.5, "3.75", "invalid", None, ""]
+        values = [42, 2**63, 2.5, "3.75", "invalid", None, "", 0.00014, 0]
         rows = sync_execute(
             "WITH events_json AS (SELECT 1 AS team_id, CAST(arrayJoin(%(documents)s), %(json_type)s) AS properties) "
             + printed,
@@ -172,7 +178,7 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 "documents": [
                     json.dumps(
                         {
-                            "$screen_height": value,
+                            prop: value,
                             "custom": value,
                             "nested": {"score": value},
                             "numbers": [value],
@@ -191,6 +197,8 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
             (None,) * 5,
             (None,) * 5,
             (None,) * 5,
+            (0.00014,) * 5,
+            (0.0,) * 5,
         ]
 
     def test_negative_multi_icontains_array_property_stays_optimized(self) -> None:

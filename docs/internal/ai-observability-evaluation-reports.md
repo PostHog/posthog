@@ -18,3 +18,10 @@ The initial query keeps its 30-second limit; split retries request at most 15 se
 Each attempt reserves room for a twofold overrun and reduces its limit when the remaining budget requires it.
 If the remaining budget cannot support another attempt, the activity fails and follows its retry policy.
 The execution budget limits query work; it does not discard older results or guarantee that every report can be checked within that budget.
+
+## Native-JSON score storage
+
+The native-JSON events schema declares `$ai_score`, `$ai_score_min`, and `$ai_score_max` as String paths, matching other numeric event properties.
+HogQL converts these paths to numbers for numeric expressions.
+Roll out the matching declarations to existing native-JSON tables before deploying the updated query-path declarations in `posthog/clickhouse/events_json.py`.
+The HCL changes describe the desired schema; they do not alter existing cloud tables automatically.
