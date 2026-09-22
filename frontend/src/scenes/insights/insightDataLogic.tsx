@@ -29,6 +29,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { cohortsModel, getReferencedCohortIds, isIndividualInsightPath } from '~/models/cohortsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -304,6 +305,7 @@ export interface insightDataLogicActions {
             next_allowed_client_refresh?: string | null | undefined
             order: number | null
             query: Node<Record<string, any>> | null
+            query_scan?: import('~/queries/schema/schema-general').QueryScanSummary | undefined
             query_status?: QueryStatus | undefined
             resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
@@ -353,6 +355,7 @@ export interface insightDataLogicActions {
             next_allowed_client_refresh?: string | null | undefined
             order: number | null
             query: Node<Record<string, any>> | null
+            query_scan?: import('~/queries/schema/schema-general').QueryScanSummary | undefined
             query_status?: QueryStatus | undefined
             resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
@@ -415,6 +418,9 @@ export interface insightDataLogicActions {
             name: string
         } | null
         payload?: any
+    }
+    loadReferencedCohorts: () => {
+        value: true
     }
     persistDisplayOptions: (query: Node) => {
         query: Node<Record<string, any>>
@@ -544,6 +550,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     })),
 
     actions({
+        loadReferencedCohorts: true,
         setQuery: (query: Node | null, fromUrl: boolean = false) => ({ query, fromUrl }),
         syncQueryFromProps: (query: Node | null) => ({ query }),
         toggleQueryEditorPanel: true,
@@ -795,6 +802,15 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, cache, values, props }) => ({
+        loadReferencedCohorts: () => {
+            if (isIndividualInsightPath(router.values.location.pathname)) {
+                const ids = getReferencedCohortIds(values.query)
+                if (ids.length) {
+                    cohortsModel.actions.loadCohortsByIds({ ids })
+                }
+            }
+        },
+        syncQueryFromProps: () => actions.loadReferencedCohorts(),
         persistDisplayOptions: async ({ query }, breakpoint) => {
             // Never auto-persist while the user is editing this insight in the insight scene.
             // insightDataLogic is keyed `${shortId}/on-dashboard-${dashboardId}`, so an insight
@@ -981,6 +997,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
         },
         loadInsightSuccess: ({ insight }) => {
+            actions.loadReferencedCohorts()
             // A shared link's query (`#q=`) is applied before the saved insight arrives, so re-syncing
             // here would silently discard the date range and interval the sender chose.
             if (values.queryFromUrl) {
@@ -1001,6 +1018,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setInsightData({ ...values.insightData, result: savedResult ? savedResult : null })
         },
         setQuery: ({ query }) => {
+            actions.loadReferencedCohorts()
             // When this is the insight scene's own insight, sync the query to the URL
             if (isInsightSceneInstance(props)) {
                 const insightId = insightSceneLogic.findMounted()?.values.insightId
@@ -1105,6 +1123,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         }
     }),
     afterMount(({ actions, props }) => {
+        actions.loadReferencedCohorts()
         // On a dashboard, the first response for a tile can say “we don’t have chart numbers yet”
         // (`result: null`) instead of leaving the field unset. Without a real fetch, the UI can look
         // like a failed load (“Chart data didn’t load”) even though we simply haven’t run the query.

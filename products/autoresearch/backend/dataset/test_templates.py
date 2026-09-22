@@ -4,10 +4,15 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.autoresearch.backend.dataset.labeling import _build_population_kind_conditions
+from products.autoresearch.backend.dataset.labeling import (
+    LABELER_QUERY_MODIFIERS,
+    PREDICTION_EVENT_NAME,
+    _build_population_kind_conditions,
+)
 from products.autoresearch.backend.dataset.templates import (
     TEMPLATES,
     ResolvedTemplate,
+    TemplateKey,
     resolve_activity_event,
     resolve_template,
 )
@@ -25,6 +30,8 @@ class TestTemplateDefinitions(SimpleTestCase):
                 "repeat_key_behavior",
             },
         )
+        # Every key the API advertises resolves, and every template is reachable through the API.
+        self.assertEqual(set(TemplateKey.values), set(TEMPLATES))
 
     @parameterized.expand(list(TEMPLATES.keys()))
     def test_template_has_required_fields(self, key: str) -> None:
@@ -86,9 +93,11 @@ class TestResolveActivityEvent(SimpleTestCase):
         ) as mock_run:
             resolved, _alternatives = resolve_activity_event(team, user=user)
         self.assertEqual(resolved, "$pageview")
-        query = mock_run.call_args.kwargs["query"].query
-        self.assertIn("person.is_identified", query)
-        self.assertIn("uniq(person_id)", query)
+        query = mock_run.call_args.kwargs["query"]
+        self.assertIn("person.is_identified", query.query)
+        self.assertIn("uniq(person_id)", query.query)
+        self.assertIn(f"event != '{PREDICTION_EVENT_NAME}'", query.query)
+        self.assertEqual(query.modifiers, LABELER_QUERY_MODIFIERS)
         self.assertIs(mock_run.call_args.kwargs["user"], user)
 
     @parameterized.expand(
@@ -189,6 +198,12 @@ class TestResolveTemplate(SimpleTestCase):
         self.assertEqual(result.target_event, "$pageview")
         self.assertEqual(result.training_population, {"kind": "ever_performed_target"})
         self.assertIn("pageview", result.output_person_property)
+
+    @parameterized.expand([("default", 7, 180), ("long", 100, 200), ("longest", 365, 730)])
+    def test_training_lookback_grows_with_the_horizon(self, _name: str, horizon: int, lookback: int) -> None:
+        result = resolve_template(self._make_team(), "feature_adoption", "signed_up", horizon_days_override=horizon)
+        self.assertEqual(result.training_lookback_days, lookback)
+        self.assertGreater(result.training_lookback_days, result.horizon_days)
 
     def test_feature_adoption_suggested_name_includes_event(self) -> None:
         result = resolve_template(self._make_team(), "feature_adoption", target_event_override="my_feature")

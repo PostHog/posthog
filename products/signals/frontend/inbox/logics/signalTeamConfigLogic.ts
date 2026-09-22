@@ -27,6 +27,7 @@ export interface signalTeamConfigLogicValues {
     addBaseBranchOverrideDisabledReason: string | null
     autostartEnabled: boolean
     baseBranchOverrides: BaseBranchOverride[]
+    baseBranchPickerOpen: boolean
     dailyReportLimitReached: boolean
     defaultAutostartPriority: SignalReportPriority
     defaultOpenPullRequestReady: boolean
@@ -38,6 +39,7 @@ export interface signalTeamConfigLogicValues {
     githubIssueWritebackEnabled: boolean
     issueTrackerConfig: Record<string, string>
     issueTrackerIntegrationId: number | null
+    issueTrackerTargetPickerOpen: boolean
     maxReportsPerDay: number | null
     patchesInFlight: number
     reportsGeneratedToday: number
@@ -104,6 +106,9 @@ export interface signalTeamConfigLogicActions {
     saveDraftMaxReportsPerDay: () => {
         value: true
     }
+    setBaseBranchPickerOpen: (open: boolean) => {
+        open: boolean
+    }
     setDraftBaseBranchBranch: (branch: string) => {
         branch: string
     }
@@ -118,6 +123,9 @@ export interface signalTeamConfigLogicActions {
     }
     setDraftMaxReportsPerDay: (value: number | null) => {
         value: number | null
+    }
+    setIssueTrackerTargetPickerOpen: (open: boolean) => {
+        open: boolean
     }
     updateBaseBranchOverride: (
         repo: string,
@@ -193,6 +201,8 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         setDraftMaxReportsPerDay: (value: number | null) => ({ value }),
         saveDraftMaxReportsPerDay: true,
         setDraftIssueTrackerIntegrationId: (integrationId: number | null) => ({ integrationId }),
+        setBaseBranchPickerOpen: (open: boolean) => ({ open }),
+        setIssueTrackerTargetPickerOpen: (open: boolean) => ({ open }),
     }),
     loaders(() => {
         // Every patch of `autostart_base_branches` sends the whole map, so two in flight at once let the
@@ -252,6 +262,25 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                 setDraftBaseBranchRepo: () => '',
                 setDraftBaseBranchIntegrationId: () => '',
                 clearDraftBaseBranch: () => '',
+            },
+        ],
+        // The pickers below fetch their option lists on mount, and Linear and Jira do so from the
+        // provider. They mount only after a person asks to add or change a value, so a view of
+        // the section costs no integration request. Closing also drops the base branch draft.
+        baseBranchPickerOpen: [
+            false,
+            {
+                setBaseBranchPickerOpen: (_, { open }) => open,
+                clearDraftBaseBranch: () => false,
+            },
+        ],
+        issueTrackerTargetPickerOpen: [
+            false,
+            {
+                setIssueTrackerTargetPickerOpen: (_, { open }) => open,
+                setDraftIssueTrackerIntegrationId: () => false,
+                patchTeamConfigSuccess: (state, { payload }) =>
+                    payload?.patch && 'issue_tracking_config' in payload.patch ? false : state,
             },
         ],
         // A save is in flight while this is above zero. Tracked explicitly rather than read off

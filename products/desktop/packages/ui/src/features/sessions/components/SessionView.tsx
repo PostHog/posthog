@@ -118,6 +118,7 @@ interface SessionViewProps {
   errorMessage?: string;
   errorRetryable?: boolean;
   onRetry?: () => void;
+  retryLabel?: string;
   onNewSession?: () => void;
   isInitializing?: boolean;
   isCloud?: boolean;
@@ -154,6 +155,7 @@ export function SessionView({
   errorMessage = DEFAULT_ERROR_MESSAGE,
   errorRetryable = false,
   onRetry,
+  retryLabel = "Retry",
   onNewSession,
   isInitializing = false,
   isCloud = false,
@@ -676,6 +678,7 @@ export function SessionView({
                     errorTitle={errorTitle}
                     errorMessage={errorMessage}
                     onRetry={onRetry}
+                    retryLabel={retryLabel}
                   />
                 )}
                 <ThreadView
@@ -726,7 +729,7 @@ export function SessionView({
                     <Flex gap="2" mt="2">
                       {onRetry && (
                         <Button variant="soft" size="2" onClick={onRetry}>
-                          Retry
+                          {retryLabel}
                         </Button>
                       )}
                       {onNewSession && (

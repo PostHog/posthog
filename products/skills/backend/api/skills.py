@@ -1,5 +1,6 @@
 import hashlib
 from collections.abc import Sequence
+from difflib import get_close_matches
 from typing import Any, cast
 from urllib.parse import urlencode
 from uuid import UUID
@@ -110,8 +111,8 @@ from .skill_serializers import (
     LLMSkillSerializer,
     LLMSkillVersionSummarySerializer,
     validate_allowed_tool,
+    validate_new_skill_name_value,
     validate_skill_body_size,
-    validate_skill_name_value,
 )
 from .skill_services import (
     LLMSkillDescriptionTooLongError,
@@ -132,7 +133,6 @@ from .skill_services import (
     delete_skill_file,
     duplicate_skill,
     get_active_skill_queryset,
-    get_latest_skills_queryset,
     get_skill_by_name_from_db,
     publish_skill_version,
     rename_skill,
@@ -163,6 +163,11 @@ SKILL_SEARCH_RESULT_LIMIT = 10
 SKILL_SEARCH_MATCH_LIMIT = 2
 SKILL_SEARCH_EXCERPT_LENGTH = 300
 SKILL_SEARCH_TIMEOUT_MS = 5_000
+# A 404 offers a few near-miss names, not a listing: `skill-list` is still the way to browse.
+MAX_SKILL_NAME_SUGGESTIONS = 3
+SKILL_NAME_SUGGESTION_CUTOFF = 0.6
+# Ceiling on the names one miss compares against, so a large store cannot make a 404 expensive.
+MAX_SKILL_NAME_MATCH_CANDIDATES = 500
 
 
 def _content_search_match(content: str, query: str, *, matched_field: str, path: str) -> dict[str, Any] | None:
@@ -499,9 +504,49 @@ class LLMSkillViewSet(
             )
         return None
 
-    def _skill_not_found_response(self, skill_name: str) -> Response:
+    def _skill_not_found_response(self, skill_name: str, version: int | None = None) -> Response:
+        """A 404 that answers from the same rows `list` returns.
+
+        An agent that lists a skill and then cannot read it concludes the store is inconsistent
+        and abandons the skill, so a miss has to say which of the two lookups it is: an unknown
+        name (near-miss names the caller can actually read) or a known name at an absent version
+        (the versions it does hold).
+        """
+        visible = self._visible_skills_queryset()
+        if version is not None:
+            available_versions = list(
+                visible.filter(name=skill_name).order_by("version").values_list("version", flat=True)
+            )
+            if available_versions:
+                return Response(
+                    {
+                        "detail": (
+                            f"Skill with name '{skill_name}' has no version {version}. "
+                            f"Available versions: {', '.join(str(v) for v in available_versions)}."
+                        ),
+                        "type": "skill_version_not_found",
+                        "skill_name": skill_name,
+                        "available_versions": available_versions,
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+        suggestions = get_close_matches(
+            skill_name,
+            visible.filter(is_latest=True).values_list("name", flat=True)[:MAX_SKILL_NAME_MATCH_CANDIDATES],
+            n=MAX_SKILL_NAME_SUGGESTIONS,
+            cutoff=SKILL_NAME_SUGGESTION_CUTOFF,
+        )
+        detail = f"Skill with name '{skill_name}' not found."
+        if suggestions:
+            detail += " Did you mean " + ", ".join(f"'{name}'" for name in suggestions) + "?"
         return Response(
-            {"detail": f"Skill with name '{skill_name}' not found."},
+            {
+                "detail": detail,
+                "type": "skill_not_found",
+                "skill_name": skill_name,
+                "suggestions": suggestions,
+            },
             status=status.HTTP_404_NOT_FOUND,
         )
 
@@ -604,12 +649,17 @@ class LLMSkillViewSet(
         serializer.is_valid(raise_exception=True)
         return serializer.validated_data
 
+    def _visible_skills_queryset(self) -> QuerySet[LLMSkill]:
+        """Every active skill row this caller may read. `list` and every by-name read share it, so
+        a name the list returned can never be denied by a read as if it did not exist."""
+        return self.user_access_control.filter_queryset_by_access_level(
+            get_active_skill_queryset(self.team), resource="llm_skill"
+        )
+
     def _get_list_queryset(self, request: Request) -> QuerySet[LLMSkill]:
         params = self._get_list_params(request)
 
-        queryset = self.user_access_control.filter_queryset_by_access_level(
-            get_latest_skills_queryset(self.team), resource="llm_skill"
-        )
+        queryset = self._visible_skills_queryset().filter(is_latest=True)
 
         search = params.get("search", "").strip()
         if search:
@@ -806,7 +856,7 @@ class LLMSkillViewSet(
                 return redirect
 
         if skill is None:
-            return self._skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         # Cap the first page when the caller doesn't page explicitly, so body_next_offset is a
         # valid continuation offset even when the full body would be truncated in transit.
@@ -1021,7 +1071,7 @@ class LLMSkillViewSet(
             str(version_id) if version_id else None,
         )
         if skill is None:
-            return self._skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         limit = cast(int, query_params["limit"])
         offset = cast(int | None, query_params.get("offset"))
@@ -1063,7 +1113,7 @@ class LLMSkillViewSet(
         version = cast(int | None, version_params.get("version"))
         skill = self._load_skill_with_object_access(request, skill_name, version)
         if skill is None:
-            return self._skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         # SKILL.md never carries the bundled files, so don't load them just to render it.
         export = skill.to_export()
@@ -1089,7 +1139,7 @@ class LLMSkillViewSet(
         version = cast(int | None, version_params.get("version"))
         skill = self._load_skill_with_object_access(request, skill_name, version)
         if skill is None:
-            return self._skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         export = load_skill_export(skill)
         problems = _spec_problem_messages(export)
@@ -1248,11 +1298,11 @@ class LLMSkillViewSet(
         # (oversized body/files, whitespace-bearing tools) the rest of the system assumes is bounded.
         # _spec_problem_messages already covers the description, the name shape and the file paths.
         problems: list[str] = _spec_problem_messages(skill_export)
-        # The reserved-name rule is all this adds on top of the shape rules above, so calling it for
-        # a malformed name would report that defect twice.
+        # The reserved-name and bundled-name rules are all this adds on top of the shape rules
+        # above, so calling it for a malformed name would report that defect twice.
         if skill_name_is_well_formed(skill_export.name):
             try:
-                validate_skill_name_value(skill_export.name)
+                validate_new_skill_name_value(skill_export.name)
             except serializers.ValidationError as err:
                 problems.append(f"name: {self._first_error(err)}")
         try:
@@ -1667,7 +1717,7 @@ class LLMSkillViewSet(
         version = cast(int | None, version_params.get("version"))
         skill = self._load_skill_with_object_access(request, skill_name, version)
         if skill is None:
-            return self._skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         file_path = file_path.rstrip("/")
         normalized = file_path.replace("\\", "/")

@@ -1279,6 +1279,22 @@ def _is_statement_timeout_error(error: BaseException) -> bool:
     )
 
 
+def _is_pooler_login_cooldown_error(error: BaseException) -> bool:
+    """True when a connection pooler (PgBouncer and similar) is in its `server_login_retry`
+    cooldown after a backend login attempt failed.
+
+    The cooldown clears on its own once the pooler's next scheduled retry succeeds, so it's the
+    same "expected, not a bug" shape the other exclusions here degrade quietly for. Matched on
+    message rather than exception type: a Postgres-wire-compatible engine backed by DuckDB's
+    `postgres_query()` table function (e.g. DuckLake's duckgres bridge) can wrap the underlying
+    connection failure in an unrelated exception class (observed as
+    `SyntaxErrorOrAccessRuleViolation`), so the type-based checks above (`_is_connection_dropped_error`
+    et al.) don't catch it here.
+    """
+    message = str(error).lower()
+    return "server login has been failing" in message and "server_login_retry" in message
+
+
 def _rls_active_from_conn(
     connection: psycopg.Connection,
     schema: str | None,
@@ -1359,8 +1375,10 @@ def _rls_active_from_conn(
         # outcome: this lookup is best-effort like the PK/xmin/index lookups it runs alongside, and
         # they all run under the same 30s SET LOCAL guard against a runaway catalog scan — hitting
         # it is the guard working, not new information about a bug here (mirrors
-        # `_xmin_capable_tables_from_conn`, which already degrades quietly for it). Still capture
-        # genuinely unexpected failures.
+        # `_xmin_capable_tables_from_conn`, which already degrades quietly for it). A pooler
+        # login-retry cooldown (e.g. a duckgres-backed source's own metadata store momentarily
+        # can't log in) is the same self-healing shape — see `_is_pooler_login_cooldown_error`.
+        # Still capture genuinely unexpected failures.
         if (
             not connection.closed
             and not connection.broken
@@ -1368,6 +1386,7 @@ def _rls_active_from_conn(
             and not _is_unsupported_function_error(e, "row_security_active")
             and not _is_unsupported_statement_timeout_error(e)
             and not _is_statement_timeout_error(e)
+            and not _is_pooler_login_cooldown_error(e)
         ):
             capture_exception(e)
         return {}
@@ -2704,7 +2723,7 @@ def _size_sample_percent(row_estimate: int | None) -> float | None:
 
 
 def _get_table_chunk_size(
-    cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger
+    cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger, *, byte_bounded: bool = False
 ) -> _TableChunking:
     # Under autocommit each statement is its own transaction — a failure can't poison
     # subsequent commands, so no SAVEPOINT is needed. When called inside a shared
@@ -2764,11 +2783,20 @@ def _get_table_chunk_size(
         # actually do; the sibling `SQLSourceImplementation.get_chunk_size` already floors it.
         batch_rows = max(1, int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes))
         chunking = _TableChunking(batch_rows=batch_rows, fetch_rows=_fetch_rows_for(batch_rows, wide_row_bytes))
-        logger.debug(
+        measurements = (
             f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. wide_row_bytes={wide_row_bytes}. "
             f"largest_row_bytes={largest_row_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. "
             f"Using CHUNK_SIZE={chunking.batch_rows}, FETCH_ROWS={chunking.fetch_rows}"
         )
+        # The page cap sits fractionally below the chunk on any table whose p99 exceeds its p95,
+        # which is most of them, so a bare comparison would report nearly every sync. An order of
+        # magnitude is the point where the cap starts to matter: the read issues about ten times
+        # the `FETCH` calls per batch. Off the byte bound the caller ignores the cap and fetches the
+        # whole chunk, so reporting there would claim a cap that the read never applied.
+        if byte_bounded and chunking.fetch_rows * 10 <= chunking.batch_rows:
+            logger.info(measurements)
+        else:
+            logger.debug(measurements)
         return chunking
     except Exception as e:
         # Best-effort: any failure (including a statement_timeout / QueryCanceled) falls back to
@@ -3555,7 +3583,9 @@ def postgres_source(
                                 )
                                 logger.debug(f"Using chunk_size_override: {chunk_size_override}")
                             else:
-                                chunking = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                                chunking = _get_table_chunk_size(
+                                    cursor, inner_query_with_limit, logger, byte_bounded=byte_bounded_extraction
+                                )
                             chunk_size = chunking.batch_rows
                             # The page cap only exists to bound what one `FETCH` materialises, so
                             # it belongs behind the same gate as the byte bound it serves. Applied

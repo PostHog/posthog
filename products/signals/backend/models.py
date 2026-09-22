@@ -1,12 +1,15 @@
+import uuid
 import logging
 from collections import defaultdict
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from datetime import datetime, timedelta
 from typing import Any, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import IntegrityError, models, transaction
+from django.db import IntegrityError, connection, models, transaction
 from django.utils import timezone
 from django.utils.functional import Promise
 
@@ -28,6 +31,7 @@ from products.signals.backend.artefact_schemas import (
     Dismissal,
     LogArtefactContent,
     RelatedTo,
+    ReportLink,
     SignalFinding,
     StatusArtefactContent,
     TaskRunArtefact,
@@ -35,7 +39,7 @@ from products.signals.backend.artefact_schemas import (
     parse_artefact_content,
     task_run_identifier_for_legacy_relationship,
 )
-from products.signals.backend.enums import SignalSourceProduct, signal_source_product_choices
+from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, signal_source_product_choices
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
 
 logger = logging.getLogger(__name__)
@@ -249,6 +253,13 @@ class SignalUserAutonomyConfig(UUIDModel):
 # run. `SignalReport.researched_signal_count` subtracts it to recover the count a run started on.
 SIGNALS_AT_RUN_INCREMENT = 3
 
+# How many times a scout may rewrite one report's title or summary and still earn a replacement
+# pull request, and how many revalidation notes a report keeps as separate entries before they
+# collapse into a count. Both bound the same thing: a scout runs on its own schedule, so nothing
+# about a report going quiet stops it writing to that report.
+MAX_SCOUT_CONTENT_REVISIONS = 4
+MAX_SCOUT_REPORT_NOTES = 4
+
 
 class InvalidStatusTransition(Exception):
     def __init__(self, from_status: str, to_status: str):
@@ -301,6 +312,24 @@ class SignalReport(UUIDModel):
     # nothing. Null means no completed pass has recorded it, which covers reports researched before
     # the column existed; read `researched_signal_count`, which reconstructs it from `signals_at_run`.
     signals_researched = models.IntegerField(null=True, blank=True)
+    # The research pass whose summary the report's current implementation PR was built from. A later
+    # pass may supersede that PR, but only once: auto-start creates a replacement only when
+    # `run_count` has moved past this, which is what stops one decision opening two pull requests.
+    # Null for reports implemented before superseding existed — safe, because those reports also have
+    # no `implementation_decision` artefact and the supersede path requires one.
+    implemented_at_run_count = models.IntegerField(null=True, blank=True)
+    # How many times a scout has rewritten this report's title or summary. Its own counter rather
+    # than `run_count`, which feeds Temporal workflow IDs and must never gain a second producer.
+    # Only a real diff counts, so a scout restating what the report already says does not tick it.
+    content_revision_count = models.IntegerField(null=True, blank=True)
+    # The revision the report's current implementation PR was built from, the scout-side twin of
+    # `implemented_at_run_count`. Null for reports implemented before scout superseding existed.
+    implemented_at_revision_count = models.IntegerField(null=True, blank=True)
+    # How many explicit corroborations a scout has appended. The first `MAX_SCOUT_REPORT_NOTES`
+    # land as entries in the work log and the rest live
+    # only as this count, which the inbox renders as one line instead of a wall of near-identical
+    # entries.
+    corroboration_count = models.IntegerField(null=True, blank=True)
 
     # LLM-generated during signal matching
     title = models.TextField(null=True, blank=True)
@@ -1077,10 +1106,15 @@ class SignalReportArtefact(UUIDModel):
         SUMMARY_CHANGE = "summary_change"
         CODE_REVIEW = "code_review"
         RELATED_TO = "related_to"
+        REPORT_LINK = "report_link"
         WORK_CLAIM = "work_claim"
         WORK_RELEASE = "work_release"
         PULL_REQUEST = "pull_request"
         CHECK_RESULT = "check_result"
+        IMPLEMENTATION_DECISION = "implementation_decision"
+        IMPLEMENTATION_DISPATCH = "implementation_dispatch"
+        IMPLEMENTATION_REPLACEMENT = "implementation_replacement"
+        IMPLEMENTATION_HANDOVER = "implementation_handover"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
@@ -1101,8 +1135,18 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.REPO_SELECTION,
             ArtefactType.SUGGESTED_REVIEWERS,
             ArtefactType.CHANNEL_ASSIGNMENT,
+            ArtefactType.IMPLEMENTATION_DECISION,
+            ArtefactType.IMPLEMENTATION_DISPATCH,
         }
     )
+    # A `report_link` graph is written by hand or by an agent, one report at a time, so a real
+    # chain is a handful of reports deep. The budgets guard the cycle walk on the write path
+    # against a graph that grew past anything a reader could order. Rows and levels are bounded
+    # separately from reports: linking one pair twice is allowed, so a report can hold many rows
+    # that name reports the walk already visited, and one level costs one query.
+    MAX_REPORT_LINK_GRAPH_NODES = 500
+    MAX_REPORT_LINK_GRAPH_ROWS = 5_000
+    MAX_REPORT_LINK_GRAPH_LEVELS = 50
     LOG_ARTEFACT_TYPES: frozenset[str] = frozenset(
         {
             ArtefactType.CODE_REFERENCE,
@@ -1113,6 +1157,9 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.SUMMARY_CHANGE,
             ArtefactType.CODE_REVIEW,
             ArtefactType.RELATED_TO,
+            ArtefactType.REPORT_LINK,
+            ArtefactType.IMPLEMENTATION_REPLACEMENT,
+            ArtefactType.IMPLEMENTATION_HANDOVER,
             ArtefactType.WORK_CLAIM,
             ArtefactType.WORK_RELEASE,
             ArtefactType.PULL_REQUEST,
@@ -1179,7 +1226,45 @@ class SignalReportArtefact(UUIDModel):
             models.Index(fields=["channel"], name="signals_sig_channel_idx"),
             models.Index(fields=["pull_request", "report"], name="signals_artefact_pr_report_idx"),
             models.Index(fields=["claim"], name="signals_artefact_claim_idx"),
+            models.Index(
+                fields=["id"],
+                condition=models.Q(type="implementation_decision"),
+                name="signals_dispatch_sweep_idx",
+            ),
         ]
+
+    @classmethod
+    def counts_by_report(cls, report_ids: list[str]) -> dict[str, int]:
+        """How many artefacts each report has, in one grouped query over the page.
+
+        The inbox list renders this count for every row it returns. A correlated subquery makes
+        Postgres count a report's artefacts before the page limit applies, so the whole team's
+        reports get counted to render 25. Reports with no artefacts are omitted.
+        """
+        if not report_ids:
+            return {}
+        rows = (
+            cls.objects.filter(report_id__in=report_ids).values("report_id").annotate(artefact_count=models.Count("*"))
+        )
+        return {str(row["report_id"]): row["artefact_count"] for row in rows}
+
+    @classmethod
+    def live_channel_ids_by_report(cls, report_ids: list[str]) -> dict[str, uuid.UUID]:
+        """The space each report is assigned to, in one query over the page.
+
+        The assignment is the newest `channel_assignment` artefact. A report whose newest
+        assignment points at a deleted space counts as unassigned, and is omitted like a report
+        that was never assigned.
+        """
+        if not report_ids:
+            return {}
+        rows = (
+            cls.objects.filter(report_id__in=report_ids, type=cls.ArtefactType.CHANNEL_ASSIGNMENT)
+            .order_by("report_id", "-created_at")
+            .distinct("report_id")
+            .values_list("report_id", "channel_id", "channel__deleted")
+        )
+        return {str(report_id): channel_id for report_id, channel_id, deleted in rows if deleted is False}
 
     @classmethod
     def _create(
@@ -1323,6 +1408,119 @@ class SignalReportArtefact(UUIDModel):
         transaction.on_commit(_run)
 
     @classmethod
+    def _report_link_reaches(cls, *, team_id: int, kind: ReportLinkKind, start: str, goal: str) -> bool:
+        """Whether `goal` is reachable from `start` by following `report_link` rows of one kind.
+
+        Breadth-first, one query per level rather than one per report, because the depth of a real
+        chain is small and the fan-out is not. Exhausting any budget answers True: the graph is
+        then too large to order, which is the same outcome for the caller as a cycle, and the walk
+        runs while the team's link lock is held so it must not become the slow step.
+        """
+        seen = {start}
+        frontier = [start]
+        rows_read = 0
+        levels = 0
+        while frontier:
+            levels += 1
+            if levels > cls.MAX_REPORT_LINK_GRAPH_LEVELS:
+                return True
+            stored = cls.objects.filter(
+                team_id=team_id, report_id__in=frontier, type=cls.ArtefactType.REPORT_LINK
+            ).values_list("content", flat=True)[: cls.MAX_REPORT_LINK_GRAPH_ROWS - rows_read + 1]
+            next_frontier: list[str] = []
+            for raw in stored:
+                rows_read += 1
+                if rows_read > cls.MAX_REPORT_LINK_GRAPH_ROWS:
+                    return True
+                try:
+                    link = ReportLink.model_validate_json(raw)
+                except ValidationError:
+                    # A row that no longer parses names no edge. Reads of the artefact log are
+                    # tolerant of legacy content everywhere else too.
+                    continue
+                if link.kind != kind:
+                    continue
+                if link.report_id == goal:
+                    return True
+                if link.report_id in seen:
+                    continue
+                seen.add(link.report_id)
+                next_frontier.append(link.report_id)
+            if len(seen) > cls.MAX_REPORT_LINK_GRAPH_NODES:
+                return True
+            frontier = next_frontier
+        return False
+
+    @classmethod
+    def validate_report_link(cls, *, team_id: int, report_id: str, content: ReportLink) -> None:
+        """Check a `report_link` before it is written, raising `ArtefactContentValidationError`.
+
+        Three invariants, in ascending cost. A report cannot link to itself. A report can only
+        link to a live report in the same team, which keeps the link inside one tenant and stops
+        a typo'd id from parking a dangling edge in the log. A link must not close a cycle among
+        links of its own kind, so a reader can always order the graph (a dependency chain has a
+        first report). Kinds are checked independently: "A depends_on B" and "A duplicate_of B"
+        are separate claims, and only a loop within one kind is a contradiction.
+        """
+        # `content.report_id` is canonicalized by the schema, so the report it is compared against
+        # is canonicalized too. A caller that addressed the report with an uppercase or braced UUID
+        # would otherwise slip a self-link past this.
+        try:
+            source_id = str(uuid.UUID(str(report_id)))
+        except ValueError:
+            raise ArtefactContentValidationError(f"Report id {report_id!r} is not a UUID.")
+        if content.report_id == source_id:
+            raise ArtefactContentValidationError("A report cannot link to itself.")
+        target_is_live = (
+            SignalReport.objects.filter(team_id=team_id, id=content.report_id)
+            .exclude(status=SignalReport.Status.DELETED)
+            .exists()
+        )
+        if not target_is_live:
+            raise ArtefactContentValidationError(f"Report {content.report_id} was not found in this project.")
+        if cls._report_link_reaches(team_id=team_id, kind=content.kind, start=content.report_id, goal=source_id):
+            raise ArtefactContentValidationError(
+                f"A '{content.kind.value}' link to report {content.report_id} would close a cycle."
+            )
+
+    @classmethod
+    @contextmanager
+    def validated_report_link_write(cls, *, team_id: int, report_id: str, content: ReportLink) -> Iterator[None]:
+        """Hold the team's link lock across the check and the write the caller performs in the body.
+
+        The cycle check reads the links of reports the write does not touch, so a row lock cannot
+        cover it: two concurrent calls writing A -> B and B -> A land on different reports, both
+        pass an unlocked check, and leave a cycle behind. Links are rare and the critical section
+        is small, so serializing a team's link writes costs nothing that matters. The lock is
+        transaction-scoped, so a caller that already opened a transaction (the scout edit path)
+        holds it until its own commit.
+
+        The source report row is locked first, before the advisory lock. The generic artefact
+        endpoint already holds `select_for_update` on that row by the time it reaches this guard,
+        so taking the two in the opposite order here would let one request hold the row and wait
+        for the advisory lock while another holds the advisory lock and waits for the `KEY SHARE`
+        lock that inserting the artefact needs. Postgres resolves that cycle by aborting one of
+        them, which reaches the caller as a 500.
+        """
+        try:
+            source_id = str(uuid.UUID(str(report_id)))
+        except ValueError:
+            raise ArtefactContentValidationError(f"Report id {report_id!r} is not a UUID.")
+        with transaction.atomic():
+            locked = (
+                SignalReport.objects.select_for_update()
+                .filter(team_id=team_id, id=source_id)
+                .values_list("id", flat=True)
+                .first()
+            )
+            if locked is None:
+                raise ArtefactContentValidationError(f"Report {source_id} was not found in this project.")
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"signals-report-link:{team_id}"])
+            cls.validate_report_link(team_id=team_id, report_id=source_id, content=content)
+            yield
+
+    @classmethod
     def add_log(
         cls,
         *,
@@ -1339,9 +1537,22 @@ class SignalReportArtefact(UUIDModel):
         `related_to` links are symmetric: writing A→B here also records B→A on the other report, so
         the link is maintained on the common write path and stays discoverable from either side. The
         reverse row goes through `_create` (not `add_log`) so it doesn't recurse.
+
+        `report_link` is the typed, directed counterpart and gets no mirror row, because the
+        direction is what it records. Its invariants are checked here, on the common write path,
+        so every surface (the REST API, the MCP tools, a scout edit, the pipeline) gets them.
         """
         if artefact_type_for(content) not in cls.LOG_ARTEFACT_TYPES:
             raise ValueError(f"{type(content).__name__} is not a log artefact content model")
+        if isinstance(content, ReportLink):
+            with cls.validated_report_link_write(team_id=team_id, report_id=str(report_id), content=content):
+                return cls._create(
+                    team_id=team_id,
+                    report_id=report_id,
+                    content=content,
+                    attribution=attribution,
+                    claim_id=claim_id,
+                )
         artefact = cls._create(
             team_id=team_id, report_id=report_id, content=content, attribution=attribution, claim_id=claim_id
         )
@@ -1426,12 +1637,22 @@ class SignalReportArtefact(UUIDModel):
                 raise ArtefactContentValidationError(
                     "task_run content.product and content.type record what ran and cannot be changed by editing"
                 )
-        self.content = parsed.model_dump_json()
-        update_fields = ["content", "updated_at"]
-        if isinstance(parsed, ChannelAssignment):
-            self.channel_id = parsed.channel_id
-            update_fields.append("channel_id")
-        self.save(update_fields=update_fields)
+        with ExitStack() as guard:
+            if isinstance(parsed, ReportLink):
+                # An edit is a second way to write a link, so it answers to the same invariants
+                # under the same lock. Without this a PATCH could point an existing row at the
+                # report it sits on, at another team's report, or around a cycle.
+                guard.enter_context(
+                    SignalReportArtefact.validated_report_link_write(
+                        team_id=self.team_id, report_id=str(self.report_id), content=parsed
+                    )
+                )
+            self.content = parsed.model_dump_json()
+            update_fields = ["content", "updated_at"]
+            if isinstance(parsed, ChannelAssignment):
+                self.channel_id = parsed.channel_id
+                update_fields.append("channel_id")
+            self.save(update_fields=update_fields)
         if self.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
             self._schedule_autostart_reevaluation(team_id=self.team_id, report_id=str(self.report_id))
 
@@ -1443,10 +1664,12 @@ class SignalReportTask(UUIDModel):
     Auto-start and the manual start-task API write *both* a `relationship="implementation"` row
     here and a `task_run` artefact (`record_implementation_task`). The gate reads this table — see
     `auto_start.py` — because the artefact log is freeform and API-mutable and so can't be trusted
-    for a spend-controlling decision. Once `backfill_task_run_artefacts` has converted every legacy
-    row to a `task_run` artefact, the gate can switch to the artefact log and this table can be
-    dropped. General task↔report association already lives only in artefacts; this table is kept
-    solely for the implementation gate during that transition.
+    for a spend-controlling decision. Replacement discovery reads the same rows (`automated_targets`
+    in `supersession.py`) to list a report's implementation tasks before it decides which automated
+    PRs a new research pass may replace. General task↔report association already lives only in
+    artefacts; this table is kept for those two readers during that transition. Once
+    `backfill_task_run_artefacts` has converted every legacy row to a `task_run` artefact, both
+    readers can switch to the artefact log and this table can be dropped.
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
@@ -1653,23 +1876,39 @@ class SignalReportCheck(UUIDModel):
     days, and the check carries its own `next_run_at` rather than deriving one from a merged pull
     request — plenty of fixes land with no pull request to date the window from.
 
+    A check on a report that has not resolved has no date worth carrying, because the fix it tests is
+    not live yet. Such a check is stored PENDING with a `soak_minutes` window, and the report's
+    transition to RESOLVED sets its `next_run_at`. That makes the resolve the clock for every kind of
+    fix, including the ones that never had a pull request.
+
     Terminal statuses are final. A check that passed, failed, errored out, expired, or was cancelled
     is never rescheduled; the author writes a new check instead, so a result artefact always refers
     to a row whose state explains it.
     """
 
     class Kind(models.TextChoices):
-        # One bounded query, one comparison, no sandbox. `agent` follows once the scout dispatch
-        # path can carry a check.
+        # One bounded query, one comparison, no sandbox.
         METRIC_THRESHOLD = "metric_threshold"
+        # One scout run, closed by `scout-check-record-result`. For a claim no single number
+        # settles, which is most of the inbox: a resolved error-tracking report needs its issue
+        # looked up and its recent events read, not a threshold compared.
+        AGENT = "agent"
 
     class Status(models.TextChoices):
+        # Written while its report was still open, so it carries a soak rather than a date and
+        # waits for the report to resolve. Not due, not expired, and not terminal: the resolve
+        # transition arms it into ACTIVE (`report_check_authoring.arm_pending_checks`).
+        PENDING = "pending"
         ACTIVE = "active"
         PASSED = "passed"
         FAILED = "failed"
         ERRORED = "errored"
         EXPIRED = "expired"
         CANCELLED = "cancelled"
+
+    # The two statuses a check can still produce a verdict from. Both count against the per-report
+    # cap, because a pending check is one the report has already committed to running.
+    OPEN_STATUSES = (Status.PENDING, Status.ACTIVE)
 
     class Outcome(models.TextChoices):
         PASSED = "passed"
@@ -1696,6 +1935,10 @@ class SignalReportCheck(UUIDModel):
     config = models.JSONField(default=dict, db_default={})
 
     next_run_at = models.DateTimeField()
+    # How long after the report resolves a PENDING check waits before its first run. Null on a check
+    # created ACTIVE, which named its own `next_run_at` instead. Kept after the check is armed, so a
+    # reader can see what window the verdict was measured over.
+    soak_minutes = models.PositiveIntegerField(null=True, blank=True)
     # Null means one-shot. A recurring check re-arms at this interval until it runs out of runs or
     # reaches its expiry.
     run_interval_minutes = models.PositiveIntegerField(null=True, blank=True)
@@ -1706,6 +1949,11 @@ class SignalReportCheck(UUIDModel):
     consecutive_errors = models.PositiveIntegerField(default=0)
     last_run_at = models.DateTimeField(null=True, blank=True)
     last_outcome = models.CharField(max_length=20, choices=Outcome, null=True, blank=True)
+    # When an `agent` check's scout run was dispatched, cleared as soon as a verdict is recorded.
+    # It is what makes the dispatch closable: `scout-check-record-result` refuses a check no run is
+    # waiting on, and the coordinator reads a stale value as a run that ended without answering.
+    # Always null on a `metric_threshold` check, which is measured in the tick that collects it.
+    dispatched_at = models.DateTimeField(null=True, blank=True)
 
     # Attribution, same columns and meaning as the artefact log's.
     actor_kind = models.CharField(max_length=10, choices=SignalActorKind, null=True, blank=True)
@@ -1739,7 +1987,7 @@ class SignalReportCheck(UUIDModel):
 
     @property
     def is_terminal(self) -> bool:
-        return self.status != self.Status.ACTIVE
+        return self.status not in self.OPEN_STATUSES
 
 
 # ── Signals scout (headless cross-source explorer) ──────────────────────────────
@@ -1830,6 +2078,10 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     MAX_TAGS = 10
     MAX_TAG_LENGTH = 50
 
+    # Cap on `display_name`. Generous rather than tight: the name is prose a person writes, and
+    # every surface truncates it anyway, so the limit only has to stop a pasted document.
+    MAX_DISPLAY_NAME_LENGTH = 200
+
     # `objects` (TeamScopedManager) inherited from TeamScopedRootMixin stays fail-closed for
     # explicit user code. `all_teams` is the unscoped sibling for Django framework internals
     # (admin changelist queryset, related-object access, prefetch_related) that must not
@@ -1852,8 +2104,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # `signals-scout-foo` gets a row (on the default schedule) on the next tick. A bare-named
     # skill is registered through the scout create endpoint instead.
     skill_name = models.CharField(max_length=200)
+    # What a person calls this scout, kept exactly as typed — spaces, capitalization, acronyms.
+    # `skill_name` above stays the identity every other row keys on, so a rename touches only this
+    # column. Blank means "no name of its own": every surface then derives a label from the slug.
     display_name = models.CharField(
-        max_length=200,
+        max_length=MAX_DISPLAY_NAME_LENGTH,
         blank=True,
         default="",
         db_default="",
@@ -2434,8 +2689,9 @@ class SignalScoutEmission(TeamScopedRootMixin, UUIDModel):
     # upstream by `MAX_FINDING_DESCRIPTION_LENGTH` on the emit serializer and the emit_signal
     # token cap, so it stays well clear of row-size concerns.
     description = models.TextField()
-    weight = models.FloatField()
-    confidence = models.FloatField()
+    # Deprecated: the emit contract no longer asks for a confidence score, so new rows are NULL.
+    # Retained until emits carrying one have tailed off.
+    confidence = models.FloatField(null=True, blank=True)
     severity = models.CharField(max_length=20, null=True, blank=True)
     # Slug tags the scout attached to the finding (normalized lowercase kebab-case, capped at
     # emit). This row is what feeds the per-scout tag-vocabulary feedback loop in the run prompt

@@ -54,7 +54,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # The DAG node exists by scheduling time, so the v2 lookup would hit Temporal for real.
         self.v2_dag_ids_patcher = mock.patch(
             "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
-            side_effect=lambda candidate_dag_ids=None: set(candidate_dag_ids or []),
+            side_effect=lambda candidate_dag_ids=None, **_kwargs: set(candidate_dag_ids or []),
         )
         self.mock_v2_dag_ids = self.v2_dag_ids_patcher.start()
 
@@ -1631,7 +1631,11 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         assert version.saved_query is not None
 
         node = Node.objects.filter(team=self.team, saved_query=version.saved_query).first()
-        self.assertIsNotNone(node)
+        assert node is not None
+
+        node_response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{node.id}/")
+        self.assertEqual(node_response.status_code, status.HTTP_200_OK, node_response.json())
+        self.assertEqual(node_response.json()["endpoint"], {"name": endpoint.name, "version": version.version})
 
     def test_disable_materialization_removes_dag_node(self):
         endpoint = create_endpoint_with_version(

@@ -4,21 +4,24 @@ import json
 import time
 import datetime as dt
 from collections.abc import Iterator
+from itertools import batched
 from typing import Any, Optional
 from urllib.parse import parse_qsl, urlparse, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.settings import (
     AMAZON_ADS_ENDPOINTS,
+    AmazonAdsEndpointConfig,
     AmazonAdsReportConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 AMAZON_ADS_HOSTS = {
@@ -48,12 +51,6 @@ class AmazonAdsRetryableError(Exception):
 
 class AmazonAdsReportError(Exception):
     """Amazon finished generating a report and marked it failed."""
-
-
-@frozen
-class ReportWindow:
-    start: dt.date
-    end: dt.date
 
 
 @frozen
@@ -147,10 +144,10 @@ def as_report_date(value: Any) -> Optional[dt.date]:
     return None
 
 
-def report_windows(start: dt.date, end: dt.date, max_window_days: int) -> Iterator[ReportWindow]:
+def report_windows(start: dt.date, end: dt.date, max_window_days: int) -> Iterator[SyncWindow[dt.date]]:
     while start <= end:
         window_end = min(start + dt.timedelta(days=max_window_days - 1), end)
-        yield ReportWindow(start=start, end=window_end)
+        yield SyncWindow(start=start, end=window_end)
         start = window_end + dt.timedelta(days=1)
 
 
@@ -186,56 +183,68 @@ def download_report_rows(url: str, client_id: str, client_secret: str, refresh_t
     return rows if isinstance(rows, list) else []
 
 
-def get_rows(
-    region: str,
-    client_id: str,
-    client_secret: str,
-    refresh_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: Optional[ResumableSourceManager[AmazonAdsResumeConfig]] = None,
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = AMAZON_ADS_ENDPOINTS[endpoint]
-    session = _get_session(client_secret, refresh_token, client_id)
-    # A report status body carries the presigned download URL, so those calls stay out of
-    # sample capture.
-    report_session = _get_session(client_secret, refresh_token, client_id, capture=False)
-    base_url = _base_url(region)
-    token = _mint_token(session, client_id, client_secret, refresh_token)
+class AmazonAdsClient:
+    """Authenticated Amazon Ads calls for one endpoint: headers, retry rules, token renewal, report polling."""
 
-    @retry(
-        retry=retry_if_exception_type((AmazonAdsRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=2, max=120),
-        reraise=True,
-    )
-    def request(
+    def __init__(
+        self,
+        region: str,
+        client_id: str,
+        client_secret: str,
+        refresh_token: str,
+        config: AmazonAdsEndpointConfig,
+        logger: FilteringBoundLogger,
+    ) -> None:
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.refresh_token = refresh_token
+        self.config = config
+        self.logger = logger
+        self.base_url = _base_url(region)
+        self.session = _get_session(client_secret, refresh_token, client_id)
+        # A report status body carries the presigned download URL, so those calls stay out of
+        # sample capture.
+        self.report_session = _get_session(client_secret, refresh_token, client_id, capture=False)
+        self.token = _mint_token(self.session, client_id, client_secret, refresh_token)
+        # Built per client rather than as a decorator, so a test can swap the wait policy out.
+        self._retrying = Retrying(
+            retry=retry_if_exception_type((AmazonAdsRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+            stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
+            wait=wait_exponential_jitter(initial=2, max=120),
+            reraise=True,
+        )
+
+    def _headers(
+        self, method: str, profile_id: Optional[str], extra_headers: Optional[dict[str, str]]
+    ) -> dict[str, str]:
+        headers: dict[str, str] = {"Authorization": f"Bearer {self.token}"}
+        if profile_id is not None:
+            headers["Amazon-Advertising-API-Scope"] = profile_id
+        if self.config.media_type is not None and method == "POST":
+            headers["Content-Type"] = self.config.media_type
+            headers["Accept"] = self.config.media_type
+        if self.config.ads_api:
+            # The unified Ads API reads the client id from its own header rather than the
+            # `Amazon-Advertising-API-ClientId` one the session already sends.
+            headers["Amazon-Ads-ClientId"] = self.client_id
+        if extra_headers is not None:
+            headers.update(extra_headers)
+        return headers
+
+    def _send(
+        self,
         method: str,
         path: str,
-        profile_id: Optional[str] = None,
-        body: Optional[dict[str, Any]] = None,
-        extra_headers: Optional[dict[str, str]] = None,
-        http: Optional[requests.Session] = None,
+        profile_id: Optional[str],
+        body: Optional[dict[str, Any]],
+        extra_headers: Optional[dict[str, str]],
+        http: Optional[requests.Session],
     ) -> requests.Response:
-        nonlocal token
-        url = f"{base_url}{path}"
-        client = http if http is not None else session
+        url = f"{self.base_url}{path}"
+        client = http if http is not None else self.session
 
         def _do() -> requests.Response:
-            headers: dict[str, str] = {"Authorization": f"Bearer {token}"}
-            if profile_id is not None:
-                headers["Amazon-Advertising-API-Scope"] = profile_id
-            if config.media_type is not None and method == "POST":
-                headers["Content-Type"] = config.media_type
-                headers["Accept"] = config.media_type
-            if config.ads_api:
-                # The unified Ads API reads the client id from its own header rather than the
-                # `Amazon-Advertising-API-ClientId` one the session already sends.
-                headers["Amazon-Ads-ClientId"] = client_id
-            if extra_headers is not None:
-                headers.update(extra_headers)
+            headers = self._headers(method, profile_id, extra_headers)
             if method == "POST":
                 return client.post(url, json=body or {}, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
             return client.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
@@ -243,7 +252,7 @@ def get_rows(
         response = _do()
         # Access tokens last ~1h; re-mint once if the sync outlives one.
         if response.status_code == 401:
-            token = _mint_token(session, client_id, client_secret, refresh_token)
+            self.token = _mint_token(self.session, self.client_id, self.client_secret, self.refresh_token)
             response = _do()
 
         # 425 says an identical report is still generating, so the wait is worth repeating.
@@ -251,24 +260,48 @@ def get_rows(
             raise AmazonAdsRetryableError(f"Amazon Ads API error (retryable): status={response.status_code}, url={url}")
 
         if not response.ok:
-            logger.error(f"Amazon Ads API error: status={response.status_code}, body={response.text}, url={url}")
+            self.logger.error(f"Amazon Ads API error: status={response.status_code}, body={response.text}, url={url}")
             response.raise_for_status()
 
         return response
 
-    def list_profiles() -> list[dict[str, Any]]:
-        body = request("GET", "/v2/profiles").json()
+    def request(
+        self,
+        method: str,
+        path: str,
+        profile_id: Optional[str] = None,
+        body: Optional[dict[str, Any]] = None,
+        extra_headers: Optional[dict[str, str]] = None,
+        http: Optional[requests.Session] = None,
+    ) -> requests.Response:
+        return self._retrying(self._send, method, path, profile_id, body, extra_headers, http)
+
+    def list_profiles(self) -> list[dict[str, Any]]:
+        body = self.request("GET", "/v2/profiles").json()
         return body if isinstance(body, list) else []
 
-    def await_report_url(report: AmazonAdsReportConfig, profile_id: str, report_id: str) -> Optional[str]:
+    def create_report(self, report: AmazonAdsReportConfig, profile_id: str, window: SyncWindow[dt.date]) -> str:
+        created = self.request(
+            "POST",
+            self.config.path,
+            profile_id=profile_id,
+            body=report_request_body(report, window.start, window.end),
+            extra_headers={"Content-Type": REPORT_MEDIA_TYPE},
+        ).json()
+        return created["reportId"]
+
+    def download_report(self, url: str) -> list[dict[str, Any]]:
+        return download_report_rows(url, self.client_id, self.client_secret, self.refresh_token)
+
+    def await_report_url(self, report: AmazonAdsReportConfig, profile_id: str, report_id: str) -> Optional[str]:
         status = None
         for _attempt in range(REPORT_POLL_MAX_ATTEMPTS):
-            body = request(
+            body = self.request(
                 "GET",
-                f"{config.path}/{report_id}",
+                f"{self.config.path}/{report_id}",
                 profile_id=profile_id,
                 extra_headers={"Content-Type": REPORT_MEDIA_TYPE},
-                http=report_session,
+                http=self.report_session,
             ).json()
             status = body.get("status")
 
@@ -285,79 +318,83 @@ def get_rows(
             f"Amazon Ads {report.report_type_id} report {report_id} still {status} after the polling budget"
         )
 
-    def report_rows(report: AmazonAdsReportConfig, profile_ids: list[str]) -> Iterator[list[dict[str, Any]]]:
-        today = dt.datetime.now(dt.UTC).date()
-        earliest = today - dt.timedelta(days=report.retention_days - 1)
-        start = earliest
-        if should_use_incremental_field:
-            cursor = as_report_date(db_incremental_field_last_value)
-            if cursor is not None:
-                start = max(cursor, earliest)
 
-        pending = (
-            resumable_source_manager.load_state()
-            if resumable_source_manager is not None and resumable_source_manager.can_resume()
-            else None
-        )
+def _report_start_date(
+    report: AmazonAdsReportConfig,
+    today: dt.date,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+) -> dt.date:
+    earliest = today - dt.timedelta(days=report.retention_days - 1)
+    if not should_use_incremental_field:
+        return earliest
+    cursor = as_report_date(db_incremental_field_last_value)
+    return max(cursor, earliest) if cursor is not None else earliest
 
-        for window in report_windows(start, today, report.max_window_days):
-            for profile_id in profile_ids:
-                if (
-                    pending is not None
-                    and pending.profile_id == profile_id
-                    and pending.window_start == window.start.isoformat()
-                ):
-                    report_id = pending.report_id
-                    pending = None
-                else:
-                    created = request(
-                        "POST",
-                        config.path,
+
+def _batched_report_rows(rows: list[dict[str, Any]], profile_id: str) -> Iterator[list[dict[str, Any]]]:
+    for chunk in batched(rows, REPORT_ROWS_PER_BATCH, strict=False):
+        yield [{**row, "_profile_id": profile_id} for row in chunk]
+
+
+def _report_rows(
+    client: AmazonAdsClient,
+    report: AmazonAdsReportConfig,
+    profile_ids: list[str],
+    resumable_source_manager: Optional[ResumableSourceManager[AmazonAdsResumeConfig]],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+) -> Iterator[list[dict[str, Any]]]:
+    today = dt.datetime.now(dt.UTC).date()
+    start = _report_start_date(report, today, should_use_incremental_field, db_incremental_field_last_value)
+
+    pending = (
+        resumable_source_manager.load_state()
+        if resumable_source_manager is not None and resumable_source_manager.can_resume()
+        else None
+    )
+
+    for window in report_windows(start, today, report.max_window_days):
+        for profile_id in profile_ids:
+            if (
+                pending is not None
+                and pending.profile_id == profile_id
+                and pending.window_start == window.start.isoformat()
+            ):
+                report_id = pending.report_id
+                pending = None
+            else:
+                report_id = client.create_report(report, profile_id, window)
+
+            if resumable_source_manager is not None:
+                # Persist before the first poll — a retry that created a second report would
+                # be answered with a 425 until this one finished anyway.
+                resumable_source_manager.save_state(
+                    AmazonAdsResumeConfig(
                         profile_id=profile_id,
-                        body=report_request_body(report, window.start, window.end),
-                        extra_headers={"Content-Type": REPORT_MEDIA_TYPE},
-                    ).json()
-                    report_id = created["reportId"]
-
-                if resumable_source_manager is not None:
-                    # Persist before the first poll — a retry that created a second report would
-                    # be answered with a 425 until this one finished anyway.
-                    resumable_source_manager.save_state(
-                        AmazonAdsResumeConfig(
-                            profile_id=profile_id,
-                            window_start=window.start.isoformat(),
-                            report_id=report_id,
-                        )
+                        window_start=window.start.isoformat(),
+                        report_id=report_id,
                     )
+                )
 
-                url = await_report_url(report, profile_id, report_id)
-                if not url:
-                    continue
+            url = client.await_report_url(report, profile_id, report_id)
+            if not url:
+                continue
 
-                rows = download_report_rows(url, client_id, client_secret, refresh_token)
-                # Amazon does not order the file, and the pipeline advances the `date` cursor from
-                # each batch it writes, so a batch must never carry a date later than the rows
-                # still to come for this profile.
-                rows.sort(key=lambda row: str(row.get("date") or ""))
-                for offset in range(0, len(rows), REPORT_ROWS_PER_BATCH):
-                    yield [{**row, "_profile_id": profile_id} for row in rows[offset : offset + REPORT_ROWS_PER_BATCH]]
+            rows = client.download_report(url)
+            # Amazon does not order the file, and the pipeline advances the `date` cursor from
+            # each batch it writes, so a batch must never carry a date later than the rows
+            # still to come for this profile.
+            rows.sort(key=lambda row: str(row.get("date") or ""))
+            yield from _batched_report_rows(rows, profile_id)
 
-        if resumable_source_manager is not None:
-            resumable_source_manager.clear_state()
+    if resumable_source_manager is not None:
+        resumable_source_manager.clear_state()
 
-    if endpoint == "profiles":
-        profiles = list_profiles()
-        if profiles:
-            yield profiles
-        return
 
-    profile_ids = [str(profile["profileId"]) for profile in list_profiles()]
-
-    if config.report is not None:
-        yield from report_rows(config.report, profile_ids)
-        return
-
-    # Entity list endpoints, fanned out per profile.
+def _entity_rows(client: AmazonAdsClient, profile_ids: list[str]) -> Iterator[list[dict[str, Any]]]:
+    """Entity list endpoints, fanned out per profile."""
+    config = client.config
     for profile_id in profile_ids:
         next_token: Optional[str] = None
         while True:
@@ -366,7 +403,7 @@ def get_rows(
                 body["maxResults"] = config.page_size
             if next_token:
                 body["nextToken"] = next_token
-            data = request("POST", config.path, profile_id=profile_id, body=body).json()
+            data = client.request("POST", config.path, profile_id=profile_id, body=body).json()
             items = [{**item, "_profile_id": profile_id} for item in (data.get(config.data_key, []) or [])]
 
             if items:
@@ -375,6 +412,42 @@ def get_rows(
             next_token = data.get("nextToken")
             if not next_token or not items:
                 break
+
+
+def get_rows(
+    region: str,
+    client_id: str,
+    client_secret: str,
+    refresh_token: str,
+    endpoint: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: Optional[ResumableSourceManager[AmazonAdsResumeConfig]] = None,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Optional[Any] = None,
+) -> Iterator[list[dict[str, Any]]]:
+    config = AMAZON_ADS_ENDPOINTS[endpoint]
+    client = AmazonAdsClient(region, client_id, client_secret, refresh_token, config, logger)
+
+    if endpoint == "profiles":
+        profiles = client.list_profiles()
+        if profiles:
+            yield profiles
+        return
+
+    profile_ids = [str(profile["profileId"]) for profile in client.list_profiles()]
+
+    if config.report is not None:
+        yield from _report_rows(
+            client,
+            config.report,
+            profile_ids,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
+        return
+
+    yield from _entity_rows(client, profile_ids)
 
 
 def amazon_ads_source(

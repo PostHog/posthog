@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.test import TestCase, override_settings
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.models import Organization, Team
 
@@ -160,21 +161,39 @@ class TestAgentProxyCallback(TestCase):
         self.assertTrue(response.json()["dispatched"])
         signal_milestone.assert_called_once_with(milestone)
 
-    def test_awaiting_input_dispatches_for_interactive_run(self) -> None:
+    @parameterized.expand([("omitted", None), ("completed", True), ("idle_resume", False)])
+    def test_awaiting_input_dispatches_for_interactive_run(self, _name: str, turn_completed: bool | None) -> None:
         run = self.task.create_run(mode="interactive")
-        with patch("products.tasks.backend.agent_proxy_callback.notify_task_run_turn_completed") as notify:
+        body = self._body(kind="awaiting_input", agent_active=False)
+        if turn_completed is not None:
+            body["turn_completed"] = turn_completed
+        metric = "posthog_tasks_turn_completed_suppressed_total"
+        labels = {"reason": "idle_resume"}
+        suppressed_before = REGISTRY.get_sample_value(metric, labels) or 0
+        with (
+            patch("products.tasks.backend.push_dispatcher.notify_task_run_turn_completed") as notify,
+            patch.object(TaskRun, "signal_agent_turn_completed") as signal_turn_completed,
+        ):
             response = self._post(
-                self._body(kind="awaiting_input", agent_active=False),
+                body,
                 token=self._token(run),
                 run_id=str(run.id),
             )
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()["dispatched"])
-        notify.assert_called_once()
+        self.assertEqual(response.json()["dispatched"], turn_completed is not False)
+        signal_turn_completed.assert_called_once()
+        if turn_completed is False:
+            notify.assert_not_called()
+        else:
+            notify.assert_called_once()
+        self.assertEqual(
+            (REGISTRY.get_sample_value(metric, labels) or 0) - suppressed_before,
+            int(turn_completed is False),
+        )
 
     def test_awaiting_input_signals_turn_end_but_skips_push_for_background_run(self) -> None:
         with (
-            patch("products.tasks.backend.agent_proxy_callback.notify_task_run_turn_completed") as notify,
+            patch("products.tasks.backend.push_dispatcher.notify_task_run_turn_completed") as notify,
             patch.object(TaskRun, "signal_agent_turn_completed") as signal_turn_completed,
         ):
             response = self._post(self._body(kind="awaiting_input", agent_active=False), token=self._token())

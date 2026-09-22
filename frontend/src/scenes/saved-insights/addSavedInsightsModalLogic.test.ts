@@ -2,7 +2,9 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { ApiError, NetworkError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardResult } from 'scenes/dashboard/dashboardLogic.testHelpers'
@@ -12,7 +14,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { QueryBasedInsightModel } from '~/types'
 
-import { addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
+import { addSavedInsightsModalLogic, handleDashboardUpdateFailure } from './addSavedInsightsModalLogic'
 
 const createInsight = (id: number, name = 'test'): QueryBasedInsightModel =>
     ({
@@ -264,6 +266,100 @@ describe('addSavedInsightsModalLogic', () => {
                 })
 
             expect(apiCallCount).toBe(1)
+        })
+    })
+
+    describe('dashboard membership updates', () => {
+        const MESSAGES = { timedOut: 'Timed out', failed: 'Failed to add' }
+
+        const insightOnDashboards = (dashboardIds: number[]): QueryBasedInsightModel =>
+            ({
+                ...createInsight(53),
+                dashboard_tiles: dashboardIds.map((dashboardId, index) => ({
+                    id: index + 1,
+                    dashboard_id: dashboardId,
+                    deleted: false,
+                })),
+            }) as QueryBasedInsightModel
+
+        it('keeps the other dashboards when adding', async () => {
+            initKeaTests()
+            const update = jest.spyOn(insightsApi, 'update').mockResolvedValue(createInsight(53))
+            const logic = addSavedInsightsModalLogic()
+            logic.mount()
+
+            await expectLogic(logic, () =>
+                logic.actions.addInsightToDashboard(insightOnDashboards([7, 8]), 9)
+            ).toFinishAllListeners()
+
+            expect(update).toHaveBeenCalledWith(53, { dashboards: [7, 8, 9] })
+
+            logic.unmount()
+        })
+
+        it('keeps the other dashboards when removing', async () => {
+            initKeaTests()
+            const update = jest.spyOn(insightsApi, 'update').mockResolvedValue(createInsight(53))
+            const logic = addSavedInsightsModalLogic()
+            logic.mount()
+
+            await expectLogic(logic, () =>
+                logic.actions.removeInsightFromDashboard(insightOnDashboards([7, 8]), 8)
+            ).toFinishAllListeners()
+
+            expect(update).toHaveBeenCalledWith(53, { dashboards: [7] })
+
+            logic.unmount()
+        })
+
+        it.each([
+            [500, null],
+            [403, "You don't have permission to remove insights from dashboard: 7"],
+        ])('handles a %s instead of filing an unhandled rejection', async (status, detail) => {
+            initKeaTests()
+            const toastError = jest.spyOn(lemonToast, 'error').mockImplementation()
+            jest.spyOn(insightsApi, 'update').mockRejectedValue(
+                new ApiError('Non-OK response', status, undefined, { detail })
+            )
+            const logic = addSavedInsightsModalLogic()
+            logic.mount()
+
+            await expect(
+                expectLogic(logic, () =>
+                    logic.actions.addInsightToDashboard(insightOnDashboards([7]), 9)
+                ).toFinishAllListeners()
+            ).resolves.toBeDefined()
+
+            expect(toastError).toHaveBeenCalledWith(detail ?? 'Failed to add insight to dashboard')
+
+            logic.unmount()
+        })
+
+        it.each([
+            ['a 500 the backend answered with', () => new ApiError('Non-OK response', 500), 'Failed to add'],
+            ['a request the browser dropped', () => new NetworkError('network'), 'Failed to add'],
+        ])('consumes %s', (_label, buildError, expectedToast) => {
+            const toastError = jest.spyOn(lemonToast, 'error').mockImplementation()
+
+            expect(() => handleDashboardUpdateFailure(buildError(), MESSAGES)).not.toThrow()
+
+            expect(toastError).toHaveBeenCalledWith(expectedToast)
+        })
+
+        it.each([
+            ['the fetcher threw before a response arrived', () => new ApiError('the fetcher itself broke')],
+            [
+                'a 2xx body would not parse',
+                () => new ApiError('Malformed JSON response [PATCH /api/environments/2/insights/53/] (status 200)'),
+            ],
+        ])('rethrows a status-less failure, because %s and nothing else records it', (_label, buildError) => {
+            const toastError = jest.spyOn(lemonToast, 'error').mockImplementation()
+            const error = buildError()
+
+            expect(() => handleDashboardUpdateFailure(error, MESSAGES)).toThrow(error)
+
+            // The user sees the same sentence either way: the rethrow only restores the signal.
+            expect(toastError).toHaveBeenCalledWith('Failed to add')
         })
     })
 

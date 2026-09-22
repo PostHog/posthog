@@ -5,6 +5,7 @@ import { BindLogic } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 import { buildMarkdownNotebookContent, getMarkdownNotebookMarkdown } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { MarkdownNotebookV2 } from 'scenes/notebooks/Notebook/MarkdownNotebookV2Renderer'
 import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
@@ -126,6 +127,59 @@ describe('NotebookNodeGeneratedWidget', () => {
 
         expect(screen.getByText('Widget')).toBeTruthy()
         await waitFor(() => expect(screen.getAllByText('Regenerating widget…')).toHaveLength(1))
+    })
+
+    it('keeps a markdown widget identity when its instructions are edited', async () => {
+        const markdown =
+            '<Widget showFilters title="Hourly chart" prompt="Plot hourly totals" model="claude-sonnet-5" />'
+        const originalId = parseMarkdownNotebook(markdown).nodes[0].id
+        logic.unmount()
+        const editProps = { ...logicProps, shortId: 'widget-identity-edit' }
+        const notebook = {
+            ...cachedNotebook,
+            short_id: editProps.shortId,
+            content: buildMarkdownNotebookContent(markdown),
+        }
+        jest.mocked(api.notebooks.get).mockResolvedValue(notebook)
+        jest.spyOn(api.notebooks, 'update').mockResolvedValue(notebook)
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue({
+            lifecycle_status: 'awaiting_generation',
+            has_versions: false,
+            current_version_id: null,
+            active_job: null,
+            artifact_url: null,
+            error_detail: null,
+            frame_names: [],
+            input_bindings: {},
+            input_contract: [],
+            pinned_version_id: null,
+            is_reusable: false,
+            widget_id: null,
+            instance_id: null,
+            security_review: null,
+            build_hash: null,
+        })
+        logic = notebookLogic(editProps)
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+        logic.actions.setEditable(true)
+        render(
+            <BindLogic logic={notebookLogic} props={editProps}>
+                <MarkdownNotebookV2 />
+            </BindLogic>
+        )
+
+        fireEvent.change(await screen.findByLabelText('Instructions'), { target: { value: 'Plot daily totals' } })
+
+        await waitFor(() => {
+            const node = parseMarkdownNotebook(getMarkdownNotebookMarkdown(logic.values.content)).nodes.find(
+                (node) => node.type === 'component'
+            )
+            expect(node?.type === 'component' && node.props).toEqual(
+                expect.objectContaining({ nodeId: originalId, prompt: 'Plot daily totals' })
+            )
+        })
     })
 
     it('renders without crashing when the markdown tag has a non-string prompt or unknown model', async () => {

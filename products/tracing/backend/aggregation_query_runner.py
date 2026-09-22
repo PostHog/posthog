@@ -254,6 +254,10 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
         self._offset = max(0, offset)
         self._identity_keys = identity_keys
 
+    def get_cache_payload(self) -> dict:
+        # Runner arguments, not query fields, so the base payload cannot see them.
+        return {**super().get_cache_payload(), "limit": self._limit, "offset": self._offset}
+
     def _calculate(self) -> TraceSpansAggregationQueryResponse:
         current_rows, previous_rows = self._run_with_compare()
         return TraceSpansAggregationQueryResponse(results=current_rows, compare=previous_rows)

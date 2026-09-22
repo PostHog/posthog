@@ -15,7 +15,9 @@ import { ActivityTab, OnboardingStepKey, SDKKey } from '~/types'
 import type { MetricFormPrefill } from 'products/data_catalog/frontend/common'
 
 import type { BillingSectionId } from './billing/types'
+import type { BatchExportSceneTab } from './data-pipelines/batch-exports/BatchExportScene'
 import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
+import type { DestinationsSceneTab } from './data-pipelines/destinationsSceneLogic'
 import { OutputTab } from './data-warehouse/editor/outputPaneLogic'
 import type { HogFunctionSceneTab } from './hog-functions/HogFunctionScene'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
@@ -54,7 +56,7 @@ export const urls = {
     dataWarehouseManagedViewsets: (): string => '/data-management/managed-viewsets',
     webScripts: (): string => '/web-scripts',
     webScriptsNew: (): string => '/web-scripts/new',
-    destinations: (): string => '/data-management/destinations',
+    destinations: (tab?: DestinationsSceneTab): string => `/data-management/destinations${tab ? `?tab=${tab}` : ''}`,
     transformations: (): string => '/data-management/transformations',
     eventFiltering: (): string => '/data-management/event-filtering',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
@@ -170,8 +172,10 @@ export const urls = {
     aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
-    identityProviderConfig: (feature: 'saml' | 'scim' | 'xaa' | ':feature', configId: string | ':configId'): string =>
-        `/settings/organization-authentication/${feature}/${configId}`,
+    identityProviderConfig: (
+        feature: 'saml' | 'oidc' | 'scim' | 'xaa' | ':feature',
+        configId: string | ':configId'
+    ): string => `/settings/organization-authentication/${feature}/${configId}`,
     featurePreview: (flagKey: string): string => combineUrl('/settings/user-feature-previews', {}, flagKey).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
     toolbarLaunch: (): string => '/toolbar',
@@ -307,7 +311,8 @@ export const urls = {
     oauthAuthorize: (): string => '/oauth/authorize',
     dataPipelinesNew: (kind?: DataPipelinesNewSceneKind): string => `/pipeline/new/${kind ?? ''}`,
     batchExportNew: (service: string): string => `/pipeline/batch-exports/new/${service}`,
-    batchExport: (id: string): string => `/pipeline/batch-exports/${id}`,
+    batchExport: (id: string, tab?: BatchExportSceneTab): string =>
+        `/pipeline/batch-exports/${id}${tab ? `?tab=${tab}` : ''}`,
     legacyPlugin: (id: string): string => `/pipeline/plugins/${id}`,
     hogFunction: (id: string, tab?: HogFunctionSceneTab): string => `/functions/${id}${tab ? `?tab=${tab}` : ''}`,
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,

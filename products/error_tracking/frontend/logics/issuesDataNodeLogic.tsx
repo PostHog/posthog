@@ -97,9 +97,11 @@ export interface issuesDataNodeLogicActions {
     } // issueActionsLogic
     mutationFailure: (
         mutationName: string,
-        error: unknown
+        error: unknown,
+        issueId?: string | undefined
     ) => {
         error: unknown
+        issueId: string | undefined
         mutationName: string
     } // issueActionsLogic
     mutationSuccess: (mutationName: string) => {

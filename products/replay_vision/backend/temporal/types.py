@@ -41,6 +41,9 @@ class ScannerResult(BaseModel, frozen=True):
 
     model_output: AnyScannerOutput
     signals_count: int = Field(default=0, ge=0)
+    # The problem type of each signal actually emitted, in emission order and with repeats kept, so the
+    # watch feed can count the kinds of issue a row carries. Empty on non-signal rows and on old rows.
+    signal_problem_types: list[str] = Field(default_factory=list)
     verification: VerificationRecord | None = None
 
 
@@ -106,6 +109,12 @@ class MarkObservationIneligibleInputs(BaseModel, frozen=True):
 
 
 class FetchSessionEventsInputs(BaseModel, frozen=True):
+    observation_id: UUID
+    team_id: int
+    session_id: str
+
+
+class FetchSessionNetworkInputs(BaseModel, frozen=True):
     observation_id: UUID
     team_id: int
     session_id: str
@@ -250,6 +259,8 @@ class UploadedVideo(BaseModel, frozen=True):
 class CallScannerProviderInputs(BaseModel, frozen=True):
     team_id: int
     observation_id: UUID  # locates the ScannerLlmInputs blob in Redis AND the scanner_snapshot on the row
+    # The rendered asset behind `file_uri`; its export context carries the map for converting cited moments.
+    exported_asset_id: int
     file_uri: str
     mime_type: str
     # When set, replaces the observation row's snapshot (evaluations re-run rated sessions with the suggested prompt).
@@ -263,6 +274,10 @@ class ScannerCallOutput(BaseModel, frozen=True):
     # Extracted from the LLM response before `finalize` so per-type output mapping can't drop them.
     signals: list[SignalFinding] = Field(default_factory=list)
     verification: VerificationRecord | None = None
+    # Video seconds the model picked for the thumbnail; None when the best-effort media turn produced nothing.
+    thumbnail_video_s: int | None = None
+    # Signal spans on the video clock, which `signals` no longer carries once they move to session time.
+    signal_video_spans: list[tuple[int, int]] = Field(default_factory=list)
 
 
 class CleanupGeminiFileInputs(BaseModel, frozen=True):

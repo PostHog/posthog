@@ -124,9 +124,15 @@ const ACCOUNT_FILTERS = [
 const CUSTOM_TILES = [{ id: 'tile-1', label: 'Accounts', metric: { type: 'count' as const } }]
 
 const DEFINITIONS: AccountRelationshipDefinitionApi[] = [
-    { id: CSM_DEFINITION_ID, name: 'CSM', description: null, is_single_holder: true },
-    { id: AE_DEFINITION_ID, name: 'Account executive', description: null, is_single_holder: true },
-    { id: OWNER_DEFINITION_ID, name: 'Account owner', description: null, is_single_holder: true },
+    { id: CSM_DEFINITION_ID, name: 'CSM', description: null, is_single_holder: true, is_controlled: false },
+    {
+        id: AE_DEFINITION_ID,
+        name: 'Account executive',
+        description: null,
+        is_single_holder: true,
+        is_controlled: false,
+    },
+    { id: OWNER_DEFINITION_ID, name: 'Account owner', description: null, is_single_holder: true, is_controlled: false },
 ]
 
 const buildRelationship = (overrides: Partial<AccountRelationshipApi> = {}): AccountRelationshipApi => ({
@@ -135,6 +141,7 @@ const buildRelationship = (overrides: Partial<AccountRelationshipApi> = {}): Acc
     user: { id: 42, email: 'alex@example.com' },
     started_at: '2026-01-01T00:00:00Z',
     ended_at: null,
+    source: null,
     ...overrides,
 })
 
@@ -725,7 +732,13 @@ describe('accountsLogic', () => {
             const config = accountsColumnConfigLogic.findMounted()!
             config.actions.loadRelationshipDefinitionsSuccess([
                 ...DEFINITIONS,
-                { id: 'def-os', name: 'Onboarding specialist', description: null, is_single_holder: true },
+                {
+                    id: 'def-os',
+                    name: 'Onboarding specialist',
+                    description: null,
+                    is_single_holder: true,
+                    is_controlled: false,
+                },
             ])
             expect(config.values.selectColumns).toEqual([
                 ...ACCOUNTS_DEFAULT_COLUMNS,
@@ -741,7 +754,13 @@ describe('accountsLogic', () => {
             config.actions.setSelectColumns([ACCOUNTS_NAME_COLUMN, 'csm'])
             config.actions.loadRelationshipDefinitionsSuccess([
                 ...DEFINITIONS,
-                { id: 'def-os', name: 'Onboarding specialist', description: null, is_single_holder: true },
+                {
+                    id: 'def-os',
+                    name: 'Onboarding specialist',
+                    description: null,
+                    is_single_holder: true,
+                    is_controlled: false,
+                },
             ])
             expect(config.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'csm'])
         })

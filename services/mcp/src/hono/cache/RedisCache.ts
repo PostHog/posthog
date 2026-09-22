@@ -77,6 +77,18 @@ export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
         await this.redis.del(scopedKey)
     }
 
+    /**
+     * Renew the TTL on `keys` without rewriting their values. `set` stamps a
+     * fresh TTL on every write, so a value only read on later requests would
+     * otherwise expire while its session is still active. A caller whose
+     * lifetime should track session activity rather than last write refreshes
+     * here on each request. EXPIRE on a missing key is a no-op, so refreshing a
+     * key that was never written is harmless.
+     */
+    async refreshTtl<K extends keyof T>(keys: K[]): Promise<void> {
+        await Promise.all(keys.map((key) => this.redis.expire(this.getScopedKey(key as string), this.ttl)))
+    }
+
     async clear(): Promise<void> {
         const pattern = `mcp:${this.prefix}:${this.scope}:*`
         let cursor = '0'

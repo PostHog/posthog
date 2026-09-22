@@ -36,6 +36,12 @@ Follow-up messages collect in "Up next" and send after the first response finish
 Once the agent starts, Steer can send them before the current turn ends.
 The thread hides empty and whitespace-only assistant messages during streaming and history replay.
 
+An idle sandbox resume does not run an agent turn, so it does not send a finished notification or mark the run's activity completed.
+
+The chat history filters for PostHog AI, Slack, and Desktop show tasks created by the current user.
+These requests wait until the current user's ID is available, including filter changes, searches, and refreshes.
+When the user loads, the pending request uses the active filter and search term.
+
 ```text
 Your product code
     │
@@ -166,6 +172,16 @@ See `posthog/temporal/oauth.py` for the full list.
 
 > **Principle of least privilege**: default to `"read_only"` unless your agent genuinely needs to create or modify resources.
 > This limits blast radius if the agent misbehaves.
+
+### Activity attribution
+
+A sandboxed agent authenticates as a person, so the activity log names that person as the actor.
+The client tag on the row is what says an agent made the change.
+
+A Signals scout run writes the tag `scout:<skill_name>`, which the activity log and the audit log render as `via scout <skill_name>`.
+The tag is derived from the task binding on the run's own token, not from the `x-posthog-client` request header.
+The `scout:` prefix is reserved for that path, and a header value claiming it is dropped, so an agent cannot claim to be a scout it is not.
+Every other client keeps the self-reported header value.
 
 ## PostHog MCP server
 
@@ -423,6 +439,19 @@ enforced egress proxy with a provider CIDR allowlist if a workload needs that bi
 container traffic because their network paths differ.
 The `use_modal_vm_sandbox` run-state key force-selects the VM runtime for trusted server-created runs
 (image builders) and is never accepted from client input.
+
+### Sandbox readiness
+
+Every Modal sandbox is created with a [readiness probe](https://modal.com/docs/guide/sandboxes#readiness-probes) that runs `true` inside the sandbox until it exits 0.
+Provisioning waits on that probe before it runs anything else in the sandbox, because a sandbox can come up dead with every RPC succeeding.
+That happens most often after a filesystem snapshot restore: a resume snapshot, or the prebaked dev-stack image, which is itself a snapshot.
+A sandbox whose probe has not passed within `READINESS_PROBE_TIMEOUT_SECONDS` (`products/tasks/backend/logic/services/modal_sandbox.py`) is terminated and recreated from the next image candidate in the downgrade chain: resume snapshot, then custom or dev-stack image, then the plain base.
+Termination is retried, and provisioning fails when it still does not complete: the run stores only the id of the sandbox that `create()` returned, so a sandbox left running here is invisible to every later cleanup path.
+A directory resume snapshot is mounted into the sandbox after the probe has passed, and Modal stops the probe at its first success.
+Provisioning therefore runs one more `true` after that mount, and recreates the sandbox without the mount when it fails.
+The run log records the full downgrade chain as "Sandbox image downgraded: ...", one entry per recreation.
+The application log keeps a warning for every recreation.
+When no candidate remains, provisioning fails with a transient error and Temporal retries the activity.
 
 ### Network access
 
