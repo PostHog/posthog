@@ -431,7 +431,7 @@ function rankSkill(skill: SkillDefinition, query: NormalizedQuery): RankedSkill 
         scoreText(skill.description, query, 300)
     let filePathScore = 0
     let fileContentScore = 0
-    const snippets: LearnSearchSnippet[] = []
+    const snippetCandidates: { score: number; snippet: LearnSearchSnippet }[] = []
 
     for (const file of skill.files) {
         const isSkillFile = file.path === 'SKILL.md'
@@ -454,15 +454,17 @@ function rankSkill(skill: SkillDefinition, query: NormalizedQuery): RankedSkill 
         } else {
             fileContentScore = Math.max(fileContentScore, contentScore)
         }
-        if (snippets.length < MAX_GLOBAL_SNIPPETS) {
-            const snippet = findSnippet(file, query, frontmatterLines)
-            if (snippet) {
-                snippets.push(snippet)
-            }
+        const snippet = findSnippet(file, query, frontmatterLines)
+        if (snippet) {
+            snippetCandidates.push({ score: contentScore, snippet })
         }
     }
 
     score += filePathScore + fileContentScore
+    const snippets = snippetCandidates
+        .sort((left, right) => right.score - left.score || left.snippet.path.localeCompare(right.snippet.path))
+        .slice(0, MAX_GLOBAL_SNIPPETS)
+        .map(({ snippet }) => snippet)
 
     return score > 0 ? { skill, score, snippets } : null
 }
@@ -478,8 +480,8 @@ interface NormalizedQuery {
     tokens: QueryToken[]
 }
 
-// Longest-first so the longest matching suffix is stripped (e.g. "sessions" → "session", not "sessionation").
-const STEM_SUFFIXES = ['ations', 'ation', 'tions', 'tion', 'ings', 'ing', 'es', 'ed', 's']
+const DERIVATIONAL_STEM_SUFFIXES = ['ations', 'ation', 'tions', 'tion', 'ings', 'ing', 'ed']
+const SIBILANT_ES_ENDINGS = ['ches', 'shes', 'sses', 'xes', 'zes']
 const MAX_SEARCH_TOKENS = 8
 const MIN_SEARCH_TOKEN_LENGTH = 2
 // Shortest token length the scorer treats as informative — also the floor for derived stems.
@@ -499,7 +501,11 @@ export function extractQueryTokens(query: string): string[] {
         ),
     ]
     const informativeTokens = rawTokens.filter((token) => token.length >= MIN_SEARCH_TOKEN_LENGTH)
-    return (informativeTokens.length > 0 ? informativeTokens : rawTokens.slice(0, 1)).slice(0, MAX_SEARCH_TOKENS)
+    return (informativeTokens.length > 0 ? informativeTokens : rawTokens.slice(0, 1))
+        .map((token, index) => ({ index, token }))
+        .sort((left, right) => right.token.length - left.token.length || left.index - right.index)
+        .slice(0, MAX_SEARCH_TOKENS)
+        .map(({ token }) => token)
 }
 
 function normalizeQuery(query: string): NormalizedQuery {
@@ -520,17 +526,30 @@ function stemVariants(token: string): string[] {
     if (token.length < 6 || !/^[a-z]+$/.test(token)) {
         return [token]
     }
-    const suffix = STEM_SUFFIXES.find((candidate) => token.length > candidate.length && token.endsWith(candidate))
-    if (!suffix) {
+    const stems: string[] = []
+    const suffix = DERIVATIONAL_STEM_SUFFIXES.find(
+        (candidate) => token.length > candidate.length && token.endsWith(candidate)
+    )
+    if (suffix) {
+        stems.push(token.slice(0, -suffix.length))
+    } else if (token.endsWith('ies')) {
+        stems.push(`${token.slice(0, -3)}y`)
+    } else if (SIBILANT_ES_ENDINGS.some((ending) => token.endsWith(ending))) {
+        stems.push(token.slice(0, -2))
+    } else if (token.endsWith('es')) {
+        stems.push(token.slice(0, -1), token.slice(0, -2))
+    } else if (token.endsWith('s') && token !== 'status' && !token.endsWith('is') && !token.endsWith('ss')) {
+        stems.push(token.slice(0, -1))
+    } else {
         return [token]
     }
-    if (suffix === 's' && ['is', 'ss', 'us'].some((ending) => token.endsWith(ending))) {
-        return [token]
-    }
-    const stem = token.slice(0, -suffix.length)
-    const variants = [token, stem]
-    if (stem.length >= 2 && stem.at(-1) === stem.at(-2)) {
-        variants.push(stem.slice(0, -1))
+
+    const variants = [token]
+    for (const stem of stems) {
+        variants.push(stem)
+        if (stem.length >= 2 && stem.at(-1) === stem.at(-2)) {
+            variants.push(stem.slice(0, -1))
+        }
     }
     return [...new Set(variants.filter((variant) => variant.length >= MIN_STEM_VARIANT_LENGTH))]
 }

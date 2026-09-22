@@ -169,7 +169,8 @@ SKILL_SEARCH_EXACT_NAME_BONUS = 5_000
 SKILL_SEARCH_MAX_TOKENS = 8
 SKILL_SEARCH_MIN_TOKEN_LENGTH = 2
 SKILL_SEARCH_MIN_STEM_LENGTH = 5
-SKILL_SEARCH_STEM_SUFFIXES = ("ations", "ation", "tions", "tion", "ings", "ing", "es", "ed", "s")
+SKILL_SEARCH_DERIVATIONAL_SUFFIXES = ("ations", "ation", "tions", "tion", "ings", "ing", "ed")
+SKILL_SEARCH_SIBILANT_ES_ENDINGS = ("ches", "shes", "sses", "xes", "zes")
 SkillSearchField = Literal["name", "description", "body", "path", "content"]
 SKILL_SEARCH_FIELD_LOOKUPS: dict[SkillSearchField, str] = {
     "name": "name__icontains",
@@ -211,7 +212,7 @@ def _content_search_match(content: str, query: str, *, matched_field: str, path:
 def _skill_search_tokens(query: str) -> list[tuple[str, ...]]:
     raw_tokens = list(dict.fromkeys(re.findall(r"[^\W_]+", query.lower())))
     informative_tokens = [token for token in raw_tokens if len(token) >= SKILL_SEARCH_MIN_TOKEN_LENGTH]
-    bounded_tokens = informative_tokens[:SKILL_SEARCH_MAX_TOKENS] or raw_tokens[:1]
+    bounded_tokens = sorted(informative_tokens, key=len, reverse=True)[:SKILL_SEARCH_MAX_TOKENS] or raw_tokens[:1]
     return [_skill_search_variants(token) for token in bounded_tokens]
 
 
@@ -219,24 +220,34 @@ def _skill_search_variants(token: str) -> tuple[str, ...]:
     if len(token) < 6 or not token.isascii() or not token.isalpha():
         return (token,)
 
+    stems: list[str] = []
     suffix = next(
         (
             candidate
-            for candidate in SKILL_SEARCH_STEM_SUFFIXES
+            for candidate in SKILL_SEARCH_DERIVATIONAL_SUFFIXES
             if len(token) > len(candidate) and token.endswith(candidate)
         ),
         None,
     )
-    if suffix is None:
-        return (token,)
-    if suffix == "s" and token.endswith(("is", "ss", "us")):
+    if suffix is not None:
+        stems.append(token[: -len(suffix)])
+    elif token.endswith("ies"):
+        stems.append(f"{token[:-3]}y")
+    elif token.endswith(SKILL_SEARCH_SIBILANT_ES_ENDINGS):
+        stems.append(token[:-2])
+    elif token.endswith("es"):
+        stems.extend((token[:-1], token[:-2]))
+    elif token.endswith("s") and token != "status" and not token.endswith(("is", "ss")):
+        stems.append(token[:-1])
+    else:
         return (token,)
 
-    stem = token[: -len(suffix)]
-    variants = [token, stem]
-    if len(stem) >= 2 and stem[-1] == stem[-2]:
-        variants.append(stem[:-1])
-    return tuple(dict.fromkeys(variant for variant in variants if len(variant) >= 5))
+    variants = [token]
+    for stem in stems:
+        variants.append(stem)
+        if len(stem) >= 2 and stem[-1] == stem[-2]:
+            variants.append(stem[:-1])
+    return tuple(dict.fromkeys(variant for variant in variants if len(variant) >= SKILL_SEARCH_MIN_STEM_LENGTH))
 
 
 def _skill_search_variant_query(field: SkillSearchField, variants: Sequence[str]) -> Q:

@@ -696,24 +696,36 @@ class TestLLMSkillAPI(APIBaseTest):
 
     def test_search_skills_bounds_token_expansion(self):
         self.create_skill(name="first-token-match", description="Contains alpha.", body="# First")
-        self.create_skill(
-            name="overflow-match", description="Only the final token matches.", body="# Overflow\nninthtoken"
-        )
+        self.create_skill(name="long-token-match", description="Contains ninthtoken.", body="# Long")
+        self.create_skill(name="overflow-match", description="Contains golf.", body="# Overflow")
 
         response = self.client.get(
             self._url("search?query=a%20alpha%20bravo%20charlie%20delta%20echo%20foxtrot%20golf%20hotel%20ninthtoken")
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert [result["name"] for result in response.json()["results"]] == ["first-token-match"]
+        assert [result["name"] for result in response.json()["results"]] == [
+            "first-token-match",
+            "long-token-match",
+        ]
 
-    def test_search_skills_does_not_remove_distinct_final_stem_character(self):
-        self.create_skill(name="statistics", description="Analyze numerical data.", body="# Statistics")
+    @parameterized.expand(
+        [
+            ("ies_plural", "queries", "querying", "Run a query.", True),
+            ("u_plural", "bayous", "wetlands", "Explore a bayou.", True),
+            ("short_derived_stem", "types", "classification", "Review a stereotype.", False),
+            ("distinct_final_character", "states", "statistics", "Analyze numerical data.", False),
+        ]
+    )
+    def test_search_skills_applies_bounded_stemming(
+        self, _label: str, query: str, name: str, description: str, should_match: bool
+    ) -> None:
+        self.create_skill(name=name, description=description, body="# Guide")
 
-        response = self.client.get(self._url("search?query=states"))
+        response = self.client.get(self._url(f"search?query={query}"))
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["results"] == []
+        assert [result["name"] for result in response.json()["results"]] == ([name] if should_match else [])
 
     def test_search_skills_does_not_stem_singular_s_words(self):
         self.create_skill(name="statue", description="Sculpture reference.", body="# Statue")

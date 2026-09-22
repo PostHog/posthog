@@ -90,16 +90,19 @@ describe('SkillCatalog and exec learn', () => {
         )
     })
 
-    it('uses the best companion file match for each scoring tier', () => {
+    it('uses the strongest companion file match for its score and snippets', () => {
         const catalog = SkillCatalog.fromZip(
             makeArchive({
                 'team-guide/SKILL.md': makeSkill('team-guide', 'Internal workflow.', '# Team guide'),
-                'team-guide/references/needle-one.md': '# Needle one',
-                'team-guide/references/needle-two.md': '# Needle two',
+                'team-guide/references/a.md': '# Guide\n\nSupport only.',
+                'team-guide/references/z.md': '# Guide\n\nSupport queue.',
             })
         )
 
-        expect(catalog.searchResults('needle')[0]?.score).toBe(480)
+        expect(catalog.searchResults('support queue')[0]).toMatchObject({
+            score: 120,
+            snippets: [{ path: 'references/z.md' }],
+        })
     })
 
     it('ranks an exact name before substring matches at the result limit', () => {
@@ -122,11 +125,8 @@ describe('SkillCatalog and exec learn', () => {
         const catalog = SkillCatalog.fromZip(
             makeArchive({
                 'first-token-match/SKILL.md': makeSkill('first-token-match', 'Contains alpha.', '# First'),
-                'overflow-match/SKILL.md': makeSkill(
-                    'overflow-match',
-                    'Only the final token matches.',
-                    '# Overflow\n\nninthtoken'
-                ),
+                'long-token-match/SKILL.md': makeSkill('long-token-match', 'Contains ninthtoken.', '# Long'),
+                'overflow-match/SKILL.md': makeSkill('overflow-match', 'Contains golf.', '# Overflow'),
             })
         )
 
@@ -134,7 +134,7 @@ describe('SkillCatalog and exec learn', () => {
             catalog
                 .searchResults('a alpha bravo charlie delta echo foxtrot golf hotel ninthtoken')
                 .map((result) => result.identifier)
-        ).toEqual(['first-token-match'])
+        ).toEqual(['first-token-match', 'long-token-match'])
     })
 
     it('returns the rendered skill with a manifest and supports scoped reads', async () => {
@@ -288,6 +288,9 @@ describe('SkillCatalog and exec learn', () => {
     it.each([
         ['analyzing', 'trends', true], // analyzing → analyz ⊂ "analyze"
         ['funnels', 'conversion', true], // funnels → funnel
+        ['queries', 'querying', true], // queries → query
+        ['bayous', 'wetlands', true], // bayous → bayou
+        ['types', 'classification', false], // four-character derived stems remain excluded
         ['sessions', 'assessment', false], // min-5 guard: "sessions" must not reach "assessing"
         ['states', 'statistics', false], // "states" must not lose the distinct final e in "state"
     ])('light stemming links query "%s" to %s content (match=%s)', (query, skill, shouldMatch) => {
@@ -302,6 +305,13 @@ describe('SkillCatalog and exec learn', () => {
                     'conversion',
                     'Chart product metrics over time.',
                     '# Conversion\n\nBuild a conversion funnel.'
+                ),
+                'querying/SKILL.md': makeSkill('querying', 'Run database lookups.', '# Querying\n\nRun a query.'),
+                'wetlands/SKILL.md': makeSkill('wetlands', 'Explore waterways.', '# Wetlands\n\nExplore a bayou.'),
+                'classification/SKILL.md': makeSkill(
+                    'classification',
+                    'Review classification labels.',
+                    '# Classification\n\nReview a stereotype.'
                 ),
                 'assessment/SKILL.md': makeSkill(
                     'assessment',
