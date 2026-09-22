@@ -58,10 +58,13 @@ GitProvider = Literal["github", "gitlab"]
 MAX_RAW_IDS_PER_REQUEST = 500
 
 # The stored container is compressed, so both the stored size and what it expands to are capped.
-# Source maps are read for their ``sources`` alone, and a real bundler writes a short ``sourceRoot``,
-# so the caps on the source list only stop a crafted map from expanding into gigabytes of paths.
+# The decompressed cap is the lower one, because the map is parsed as a whole and a document of
+# tiny objects or short strings takes many times its size in Python memory before the source
+# caps run. Source maps are read for their ``sources`` alone, and a real bundler writes a short
+# ``sourceRoot``, so the caps on the source list only stop a crafted map from expanding into
+# gigabytes of paths.
 MAX_SYMBOL_SET_BYTES = 50 * 1024 * 1024
-MAX_SYMBOL_SET_DECOMPRESSED_BYTES = 100 * 1024 * 1024
+MAX_SYMBOL_SET_DECOMPRESSED_BYTES = 32 * 1024 * 1024
 MAX_SOURCE_ROOT_LENGTH = 4096
 MAX_SOURCES = 100_000
 MAX_SOURCES_BYTES = 32 * 1024 * 1024
