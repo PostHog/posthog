@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 import time_machine
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
@@ -98,6 +98,7 @@ async def _create_alert(
     schedule_start_time: str | None = None,
     insight_deleted: bool = False,
     state: str = AlertState.NOT_FIRING,
+    detector_config: dict | None = None,
 ) -> AlertConfiguration:
     @sync_to_async
     def _create() -> AlertConfiguration:
@@ -127,6 +128,7 @@ async def _create_alert(
             schedule_restriction=schedule_restriction,
             schedule_start_time=schedule_start_time,
             state=state,
+            detector_config=detector_config,
         )
         return alert
 
@@ -512,6 +514,49 @@ class TestEvaluateAlert:
         assert check.calculated_value is None
         assert check.error == {"message": "SQL history is incomplete"}
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
+        assert refreshed.enabled is True
+        mock_capture.assert_not_called()
+        mock_notify.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "rows,has_more,expected_error",
+        [
+            ([[f"hour-{i}", float(i)] for i in range(100)], True, "paginated"),
+            ([[f"hour-{i}", float(i)] for i in range(50)], None, "at least"),
+        ],
+    )
+    async def test_detector_unavailable_data_routes_through_evaluate_alert(
+        self, ateam, rows, has_more, expected_error
+    ) -> None:
+        # Cross-layer guard: the dispatcher must route a detector-configured HogQL alert into the
+        # extractor whose AlertDataUnavailableError reaches evaluate_alert's typed handler. Only the
+        # query boundary is patched, so a routing or exception-propagation regression fails here.
+        alert = await _create_alert(
+            ateam,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT toStartOfHour(timestamp) AS bucket, count() AS value FROM events GROUP BY bucket ORDER BY bucket ASC",
+            },
+            config={"type": "HogQLAlertConfig", "evaluation": "last_row", "column": "value"},
+            detector_config={"type": "mad", "window": 168, "threshold": 0.95},
+        )
+        calculation = MagicMock(result=rows, columns=["bucket", "value"], has_more=has_more)
+        with (
+            patch(
+                "products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight",
+                return_value=calculation,
+            ),
+            patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
+            patch("posthog.tasks.alerts.utils.send_notifications_for_disabled") as mock_notify,
+        ):
+            result = await ActivityEnvironment().run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id))
+            )
+
+        assert result.new_state == AlertState.ERRORED
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.error is not None and expected_error in check.error["message"]
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert.pk)
         assert refreshed.enabled is True
         mock_capture.assert_not_called()
         mock_notify.assert_not_called()
