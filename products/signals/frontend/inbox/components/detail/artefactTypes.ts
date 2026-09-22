@@ -73,6 +73,19 @@ export interface ReportLinkContent {
     reason?: string | null
 }
 
+export interface AutostartSkipContent {
+    skip_reason?: string
+    linked_report_id?: string | null
+    detail?: string
+}
+
+/** Short label for why automatic work was held back, shown next to the reason. */
+export const AUTOSTART_SKIP_REASON_LABELS: Record<string, string> = {
+    duplicate_of: 'Duplicate',
+    blocked_by_dependency: 'Waiting on a dependency',
+    plan_parent: 'Tracked by other reports',
+}
+
 export const REPORT_LINK_KIND_LABELS: Record<string, string> = {
     depends_on: 'Depends on',
     part_of: 'Part of',
@@ -197,6 +210,7 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     summary_change: 'Summary edited',
     related_to: 'Related report',
     report_link: 'Report linked',
+    autostart_skip: 'Work not started',
     code_review: 'Code review',
     check_result: 'Follow-up check',
     check_scheduled: 'Follow-up check scheduled',

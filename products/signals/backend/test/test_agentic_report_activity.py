@@ -1,13 +1,14 @@
 import json
 import random
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.db import OperationalError
+from django.utils import timezone
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
@@ -55,6 +56,7 @@ from products.signals.backend.supersession import ImplementationResearchContext
 from products.signals.backend.temporal.agentic.report import (
     RESEARCH_MCP_SCOPES,
     RunAgenticReportInput,
+    _load_linked_report_context,
     _load_previous_research,
     _load_resolved_report_context,
     _parse_artefact_content,
@@ -314,6 +316,133 @@ async def test_recurrence_context_comes_from_a_parent_closed_as_fixed(
         ("stale chunk TypeError", "Imports fail after a deploy.") if expected and safe and valid_link else (None, None)
     )
     assert await _load_previous_research(ateam.id, str(fork.id)) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("kind", "expected"),
+    [
+        (ReportLinkKind.FOLLOW_UP_OF, True),
+        (ReportLinkKind.DEPENDS_ON, True),
+        (ReportLinkKind.PART_OF, True),
+        # A duplicate never reaches research, and a recurrence has its own richer read.
+        (ReportLinkKind.DUPLICATE_OF, False),
+        (ReportLinkKind.RECURRENCE_OF, False),
+    ],
+)
+async def test_linked_report_context_carries_the_linked_reports_findings(ateam, kind, expected):
+    linked = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, title="step index column", summary="The column is missing."
+    )
+    await database_sync_to_async(SignalReportArtefact.objects.create)(
+        team=ateam, report=linked, type="safety_judgment", content=json.dumps({"choice": True})
+    )
+    await database_sync_to_async(SignalReportArtefact.append_finding)(
+        team_id=ateam.id,
+        report_id=str(linked.id),
+        content=SignalFinding(
+            signal_id="sig-1",
+            relevant_code_paths=["obsolete.py"],
+            relevant_commit_hashes={},
+            data_queried="",
+            verified=True,
+        ),
+        attribution=ArtefactAttribution.system(),
+    )
+    await database_sync_to_async(SignalReportArtefact.append_finding)(
+        team_id=ateam.id,
+        report_id=str(linked.id),
+        content=SignalFinding(
+            signal_id="sig-1",
+            relevant_code_paths=["products/funnels/logic.py", "products/funnels/queries.py"],
+            relevant_commit_hashes={"abc1234": "Added the column."},
+            data_queried="execute-sql over events",
+            verified=True,
+        ),
+        attribution=ArtefactAttribution.system(),
+    )
+    report = await database_sync_to_async(SignalReport.objects.create)(team=ateam, title="r", summary="s")
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(report.id),
+        content=ReportLink(kind=kind, report_id=str(linked.id), reason="only web was covered"),
+        attribution=ArtefactAttribution.system(),
+    )
+
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(report.id),
+        content=ReportLink(kind=kind, report_id=str(linked.id), reason="repeated link"),
+        attribution=ArtefactAttribution.system(),
+    )
+
+    context = await _load_linked_report_context(ateam.id, str(report.id))
+
+    if not expected:
+        assert context == []
+        return
+    assert [(entry.kind, entry.report_id, entry.title) for entry in context] == [
+        (kind, str(linked.id), "step index column")
+    ]
+    assert context[0].reason == "only web was covered"
+    assert context[0].code_paths == ["products/funnels/logic.py", "products/funnels/queries.py"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_linked_report_context_cap_counts_only_usable_reports(ateam):
+    report = await database_sync_to_async(SignalReport.objects.create)(team=ateam, title="r", summary="s")
+
+    async def _link(target: SignalReport) -> None:
+        await database_sync_to_async(SignalReportArtefact.add_log)(
+            team_id=ateam.id,
+            report_id=str(report.id),
+            content=ReportLink(kind=ReportLinkKind.DEPENDS_ON, report_id=str(target.id)),
+            attribution=ArtefactAttribution.system(),
+        )
+
+    for index in range(10):
+        unjudged = await database_sync_to_async(SignalReport.objects.create)(
+            team=ateam, title=f"unjudged-{index}", summary="No verdict."
+        )
+        await _link(unjudged)
+    usable = await database_sync_to_async(SignalReport.objects.create)(team=ateam, title="usable", summary="s")
+    await database_sync_to_async(SignalReportArtefact.objects.create)(
+        team=ateam, report=usable, type="safety_judgment", content=json.dumps({"choice": True})
+    )
+    await _link(usable)
+
+    context = await _load_linked_report_context(ateam.id, str(report.id))
+
+    assert [entry.report_id for entry in context] == [str(usable.id)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("verdicts", [[], [False], [True, False], [False, True], ["invalid"], [{}], ["true"]])
+async def test_linked_report_context_requires_an_explicit_safe_verdict(ateam, verdicts):
+    linked = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, title="unsafe", summary="Do not repeat this."
+    )
+    for index, verdict in enumerate(verdicts):
+        await database_sync_to_async(SignalReportArtefact.objects.create)(
+            team=ateam,
+            report=linked,
+            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
+            content="invalid" if verdict == "invalid" else json.dumps({"choice": verdict}),
+            created_at=timezone.now() + timedelta(seconds=index),
+        )
+    report = await database_sync_to_async(SignalReport.objects.create)(team=ateam, title="r", summary="s")
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(report.id),
+        content=ReportLink(kind=ReportLinkKind.FOLLOW_UP_OF, report_id=str(linked.id)),
+        attribution=ArtefactAttribution.system(),
+    )
+
+    context = await _load_linked_report_context(ateam.id, str(report.id))
+    assert bool(context) == bool(verdicts and verdicts[-1] is True)
 
 
 @pytest.mark.asyncio

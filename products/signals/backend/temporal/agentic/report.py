@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, TypeVar
@@ -34,6 +35,7 @@ from products.signals.backend.report_content_gates import team_report_metrics_en
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
+    LinkedReportContext,
     Priority,
     PriorityAssessment,
     ReportResearchOutput,
@@ -49,6 +51,11 @@ from products.signals.backend.report_generation.reviewer_telemetry import (
     capture_suggested_reviewers_unresolved,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_links import (
+    ReportEdge,
+    linked_reports as fetch_linked_reports,
+    outgoing_links,
+)
 from products.signals.backend.report_metrics import ReportMetric, metric_batch_error
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
 from products.signals.backend.supersession import research_implementation_context
@@ -268,6 +275,112 @@ async def _load_resolved_report_context(team_id: int, report_id: str) -> tuple[s
         ):
             return candidate.title, candidate.summary
     return None, None
+
+
+# Kinds whose target carries context this report should start from. `duplicate_of` is absent
+# because a duplicate never reaches research, and `recurrence_of` has its own richer read above.
+_RESEARCH_CONTEXT_LINK_KINDS = (
+    ReportLinkKind.FOLLOW_UP_OF,
+    ReportLinkKind.DEPENDS_ON,
+    ReportLinkKind.PART_OF,
+)
+
+# Enough code paths to point the agent at the right files without pasting a predecessor's whole
+# investigation into the prompt.
+_MAX_LINKED_CODE_PATHS = 5
+_MAX_LINKED_REPORTS = 10
+
+
+async def _load_linked_report_context(team_id: int, report_id: str) -> list[LinkedReportContext]:
+    """The reports this one is typed-linked to, with what they already found and shipped.
+
+    Every one of them is an investigation the pipeline already paid for. Without this the research
+    agent re-derives a predecessor's findings and usually misses its pull request, which is the one
+    artefact that says what the fix looked like.
+    """
+    return await database_sync_to_async(_collect_linked_report_context, thread_sensitive=False)(team_id, report_id)
+
+
+def _collect_linked_report_context(team_id: int, report_id: str) -> list[LinkedReportContext]:
+    from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
+
+    unique_edges: dict[tuple[ReportLinkKind, str], ReportEdge] = {}
+    for edge in outgoing_links(team_id=team_id, report_id=report_id, kinds=_RESEARCH_CONTEXT_LINK_KINDS):
+        unique_edges.setdefault((edge.kind, edge.target_id), edge)
+    edges = list(unique_edges.values())
+    if not edges:
+        return []
+    reports = fetch_linked_reports(team_id=team_id, report_ids=[edge.target_id for edge in edges])
+    if not reports:
+        return []
+    judgments = (
+        SignalReportArtefact.objects.using("default")
+        .filter(team_id=team_id, report_id__in=reports, type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT)
+        .order_by("report_id", "-created_at", "-id")
+        .distinct("report_id")
+        .values_list("report_id", "content")
+    )
+    visible: dict[str, SignalReport] = {}
+    for target_id, content in judgments:
+        try:
+            verdict = json.loads(content)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(verdict, dict) and verdict.get("choice") is True:
+            visible[str(target_id)] = reports[str(target_id)]
+    # Capped on what the prompt can use, not on what is linked: a run of deleted or unjudged
+    # targets would otherwise spend the budget and leave a usable link behind it unread. The reads
+    # below are per report, so the cap comes first.
+    edges = [edge for edge in edges if edge.target_id in visible][:_MAX_LINKED_REPORTS]
+    if not edges:
+        return []
+    target_ids = [edge.target_id for edge in edges]
+    prs_by_report = fetch_implementation_prs_for_reports(target_ids, team_id=team_id)
+    findings_by_report = _code_paths_by_report(team_id, target_ids)
+    context: list[LinkedReportContext] = []
+    for edge in edges:
+        report = visible[edge.target_id]
+        context.append(
+            LinkedReportContext(
+                kind=edge.kind,
+                report_id=edge.target_id,
+                title=report.title or None,
+                summary=report.summary or None,
+                reason=edge.reason,
+                code_paths=findings_by_report.get(edge.target_id, []),
+                pull_requests=[f"{pr.url} ({pr.state})" for pr in prs_by_report.get(edge.target_id, [])],
+            )
+        )
+    return context
+
+
+def _code_paths_by_report(team_id: int, report_ids: list[str]) -> dict[str, list[str]]:
+    """The code paths each linked report's findings named, newest finding first, deduplicated."""
+    paths: dict[str, list[str]] = {}
+    rows = (
+        SignalReportArtefact.objects.using("default")
+        .filter(team_id=team_id, report_id__in=report_ids, type=SignalReportArtefact.ArtefactType.SIGNAL_FINDING)
+        .order_by("-created_at", "-id")
+        .values_list("report_id", "content")
+    )
+    seen_signals: set[tuple[str, str]] = set()
+    for row_report_id, content in rows:
+        key = str(row_report_id)
+        collected = paths.setdefault(key, [])
+        if len(collected) >= _MAX_LINKED_CODE_PATHS:
+            continue
+        try:
+            finding = SignalFinding.model_validate_json(content)
+        except ValidationError:
+            continue
+        signal_key = (key, finding.signal_id)
+        if signal_key in seen_signals:
+            continue
+        seen_signals.add(signal_key)
+        for path in finding.relevant_code_paths:
+            if path not in collected and len(collected) < _MAX_LINKED_CODE_PATHS:
+                collected.append(path)
+    return paths
 
 
 _AGENTIC_ARTEFACT_TYPES = [
@@ -737,6 +850,9 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             resolved_report_title, resolved_report_summary = await _load_resolved_report_context(
                 input.team_id, input.report_id
             )
+            # Load the reports this one follows up, depends on, or is a step of, so the agent starts
+            # from their findings and pull requests instead of re-deriving them.
+            linked_reports = await _load_linked_report_context(input.team_id, input.report_id)
             # 2c. Load what the team already told the scout fleet, so a reviewer's verdict on an
             # earlier report reaches the stage that judges this one.
             steering = await database_sync_to_async(load_research_steering, thread_sensitive=False)(
@@ -762,6 +878,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 has_business_knowledge=has_bk,
                 resolved_report_title=resolved_report_title,
                 resolved_report_summary=resolved_report_summary,
+                linked_reports=linked_reports,
                 metrics_enabled=metrics_enabled,
                 agent_checks_enabled=agent_checks_enabled,
                 steering_section=steering.section,

@@ -372,8 +372,10 @@ def resurface_failed_check(
     """Emit the breach as a signal, so the pipeline authors a fresh report for the relapse.
 
     This is the same rule the grouping stage already applies to a resolved report: a signal that
-    would have joined it starts a new report linked by `related_to` rather than reopening a
-    terminal one. Best-effort — the verdict is already on the report's log, and losing the
+    would have joined it starts a new report rather than reopening a terminal one. Grouping reads
+    the `report_id` in `extra` and writes a typed `follow_up_of` link from the fresh report back to
+    this one, carrying the verdict as the link's reason, so research starts from the fix the check
+    was measuring. Best-effort, because the verdict is already on the report's log and losing the
     re-surface must not fail the tick that recorded it.
     """
     from asgiref.sync import async_to_sync  # noqa: PLC0415
