@@ -24829,6 +24829,54 @@ export namespace Schemas {
       connection_id?: string | null;
     }
 
+    export interface DataWarehouseManagedView {
+      /** Saved query the managed viewset owns. */
+      id: string;
+      /** Name of the saved query. */
+      name: string;
+      /** When the saved query was created. */
+      created_at: string;
+      /**
+         * User who created the saved query, or null when the sync did.
+         * @nullable
+         */
+      created_by_id: number | null;
+    }
+
+    export interface DataWarehouseManagedViewSet {
+      /** Whether the managed viewset should exist. */
+      enabled: boolean;
+    }
+
+    /**
+     * * `revenue_analytics` - Revenue Analytics
+     * * `engineering_analytics` - Engineering Analytics
+     */
+    export type DataWarehouseManagedViewSetKindEnum = typeof DataWarehouseManagedViewSetKindEnum[keyof typeof DataWarehouseManagedViewSetKindEnum];
+
+
+    export const DataWarehouseManagedViewSetKindEnum = {
+      RevenueAnalytics: 'revenue_analytics',
+      EngineeringAnalytics: 'engineering_analytics',
+    } as const;
+
+    export interface DataWarehouseManagedViewSetResponse {
+      /** Saved queries in the managed viewset. */
+      views: DataWarehouseManagedView[];
+      /** Number of saved queries returned. */
+      count: number;
+    }
+
+    export interface DataWarehouseManagedViewSetUpdateResponse {
+      /** State the managed viewset is now in. */
+      enabled: boolean;
+      /** Managed viewset that was toggled.
+       *
+       * * `revenue_analytics` - Revenue Analytics
+       * * `engineering_analytics` - Engineering Analytics */
+      kind: DataWarehouseManagedViewSetKindEnum;
+    }
+
     export type DataWarehouseSavedQueryQueryKind = typeof DataWarehouseSavedQueryQueryKind[keyof typeof DataWarehouseSavedQueryQueryKind];
 
 
@@ -37106,6 +37154,13 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    export interface EvaluationRunEvaluation {
+      /** UUID of the evaluation being run. */
+      id: string;
+      /** Display name of the evaluation being run. */
+      name: string;
+    }
+
     export interface EvaluationRunRequest {
       /** UUID of the evaluation to run. */
       evaluation_id: string;
@@ -37120,6 +37175,17 @@ export namespace Schemas {
          * @nullable
          */
       distinct_id?: string | null;
+    }
+
+    export interface EvaluationRunResponse {
+      /** Temporal workflow ID of the enqueued run. */
+      workflow_id: string;
+      /** Workflow status at the time of the response. */
+      status: string;
+      /** Evaluation selected for this run. */
+      evaluation: EvaluationRunEvaluation;
+      /** UUID of the event being evaluated. */
+      target_event_id: string;
     }
 
     export interface EventDefinitionBasic {
@@ -83938,6 +84004,16 @@ export namespace Schemas {
       next_offset: number | null;
     }
 
+    export interface RevenueAnalyticsJoin {
+      /** True creates the person join for the project, false removes it. */
+      enabled: boolean;
+    }
+
+    export interface RevenueAnalyticsJoinResponse {
+      /** What the request did, for display. */
+      detail: string;
+    }
+
     export interface ReviewBlindSpotsConfig {
       /** Name of the `review-hog-blind-spots-*` skill this row represents (the sweep's identity). */
       skill_name: string;
@@ -95770,6 +95846,14 @@ export namespace Schemas {
       rich_content?: unknown;
     }
 
+    export interface TicketUnreadCountResponse {
+      /**
+         * Unread messages across the non-resolved tickets the caller can see.
+         * @minimum 0
+         */
+      count: number;
+    }
+
     /**
      * Fields accepted when updating a ticket.
      */
@@ -103657,6 +103741,10 @@ export namespace Schemas {
 
     export type DataModelingEdgesListParams = {
     /**
+     * Return only the edges of this DAG.
+     */
+    dag?: string;
+    /**
      * A page number within the paginated result set.
      */
     page?: number;
@@ -103698,6 +103786,10 @@ export namespace Schemas {
     } as const;
 
     export type DataModelingNodesListParams = {
+    /**
+     * Scope the lineage counts to this DAG.
+     */
+    dag?: string;
     /**
      * A page number within the paginated result set.
      */
@@ -105183,8 +105275,6 @@ export namespace Schemas {
       Valid: 'valid',
       Invalid: 'invalid',
     } as const;
-
-    export type EvaluationRunsCreate200 = { [key: string]: unknown };
 
     export type EvaluationsListParams = {
     /**
@@ -109939,6 +110029,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type QueryTabStateUserRetrieveParams = {
+    /**
+     * UUID of the user whose query-tab state to return.
+     */
+    user_id: string;
     };
 
     export type QuickFiltersListParams = {
