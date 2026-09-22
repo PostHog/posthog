@@ -65930,6 +65930,17 @@ export namespace Schemas {
     }
 
     /**
+     * Context captured with the ticket. Values are strings, numbers or booleans. Keys are whatever the widget sent, commonly current_url, session_replay_url, browser, os and sdk_version.
+     */
+    export type TicketSessionContext = {
+      /** Page the reporter was on. */
+      readonly current_url?: string;
+      /** Replay of the session the ticket came from. */
+      readonly session_replay_url?: string;
+      [key: string]: unknown;
+     };
+
+    /**
      * Mixin for serializers to add user access control fields
      */
     export interface Ticket {
@@ -65977,7 +65988,8 @@ export namespace Schemas {
       readonly unread_customer_count: number;
       /** @nullable */
       readonly session_id: string | null;
-      readonly session_context: unknown;
+      /** Context captured with the ticket. Values are strings, numbers or booleans. Keys are whatever the widget sent, commonly current_url, session_replay_url, browser, os and sdk_version. */
+      readonly session_context: TicketSessionContext;
       /**
          * SLA deadline set via workflows. Null means no SLA.
          * @nullable
