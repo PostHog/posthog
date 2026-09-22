@@ -27,6 +27,15 @@ To close a hole on a field the serializer generates from the model, put it in
 declares needs `read_only=True` on the declaration itself, because DRF ignores
 `read_only_fields` for a declared field.
 
+Two shapes are out of scope, so "every writable timestamp is reviewed" means every
+one this guard can see, not every one the API has:
+
+- A serializer with no `Meta.model` is skipped, because there is no column to read
+  ownership from. Only the view's own code says whether the value becomes server
+  truth, and this file does not read it.
+- Only top-level fields are compared. A timestamp inside a nested writable
+  serializer is not reached.
+
 The failure message lists every violation:
 
     pytest posthog/test/repo_invariants/test_serializer_timestamp_guard.py
@@ -480,15 +489,15 @@ def test_every_write_route_can_be_checked() -> None:
     )
 
 
-def test_allowlist_entries_still_match_a_violation() -> None:
-    # Without this, the lists drift: an entry survives a field being made read-only,
+def test_reviewed_entries_still_match_a_writable_field() -> None:
+    # Without this, the registry drifts: an entry survives a field being made read-only,
     # renamed, or dropped. It also catches the larger failure, a change that narrows
     # discovery, because the fields that fall out of the sweep leave their entries
-    # unmatched instead of passing as allowed.
-    violations, problems = collect_violations()
-    stale = sorted((set(ALLOWED_WRITABLE) - set(violations)) | (set(UNCHECKED) - set(problems)))
+    # unmatched instead of passing as reviewed.
+    writable, problems = collect_violations()
+    stale = sorted((set(REVIEWED_WRITABLE) - set(writable)) | (set(UNCHECKED) - set(problems)))
     assert not stale, (
-        "These ALLOWED_WRITABLE or UNCHECKED entries no longer match anything the guard found. "
+        "These REVIEWED_WRITABLE or UNCHECKED entries no longer match anything the guard found. "
         "Delete them if the field is now read-only or gone. If the field still exists, discovery "
         "stopped reaching it, which leaves its write route unchecked:\n" + "\n".join(stale)
     )
