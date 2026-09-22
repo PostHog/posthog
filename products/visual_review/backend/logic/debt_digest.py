@@ -423,8 +423,8 @@ def collect_debt(repo: Repo, now: datetime) -> RepoDebt:
     expiring = quarantine.list_expiring_quarantines(repo.id, now=now, within_days=_DIGEST_EXPIRY_WINDOW_DAYS)
     quarantined_keys = quarantine.active_quarantine_keys(repo.id, now=now)
     piled_up = {
-        key: count
-        for key, count in toleration.list_toleration_pileups(
+        key: counts.intentional
+        for key, counts in toleration.list_toleration_pileups(
             repo.id, now=now, newest_run_by_type=newest_run_by_type
         ).items()
         # Any live quarantine, expiring or not, already says somebody knows the snapshot is

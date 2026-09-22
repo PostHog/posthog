@@ -64,6 +64,7 @@ from .serializers import (
     SnapshotHistoryEntrySerializer,
     SnapshotSerializer,
     ToleratedHashEntrySerializer,
+    TolerationPileupsQuerySerializer,
     TolerationPileupsSerializer,
     UnquarantineQuerySerializer,
     UpdateRepoInputSerializer,
@@ -393,25 +394,39 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
-        responses={200: TolerationPileupsSerializer},
         description=(
-            "Snapshots a person or agent tolerated at least "
-            f"{contracts.VARIANT_PILEUP_MIN} times in the last {contracts.TOLERATION_PILEUP_WINDOW_DAYS} days, "
-            "counted across baselines. A toleration accepts one exact rendering, so a snapshot that keeps "
-            "needing them renders differently from run to run, and the fix belongs in the story. This is "
-            "the same rule the weekly debt digest uses, except that quarantined snapshots are kept and "
-            "marked with `is_quarantined`. The list is small and returns fast; start here to find flaky "
-            "stories worth fixing, then read one snapshot's history with the per-snapshot tools."
+            "Snapshots that keep getting tolerated, counted across baselines, most manual tolerations "
+            "first. A toleration accepts one exact rendering, so a snapshot that keeps needing them "
+            "renders differently from run to run, and the fix belongs in the story. With no parameters "
+            f"this is the weekly debt digest's rule ({contracts.VARIANT_PILEUP_MIN} or more tolerations by a "
+            f"person or agent in {contracts.TOLERATION_PILEUP_WINDOW_DAYS} days), except that quarantined "
+            "snapshots are kept and marked with `is_quarantined`. The list is small and returns fast; "
+            "start here to find flaky stories worth fixing, then read one snapshot's history with the "
+            "per-snapshot tools."
         ),
     )
+    @validated_request(
+        query_serializer=TolerationPileupsQuerySerializer,
+        responses={200: OpenApiResponse(response=TolerationPileupsSerializer)},
+    )
     @action(detail=True, methods=["get"], url_path="toleration-pileups", pagination_class=None)
-    def toleration_pileups(self, request: Request, pk: str, **kwargs) -> Response:
+    def toleration_pileups(self, request: TypedRequest, pk: str, **kwargs) -> Response:
         repo_id = _parse_uuid(pk)
         try:
             api.get_repo(repo_id, team_id=self.team_id)
         except api.RepoNotFoundError:
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
-        return Response(TolerationPileupsSerializer(instance=api.get_toleration_pileups(repo_id)).data)
+        query = request.validated_query_data
+        result = api.get_toleration_pileups(
+            repo_id,
+            window_days=query["window_days"],
+            min_tolerations=query["min_tolerations"],
+            min_automatic_tolerations=query.get("min_automatic_tolerations"),
+            include_quarantined=query["include_quarantined"],
+            run_type=query.get("run_type"),
+            limit=query["limit"],
+        )
+        return Response(TolerationPileupsSerializer(instance=result).data)
 
 
 class SnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

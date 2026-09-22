@@ -758,20 +758,23 @@ class FlakinessOverview:
 
 @dataclass(frozen=True)
 class TolerationPileupEntry:
-    """One snapshot identity that a person or agent tolerated at least `VARIANT_PILEUP_MIN` times
-    in the window."""
+    """One snapshot identity that keeps getting tolerated."""
 
     identifier: str
     run_type: str
-    toleration_count: int
+    intentional_count: int
+    automatic_count: int
     is_quarantined: bool
 
 
 @dataclass(frozen=True)
 class TolerationPileups:
-    """Result of the toleration pile-ups endpoint."""
+    """Result of the toleration pile-ups endpoint, with the rule it applied."""
 
     entries: list[TolerationPileupEntry]
     window_days: int
     min_tolerations: int
+    min_automatic_tolerations: int | None
+    total: int
+    truncated: bool
     generated_at: datetime

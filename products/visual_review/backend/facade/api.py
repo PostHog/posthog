@@ -368,27 +368,55 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
     )
 
 
-def get_toleration_pileups(repo_id: UUID) -> contracts.TolerationPileups:
-    """Snapshot identities that keep getting tolerated, biggest pile first.
+def get_toleration_pileups(
+    repo_id: UUID,
+    *,
+    window_days: int = contracts.TOLERATION_PILEUP_WINDOW_DAYS,
+    min_tolerations: int = contracts.VARIANT_PILEUP_MIN,
+    min_automatic_tolerations: int | None = None,
+    include_quarantined: bool = True,
+    run_type: str | None = None,
+    limit: int = 100,
+) -> contracts.TolerationPileups:
+    """Snapshot identities that keep getting tolerated, biggest manual pile first.
 
-    Backs the pile-ups endpoint, which agents read. It uses the same rule as the debt digest, but
-    keeps quarantined identities and marks them, so a reader can see both open and muted piles.
+    Backs the pile-ups endpoint, which agents read. The defaults are the debt digest's rule, except
+    that quarantined identities stay in the list and are marked, so a reader sees open and muted
+    piles alike.
     """
     now = timezone.now()
     quarantined_keys = quarantine.active_quarantine_keys(repo_id, now=now)
-    pileups = toleration.list_toleration_pileups(repo_id, now=now)
+    pileups = toleration.list_toleration_pileups(
+        repo_id,
+        now=now,
+        window_days=window_days,
+        min_intentional=min_tolerations,
+        min_automatic=min_automatic_tolerations,
+    )
+    matching = sorted(
+        (
+            (key, counts)
+            for key, counts in pileups.items()
+            if (include_quarantined or key not in quarantined_keys) and (run_type is None or key.run_type == run_type)
+        ),
+        key=lambda item: (-item[1].intentional, -item[1].automatic, item[0].run_type, item[0].identifier),
+    )
     return contracts.TolerationPileups(
         entries=[
             contracts.TolerationPileupEntry(
                 identifier=key.identifier,
                 run_type=key.run_type,
-                toleration_count=count,
+                intentional_count=counts.intentional,
+                automatic_count=counts.automatic,
                 is_quarantined=key in quarantined_keys,
             )
-            for key, count in sorted(pileups.items(), key=lambda item: (-item[1], item[0].run_type, item[0].identifier))
+            for key, counts in matching[:limit]
         ],
-        window_days=contracts.TOLERATION_PILEUP_WINDOW_DAYS,
-        min_tolerations=contracts.VARIANT_PILEUP_MIN,
+        window_days=window_days,
+        min_tolerations=min_tolerations,
+        min_automatic_tolerations=min_automatic_tolerations,
+        total=len(matching),
+        truncated=len(matching) > limit,
         generated_at=now,
     )
 

@@ -316,13 +316,17 @@ const visualReviewReposRunsList = (): ToolBase<
 const VisualReviewReposTolerationPileupsRetrieveSchema = () => {
     const VisualReviewReposTolerationPileupsRetrieveParams =
         orvalSchemas.VisualReviewReposTolerationPileupsRetrieveParams()
+    const VisualReviewReposTolerationPileupsRetrieveQueryParams =
+        orvalSchemas.VisualReviewReposTolerationPileupsRetrieveQueryParams()
     return z.preprocess(
         normalizeParamAliases({ id: ['repo_id'] }),
-        VisualReviewReposTolerationPileupsRetrieveParams.omit({ project_id: true }).extend({
-            id: VisualReviewReposTolerationPileupsRetrieveParams.shape['id'].describe(
-                "The repo's UUID, from `visual-review-repos-list`."
-            ),
-        })
+        VisualReviewReposTolerationPileupsRetrieveParams.omit({ project_id: true })
+            .extend(VisualReviewReposTolerationPileupsRetrieveQueryParams.shape)
+            .extend({
+                id: VisualReviewReposTolerationPileupsRetrieveParams.shape['id'].describe(
+                    "The repo's UUID, from `visual-review-repos-list`."
+                ),
+            })
     )
 }
 
@@ -340,6 +344,14 @@ const visualReviewReposTolerationPileupsRetrieve = (): ToolBase<
         const result = await context.api.request<Schemas.TolerationPileups>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/repos/${encodeURIComponent(String(params.id))}/toleration-pileups/`,
+            query: {
+                include_quarantined: params.include_quarantined,
+                limit: params.limit,
+                min_automatic_tolerations: params.min_automatic_tolerations,
+                min_tolerations: params.min_tolerations,
+                run_type: params.run_type,
+                window_days: params.window_days,
+            },
         })
         return result
     },

@@ -41,6 +41,7 @@ import type {
     VisualReviewReposRunsListParams,
     VisualReviewReposSnapshotsListParams,
     VisualReviewReposThumbnailsRetrieveParams,
+    VisualReviewReposTolerationPileupsRetrieveParams,
     VisualReviewRunsListParams,
     VisualReviewRunsSnapshotHistoryListParams,
     VisualReviewRunsSnapshotsListParams,
@@ -291,19 +292,36 @@ export const visualReviewReposThumbnailsRetrieve = async (
     })
 }
 
-export const getVisualReviewReposTolerationPileupsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/visual_review/repos/${id}/toleration-pileups/`
+export const getVisualReviewReposTolerationPileupsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: VisualReviewReposTolerationPileupsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/visual_review/repos/${id}/toleration-pileups/?${stringifiedParams}`
+        : `/api/projects/${projectId}/visual_review/repos/${id}/toleration-pileups/`
 }
 
 /**
- * Snapshots a person or agent tolerated at least 3 times in the last 30 days, counted across baselines. A toleration accepts one exact rendering, so a snapshot that keeps needing them renders differently from run to run, and the fix belongs in the story. This is the same rule the weekly debt digest uses, except that quarantined snapshots are kept and marked with `is_quarantined`. The list is small and returns fast; start here to find flaky stories worth fixing, then read one snapshot's history with the per-snapshot tools.
+ * Snapshots that keep getting tolerated, counted across baselines, most manual tolerations first. A toleration accepts one exact rendering, so a snapshot that keeps needing them renders differently from run to run, and the fix belongs in the story. With no parameters this is the weekly debt digest's rule (3 or more tolerations by a person or agent in 30 days), except that quarantined snapshots are kept and marked with `is_quarantined`. The list is small and returns fast; start here to find flaky stories worth fixing, then read one snapshot's history with the per-snapshot tools.
  */
 export const visualReviewReposTolerationPileupsRetrieve = async (
     projectId: string,
     id: string,
+    params?: VisualReviewReposTolerationPileupsRetrieveParams,
     options?: RequestInit
 ): Promise<TolerationPileupsApi> => {
-    return apiMutator<TolerationPileupsApi>(getVisualReviewReposTolerationPileupsRetrieveUrl(projectId, id), {
+    return apiMutator<TolerationPileupsApi>(getVisualReviewReposTolerationPileupsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
