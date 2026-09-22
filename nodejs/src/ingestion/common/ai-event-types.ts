@@ -1,10 +1,14 @@
-// AI event type names accepted by the ai lane.
-// The Python query-routing list in posthog/hogql_queries/ai/ai_table_resolver.py
-// intentionally lists only the core types: ai_events lacks full history for the
-// meta-events, so their queries must stay on the shared events table to avoid the
-// resolver misreading the missing rows as expired data.
+// Capture routes on this prefix too, so any `$ai_*` name is admitted here. The query-routing
+// list in posthog/hogql_queries/ai/ai_table_resolver.py stays exact: ai_events lacks history
+// for anything but the core types.
+export const AI_EVENT_NAME_PREFIX = '$ai_'
+
+export function isAiEventName(event: string): boolean {
+    return event.startsWith(AI_EVENT_NAME_PREFIX)
+}
+
+// Billing only (billable-events.ts); ingestion uses `isAiEventName`.
 export const AI_EVENT_TYPES = new Set([
-    // Core AI telemetry, enriched by process-ai-event.ts (costs, model params, tool calls).
     '$ai_generation',
     '$ai_embedding',
     '$ai_evaluation',
@@ -12,9 +16,6 @@ export const AI_EVENT_TYPES = new Set([
     '$ai_trace',
     '$ai_metric',
     '$ai_feedback',
-    // Internal meta-events emitted about AI telemetry (taggers, summarization, eval
-    // reports). Cost and model-param enrichment gates on the exact core names above,
-    // so these only get trace-property normalization and the ai_events double-write.
     '$ai_tag',
     '$ai_generation_summary',
     '$ai_trace_summary',
