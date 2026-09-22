@@ -50,7 +50,7 @@ export function SuggestedReviewerPerson({
     const sourceLabel = getReviewerSourceLabel(reviewer)
 
     return (
-        <div className="group grid min-w-0 grid-cols-[minmax(0,1fr)_auto_1.75rem] items-start gap-x-2 gap-y-0.5 rounded px-1.5 py-1.5">
+        <div className="group grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-0.5 rounded px-1.5 py-1.5">
             <div className={`min-w-0 ${reviewer.user ? '' : 'opacity-75'}`}>
                 <Tooltip
                     title={
@@ -71,11 +71,11 @@ export function SuggestedReviewerPerson({
                 </Tooltip>
             </div>
             {isScoutReviewer(reviewer) ? (
-                <div className="col-start-2 justify-self-end">
+                <div className="col-start-2 row-start-1 justify-self-end">
                     <SuggestedReviewerScoutTag scoutNames={[sourceLabel]} />
                 </div>
             ) : (
-                <div className="col-start-2 justify-self-end">
+                <div className="col-start-2 row-start-1 justify-self-end">
                     <LemonTag type="muted" size="small" wrap className="max-w-32">
                         {sourceLabel}
                     </LemonTag>
@@ -83,12 +83,12 @@ export function SuggestedReviewerPerson({
             )}
             {explanation && (
                 <span
-                    className={`col-start-1 col-end-3 min-w-0 text-xs leading-snug text-tertiary [overflow-wrap:anywhere] ${reviewer.user ? '' : 'opacity-75'}`}
+                    className={`col-start-1 col-end-2 min-w-0 text-xs leading-snug text-tertiary [overflow-wrap:anywhere] ${reviewer.user ? '' : 'opacity-75'}`}
                 >
                     {explanation}
                 </span>
             )}
-            <div className="col-start-3 row-start-1 row-span-2 flex self-center justify-self-end">
+            <div className="col-start-2 row-start-2 flex self-center justify-self-end">
                 <LemonButton
                     type="tertiary"
                     size="xsmall"

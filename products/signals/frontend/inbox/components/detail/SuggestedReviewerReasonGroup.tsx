@@ -73,7 +73,7 @@ export function SuggestedReviewerReasonGroup({
                     )
                 })}
             </div>
-            <div className="flow-root min-w-0 border-t py-2 pr-10 pl-2.5">
+            <div className="flow-root min-w-0 border-t px-2.5 py-2">
                 <span className="float-right ml-2 flex min-w-0 flex-wrap justify-end gap-1">
                     {scoutNames.size > 0 && <SuggestedReviewerScoutTag scoutNames={[...scoutNames]} />}
                     {[...otherSourceLabels].map((sourceLabel) => (
