@@ -20,7 +20,7 @@ concurrency:
 jobs:
     update-sandbox-agent-version:
         runs-on: ubuntu-24.04
-        timeout-minutes: 10
+        timeout-minutes: 100
 
         env:
             DOCKERFILE: products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
@@ -50,7 +50,9 @@ jobs:
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   token: ${{ steps.app-token.outputs.token }}
-                  sparse-checkout: products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
+                  sparse-checkout: |
+                      products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
+                      .github/actions/wait-for-check
                   sparse-checkout-cone-mode: false
 
             - name: Resolve the published agent version
@@ -127,6 +129,22 @@ jobs:
                     echo "action=$action"
                     echo "stale_prs=${stale_prs# }"
                   } >> "$GITHUB_OUTPUT"
+
+            - name: Wait for npm to serve the version
+              if: steps.state.outputs.action == 'bump'
+              env:
+                  LATEST: ${{ steps.resolve.outputs.latest }}
+              run: |
+                  for attempt in $(seq 1 45); do
+                    if [ "$(npm view "@posthog/agent@${LATEST}" version 2>/dev/null)" = "$LATEST" ]; then
+                      echo "npm serves @posthog/agent@${LATEST}"
+                      exit 0
+                    fi
+                    echo "npm does not serve @posthog/agent@${LATEST} yet (attempt $attempt)"
+                    sleep 20
+                  done
+                  echo "npm did not serve @posthog/agent@${LATEST} within 15 minutes" >&2
+                  exit 1
 
             - name: Bump the pin
               if: steps.state.outputs.action == 'bump'
@@ -216,6 +234,7 @@ jobs:
                   fi
 
             - name: Commit via GitHub API (signed)
+              id: commit
               if: steps.state.outputs.action == 'bump'
               uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
@@ -227,6 +246,7 @@ jobs:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
             - name: Create the pull request
+              id: pr
               if: steps.state.outputs.action == 'bump'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -237,13 +257,13 @@ jobs:
                     cat <<BODY
                   ## Problem
 
-                  The sandbox base image pins \`@posthog/agent\` so a published release cannot reach production sandboxes without a reviewed commit. That pin is at \`${PINNED}\`; npm now serves \`${LATEST}\`.
+                  The sandbox base image pins \`@posthog/agent\` so a published release reaches production sandboxes only through a commit on \`master\`. That pin is at \`${PINNED}\`; npm now serves \`${LATEST}\`.
 
                   ## Changes
 
                   - \`Dockerfile.sandbox-base\`: \`AGENT_VERSION\` \`${PINNED}\` to \`${LATEST}\`.
 
-                  Merging this builds and ships the image on \`${LATEST}\`. Closing it without merging keeps \`${PINNED}\` until the next release. A newer release opens its own PR and closes this one.
+                  The sandbox image workflow builds this image and smokes \`${LATEST}\` on both architectures. When that check passes, the release app approves this PR and adds it to the merge queue. Close it before the queue lands it to keep \`${PINNED}\`. A newer release opens its own PR and closes this one.
 
                   BODY
                     cat delta.md
@@ -254,9 +274,60 @@ jobs:
                   The sandbox image CD workflow builds this PR's image on both architectures, checks that the installed \`@posthog/agent\` matches the pin, and runs the \`agent-server\` entrypoint. That covers packaging and dependency resolution. The agent's own test suite ran before the release was published.
                   BODY
                   } > body.md
-                  gh pr create \
+                  pr_url=$(gh pr create \
                     --title "chore(tasks): bump sandbox @posthog/agent to ${LATEST}" \
                     --body-file body.md \
                     --base master \
                     --head "$BRANCH" \
-                    --label "automated" --label "dependencies" --label "skip-agent-review"
+                    --label "automated" --label "dependencies" --label "skip-agent-review")
+                  echo "Created $pr_url"
+                  echo "number=${pr_url##*/}" >> "$GITHUB_OUTPUT"
+
+            - name: Wait for the image smoke on the bump commit
+              id: smoke
+              if: steps.state.outputs.action == 'bump'
+              uses: ./.github/actions/wait-for-check
+              with:
+                  token: ${{ steps.app-token.outputs.token }}
+                  checkName: Sandbox Base Image Pass
+                  ref: ${{ steps.commit.outputs.commit-hash }}
+                  timeoutSeconds: '4500'
+                  intervalSeconds: '30'
+
+            - name: Stop when the smoke did not pass
+              if: steps.state.outputs.action == 'bump' && steps.smoke.outputs.conclusion != 'success'
+              env:
+                  CONCLUSION: ${{ steps.smoke.outputs.conclusion }}
+                  SHA: ${{ steps.commit.outputs.commit-hash }}
+                  PR: ${{ steps.pr.outputs.number }}
+              run: |
+                  echo "::error::Sandbox Base Image Pass concluded $CONCLUSION on $SHA, so PR #$PR waits for a person"
+                  exit 1
+
+            - name: Get release approval token
+              id: releaser-token
+              if: steps.state.outputs.action == 'bump'
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_RELEASER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_RELEASER_PRIVATE_KEY }}
+                  permission-pull-requests: write
+
+            - name: Approve and enqueue the bump
+              if: steps.state.outputs.action == 'bump'
+              env:
+                  GH_TOKEN: ${{ steps.releaser-token.outputs.token }}
+                  REPO: ${{ github.repository }}
+                  SHA: ${{ steps.commit.outputs.commit-hash }}
+                  PR: ${{ steps.pr.outputs.number }}
+              run: |
+                  head=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)
+                  if [ "$head" != "$SHA" ]; then
+                    echo "::error::PR #$PR head $head is not the bump commit $SHA, so this run does not approve it"
+                    exit 1
+                  fi
+                  gh api "repos/${REPO}/pulls/${PR}/reviews" \
+                    -f event=APPROVE \
+                    -f commit_id="$SHA" \
+                    -f body="Automated approval: the sandbox image built from this commit passed the agent smoke on both architectures." >/dev/null
+                  gh pr comment "$PR" --body '/trunk merge'

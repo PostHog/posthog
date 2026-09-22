@@ -20,6 +20,7 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 
 interface PanelLayoutPanelProps {
+    layout?: 'panel' | 'inline'
     /** Names the panel in the DOM, so click maps and analytics can scope to one second-level nav. */
     panelName: string
     searchPlaceholder?: string
@@ -60,6 +61,7 @@ const panelLayoutPanelVariants = cva({
 
 export function PanelLayoutPanel({
     panelName,
+    layout = 'panel',
     searchField,
     panelActionsNewSceneLayout,
     children,
@@ -80,11 +82,13 @@ export function PanelLayoutPanel({
     const panelContents = (
         <nav
             className={cn(
-                panelLayoutPanelVariants({
-                    isLayoutNavCollapsed,
-                    isMobileLayout,
-                    panelWillHide,
-                })
+                layout === 'inline'
+                    ? 'flex flex-col h-full min-h-0'
+                    : panelLayoutPanelVariants({
+                          isLayoutNavCollapsed,
+                          isMobileLayout,
+                          panelWillHide,
+                      })
             )}
             ref={containerRef}
             data-attr={`nav-panel-${panelName}`}
@@ -97,10 +101,17 @@ export function PanelLayoutPanel({
             >
                 {searchField || filterDropdown || sortDropdown ? (
                     <>
-                        <div className="flex gap-1 p-1 items-center justify-between">
-                            {searchField ?? null}
+                        <div
+                            className={cn(
+                                'flex gap-1 p-1 items-center justify-between',
+                                layout === 'inline' && 'flex-nowrap'
+                            )}
+                        >
+                            <div className={layout === 'inline' ? 'flex-1 min-w-0' : 'contents'}>
+                                {searchField ?? null}
+                            </div>
 
-                            <div className="flex gap-px">
+                            <div className={cn('flex gap-px', layout === 'inline' && 'shrink-0')}>
                                 {filterDropdown || sortDropdown ? (
                                     <div className="flex gap-px">
                                         {filterDropdown ?? null}
@@ -129,17 +140,19 @@ export function PanelLayoutPanel({
                                     </DropdownMenu>
                                 )}
 
-                                <ButtonPrimitive
-                                    onClick={() => {
-                                        closePanel()
-                                    }}
-                                    tooltip="Close panel"
-                                    iconOnly
-                                    data-attr="tree-panel-close-panel-button"
-                                    size="sm"
-                                >
-                                    <IconX className="text-tertiary size-3" />
-                                </ButtonPrimitive>
+                                {layout === 'panel' && (
+                                    <ButtonPrimitive
+                                        onClick={() => {
+                                            closePanel()
+                                        }}
+                                        tooltip="Close panel"
+                                        iconOnly
+                                        data-attr="tree-panel-close-panel-button"
+                                        size="sm"
+                                    >
+                                        <IconX className="text-tertiary size-3" />
+                                    </ButtonPrimitive>
+                                )}
                             </div>
                         </div>
                     </>
@@ -149,6 +162,10 @@ export function PanelLayoutPanel({
             </div>
         </nav>
     )
+
+    if (layout === 'inline') {
+        return panelContents
+    }
 
     return (
         <ResizableElement
