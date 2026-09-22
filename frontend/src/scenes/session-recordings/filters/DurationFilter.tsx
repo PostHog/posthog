@@ -16,6 +16,8 @@ interface DurationFilterProps {
     pageKey: string
     size?: LemonButtonProps['size']
     type?: LemonButtonProps['type']
+    /** The list holds no duration predicate, so the button must not read as one. */
+    unset?: boolean
 }
 
 const durationTypeMapping: Record<DurationType, string> = {
@@ -41,6 +43,7 @@ export function DurationFilter({
     onChange,
     size,
     type,
+    unset,
 }: DurationFilterProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
     const durationString = useMemo(
@@ -85,7 +88,7 @@ export function DurationFilter({
                     setIsOpen(true)
                 }}
             >
-                {durationString}
+                {unset ? 'Any duration' : durationString}
             </LemonButton>
         </Popover>
     )

@@ -988,6 +988,7 @@ export const ReplayFiltersTab = ({
                             }}
                             recordingDurationFilter={durationFilter}
                             durationTypeFilter={durationFilter.key}
+                            unset={!filters.duration?.length}
                             pageKey="session-recordings"
                             size="small"
                         />

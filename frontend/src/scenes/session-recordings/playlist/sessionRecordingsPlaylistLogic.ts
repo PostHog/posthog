@@ -247,6 +247,10 @@ export const getDefaultFilters = (
         ...DEFAULT_RECORDING_FILTERS,
         filter_test_accounts: filterTestAccounts,
         date_from: personUUID ? '-30d' : '-3d',
+        // A link names every filter it wants, so replay's own duration threshold must not join the
+        // set. It drops short recordings from a list the viewer never narrowed, and the empty state
+        // then reads as their own filters being too tight.
+        ...(urlFilters && !urlFilters.duration ? { duration: [] } : {}),
         order: preferredSort?.order ?? DEFAULT_RECORDING_FILTERS.order,
         order_direction: preferredSort?.order_direction ?? DEFAULT_RECORDING_FILTERS.order_direction,
     }

@@ -684,7 +684,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
         })
 
-        it('reads filters from the URL and defaults the duration filter', async () => {
+        it('reads filters from the URL and adds no duration filter of its own', async () => {
+            // A cross-sell link sends only the filters its row stands for. Adding replay's own
+            // `active_seconds > 5` default here narrows the list to a threshold the viewer never
+            // chose, and can empty a segment that does have recordings.
             router.actions.push('/replay', {
                 filters: {
                     filter_group: {
@@ -705,7 +708,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     filters: {
                         date_from: '-3d',
                         date_to: null,
-                        duration: [{ key: 'active_seconds', operator: 'gt', type: 'recording', value: 5 }],
+                        duration: [],
                         filter_group: {
                             type: FilterLogicalOperator.And,
                             values: [
@@ -720,6 +723,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         order_direction: 'DESC',
                     },
                 })
+
+            expect(convertUniversalFiltersToRecordingsQuery(logic.values.filters).having_predicates).toEqual([])
         })
 
         it.each<[string, Partial<RecordingUniversalFilters>]>([
@@ -760,7 +765,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['setFilters'])
                 .toMatchValues({
-                    filters: { ...getDefaultFilters(), filter_group: filterGroup },
+                    filters: { ...getDefaultFilters(), duration: [], filter_group: filterGroup },
                 })
         })
 
