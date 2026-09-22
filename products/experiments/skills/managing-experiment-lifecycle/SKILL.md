@@ -224,7 +224,9 @@ Calling it again returns the experiment the first call created, so a retry is sa
 
 No request body.
 
-A legacy experiment also refuses most edits: `experiment-update` returns 400 for anything but name, description and end_date. Migrate first, then edit the migrated experiment.
+A legacy experiment also refuses most edits: `experiment-update` returns 400 for anything but name, description and end_date.
+Those three still work on the legacy experiment, so edit it directly and do not migrate for them.
+Migrate only when the user asks for it, or when a requested change touches a field the guard blocks, and then apply the change to the migrated experiment.
 
 ## Decision framework
 
