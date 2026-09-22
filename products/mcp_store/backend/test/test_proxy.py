@@ -23,15 +23,39 @@ from products.mcp_store.backend.models import (
     MCPGatewayServer,
     MCPServerInstallation,
     MCPServerInstallationTool,
+    MCPServerTemplate,
     MCPToolPolicy,
 )
 from products.mcp_store.backend.oauth import TokenRefreshRejectedError
-from products.mcp_store.backend.proxy import _build_sse_response
+from products.mcp_store.backend.proxy import (
+    _build_sse_response,
+    build_upstream_auth_headers,
+    validate_installation_auth,
+)
 
 ALLOWED_VERDICT = PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set())
 
 
 class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    @parameterized.expand([True, False])
+    def test_slack_dev_token_use_requires_project_access(self, allowed: bool) -> None:
+        template = MCPServerTemplate(oauth_credentials_source="slack_dev_app")
+        installation = MCPServerInstallation(
+            team_id=self.team.id,
+            template=template,
+            auth_type="oauth",
+            sensitive_configuration={"access_token": "dev-user-token"},
+        )
+        with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)] if allowed else []):
+            valid, response = validate_installation_auth(installation)
+            assert valid is allowed
+            if allowed:
+                assert build_upstream_auth_headers(installation) == {"Authorization": "Bearer dev-user-token"}
+            else:
+                assert response is not None and response.status_code == 403
+                with self.assertRaises(TokenRefreshRejectedError):
+                    build_upstream_auth_headers(installation)
+
     def setUp(self):
         super().setUp()
         # Policy checks flow through url_policy (resolve_mcp_url_policy);

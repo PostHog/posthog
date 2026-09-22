@@ -11938,6 +11938,80 @@ export namespace Schemas {
     }
 
     /**
+     * * `try_next` - Try next
+     * * `consider` - Consider
+     */
+    export type AutoresearchSuggestionPriorityEnum = typeof AutoresearchSuggestionPriorityEnum[keyof typeof AutoresearchSuggestionPriorityEnum];
+
+
+    export const AutoresearchSuggestionPriorityEnum = {
+      TryNext: 'try_next',
+      Consider: 'consider',
+    } as const;
+
+    /**
+     * * `queued` - Queued
+     * * `picked_up` - Picked up
+     * * `acted_on` - Acted on
+     * * `dismissed` - Dismissed
+     */
+    export type AutoresearchSuggestionStatusEnum = typeof AutoresearchSuggestionStatusEnum[keyof typeof AutoresearchSuggestionStatusEnum];
+
+
+    export const AutoresearchSuggestionStatusEnum = {
+      Queued: 'queued',
+      PickedUp: 'picked_up',
+      ActedOn: 'acted_on',
+      Dismissed: 'dismissed',
+    } as const;
+
+    /**
+     * * `user` - User
+     * * `agent` - Agent
+     */
+    export type AutoresearchSuggestionSourceEnum = typeof AutoresearchSuggestionSourceEnum[keyof typeof AutoresearchSuggestionSourceEnum];
+
+
+    export const AutoresearchSuggestionSourceEnum = {
+      User: 'user',
+      Agent: 'agent',
+    } as const;
+
+    export interface AutoresearchSuggestion {
+      /** Unique UUID of this suggestion. */
+      readonly id: string;
+      /** Pipeline this suggestion targets. */
+      pipeline: string;
+      /** Free-text hypothesis or direction for the agent to explore. */
+      prompt: string;
+      /** 'try_next' instructs the agent to act on this before other iterations; 'consider' is advisory.
+       *
+       * * `try_next` - Try next
+       * * `consider` - Consider */
+      priority?: AutoresearchSuggestionPriorityEnum;
+      /** Lifecycle status: 'queued' (awaiting pickup), 'picked_up' (agent is applying as a constraint), 'acted_on' (agent spawned iterations), 'dismissed' (agent rejected with rationale).
+       *
+       * * `queued` - Queued
+       * * `picked_up` - Picked up
+       * * `acted_on` - Acted on
+       * * `dismissed` - Dismissed */
+      readonly status: AutoresearchSuggestionStatusEnum;
+      /** 'user' for human-submitted suggestions; 'agent' for agent-generated hypotheses.
+       *
+       * * `user` - User
+       * * `agent` - Agent */
+      readonly source: AutoresearchSuggestionSourceEnum;
+      /** Agent's note on how the suggestion was interpreted and acted upon. Populated after pickup. */
+      readonly agent_response: string;
+      /** The user who submitted it; null for an agent-authored suggestion. */
+      readonly created_by: UserBasic | null;
+      /** UUIDs of iterations spawned from this suggestion. */
+      readonly linked_iteration_ids: readonly string[];
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
      * One iteration referenced from a run summary's ladder or dead-ends list.
      */
     export interface TrainingRunSummaryLadderItem {
@@ -22045,6 +22119,31 @@ export namespace Schemas {
     }
 
     /**
+     * * `try_next` - try_next
+     * * `consider` - consider
+     */
+    export type CreateSuggestionPriorityEnum = typeof CreateSuggestionPriorityEnum[keyof typeof CreateSuggestionPriorityEnum];
+
+
+    export const CreateSuggestionPriorityEnum = {
+      TryNext: 'try_next',
+      Consider: 'consider',
+    } as const;
+
+    export interface CreateSuggestion {
+      /**
+         * Free-text hypothesis or direction for the agent to explore, e.g. 'try a tree-based model' or 'remove recency features, I suspect leakage'.
+         * @maxLength 2000
+         */
+      prompt: string;
+      /** 'try_next' asks the agent to act on this before other autonomous iterations; 'consider' is advisory context.
+       *
+       * * `try_next` - try_next
+       * * `consider` - consider */
+      priority?: CreateSuggestionPriorityEnum;
+    }
+
+    /**
      * * `csv` - csv
      * * `json` - json
      * * `parquet` - parquet
@@ -30401,7 +30500,7 @@ export namespace Schemas {
       environment_scope: string;
       /** PRs in scope merged in the window (bots and drafts excluded). */
       merged_pr_count: number;
-      /** Of merged_pr_count, the PRs a successful in-scope deploy contains. The rest are still waiting for a deploy or fall outside the scan. */
+      /** Of merged_pr_count, the PRs whose first successful in-scope deployment was observed by the window end. The rest are still waiting for a deploy or fall outside the scan. */
       deployed_merged_pr_count: number;
     }
 
@@ -47389,12 +47488,14 @@ export namespace Schemas {
 
     /**
      * * `loops` - Loops
+     * * `broadcasts` - Broadcasts
      */
     export type HogFlowOriginProductEnum = typeof HogFlowOriginProductEnum[keyof typeof HogFlowOriginProductEnum];
 
 
     export const HogFlowOriginProductEnum = {
       Loops: 'loops',
+      Broadcasts: 'broadcasts',
     } as const;
 
     export interface HogFlowMasking {
@@ -47706,7 +47807,8 @@ export namespace Schemas {
       status?: HogFlowStateEnum;
       /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
        *
-       * * `loops` - Loops */
+       * * `loops` - Loops
+       * * `broadcasts` - Broadcasts */
       origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -48174,7 +48276,8 @@ export namespace Schemas {
       status?: HogFlowStateEnum;
       /** Product surface that owns this workflow. This value cannot change after creation.
        *
-       * * `loops` - Loops */
+       * * `loops` - Loops
+       * * `broadcasts` - Broadcasts */
       readonly origin_product: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -53719,6 +53822,11 @@ export namespace Schemas {
       name: string;
       /** What this skill does and when to use it. */
       description: string;
+      /**
+         * Relevance score used to rank this result. Higher scores are more relevant.
+         * @minimum 1
+         */
+      score: number;
       /** Up to two locations that matched the search query, ordered by field relevance. */
       matches: LLMSkillSearchMatch[];
     }
@@ -54225,6 +54333,37 @@ export namespace Schemas {
     export interface LinearTeamsResponse {
       /** Linear teams available to this integration. */
       teams: LinearTeam[];
+    }
+
+    export interface Link {
+      readonly id: string;
+      /**
+         * Destination the short link redirects to.
+         * @maxLength 2048
+         */
+      redirect_url: string;
+      /**
+         * Domain the short link is hosted on. Only phog.gg is accepted.
+         * @maxLength 255
+         */
+      short_link_domain: string;
+      /**
+         * The unique code/path that identifies the short link, e.g. 'abc123'
+         * @maxLength 255
+         */
+      short_code: string;
+      /**
+         * Free-form note about what the link is for.
+         * @nullable
+         */
+      description?: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** User who created the link. Null when that user was deleted. */
+      readonly created_by: UserBasic | null;
+      /** Folder path to file the link under in the project tree. */
+      _create_in_folder?: string;
     }
 
     /**
@@ -56351,6 +56490,7 @@ export namespace Schemas {
       readonly template_auth_type: MCPAuthTypeEnum | null;
       /** How members connect to this server: the template's type for catalog servers, or the type the custom server was added with. Null only for custom servers registered before the type was recorded; members then choose. */
       readonly auth_type: MCPAuthTypeEnum | null;
+      /** True when this server is enabled and available to the project. */
       readonly is_team_enabled: boolean;
       /** Deprecated brand icon key from the linked template. Empty for custom servers. */
       readonly icon_key: string;
@@ -60645,6 +60785,15 @@ export namespace Schemas {
       results: AutoresearchRun[];
     }
 
+    export interface PaginatedAutoresearchSuggestionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AutoresearchSuggestion[];
+    }
+
     export interface PaginatedAutoresearchTrainingRunList {
       count: number;
       /** @nullable */
@@ -61626,6 +61775,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LegalDocumentDTO[];
+    }
+
+    export interface PaginatedLinkList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Link[];
     }
 
     export interface PaginatedListOutputList {
@@ -70961,7 +71119,8 @@ export namespace Schemas {
       status?: HogFlowStateEnum;
       /** Product surface that owns this workflow. This value cannot change after creation.
        *
-       * * `loops` - Loops */
+       * * `loops` - Loops
+       * * `broadcasts` - Broadcasts */
       readonly origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -71542,6 +71701,37 @@ export namespace Schemas {
          * @maxLength 400
          */
       version_description?: string;
+    }
+
+    export interface PatchedLink {
+      readonly id?: string;
+      /**
+         * Destination the short link redirects to.
+         * @maxLength 2048
+         */
+      redirect_url?: string;
+      /**
+         * Domain the short link is hosted on. Only phog.gg is accepted.
+         * @maxLength 255
+         */
+      short_link_domain?: string;
+      /**
+         * The unique code/path that identifies the short link, e.g. 'abc123'
+         * @maxLength 255
+         */
+      short_code?: string;
+      /**
+         * Free-form note about what the link is for.
+         * @nullable
+         */
+      description?: string | null;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+      /** User who created the link. Null when that user was deleted. */
+      readonly created_by?: UserBasic | null;
+      /** Folder path to file the link under in the project tree. */
+      _create_in_folder?: string;
     }
 
     export interface PatchedLiveDebuggerBreakpoint {
@@ -83765,6 +83955,37 @@ export namespace Schemas {
     }
 
     /**
+     * * `picked_up` - picked_up
+     * * `acted_on` - acted_on
+     * * `dismissed` - dismissed
+     */
+    export type RespondToSuggestionStatusEnum = typeof RespondToSuggestionStatusEnum[keyof typeof RespondToSuggestionStatusEnum];
+
+
+    export const RespondToSuggestionStatusEnum = {
+      PickedUp: 'picked_up',
+      ActedOn: 'acted_on',
+      Dismissed: 'dismissed',
+    } as const;
+
+    /**
+     * Input for the agent to record how it interpreted a steering suggestion.
+     */
+    export interface RespondToSuggestion {
+      /** How the agent handled the suggestion: 'picked_up' (applied as a search constraint), 'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response).
+       *
+       * * `picked_up` - picked_up
+       * * `acted_on` - acted_on
+       * * `dismissed` - dismissed */
+      status: RespondToSuggestionStatusEnum;
+      /**
+         * Plain-English note on how the suggestion was interpreted and acted upon. A dismissal needs a note, sent now or recorded earlier. Omit it to keep the note already recorded; send an empty string to clear it.
+         * @maxLength 2000
+         */
+      agent_response?: string;
+    }
+
+    /**
      * * `accepted` - accepted
      * * `target_finished` - target_finished
      * * `rejected` - rejected
@@ -83974,6 +84195,12 @@ export namespace Schemas {
     }
 
     export interface ReusableWidgetVersionDetail {
+      /**
+         * Estimated generation charge in USD, including retries, security review, and the AI credit markup. Null when unavailable.
+         * @nullable
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      generation_cost_usd?: string | null;
       /** Immutable widget version identifier. */
       id: string;
       /** Title stored with this version. */
@@ -86624,6 +86851,38 @@ export namespace Schemas {
     export interface SignalReportFeedbackResponse {
       /** Whether the note was forwarded to the report's authoring scout as a steering note. False when the report has no resolvable authoring scout, or the caller lacks scout-steering access. */
       forwarded: boolean;
+    }
+
+    export interface SignalReportMergeRequest {
+      /**
+         * Ids of the duplicate reports to fold into this one (1–10). Each must be a live report in this project: a resolved, archived or deleted report is rejected with 409, as is the survivor's own id. Duplicates in the list are de-duplicated. The whole merge applies or none of it does.
+         * @minItems 1
+         * @maxItems 10
+         */
+      source_report_ids: string[];
+      /**
+         * Optional one-line explanation of why these reports are the same issue. Recorded on each source's 'duplicate of' link and on the note left on the survivor. Capped at 500 characters.
+         * @maxLength 500
+         */
+      reason?: string;
+    }
+
+    export interface SignalReportMergeSourceResult {
+      /** The source report that was folded into the survivor. */
+      id: string;
+      /** How many work-log artefacts moved to the survivor (notes, findings, pull requests, task runs, code references, commits, checks). */
+      artefacts_moved: number;
+      /** How many signals the survivor took on from this source. The signals themselves are re-pointed asynchronously; the survivor's counters already include them. */
+      signals_moved: number;
+      /** Whether an active work claim held by another actor was released before the move. */
+      released_claim: boolean;
+    }
+
+    export interface SignalReportMergeResponse {
+      /** The surviving report, as it stands after the merge. */
+      report: SignalReport;
+      /** One result per merged source, in request order (after de-duplication). */
+      sources: SignalReportMergeSourceResult[];
     }
 
     export interface SignalReportMetricRefreshRequest {
@@ -97054,6 +97313,7 @@ export namespace Schemas {
     /**
      * * `user_created` - user_created
      * * `posthog_ai` - posthog_ai
+     * * `signal_report` - signal_report
      */
     export type WarmTaskRequestOriginProductEnum = typeof WarmTaskRequestOriginProductEnum[keyof typeof WarmTaskRequestOriginProductEnum];
 
@@ -97061,6 +97321,7 @@ export namespace Schemas {
     export const WarmTaskRequestOriginProductEnum = {
       UserCreated: 'user_created',
       PosthogAi: 'posthog_ai',
+      SignalReport: 'signal_report',
     } as const;
 
     /**
@@ -97127,7 +97388,8 @@ export namespace Schemas {
       /** Product the warm Run is for. Fixed when the sandbox boots — it selects the OAuth app, the quota gate, the warm-pool budget, and PR authorship — so a submit only reuses a warm born under the same origin. Defaults to the Code app.
        *
        * * `user_created` - user_created
-       * * `posthog_ai` - posthog_ai */
+       * * `posthog_ai` - posthog_ai
+       * * `signal_report` - signal_report */
       origin_product?: WarmTaskRequestOriginProductEnum;
       /** Permission mode to boot the agent session on. Read at session construction, so it cannot be changed once the sandbox is warm — a submit selecting a different mode falls through to a cold Run. Omit to take the runtime's default.
        *
@@ -97139,6 +97401,11 @@ export namespace Schemas {
        * * `read-only` - read-only
        * * `full-access` - full-access */
       initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnum | null;
+      /**
+         * Inbox report the warm discussion is about. Required with origin_product `signal_report`, where the warm Run boots repo-less and the submit that creates the report's discussion task activates it.
+         * @nullable
+         */
+      signal_report?: string | null;
     }
 
     /**
@@ -97785,6 +98052,12 @@ export namespace Schemas {
     }
 
     export interface WidgetVersion {
+      /**
+         * Estimated generation charge in USD, including retries, security review, and the AI credit markup. Null when unavailable.
+         * @nullable
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      generation_cost_usd?: string | null;
       /** Immutable widget version identifier. */
       id: string;
       /**
@@ -102364,6 +102637,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type AutoresearchSuggestionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type AutoresearchTrainingRunsListParams = {
     /**
      * Number of results to return per page.
@@ -106420,6 +106704,13 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type FileSystemDestroyParams = {
+    /**
+     * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
+     */
+    recursive?: boolean;
+    };
+
     export type FileSystemShortcutListParams = {
     /**
      * Number of results to return per page.
@@ -106819,9 +107110,9 @@ export namespace Schemas {
      */
     trigger?: string;
     /**
-     * Filter by workflow type. `loop` returns workflows owned by a Desktop loop; `messaging` returns the remaining workflows with an email, SMS, or push action; `automation` returns the rest.
+     * Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.
      */
-    type?: HogFlowsListType;
+    type?: string;
     updated_at?: string;
     };
 
@@ -106829,6 +107120,7 @@ export namespace Schemas {
 
 
     export const HogFlowsListOriginProduct = {
+      Broadcasts: 'broadcasts',
       Loops: 'loops',
     } as const;
 
@@ -106839,15 +107131,6 @@ export namespace Schemas {
       Active: 'active',
       Archived: 'archived',
       Draft: 'draft',
-    } as const;
-
-    export type HogFlowsListType = typeof HogFlowsListType[keyof typeof HogFlowsListType];
-
-
-    export const HogFlowsListType = {
-      Automation: 'automation',
-      Loop: 'loop',
-      Messaging: 'messaging',
     } as const;
 
     export type HogFlowsAssetsRetrieveParams = {
@@ -108141,6 +108424,17 @@ export namespace Schemas {
     export type JsSnippetVersionRetrieve200 = { [key: string]: unknown };
 
     export type JsSnippetVersionPartialUpdate200 = { [key: string]: unknown };
+
+    export type LinksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type LiveDebuggerBreakpointsListParams = {
     filename?: string;

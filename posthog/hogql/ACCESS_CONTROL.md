@@ -231,6 +231,13 @@ Covering `events`' remaining mirror columns, or a future catalog table's, means 
 When no user is present, only the team **default** rules apply instead of failing every query — see `get_restricted_properties_for_team()`.
 There is the asymmetry with the warehouse access control, which bypasses entirely for shared links rather than applying a default; that may be aligned later.
 
+### AI summaries
+
+Summary caches use the caller's current property restrictions, including cached titles and summaries read by PostHog AI.
+When the caller has event-property restrictions, summaries generated from client-supplied data refetch the source with the caller's permissions.
+For client-supplied events, omitted lookup dates use a window from one day before to one day after the event's `timestamp`.
+Explicit `date_from` and `date_to` values take precedence; events without a valid timestamp keep the default lookup dates.
+
 ## Query cache partitioning
 
 **The critical invariant:** if a query reads access-controlled tables, its cache key must include the user's restrictions.
@@ -248,6 +255,9 @@ Two things keep cache hit rates high:
 2. **Scoped to queried tables:** `queried_access_controlled_resources()` (`posthog/hogql_queries/access_controlled_resources.py`) parses the query and returns only the access-controlled scopes it actually reads. Tables whose visibility depends on another scoped table add that dependency too. For example, `system.customer_tasks` adds `account` because its row predicate reads `system.accounts`. A plain **events or persons query shares one cache entry across all users**.
 
 When a run has no user but does read access-controlled resources, the fingerprint uses `restricted_resources: ["*"]` so it can never collide with a real user's cache, and synthetic principals partition on their readable scopes so a narrow token can't reuse a broader token's cached rows.
+
+Hidden backing tables also contribute their parent scopes through `_TRANSITIVE_SYSTEM_TABLE_SCOPES`, even when they have no `access_scope` of their own.
+Their parent predicates enforce row permissions, including creator exemptions; see [HogQL system table cache permissions](../../docs/internal/hogql-system-table-cache.md) before adding a separate junction-table guard.
 
 ## One preloaded `UserAccessControl` everywhere
 
