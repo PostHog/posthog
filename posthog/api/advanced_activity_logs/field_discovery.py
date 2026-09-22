@@ -63,12 +63,10 @@ class AdvancedActivityLogFieldDiscovery:
         }
 
     def _get_distinct_values(self, queryset: QuerySet, column: str) -> list[str]:
-        return sorted(
-            queryset.exclude(**{f"{column}__isnull": True})
-            .exclude(**{column: ""})
-            .values_list(column, flat=True)
-            .distinct()
-        )
+        # DISTINCT has already collapsed the column to a handful of rows, so dropping the
+        # empty ones here costs nothing and keeps the field name out of a lookup key.
+        values = queryset.values_list(column, flat=True).distinct()
+        return sorted(value for value in values if value)
 
     def _get_available_users(self, queryset: QuerySet) -> list[dict[str, str]]:
         users_query = (
