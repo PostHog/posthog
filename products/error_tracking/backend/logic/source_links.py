@@ -841,6 +841,10 @@ def github_paths_for_symbol_set(
 GITLAB_SEARCH_TIMEOUT_SECONDS = 10
 GITLAB_BATCH_DEADLINE_SECONDS = 15
 
+# Only the first page of a search is read, so it asks for as many results as GitLab gives. The
+# default of 20 can hold no hit for the frame's file when the code line it searches is common.
+GITLAB_SEARCH_PAGE_SIZE = 100
+
 
 def prepare_gitlab_search_query(query: str | None) -> str:
     if not query:
@@ -917,7 +921,12 @@ def gitlab_search(
     for query in dict.fromkeys([lookup.code_sample.strip(), prepare_gitlab_search_query(lookup.code_sample)]):
         if not query:
             continue
-        params = {"scope": "blobs", "search": query, **({"ref": ref} if ref else {})}
+        params: dict[str, str | int] = {
+            "scope": "blobs",
+            "search": query,
+            "per_page": GITLAB_SEARCH_PAGE_SIZE,
+            **({"ref": ref} if ref else {}),
+        }
         try:
             response = requests.get(
                 url, params=params, headers=headers, timeout=GITLAB_SEARCH_TIMEOUT_SECONDS, allow_redirects=False

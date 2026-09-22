@@ -372,7 +372,7 @@ class TestGitProviderFileLinksGitLab(_SourceLinksTestMixin):
         }
         url, params, kwargs = self.gitlab.calls[0]
         assert url == "https://gitlab.com/api/v4/projects/acme%2Fapp/search"
-        assert params == {"scope": "blobs", "search": "run()", "ref": COMMIT}
+        assert params == {"scope": "blobs", "search": "run()", "per_page": 100, "ref": COMMIT}
         assert kwargs["allow_redirects"] is False
 
     def test_only_integrations_on_the_repository_host_receive_the_code_line(self) -> None:
