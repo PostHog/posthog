@@ -86666,6 +86666,16 @@ export namespace Schemas {
     }
 
     /**
+     * * `suggested_reviewers` - suggested_reviewers
+     */
+    export type SignalReportSuggestedReviewersArtefactTypeEnum = typeof SignalReportSuggestedReviewersArtefactTypeEnum[keyof typeof SignalReportSuggestedReviewersArtefactTypeEnum];
+
+
+    export const SignalReportSuggestedReviewersArtefactTypeEnum = {
+      SuggestedReviewers: 'suggested_reviewers',
+    } as const;
+
+    /**
      * Commit evidence behind a suggested reviewer.
      */
     export interface SuggestedReviewerCommit {
@@ -86743,7 +86753,10 @@ export namespace Schemas {
          */
       readonly pull_request_id: string | null;
       readonly id: string;
-      readonly type: SignalReportArtefactArtefactTypeEnum;
+      /** Always `suggested_reviewers` on this path.
+       *
+       * * `suggested_reviewers` - suggested_reviewers */
+      readonly type: SignalReportSuggestedReviewersArtefactTypeEnum;
       readonly content: readonly SuggestedReviewerEntryRead[];
       readonly created_at: string;
       /** @nullable */
