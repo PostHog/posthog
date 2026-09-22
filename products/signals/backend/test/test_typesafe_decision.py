@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -223,6 +225,66 @@ async def test_typesafe_primary_modes(mode: str, expected_traditional_calls: int
     assert result is True
     assert traditional.await_count == expected_traditional_calls
     assert capture.call_args.kwargs["properties"]["deciding_provider"] == expected_decider
+
+
+@pytest.mark.asyncio
+@override_settings(
+    SIGNALS_TYPESAFE_CLOUDFLARE_ACCOUNT_ID="account",
+    SIGNALS_TYPESAFE_CLOUDFLARE_API_TOKEN="test-token",
+)
+async def test_traditional_shadow_returns_without_waiting_for_traditional() -> None:
+    traditional_started = asyncio.Event()
+    traditional_cancelled = asyncio.Event()
+
+    async def slow_traditional() -> bool:
+        traditional_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            traditional_cancelled.set()
+            raise
+        return False
+
+    async def typesafe_result(*_args: object) -> dict[str, object]:
+        await traditional_started.wait()
+        return {
+            "probability": 0.98,
+            "model": "jev-1.13.0",
+            "input_tokens": 1000,
+            "output_tokens": 20,
+            "latency_seconds": 0.01,
+            "category": None,
+            "category_confidence": None,
+        }
+
+    with (
+        patch(
+            "products.signals.backend.typesafe_decision.posthoganalytics.get_feature_flag",
+            return_value="traditional-shadow",
+        ),
+        patch("products.signals.backend.typesafe_decision.posthoganalytics.capture") as capture,
+        patch("products.signals.backend.typesafe_decision._query", new_callable=AsyncMock, side_effect=typesafe_result),
+    ):
+        result = await asyncio.wait_for(
+            run_model_decision(
+                team_id=7,
+                stage="actionability",
+                primary_model="claude-sonnet-5",
+                source_id="issue-1",
+                source_product="linear",
+                state={},
+                instructions="Is it actionable?",
+                threshold=0.95,
+                traditional=slow_traditional,
+                verdict=lambda value: value,
+                typesafe_result=lambda value, _category: value,
+            ),
+            timeout=0.1,
+        )
+
+    assert result is True
+    assert traditional_cancelled.is_set()
+    assert capture.call_args.kwargs["properties"]["traditional_status"] == "cancelled"
 
 
 @pytest.mark.asyncio

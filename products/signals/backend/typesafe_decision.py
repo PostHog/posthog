@@ -3,7 +3,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from time import perf_counter
-from typing import Literal, TypedDict, TypeVar
+from typing import Generic, Literal, TypedDict, TypeVar
 
 from django.conf import settings
 
@@ -11,6 +11,7 @@ import structlog
 import posthoganalytics
 from prometheus_client import Counter, Histogram
 
+from posthog.dataclasses import frozen
 from posthog.egress.cloudflare_ai.transport import cloudflare_ai_request
 
 logger = structlog.get_logger(__name__)
@@ -71,11 +72,18 @@ class TypesafeResult(TypedDict):
     category_confidence: float | None
 
 
+T = TypeVar("T")
+
+
+@frozen
+class _ModelCallResult(Generic[T]):
+    value: T | None
+    error: Exception | None
+    latency_seconds: float
+
+
 class TypesafeDecisionError(RuntimeError):
     pass
-
-
-T = TypeVar("T")
 
 
 async def _mode(team_id: int) -> ModelMode:
@@ -196,46 +204,38 @@ async def run_model_decision(
     if mode == "traditional-only":
         return await traditional()
 
-    async def run_traditional() -> tuple[T | None, Exception | None, float]:
+    async def run_traditional() -> _ModelCallResult[T]:
         started = perf_counter()
         try:
-            return await traditional(), None, perf_counter() - started
+            return _ModelCallResult(
+                value=await traditional(),
+                error=None,
+                latency_seconds=perf_counter() - started,
+            )
         except Exception as error:
-            return None, error, perf_counter() - started
+            return _ModelCallResult(value=None, error=error, latency_seconds=perf_counter() - started)
 
-    async def run_typesafe() -> tuple[TypesafeResult | None, Exception | None, float]:
+    async def run_typesafe() -> _ModelCallResult[TypesafeResult]:
         started = perf_counter()
         try:
             result = await _query(stage, state, instructions)
-            return result, None, perf_counter() - started
+            return _ModelCallResult(value=result, error=None, latency_seconds=perf_counter() - started)
         except Exception as error:
             logger.warning("TypeSafe call failed", stage=stage, error_type=type(error).__name__)
-            return None, error, perf_counter() - started
+            return _ModelCallResult(value=None, error=error, latency_seconds=perf_counter() - started)
 
     traditional_task = asyncio.create_task(run_traditional()) if mode != "typesafe-only" else None
     typesafe_task = asyncio.create_task(run_typesafe())
-    if traditional_task is not None:
-        (
-            (traditional_result, traditional_error, traditional_latency),
-            (
-                typesafe,
-                typesafe_error,
-                typesafe_latency,
-            ),
-        ) = await asyncio.gather(traditional_task, typesafe_task)
+    traditional_call = None
+    traditional_cancelled = False
+    if mode == "typesafe-shadow":
+        assert traditional_task is not None
+        traditional_call, typesafe_call = await asyncio.gather(traditional_task, typesafe_task)
     else:
-        traditional_result, traditional_error, traditional_latency = None, None, None
-        typesafe, typesafe_error, typesafe_latency = await typesafe_task
+        typesafe_call = await typesafe_task
 
-    traditional_verdict = None
-    if traditional_result is not None:
-        with suppress(Exception):
-            traditional_verdict = verdict(traditional_result)
+    typesafe = typesafe_call.value
     typesafe_verdict = typesafe["probability"] >= threshold if typesafe is not None else None
-    traditional_category_value = None
-    if traditional_category is not None and traditional_result is not None:
-        with suppress(Exception):
-            traditional_category_value = traditional_category(traditional_result)
     typesafe_decision = None
     conversion_error = None
     if typesafe_verdict is not None and typesafe is not None:
@@ -244,6 +244,30 @@ async def run_model_decision(
         except Exception as error:
             conversion_error = error
             logger.warning("TypeSafe result conversion failed", stage=stage, error_type=type(error).__name__)
+
+    if mode == "traditional-shadow":
+        assert traditional_task is not None
+        if typesafe_decision is None or traditional_task.done():
+            traditional_call = await traditional_task
+        else:
+            traditional_task.cancel()
+            try:
+                await traditional_task
+            except asyncio.CancelledError:
+                traditional_cancelled = True
+
+    traditional_result = traditional_call.value if traditional_call is not None else None
+    traditional_error = traditional_call.error if traditional_call is not None else None
+    traditional_latency = traditional_call.latency_seconds if traditional_call is not None else None
+
+    traditional_verdict = None
+    if traditional_result is not None:
+        with suppress(Exception):
+            traditional_verdict = verdict(traditional_result)
+    traditional_category_value = None
+    if traditional_category is not None and traditional_result is not None:
+        with suppress(Exception):
+            traditional_category_value = traditional_category(traditional_result)
     if mode == "typesafe-shadow" or (mode == "traditional-shadow" and typesafe_decision is None):
         deciding_provider = "traditional" if mode == "typesafe-shadow" else "traditional_fallback"
         decision = traditional_result
@@ -251,18 +275,18 @@ async def run_model_decision(
     else:
         deciding_provider = "typesafe"
         decision = typesafe_decision
-        decision_error = conversion_error or typesafe_error
+        decision_error = conversion_error or typesafe_call.error
 
     with suppress(Exception):
         if traditional_latency is not None:
             _LATENCY.labels(stage, "traditional").observe(traditional_latency)
-        _LATENCY.labels(stage, "typesafe").observe(typesafe_latency)
+        _LATENCY.labels(stage, "typesafe").observe(typesafe_call.latency_seconds)
         typesafe_status = (
             type(conversion_error).__name__
             if conversion_error is not None
             else "ok"
             if typesafe is not None
-            else type(typesafe_error).__name__
+            else type(typesafe_call.error).__name__
         )
         _CALLS.labels(stage, typesafe_status).inc()
         properties: dict[str, object] = {
@@ -274,14 +298,16 @@ async def run_model_decision(
             "traditional_model": primary_model,
             "traditional_verdict": traditional_verdict,
             "traditional_category": traditional_category_value,
-            "traditional_status": "ok"
+            "traditional_status": "cancelled"
+            if traditional_cancelled
+            else "ok"
             if traditional_result is not None
             else type(traditional_error).__name__
             if traditional_error
             else "skipped",
             "traditional_latency_ms": traditional_latency * 1000 if traditional_latency is not None else None,
             "typesafe_status": typesafe_status,
-            "typesafe_latency_ms": typesafe_latency * 1000,
+            "typesafe_latency_ms": typesafe_call.latency_seconds * 1000,
             "typesafe_threshold": threshold,
         }
         if typesafe is not None:
