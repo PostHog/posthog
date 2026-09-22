@@ -391,6 +391,13 @@ class TestHogFlowAPI(APIBaseTest):
             ("messaging", "messaging", {"Email drip", "Push blast"}),
             ("automation", "automation", {"Webhook sync"}),
             ("loop", "loop", {"Loop with email action"}),
+            ("broadcast", "broadcast", {"Announcement"}),
+            # What the workflows page sends: everything except the surfaces with their own page.
+            (
+                "everything_but_broadcasts",
+                "messaging,automation,loop",
+                {"Email drip", "Push blast", "Webhook sync", "Loop with email action"},
+            ),
         ]
     )
     def test_list_filter_by_workflow_type(self, _name, workflow_type, expected_names):
@@ -423,6 +430,16 @@ class TestHogFlowAPI(APIBaseTest):
             actions=[{"id": "a", "type": "function_email", "config": {}}],
         )
 
+        # A broadcast carries an email action, so without the surface check it would also answer
+        # `messaging` and contradict the tag its row shows.
+        HogFlow.objects.create(
+            team=self.team,
+            name="Announcement",
+            created_by=self.user,
+            origin_product="broadcasts",
+            actions=[{"id": "a", "type": "function_email", "config": {}}],
+        )
+
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?type={workflow_type}")
         assert response.status_code == 200, response.json()
         assert {flow["name"] for flow in response.json()["results"]} == expected_names
@@ -441,15 +458,6 @@ class TestHogFlowAPI(APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?origin_product=spreadsheets")
         assert response.status_code == 400
-
-        # The workflows list relies on the exclusion rather than dropping rows from the page, so the
-        # count has to come out excluding them too, or paging skips ordinary workflows.
-        excluded = self.client.get(f"/api/projects/{self.team.id}/hog_flows?exclude_origin_product=loops")
-        assert excluded.status_code == 200, excluded.json()
-        assert {flow["name"] for flow in excluded.json()["results"]} == {"Hand built"}
-        assert excluded.json()["count"] == 1
-
-        assert self.client.get(f"/api/projects/{self.team.id}/hog_flows?exclude_origin_product=nope").status_code == 400
 
     def test_origin_product_is_set_on_create_and_immutable(self):
         hog_flow, _ = self._create_hog_flow_with_action(

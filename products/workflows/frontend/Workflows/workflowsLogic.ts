@@ -65,8 +65,7 @@ interface WorkflowsListParams {
     search?: string
     status?: HogFlow['status']
     created_by?: string
-    type?: Exclude<WorkflowTypeFilter, 'all'>
-    exclude_origin_product?: string
+    type?: string
     trigger?: string
     limit: number
     offset: number
@@ -418,10 +417,10 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 search: filters.search || undefined,
                 status: filters.status !== 'all' ? filters.status : undefined,
                 created_by: filters.createdBy || undefined,
-                type: filters.type !== 'all' ? filters.type : undefined,
-                // Broadcasts have their own surface. Excluding them server-side keeps `count` and the
-                // page boundaries honest; dropping them from the page afterwards did not.
-                exclude_origin_product: 'broadcasts',
+                // Name the types this page covers rather than the one it hides, so a surface that
+                // grows its own page drops out here instead of every list learning to exclude it.
+                // Server-side keeps `count` honest, which dropping rows from the page did not.
+                type: filters.type !== 'all' ? filters.type : 'messaging,automation,loop',
                 // The API filters triggers by JSON containment, so the type goes over as a JSON object.
                 trigger: filters.triggerType !== 'all' ? JSON.stringify({ type: filters.triggerType }) : undefined,
                 limit: WORKFLOWS_PER_PAGE,

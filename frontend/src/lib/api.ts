@@ -6617,9 +6617,8 @@ const api = {
             search?: string
             status?: HogFlow['status']
             created_by?: string
-            type?: 'messaging' | 'automation' | 'loop'
-            /** Drop workflows owned by this product surface, e.g. `broadcasts`. */
-            exclude_origin_product?: string
+            /** Comma-separated: messaging, automation, loop, broadcast. */
+            type?: string
             /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
             trigger?: string
             limit?: number

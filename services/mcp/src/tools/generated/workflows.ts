@@ -184,7 +184,6 @@ const workflowsList = (): ToolBase<
                 query: {
                     created_at: params.created_at,
                     created_by: params.created_by,
-                    exclude_origin_product: params.exclude_origin_product,
                     id: params.id,
                     limit: params.limit,
                     offset: params.offset,

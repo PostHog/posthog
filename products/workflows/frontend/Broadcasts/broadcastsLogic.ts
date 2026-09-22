@@ -129,7 +129,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                         return values.broadcasts
                     }
                     return await hogFlowsList(String(values.currentProjectId), {
-                        origin_product: 'broadcasts',
+                        type: 'broadcast',
                         limit: 100,
                     })
                 },

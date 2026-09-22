@@ -105860,10 +105860,6 @@ export namespace Schemas {
      * Filter to workflows created by the user with this uuid.
      */
     created_by?: string;
-    /**
-     * Drop workflows owned by this product surface, e.g. `broadcasts` for a list that has its own.
-     */
-    exclude_origin_product?: HogFlowsListExcludeOriginProduct;
     id?: string;
     /**
      * Number of results to return per page.
@@ -105892,19 +105888,11 @@ export namespace Schemas {
      */
     trigger?: string;
     /**
-     * Filter by workflow type. `loop` returns workflows owned by a Desktop loop; `messaging` returns the remaining workflows with an email, SMS, or push action; `automation` returns the rest.
+     * Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.
      */
-    type?: HogFlowsListType;
+    type?: string;
     updated_at?: string;
     };
-
-    export type HogFlowsListExcludeOriginProduct = typeof HogFlowsListExcludeOriginProduct[keyof typeof HogFlowsListExcludeOriginProduct];
-
-
-    export const HogFlowsListExcludeOriginProduct = {
-      Broadcasts: 'broadcasts',
-      Loops: 'loops',
-    } as const;
 
     export type HogFlowsListOriginProduct = typeof HogFlowsListOriginProduct[keyof typeof HogFlowsListOriginProduct];
 
@@ -105921,15 +105909,6 @@ export namespace Schemas {
       Active: 'active',
       Archived: 'archived',
       Draft: 'draft',
-    } as const;
-
-    export type HogFlowsListType = typeof HogFlowsListType[keyof typeof HogFlowsListType];
-
-
-    export const HogFlowsListType = {
-      Automation: 'automation',
-      Loop: 'loop',
-      Messaging: 'messaging',
     } as const;
 
     export type HogFlowsAssetsRetrieveParams = {
