@@ -16,9 +16,10 @@ selection over that cap fails every attached context closed rather than silently
 `MAX_SELECTED_CONTEXTS` of them. `MAX_CONTEXT_READ_BUDGET` separately bounds how many of them one
 report generation may actually fetch, regardless of how many tool calls the model makes.
 
-HogQL repair never receives saved result rows. It gets a schema-only snapshot built from each
-successfully fetched context's `format_schema()`, carrying table, field, event, property, and
-group names only.
+HogQL repair never receives saved result rows. It gets a schema-only snapshot carrying table,
+field, event, property, and group names only: built from each successfully fetched context's
+`format_schema()`, or, on a frozen-plan run where nothing has been fetched yet, from the
+registered contexts' schemas captured at load time.
 
 Each dashboard's and insight's status (id, name, success/failed) persists compactly on the
 delivery snapshot; no fetched content is stored alongside it. A third status, `truncated`, exists
