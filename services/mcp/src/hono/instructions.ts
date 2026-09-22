@@ -178,10 +178,15 @@ export class InstructionsBuilder {
 
     buildExecToolDescription(state?: ResolvedState): string {
         const skillsEnabled = state ? this.getExecLearnCapabilities(state).skillsEnabled : false
-        const knowledgeSearchEnabled = state?.allTools.some(
-            ({ name }) => name === 'business-knowledge-documents-search' || name === 'docs-search'
+        const docsSearchEnabled = state?.allTools.some(({ name }) => name === 'docs-search')
+        const businessKnowledgeSearchEnabled = state?.allTools.some(
+            ({ name }) => name === 'business-knowledge-documents-search'
         )
-        return this.formatter.buildExecToolDescription({ skillsEnabled, knowledgeSearchEnabled })
+        return this.formatter.buildExecToolDescription({
+            skillsEnabled,
+            docsSearchEnabled,
+            businessKnowledgeSearchEnabled,
+        })
     }
 
     execSkillsEnabled(state: ResolvedState): boolean {

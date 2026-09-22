@@ -11,6 +11,7 @@ import datetime as dt
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 
 import psycopg
 import structlog
@@ -255,41 +256,68 @@ class Command(BaseCommand):
         # the source was still legacy. If it reads the source again after the change, it consumes
         # the buffer on that stale version, which records no load position, so nothing it read is
         # ever proven consumed. Quiesce the schedules so no run straddles the mode change.
-        self.stdout.write("3/7 pausing per-schema schedules")
-        self._pause_schema_schedules_strict(eligible)
-        self._wait_for_running_sync_jobs(source.team_id, [str(s.id) for s in eligible], drain_timeout)
+        #
+        # The pause call itself is inside this same try: a schedule that fails to pause partway
+        # through the batch must not leave the ones that did pause stranded. `_restore_schema_schedules`
+        # unpausing a schedule that was never paused is a no-op, so restoring the whole eligible set
+        # on any failure here is safe.
+        try:
+            self.stdout.write("3/7 pausing per-schema schedules")
+            self._pause_schema_schedules_strict(eligible)
 
-        self.stdout.write("4/7 draining sourcebatch")
-        self._wait_for_sourcebatch_drain(source.team_id, [str(s.id) for s in eligible], drain_timeout)
-        self._retire_orphaned_companions(eligible)
+            # Everything from here to the mode change leaves the schemas quiesced, and every step in
+            # between can abort: a drain that times out, a buffer file that survives the purge. The
+            # mode does not change until step 6, so on an abort the source is still the legacy source
+            # it was before the command ran. Leaving its schedules paused there stops the customer's
+            # syncs for as long as nobody notices, and nothing reports that: no run starts, so there
+            # is no job row and no error. Restore the schedules and let the abort surface. Extraction
+            # stays paused on purpose, because an operator has to look at whatever stopped the drain
+            # before capture writes again.
+            self._wait_for_running_sync_jobs(source.team_id, [str(s.id) for s in eligible], drain_timeout)
 
-        # Pre-flip files were already delivered by the legacy lane, whose rows carry no position,
-        # so nothing in the table could tell a replay of them from new changes. Every CDC schema is
-        # purged, not just the eligible ones: a schema still snapshotting today becomes eligible on
-        # its first completed sync, and would otherwise inherit whatever the shadow lane left here.
-        # On a source already buffered, the schemas it serves hold files the consumer still owes,
-        # so only the schemas moving now are purged.
-        already_buffered = (source.job_inputs or {}).get("cdc_ingest_mode") == "buffered"
-        to_purge = eligible if already_buffered else cdc_schemas
-        self.stdout.write("5/7 purging pre-flip buffer files")
-        for schema in to_purge:
-            purge_buffer_prefix(source.team_id, str(schema.id), logger)
-        self._verify_prefixes_empty(source.team_id, to_purge)
+            self.stdout.write("4/7 draining sourcebatch")
+            self._wait_for_sourcebatch_drain(source.team_id, [str(s.id) for s in eligible], drain_timeout)
+            self._retire_orphaned_companions(eligible)
 
-        # The step-3 wait sees job rows only; a workflow fired just before the pause may not have
-        # created its row yet. By now it has, so one more wait closes the straddle window.
-        self._wait_for_running_sync_jobs(source.team_id, [str(s.id) for s in eligible], drain_timeout)
+            # Pre-flip files were already delivered by the legacy lane, whose rows carry no
+            # position, so nothing in the table could tell a replay of them from new changes. Every
+            # CDC schema is purged, not just the eligible ones: a schema still snapshotting today
+            # becomes eligible on its first completed sync, and would otherwise inherit whatever
+            # the shadow lane left here. On a source already buffered, the schemas it serves hold
+            # files the consumer still owes, so only the schemas moving now are purged.
+            already_buffered = (source.job_inputs or {}).get("cdc_ingest_mode") == "buffered"
+            to_purge = eligible if already_buffered else cdc_schemas
+            self.stdout.write("5/7 purging pre-flip buffer files")
+            for schema in to_purge:
+                purge_buffer_prefix(source.team_id, str(schema.id), logger)
+            self._verify_prefixes_empty(source.team_id, to_purge)
 
-        self.stdout.write("6/7 setting cdc_ingest_mode=buffered and marking the schemas served")
-        source.job_inputs = {
-            **(source.job_inputs or {}),
-            "cdc_ingest_mode": "buffered",
-            # Kept across a rollback: it is what tells a later flip that a `_ph_cdc_seq` column on
-            # the warehouse table may be one this lane wrote, not one the source owns.
-            "cdc_buffered_before": True,
-        }
-        source.save(update_fields=["job_inputs"])
-        self._mark_schemas(eligible, served=True)
+            # The step-3 wait sees job rows only; a workflow fired just before the pause may not
+            # have created its row yet. By now it has, so one more wait closes the straddle window.
+            self._wait_for_running_sync_jobs(source.team_id, [str(s.id) for s in eligible], drain_timeout)
+
+            # Still inside the recovery boundary: `_mark_schemas` writes one schema at a time, so a
+            # failure partway through it would otherwise leave the mode buffered with only some
+            # schemas marked served and every schedule still paused — the same silent outage this
+            # command exists to fix. The atomic block makes the two writes fail together, so a
+            # failure here rolls `job_inputs` back to legacy too, and the `except` below restores
+            # the schedules onto a state that is genuinely unchanged, not a half-flipped one.
+            self.stdout.write("6/7 setting cdc_ingest_mode=buffered and marking the schemas served")
+            with transaction.atomic():
+                source.job_inputs = {
+                    **(source.job_inputs or {}),
+                    "cdc_ingest_mode": "buffered",
+                    # Kept across a rollback: it is what tells a later flip that a `_ph_cdc_seq`
+                    # column on the warehouse table may be one this lane wrote, not one the source
+                    # owns.
+                    "cdc_buffered_before": True,
+                }
+                source.save(update_fields=["job_inputs"])
+                self._mark_schemas(eligible, served=True)
+        except BaseException:
+            self.stdout.write(self.style.WARNING("flip aborted, restoring per-schema schedules"))
+            self._restore_schema_schedules(eligible)
+            raise
 
         self.stdout.write("7/7 unpausing schedules")
         unpause_cdc_extraction_schedule(source_id)
@@ -334,26 +362,52 @@ class Command(BaseCommand):
         # Consumer next: a sync merging old buffered rows AFTER legacy capture resumed would
         # overwrite newer legacy writes — legacy writes carry no position, so the guard can't
         # protect them. Strict: a schedule that failed to pause could start such a sync.
-        self.stdout.write("4/6 pausing per-schema schedules")
-        self._pause_schema_schedules_strict(eligible)
-        self._wait_for_running_sync_jobs(source.team_id, [str(s.id) for s in eligible], drain_timeout)
-        self._wait_for_sourcebatch_drain(source.team_id, [str(s.id) for s in eligible], drain_timeout)
-        self._retire_orphaned_companions(eligible)
+        #
+        # The pause call is inside this same try: a schedule that fails to pause partway through
+        # the batch must not leave the ones that did pause stranded. `_restore_schema_schedules`
+        # unpausing a schedule that was never paused is a no-op, so restoring the whole eligible
+        # set on any failure here is safe.
+        try:
+            self.stdout.write("4/6 pausing per-schema schedules")
+            self._pause_schema_schedules_strict(eligible)
+            self._wait_for_running_sync_jobs(source.team_id, [str(s.id) for s in eligible], drain_timeout)
+            self._wait_for_sourcebatch_drain(source.team_id, [str(s.id) for s in eligible], drain_timeout)
+            self._retire_orphaned_companions(eligible)
 
-        self.stdout.write("5/6 setting cdc_ingest_mode=legacy and unmarking the schemas")
-        self._mark_schemas(eligible, served=False)
-        source.job_inputs = {
-            **(source.job_inputs or {}),
-            "cdc_ingest_mode": "legacy",
-            # Set here as well as on the flip, so a source flipped before this marker existed still
-            # carries it once it rolls back — which is the population that would otherwise be
-            # refused a second flip over a `_ph_cdc_seq` column the buffered lane wrote itself.
-            "cdc_buffered_before": True,
-        }
-        source.save(update_fields=["job_inputs"])
+            # Still inside the recovery boundary, for the same reason as the flip: `_mark_schemas`
+            # writes one schema at a time, and the atomic block makes it fail together with the
+            # `job_inputs` write so a failure here leaves the source genuinely still buffered
+            # rather than half-rolled-back, which is what the `except` below assumes.
+            self.stdout.write("5/6 setting cdc_ingest_mode=legacy and unmarking the schemas")
+            with transaction.atomic():
+                self._mark_schemas(eligible, served=False)
+                source.job_inputs = {
+                    **(source.job_inputs or {}),
+                    "cdc_ingest_mode": "legacy",
+                    # Set here as well as on the flip, so a source flipped before this marker
+                    # existed still carries it once it rolls back — which is the population that
+                    # would otherwise be refused a second flip over a `_ph_cdc_seq` column the
+                    # buffered lane wrote itself.
+                    "cdc_buffered_before": True,
+                }
+                source.save(update_fields=["job_inputs"])
+        except BaseException:
+            # The mode is still buffered, so the schemas go back to consuming the buffer, which is
+            # what they were doing before this command ran. Leaving them paused instead would stop
+            # the syncs silently and let the buffer age toward its TTL.
+            self.stdout.write(self.style.WARNING("rollback aborted, restoring per-schema schedules"))
+            self._restore_schema_schedules(eligible)
+            raise
 
         # Leftover fully-applied files stay: the position guard no-ops a replay, the S3 TTL clears them.
-        self.stdout.write("6/6 unpausing extraction schedule")
+        self.stdout.write("6/6 unpausing schedules")
+        # Step 4 paused these, so the rollback has to hand them back. Without this the source ends
+        # a successful rollback on legacy delivery with no schema scheduled to load it. Restored
+        # before the extraction schedule: `_restore_schema_schedules` degrades gracefully per
+        # schema, but `unpause_cdc_extraction_schedule` is a single Temporal call that can still
+        # raise here, and doing this one first means a raise there does not also strand the
+        # per-schema schedules a second time.
+        self._restore_schema_schedules(eligible)
         unpause_cdc_extraction_schedule(source_id)
 
         self.stdout.write(self.style.SUCCESS(f"Source {source_id} is now legacy."))
@@ -520,6 +574,19 @@ class Command(BaseCommand):
                 )
             self.stdout.write(f"    waiting, {len(running)} sync job(s) running")
             time.sleep(DRAIN_POLL_SECONDS)
+
+    def _restore_schema_schedules(self, schemas: list[ExternalDataSchema]) -> None:
+        """Hand the schemas back their schedules, skipping any that stopped syncing meanwhile.
+
+        `should_sync` is re-read rather than taken from the in-memory copies: a drain wait can run
+        for minutes, and a schema disabled in that window must stay paused.
+        """
+        still_syncing = set(
+            ExternalDataSchema.objects.filter(
+                id__in=[s.id for s in schemas], should_sync=True, deleted=False
+            ).values_list("id", flat=True)
+        )
+        self._set_schema_schedules([s for s in schemas if s.id in still_syncing], paused=False)
 
     def _set_schema_schedules(self, schemas: list[ExternalDataSchema], *, paused: bool) -> None:
         from products.data_warehouse.backend.facade.api import (

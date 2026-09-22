@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { App } from 'scenes/App'
 
@@ -180,4 +182,49 @@ export const TrackingOnlyMasterRun: StoryObj = {
             },
         }),
     ],
+}
+
+const repeatedTolerations = {
+    count: 3,
+    next: null,
+    previous: null,
+    results: ['2026-06-02', '2026-06-05', '2026-06-08'].map((day, index) => ({
+        id: `tolerated-${index}`,
+        alternate_hash: `alt_${index}`,
+        baseline_hash: 'base_changed',
+        reason: 'human',
+        diff_percentage: 2.6,
+        created_at: `${day}T10:00:00Z`,
+        source_run_id: null,
+    })),
+}
+
+// A snapshot tolerated three times this month keeps changing. Clicking Tolerate offers a quarantine first.
+export const TolerateSuggestsQuarantine: StoryObj = {
+    parameters: {
+        // Not `fullscreen`: the runner rejects snapshotTargetSelector for fullscreen stories.
+        layout: 'padded',
+        testOptions: {
+            waitForSelector: '[data-attr="visual-review-tolerate-nudge-quarantine"]',
+            snapshotTargetSelector: '.LemonModal',
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/tolerated-hashes/`]: repeatedTolerations,
+            },
+        }),
+    ],
+    play: async () => {
+        const tolerateButton = await waitFor(() => {
+            const element = document.querySelector<HTMLButtonElement>('[data-attr="visual-review-snapshot-tolerate"]')
+            // The nudge reads the tolerated hashes, so wait for the sidebar to list them.
+            if (!element || !document.body.textContent?.includes('alt_0')) {
+                throw new Error('Tolerate button or tolerated hashes not yet rendered')
+            }
+            return element
+        })
+        await userEvent.click(tolerateButton)
+    },
 }

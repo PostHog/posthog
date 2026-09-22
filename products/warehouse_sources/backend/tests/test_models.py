@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import DatabaseError, OperationalError, connection, transaction
 from django.db.models import Model
@@ -1374,3 +1374,57 @@ class TestMergeConnectionMetadata(BaseTest):
 
         source.refresh_from_db()
         assert source.updated_at == before
+
+
+class TestDeleteTable(BaseTest):
+    def _schema(self) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            source_type="Postgres",
+        )
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="orders",
+            format="Parquet",
+            external_data_source=source,
+        )
+        return ExternalDataSchema.objects.create(
+            team=self.team,
+            source=source,
+            name="orders",
+            table=table,
+            status=ExternalDataSchema.Status.COMPLETED,
+            last_synced_at=timezone.now(),
+        )
+
+    @parameterized.expand(
+        [
+            # s3fs raises FileNotFoundError when the prefix holds no objects. The files are
+            # already gone, so the delete succeeded and nothing needs reporting.
+            ("prefix_already_gone", FileNotFoundError("s3://bucket/prefix"), False),
+            ("access_denied", PermissionError("Access Denied"), True),
+        ]
+    )
+    def test_the_teardown_finishes_when_the_s3_delete_fails(
+        self, _name: str, error: Exception, expected_reported: bool
+    ) -> None:
+        schema = self._schema()
+        table_id = schema.table_id
+        assert table_id is not None
+        client = MagicMock()
+        client.delete.side_effect = error
+
+        with (
+            patch("products.data_warehouse.backend.facade.api.get_s3_client", return_value=client),
+            patch("products.warehouse_sources.backend.models.external_data_schema.capture_exception") as capture,
+        ):
+            schema.delete_table()
+
+        assert capture.called is expected_reported
+        schema.refresh_from_db()
+        assert schema.table_id is None
+        assert schema.status is None
+        assert schema.last_synced_at is None
+        assert DataWarehouseTable.objects.get(id=table_id).deleted is True

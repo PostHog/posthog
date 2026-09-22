@@ -634,15 +634,16 @@ pub async fn lock_waits(
     // Consecutive samples of one (waiter, blocker) pair are one episode; a gap over 30 s (three
     // missed samples) starts a new one, which is what a waiter that timed out and retried looks like.
     // A backend is its pid plus backend_start. The backend_start columns arrive with a newer collector
-    // and pgapi can deploy first, so they are read through to_jsonb, which parses without them.
+    // and pgapi can deploy first, so they are read through to_jsonb, which parses without them. The
+    // aliases differ from the column names because l.* carries the real columns once they exist.
     let episodes = opt(db, "WITH w AS (
-            SELECT l.*, (to_jsonb(l) ->> 'waiter_backend_start') AS waiter_backend_start, (to_jsonb(l) ->> 'blocker_backend_start') AS blocker_backend_start,
+            SELECT l.*, (to_jsonb(l) ->> 'waiter_backend_start') AS waiter_started, (to_jsonb(l) ->> 'blocker_backend_start') AS blocker_started,
                    CASE WHEN lag(collected_at) OVER pair IS NULL OR collected_at - lag(collected_at) OVER pair > interval '30 seconds'
                              OR blocker_xact_age_s < lag(blocker_xact_age_s) OVER pair OR waiting_s < lag(waiting_s) OVER pair THEN 1 ELSE 0 END AS starts
             FROM ts_lock_waits l WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3
             WINDOW pair AS (PARTITION BY instance, waiter_pid, (to_jsonb(l) ->> 'waiter_backend_start'), blocker_pid, (to_jsonb(l) ->> 'blocker_backend_start') ORDER BY collected_at)),
-         e AS (SELECT *, sum(starts) OVER (PARTITION BY instance, waiter_pid, waiter_backend_start, blocker_pid, blocker_backend_start ORDER BY collected_at) AS episode FROM w)
-         SELECT instance, datname, waiter_pid, waiter_backend_start, blocker_pid, blocker_backend_start, min(collected_at) AS first_seen, max(collected_at) AS last_seen,
+         e AS (SELECT *, sum(starts) OVER (PARTITION BY instance, waiter_pid, waiter_started, blocker_pid, blocker_started ORDER BY collected_at) AS episode FROM w)
+         SELECT instance, datname, waiter_pid, waiter_started AS waiter_backend_start, blocker_pid, blocker_started AS blocker_backend_start, min(collected_at) AS first_seen, max(collected_at) AS last_seen,
                 count(*)::bigint AS samples, round(sum(interval_seconds)::numeric, 0)::float8 AS waited_s, max(waiting_s)::float8 AS max_waiting_s,
                 max(blocker_xact_age_s)::float8 AS blocker_xact_age_s, min(blocker_xact_age_s)::float8 AS blocker_xact_age_at_start_s,
                 (array_agg(blocker_state ORDER BY collected_at DESC))[1] AS blocker_state,
@@ -651,7 +652,7 @@ pub async fn lock_waits(
                 (array_agg(waiter_query ORDER BY collected_at DESC))[1] AS waiter_query, (array_agg(blocker_query ORDER BY collected_at DESC))[1] AS blocker_query,
                 max(usename) AS usename, max(application_name) AS application_name,
                 max(blocker_usename) AS blocker_usename, max(blocker_application_name) AS blocker_application_name
-         FROM e GROUP BY instance, datname, waiter_pid, waiter_backend_start, blocker_pid, blocker_backend_start, episode ORDER BY first_seen DESC LIMIT $4", &[&server, &from, &to, &limit]).await?;
+         FROM e GROUP BY instance, datname, waiter_pid, waiter_started, blocker_pid, blocker_started, episode ORDER BY first_seen DESC LIMIT $4", &[&server, &from, &to, &limit]).await?;
     let deadlocks = opt(db, "SELECT id, at, instance, datname, subject, after FROM events WHERE server_id = $1 AND at >= $2 AND at < $3 AND kind = 'log_deadlock' ORDER BY at DESC LIMIT 50", &[&server, &from, &to]).await?;
     Ok(
         json!({ "bucket": bucket_interval(bucket), "series": series, "pairs": pairs, "episodes": episodes, "deadlocks": deadlocks }),

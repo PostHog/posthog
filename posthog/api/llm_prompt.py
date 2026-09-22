@@ -16,7 +16,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from posthog.api.capture import capture_batch_internal, capture_internal
+from posthog.api.capture import capture_internal
 from posthog.api.llm_prompt_serializers import (
     ALLOWED_LIST_ORDERINGS,
     LLMPromptDuplicateSerializer,
@@ -60,6 +60,7 @@ from posthog.api.services.llm_prompt import (
     set_prompt_label,
 )
 from posthog.auth import (
+    DelegatedOAuthAccessTokenAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -76,7 +77,11 @@ from products.access_control.backend.presentation.access_control import AccessCo
 from products.ai_observability.backend.activity_logging import log_llm_prompt_activity
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel, get_prompt_outline
-from products.ai_observability.backend.prompt_references import PromptReferenceResolutionError, assemble_prompt_payload
+from products.ai_observability.backend.prompt_references import (
+    PromptReferenceResolutionError,
+    assemble_prompt_payload,
+    get_active_references_to,
+)
 
 PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
 PROMPT_FETCHED_EVENT_SOURCE = "llm_prompt_management"
@@ -137,6 +142,18 @@ class LLMPromptViewSet(
         if view.action in ["get_by_name", "update_by_name"]:
             return ["llm_prompt:write"] if request.method == "PATCH" else ["llm_prompt:read"]
         return None
+
+    def _is_browser_session(self, request: Request) -> bool:
+        # A delegated OAuth token is a service acting for a user, not the user's
+        # browser, and its authenticator subclasses the OAuth one, so exclude it first.
+        if isinstance(request.successful_authenticator, DelegatedOAuthAccessTokenAuthentication):
+            return False
+        # A session cookie means a browser, and so does an OAuth token, which the app
+        # frontend uses when Django does not serve it. OAuth also carries third-party
+        # API clients; missing their unlabeled list reads costs less than counting
+        # every prompts page view as a fetch. A JWT is a background job impersonating
+        # a user, which reads prompts like any other API caller.
+        return isinstance(request.successful_authenticator, SessionAuthentication | OAuthAccessTokenAuthentication)
 
     def _ensure_web_authenticated(self, request: Request) -> Response | None:
         if not isinstance(
@@ -254,33 +271,28 @@ class LLMPromptViewSet(
 
         report_team_action(self.team, "llma prompt fetched", properties)
 
-    def _track_labeled_list_fetches(self, prompts: Sequence[LLMPrompt], label: str) -> None:
-        # One batch call, not one capture_internal per prompt: capture_internal is a
-        # synchronous HTTP request, so per-prompt calls would multiply request latency
-        # by the page size.
-        properties_per_prompt = [
-            self._prompt_fetch_properties(self._labeled_list_fetch_payload(prompt, label), fetch_path="list")
-            for prompt in prompts
-        ]
-        if not settings.TEST and properties_per_prompt:
+    def _track_list_fetch(self, prompts: Sequence[LLMPrompt], label: str | None) -> None:
+        # One event per request, not per prompt: the event is billed into the calling
+        # team's own project, so a page of N prompts would bill N events per call.
+        properties = {
+            "prompt_fetch_path": "list",
+            "prompt_label": label,
+            "prompt_count": len(prompts),
+        }
+        if not settings.TEST:
             try:
-                capture_batch_internal(
-                    events=[
-                        {
-                            "event": PROMPT_FETCHED_EVENT,
-                            "distinct_id": str(self.team.uuid),
-                            "properties": properties,
-                        }
-                        for properties in properties_per_prompt
-                    ],
+                capture_internal(
                     token=self.team.api_token,
+                    event_name=PROMPT_FETCHED_EVENT,
                     event_source=PROMPT_FETCHED_EVENT_SOURCE,
+                    distinct_id=str(self.team.uuid),
+                    timestamp=None,
+                    properties=properties,
                 )
             except Exception as err:
                 capture_exception(err)
 
-        for properties in properties_per_prompt:
-            report_team_action(self.team, "llma prompt fetched", properties)
+        report_team_action(self.team, "llma prompt fetched", properties)
 
     def _get_list_params(self, request: Request) -> dict[str, Any]:
         serializer = LLMPromptListQuerySerializer(data=request.query_params)
@@ -517,6 +529,7 @@ class LLMPromptViewSet(
                 "versions": self._serialize_version_summaries(versions),
                 "has_more": has_more,
                 "labels": LLMPromptLabelSerializer(get_prompt_labels(self.team, prompt_name), many=True).data,
+                "referenced_by": get_active_references_to(self.team.id, prompt_name),
             }
         )
 
@@ -736,18 +749,6 @@ class LLMPromptViewSet(
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    def _labeled_list_fetch_payload(self, prompt: LLMPrompt, label: str) -> dict[str, Any]:
-        first_version_created_at = getattr(prompt, "first_version_created_at", None) or prompt.created_at
-        return {
-            "id": str(prompt.id),
-            "name": prompt.name,
-            "version": prompt.version,
-            "label": label,
-            "is_latest": prompt.is_latest,
-            "first_version_created_at": first_version_created_at.isoformat().replace("+00:00", "Z"),
-            "config": prompt.config,
-        }
-
     def _get_prompt_labels_map(self, prompt_names: list[str]) -> dict[str, list[dict[str, Any]]]:
         labels_map: dict[str, list[dict[str, Any]]] = {}
         labels = (
@@ -772,11 +773,11 @@ class LLMPromptViewSet(
         serializer = LLMPromptListSerializer(prompts, many=True, context=context)
 
         label = self._get_list_params(request).get("label")
-        if label:
-            # Each prompt served through a labeled list counts as one fetch, matching
-            # get_by_name, so usage counts survive a caller migrating from per-name
-            # calls. The unlabeled list backs the prompts UI page and stays untracked.
-            self._track_labeled_list_fetches(prompts, label)
+        if label or not self._is_browser_session(request):
+            # The unlabeled list also backs the prompts UI page, where reading the
+            # page is not a prompt fetch. The browser session separates a prompt
+            # served to an application from someone looking at the list.
+            self._track_list_fetch(prompts, label)
 
         if page is not None:
             return self.get_paginated_response(serializer.data)

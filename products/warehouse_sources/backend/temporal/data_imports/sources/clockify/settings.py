@@ -1,5 +1,5 @@
 from dataclasses import field
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from posthog.dataclasses import frozen
 
@@ -47,6 +47,9 @@ class ClockifyEndpointConfig:
     # Fail loud when `data_selector` matches nothing, rather than syncing zero rows off a changed
     # response shape.
     data_selector_required: bool = True
+    # Static query params sent with every request to this endpoint, on top of paging and the
+    # resolved path ids.
+    extra_params: dict[str, Any] = field(default_factory=dict)
 
 
 _TIME_ENTRY_INCREMENTAL_FIELDS: list[IncrementalField] = [
@@ -162,6 +165,25 @@ CLOCKIFY_ENDPOINTS: dict[str, ClockifyEndpointConfig] = {
         method="POST",
         data_selector="requests",
         page_size=200,
+    ),
+    # Timesheet approval state per user and period. The row's id sits inside the nested
+    # `approvalRequest` object, flattened during sync. Paginating on an ascending id keeps pages
+    # stable while approvals are submitted mid-sync; the endpoint exposes no timestamp filter, so
+    # there is nothing to sync incrementally on.
+    "approval_requests": ClockifyEndpointConfig(
+        name="approval_requests",
+        path="/workspaces/{workspace_id}/approval-requests",
+        primary_keys=["workspace_id", "approval_request_id"],
+        extra_params={"sort-column": "ID", "sort-order": "ASCENDING"},
+    ),
+    # Team grouping. Each row carries its members as `userIds`, so the group-members sub-resource
+    # is not needed — Clockify serves it as POST/DELETE only. `includeTeamManagers` adds the
+    # managers assigned to the group, which are omitted by default.
+    "user_groups": ClockifyEndpointConfig(
+        name="user_groups",
+        path="/workspaces/{workspace_id}/user-groups",
+        primary_keys=["workspace_id", "id"],
+        extra_params={"sort-column": "ID", "sort-order": "ASCENDING", "includeTeamManagers": "true"},
     ),
 }
 

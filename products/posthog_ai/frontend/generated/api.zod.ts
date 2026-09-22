@@ -101,14 +101,15 @@ export const ConversationsOpenCreateBody = /* @__PURE__ */ zod
                                 'evaluation',
                                 'event',
                                 'insight',
+                                'instructions',
                                 'notebook',
                                 'text',
                             ])
                             .describe(
-                                '\* `action` - action\n\* `dashboard` - dashboard\n\* `error_tracking_issue` - error_tracking_issue\n\* `evaluation` - evaluation\n\* `event` - event\n\* `insight` - insight\n\* `notebook` - notebook\n\* `text` - text'
+                                '\* `action` - action\n\* `dashboard` - dashboard\n\* `error_tracking_issue` - error_tracking_issue\n\* `evaluation` - evaluation\n\* `event` - event\n\* `insight` - insight\n\* `instructions` - instructions\n\* `notebook` - notebook\n\* `text` - text'
                             )
                             .describe(
-                                'Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.\n\n\* `action` - action\n\* `dashboard` - dashboard\n\* `error_tracking_issue` - error_tracking_issue\n\* `evaluation` - evaluation\n\* `event` - event\n\* `insight` - insight\n\* `notebook` - notebook\n\* `text` - text'
+                                "Attachment kind. Entity types carry `id` (+ optional `name`); `text` and `instructions` carry `value`. `instructions` is the caller's own guidance and renders into the trusted context block; every other kind renders into the untrusted block, which tells the agent to read it as data.\n\n\* `action` - action\n\* `dashboard` - dashboard\n\* `error_tracking_issue` - error_tracking_issue\n\* `evaluation` - evaluation\n\* `event` - event\n\* `insight` - insight\n\* `instructions` - instructions\n\* `notebook` - notebook\n\* `text` - text"
                             ),
                         id: zod
                             .unknown()
@@ -120,7 +121,10 @@ export const ConversationsOpenCreateBody = /* @__PURE__ */ zod
                             .string()
                             .optional()
                             .describe('Optional human-readable label rendered in the context block.'),
-                        value: zod.string().optional().describe('Free-text content. Only for `text` attachments.'),
+                        value: zod
+                            .string()
+                            .optional()
+                            .describe('Free-text content. Only for `text` and `instructions` attachments.'),
                     })
                     .describe(
                         'One typed attachment carried by a sandbox message.\n\nDEPRECATED PATH — do not extend. This structured `attached_context` (and its server-side wrap in\n`context_wrapper.py`) exists only for the legacy Max conversations bridge and is removed with it;\nthe live path wraps context client-side (`products\/posthog_ai\/frontend\/utils\/posthogContextBlock.ts`).'
@@ -153,6 +157,61 @@ export const ConversationsQueueCreateBody = /* @__PURE__ */ zod.looseObject({})
 export const ConversationsQueuePartialUpdateBody = /* @__PURE__ */ zod.looseObject({})
 
 export const ConversationsQueueClearCreateBody = /* @__PURE__ */ zod.looseObject({})
+
+export const coreMemoryCreateBodyTextMax = 10000
+
+export const CoreMemoryCreateBody = /* @__PURE__ */ zod.object({
+    text: zod
+        .string()
+        .max(coreMemoryCreateBodyTextMax)
+        .describe('What Max remembers about the project, as free-form text.'),
+    scraping_status: zod
+        .union([
+            zod
+                .enum(['pending', 'completed', 'skipped'])
+                .describe('\* `pending` - Pending\n\* `completed` - Completed\n\* `skipped` - Skipped'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional(),
+})
+
+export const coreMemoryUpdateBodyTextMax = 10000
+
+export const CoreMemoryUpdateBody = /* @__PURE__ */ zod.object({
+    text: zod
+        .string()
+        .max(coreMemoryUpdateBodyTextMax)
+        .describe('What Max remembers about the project, as free-form text.'),
+    scraping_status: zod
+        .union([
+            zod
+                .enum(['pending', 'completed', 'skipped'])
+                .describe('\* `pending` - Pending\n\* `completed` - Completed\n\* `skipped` - Skipped'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional(),
+})
+
+export const coreMemoryPartialUpdateBodyTextMax = 10000
+
+export const CoreMemoryPartialUpdateBody = /* @__PURE__ */ zod.object({
+    text: zod
+        .string()
+        .max(coreMemoryPartialUpdateBodyTextMax)
+        .optional()
+        .describe('What Max remembers about the project, as free-form text.'),
+    scraping_status: zod
+        .union([
+            zod
+                .enum(['pending', 'completed', 'skipped'])
+                .describe('\* `pending` - Pending\n\* `completed` - Completed\n\* `skipped` - Skipped'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional(),
+})
 
 /**
  * Invoke an MCP tool by name.
