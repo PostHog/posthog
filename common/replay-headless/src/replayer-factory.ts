@@ -36,6 +36,9 @@ export interface ReplayerSetup {
     segments: RecordingSegment[]
     firstTimestamp: number
     initialURL: string
+    // The listeners this setup registers outside the replayer. They go with the wrapper today, so
+    // nothing leaks without calling it, but a teardown path has to run it.
+    dispose: () => void
 }
 
 function buildViewportLookup(events: ViewportEvent[]): (timestamp: number) => ViewportResolution | undefined {
@@ -123,7 +126,7 @@ export async function createReplayer(
         speed: config.playbackSpeed,
     })
 
-    resetClickIndicatorAfterFlash(replayer)
+    const disposeClickIndicator = resetClickIndicatorAfterFlash(replayer)
 
     let initialURL = ''
     for (const e of events) {
@@ -134,5 +137,5 @@ export async function createReplayer(
         }
     }
 
-    return { replayer, events, segments, firstTimestamp, initialURL }
+    return { replayer, events, segments, firstTimestamp, initialURL, dispose: disposeClickIndicator }
 }

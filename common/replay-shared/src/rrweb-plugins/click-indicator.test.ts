@@ -3,7 +3,7 @@
  */
 import type { Replayer } from 'posthog-js/rrweb'
 
-import { resetClickIndicatorAfterFlash } from './index'
+import { resetClickIndicatorAfterFlash } from './click-indicator'
 
 describe('resetClickIndicatorAfterFlash', () => {
     function mountCursor(): { replayer: Replayer; cursor: HTMLElement } {

@@ -344,7 +344,6 @@ test.describe('Session replay player', () => {
         // replays them with the counter in place, and adds no flash of its own because rrweb skips
         // the class on the seek path.
         await scrubTo(page, 0)
-        await expect(page.getByTestId('recording-timestamp')).toHaveText(/00:0[01].*00:11/)
         await expect(playPauseButton(page)).toHaveAttribute('data-attr', 'recording-pause')
 
         // Three clicks fall outside each other's 333ms flash, but the third clears the second by

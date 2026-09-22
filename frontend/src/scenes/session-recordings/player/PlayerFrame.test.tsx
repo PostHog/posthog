@@ -14,9 +14,18 @@ import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 describe('PlayerFrame', () => {
     const logicProps = { sessionRecordingId: '1', playerKey: 'player-frame-test' }
 
+    let unmountPlayerSettings: () => void
+
     beforeEach(() => {
         setupSessionRecordingTest()
-        playerSettingsLogic.mount()
+        unmountPlayerSettings = playerSettingsLogic.mount()
+    })
+
+    afterEach(() => {
+        // speed is a persisted reducer, and initKeaTests leaves localStorage alone, so a speed set
+        // here would become the starting speed of every test that runs after it.
+        playerSettingsLogic.actions.setSpeed(1)
+        unmountPlayerSettings()
     })
 
     function renderPlayerFrame(): HTMLIFrameElement {

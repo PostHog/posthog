@@ -272,7 +272,11 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             }
         },
         ['**/exporter']: (_, searchParams) => {
-            const playerSpeed = Number(searchParams.playerSpeed ?? 1)
+            // A shared exporter URL can carry any playerSpeed, and the value reaches rrweb, the seek
+            // jump distance and a persisted reducer, so an unusable one breaks playback until
+            // storage is cleared.
+            const parsed = Number(searchParams.playerSpeed ?? 1)
+            const playerSpeed = Number.isFinite(parsed) && parsed > 0 ? parsed : 1
             if (values.speed !== playerSpeed) {
                 actions.setSpeed(playerSpeed)
             }
