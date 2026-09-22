@@ -549,6 +549,7 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                 [{"key": "$feature/some-feature", "type": "event", "operator": "exact", "value": ["true"]}],
                 team_id=ateam.pk,
                 values=values,
+                native_events_source=True,
             )
             batches: list[pa.RecordBatch] = await database_sync_to_async(
                 lambda: list(

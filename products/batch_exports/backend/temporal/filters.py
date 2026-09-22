@@ -20,6 +20,7 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import Team
 
+from products.batch_exports.backend.hogql_source import native_event_property_chain
 from products.batch_exports.backend.service import SUPPORTED_FILTER_TYPES
 
 
@@ -29,6 +30,15 @@ class UpdatePropertiesToPersonProperties(TraversingVisitor):
     def visit_field(self, node: ast.Field):
         if node.chain and node.chain[0] == "properties":
             node.chain = ["events", "poe", "properties", *node.chain[1:]]
+
+
+class UpdatePropertiesToNativePaths(TraversingVisitor):
+    """Move event property paths to where the native events source's JSON keeps them."""
+
+    def visit_field(self, node: ast.Field):
+        index = 1 if node.chain and node.chain[0] == "events" else 0
+        if node.chain[index : index + 1] == ["properties"]:
+            node.chain[index + 1 :] = native_event_property_chain(node.chain[index + 1 :])
 
 
 class InvalidFilterError(Exception):
@@ -48,6 +58,8 @@ def compose_filters_clause(
     filters: list[dict[str, str | list[str] | None]],
     team_id: int,
     values: dict[str, str] | None = None,
+    *,
+    native_events_source: bool = False,
 ) -> tuple[str, dict[str, str]]:
     """Compose a clause of matching filters for a batch exports query.
 
@@ -58,6 +70,8 @@ def compose_filters_clause(
         filters: A list of serialized HogQL filters.
         team_id: Team we are running for.
         values: HogQL placeholder values already in use.
+        native_events_source: Whether the clause filters the native events source, whose
+            `properties` JSON keeps `$feature/<key>` flags under `$feature_flags`.
 
     Returns:
         A printed string with the ClickHouse SQL clause, and a dictionary
@@ -116,6 +130,8 @@ def compose_filters_clause(
                 raise TypeError(f"Unhandled filter type: '{filter_type}'")
 
     and_expr = ast.And(exprs=exprs)
+    if native_events_source:
+        UpdatePropertiesToNativePaths().visit(and_expr)
     # This query only supports events at the moment.
     # TODO: Extend for other models that also wish to implement property filtering.
     select_query = ast.SelectQuery(

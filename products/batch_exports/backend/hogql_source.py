@@ -118,6 +118,18 @@ def validate_hogql_query_for_batch_export(hogql_query: str, team: "Team") -> Non
         raise UnsupportedHogQLQueryError(f"Invalid HogQL query: {e}") from e
 
 
+def native_event_property_chain(property_chain: list[str | int]) -> list[str | int]:
+    """The path an event property has in the native source's JSON.
+
+    The native table keeps `$feature/<key>` flags in the `$feature_flags` map, so a `$feature/<key>` read must
+    become `$feature_flags.<key>` there. Every other property keeps its path.
+    """
+    key = property_chain[0] if property_chain else None
+    if isinstance(key, str) and key.startswith("$feature/"):
+        return ["$feature_flags", key.removeprefix("$feature/"), *property_chain[1:]]
+    return list(property_chain)
+
+
 class SerializedExportProperties(CloningVisitor):
     """Rebind event fields while preserving property access restrictions."""
 
@@ -165,11 +177,8 @@ class SerializedExportProperties(CloningVisitor):
                 for key in restrictions
             ):
                 return ast.Constant(value=None)
-        if self.use_native_schema and is_event_property and property_chain:
-            key = property_chain[0]
-            if isinstance(key, str) and key.startswith("$feature/"):
-                # The native table keeps flags in the $feature_flags map rather than as $feature/<key> paths.
-                node.chain[index + 1 : index + 2] = ["$feature_flags", key.removeprefix("$feature/")]
+        if self.use_native_schema and is_event_property:
+            node.chain[index + 1 :] = native_event_property_chain(property_chain)
         return node
 
 

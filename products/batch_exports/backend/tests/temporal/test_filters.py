@@ -99,7 +99,6 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
         "hogql0",
     ],
 )
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
 def test_compose_filters_clause(
     filters: list[dict[str, typing.Any]],
     expected_clause: str,
@@ -124,6 +123,30 @@ def test_compose_filters_clause_uses_legacy_events_schema(settings, ateam):
         == """ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)"""
     )
     assert result_values == {"hogql_val_0": "$browser", "hogql_val_1": "Chrome"}
+
+
+def test_compose_filters_clause_reads_flags_from_the_native_map(ateam):
+    result_clause, result_values = compose_filters_clause(
+        [
+            {"key": "$feature/some-feature", "type": "event", "operator": "exact", "value": ["true"]},
+            {"key": "properties.`$feature/other-feature` = 'control'", "type": "hogql"},
+        ],
+        team_id=ateam.id,
+        native_events_source=True,
+    )
+
+    assert result_clause == (
+        """and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), %(hogql_val_2)s), 0), """
+        """ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_3)s, %(hogql_val_4)s), ''), 'null'), '^"|"$', ''), %(hogql_val_5)s), 0))"""
+    )
+    assert result_values == {
+        "hogql_val_0": "$feature_flags",
+        "hogql_val_1": "some-feature",
+        "hogql_val_2": "true",
+        "hogql_val_3": "$feature_flags",
+        "hogql_val_4": "other-feature",
+        "hogql_val_5": "control",
+    }
 
 
 @pytest.mark.parametrize(
