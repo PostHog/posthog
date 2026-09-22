@@ -69,6 +69,7 @@ export function useArchiveShortcut({
   useHotkeys(
     SHORTCUTS.ARCHIVE_TASK,
     (event) => {
+      if (event.repeat) return;
       if (!isActiveTarget(targetId)) return;
       event.preventDefault();
       onArchive?.();

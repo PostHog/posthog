@@ -484,15 +484,6 @@ export function TaskRowContextMenu({
   const [open, setOpen] = useState(false);
   const holdSidebarPeek = useHoldSidebarPeek();
   const archiveFromMenu = bulk?.onArchive ?? menu.onArchive;
-  const handleArchiveShortcut = useCallback(() => {
-    setOpen(false);
-    archiveFromMenu?.();
-  }, [archiveFromMenu]);
-  useArchiveShortcut({
-    onArchive: handleArchiveShortcut,
-    enabled: open && archiveFromMenu !== undefined,
-    priority: "active-menu",
-  });
   const handleOpenChange = useCallback(
     (open: boolean): void => {
       setOpen(open);
@@ -503,6 +494,15 @@ export function TaskRowContextMenu({
     },
     [holdSidebarPeek, onOpenChange],
   );
+  const handleArchiveShortcut = useCallback(() => {
+    handleOpenChange(false);
+    archiveFromMenu?.();
+  }, [archiveFromMenu, handleOpenChange]);
+  useArchiveShortcut({
+    onArchive: handleArchiveShortcut,
+    enabled: open && archiveFromMenu !== undefined,
+    priority: "active-menu",
+  });
 
   return (
     <ContextMenu open={open} onOpenChange={handleOpenChange}>

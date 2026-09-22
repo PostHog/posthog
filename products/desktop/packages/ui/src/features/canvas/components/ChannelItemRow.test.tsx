@@ -580,6 +580,16 @@ describe("ChannelItemRow", () => {
     );
     expect(archiveVisibleTask).not.toHaveBeenCalled();
 
+    fireEvent.keyDown(document, {
+      key: "a",
+      code: "KeyA",
+      ctrlKey: true,
+      shiftKey: true,
+      repeat: true,
+    });
+
+    expect(archiveVisibleTask).not.toHaveBeenCalled();
+
     fireEvent.keyUp(document, {
       key: "a",
       code: "KeyA",
@@ -643,9 +653,15 @@ describe("ChannelItemRow", () => {
 
       expect(useSidebarPeekStore.getState().peek).toBe(true);
 
-      fireEvent.keyDown(document, { key: "Escape" });
+      fireEvent.keyDown(document, {
+        key: "a",
+        code: "KeyA",
+        ctrlKey: true,
+        shiftKey: true,
+      });
       act(() => vi.runAllTimers());
 
+      expect(actions.archive).toHaveBeenCalledOnce();
       expect(useSidebarPeekStore.getState().peek).toBe(false);
     } finally {
       cleanup();
