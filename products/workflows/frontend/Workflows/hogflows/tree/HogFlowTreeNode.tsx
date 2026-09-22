@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 import type { DragEvent } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
@@ -54,6 +54,9 @@ export function HogFlowTreeNode({
         showAllBranches = false,
     } = viewStates[occurrenceKey] ?? {}
     const nodeRef = useRef<HTMLDivElement>(null)
+    const branchContentRef = useRef<HTMLDivElement>(null)
+    const branchToggleRef = useRef<HTMLButtonElement>(null)
+    const pendingBranchToggle = useRef(false)
     const conditionBranches = node.branches.filter((branch) => branch.edge.type === 'branch')
     const visibleBranches = showAllBranches
         ? node.branches
@@ -62,6 +65,8 @@ export function HogFlowTreeNode({
               ...node.branches.filter((branch) => branch.edge.type === 'continue'),
           ]
     const hiddenBranchCount = node.branches.length - visibleBranches.length
+    const visibleConditionCount = showAllBranches ? conditionBranches.length : WORKFLOW_TREE_BRANCH_LIMIT
+    const firstHiddenBranchIndex = conditionBranches[WORKFLOW_TREE_BRANCH_LIMIT]?.edge.index
     const joinEdge = node.joinEdges[0]
     const branchNoun = node.action.type === 'conditional_branch' ? 'conditions' : 'paths'
 
@@ -70,6 +75,20 @@ export function HogFlowTreeNode({
         next.has(branchKey) ? next.delete(branchKey) : next.add(branchKey)
         onViewStateChange(occurrenceKey, { collapsedBranches: next })
     }
+
+    useEffect(() => {
+        if (!pendingBranchToggle.current) {
+            return
+        }
+        pendingBranchToggle.current = false
+        const target = showAllBranches
+            ? branchContentRef.current?.querySelector<HTMLButtonElement>(
+                  `:scope > [data-workflow-branch-index="${firstHiddenBranchIndex}"] [data-attr="workflow-tree-select-branch"]`
+              )
+            : branchToggleRef.current
+        target?.focus({ preventScroll: true })
+        target?.scrollIntoView({ block: showAllBranches ? 'start' : 'nearest' })
+    }, [showAllBranches, firstHiddenBranchIndex])
 
     useEffect(() => {
         if (selectedBranch?.actionId === node.action.id) {
@@ -128,69 +147,84 @@ export function HogFlowTreeNode({
                         {step}
                         {branchesOpen && (
                             <div
+                                ref={branchContentRef}
                                 className="flex min-w-0 flex-col gap-3 pt-3"
                                 data-workflow-tree-branch-content={node.action.id}
                             >
-                                {conditionBranches.length > WORKFLOW_TREE_BRANCH_LIMIT && (
-                                    <LemonButton
-                                        type="secondary"
-                                        size="xsmall"
-                                        className="self-start"
-                                        onClick={() =>
-                                            onViewStateChange(occurrenceKey, { showAllBranches: !showAllBranches })
-                                        }
-                                        data-attr="workflow-tree-toggle-more-branches"
-                                    >
-                                        {showAllBranches
-                                            ? 'Show fewer branches'
-                                            : `Show ${hiddenBranchCount} more branches`}
-                                    </LemonButton>
-                                )}
                                 {visibleBranches.map((branch, index) => {
                                     const branchKey = `${branch.edge.from}-${branch.edge.type}-${branch.edge.index ?? 'continue'}`
                                     return (
-                                        <HogFlowTreeBranch
-                                            key={branchKey}
-                                            node={node}
-                                            branch={branch}
-                                            index={index}
-                                            isLast={index === visibleBranches.length - 1}
-                                            branchCollapsed={collapsedBranches.has(branchKey)}
-                                            onToggleCollapsed={() => toggleBranchCollapsed(branchKey)}
-                                            onFocusBranch={onFocusBranch}
-                                            onSelectContinuation={onSelectContinuation}
-                                            path={path}
-                                        >
-                                            {branch.sequence.nodes.map((childNode, childIndex) => (
-                                                <HogFlowTreeNode
-                                                    key={childNode.action.id}
-                                                    node={childNode}
-                                                    activeDropzones={activeDropzones}
-                                                    draggedActionId={draggedActionId}
-                                                    draggedActionIdRef={draggedActionIdRef}
-                                                    onDragStart={onDragStart}
-                                                    onDragEnd={onDragEnd}
-                                                    showIncomingConnector={childIndex > 0}
-                                                    onFocusBranch={onFocusBranch}
-                                                    onSelectContinuation={onSelectContinuation}
-                                                    path={[...path, branch.edge]}
-                                                    viewStates={viewStates}
-                                                    onViewStateChange={onViewStateChange}
-                                                />
-                                            ))}
-                                            {branch.sequence.trailingEdge && (
-                                                <HogFlowTreeDropzone
-                                                    active={activeDropzones}
-                                                    draggedActionId={draggedActionId}
-                                                    draggedActionIdRef={draggedActionIdRef}
-                                                    onDragEnd={onDragEnd}
-                                                    edge={branch.sequence.trailingEdge}
-                                                    showConnector={false}
-                                                    alwaysVisible={branch.sequence.nodes.length === 0}
-                                                    insertionLabel={`Add step to ${branch.label}`}
-                                                />
-                                            )}
-                                        </HogFlowTreeBranch>
+                                        <Fragment key={branchKey}>
+                                            <HogFlowTreeBranch
+                                                node={node}
+                                                branch={branch}
+                                                index={index}
+                                                isLast={index === visibleBranches.length - 1}
+                                                branchCollapsed={collapsedBranches.has(branchKey)}
+                                                onToggleCollapsed={() => toggleBranchCollapsed(branchKey)}
+                                                onFocusBranch={onFocusBranch}
+                                                onSelectContinuation={onSelectContinuation}
+                                                path={path}
+                                            >
+                                                {branch.sequence.nodes.map((childNode, childIndex) => (
+                                                    <HogFlowTreeNode
+                                                        key={childNode.action.id}
+                                                        node={childNode}
+                                                        activeDropzones={activeDropzones}
+                                                        draggedActionId={draggedActionId}
+                                                        draggedActionIdRef={draggedActionIdRef}
+                                                        onDragStart={onDragStart}
+                                                        onDragEnd={onDragEnd}
+                                                        showIncomingConnector={childIndex > 0}
+                                                        onFocusBranch={onFocusBranch}
+                                                        onSelectContinuation={onSelectContinuation}
+                                                        path={[...path, branch.edge]}
+                                                        viewStates={viewStates}
+                                                        onViewStateChange={onViewStateChange}
+                                                    />
+                                                ))}
+                                                {branch.sequence.trailingEdge && (
+                                                    <HogFlowTreeDropzone
+                                                        active={activeDropzones}
+                                                        draggedActionId={draggedActionId}
+                                                        draggedActionIdRef={draggedActionIdRef}
+                                                        onDragEnd={onDragEnd}
+                                                        edge={branch.sequence.trailingEdge}
+                                                        showConnector={false}
+                                                        alwaysVisible={branch.sequence.nodes.length === 0}
+                                                        insertionLabel={`Add step to ${branch.label}`}
+                                                    />
+                                                )}
+                                            </HogFlowTreeBranch>
+                                            {conditionBranches.length > WORKFLOW_TREE_BRANCH_LIMIT &&
+                                                index === visibleConditionCount - 1 && (
+                                                    <div className="relative ps-8">
+                                                        {index < visibleBranches.length - 1 && (
+                                                            <span
+                                                                aria-hidden="true"
+                                                                className="pointer-events-none absolute start-2 -top-3 -bottom-3 border-s-2 border-[var(--border-bold-3000)]"
+                                                            />
+                                                        )}
+                                                        <LemonButton
+                                                            ref={branchToggleRef}
+                                                            type="secondary"
+                                                            size="xsmall"
+                                                            aria-expanded={showAllBranches}
+                                                            onClick={() => {
+                                                                pendingBranchToggle.current = true
+                                                                onViewStateChange(occurrenceKey, {
+                                                                    showAllBranches: !showAllBranches,
+                                                                })
+                                                            }}
+                                                            data-attr="workflow-tree-toggle-more-branches"
+                                                        >
+                                                            {showAllBranches
+                                                                ? 'Show fewer branches'
+                                                                : `Show ${hiddenBranchCount} more branches`}
+                                                        </LemonButton>
+                                                    </div>
+                                                )}
+                                        </Fragment>
                                     )
                                 })}
                             </div>
