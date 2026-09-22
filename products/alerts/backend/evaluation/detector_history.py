@@ -92,7 +92,8 @@ def detector_rows_from_history(
             now=now,
         )
 
-    cached = _load_cached(team_id, alert.id, fingerprint, matched, now)
+    anchor = _hour_floor(now, team)
+    cached = _load_cached(team_id, alert.id, fingerprint, matched, anchor)
     if not cached or len(cached) < min_samples:
         # Even a perfect tail scan could not fill the detector's window from here.
         return rebuild()
@@ -101,12 +102,12 @@ def detector_rows_from_history(
     if scan_hours >= matched.window_hours:
         return rebuild()
 
-    scanned_rows, _ = run_query(query_override=matched.narrowed_to(scan_hours))
+    scanned_rows, _ = run_query(query_override=matched.narrowed_to(scan_hours, at=now, tz=team.timezone))
     scanned = _parse_rows(scanned_rows, team)
     if scanned is None:
         return rebuild()
 
-    authoritative_from = _hour_floor(now) - timedelta(hours=scan_hours)
+    authoritative_from = anchor - timedelta(hours=scan_hours)
     _write(
         team_id=team_id,
         alert_id=alert.id,
@@ -122,7 +123,7 @@ def detector_rows_from_history(
             del merged[bucket]
     merged.update(scanned)
 
-    rows = _assemble(merged, matched, now)
+    rows = _assemble(merged, matched, anchor)
     if len(rows) < min_samples:
         return rebuild()
     return rows, matched.column_names
@@ -172,7 +173,7 @@ def _fingerprint(matched: DetectorSeriesQuery, config: HogQLAlertConfig, team: T
 
 
 def _load_cached(
-    team_id: int, alert_id: Any, fingerprint: str, matched: DetectorSeriesQuery, now: datetime
+    team_id: int, alert_id: Any, fingerprint: str, matched: DetectorSeriesQuery, anchor: datetime
 ) -> dict[datetime, float]:
     """Cached buckets still inside the window, at most ``window_hours`` of them, newest first.
 
@@ -183,21 +184,22 @@ def _load_cached(
     """
     rows = (
         _points(team_id, alert_id)
-        .filter(fingerprint=fingerprint, bucket__gte=_hour_floor(now) - timedelta(hours=matched.window_hours))
+        .filter(fingerprint=fingerprint, bucket__gte=anchor - timedelta(hours=matched.window_hours))
         .order_by("-bucket")
         .values_list("bucket", "value")[: matched.window_hours]
     )
     return dict(rows)
 
 
-def _hour_floor(now: datetime) -> datetime:
-    """The hour the query's toStartOfHour(now()) bounds anchor on, from the app clock.
+def _hour_floor(now: datetime, team: Team) -> datetime:
+    """The hour the query's toStartOfHour(now()) bounds anchor on, in the team timezone.
 
-    The two clocks read the same hour except when a check straddles an hour boundary between
-    them. The app clock trailing costs one extra deleted or dropped bucket, which the next scan
-    re-reads; it never keeps a bucket the query dropped.
+    The narrowed query pins its clock to the same ``now``, so the scan and the cache bookkeeping
+    share one anchor by construction. HogQL evaluates now() in the team timezone, where a
+    fractional-hour offset shifts the hour boundary off the UTC one.
     """
-    return now.replace(minute=0, second=0, microsecond=0)
+    local = now.astimezone(team.timezone_info)
+    return local.replace(minute=0, second=0, microsecond=0).astimezone(UTC)
 
 
 def _scan_hours(cached: dict[datetime, float], now: datetime) -> int:
@@ -235,11 +237,11 @@ def _to_utc(bucket: datetime, team: Team) -> datetime:
     return bucket.astimezone(UTC)
 
 
-def _assemble(merged: _Buckets, matched: DetectorSeriesQuery, now: datetime) -> list[_Row]:
+def _assemble(merged: _Buckets, matched: DetectorSeriesQuery, anchor: datetime) -> list[_Row]:
     in_window = [
         (bucket, cell, value)
         for bucket, (cell, value) in merged.items()
-        if bucket >= _hour_floor(now) - timedelta(hours=matched.window_hours)
+        if bucket >= anchor - timedelta(hours=matched.window_hours)
     ]
     in_window.sort(key=lambda item: item[0])
     return [[cell, value] for _, cell, value in in_window[-matched.window_hours :]]
@@ -300,7 +302,7 @@ def _rebuild(
             alert_id=alert.id,
             fingerprint=fingerprint,
             scanned=parsed,
-            authoritative_from=_hour_floor(now) - timedelta(hours=matched.window_hours),
+            authoritative_from=_hour_floor(now, alert.team) - timedelta(hours=matched.window_hours),
             prune_before=now - timedelta(hours=matched.window_hours + PRUNE_EXTRA_HOURS),
         )
     return rows, column_names or matched.column_names

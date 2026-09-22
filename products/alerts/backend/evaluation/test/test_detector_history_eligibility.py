@@ -1,4 +1,5 @@
 from copy import deepcopy
+from datetime import UTC, datetime
 
 import pytest
 
@@ -107,7 +108,8 @@ def test_narrowing_tightens_the_lower_bound_and_leaves_the_saved_query_alone() -
     matched = match_detector_series_query(query, column="value")
     assert matched is not None
 
-    narrowed = matched.narrowed_to(3)
+    at = datetime(2026, 9, 22, 12, 44, 11, tzinfo=UTC)
+    narrowed = matched.narrowed_to(3, at=at, tz="UTC")
     assert query == original
     assert narrowed["display"] == original["display"]
     assert narrowed["source"]["filters"] == original["source"]["filters"]
@@ -115,12 +117,24 @@ def test_narrowing_tightens_the_lower_bound_and_leaves_the_saved_query_alone() -
     assert "toIntervalHour(3)" in narrowed_sql
     assert "toIntervalHour(48)" in narrowed_sql
     assert "signup" in narrowed_sql
+    # The clock is pinned, so the warehouse cannot evaluate the bounds at a different hour.
+    assert "now()" not in narrowed_sql
+    assert "toDateTime('2026-09-22 12:44:11', 'UTC')" in narrowed_sql
     # Narrowing twice must not accumulate bounds on a shared tree.
-    assert matched.narrowed_to(3)["source"]["query"] == narrowed_sql
+    assert matched.narrowed_to(3, at=at, tz="UTC")["source"]["query"] == narrowed_sql
+
+
+def test_narrowing_renders_the_anchor_in_the_team_timezone() -> None:
+    matched = match_detector_series_query(_query(), column="value")
+    assert matched is not None
+    at = datetime(2026, 9, 22, 12, 44, 11, tzinfo=UTC)
+    narrowed_sql = matched.narrowed_to(3, at=at, tz="Asia/Kolkata")["query"]
+    assert "toDateTime('2026-09-22 18:14:11', 'Asia/Kolkata')" in narrowed_sql
+    assert "now()" not in narrowed_sql
 
 
 def test_narrowing_refuses_a_window_it_would_not_shorten() -> None:
     matched = match_detector_series_query(_query(), column="value")
     assert matched is not None
     with pytest.raises(ValueError):
-        matched.narrowed_to(48)
+        matched.narrowed_to(48, at=datetime(2026, 9, 22, 12, 0, 0, tzinfo=UTC), tz="UTC")
