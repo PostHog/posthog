@@ -38,8 +38,8 @@ describe('filter-runtime', () => {
         // Resolvable, but the closure it resolves to cannot be invoked. Calling arrayMap by name is
         // unaffected, because a call is not read as a global.
         expect(callables).not.toContain('arrayMap')
-        expect(functions).toEqual(expect.arrayContaining(['lower', 'arrayMap', 'sortableSemver']))
-        expect(functions).not.toContain('sleep')
+        expect(functions).toEqual(expect.objectContaining({ lower: [1, 1], arrayMap: [2, 2], sortableSemver: [1, 1] }))
+        expect(functions).not.toHaveProperty('sleep')
     })
 
     it('agrees with what the VM does when asked', async () => {
@@ -77,7 +77,7 @@ describe('filter-runtime', () => {
             return String(error ?? execResult?.error ?? '')
         }
         const notCallable: string[] = []
-        for (const name of describeFilterRuntime().functions) {
+        for (const name of Object.keys(describeFilterRuntime().functions)) {
             const message = await calledDirectly(name)
             if (contractErrors.some((error) => message.includes(error))) {
                 notCallable.push(`${name}: ${message}`)

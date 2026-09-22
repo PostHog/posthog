@@ -369,7 +369,9 @@ _RUNTIME = json.loads((Path(__file__).parent / "filter_globals.json").read_text(
 # Generated from the runtime by `pnpm --filter=@posthog/nodejs run build:filter-globals`.
 FILTER_GLOBALS: set[str] = set(_RUNTIME["roots"]) | set(_RUNTIME["callables"])
 # The Python compiler knows its own standard library, which is not the one the Node VM runs.
-FILTER_FUNCTIONS: set[str] = set(_RUNTIME["functions"])
+FILTER_FUNCTIONS: dict[str, tuple[int, Optional[int]]] = {
+    name: (arity[0], arity[1]) for name, arity in _RUNTIME["functions"].items()
+}
 
 _UNKNOWN_GLOBAL = "Unknown global variable: "
 

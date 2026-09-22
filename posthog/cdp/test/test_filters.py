@@ -210,6 +210,17 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             assert response.get("bytecode_error"), key
             assert key.split("(")[0] in response["bytecode_error"]
 
+    def test_filters_reject_a_call_with_the_wrong_number_of_arguments(self):
+        # Valid HogQL for a query, where dateAdd takes two arguments, and a run-time error in the VM,
+        # where it takes three.
+        for key, expected in (
+            ("lower() = 'a'", "`lower` takes exactly 1 arguments, got 0"),
+            ("inCohort(1)", "`inCohort` takes exactly 2 arguments, got 1"),
+            ("dateAdd(toIntervalDay(1), timestamp) > now()", "`dateAdd` takes exactly 3 arguments, got 2"),
+        ):
+            response = compile_filters_bytecode(filters={"properties": [{"type": "hogql", "key": key}]}, team=self.team)
+            assert expected in (response.get("bytecode_error") or ""), key
+
     def test_filters_allow_group_globals(self):
         response = compile_filters_bytecode(
             filters={

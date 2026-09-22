@@ -13,8 +13,11 @@ export type FilterRuntime = {
     /** Standard-library names the VM hands back as values and can then invoke, so a filter can pass
      * them as callbacks. */
     callables: string[]
-    /** Every standard-library name a filter can call directly, the bytecode-implemented ones included. */
-    functions: string[]
+    /**
+     * Every standard-library name a filter can call directly, the bytecode-implemented ones included, with
+     * the argument count the VM enforces as [min, max]. A null max means unbounded.
+     */
+    functions: Record<string, [number, number | null]>
 }
 
 // These stand for the callers of compile_filters_bytecode: hog function filters, evaluated by the two
@@ -83,9 +86,16 @@ export function describeFilterRuntime(): FilterRuntime {
     // async steps, so it must not be offered as a callable.
     const notAsync = (name: string): boolean => !Object.hasOwn(ASYNC_STL, name)
     const callables = Object.keys(STL).filter(notAsync).sort()
-    const functions = [...new Set([...Object.keys(STL), ...Object.keys(BYTECODE_STL)])].filter(notAsync).sort()
+    const functions: Record<string, [number, number | null]> = {}
+    for (const name of Object.keys(STL).filter(notAsync).sort()) {
+        functions[name] = [STL[name].minArgs ?? 0, STL[name].maxArgs ?? null]
+    }
+    for (const name of Object.keys(BYTECODE_STL).filter(notAsync).sort()) {
+        // The VM checks a bytecode function for exactly its declared parameters.
+        functions[name] ??= [BYTECODE_STL[name][0].length, BYTECODE_STL[name][0].length]
+    }
 
-    if (fromInvocation.length < MIN_ROOTS || callables.length < MIN_CALLABLES) {
+    if (fromInvocation.length < MIN_ROOTS || Object.keys(functions).length < MIN_CALLABLES) {
         throw new Error(
             `Suspiciously small runtime description: ${fromInvocation.length} roots, ${callables.length} callables`
         )
@@ -102,7 +112,8 @@ export function renderFilterGlobalsFile(runtime: FilterRuntime): string {
                     'roots are the data globals the CDP filter runtime builds for a hog function. callables are ' +
                     'the standard-library names the VM hands back as values and can then invoke, so they are the ' +
                     'ones a filter can pass as a callback. functions are every standard-library name a filter can ' +
-                    'call directly. Django reads this to refuse a filter the runtime could not evaluate.',
+                    'call directly, with the argument count the VM enforces as [min, max]. Django reads this to ' +
+                    'refuse a filter the runtime could not evaluate.',
                 roots: runtime.roots,
                 callables: runtime.callables,
                 functions: runtime.functions,

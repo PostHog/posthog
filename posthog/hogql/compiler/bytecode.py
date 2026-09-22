@@ -454,6 +454,26 @@ class BytecodeCompiler(Visitor):
             return name in self.context.allowed_functions
         return name in STL or name in BYTECODE_STL
 
+    def _check_call_arity(self, node: ast.Call, arg_count: int) -> None:
+        # The VM rejects a wrong argument count at run time, so a caller that declares its functions
+        # gets the same check here, where the person writing the expression can see it.
+        if self.context.allowed_functions is None or node.name not in self.context.allowed_functions:
+            return
+        min_args, max_args = self.context.allowed_functions[node.name]
+        if min_args <= arg_count and (max_args is None or arg_count <= max_args):
+            return
+        if max_args is None:
+            expected = f"at least {min_args}"
+        elif min_args == max_args:
+            expected = f"exactly {min_args}"
+        else:
+            expected = f"{min_args} to {max_args}"
+        self.context.add_error(
+            start=node.start,
+            end=node.end,
+            message=f"Hog function `{node.name}` takes {expected} arguments, got {arg_count}",
+        )
+
     def visit_call(self, node: ast.Call):
         if node.name == "not" and len(node.args) == 1:
             return [*self.visit(node.args[0]), Operation.NOT]
@@ -547,7 +567,7 @@ class BytecodeCompiler(Visitor):
                         start=node.start, end=node.end, message="Global variable: " + str(node.name)
                     )
                 elif node.name in self.supported_functions or self._is_known_stl_function(node.name):
-                    pass
+                    self._check_call_arity(node, len(args))
                 else:
                     self.context.add_error(
                         start=node.start, end=node.end, message=f"Hog function `{node.name}` is not implemented"
