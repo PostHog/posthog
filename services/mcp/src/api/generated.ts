@@ -9847,6 +9847,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `used` - used
+     * * `edited` - edited
+     */
+    export type AiDraftHumanOutcomeEnum = typeof AiDraftHumanOutcomeEnum[keyof typeof AiDraftHumanOutcomeEnum];
+
+
+    export const AiDraftHumanOutcomeEnum = {
+      Used: 'used',
+      Edited: 'edited',
+    } as const;
+
+    /**
      * * `good` - good
      * * `bad` - bad
      */
@@ -9877,6 +9889,22 @@ export namespace Schemas {
          * @maxLength 2000
          */
       feedback_text?: string;
+    }
+
+    /**
+     * Payload for recording whether a human adopted an AI draft.
+     */
+    export interface AiHumanOutcomeRequest {
+      /**
+         * ID of the private AI draft being adopted.
+         * @maxLength 200
+         */
+      message_id: string;
+      /** used when the human inserts the draft as-is; edited after they change it in the composer.
+       *
+       * * `used` - used
+       * * `edited` - edited */
+      outcome: AiDraftHumanOutcomeEnum;
     }
 
     /**
@@ -11116,6 +11144,51 @@ export namespace Schemas {
     }
 
     /**
+     * A single bundle file's content, base64-encoded.
+     */
+    export interface ArtifactContent {
+      /** Relative path of the file within the bundle. */
+      path: string;
+      /** File size in bytes. */
+      size_bytes: number;
+      /** SHA-256 hex digest of the file content. */
+      sha256: string;
+      /** File contents, base64-encoded. */
+      content_base64: string;
+    }
+
+    /**
+     * Whether a delete removed an existing file.
+     */
+    export interface ArtifactDeleteResult {
+      /** Relative path targeted for deletion. */
+      path: string;
+      /** True if a file existed and was removed; False if nothing was there. */
+      deleted: boolean;
+    }
+
+    /**
+     * The relative paths present in a training run's bundle.
+     */
+    export interface ArtifactList {
+      /** Relative paths of every file stored under this training run's bundle prefix. */
+      paths: string[];
+      /** Number of files in the bundle. */
+      count: number;
+    }
+
+    /**
+     * Input for fetching or deleting one bundle file by path.
+     */
+    export interface ArtifactPath {
+      /**
+         * Relative path of the file within the bundle, e.g. 'train.py'.
+         * @maxLength 500
+         */
+      path: string;
+    }
+
+    /**
      * * `slack_message` - slack_message
      * * `slack_canvas` - slack_canvas
      * * `document` - document
@@ -11136,6 +11209,19 @@ export namespace Schemas {
       File: 'file',
       GithubPr: 'github_pr',
     } as const;
+
+    /**
+     * Input for uploading one file of a training run's artifact bundle.
+     */
+    export interface ArtifactUpload {
+      /**
+         * Relative path within the bundle, e.g. 'train.py', 'predict.py', 'features.sql', or 'eda/iter-3-gbm.ipynb'. Segments are limited to [A-Za-z0-9_.-]; absolute paths and '..' traversal are rejected.
+         * @maxLength 500
+         */
+      path: string;
+      /** File contents, base64-encoded. Decoded server-side and written to object storage. Max 10 MB decoded. */
+      content_base64: string;
+    }
 
     export interface AsknicelyFeedbackSignalExtra {
       score: string | null;
@@ -11371,6 +11457,40 @@ export namespace Schemas {
       P4: 'P4',
     } as const;
 
+    export type AutoresearchIterationRecipeSnapshotFeatureTransformsItem = { [key: string]: unknown };
+
+    /**
+     * Compact recipe snapshot at time of iteration. Full artifact lives in the model row.
+     */
+    export type AutoresearchIterationRecipeSnapshot = {
+      /** A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id. */
+      feature_sql: string;
+      /**
+         * Transforms the bundle applies to the feature columns; null or absent means none, and the in-process path accepts none.
+         * @nullable
+         */
+      feature_transforms?: AutoresearchIterationRecipeSnapshotFeatureTransformsItem[] | null;
+    };
+
+    /**
+     * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+     * @nullable
+     */
+    export type AutoresearchIterationModelSpecModelParams = { [key: string]: unknown } | null;
+
+    /**
+     * Model class and hyperparameters tried in this iteration.
+     */
+    export type AutoresearchIterationModelSpec = {
+      /** Dotted path of the estimator class. */
+      model_class: string;
+      /**
+         * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+         * @nullable
+         */
+      model_params?: AutoresearchIterationModelSpecModelParams;
+    };
+
     /**
      * * `kept` - Kept
      * * `discarded` - Discarded
@@ -11384,6 +11504,40 @@ export namespace Schemas {
       Discarded: 'discarded',
       Crashed: 'crashed',
     } as const;
+
+    export interface AutoresearchIteration {
+      readonly id: string;
+      pipeline: string;
+      training_run: string;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      iteration_number: number;
+      /** @maxLength 64 */
+      recipe_hash: string;
+      /** Compact recipe snapshot at time of iteration. Full artifact lives in the model row. */
+      recipe_snapshot: AutoresearchIterationRecipeSnapshot;
+      /** Model class and hyperparameters tried in this iteration. */
+      model_spec: AutoresearchIterationModelSpec;
+      /** @nullable */
+      train_score?: number | null;
+      /** @nullable */
+      holdout_score?: number | null;
+      status: AutoresearchIterationStatusEnum;
+      agent_description?: string;
+      /**
+         * Agent's self-assessed confidence 0–1
+         * @nullable
+         */
+      agent_confidence?: number | null;
+      /**
+         * UUID of the steering suggestion this iteration was spawned from, if any.
+         * @nullable
+         */
+      parent_suggestion?: string | null;
+      readonly created_at: string;
+    }
 
     /**
      * Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata.
@@ -11784,6 +11938,80 @@ export namespace Schemas {
     }
 
     /**
+     * * `try_next` - Try next
+     * * `consider` - Consider
+     */
+    export type AutoresearchSuggestionPriorityEnum = typeof AutoresearchSuggestionPriorityEnum[keyof typeof AutoresearchSuggestionPriorityEnum];
+
+
+    export const AutoresearchSuggestionPriorityEnum = {
+      TryNext: 'try_next',
+      Consider: 'consider',
+    } as const;
+
+    /**
+     * * `queued` - Queued
+     * * `picked_up` - Picked up
+     * * `acted_on` - Acted on
+     * * `dismissed` - Dismissed
+     */
+    export type AutoresearchSuggestionStatusEnum = typeof AutoresearchSuggestionStatusEnum[keyof typeof AutoresearchSuggestionStatusEnum];
+
+
+    export const AutoresearchSuggestionStatusEnum = {
+      Queued: 'queued',
+      PickedUp: 'picked_up',
+      ActedOn: 'acted_on',
+      Dismissed: 'dismissed',
+    } as const;
+
+    /**
+     * * `user` - User
+     * * `agent` - Agent
+     */
+    export type AutoresearchSuggestionSourceEnum = typeof AutoresearchSuggestionSourceEnum[keyof typeof AutoresearchSuggestionSourceEnum];
+
+
+    export const AutoresearchSuggestionSourceEnum = {
+      User: 'user',
+      Agent: 'agent',
+    } as const;
+
+    export interface AutoresearchSuggestion {
+      /** Unique UUID of this suggestion. */
+      readonly id: string;
+      /** Pipeline this suggestion targets. */
+      pipeline: string;
+      /** Free-text hypothesis or direction for the agent to explore. */
+      prompt: string;
+      /** 'try_next' instructs the agent to act on this before other iterations; 'consider' is advisory.
+       *
+       * * `try_next` - Try next
+       * * `consider` - Consider */
+      priority?: AutoresearchSuggestionPriorityEnum;
+      /** Lifecycle status: 'queued' (awaiting pickup), 'picked_up' (agent is applying as a constraint), 'acted_on' (agent spawned iterations), 'dismissed' (agent rejected with rationale).
+       *
+       * * `queued` - Queued
+       * * `picked_up` - Picked up
+       * * `acted_on` - Acted on
+       * * `dismissed` - Dismissed */
+      readonly status: AutoresearchSuggestionStatusEnum;
+      /** 'user' for human-submitted suggestions; 'agent' for agent-generated hypotheses.
+       *
+       * * `user` - User
+       * * `agent` - Agent */
+      readonly source: AutoresearchSuggestionSourceEnum;
+      /** Agent's note on how the suggestion was interpreted and acted upon. Populated after pickup. */
+      readonly agent_response: string;
+      /** The user who submitted it; null for an agent-authored suggestion. */
+      readonly created_by: UserBasic | null;
+      /** UUIDs of iterations spawned from this suggestion. */
+      readonly linked_iteration_ids: readonly string[];
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
      * One iteration referenced from a run summary's ladder or dead-ends list.
      */
     export interface TrainingRunSummaryLadderItem {
@@ -11828,6 +12056,25 @@ export namespace Schemas {
     }
 
     /**
+     * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+     * @nullable
+     */
+    export type IterationTrailModelSpecModelParams = { [key: string]: unknown } | null;
+
+    /**
+     * Model class and hyperparameters tried in this iteration.
+     */
+    export type IterationTrailModelSpec = {
+      /** Dotted path of the estimator class. */
+      model_class: string;
+      /**
+         * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+         * @nullable
+         */
+      model_params?: IterationTrailModelSpecModelParams;
+    };
+
+    /**
      * Compact, read-only view of one iteration for the cross-run history feed and the Training tab.
      */
     export interface IterationTrail {
@@ -11856,7 +12103,7 @@ export namespace Schemas {
       /** The agent's one-line rationale for what it tried and why. */
       agent_description?: string;
       /** Model class and hyperparameters tried in this iteration. */
-      model_spec: unknown;
+      model_spec: IterationTrailModelSpec;
     }
 
     export interface AutoresearchTrainingRun {
@@ -20267,40 +20514,80 @@ export namespace Schemas {
       _create_static_person_ids?: string[];
     }
 
-    export type CohortPersonResultProperties = { [key: string]: unknown };
-
-    export type CohortPersonResultMatchedRecordingsItem = { [key: string]: unknown };
+    /**
+     * Minimal serializer for cohort references, read by the person cohorts endpoint.
+     */
+    export interface CohortMinimal {
+      readonly id: number;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      count?: number | null;
+    }
 
     /**
-     * * `person` - person
+     * Marks this actor as a person.
      */
-    export type CohortPersonResultTypeEnum = typeof CohortPersonResultTypeEnum[keyof typeof CohortPersonResultTypeEnum];
+    export type SerializedPersonActorType = typeof SerializedPersonActorType[keyof typeof SerializedPersonActorType];
 
 
-    export const CohortPersonResultTypeEnum = {
+    export const SerializedPersonActorType = {
       Person: 'person',
     } as const;
 
-    export interface CohortPersonResult {
+    /**
+     * The actor's properties.
+     */
+    export type SerializedPersonActorProperties = { [key: string]: unknown };
+
+    export type SerializedPersonActorMatchedRecordingsItem = { [key: string]: unknown };
+
+    export interface SerializedPersonActor {
+      /** The person's UUID, or the group's key. */
       id: string;
-      uuid: string;
-      type: CohortPersonResultTypeEnum;
-      name: string;
-      distinct_ids: string[];
-      properties: CohortPersonResultProperties;
-      /** @nullable */
+      /** The actor's properties. */
+      properties: SerializedPersonActorProperties;
+      /**
+         * When the actor was first seen.
+         * @nullable
+         */
       created_at: string | null;
-      /** @nullable */
-      last_seen_at: string | null;
-      /** @nullable */
-      is_identified: boolean | null;
-      matched_recordings: CohortPersonResultMatchedRecordingsItem[];
-      /** @nullable */
+      /** Recordings that matched the query. Empty unless the endpoint asks for them. */
+      matched_recordings: SerializedPersonActorMatchedRecordingsItem[];
+      /**
+         * The actor's value at the data point it was queried for. Null unless the query computes one.
+         * @nullable
+         */
       value_at_data_point: number | null;
+      /** Marks this actor as a person. */
+      type: SerializedPersonActorType;
+      /** The person's UUID. Same value as `id`. */
+      uuid: string;
+      /** Display name, resolved from the person's properties or distinct IDs. */
+      name: string;
+      /** The person's distinct IDs, newest first. */
+      distinct_ids: string[];
+      /**
+         * When the person was last seen.
+         * @nullable
+         */
+      last_seen_at: string | null;
+      /**
+         * Whether the person has been identified.
+         * @nullable
+         */
+      is_identified: boolean | null;
     }
 
     export interface CohortPersonsResponse {
-      results: CohortPersonResult[];
+      results: SerializedPersonActor[];
       /** @nullable */
       next: string | null;
       /** @nullable */
@@ -20705,6 +20992,34 @@ export namespace Schemas {
     export interface CompareItem {
       label: string;
       value: string;
+    }
+
+    /**
+     * Global feature importance / directionality bundle for the champion model card.
+     */
+    export type CompleteTrainingRunModelExplanation = { [key: string]: unknown };
+
+    /**
+     * Input for finalizing a training run. The backend selects/promotes the champion.
+     */
+    export interface CompleteTrainingRun {
+      /**
+         * Advisory nomination. The server promotes the kept iteration with the highest holdout_score; this id only breaks a tie at that score, and a lower-scoring nomination is logged and ignored.
+         * @nullable
+         */
+      best_iteration_id?: string | null;
+      /** Global feature importance / directionality bundle for the champion model card. */
+      model_explanation?: CompleteTrainingRunModelExplanation;
+      /**
+         * What a future run should try next, given what this run learned. Stored in the run summary so the next run reads it during orientation. Keep it short and concrete; max 2000 characters.
+         * @maxLength 2000
+         */
+      recommended_next?: string;
+      /**
+         * A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters.
+         * @maxLength 2000
+         */
+      distillation?: string;
     }
 
     export interface ComposeTicket {
@@ -22333,6 +22648,31 @@ export namespace Schemas {
     export interface CreateRunResult {
       run_id: string;
       uploads: UploadTarget[];
+    }
+
+    /**
+     * * `try_next` - try_next
+     * * `consider` - consider
+     */
+    export type CreateSuggestionPriorityEnum = typeof CreateSuggestionPriorityEnum[keyof typeof CreateSuggestionPriorityEnum];
+
+
+    export const CreateSuggestionPriorityEnum = {
+      TryNext: 'try_next',
+      Consider: 'consider',
+    } as const;
+
+    export interface CreateSuggestion {
+      /**
+         * Free-text hypothesis or direction for the agent to explore, e.g. 'try a tree-based model' or 'remove recency features, I suspect leakage'.
+         * @maxLength 2000
+         */
+      prompt: string;
+      /** 'try_next' asks the agent to act on this before other autonomous iterations; 'consider' is advisory context.
+       *
+       * * `try_next` - try_next
+       * * `consider` - consider */
+      priority?: CreateSuggestionPriorityEnum;
     }
 
     /**
@@ -25176,6 +25516,54 @@ export namespace Schemas {
          * @nullable
          */
       connection_id?: string | null;
+    }
+
+    export interface DataWarehouseManagedView {
+      /** Saved query the managed viewset owns. */
+      id: string;
+      /** Name of the saved query. */
+      name: string;
+      /** When the saved query was created. */
+      created_at: string;
+      /**
+         * User who created the saved query, or null when the sync did.
+         * @nullable
+         */
+      created_by_id: number | null;
+    }
+
+    export interface DataWarehouseManagedViewSet {
+      /** Whether the managed viewset should exist. */
+      enabled: boolean;
+    }
+
+    /**
+     * * `revenue_analytics` - Revenue Analytics
+     * * `engineering_analytics` - Engineering Analytics
+     */
+    export type DataWarehouseManagedViewSetKindEnum = typeof DataWarehouseManagedViewSetKindEnum[keyof typeof DataWarehouseManagedViewSetKindEnum];
+
+
+    export const DataWarehouseManagedViewSetKindEnum = {
+      RevenueAnalytics: 'revenue_analytics',
+      EngineeringAnalytics: 'engineering_analytics',
+    } as const;
+
+    export interface DataWarehouseManagedViewSetResponse {
+      /** Saved queries in the managed viewset. */
+      views: DataWarehouseManagedView[];
+      /** Number of saved queries returned. */
+      count: number;
+    }
+
+    export interface DataWarehouseManagedViewSetUpdateResponse {
+      /** State the managed viewset is now in. */
+      enabled: boolean;
+      /** Managed viewset that was toggled.
+       *
+       * * `revenue_analytics` - Revenue Analytics
+       * * `engineering_analytics` - Engineering Analytics */
+      kind: DataWarehouseManagedViewSetKindEnum;
     }
 
     export type DataWarehouseSavedQueryQueryKind = typeof DataWarehouseSavedQueryQueryKind[keyof typeof DataWarehouseSavedQueryQueryKind];
@@ -30644,7 +31032,7 @@ export namespace Schemas {
       environment_scope: string;
       /** PRs in scope merged in the window (bots and drafts excluded). */
       merged_pr_count: number;
-      /** Of merged_pr_count, the PRs a successful in-scope deploy contains. The rest are still waiting for a deploy or fall outside the scan. */
+      /** Of merged_pr_count, the PRs whose first successful in-scope deployment was observed by the window end. The rest are still waiting for a deploy or fall outside the scan. */
       deployed_merged_pr_count: number;
     }
 
@@ -33993,13 +34381,6 @@ export namespace Schemas {
          */
       description: string;
       /**
-         * Deprecated and ignored. Nothing reads it; omit it. Still range-checked when supplied.
-         * @minimum 0
-         * @maximum 1
-         * @nullable
-         */
-      confidence?: number | null;
-      /**
          * Citations supporting the finding. Capped at 20 entries.
          * @maxItems 20
          */
@@ -35491,9 +35872,58 @@ export namespace Schemas {
       type: AssigneeTypeEnum;
     }
 
+    /**
+     * * `set_status` - set_status
+     * * `assign` - assign
+     */
+    export type ErrorTrackingIssueBulkRequestActionEnum = typeof ErrorTrackingIssueBulkRequestActionEnum[keyof typeof ErrorTrackingIssueBulkRequestActionEnum];
+
+
+    export const ErrorTrackingIssueBulkRequestActionEnum = {
+      SetStatus: 'set_status',
+      Assign: 'assign',
+    } as const;
+
+    /**
+     * * `active` - active
+     * * `resolved` - resolved
+     * * `suppressed` - suppressed
+     */
+    export type ErrorTrackingIssueWritableStatusEnum = typeof ErrorTrackingIssueWritableStatusEnum[keyof typeof ErrorTrackingIssueWritableStatusEnum];
+
+
+    export const ErrorTrackingIssueWritableStatusEnum = {
+      Active: 'active',
+      Resolved: 'resolved',
+      Suppressed: 'suppressed',
+    } as const;
+
+    export interface ErrorTrackingIssueBulkRequest {
+      /** Which mutation to apply to every listed issue.
+       *
+       * * `set_status` - set_status
+       * * `assign` - assign */
+      action: ErrorTrackingIssueBulkRequestActionEnum;
+      /** IDs of the issues to update. */
+      ids: string[];
+      /** Status to set. Required when action is set_status.
+       *
+       * * `active` - active
+       * * `resolved` - resolved
+       * * `suppressed` - suppressed */
+      status?: ErrorTrackingIssueWritableStatusEnum;
+      /** Assignment target. Required when action is assign; null unassigns. */
+      assignee?: ErrorTrackingIssueAssigneeWrite | null;
+    }
+
     export interface ErrorTrackingIssueCohortRead {
       id: number;
       name: string;
+    }
+
+    export interface ErrorTrackingIssueCohortRequest {
+      /** ID of the cohort to attach to the issue. */
+      cohortId: number;
     }
 
     export type ErrorTrackingIssueSeverity = typeof ErrorTrackingIssueSeverity[keyof typeof ErrorTrackingIssueSeverity];
@@ -35735,6 +36165,11 @@ export namespace Schemas {
       nextOffset?: number;
     }
 
+    export interface ErrorTrackingIssueExistsResponse {
+      /** Whether the project has recorded any issue at all. */
+      exists: boolean;
+    }
+
     export interface ErrorTrackingIssueListItem {
       /** Error tracking issue ID. */
       id: string;
@@ -35842,6 +36277,11 @@ export namespace Schemas {
       cohort: ErrorTrackingIssueCohortRead | null;
     }
 
+    export interface ErrorTrackingIssueRedirectResponse {
+      /** Issue the requested fingerprint now belongs to. */
+      issue_id: string;
+    }
+
     export interface ErrorTrackingIssueRelease {
       build?: string | null;
       /** Occurrences per bucket, aligned with the response's `buckets`. */
@@ -35910,19 +36350,22 @@ export namespace Schemas {
       All: 'all',
     } as const;
 
-    /**
-     * * `active` - active
-     * * `resolved` - resolved
-     * * `suppressed` - suppressed
-     */
-    export type ErrorTrackingIssueWriteStatusEnum = typeof ErrorTrackingIssueWriteStatusEnum[keyof typeof ErrorTrackingIssueWriteStatusEnum];
+    export interface ErrorTrackingIssueSuccessResponse {
+      /** Whether the update completed successfully. */
+      success: boolean;
+    }
 
+    export interface ErrorTrackingIssueValue {
+      /** One distinct value of the requested property. */
+      name: string;
+    }
 
-    export const ErrorTrackingIssueWriteStatusEnum = {
-      Active: 'active',
-      Resolved: 'resolved',
-      Suppressed: 'suppressed',
-    } as const;
+    export interface ErrorTrackingIssueValuesResponse {
+      /** Distinct values, for the taxonomic filter. */
+      results: ErrorTrackingIssueValue[];
+      /** Always false. Kept for the taxonomic filter's shared shape. */
+      refreshing: boolean;
+    }
 
     export interface ErrorTrackingIssueWrite {
       /** Issue status to set. Deprecated archived and pending_release values are rejected.
@@ -35930,7 +36373,7 @@ export namespace Schemas {
        * * `active` - active
        * * `resolved` - resolved
        * * `suppressed` - suppressed */
-      status?: ErrorTrackingIssueWriteStatusEnum;
+      status?: ErrorTrackingIssueWritableStatusEnum;
       /** Issue severity to set, or null to remove the assigned severity. */
       severity?: ErrorTrackingIssueSeverity | null;
       /**
@@ -37455,6 +37898,13 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    export interface EvaluationRunEvaluation {
+      /** UUID of the evaluation being run. */
+      id: string;
+      /** Display name of the evaluation being run. */
+      name: string;
+    }
+
     export interface EvaluationRunRequest {
       /** UUID of the evaluation to run. */
       evaluation_id: string;
@@ -37469,6 +37919,17 @@ export namespace Schemas {
          * @nullable
          */
       distinct_id?: string | null;
+    }
+
+    export interface EvaluationRunResponse {
+      /** Temporal workflow ID of the enqueued run. */
+      workflow_id: string;
+      /** Workflow status at the time of the response. */
+      status: string;
+      /** Evaluation selected for this run. */
+      evaluation: EvaluationRunEvaluation;
+      /** UUID of the event being evaluated. */
+      target_event_id: string;
     }
 
     export interface EventDefinitionBasic {
@@ -38422,6 +38883,34 @@ export namespace Schemas {
       Retention: 'retention',
     } as const;
 
+    export type Kind2 = typeof Kind2[keyof typeof Kind2];
+
+
+    export const Kind2 = {
+      EventsNode: 'EventsNode',
+      ActionsNode: 'ActionsNode',
+      ExperimentExposureNode: 'ExperimentExposureNode',
+    } as const;
+
+    export interface ExperimentApiRetentionStart {
+      /** Event name, e.g. '$pageview'. Required for EventsNode. */
+      event?: string | null;
+      /** Action ID. Required for ActionsNode. */
+      id?: number | null;
+      /** Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset. */
+      kind: Kind2;
+      /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
+      math?: ExperimentMetricMathType | null;
+      /** Group type index to aggregate over. Required when math is 'unique_group'. */
+      math_group_type_index?: MathGroupTypeIndex | null;
+      /** HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum. */
+      math_hogql?: string | null;
+      /** Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue'). */
+      math_property?: string | null;
+      /** Event property filters to narrow which events are counted. */
+      properties?: EventPropertyFilter[] | null;
+    }
+
     export interface ExperimentApiMetric {
       /** For retention metrics: completion event. */
       completion_event?: ExperimentApiEventSource | null;
@@ -38456,8 +38945,8 @@ export namespace Schemas {
       series?: ExperimentApiEventSource[] | null;
       /** For mean metrics: event source. */
       source?: ExperimentApiEventSource | null;
-      /** For retention metrics: start event. */
-      start_event?: ExperimentApiEventSource | null;
+      /** For retention metrics: start event. Pass {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event; start_handling and conversion window are ignored then. */
+      start_event?: ExperimentApiRetentionStart | null;
       start_handling?: StartHandling | null;
       /** For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types. */
       threshold?: number | null;
@@ -38550,7 +39039,7 @@ export namespace Schemas {
       type?: ExperimentTypeEnum | null;
       /** Exposure configuration including filter test accounts and custom exposure events. */
       exposure_criteria?: ExperimentApiExposureCriteria | null;
-      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
       metrics?: _ExperimentApiMetricsList | null;
       /** Secondary metrics for additional measurements. Same format as primary metrics. */
       metrics_secondary?: _ExperimentApiMetricsList | null;
@@ -38987,6 +39476,7 @@ export namespace Schemas {
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
      * * `experiment_update` - Experiment Update
+     * * `timeseries_sync` - Timeseries Sync
      */
     export type ExperimentMetricsRecalculationTriggerEnum = typeof ExperimentMetricsRecalculationTriggerEnum[keyof typeof ExperimentMetricsRecalculationTriggerEnum];
 
@@ -39003,6 +39493,7 @@ export namespace Schemas {
       ExperimentLaunch: 'experiment_launch',
       ExperimentStop: 'experiment_stop',
       ExperimentUpdate: 'experiment_update',
+      TimeseriesSync: 'timeseries_sync',
     } as const;
 
     /**
@@ -39089,7 +39580,8 @@ export namespace Schemas {
        * * `config_change` - Config Change
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
-       * * `experiment_update` - Experiment Update */
+       * * `experiment_update` - Experiment Update
+       * * `timeseries_sync` - Timeseries Sync */
       readonly trigger: ExperimentMetricsRecalculationTriggerEnum;
       /** When the job was created */
       readonly created_at: string;
@@ -40342,7 +40834,7 @@ export namespace Schemas {
       type?: ExperimentTypeEnum | null;
       /** Exposure configuration including filter test accounts and custom exposure events. */
       exposure_criteria?: ExperimentApiExposureCriteria | null;
-      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
       metrics?: _ExperimentApiMetricsList | null;
       /** Secondary metrics for additional measurements. Same format as primary metrics. */
       metrics_secondary?: _ExperimentApiMetricsList | null;
@@ -45747,6 +46239,26 @@ export namespace Schemas {
       add_images_to_comment_on_pr?: boolean;
     }
 
+    /**
+     * The group's properties.
+     */
+    export type FindGroupGroupProperties = { [key: string]: unknown };
+
+    export interface FindGroup {
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      group_type_index: number;
+      /** @maxLength 400 */
+      group_key: string;
+      /** The group's properties. */
+      group_properties: FindGroupGroupProperties;
+      readonly created_at: string;
+      /** @nullable */
+      readonly notebook: string | null;
+    }
+
     export interface FlagValueItem {
       name: unknown;
     }
@@ -46890,6 +47402,11 @@ export namespace Schemas {
       Symbol: 'symbol',
     } as const;
 
+    /**
+     * The group's properties.
+     */
+    export type GroupGroupProperties = { [key: string]: unknown };
+
     export interface Group {
       /**
          * @minimum -2147483648
@@ -46898,8 +47415,14 @@ export namespace Schemas {
       group_type_index: number;
       /** @maxLength 400 */
       group_key: string;
-      group_properties?: unknown;
+      /** The group's properties. */
+      group_properties: GroupGroupProperties;
       readonly created_at: string;
+    }
+
+    export interface GroupDeleteProperty {
+      /** Name of the property to delete. */
+      $unset: string;
     }
 
     export interface GroupType {
@@ -46921,6 +47444,18 @@ export namespace Schemas {
       default_columns?: string[] | null;
       /** @nullable */
       created_at?: string | null;
+    }
+
+    /**
+     * Value to set. Any JSON value other than null.
+     */
+    export type GroupUpdatePropertyRequestValue = string | number | boolean | { [key: string]: unknown } | unknown[];
+
+    export interface GroupUpdatePropertyRequest {
+      /** Name of the property to set. */
+      key: string;
+      /** Value to set. Any JSON value other than null. */
+      value: GroupUpdatePropertyRequestValue;
     }
 
     /**
@@ -47004,6 +47539,11 @@ export namespace Schemas {
          * @nullable
          */
       math_property?: string | null;
+    }
+
+    export interface HandsFreeToken {
+      /** Single-use ElevenLabs Scribe realtime token, valid for 15 minutes. */
+      token: string;
     }
 
     /**
@@ -47480,12 +48020,14 @@ export namespace Schemas {
 
     /**
      * * `loops` - Loops
+     * * `broadcasts` - Broadcasts
      */
     export type HogFlowOriginProductEnum = typeof HogFlowOriginProductEnum[keyof typeof HogFlowOriginProductEnum];
 
 
     export const HogFlowOriginProductEnum = {
       Loops: 'loops',
+      Broadcasts: 'broadcasts',
     } as const;
 
     export interface HogFlowMasking {
@@ -47558,14 +48100,14 @@ export namespace Schemas {
       /** Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]. */
       events?: HogFlowConversionEvent[];
       /**
-         * How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. Omit it to use the default window. Set this or 'window_minutes', not both.
+         * How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both.
          * @maxLength 32
          * @nullable
          * @pattern ^(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)[dhms]$
          */
       window?: string | null;
       /**
-         * DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default window. Set this or 'window', not both.
+         * DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both.
          * @nullable
          */
       window_minutes?: number | null;
@@ -47797,7 +48339,8 @@ export namespace Schemas {
       status?: HogFlowStateEnum;
       /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
        *
-       * * `loops` - Loops */
+       * * `loops` - Loops
+       * * `broadcasts` - Broadcasts */
       origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -48265,7 +48808,8 @@ export namespace Schemas {
       status?: HogFlowStateEnum;
       /** Product surface that owns this workflow. This value cannot change after creation.
        *
-       * * `loops` - Loops */
+       * * `loops` - Loops
+       * * `broadcasts` - Broadcasts */
       readonly origin_product: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -52001,7 +52545,7 @@ export namespace Schemas {
          * @maxLength 20000
          */
       prompt: string;
-      /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt.
+      /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.
        *
        * * `monitor` - Monitor
        * * `classifier` - Classifier
@@ -52726,6 +53270,74 @@ export namespace Schemas {
       readonly complaint_base: number;
       /** Rates AWS did not return for this provider, from `delivery`, `bounce`, `transient_bounce` and `complaint`. A rate named here is missing, not zero, and the UI says so rather than showing a number. */
       readonly unavailable: readonly string[];
+    }
+
+    /**
+     * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+     * @nullable
+     */
+    export type IterationTrailWithRecipeModelSpecModelParams = { [key: string]: unknown } | null;
+
+    /**
+     * Model class and hyperparameters tried in this iteration.
+     */
+    export type IterationTrailWithRecipeModelSpec = {
+      /** Dotted path of the estimator class. */
+      model_class: string;
+      /**
+         * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+         * @nullable
+         */
+      model_params?: IterationTrailWithRecipeModelSpecModelParams;
+    };
+
+    export type IterationTrailWithRecipeRecipeSnapshotFeatureTransformsItem = { [key: string]: unknown };
+
+    /**
+     * The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them.
+     */
+    export type IterationTrailWithRecipeRecipeSnapshot = {
+      /** A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id. */
+      feature_sql: string;
+      /**
+         * Transforms the bundle applies to the feature columns; null or absent means none, and the in-process path accepts none.
+         * @nullable
+         */
+      feature_transforms?: IterationTrailWithRecipeRecipeSnapshotFeatureTransformsItem[] | null;
+    };
+
+    /**
+     * The trail with each iteration's recipe, for history only: a run list page would otherwise carry every recipe of every run.
+     */
+    export interface IterationTrailWithRecipe {
+      /**
+         * Order of this attempt within its run (0-based).
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      iteration_number: number;
+      /** Whether this recipe was kept (improved the best score), discarded, or crashed.
+       *
+       * * `kept` - Kept
+       * * `discarded` - Discarded
+       * * `crashed` - Crashed */
+      status: AutoresearchIterationStatusEnum;
+      /**
+         * Holdout AUC this iteration achieved. Null if it was skipped/degenerate.
+         * @nullable
+         */
+      holdout_score?: number | null;
+      /**
+         * Train-fold AUC for this iteration, if recorded.
+         * @nullable
+         */
+      train_score?: number | null;
+      /** The agent's one-line rationale for what it tried and why. */
+      agent_description?: string;
+      /** Model class and hyperparameters tried in this iteration. */
+      model_spec: IterationTrailWithRecipeModelSpec;
+      /** The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them. */
+      recipe_snapshot: IterationTrailWithRecipeRecipeSnapshot;
     }
 
     export interface JiraIssueSignalExtra {
@@ -53742,6 +54354,11 @@ export namespace Schemas {
       name: string;
       /** What this skill does and when to use it. */
       description: string;
+      /**
+         * Relevance score used to rank this result. Higher scores are more relevant.
+         * @minimum 1
+         */
+      score: number;
       /** Up to two locations that matched the search query, ordered by field relevance. */
       matches: LLMSkillSearchMatch[];
     }
@@ -54248,6 +54865,37 @@ export namespace Schemas {
     export interface LinearTeamsResponse {
       /** Linear teams available to this integration. */
       teams: LinearTeam[];
+    }
+
+    export interface Link {
+      readonly id: string;
+      /**
+         * Destination the short link redirects to.
+         * @maxLength 2048
+         */
+      redirect_url: string;
+      /**
+         * Domain the short link is hosted on. Only phog.gg is accepted.
+         * @maxLength 255
+         */
+      short_link_domain: string;
+      /**
+         * The unique code/path that identifies the short link, e.g. 'abc123'
+         * @maxLength 255
+         */
+      short_code: string;
+      /**
+         * Free-form note about what the link is for.
+         * @nullable
+         */
+      description?: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** User who created the link. Null when that user was deleted. */
+      readonly created_by: UserBasic | null;
+      /** Folder path to file the link under in the project tree. */
+      _create_in_folder?: string;
     }
 
     /**
@@ -56374,6 +57022,7 @@ export namespace Schemas {
       readonly template_auth_type: MCPAuthTypeEnum | null;
       /** How members connect to this server: the template's type for catalog servers, or the type the custom server was added with. Null only for custom servers registered before the type was recorded; members then choose. */
       readonly auth_type: MCPAuthTypeEnum | null;
+      /** True when this server is enabled and available to the project. */
       readonly is_team_enabled: boolean;
       /** Deprecated brand icon key from the linked template. Empty for custom servers. */
       readonly icon_key: string;
@@ -57820,6 +58469,36 @@ export namespace Schemas {
     }
 
     /**
+     * Input for materializing the labeled training feature matrix into the run's sandbox.
+     */
+    export interface MaterializeFeaturesRequest {
+      /** Your HogQL feature query, using the {anchors}/{lookback_days} contract. Must be a read-only SELECT keyed on person_id (aliased to distinct_id), one row per user. The backend runs it server-side against the labeled training population — no 500-row cap — and writes the resulting train/holdout feature and label parquet files into your sandbox. */
+      features_sql: string;
+    }
+
+    /**
+     * The local sandbox paths and shape of the materialized training matrix.
+     */
+    export interface MaterializeFeaturesResponse {
+      /** Sandbox path to the training feature matrix parquet (distinct_id + numeric feature columns). */
+      train_features_path: string;
+      /** Sandbox path to the training labels parquet (distinct_id + __label). */
+      train_labels_path: string;
+      /** Sandbox path to the holdout feature matrix parquet (same columns as train_features). */
+      holdout_features_path: string;
+      /** Sandbox path to the holdout labels parquet (distinct_id + __label). */
+      holdout_labels_path: string;
+      /** Number of rows in the training split. */
+      n_train: number;
+      /** Number of rows in the holdout split. */
+      n_holdout: number;
+      /** Number of numeric feature columns produced by features_sql. */
+      n_features: number;
+      /** The numeric feature column names (excludes distinct_id, __label, __fold). */
+      feature_cols: string[];
+    }
+
+    /**
      * * `1` - event
      * * `2` - person
      * * `3` - group
@@ -57883,7 +58562,10 @@ export namespace Schemas {
 
     export interface MaxCoreMemory {
       readonly id: string;
-      /** @maxLength 10000 */
+      /**
+         * What Max remembers about the project, as free-form text.
+         * @maxLength 10000
+         */
       text: string;
       scraping_status?: CoreMemoryScrapingStatusEnum | BlankEnum | null;
     }
@@ -59644,6 +60326,18 @@ export namespace Schemas {
     }
 
     /**
+     * Input for opening an agent-driven training run.
+     */
+    export interface OpenTrainingRun {
+      /**
+         * Iteration budget for this run. Defaults to the pipeline's iteration_budget if omitted.
+         * @minimum 1
+         * @maximum 500
+         */
+      iteration_budget?: number;
+    }
+
+    /**
      * * `latest` - latest
      * * `earliest` - earliest
      */
@@ -60621,6 +61315,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: AutoresearchRun[];
+    }
+
+    export interface PaginatedAutoresearchSuggestionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AutoresearchSuggestion[];
     }
 
     export interface PaginatedAutoresearchTrainingRunList {
@@ -61613,6 +62316,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LegalDocumentDTO[];
+    }
+
+    export interface PaginatedLinkList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Link[];
     }
 
     export interface PaginatedListOutputList {
@@ -63512,6 +64224,9 @@ export namespace Schemas {
      * * `work_release` - Work Release
      * * `pull_request` - Pull Request
      * * `check_result` - Check Result
+     * * `check_scheduled` - Check Scheduled
+     * * `check_expired` - Check Expired
+     * * `check_cancelled` - Check Cancelled
      * * `implementation_decision` - Implementation Decision
      * * `implementation_dispatch` - Implementation Dispatch
      * * `implementation_replacement` - Implementation Replacement
@@ -63543,6 +64258,9 @@ export namespace Schemas {
       WorkRelease: 'work_release',
       PullRequest: 'pull_request',
       CheckResult: 'check_result',
+      CheckScheduled: 'check_scheduled',
+      CheckExpired: 'check_expired',
+      CheckCancelled: 'check_cancelled',
       ImplementationDecision: 'implementation_decision',
       ImplementationDispatch: 'implementation_dispatch',
       ImplementationReplacement: 'implementation_replacement',
@@ -65905,7 +66623,7 @@ export namespace Schemas {
       ai_resolved?: boolean;
       /** @nullable */
       escalation_reason?: string | null;
-      /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
+      /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, verdict, blocker, sources). Retrieve hydrates sources from citations. */
       readonly ai_triage: unknown;
       readonly created_at: string;
       readonly updated_at: string;
@@ -69530,22 +70248,13 @@ export namespace Schemas {
     }
 
     /**
-     * @nullable
+     * Mapping from assignment rule UUID to its new evaluation order.
      */
-    export type PatchedErrorTrackingAssignmentRuleAssignee = {
-      readonly type?: 'user' | 'role';
-      readonly id?: number | string;
-    } | null;
+    export type PatchedErrorTrackingAssignmentRuleReorderRequestOrders = {[key: string]: number};
 
-    export interface PatchedErrorTrackingAssignmentRule {
-      readonly id?: string;
-      filters?: unknown;
-      /** @nullable */
-      readonly assignee?: PatchedErrorTrackingAssignmentRuleAssignee;
-      order_key?: number;
-      disabled_data?: unknown;
-      readonly created_at?: string;
-      readonly updated_at?: string;
+    export interface PatchedErrorTrackingAssignmentRuleReorderRequest {
+      /** Mapping from assignment rule UUID to its new evaluation order. */
+      orders?: PatchedErrorTrackingAssignmentRuleReorderRequestOrders;
     }
 
     export interface PatchedErrorTrackingAssignmentRuleUpdateRequest {
@@ -69555,19 +70264,14 @@ export namespace Schemas {
       assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
     }
 
-    export interface PatchedErrorTrackingBypassRule {
-      /** Unique identifier of the bypass rule. */
-      readonly id?: string;
-      /** Property-group filters that define which incoming error events bypass rate limiting. */
-      filters?: unknown;
-      /** Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order. */
-      order_key?: number;
-      /** Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active. */
-      disabled_data?: unknown;
-      /** When the rule was created. */
-      readonly created_at?: string;
-      /** When the rule was last updated. */
-      readonly updated_at?: string;
+    /**
+     * Mapping from bypass rule UUID to its new evaluation order.
+     */
+    export type PatchedErrorTrackingBypassRuleReorderRequestOrders = {[key: string]: number};
+
+    export interface PatchedErrorTrackingBypassRuleReorderRequest {
+      /** Mapping from bypass rule UUID to its new evaluation order. */
+      orders?: PatchedErrorTrackingBypassRuleReorderRequestOrders;
     }
 
     export interface PatchedErrorTrackingBypassRuleUpdateRequest {
@@ -69576,35 +70280,13 @@ export namespace Schemas {
     }
 
     /**
-     * @nullable
+     * Mapping from grouping rule UUID to its new evaluation order.
      */
-    export type PatchedErrorTrackingGroupingRuleAssignee = {
-      readonly type?: 'user' | 'role';
-      readonly id?: number | string;
-    } | null;
+    export type PatchedErrorTrackingGroupingRuleReorderRequestOrders = {[key: string]: number};
 
-    /**
-     * Issue linked to this rule
-     * @nullable
-     */
-    export type PatchedErrorTrackingGroupingRuleIssue = {[key: string]: string} | null;
-
-    export interface PatchedErrorTrackingGroupingRule {
-      readonly id?: string;
-      filters?: unknown;
-      /** @nullable */
-      readonly assignee?: PatchedErrorTrackingGroupingRuleAssignee;
-      /** @nullable */
-      description?: string | null;
-      /**
-         * Issue linked to this rule
-         * @nullable
-         */
-      readonly issue?: PatchedErrorTrackingGroupingRuleIssue;
-      order_key?: number;
-      disabled_data?: unknown;
-      readonly created_at?: string;
-      readonly updated_at?: string;
+    export interface PatchedErrorTrackingGroupingRuleReorderRequest {
+      /** Mapping from grouping rule UUID to its new evaluation order. */
+      orders?: PatchedErrorTrackingGroupingRuleReorderRequestOrders;
     }
 
     export interface PatchedErrorTrackingGroupingRuleUpdateRequest {
@@ -69623,7 +70305,7 @@ export namespace Schemas {
        * * `active` - active
        * * `resolved` - resolved
        * * `suppressed` - suppressed */
-      status?: ErrorTrackingIssueWriteStatusEnum;
+      status?: ErrorTrackingIssueWritableStatusEnum;
       /** Issue severity to set, or null to remove the assigned severity. */
       severity?: ErrorTrackingIssueSeverity | null;
       /**
@@ -69735,14 +70417,14 @@ export namespace Schemas {
       threshold?: number;
     }
 
-    export interface PatchedErrorTrackingSuppressionRule {
-      readonly id?: string;
-      filters?: unknown;
-      order_key?: number;
-      disabled_data?: unknown;
-      sampling_rate?: number;
-      readonly created_at?: string;
-      readonly updated_at?: string;
+    /**
+     * Mapping from suppression rule UUID to its new evaluation order.
+     */
+    export type PatchedErrorTrackingSuppressionRuleReorderRequestOrders = {[key: string]: number};
+
+    export interface PatchedErrorTrackingSuppressionRuleReorderRequest {
+      /** Mapping from suppression rule UUID to its new evaluation order. */
+      orders?: PatchedErrorTrackingSuppressionRuleReorderRequestOrders;
     }
 
     export interface PatchedErrorTrackingSuppressionRuleUpdateRequest {
@@ -70138,7 +70820,7 @@ export namespace Schemas {
       type?: ExperimentTypeEnum | null;
       /** Exposure configuration including filter test accounts and custom exposure events. */
       exposure_criteria?: ExperimentApiExposureCriteria | null;
-      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
       metrics?: _ExperimentApiMetricsList | null;
       /** Secondary metrics for additional measurements. Same format as primary metrics. */
       metrics_secondary?: _ExperimentApiMetricsList | null;
@@ -70978,7 +71660,8 @@ export namespace Schemas {
       status?: HogFlowStateEnum;
       /** Product surface that owns this workflow. This value cannot change after creation.
        *
-       * * `loops` - Loops */
+       * * `loops` - Loops
+       * * `broadcasts` - Broadcasts */
       readonly origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -71561,6 +72244,37 @@ export namespace Schemas {
       version_description?: string;
     }
 
+    export interface PatchedLink {
+      readonly id?: string;
+      /**
+         * Destination the short link redirects to.
+         * @maxLength 2048
+         */
+      redirect_url?: string;
+      /**
+         * Domain the short link is hosted on. Only phog.gg is accepted.
+         * @maxLength 255
+         */
+      short_link_domain?: string;
+      /**
+         * The unique code/path that identifies the short link, e.g. 'abc123'
+         * @maxLength 255
+         */
+      short_code?: string;
+      /**
+         * Free-form note about what the link is for.
+         * @nullable
+         */
+      description?: string | null;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+      /** User who created the link. Null when that user was deleted. */
+      readonly created_by?: UserBasic | null;
+      /** Folder path to file the link under in the project tree. */
+      _create_in_folder?: string;
+    }
+
     export interface PatchedLiveDebuggerBreakpoint {
       readonly id?: string;
       /** @nullable */
@@ -71975,7 +72689,10 @@ export namespace Schemas {
 
     export interface PatchedMaxCoreMemory {
       readonly id?: string;
-      /** @maxLength 10000 */
+      /**
+         * What Max remembers about the project, as free-form text.
+         * @maxLength 10000
+         */
       text?: string;
       scraping_status?: CoreMemoryScrapingStatusEnum | BlankEnum | null;
     }
@@ -73763,6 +74480,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `medium` - Medium
+     * * `xhigh` - Extra high
+     */
+    export type ReviewUserSettingsFlashReasoningEffortEnum = typeof ReviewUserSettingsFlashReasoningEffortEnum[keyof typeof ReviewUserSettingsFlashReasoningEffortEnum];
+
+
+    export const ReviewUserSettingsFlashReasoningEffortEnum = {
+      Medium: 'medium',
+      Xhigh: 'xhigh',
+    } as const;
+
+    /**
      * * `consider` - Consider
      * * `should_fix` - Should Fix
      * * `must_fix` - Must Fix
@@ -73785,6 +74514,13 @@ export namespace Schemas {
       review_labeled_prs?: boolean;
       /** After a review of the user's pull requests is published, run the resolution stage: triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. On by default; turning it off makes reviews stop at publishing. */
       resolve_comments?: boolean;
+      /** Automatically review pull requests authored by this user in PostHog/posthog in Flash mode. Off by default. Flash reviews post findings without resolving comments. */
+      review_authored_prs?: boolean;
+      /** Reasoning effort for this user's automatic and manually requested Flash reviews: 'medium' (default) or 'xhigh'. Applies to both review and validation. Saved independently of the automatic-review toggle.
+       *
+       * * `medium` - Medium
+       * * `xhigh` - Extra high */
+      flash_reasoning_effort?: ReviewUserSettingsFlashReasoningEffortEnum;
       /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
        *
        * * `consider` - Consider
@@ -76402,6 +77138,11 @@ export namespace Schemas {
       recordings_queued_for_deletion: boolean;
       /** Persons whose deletion did not fully complete in this request. Each entry contains 'person_uuid' and 'step', the deletion step that failed for that person. Failures are reported here rather than as an error status, so a 202 with entries means those persons were not deleted and the request should be retried for them, except entries whose step is 'log_activity': that person was deleted, but the activity log entry was not written. Always empty when the deletion was queued (see persons_queued_for_deletion). Contact support if this persists. */
       deletion_errors?: PersonBulkDeleteResponseDeletionErrorsItem[];
+    }
+
+    export interface PersonCohortsResponse {
+      /** Cohorts the person currently belongs to. */
+      results: CohortMinimal[];
     }
 
     export interface PersonDeletePropertyRequest {
@@ -82366,7 +83107,8 @@ export namespace Schemas {
        * * `config_change` - Config Change
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
-       * * `experiment_update` - Experiment Update */
+       * * `experiment_update` - Experiment Update
+       * * `timeseries_sync` - Timeseries Sync */
       trigger?: ExperimentMetricsRecalculationTriggerEnum;
     }
 
@@ -82456,6 +83198,107 @@ export namespace Schemas {
       recorded: boolean;
     }
 
+    export type RecordIterationRecipeSnapshotFeatureTransformsItem = { [key: string]: unknown };
+
+    /**
+     * Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms.
+     */
+    export type RecordIterationRecipeSnapshot = {
+      /** A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id. */
+      feature_sql: string;
+      /**
+         * Transforms the bundle applies to the feature columns; null or absent means none, and the in-process path accepts none.
+         * @nullable
+         */
+      feature_transforms?: RecordIterationRecipeSnapshotFeatureTransformsItem[] | null;
+    };
+
+    /**
+     * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+     * @nullable
+     */
+    export type RecordIterationModelSpecModelParams = { [key: string]: unknown } | null;
+
+    /**
+     * model_class and model_params tried this iteration. Any class is accepted here; the sklearn/xgboost allowlist applies at completion, to a run that uploaded no bundle.
+     */
+    export type RecordIterationModelSpec = {
+      /** Dotted path of the estimator class. */
+      model_class: string;
+      /**
+         * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+         * @nullable
+         */
+      model_params?: RecordIterationModelSpecModelParams;
+    };
+
+    /**
+     * * `kept` - kept
+     * * `discarded` - discarded
+     * * `crashed` - crashed
+     */
+    export type RecordIterationStatusEnum = typeof RecordIterationStatusEnum[keyof typeof RecordIterationStatusEnum];
+
+
+    export const RecordIterationStatusEnum = {
+      Kept: 'kept',
+      Discarded: 'discarded',
+      Crashed: 'crashed',
+    } as const;
+
+    /**
+     * Input for recording one training iteration. Validated against the recipe allowlist.
+     */
+    export interface RecordIteration {
+      /**
+         * Zero-based index of this iteration within the run. Re-sending the same number updates that iteration (idempotent).
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      iteration_number: number;
+      /** Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms. */
+      recipe_snapshot: RecordIterationRecipeSnapshot;
+      /** model_class and model_params tried this iteration. Any class is accepted here; the sklearn/xgboost allowlist applies at completion, to a run that uploaded no bundle. */
+      model_spec: RecordIterationModelSpec;
+      /** 'kept' if this iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure.
+       *
+       * * `kept` - kept
+       * * `discarded` - discarded
+       * * `crashed` - crashed */
+      status: RecordIterationStatusEnum;
+      /**
+         * Training-set AUC for this iteration (0-1).
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      train_score?: number | null;
+      /**
+         * Held-out AUC for this iteration (0-1). Used to pick the champion at completion.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      holdout_score?: number | null;
+      /**
+         * Agent's plain-English rationale for this iteration. Max 2000 characters.
+         * @maxLength 2000
+         */
+      agent_description?: string;
+      /**
+         * Agent's self-assessed confidence (0-1) that this iteration helps.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      agent_confidence?: number | null;
+      /**
+         * UUID of the steering suggestion this iteration was spawned from, if any. Set it whenever the iteration acts on a pending suggestion — it links the iteration back to the suggestion for attribution and advances the suggestion to 'acted_on'.
+         * @nullable
+         */
+      parent_suggestion?: string | null;
+    }
+
     /**
      * The record itself, as a JSON object. Must validate against the scout config's `structured_output_schema` (shown in the run prompt); any invalid record fails the whole call with nothing written.
      */
@@ -82511,6 +83354,50 @@ export namespace Schemas {
     export const RedshiftDestinationRequestTypeEnum = {
       Redshift: 'Redshift',
     } as const;
+
+    /**
+     * Marks this actor as a group.
+     */
+    export type SerializedGroupActorType = typeof SerializedGroupActorType[keyof typeof SerializedGroupActorType];
+
+
+    export const SerializedGroupActorType = {
+      Group: 'group',
+    } as const;
+
+    /**
+     * The actor's properties.
+     */
+    export type SerializedGroupActorProperties = { [key: string]: unknown };
+
+    export type SerializedGroupActorMatchedRecordingsItem = { [key: string]: unknown };
+
+    export interface SerializedGroupActor {
+      /** The person's UUID, or the group's key. */
+      id: string;
+      /** The actor's properties. */
+      properties: SerializedGroupActorProperties;
+      /**
+         * When the actor was first seen.
+         * @nullable
+         */
+      created_at: string | null;
+      /** Recordings that matched the query. Empty unless the endpoint asks for them. */
+      matched_recordings: SerializedGroupActorMatchedRecordingsItem[];
+      /**
+         * The actor's value at the data point it was queried for. Null unless the query computes one.
+         * @nullable
+         */
+      value_at_data_point: number | null;
+      /** Marks this actor as a group. */
+      type: SerializedGroupActorType;
+      /** Key identifying the group within its group type. */
+      group_key: string;
+      /** Index of the group type this group belongs to. */
+      group_type_index: number;
+    }
+
+    export type RelatedActor = SerializedPersonActor | SerializedGroupActor;
 
     export interface RelationshipReject {
       /** Why the proposal is rejected. Persisted so it is never re-proposed. */
@@ -83250,7 +84137,6 @@ export namespace Schemas {
       finding_id: string;
       skill_name: string;
       skill_version: number;
-      confidence?: number | null;
       severity?: ReportPriority | null;
       hypothesis?: string | null;
       evidence: SignalsScoutEvidenceEntry[];
@@ -83610,6 +84496,37 @@ export namespace Schemas {
     }
 
     /**
+     * * `picked_up` - picked_up
+     * * `acted_on` - acted_on
+     * * `dismissed` - dismissed
+     */
+    export type RespondToSuggestionStatusEnum = typeof RespondToSuggestionStatusEnum[keyof typeof RespondToSuggestionStatusEnum];
+
+
+    export const RespondToSuggestionStatusEnum = {
+      PickedUp: 'picked_up',
+      ActedOn: 'acted_on',
+      Dismissed: 'dismissed',
+    } as const;
+
+    /**
+     * Input for the agent to record how it interpreted a steering suggestion.
+     */
+    export interface RespondToSuggestion {
+      /** How the agent handled the suggestion: 'picked_up' (applied as a search constraint), 'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response).
+       *
+       * * `picked_up` - picked_up
+       * * `acted_on` - acted_on
+       * * `dismissed` - dismissed */
+      status: RespondToSuggestionStatusEnum;
+      /**
+         * Plain-English note on how the suggestion was interpreted and acted upon. A dismissal needs a note, sent now or recorded earlier. Omit it to keep the note already recorded; send an empty string to clear it.
+         * @maxLength 2000
+         */
+      agent_response?: string;
+    }
+
+    /**
      * * `accepted` - accepted
      * * `target_finished` - target_finished
      * * `rejected` - rejected
@@ -83819,6 +84736,12 @@ export namespace Schemas {
     }
 
     export interface ReusableWidgetVersionDetail {
+      /**
+         * Estimated generation charge in USD, including retries, security review, and the AI credit markup. Null when unavailable.
+         * @nullable
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      generation_cost_usd?: string | null;
       /** Immutable widget version identifier. */
       id: string;
       /** Title stored with this version. */
@@ -83987,6 +84910,16 @@ export namespace Schemas {
          * @nullable
          */
       next_offset: number | null;
+    }
+
+    export interface RevenueAnalyticsJoin {
+      /** True creates the person join for the project, false removes it. */
+      enabled: boolean;
+    }
+
+    export interface RevenueAnalyticsJoinResponse {
+      /** What the request did, for display. */
+      detail: string;
     }
 
     export interface ReviewBlindSpotsConfig {
@@ -84489,7 +85422,7 @@ export namespace Schemas {
     export interface ReviewTriggerResponse {
       /** Temporal workflow id for the started review run; empty when no run was started. */
       workflow_id: string;
-      /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts), 'joined_running_review' when a review was already in flight (no new run starts and its mode stays unchanged; requests for Full mode lift a cheaper stored tier for later Full reviews, while Flash requests leave the tier unchanged). */
+      /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review in the requested mode, 'joined_running_review' when a review was already in flight and the request joined its queue. A requested Full review waits for an active Flash review. */
       status: string;
     }
 
@@ -84502,6 +85435,13 @@ export namespace Schemas {
       review_labeled_prs?: boolean;
       /** After a review of the user's pull requests is published, run the resolution stage: triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. On by default; turning it off makes reviews stop at publishing. */
       resolve_comments?: boolean;
+      /** Automatically review pull requests authored by this user in PostHog/posthog in Flash mode. Off by default. Flash reviews post findings without resolving comments. */
+      review_authored_prs?: boolean;
+      /** Reasoning effort for this user's automatic and manually requested Flash reviews: 'medium' (default) or 'xhigh'. Applies to both review and validation. Saved independently of the automatic-review toggle.
+       *
+       * * `medium` - Medium
+       * * `xhigh` - Extra high */
+      flash_reasoning_effort?: ReviewUserSettingsFlashReasoningEffortEnum;
       /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
        *
        * * `consider` - Consider
@@ -84723,6 +85663,7 @@ export namespace Schemas {
      * * `evaluation` - evaluation
      * * `event` - event
      * * `insight` - insight
+     * * `instructions` - instructions
      * * `notebook` - notebook
      * * `text` - text
      */
@@ -84736,6 +85677,7 @@ export namespace Schemas {
       Evaluation: 'evaluation',
       Event: 'event',
       Insight: 'insight',
+      Instructions: 'instructions',
       Notebook: 'notebook',
       Text: 'text',
     } as const;
@@ -84748,7 +85690,7 @@ export namespace Schemas {
      * the live path wraps context client-side (`products/posthog_ai/frontend/utils/posthogContextBlock.ts`).
      */
     export interface SandboxAttachedContextItem {
-      /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.
+      /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` and `instructions` carry `value`. `instructions` is the caller's own guidance and renders into the trusted context block; every other kind renders into the untrusted block, which tells the agent to read it as data.
        *
        * * `action` - action
        * * `dashboard` - dashboard
@@ -84756,6 +85698,7 @@ export namespace Schemas {
        * * `evaluation` - evaluation
        * * `event` - event
        * * `insight` - insight
+       * * `instructions` - instructions
        * * `notebook` - notebook
        * * `text` - text */
       type: SandboxAttachedContextItemTypeEnum;
@@ -84763,7 +85706,7 @@ export namespace Schemas {
       id?: unknown;
       /** Optional human-readable label rendered in the context block. */
       name?: string;
-      /** Free-text content. Only for `text` attachments. */
+      /** Free-text content. Only for `text` and `instructions` attachments. */
       value?: string;
     }
 
@@ -85364,6 +86307,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly status_changed_at: string | null;
+      /** Who last moved `status`, when a person did it through this API. Null for a system transition such as an automatic pause, for a row whose status never changed, and for a caller that may not read member identities. Pair it with `status` to say who turned a scout off, instead of only when it went off. */
+      readonly status_changed_by: UserBasic | null;
       /** Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. Only ever set explicitly: re-enabling a swept scout instead grants a fresh grace window before the sweep may judge it again. */
       readonly auto_pause_exempt: boolean;
       /** Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter. */
@@ -86342,13 +87287,13 @@ export namespace Schemas {
     } as const;
 
     export interface SignalReportBulkStateRequest {
-      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is only allowed from a researched status (ready or pending_input) or a suppressed report; other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.
        *
        * * `suppressed` - suppressed
        * * `potential` - potential
        * * `resolved` - resolved */
       state: SignalReportStateEnum;
-      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed'. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
        * * `already_fixed` - Already fixed
        * * `report_unclear` - Report is unclear to me
@@ -86449,6 +87394,38 @@ export namespace Schemas {
       forwarded: boolean;
     }
 
+    export interface SignalReportMergeRequest {
+      /**
+         * Ids of the duplicate reports to fold into this one (1–10). Each must be a live report in this project: a resolved, archived or deleted report is rejected with 409, as is the survivor's own id. Duplicates in the list are de-duplicated. The whole merge applies or none of it does.
+         * @minItems 1
+         * @maxItems 10
+         */
+      source_report_ids: string[];
+      /**
+         * Optional one-line explanation of why these reports are the same issue. Recorded on each source's 'duplicate of' link and on the note left on the survivor. Capped at 500 characters.
+         * @maxLength 500
+         */
+      reason?: string;
+    }
+
+    export interface SignalReportMergeSourceResult {
+      /** The source report that was folded into the survivor. */
+      id: string;
+      /** How many work-log artefacts moved to the survivor (notes, findings, pull requests, task runs, code references, commits, checks). */
+      artefacts_moved: number;
+      /** How many signals the survivor took on from this source. The signals themselves are re-pointed asynchronously; the survivor's counters already include them. */
+      signals_moved: number;
+      /** Whether an active work claim held by another actor was released before the move. */
+      released_claim: boolean;
+    }
+
+    export interface SignalReportMergeResponse {
+      /** The surviving report, as it stands after the merge. */
+      report: SignalReport;
+      /** One result per merged source, in request order (after de-duplication). */
+      sources: SignalReportMergeSourceResult[];
+    }
+
     export interface SignalReportMetricRefreshRequest {
       /**
          * Reports on screen, in display order. Each report's row metric is refreshed before any report's supporting metrics. At most 20 ids per call.
@@ -86533,13 +87510,13 @@ export namespace Schemas {
     }
 
     export interface SignalReportStateRequest {
-      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is only allowed from a researched status (ready or pending_input) or a suppressed report; other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.
        *
        * * `suppressed` - suppressed
        * * `potential` - potential
        * * `resolved` - resolved */
       state: SignalReportStateEnum;
-      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed'. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
        * * `already_fixed` - Already fixed
        * * `report_unclear` - Report is unclear to me
@@ -86714,13 +87691,6 @@ export namespace Schemas {
       finding_id: string;
       /** The emitted finding prose — the signal's `description` as surfaced to the inbox. */
       description: string;
-      /**
-         * Deprecated and no longer set on new findings. Null unless the run supplied one.
-         * @minimum 0
-         * @maximum 1
-         * @nullable
-         */
-      confidence: number | null;
       /** Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.
        *
        * * `P0` - P0
@@ -92111,6 +93081,18 @@ export namespace Schemas {
     }
 
     /**
+     * Result of an upload: where the file landed and its content hash.
+     */
+    export interface StoredArtifact {
+      /** Relative path the file was stored at. */
+      path: string;
+      /** Decoded file size in bytes. */
+      size_bytes: number;
+      /** SHA-256 hex digest of the decoded file content. */
+      sha256: string;
+    }
+
+    /**
      * Response containing a JWT token (and resolved base URL) for reading a task run's live event stream
      */
     export interface StreamReadTokenResponse {
@@ -93107,14 +94089,6 @@ export namespace Schemas {
     export interface SurveySummarizeRequest {
       /** When true, bypass cached summaries and regenerate. Defaults to false. */
       force_refresh?: boolean;
-    }
-
-    export interface Synthesize {
-      /**
-         * The text the assistant should speak aloud.
-         * @maxLength 2000
-         */
-      text: string;
     }
 
     export interface TaggerCreate {
@@ -95790,7 +96764,9 @@ export namespace Schemas {
     }
 
     export interface TicketError {
+      /** Human-readable error message. */
       detail: string;
+      /** Machine-readable error code. */
       error_type?: string;
     }
 
@@ -95812,6 +96788,14 @@ export namespace Schemas {
       is_private?: boolean;
       /** Optional TipTap rich content JSON for formatted messages. */
       rich_content?: unknown;
+    }
+
+    export interface TicketUnreadCountResponse {
+      /**
+         * Unread messages across the non-resolved tickets the caller can see.
+         * @minimum 0
+         */
+      count: number;
     }
 
     /**
@@ -95911,6 +96895,46 @@ export namespace Schemas {
          * @nullable
          */
       queue_id?: string | null;
+    }
+
+    /**
+     * One prior completed training run plus its full iteration trail.
+     */
+    export interface TrainingRunHistoryEntry {
+      /** UUID of the completed training run. */
+      run_id: string;
+      /** UUID of the pipeline this run belongs to. */
+      pipeline_id: string;
+      /** True if this run is from the pipeline you are training; False if it is a same-target sibling pipeline on the team. */
+      is_current_pipeline: boolean;
+      /** Target event this run's pipeline predicts. */
+      target_event: string;
+      /** Prediction horizon (days) of this run's pipeline. */
+      horizon_days: number;
+      /**
+         * Best holdout AUC achieved across this run's iterations.
+         * @nullable
+         */
+      best_holdout_score: number | null;
+      /** Number of iterations recorded in this run. */
+      iteration_count: number;
+      /**
+         * When this run completed.
+         * @nullable
+         */
+      completed_at: string | null;
+      /** Distilled tier-1 summary of this run — read this first to orient. Null for older runs without one. */
+      summary: TrainingRunSummary | null;
+      /** The iteration trail: every recipe tried, kept or discarded, with rationale and score. */
+      iterations: IterationTrailWithRecipe[];
+    }
+
+    /**
+     * Cross-run learning memory: prior runs the agent should read before iterating.
+     */
+    export interface TrainingRunHistory {
+      /** Recent completed training runs — the current pipeline first, then same-target sibling pipelines on the team — newest first. Mine these to reuse winning features and avoid repeating discarded approaches. */
+      runs: TrainingRunHistoryEntry[];
     }
 
     export interface TranslateRequest {
@@ -96830,6 +97854,7 @@ export namespace Schemas {
     /**
      * * `user_created` - user_created
      * * `posthog_ai` - posthog_ai
+     * * `signal_report` - signal_report
      */
     export type WarmTaskRequestOriginProductEnum = typeof WarmTaskRequestOriginProductEnum[keyof typeof WarmTaskRequestOriginProductEnum];
 
@@ -96837,6 +97862,7 @@ export namespace Schemas {
     export const WarmTaskRequestOriginProductEnum = {
       UserCreated: 'user_created',
       PosthogAi: 'posthog_ai',
+      SignalReport: 'signal_report',
     } as const;
 
     /**
@@ -96903,7 +97929,8 @@ export namespace Schemas {
       /** Product the warm Run is for. Fixed when the sandbox boots — it selects the OAuth app, the quota gate, the warm-pool budget, and PR authorship — so a submit only reuses a warm born under the same origin. Defaults to the Code app.
        *
        * * `user_created` - user_created
-       * * `posthog_ai` - posthog_ai */
+       * * `posthog_ai` - posthog_ai
+       * * `signal_report` - signal_report */
       origin_product?: WarmTaskRequestOriginProductEnum;
       /** Permission mode to boot the agent session on. Read at session construction, so it cannot be changed once the sandbox is warm — a submit selecting a different mode falls through to a cold Run. Omit to take the runtime's default.
        *
@@ -96915,6 +97942,11 @@ export namespace Schemas {
        * * `read-only` - read-only
        * * `full-access` - full-access */
       initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnum | null;
+      /**
+         * Inbox report the warm discussion is about. Required with origin_product `signal_report`, where the warm Run boots repo-less and the submit that creates the report's discussion task activates it.
+         * @nullable
+         */
+      signal_report?: string | null;
     }
 
     /**
@@ -97561,6 +98593,12 @@ export namespace Schemas {
     }
 
     export interface WidgetVersion {
+      /**
+         * Estimated generation charge in USD, including retries, security review, and the AI credit markup. Null when unavailable.
+         * @nullable
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      generation_cost_usd?: string | null;
       /** Immutable widget version identifier. */
       id: string;
       /**
@@ -102288,6 +103326,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type AutoresearchSuggestionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type AutoresearchTrainingRunsListParams = {
     /**
      * Number of results to return per page.
@@ -102297,6 +103346,15 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type AutoresearchTrainingRunsHistoryRetrieveParams = {
+    /**
+     * Maximum number of prior runs to return (default 5, at most 20).
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number;
     };
 
     export type BatchExportsListParams = {
@@ -103800,6 +104858,10 @@ export namespace Schemas {
 
     export type DataModelingEdgesListParams = {
     /**
+     * Return only the edges of this DAG.
+     */
+    dag?: string;
+    /**
      * A page number within the paginated result set.
      */
     page?: number;
@@ -103841,6 +104903,10 @@ export namespace Schemas {
     } as const;
 
     export type DataModelingNodesListParams = {
+    /**
+     * Scope the lineage counts to this DAG.
+     */
+    dag?: string;
     /**
      * A page number within the paginated result set.
      */
@@ -105148,6 +106214,10 @@ export namespace Schemas {
 
     export type ErrorTrackingFingerprintsListParams = {
     /**
+     * Return only the fingerprints of this issue.
+     */
+    issue_id?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -105221,6 +106291,24 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ErrorTrackingIssuesRetrieveParams = {
+    /**
+     * Resolve the issue that currently owns this fingerprint first.
+     */
+    fingerprint?: string;
+    };
+
+    export type ErrorTrackingIssuesValuesRetrieveParams = {
+    /**
+     * Issue property to list values for.
+     */
+    key: string;
+    /**
+     * Substring the returned values must contain.
+     */
+    value?: string;
+    };
+
     export type ErrorTrackingRecommendationsListParams = {
     /**
      * Number of results to return per page.
@@ -105230,6 +106318,17 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * True reads the current state without scheduling a refresh.
+     */
+    poll?: boolean;
+    };
+
+    export type ErrorTrackingRecommendationsRefreshCreateParams = {
+    /**
+     * False skips the recompute when the current result is still fresh. Defaults to true.
+     */
+    force?: boolean;
     };
 
     export type ErrorTrackingReleasesListParams = {
@@ -105245,6 +106344,18 @@ export namespace Schemas {
 
     export type ErrorTrackingSpikeEventsListParams = {
     /**
+     * Include spikes detected at or after this time.
+     */
+    date_from?: string;
+    /**
+     * Include spikes detected at or before this time.
+     */
+    date_to?: string;
+    /**
+     * Comma-separated issue UUIDs to include.
+     */
+    issue_ids?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -105252,6 +106363,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Field to order by. Prefix with a hyphen for descending.
+     */
+    order_by?: string;
     };
 
     export type ErrorTrackingStackFramesListParams = {
@@ -105326,8 +106441,6 @@ export namespace Schemas {
       Valid: 'valid',
       Invalid: 'invalid',
     } as const;
-
-    export type EvaluationRunsCreate200 = { [key: string]: unknown };
 
     export type EvaluationsListParams = {
     /**
@@ -106280,6 +107393,13 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type FileSystemDestroyParams = {
+    /**
+     * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
+     */
+    recursive?: boolean;
+    };
+
     export type FileSystemShortcutListParams = {
     /**
      * Number of results to return per page.
@@ -106365,11 +107485,11 @@ export namespace Schemas {
     skip_create_notebook?: boolean;
     };
 
-    export type GroupsRelatedRetrieveParams = {
+    export type GroupsRelatedListParams = {
     /**
-     * Specify the group type to find
+     * Group type of the actor to find related actors for. Omit when the actor is a person.
      */
-    group_type_index: number;
+    group_type_index?: number;
     /**
      * Specify the id of the user to find groups for
      */
@@ -106679,9 +107799,9 @@ export namespace Schemas {
      */
     trigger?: string;
     /**
-     * Filter by workflow type. `loop` returns workflows owned by a Desktop loop; `messaging` returns the remaining workflows with an email, SMS, or push action; `automation` returns the rest.
+     * Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.
      */
-    type?: HogFlowsListType;
+    type?: string;
     updated_at?: string;
     };
 
@@ -106689,6 +107809,7 @@ export namespace Schemas {
 
 
     export const HogFlowsListOriginProduct = {
+      Broadcasts: 'broadcasts',
       Loops: 'loops',
     } as const;
 
@@ -106699,15 +107820,6 @@ export namespace Schemas {
       Active: 'active',
       Archived: 'archived',
       Draft: 'draft',
-    } as const;
-
-    export type HogFlowsListType = typeof HogFlowsListType[keyof typeof HogFlowsListType];
-
-
-    export const HogFlowsListType = {
-      Automation: 'automation',
-      Loop: 'loop',
-      Messaging: 'messaging',
     } as const;
 
     export type HogFlowsAssetsRetrieveParams = {
@@ -108002,6 +109114,17 @@ export namespace Schemas {
 
     export type JsSnippetVersionPartialUpdate200 = { [key: string]: unknown };
 
+    export type LinksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type LiveDebuggerBreakpointsListParams = {
     filename?: string;
     /**
@@ -108924,8 +110047,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type MaxHandsFreeTokenCreate200 = { [key: string]: unknown };
 
     export type MaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
 
@@ -110084,6 +111205,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type QueryTabStateUserRetrieveParams = {
+    /**
+     * UUID of the user whose query-tab state to return.
+     */
+    user_id: string;
+    };
+
     export type QuickFiltersListParams = {
     /**
      * Number of results to return per page.
@@ -110433,7 +111561,7 @@ export namespace Schemas {
      */
     use_priority_preference?: boolean;
     /**
-     * Apply an inbox view: actionable, needs_input, monitoring, resolved, dismissed, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters.
+     * Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. needs_decision also includes failed reports without a judgment.
      */
     view?: string;
     };

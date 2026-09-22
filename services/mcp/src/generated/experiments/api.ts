@@ -3,11 +3,14 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 40 enabled ops
+ * PostHog API - MCP 41 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const ExperimentHoldoutsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -21,6 +24,9 @@ export const ExperimentHoldoutsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const ExperimentHoldoutsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -305,6 +311,9 @@ export const ExperimentHoldoutsCreateBody = () => zod
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const ExperimentHoldoutsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment holdout.'),
     project_id: zod
@@ -314,6 +323,9 @@ export const ExperimentHoldoutsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const ExperimentHoldoutsPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment holdout.'),
     project_id: zod
@@ -600,6 +612,9 @@ export const ExperimentHoldoutsPartialUpdateBody = () => zod
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const ExperimentHoldoutsDestroyParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment holdout.'),
     project_id: zod
@@ -5455,7 +5470,11 @@ export const ExperimentsCreateBody = () => zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -5586,7 +5605,9 @@ export const ExperimentsCreateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -5617,7 +5638,7 @@ export const ExperimentsCreateBody = () => zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -6491,7 +6512,11 @@ export const ExperimentsCreateBody = () => zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -6622,7 +6647,9 @@ export const ExperimentsCreateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -11406,7 +11433,11 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -11537,7 +11568,9 @@ export const ExperimentsPartialUpdateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -11568,7 +11601,7 @@ export const ExperimentsPartialUpdateBody = () => zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -12446,7 +12479,11 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -12577,7 +12614,9 @@ export const ExperimentsPartialUpdateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -17336,7 +17375,11 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -17467,7 +17510,9 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -17498,7 +17543,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -18376,7 +18421,11 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -18507,7 +18556,9 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -18789,6 +18840,32 @@ export const ExperimentsMetricsRecalculationRetrieveParams = () => zod.object({
  * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsMetricsRecalculationLatestRetrieveParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Move a legacy experiment onto the new experiments engine.
+ *
+ * Creates a new experiment with the same configuration and its metrics converted
+ * to the new format, and returns it. The legacy experiment is left untouched and
+ * keeps its results, so the project ends up with two experiments. Both point at
+ * the same feature flag, so no new rollout is needed and users keep the variant
+ * they already have.
+ *
+ * Legacy shared metrics used by the experiment are converted as part of the same
+ * call. Each one gets a new shared metric, and the new experiment links to that.
+ *
+ * Calling this again returns the experiment created the first time instead of
+ * making another copy.
+ *
+ * Returns 400 if the experiment already uses the new engine.
+ */
+export const ExperimentsMigrateCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()

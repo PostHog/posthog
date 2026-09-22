@@ -52,6 +52,10 @@ SSIM_DISSIMILARITY_THRESHOLD = 0.01  # 1% structural difference
 # somebody should look at it.
 SHIFT_ABSORB_MAX_ROWS = 2
 
+# The CLI uploads only .png files, so the backend decodes snapshots as PNG and nothing else.
+# Image.open without formats= tries every format Pillow can parse.
+SNAPSHOT_IMAGE_FORMATS = ("PNG",)
+
 # --- Input DTOs ---
 
 
@@ -520,6 +524,11 @@ BASELINE_DRIFT_RECENT_RUN_COUNT = 10
 # rendering and starts describing a set. Three is the point where a reader can no longer hold what
 # "the baseline" means for that snapshot, and the same floor the frequently-tolerated stat uses.
 VARIANT_PILEUP_MIN = 3
+
+# Rolling window for counting a snapshot's tolerations across baselines. The debt digest flags
+# `VARIANT_PILEUP_MIN` intentional tolerations in this window. The Tolerate dialog's quarantine
+# suggestion in the frontend (`lib/quarantineNudge.ts`) uses the same window and floor.
+TOLERATION_PILEUP_WINDOW_DAYS = 30
 
 
 @dataclass(frozen=True)

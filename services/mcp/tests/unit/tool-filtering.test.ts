@@ -1028,6 +1028,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'streamlit-apps',
                 'posthog-connect',
                 'experiment-behavior-comparison',
+                'experiment-migrate-mcp-tool',
                 'experiment-setup-context',
                 'data-warehouse-scene',
                 'data-quality-checks',

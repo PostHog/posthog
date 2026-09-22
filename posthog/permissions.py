@@ -1,7 +1,7 @@
 import os
 import time
 import uuid
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -1214,6 +1214,7 @@ def posthog_feature_flag_value(
     *,
     organization_id: str | uuid.UUID,
     team_id: int | None = None,
+    person_properties: dict[str, Any] | None = None,
     only_evaluate_locally: bool = False,
     caller_properties: dict[str, str] | None = None,
 ) -> bool | None:
@@ -1246,6 +1247,7 @@ def posthog_feature_flag_value(
         groups=groups,
         person_properties=caller or None,
         group_properties=group_properties,
+        person_properties=person_properties,
         only_evaluate_locally=only_evaluate_locally,
         send_feature_flag_events=False,
     )
@@ -1257,6 +1259,7 @@ def posthog_feature_flag_enabled(
     *,
     organization_id: str | uuid.UUID,
     team_id: int | None = None,
+    person_properties: dict[str, Any] | None = None,
     only_evaluate_locally: bool = False,
     caller_properties: dict[str, str] | None = None,
 ) -> bool:
@@ -1266,6 +1269,7 @@ def posthog_feature_flag_enabled(
             distinct_id,
             organization_id=organization_id,
             team_id=team_id,
+            person_properties=person_properties,
             only_evaluate_locally=only_evaluate_locally,
             caller_properties=caller_properties,
         )

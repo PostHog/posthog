@@ -20,18 +20,25 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuShortcut,
   ContextMenuSub,
   ContextMenuSubTrigger,
   ContextMenuTrigger,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuShortcut,
   DropdownMenuSub,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@posthog/quill";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import {
+  TaskArchiveMenuItem,
+  type TaskArchiveMenuParts,
+} from "@posthog/ui/features/archive/TaskArchiveMenuItem";
+import { useArchiveShortcut } from "@posthog/ui/features/archive/useArchiveShortcut";
 import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useFileTaskToChannel } from "@posthog/ui/features/canvas/hooks/useFileTaskToChannel";
@@ -92,25 +99,21 @@ export interface TaskRowMenuProps {
 // written once against this shape. Base UI builds context menus on the same Menu
 // parts as dropdowns, so the props line up; typing them structurally keeps the
 // shared content from having to know which surface it's on.
-interface MenuParts {
-  Item: ComponentType<{
-    children: ReactNode;
-    disabled?: boolean;
-    variant?: "default" | "destructive";
-    onClick?: () => void;
-  }>;
+interface MenuParts extends TaskArchiveMenuParts {
   Sub: ComponentType<{ children: ReactNode }>;
   SubTrigger: ComponentType<{ children: ReactNode }>;
 }
 
 const CONTEXT_PARTS: MenuParts = {
   Item: ContextMenuItem,
+  Shortcut: ContextMenuShortcut,
   Sub: ContextMenuSub,
   SubTrigger: ContextMenuSubTrigger,
 };
 
 const DROPDOWN_PARTS: MenuParts = {
   Item: DropdownMenuItem,
+  Shortcut: DropdownMenuShortcut,
   Sub: DropdownMenuSub,
   SubTrigger: DropdownMenuSubTrigger,
 };
@@ -254,10 +257,7 @@ function TaskRowMenuItems({
         </Item>
       )}
       {menu.onArchive && (
-        <Item onClick={menu.onArchive}>
-          <ArchiveIcon size={14} />
-          Archive
-        </Item>
+        <TaskArchiveMenuItem parts={parts} onClick={menu.onArchive} />
       )}
       {/* The ellipsis is the promise that a confirm follows — deleting a canvas
           takes it away from everyone in the space. */}
@@ -357,6 +357,15 @@ function TaskRowBulkMenuItems({
  */
 export function TaskRowDropdownMenu({ menu }: { menu: TaskRowMenuProps }) {
   const [open, setOpen] = useState(false);
+  const archiveFromMenu = useCallback(() => {
+    setOpen(false);
+    menu.onArchive?.();
+  }, [menu]);
+  useArchiveShortcut({
+    onArchive: archiveFromMenu,
+    enabled: open && menu.onArchive !== undefined,
+    priority: "active-menu",
+  });
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -383,11 +392,22 @@ export function TaskRowMenuList({
   menu,
   onAction,
   onSubmenuOpenChange,
+  shortcutActive = true,
 }: {
   menu: TaskRowMenuProps;
   onAction: () => void;
   onSubmenuOpenChange: (open: boolean) => void;
+  shortcutActive?: boolean;
 }) {
+  const archiveFromMenu = useCallback(() => {
+    menu.onArchive?.();
+    onAction();
+  }, [menu, onAction]);
+  useArchiveShortcut({
+    onArchive: archiveFromMenu,
+    enabled: shortcutActive && menu.onArchive !== undefined,
+    priority: "active-menu",
+  });
   const parts: MenuParts = useMemo(
     () => ({
       Item: ({ children, disabled, variant, onClick }) => (
@@ -404,6 +424,7 @@ export function TaskRowMenuList({
           {children}
         </Button>
       ),
+      Shortcut: DropdownMenuShortcut,
       Sub: ({ children }) => (
         <DropdownMenu onOpenChange={onSubmenuOpenChange}>
           {children}
@@ -454,9 +475,12 @@ export function TaskRowContextMenu({
   onOpenChange?: (open: boolean) => void;
   children: ReactNode;
 }) {
+  const [open, setOpen] = useState(false);
   const holdSidebarPeek = useHoldSidebarPeek();
+  const archiveFromMenu = bulk?.onArchive ?? menu.onArchive;
   const handleOpenChange = useCallback(
     (open: boolean): void => {
+      setOpen(open);
       if (!open || useSidebarPeekStore.getState().peek) {
         holdSidebarPeek(open);
       }
@@ -464,9 +488,18 @@ export function TaskRowContextMenu({
     },
     [holdSidebarPeek, onOpenChange],
   );
+  const handleArchiveShortcut = useCallback(() => {
+    handleOpenChange(false);
+    archiveFromMenu?.();
+  }, [archiveFromMenu, handleOpenChange]);
+  useArchiveShortcut({
+    onArchive: handleArchiveShortcut,
+    enabled: open && archiveFromMenu !== undefined,
+    priority: "active-menu",
+  });
 
   return (
-    <ContextMenu onOpenChange={handleOpenChange}>
+    <ContextMenu open={open} onOpenChange={handleOpenChange}>
       <ContextMenuTrigger render={<div className="min-w-0" />}>
         {children}
       </ContextMenuTrigger>
