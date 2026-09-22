@@ -92,6 +92,25 @@ class TestCortexTransport:
         assert resource["endpoint"]["params"] == {}
         assert isinstance(resource["endpoint"]["paginator"], SinglePagePaginator)
 
+    @parameterized.expand(
+        [
+            # `includeDrafts` and `includeExpired` both default to false, so leaving them off
+            # would silently drop Initiatives from the table.
+            (
+                "initiatives",
+                {"pageSize": 250, "includeDrafts": "true", "includeExpired": "true"},
+                PageNumberPaginator,
+            ),
+            ("team_hierarchies", {}, SinglePagePaginator),
+        ]
+    )
+    def test_get_resource_sends_the_declared_list_params(
+        self, name: str, expected_params: dict[str, Any], paginator_type: type
+    ) -> None:
+        resource = cast(dict[str, Any], get_resource(CORTEX_ENDPOINTS[name]))
+        assert resource["endpoint"]["params"] == expected_params
+        assert isinstance(resource["endpoint"]["paginator"], paginator_type)
+
     @parameterized.expand(list(CORTEX_ENDPOINTS.keys()))
     def test_get_resource_matches_declared_primary_key_and_endpoint(self, name: str) -> None:
         config = CORTEX_ENDPOINTS[name]
@@ -269,7 +288,7 @@ class TestCortexTransport:
         assert response.partition_keys == ["joinedAt"]
         assert response.sort_mode == "asc"
 
-    @parameterized.expand(["custom_events", "deploys", "dependencies"])
+    @parameterized.expand(["custom_events", "deploys", "dependencies", "entity_groups"])
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.build_dependent_resource")
     def test_entity_fanouts_bind_the_encoded_tag(
         self, endpoint: str, mock_build_dependent_resource: Mock, *_: Any
@@ -341,3 +360,17 @@ class TestCortexTransport:
         }
         assert rows[0]["method"] == "" and rows[0]["path"] == ""
         assert response.primary_keys == ["callerTag", "calleeTag", "method", "path"]
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.cortex.cortex.build_dependent_resource")
+    def test_entity_groups_keys_membership_on_a_column_the_fanout_injects(
+        self, mock_build_dependent_resource: Mock
+    ) -> None:
+        # A group row carries only the group's own tag. If the parent rename stops producing
+        # `entity_id`, the key column is never populated and every entity in a group merges
+        # onto one row.
+        mock_build_dependent_resource.return_value = _FakeDltResource("entity_groups", [{"tag": "tier-1"}])
+
+        response = cortex_source(api_key="cx_key", endpoint="entity_groups", team_id=1, job_id="job-1")
+
+        injected = set(mock_build_dependent_resource.call_args.kwargs["fanout"].parent_field_renames.values())
+        assert set(response.primary_keys or []) - {"tag"} <= injected

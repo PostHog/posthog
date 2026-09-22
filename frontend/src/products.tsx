@@ -285,6 +285,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/wizard/runs': ['WizardRuns', 'wizardRuns'],
     '/workflows': ['Workflows', 'workflows'],
     '/workflows/:tab': ['Workflows', 'workflows'],
+    '/workflows/broadcasts/new': ['Broadcast', 'broadcast'],
+    '/workflows/broadcasts/:id': ['Broadcast', 'broadcast'],
     '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
     '/workflows/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
     '/workflows/library/templates/new': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
@@ -1084,6 +1086,12 @@ export const productConfiguration: Record<string, any> = {
     },
     Workflow: { name: 'Workflows', iconType: 'workflows', projectBased: true },
     WorkflowsLibraryTemplate: { name: 'Workflows', iconType: 'workflows', projectBased: true },
+    Broadcast: {
+        name: 'Broadcast',
+        iconType: 'workflows',
+        projectBased: true,
+        description: 'Send a one-time or scheduled email to a group of people',
+    },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -1222,8 +1230,8 @@ export const productUrls = {
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
-    dataCatalogMetric: (name: string, tab?: 'definition' | 'tests'): string =>
-        `/data-catalog/metrics/${name}${tab === 'tests' ? '?tab=tests' : ''}`,
+    dataCatalogMetric: (name: string, tab?: 'definition' | 'tests' | 'lineage'): string =>
+        `/data-catalog/metrics/${name}${tab && tab !== 'definition' ? `?tab=${tab}` : ''}`,
     dataOps: (tab?: string): string => {
         const params = new URLSearchParams()
         if (tab) {
@@ -1647,6 +1655,9 @@ export const productUrls = {
     workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
     workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
     workflowsLibraryTemplateFromMessage: (id?: string): string => `/workflows/library/templates/new?messageId=${id}`,
+    broadcasts: (): string => '/workflows/broadcasts',
+    broadcast: (id: string): string => `/workflows/broadcasts/${id}`,
+    broadcastNew: (): string => '/workflows/broadcasts/new',
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -1973,6 +1984,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 export type ProductTreePath =
     | 'AI gateway'
     | 'Apps'
+    | 'Broadcasts'
     | 'Business knowledge'
     | 'Clusters'
     | 'Code review'
@@ -2051,6 +2063,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
         sceneKey: 'StreamlitApps',
         sceneKeys: ['StreamlitApps', 'StreamlitApp', 'StreamlitAppEdit'],
+    },
+    {
+        path: 'Broadcasts',
+        intents: [ProductKey.WORKFLOWS],
+        href: urls.broadcasts(),
+        type: 'broadcasts',
+        category: ProductItemCategory.TOOLS,
+        iconType: 'broadcasts',
+        iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
+        sceneKey: 'Broadcast',
+        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcast'],
     },
     {
         path: 'Business knowledge',
@@ -2787,7 +2810,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'workflows',
         iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
         sceneKey: 'Workflows',
-        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate'],
+        sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcast'],
     },
 ]
 

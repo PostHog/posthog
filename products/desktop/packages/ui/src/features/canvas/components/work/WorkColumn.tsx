@@ -356,6 +356,7 @@ export function WorkColumn() {
   );
   const canExpandRecent =
     needle === "" && matchingItems.length > RECENT_COLLAPSED_COUNT;
+  const recentFills = recentOpen && recentExpanded;
   const optionValues = useMemo(
     () => [
       ...shownItems.map((item) => item.key),
@@ -398,114 +399,129 @@ export function WorkColumn() {
         <ChromeBar>
           <h2 className="font-bold text-base">Work</h2>
         </ChromeBar>
-        <AutocompleteList className="sidebar-autocomplete-tree scroll-mask-8 !max-h-none !px-2 !pt-2 !pb-2 min-h-0 flex-1 scroll-py-8 flex-col gap-px overflow-y-auto">
-          <SectionHeading
-            label="Recent"
-            expanded={recentOpen}
-            onToggle={() => setRecentOpen((value) => !value)}
-          />
-          {recentOpen && (
-            <div className="flex items-center gap-1 px-1 pt-0.5 pb-1.5">
-              <SidebarSearchInput
-                ref={searchRef}
-                query={query}
-                placeholder="Search recent…"
-                searchLabel="Search recent"
-                onClear={() => setQuery("")}
-                className="min-w-0 flex-1"
-              />
-              <ChannelFilterMenu
-                filters={filters}
-                onFilterChange={(key, value) =>
-                  setFilters({ ...filters, [key]: value })
-                }
-                onClearFilters={() => setFilters(DEFAULT_CHANNEL_ITEM_FILTERS)}
-                sort={sort}
-                onSortChange={setSort}
-                grouping={grouping}
-                onGroupingChange={setGrouping}
-                onEditAppearance={() => setAppearanceOpen(true)}
-                sources={sources}
-                showCreatedBy
-                showRunFilters
-                showKindFilter
-                groupings={["date", "space", "repository"]}
-                active={hasActiveChannelItemFilters(filters)}
-              />
-            </div>
-          )}
-          {recentOpen &&
-            (isLoading && items.length === 0 ? (
-              <div className="flex flex-col gap-2 px-2 py-1.5">
-                <Skeleton className="h-3.5 w-4/5" />
-                <Skeleton className="h-3.5 w-3/5" />
-                <Skeleton className="h-3.5 w-2/3" />
+        <AutocompleteList className="sidebar-autocomplete-tree !max-h-none !px-2 !pt-2 !pb-2 flex min-h-0 flex-1 flex-col overflow-hidden">
+          {/* The expanded list keeps a share of the column instead of all of it,
+              so the spaces below it stay on screen. */}
+          <div
+            className={cn("flex min-h-0 flex-col", recentFills && "flex-[3]")}
+          >
+            <SectionHeading
+              label="Recent"
+              expanded={recentOpen}
+              onToggle={() => setRecentOpen((value) => !value)}
+            />
+            {recentOpen && (
+              <div className="flex items-center gap-1 px-1 pt-0.5 pb-1.5">
+                <SidebarSearchInput
+                  ref={searchRef}
+                  query={query}
+                  placeholder="Search recent…"
+                  searchLabel="Search recent"
+                  onClear={() => setQuery("")}
+                  className="min-w-0 flex-1"
+                />
+                <ChannelFilterMenu
+                  filters={filters}
+                  onFilterChange={(key, value) =>
+                    setFilters({ ...filters, [key]: value })
+                  }
+                  onClearFilters={() =>
+                    setFilters(DEFAULT_CHANNEL_ITEM_FILTERS)
+                  }
+                  sort={sort}
+                  onSortChange={setSort}
+                  grouping={grouping}
+                  onGroupingChange={setGrouping}
+                  onEditAppearance={() => setAppearanceOpen(true)}
+                  sources={sources}
+                  showCreatedBy
+                  showRunFilters
+                  showKindFilter
+                  groupings={["date", "space", "repository"]}
+                  active={hasActiveChannelItemFilters(filters)}
+                />
               </div>
-            ) : shownItems.length === 0 ? (
-              <p className="px-2 py-1 text-[12px] text-muted-foreground">
-                {needle || hasActiveChannelItemFilters(filters)
-                  ? "Nothing here matches."
-                  : "Sessions and canvases you open show up here."}
-              </p>
-            ) : (
-              <div
-                className={cn(
-                  "flex flex-col gap-px transition-opacity duration-150",
-                  recentRebuilding && "pointer-events-none opacity-50",
-                )}
-              >
-                {shownSections.map((section, index) => (
-                  <Fragment key={section.key}>
-                    {section.label && (
-                      <div
-                        className={cn(
-                          "px-2 pb-1 font-medium text-[11px] text-muted-foreground",
-                          index === 0
-                            ? "pt-1"
-                            : "mt-2 border-border/70 border-t pt-2",
-                        )}
-                      >
-                        {section.label}
-                      </div>
+            )}
+            <div className="scroll-mask-8 flex min-h-0 flex-1 scroll-py-8 flex-col gap-px overflow-y-auto">
+              {recentOpen &&
+                (isLoading && items.length === 0 ? (
+                  <div className="flex flex-col gap-2 px-2 py-1.5">
+                    <Skeleton className="h-3.5 w-4/5" />
+                    <Skeleton className="h-3.5 w-3/5" />
+                    <Skeleton className="h-3.5 w-2/3" />
+                  </div>
+                ) : shownItems.length === 0 ? (
+                  <p className="px-2 py-1 text-[12px] text-muted-foreground">
+                    {needle || hasActiveChannelItemFilters(filters)
+                      ? "Nothing here matches."
+                      : "Sessions and canvases you open show up here."}
+                  </p>
+                ) : (
+                  <div
+                    className={cn(
+                      "flex flex-col gap-px transition-opacity duration-150",
+                      recentRebuilding && "pointer-events-none opacity-50",
                     )}
-                    {section.items.map((item) => (
-                      <WorkItemRow
-                        key={item.key}
-                        item={item}
-                        isActive={item.key === activeKey}
-                        onOpen={() => actions.open(item)}
-                        menu={menuFor(item)}
-                        spaceName={spaceNameFor(item)}
-                        channelId={channelByKey.get(item.key)}
-                        currentUserUuid={meUuid ?? undefined}
-                      />
+                  >
+                    {shownSections.map((section, index) => (
+                      <Fragment key={section.key}>
+                        {section.label && (
+                          <div
+                            className={cn(
+                              "px-2 pb-1 font-medium text-[11px] text-muted-foreground",
+                              index === 0
+                                ? "pt-1"
+                                : "mt-2 border-border/70 border-t pt-2",
+                            )}
+                          >
+                            {section.label}
+                          </div>
+                        )}
+                        {section.items.map((item) => (
+                          <WorkItemRow
+                            key={item.key}
+                            item={item}
+                            isActive={item.key === activeKey}
+                            onOpen={() => actions.open(item)}
+                            menu={menuFor(item)}
+                            spaceName={spaceNameFor(item)}
+                            channelId={channelByKey.get(item.key)}
+                            currentUserUuid={meUuid ?? undefined}
+                          />
+                        ))}
+                      </Fragment>
                     ))}
-                  </Fragment>
+                  </div>
                 ))}
-              </div>
-            ))}
-          {recentOpen && canExpandRecent && (
-            <button
-              type="button"
-              aria-expanded={recentExpanded}
-              className="group/expand mt-0.5 flex h-6 w-full items-center justify-center gap-1 rounded-md text-[11px] text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground"
-              onClick={() => setRecentExpanded((value) => !value)}
-            >
-              {recentExpanded ? (
-                <>
-                  <CaretUpIcon size={11} weight="bold" />
-                  Show fewer
-                </>
-              ) : (
-                <>
-                  <CaretDownIcon size={11} weight="bold" />
-                  {matchingItems.length - shownItems.length} more
-                </>
-              )}
-            </button>
-          )}
+            </div>
+            {recentOpen && canExpandRecent && (
+              <button
+                type="button"
+                aria-expanded={recentExpanded}
+                className="group/expand mt-0.5 flex h-6 w-full shrink-0 items-center justify-center gap-1 rounded-md text-[11px] text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground"
+                onClick={() => setRecentExpanded((value) => !value)}
+              >
+                {recentExpanded ? (
+                  <>
+                    <CaretUpIcon size={11} weight="bold" />
+                    Show fewer
+                  </>
+                ) : (
+                  <>
+                    <CaretDownIcon size={11} weight="bold" />
+                    {matchingItems.length - shownItems.length} more
+                  </>
+                )}
+              </button>
+            )}
+          </div>
 
-          <div className="mt-2">
+          <div
+            className={cn(
+              "mt-2 flex min-h-0 flex-col",
+              recentFills ? "flex-[2]" : "flex-1",
+            )}
+          >
             <SectionHeading
               label="Spaces"
               expanded={spacesExpanded}
@@ -526,7 +542,7 @@ export function WorkColumn() {
               }
             />
             {spacesExpanded && (
-              <div className="flex flex-col gap-px">
+              <div className="scroll-mask-8 flex min-h-0 flex-1 scroll-py-8 flex-col gap-px overflow-y-auto">
                 {starredSpaces.map((channel) => (
                   <SpaceRow
                     key={channel.id}
