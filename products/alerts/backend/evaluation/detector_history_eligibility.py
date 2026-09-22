@@ -31,6 +31,12 @@ _ROW_LOCAL_FIELD_ROOTS = ("timestamp", "event", "distinct_id", "person_id", "pro
 
 
 @frozen
+class _SeriesAliases:
+    bucket: str
+    value: str
+
+
+@frozen
 class _HourlySeriesShape:
     window_hours: int
     bucket_alias: str
@@ -139,7 +145,7 @@ class _HourlySeriesMatcher:
             )
         return False
 
-    def _aliases(self) -> tuple[str, str] | None:
+    def _aliases(self) -> "_SeriesAliases | None":
         """The (bucket, value) output column names, when the shape allows reusing older buckets."""
         query = self.query
         # Fail closed for new clauses, as well as windows, joins, fill, CTEs and HAVING. Those can
@@ -183,7 +189,7 @@ class _HourlySeriesMatcher:
             or order.expr.chain != [bucket.alias]
         ):
             return None
-        return bucket.alias, value.alias
+        return _SeriesAliases(bucket=bucket.alias, value=value.alias)
 
     def _window_hours(self) -> int | None:
         """The number of hourly buckets the query asks for, when its bounds pin one."""
@@ -227,7 +233,7 @@ class _HourlySeriesMatcher:
         hours = self._window_hours()
         if hours is None:
             return None
-        return _HourlySeriesShape(window_hours=hours, bucket_alias=aliases[0], value_alias=aliases[1])
+        return _HourlySeriesShape(window_hours=hours, bucket_alias=aliases.bucket, value_alias=aliases.value)
 
 
 @frozen
