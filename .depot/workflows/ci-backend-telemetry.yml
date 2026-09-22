@@ -15,7 +15,7 @@ on:
         types: [completed]
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number }}
+    group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number }}
     cancel-in-progress: true
 
 permissions:
