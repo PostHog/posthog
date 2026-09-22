@@ -180,6 +180,28 @@ class TestGetSchemas:
         [schema] = source.get_schemas(_FakeConfig(), team_id=1)
         assert schema.detected_primary_keys is None
 
+    def test_id_fallback_is_marked_inferred(self) -> None:
+        source, _ = _make_source(
+            columns_by_table={"messages": [("id", "int", False), ("body", "text", True)]},
+            primary_keys_by_table={"messages": None},
+        )
+        [schema] = source.get_schemas(_FakeConfig(), team_id=1)
+        assert schema.detected_primary_keys == ["id"]
+        assert schema.primary_keys_inferred is True
+
+    def test_declared_primary_key_is_not_marked_inferred(self) -> None:
+        source, _ = _make_source(
+            columns_by_table={"messages": [("id", "int", False)]},
+            primary_keys_by_table={"messages": ["id"]},
+        )
+        [schema] = source.get_schemas(_FakeConfig(), team_id=1)
+        assert schema.primary_keys_inferred is False
+
+    def test_absent_key_is_not_marked_inferred(self) -> None:
+        source, _ = _make_source(columns_by_table={"messages": [("body", "text", True)]})
+        [schema] = source.get_schemas(_FakeConfig(), team_id=1)
+        assert schema.primary_keys_inferred is False
+
     def test_row_counts_passed_through_when_with_counts_true(self) -> None:
         source, impl = _make_source(
             columns_by_table={"messages": [("id", "int", False)]},

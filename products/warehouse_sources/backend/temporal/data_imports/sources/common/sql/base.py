@@ -134,7 +134,10 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         schemas: list[SourceSchema] = []
         for table_name, columns in columns_by_table.items():
             incremental_triples = incremental_filter(columns)
-            detected_pks = primary_keys.get(table_name) or self._default_primary_key_from_columns(columns)
+            detected_pks = primary_keys.get(table_name)
+            primary_keys_inferred = not detected_pks
+            if primary_keys_inferred:
+                detected_pks = self._default_primary_key_from_columns(columns)
             indexed_columns = indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
 
             schemas.append(
@@ -151,6 +154,7 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
                     source_schema=metadata.schema_by_table.get(table_name),
                     source_table_name=metadata.table_name_by_table.get(table_name),
                     detected_primary_keys=detected_pks,
+                    primary_keys_inferred=primary_keys_inferred and detected_pks is not None,
                 )
             )
         return schemas
