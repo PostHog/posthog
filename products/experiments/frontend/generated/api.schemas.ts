@@ -2132,6 +2132,7 @@ export interface ExperimentInSessionExposureApi {
  * * `experiment_launch` - Experiment Launch
  * * `experiment_stop` - Experiment Stop
  * * `experiment_update` - Experiment Update
+ * * `timeseries_sync` - Timeseries Sync
  */
 export type ExperimentMetricsRecalculationTriggerEnumApi =
     (typeof ExperimentMetricsRecalculationTriggerEnumApi)[keyof typeof ExperimentMetricsRecalculationTriggerEnumApi]
@@ -2148,6 +2149,7 @@ export const ExperimentMetricsRecalculationTriggerEnumApi = {
     ExperimentLaunch: 'experiment_launch',
     ExperimentStop: 'experiment_stop',
     ExperimentUpdate: 'experiment_update',
+    TimeseriesSync: 'timeseries_sync',
 } as const
 
 /**
@@ -2166,7 +2168,8 @@ export interface RecalculateMetricsRequestApi {
      * * `config_change` - Config Change
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
-     * * `experiment_update` - Experiment Update */
+     * * `experiment_update` - Experiment Update
+     * * `timeseries_sync` - Timeseries Sync */
     trigger?: ExperimentMetricsRecalculationTriggerEnumApi
 }
 
@@ -2284,7 +2287,8 @@ export interface ExperimentMetricsRecalculationApi {
      * * `config_change` - Config Change
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
-     * * `experiment_update` - Experiment Update */
+     * * `experiment_update` - Experiment Update
+     * * `timeseries_sync` - Timeseries Sync */
     readonly trigger: ExperimentMetricsRecalculationTriggerEnumApi
     /** When the job was created */
     readonly created_at: string
