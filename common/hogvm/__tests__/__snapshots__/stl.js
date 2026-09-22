@@ -1,4 +1,4 @@
-function upper (value) { return value.toUpperCase() }
+function upper (value) { return value === null || value === undefined ? null : value.toUpperCase() }
 function __x_typeof (value) {
     if (value === null || value === undefined) { return 'null'
     } else if (__isHogDateTime(value)) { return 'datetime'
@@ -74,9 +74,9 @@ function startsWith(str, prefix) {
     return typeof str === 'string' && typeof prefix === 'string' && str.startsWith(prefix);
 }
 function round(a) { return Math.round(a) }
-function reverse (value) { return value.split('').reverse().join('') }
-function replaceOne (str, searchValue, replaceValue) { return str.replace(searchValue, replaceValue) }
-function replaceAll (str, searchValue, replaceValue) { return str.replaceAll(searchValue, replaceValue) }
+function reverse (value) { return value === null || value === undefined ? null : value.split('').reverse().join('') }
+function replaceOne (str, searchValue, replaceValue) { return str === null || str === undefined ? null : str.replace(searchValue, replaceValue) }
+function replaceAll (str, searchValue, replaceValue) { return str === null || str === undefined ? null : str.replaceAll(searchValue, replaceValue) }
 function range(...args) {
     if (args.length === 1) {
         const end = args[0];
@@ -98,7 +98,7 @@ function min2(a, b) { return a < b ? a : b }
 function lower (value) { if (value === null || value === undefined) { return null } return value.toLowerCase() }
 function lessOrEquals(a, b) { return a <= b }
 function less(a, b) { return a < b }
-function length (value) { return value.length }
+function length (value) { return value === null || value === undefined ? null : value.length }
 function jsonStringify (value, spacing) {
     function convert(x, marked) {
         if (!marked) { marked = new Set() }

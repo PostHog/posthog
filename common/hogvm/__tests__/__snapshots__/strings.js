@@ -1,4 +1,7 @@
 function trimRight (str, char) {
+    if (str === null || str === undefined) {
+        return null
+    }
     if (char === null || char === undefined) {
         char = ' '
     }
@@ -12,6 +15,9 @@ function trimRight (str, char) {
     return str.slice(0, end)
 }
 function trimLeft (str, char) {
+    if (str === null || str === undefined) {
+        return null
+    }
     if (char === null || char === undefined) {
         char = ' '
     }
@@ -25,6 +31,9 @@ function trimLeft (str, char) {
     return str.slice(start)
 }
 function trim (str, char) {
+    if (str === null || str === undefined) {
+        return null
+    }
     if (char === null || char === undefined) {
         char = ' '
     }

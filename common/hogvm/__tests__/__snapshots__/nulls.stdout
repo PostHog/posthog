@@ -11,3 +11,18 @@ false
 false
 false
 false
+-- string and array functions on null --
+null
+null
+null
+null
+null
+null
+null
+null
+[]
+[]
+false
+[]
+[]
+0

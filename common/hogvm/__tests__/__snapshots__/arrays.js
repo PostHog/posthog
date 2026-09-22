@@ -9,7 +9,7 @@ function arrayPushFront (arr, item) { if (!Array.isArray(arr)) { return [item] }
 function arrayPushBack (arr, item) { if (!Array.isArray(arr)) { return [item] } return [...arr, item] }
 function arrayPopFront (arr) { if (!Array.isArray(arr)) { return [] } return arr.slice(1) }
 function arrayPopBack (arr) { if (!Array.isArray(arr)) { return [] } return arr.slice(0, arr.length - 1) }
-function arrayCount (func, arr) { let count = 0; for (let i = 0; i < arr.length; i++) { if (func(arr[i])) { count = count + 1 } } return count }
+function arrayCount (func, arr) { let count = 0; for (let i = 0; i < (arr ?? []).length; i++) { if (func(arr[i])) { count = count + 1 } } return count }
 function __setProperty(objectOrArray, key, value) {
     if (Array.isArray(objectOrArray)) { if (key > 0) { objectOrArray[key - 1] = value } else { objectOrArray[objectOrArray.length + key] = value } }
     else { objectOrArray[key] = value }
