@@ -187,6 +187,12 @@ export const Health: Story = {
     parameters: { pageUrl: urls.engineeringAnalyticsHealth() },
 }
 
+// A docked side panel leaves the scene about 520px wide, where the lead-time controls must wrap.
+export const HealthNarrow: Story = {
+    ...Health,
+    parameters: { ...Health.parameters, testOptions: { viewport: { width: 900, height: 1800 } } },
+}
+
 export const HealthWithLimitedDeploymentCoverage: Story = {
     ...Health,
     decorators: [

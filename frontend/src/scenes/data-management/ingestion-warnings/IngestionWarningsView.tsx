@@ -41,6 +41,10 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     schema_validation_failed: 'Event rejected due to schema validation failure',
     invalid_heatmap_data: 'Invalid heatmap data',
     invalid_group_set: 'Discarded a $groupidentify event whose $group_set is not an object',
+    invalid_event_when_process_person_profile_is_false:
+        'Discarded an event that requires person processing because $process_person_profile was set to false',
+    event_dropped_person_processing_disabled:
+        'Discarded an event that requires person processing, which is turned off for this project',
     cookieless_team_disabled: 'Discarded cookieless event because cookieless tracking is disabled',
     // Emitted by the capture service when it drops events at validation time
     missing_event_name: 'Discarded event with no event name',
