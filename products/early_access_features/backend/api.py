@@ -6,7 +6,6 @@ from django.http import JsonResponse
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
-import structlog
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied
@@ -35,14 +34,12 @@ from products.feature_flags.backend.api.feature_flag import (
     assert_feature_flag_write_scope,
 )
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
-from products.feature_flags.backend.facade.api import create_flag, update_flag
+from products.feature_flags.backend.facade.api import clear_feature_enrollment, create_flag, update_flag
 from products.feature_flags.backend.facade.filters import set_feature_enrollment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import FLAG_OWNER_EARLY_ACCESS, assert_flag_available_for, flag_owner_kind
 
 from .models import EarlyAccessFeature
-
-logger = structlog.get_logger(__name__)
 
 
 def assert_feature_flag_rbac_access(
@@ -75,35 +72,6 @@ def derive_feature_flag_key(feature_name: str) -> str:
     resurfaces as an error on "key", the field the form doesn't have.
     """
     return slugify(feature_name)
-
-
-def clear_feature_enrollment(feature_flag: FeatureFlag, *, team: Team) -> None:
-    """Clear the enrollment marker on a feature's linked flag (feature demoted or deleted).
-
-    Cleanup must never fail: a linked flag can hold stored filter shapes the current
-    FeatureFlagSerializer rejects or crashes on (group-aggregated conditions, malformed
-    legacy properties, ...), and a rejection here would make the feature undeletable.
-    Prefer the gated facade write (validation, activity logging); fall back to a raw
-    model write when it raises. This is a system write (user=None): an enabled approval
-    policy must never block cleanup with a 409, and activity is logged as system.
-    """
-    cleared_filters = set_feature_enrollment(feature_flag.get_filters() or {}, None)
-    # Without "groups", the serializer's partial-PATCH shortcut discards the incoming
-    # filters and returns the stored ones — silently skipping the cleanup entirely.
-    if "groups" in cleared_filters:
-        try:
-            update_flag(feature_flag, {"filters": cleared_filters}, team=team, user=None)
-            return
-        except Exception as exc:
-            # Stored legacy JSON can raise arbitrary exception types through the flag
-            # validator (ValidationError, TypeError, KeyError, ...), so catch broadly.
-            logger.warning(
-                "early_access_feature_enrollment_cleanup_fell_back_to_raw_write",
-                feature_flag_id=feature_flag.id,
-                error=str(exc),
-            )
-    feature_flag.filters = cleared_filters  # nosemgrep: feature-flags-no-raw-filters-access -- deliberate never-fail cleanup fallback when the gated write can't validate stored legacy filter shapes
-    feature_flag.save(update_fields=["filters"])
 
 
 class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
