@@ -603,9 +603,11 @@ FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS=24  # Refresh caches expiring within 24h
 FLAGS_CACHE_REFRESH_LIMIT=5000              # Max teams per refresh run
 FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=5  # Skip recently updated flags
 
-# Scheduled task settings for the flag definitions cache sweep
-FLAG_DEFINITIONS_CACHE_REFRESH_TTL_THRESHOLD_HOURS=24  # defaults to the flags value above
-FLAG_DEFINITIONS_CACHE_REFRESH_LIMIT=5000              # defaults to the flags value above
+# Scheduled task settings for the flag definitions cache sweep.
+# Each one defaults to the resolved flags value above, so both sweeps move together.
+# Uncomment one to move this sweep alone.
+# FLAG_DEFINITIONS_CACHE_REFRESH_TTL_THRESHOLD_HOURS=12
+# FLAG_DEFINITIONS_CACHE_REFRESH_LIMIT=2000
 
 # For S3 fallback
 OBJECT_STORAGE_ENABLED=true
