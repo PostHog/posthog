@@ -1,7 +1,6 @@
-// These tests check the workflows under .github/workflows and the Depot copy of Backend CI, not the
-// planner. A failure here means a job condition in a workflow file changed what runs; the planner
-// itself is covered by plan.test.ts.
-import { readFileSync, readdirSync } from 'node:fs'
+// These tests check the workflows under .github/workflows, not the planner. A failure here means a
+// job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
+import { readdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -523,45 +522,4 @@ describe('.github/workflows run plans', () => {
             expect({ id: planned?.id, runs: planned?.runs }).toEqual({ id: step, runs })
         }
     )
-
-    // The PR workflow only stages inert inputs. The pull_request_target workflow validates and
-    // emits them from the trusted base revision after the matching backend run finishes.
-    const depotBackend = loadWorkflow(path.join(REPO_ROOT, '.depot/workflows/ci-backend.yml'))
-    const depotTelemetry = ['test-selection-verdict', 'capture-test-selection']
-    it.each([
-        { handedOff: 'true', runs: depotTelemetry },
-        { handedOff: 'false', runs: [] },
-    ])('Depot Backend CI runs telemetry $runs for a ready PR when handed_off=$handedOff', ({ handedOff, runs }) => {
-        const plan = planWorkflow(depotBackend, {
-            name: `handed_off=${handedOff}`,
-            github: pullRequest(),
-            steps: { ...allFiltersChanged(depotBackend), ...backendSelectors },
-            jobOutputs: { 'wait-for-handoff': { handed_off: handedOff } },
-        })
-        expect(plan.errors).toEqual([])
-        const running = new Set(runningJobs(plan))
-        expect(depotTelemetry.filter((id) => running.has(id))).toEqual(runs)
-    })
-
-    it('keeps privileged Depot telemetry out of the PR-controlled workflow', () => {
-        const source = readFileSync(path.join(REPO_ROOT, '.depot/workflows/ci-backend.yml'), 'utf8')
-        expect(source).not.toMatch(/secrets\.POSTHOG_(?:API_TOKEN|DEVEX_PROJECT_API_TOKEN)/)
-        expect(source).not.toMatch(/secrets\.DEPOT_CI_(?:CANCEL|TELEMETRY)_TOKEN/)
-
-        const trustedPath = path.join(REPO_ROOT, '.depot/workflows/ci-backend-telemetry.yml')
-        const trustedSource = readFileSync(trustedPath, 'utf8')
-        expect(trustedSource).toContain('secrets.DEPOT_CI_TELEMETRY_TOKEN')
-        expect(trustedSource).not.toContain('secrets.DEPOT_CI_CANCEL_TOKEN')
-
-        const trusted = loadWorkflow(trustedPath)
-        expect(trusted.on).toMatchObject({
-            pull_request_target: { branches: ['master'] },
-            workflow_run: { workflows: ['Backend CI'], types: ['completed'] },
-        })
-        expect(trusted.jobs.report?.if).toContain(
-            "github.event.workflow_run.pull_requests[0].base.ref == 'master'"
-        )
-        const checkout = trusted.jobs.report?.steps?.find((step) => step.uses?.startsWith('actions/checkout@'))
-        expect(checkout?.with?.ref).toBe('${{ env.SOURCE_BASE_SHA }}')
-    })
 })

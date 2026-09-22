@@ -24,8 +24,7 @@
 #   section posts with a posthog-tests token scoped to pull-requests:write (see the header of
 #   .depot/actions/commit-snapshots). Migration reports cross an artifact boundary into the
 #   base-controlled ci-backend-report.yml workflow before any write token is minted.
-# - Stripped side effects: the backend coverage CI report section and the OpenAPI
-#   auto-commit.
+# - Stripped side effects: the backend coverage CI report section.
 # - Trunk uploads and quarantine verdicts match canonical only when side effects
 #   are enabled. Disabled test steps retain their direct failure verdict.
 # - dynamic-ci-filter: canonical asks Trunk which jobs a diff needs and records the verdict
@@ -35,17 +34,13 @@
 # - Artifact uploads, run-scoped sharding plans, and the failing-test rollup
 #   require side effects, including duration writes. Depot stores these separately
 #   from GitHub Actions.
-# - CI telemetry is emitted by ci-backend-telemetry.yml, a pull_request_target workflow that
-#   runs base-revision scripts. This PR-controlled workflow has no PostHog or Depot API secret:
-#   capture-test-selection stages inert JSON, test-selection-verdict and test shards upload
-#   artifacts, and the trusted workflow validates and reports them after this run completes.
 # - Hourly scheduled master run: canonical no longer runs the test matrices on master push
 #   (the merge queue's trunk-merge/** run gates every commit) and runs them from an hourly
 #   `schedule` trigger instead — the shape this shadow always had (its `!= 'push'` gates on
 #   turbo-discover / get_clickhouse_versions). A sampling trial must not run on a timer, so
 #   the schedule trigger and canonical's per-commit-vs-scheduled splits (the `!= 'schedule'`
-#   gates on check-migrations / check-openapi-types / repo-checks, and the paths-filter
-#   schedule skip) are depot-exempt.
+#   gates on check-migrations / check-openapi-types / repo-checks, report-test-timings' push
+#   exclusion, and the paths-filter schedule skip) are depot-exempt.
 # - mirror-schema-cache: canonical's master run copies the migrated schema dump out of the
 #   migrated-schema artifact into GitHub Actions Cache, so fork PRs (which run without
 #   secrets and cannot authenticate to Depot Cache) prime instead of migrating from scratch.
@@ -3654,9 +3649,7 @@ jobs:
                   check_required_result "Snapshot commit job" "${{ needs.handle-snapshots.result }}"
 
                   echo "All backend and product checks passed."
-
     test-selection-verdict:
-        continue-on-error: true
         needs: [django, turbo-tests, changes, turbo-discover]
         name: Test selection verdict
         # The verdict scores the selection against the JUnit a run produced, so it needs
@@ -3762,12 +3755,13 @@ jobs:
                   retention-days: 90
 
     capture-test-selection:
-        name: Stage test selection telemetry
+        name: Capture test selection
         needs: [turbo-discover]
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
-        # This PR-controlled workflow only stages inert input. A pull_request_target
-        # workflow checks it against trusted event data before any secret is available.
+        # An empty mode means this run never selected, so there is no decision to report.
+        # DevEx project only, mirroring monitor-github-rate-limit; continue-on-error so
+        # telemetry never reds CI. Skipped on forks/Dependabot, which never have the secret.
         if: |
             !cancelled() && github.run_attempt == '1'
             && github.actor != 'dependabot[bot]'
@@ -3775,20 +3769,87 @@ jobs:
             && needs.turbo-discover.result == 'success'
             && needs.turbo-discover.outputs.mode != ''
         steps:
-            - name: Tag the selection with the CI engine
-              id: properties
+            - name: Capture test selection to DevEx PostHog
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-test-selection'
+                  properties: ${{ needs.turbo-discover.outputs.telemetry }}
+
+    report-test-timings:
+        name: Report per-test traces
+        # django and turbo-tests are here for their results only; django_tests already
+        # waits for both, so this adds no wall time.
+        needs: [django_tests, django, turbo-tests]
+        runs-on: depot-ubuntu-24.04
+        continue-on-error: true
+        timeout-minutes: 10
+        # Runs on every attempt: a re-run passing what an earlier attempt failed is the same-commit
+        # flake proof the test-health queue reads, and the shards a re-run re-executed upload under
+        # attempt-suffixed artifact names so only they are emitted for the new attempt.
+        # Scheduled master runs and all in-repo PRs. Skip forks (no secrets access)
+        # and master pushes (their matrices are skipped, so there are no traces).
+        # Both matrices skipped also means no JUnit was uploaded, so there are no
+        # traces to emit. This job sits on the tail of the run, so skipping it takes
+        # its whole duration off the wall of a draft that ran no tests.
+        if: >-
+            !cancelled() &&
+            github.repository == 'PostHog/posthog' &&
+            (needs.django.result != 'skipped' || needs.turbo-tests.result != 'skipped') &&
+            (
+            (github.event_name != 'pull_request' && github.event_name != 'push' && github.ref == 'refs/heads/master') ||
+            (github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
+            )
+        steps:
+            # Labelled PRs run the trusted base parser, so the same PR can't swap the script that receives secrets.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+                  fetch-depth: 1
+            - name: Check for trusted timing reporter
+              id: timing-reporter
+              shell: bash
+              run: |
+                  # The owners resolver is a path dep of the reporter, so a base ref predating it
+                  # can't resolve its deps. A base ref from before the move to packages/owners-yaml still
+                  # carries it at tools/owners, so both locations count as available.
+                  available=false
+                  if [[ -f .github/scripts/report_test_timings.py && ( -d packages/owners-yaml || -d tools/owners ) ]]; then
+                    available=true
+                  fi
+                  # A re-run may emit only through an attempt-aware reporter: an older script would
+                  # re-report every attempt-1 shard under the new attempt's resource attributes.
+                  if [[ "$GITHUB_RUN_ATTEMPT" != "1" ]] && ! grep -q "def partition_run_attempt" .github/scripts/report_test_timings.py 2>/dev/null; then
+                    available=false
+                  fi
+                  if [[ "$available" != "true" ]]; then
+                    echo "Trusted timing reporter is not available on the checked-out ref for attempt $GITHUB_RUN_ATTEMPT; skipping emit."
+                  fi
+                  echo "available=$available" >> "$GITHUB_OUTPUT"
+            # Direct install: The trusted PR base used for reporting may predate the local action.
+            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              if: steps.timing-reporter.outputs.available == 'true'
+              with:
+                  version: '0.12.13'
+            - name: Download junit artifacts
+              if: steps.timing-reporter.outputs.available == 'true'
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              with:
+                  path: ./junit-artifacts
+                  pattern: '{junit-results-backend,product-junit-results}-*'
+            - name: Emit per-test traces
+              if: steps.timing-reporter.outputs.available == 'true'
               continue-on-error: true
               env:
-                  TELEMETRY: ${{ needs.turbo-discover.outputs.telemetry }}
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  # dual emission while per-test traces migrate to the project behind POSTHOG_API_TOKEN
+                  POSTHOG_CI_TRACES_EXTRA_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
+                  POSTHOG_OTLP_TRACES_ENDPOINT: ${{ vars.POSTHOG_OTLP_TRACES_ENDPOINT || 'https://us.i.posthog.com/i/v1/traces' }}
               run: |
-                  set -euo pipefail
-                  json=$(jq -ce '. + {ci_engine: "depot"}' <<< "$TELEMETRY")
-                  mkdir -p /tmp/depot-telemetry
-                  printf '%s\n' "$json" > /tmp/depot-telemetry/selection.json
-            - name: Upload selection telemetry input
-              if: steps.properties.outcome == 'success'
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              with:
-                  name: depot-test-selection-input-pr${{ github.event.pull_request.number }}-attempt${{ github.run_attempt }}
-                  path: /tmp/depot-telemetry/selection.json
-                  retention-days: 14
+                  uv run --script .github/scripts/report_test_timings.py \
+                      --min-duration-seconds=0.5 \
+                      ./junit-artifacts
+
+    # calculate-running-time is omitted so Depot runs are not recorded as canonical CI data.
