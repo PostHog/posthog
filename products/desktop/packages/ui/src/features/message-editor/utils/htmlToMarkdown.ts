@@ -67,12 +67,33 @@ function containsOnlyOneCodeBlock(html: string): boolean {
   if (codeBlocks.length !== 1) return false;
 
   const codeBlock = codeBlocks[0];
-  return Array.from(document.body.querySelectorAll("*")).every(
+  const containsOnlyCodeBlockElements = Array.from(
+    document.body.querySelectorAll("*"),
+  ).every(
     (element) =>
       NON_CONTENT_TAGS.has(element.tagName) ||
       element === codeBlock ||
       element.contains(codeBlock) ||
       codeBlock.contains(element),
+  );
+  if (!containsOnlyCodeBlockElements) return false;
+
+  return !containsTextOutsideCodeBlock(document.body, codeBlock);
+}
+
+function containsTextOutsideCodeBlock(
+  node: Node,
+  codeBlock: HTMLPreElement,
+): boolean {
+  if (node === codeBlock) return false;
+  if (node.nodeType === Node.TEXT_NODE)
+    return Boolean(node.textContent?.trim());
+  if (node.nodeType !== Node.ELEMENT_NODE) return false;
+
+  const element = node as Element;
+  if (NON_CONTENT_TAGS.has(element.tagName)) return false;
+  return Array.from(element.childNodes).some((child) =>
+    containsTextOutsideCodeBlock(child, codeBlock),
   );
 }
 
@@ -80,7 +101,7 @@ export function convertClipboardHtml(
   html: string,
   plainTextFallback?: string,
 ): ClipboardHtmlConversion | null {
-  if (plainTextFallback !== undefined && containsOnlyOneCodeBlock(html)) {
+  if (plainTextFallback && containsOnlyOneCodeBlock(html)) {
     return { text: plainTextFallback, kind: "plain" };
   }
 

@@ -88,6 +88,24 @@ describe("htmlToMarkdown", () => {
       "Example:\nconst x = 1;",
       { text: "Example:\n\n```\nconst x = 1;\n```", kind: "markdown" },
     ],
+    [
+      "a code block with preceding prose in the same wrapper as markdown",
+      "<div>Example:<pre><code>const x = 1;</code></pre></div>",
+      "Example:\nconst x = 1;",
+      { text: "Example:\n\n```\nconst x = 1;\n```", kind: "markdown" },
+    ],
+    [
+      "a code block with following prose in the same wrapper as markdown",
+      "<div><pre><code>const x = 1;</code></pre>Done.</div>",
+      "const x = 1;\nDone.",
+      { text: "```\nconst x = 1;\n```\n\nDone.", kind: "markdown" },
+    ],
+    [
+      "a code block without a plain-text payload as markdown",
+      "<pre><code>const x = 1;</code></pre>",
+      "",
+      { text: "```\nconst x = 1;\n```", kind: "markdown" },
+    ],
   ])("converts %s", (_name, html, plainText, expected) => {
     expect(convertClipboardHtml(html, plainText)).toEqual(expected);
   });
