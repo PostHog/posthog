@@ -3,6 +3,8 @@ from uuid import UUID
 
 from django.db.models.signals import post_save
 
+from posthog.dataclasses import frozen
+
 from products.tasks.backend.models import Task, TaskRun
 
 # Re-exported here so a startup receiver can read it without importing the request facade.
@@ -22,12 +24,20 @@ def register_task_run_start_guard(guard: TaskRunStartGuard, *, name: str) -> Non
     _task_run_start_guards[name] = guard
 
 
-def task_run_start_refusal(task_id: str, team_id: int, user_id: int | None) -> str | None:
+@frozen
+class TaskRunStartRefusal:
+    """Why a run start was refused: the guard that refused it, and what to tell the caller."""
+
+    guard: str
+    message: str
+
+
+def task_run_start_refusal(task_id: str, team_id: int, user_id: int | None) -> TaskRunStartRefusal | None:
     """The first registered guard's reason to refuse starting a run for this task, if any."""
-    for guard in _task_run_start_guards.values():
+    for name, guard in _task_run_start_guards.items():
         refusal = guard(task_id, team_id, user_id)
         if refusal is not None:
-            return refusal
+            return TaskRunStartRefusal(guard=name, message=refusal)
     return None
 
 

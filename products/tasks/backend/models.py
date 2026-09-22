@@ -71,6 +71,8 @@ MCP_BUILT_IN_AGENT_STATE_KEY = "mcp_builtin_agent_key"
 MCP_CREDENTIAL_OWNER_STATE_KEY = "mcp_credential_owner_id"
 MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY = "mcp_gateway_server_ids"
 TASK_OWNERSHIP_VERSION_STATE_KEY = "task_ownership_version"
+# Set on a task and on its run when both are a copy of a transcript another product owns.
+IMPORTED_FROM_STATE_KEY = "imported_from"
 TASK_RUN_SUMMARY_STATE_KEY = "task_summary"
 PRIOR_RUN_SUMMARY_STATE_KEY = "prior_run_summary"
 
@@ -638,6 +640,9 @@ class Task(DeletedMetaFields, models.Model):
                 "origin_product": self.origin_product,
                 "repository": self.repository,
                 "repositories": self.repositories or ([self.repository] if self.repository else []),
+                # An import shell hosts a transcript and never dispatches a run of its own. Always
+                # sent, because a task that reports no run is otherwise read as a lost dispatch.
+                "is_import": self.is_import,
             }
             if self.origin_key:
                 all_properties["origin_key"] = self.origin_key
@@ -656,6 +661,11 @@ class Task(DeletedMetaFields, models.Model):
             )
         except Exception as e:
             logger.warning("task.capture_event_failed", analytics_event=event, error=str(e))
+
+    @property
+    def is_import(self) -> bool:
+        """True when this task only hosts a transcript imported from another product."""
+        return IMPORTED_FROM_STATE_KEY in (self.state or {})
 
     def _track_task_created(self) -> None:
         self.capture_event(

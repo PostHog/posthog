@@ -40,6 +40,18 @@ class TestTaskCaptureEvent(TestCase):
         unkeyed.capture_event("task_created", capture_fn=capture)
         self.assertNotIn("origin_key", capture.call_args.kwargs["properties"])
 
+    def test_import_shell_is_separable_from_a_task_a_person_started(self):
+        capture = MagicMock()
+
+        imported = self._task(state={"imported_from": "conversation"})
+        imported.capture_event("task_created", capture_fn=capture)
+        self.assertIs(capture.call_args.kwargs["properties"]["is_import"], True)
+
+        capture.reset_mock()
+        started = self._task()
+        started.capture_event("task_created", capture_fn=capture)
+        self.assertIs(capture.call_args.kwargs["properties"]["is_import"], False)
+
     def test_channel_id_reaches_analytics_for_space_tasks(self):
         channel = Channel.objects.unscoped().create(team=self.team, name="growth", created_by=self.user)
         capture = MagicMock()

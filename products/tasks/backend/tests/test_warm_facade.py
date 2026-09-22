@@ -880,6 +880,27 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         run.refresh_from_db()
         assert run.state["warm_activated"] is True
 
+    def test_refused_start_is_recorded_with_a_stable_reason(self):
+        from products.signals.backend.models import SignalReport
+
+        warm_task, _ = self._report_warm_run(SignalReport.objects.create(team=self.team))
+
+        with patch("posthoganalytics.capture") as capture:
+            result = facade.run_task(
+                warm_task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "branch": None},
+            )
+
+        assert result is not None and result.error is not None
+        reasons = [
+            call.kwargs["properties"]["reason"]
+            for call in capture.call_args_list
+            if call.kwargs["event"] == "task_run_start_refused"
+        ]
+        assert reasons == ["report_warm_run_not_activated"]
+
     def test_unlinked_report_warm_refuses_direct_start_and_steering(self):
         from products.signals.backend.models import SignalReport
 

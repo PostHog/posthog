@@ -337,6 +337,7 @@ def _ensure_import_target(
             origin_key=origin_key,
             internal=bool(conversation.is_internal),
             created_at=created_at,
+            imported_from=IMPORTED_FROM_CONVERSATION,
         )
         task_id = created.id
     # `task__isnull` keeps a concurrent first touch from re-pointing a conversation that already got linked.

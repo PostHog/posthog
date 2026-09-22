@@ -106,6 +106,7 @@ from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
+    IMPORTED_FROM_STATE_KEY,
     MCP_CREDENTIAL_OWNER_STATE_KEY,
     PRIOR_RUN_SUMMARY_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
@@ -3340,11 +3341,14 @@ def create_imported_task(
     origin_key: str,
     internal: bool,
     created_at: datetime,
+    imported_from: str,
 ) -> contracts.TaskDetailDTO:
     """Create the task that hosts a transcript imported from elsewhere.
 
     Backdated to the source's creation time so the task list keeps the order the user remembers.
     The title comes from the source, not the user, so a later rename of the task must win over it.
+    ``imported_from`` names the source product and marks the task as an import shell, which never
+    dispatches a run of its own.
     """
     return create_task(
         team_id,
@@ -3357,6 +3361,7 @@ def create_imported_task(
             "origin_key": origin_key,
             "internal": internal,
             "created_at": created_at,
+            "state": {IMPORTED_FROM_STATE_KEY: imported_from},
         },
     )
 
@@ -7953,6 +7958,17 @@ def warm_task_resume_sandbox(
 # --- Task run (the ``run`` action) ---
 
 
+def _refuse_task_run(task: Task, reason: str, error: contracts.TaskValidationError) -> contracts.TaskRunResult:
+    """Record why a run start was refused, then hand the caller the error it returns.
+
+    A refusal creates no run, so without this event the task shows a creation and then silence,
+    which is indistinguishable from a run that was dispatched and lost. ``reason`` is a stable
+    code, safe to group on.
+    """
+    task.capture_event("task_run_start_refused", {"reason": reason})
+    return contracts.TaskRunResult(error=error)
+
+
 def _branches_worked_on(run: TaskRun) -> set[str]:
     output = run.output if isinstance(run.output, dict) else {}
     branches = {entry["branch"] for entry in read_head_branches(output)}
@@ -8003,10 +8019,16 @@ def run_task(
     # is copied into the task a few seconds behind each turn.
     refusal = task_run_start_refusal(str(task.id), team_id, user_id)
     if refusal is not None:
-        return contracts.TaskRunResult(error=contracts.TaskValidationError(kind="detail", detail=refusal))
+        return _refuse_task_run(
+            task,
+            f"guard:{refusal.guard}",
+            contracts.TaskValidationError(kind="detail", detail=refusal.message),
+        )
     if _is_unlinked_report_warm_task(task):
-        return contracts.TaskRunResult(
-            error=contracts.TaskValidationError(kind="detail", detail=REPORT_WARM_RUN_NOT_ACTIVATED)
+        return _refuse_task_run(
+            task,
+            "report_warm_run_not_activated",
+            contracts.TaskValidationError(kind="detail", detail=REPORT_WARM_RUN_NOT_ACTIVATED),
         )
     report_id_for_slot_check = (
         str(task.signal_report_id)
@@ -8046,26 +8068,32 @@ def run_task(
     if resume_from_run_id:
         previous_run = task.runs.filter(id=resume_from_run_id).first()
         if previous_run is None:
-            return contracts.TaskRunResult(
-                error=contracts.TaskValidationError(kind="detail", detail="Invalid resume_from_run_id")
+            return _refuse_task_run(
+                task,
+                "invalid_resume_source",
+                contracts.TaskValidationError(kind="detail", detail="Invalid resume_from_run_id"),
             )
         previous_is_import_run = "imported_from" in (previous_run.state or {})
         if not previous_run.matches_task_ownership(task):
-            return contracts.TaskRunResult(
-                error=contracts.TaskValidationError(
+            return _refuse_task_run(
+                task,
+                "resume_source_ownership_changed",
+                contracts.TaskValidationError(
                     kind="detail",
                     detail="This run belongs to a previous task owner. Start a new run instead.",
-                )
+                ),
             )
         previous_state = parse_run_state(previous_run.state)
         if previous_state.run_source == RunSource.AGENT:
             run_source = RunSource.AGENT
         previous_branch = previous_state.pr_base_branch
         if branch is not None and branch != previous_branch and branch not in _branches_worked_on(previous_run):
-            return contracts.TaskRunResult(
-                error=contracts.TaskValidationError(
+            return _refuse_task_run(
+                task,
+                "resume_branch_mismatch",
+                contracts.TaskValidationError(
                     kind="detail", detail="A resumed run must use its previous base branch. Omit branch to resume."
-                )
+                ),
             )
 
         branch = previous_branch
@@ -8318,10 +8346,12 @@ def run_task(
         runtime_adapter=runtime_adapter, model=model, reasoning_effort=reasoning_effort
     )
     if reasoning_effort_error is not None:
-        return contracts.TaskRunResult(
-            error=contracts.TaskValidationError(
+        return _refuse_task_run(
+            task,
+            "invalid_reasoning_effort",
+            contracts.TaskValidationError(
                 kind="validation_error", code="invalid_input", detail=reasoning_effort_error, attr="reasoning_effort"
-            )
+            ),
         )
 
     # A resume inherits the previous run's model, so the serializer's check saw `None` and
@@ -8332,10 +8362,12 @@ def run_task(
         )
         model_access_error = get_model_access_error(model, distinct_id=actor_distinct_id)
         if model_access_error is not None:
-            return contracts.TaskRunResult(
-                error=contracts.TaskValidationError(
+            return _refuse_task_run(
+                task,
+                "model_access_denied",
+                contracts.TaskValidationError(
                     kind="validation_error", code="invalid_input", detail=model_access_error, attr="model"
-                )
+                ),
             )
 
     pr_authorship_mode, validation_error = _resolve_cloud_pr_authorship_mode(
@@ -8345,13 +8377,15 @@ def run_task(
         github_user_token=github_user_token,
     )
     if validation_error is not None:
-        return contracts.TaskRunResult(
-            error=contracts.TaskValidationError(
+        return _refuse_task_run(
+            task,
+            "pr_authorship_unavailable",
+            contracts.TaskValidationError(
                 kind=validation_error.kind,
                 detail=validation_error.detail,
                 code=validation_error.code,
                 attr=validation_error.attr,
-            )
+            ),
         )
     if pr_authorship_mode is not None:
         extra_state = extra_state or {}
@@ -8369,15 +8403,19 @@ def run_task(
         )
         if custom_image is None:
             if custom_image_id_supplied_by_user:
-                return contracts.TaskRunResult(
-                    error=contracts.TaskValidationError(kind="detail", detail="Invalid custom_image_id")
+                return _refuse_task_run(
+                    task,
+                    "invalid_custom_image",
+                    contracts.TaskValidationError(kind="detail", detail="Invalid custom_image_id"),
                 )
         elif not custom_image.is_ready:
             if custom_image_id_supplied_by_user:
-                return contracts.TaskRunResult(
-                    error=contracts.TaskValidationError(
+                return _refuse_task_run(
+                    task,
+                    "custom_image_not_ready",
+                    contracts.TaskValidationError(
                         kind="detail", detail=f"Custom image is not ready (status: {custom_image.status})"
-                    )
+                    ),
                 )
         else:
             extra_state = extra_state or {}
@@ -8391,8 +8429,10 @@ def run_task(
         )
         if sandbox_environment is None:
             if sandbox_environment_id_supplied_by_user:
-                return contracts.TaskRunResult(
-                    error=contracts.TaskValidationError(kind="detail", detail="Invalid sandbox_environment_id")
+                return _refuse_task_run(
+                    task,
+                    "invalid_sandbox_environment",
+                    contracts.TaskValidationError(kind="detail", detail="Invalid sandbox_environment_id"),
                 )
         else:
             extra_state = extra_state or {}
@@ -8411,12 +8451,14 @@ def run_task(
     if pending_user_artifact_ids:
         staged_artifacts, missing_artifact_ids = get_task_staged_artifacts(task, pending_user_artifact_ids)
         if missing_artifact_ids:
-            return contracts.TaskRunResult(
-                error=contracts.TaskValidationError(
+            return _refuse_task_run(
+                task,
+                "invalid_staged_artifacts",
+                contracts.TaskValidationError(
                     kind="detail",
                     detail="Some pending_user_artifact_ids are invalid or expired",
                     missing_artifact_ids=missing_artifact_ids,
-                )
+                ),
             )
 
     logger.info("Creating task run for task %s with mode=%s, branch=%s", task.id, mode, branch)
@@ -8428,12 +8470,15 @@ def run_task(
                     team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
                 )
     except InvalidTaskOriginError as error:
-        return contracts.TaskRunResult(
-            error=contracts.TaskValidationError(
+        return _refuse_task_run(
+            task,
+            "invalid_origin_product",
+            contracts.TaskValidationError(
                 kind="validation_error", code="invalid_input", detail=str(error), attr="origin_product"
-            )
+            ),
         )
     except TaskOwnershipChangedError:
+        task.capture_event("task_run_start_refused", {"reason": "task_ownership_changed"})
         return None
     if is_pi_task and resume_from_run_id:
         assert previous_run is not None
