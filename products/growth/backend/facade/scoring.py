@@ -72,13 +72,12 @@ def preview_formula(source: str, base_config_id: UUID, sample: int) -> list[Scor
 
 def save_scoring_formula(source: str, version: str, base_config_id: UUID, created_by_id: int) -> ScoringConfig:
     base = _get_config(base_config_id)
-    rules = parse_scoring_rules(base.scoring_rules)
     try:
         config = IcpScoringConfig.objects.create(
             version=version,
             tags=base.tags,
             quality_investors=base.quality_investors,
-            scoring_rules={"source": source, "ai_labels": list(rules.ai_labels)},
+            scoring_rules={"source": source},
             created_by_id=created_by_id,
             is_active=False,
         )

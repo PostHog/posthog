@@ -15,7 +15,6 @@ The two never share a key, so neither can misattribute the other's values.
 
 import hashlib
 import datetime as dt
-import dataclasses
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any, Optional, Union
@@ -123,36 +122,26 @@ def _fit_record_writes(
     }
     if fit.lists_version:
         values["icp_fit_lists_version"] = fit.lists_version
-    if fit.ai_pilled_label_result_id is not None:
-        values["icp_fit_ai_label_result_id"] = fit.ai_pilled_label_result_id
+    values["icp_fit_input_versions"] = fit.input_versions
+    values["icp_fit_input_hash"] = fit.input_hash
+    signup = fit.input_values.get("signup")
+    if isinstance(signup, dict):
+        values["icp_fit_signup"] = signup
 
     if fit.score is not None:
         values["icp_fit_score"] = fit.score
         if fit.components:
             values["icp_fit_components"] = fit.components
-        flags = {
-            key: value
-            for key, value in {
-                "quality_investor": fit.quality_investor,
-                "data_coverage": fit.data_coverage,
-                "low_confidence": fit.low_confidence,
-                "agency_flag": fit.agency_flag,
-                "nonprofit_flag": fit.nonprofit_flag,
-                "wizard_ai_sdk": fit.wizard_ai_sdk,
-                "ai_pilled_source": fit.ai_pilled_source,
-                "ai_pilled_label": dataclasses.asdict(fit.ai_pilled_label) if fit.ai_pilled_label is not None else None,
-            }.items()
-            if value is not None
-        }
+        flags = dict(fit.flags)
+        if isinstance(signup, dict):
+            flags["wizard_ai_sdk"] = signup.get("wizard_ai_sdk") is True
         if flags:
             values["icp_fit_flags"] = flags
         if fit.dq_reason:
             values["icp_fit_dq_reason"] = fit.dq_reason
 
     return values, [
-        key
-        for key in (*_FIT_NUMERIC_KEYS, "icp_fit_ai_label_result_id", "icp_fit_ai_label_projected_result_id")
-        if key not in values
+        key for key in (*_FIT_NUMERIC_KEYS, "icp_fit_projected_input_hash", "icp_fit_signup") if key not in values
     ]
 
 
@@ -206,7 +195,7 @@ def write_organization_enrichment(
     field backfill, a fit-only write (fields=None) is the score backfill and the
     miss-path status stamp.
 
-    `fit_evaluation_kind` (initial | recheck | backfill | sweep | ai_label) is required whenever
+    `fit_evaluation_kind` (initial | recheck | backfill | sweep | enrichment) is required whenever
     `fit` is given. It and `fit_evaluated_at` (defaulting to now) land on every evaluation,
     including score-less ones, because the sweep overwrites scores in place and the record
     must say which run wrote the current value. Both ride the Postgres record only, not the
@@ -247,7 +236,7 @@ def write_organization_enrichment(
 def invalidate_fit_projection(organization_id: str) -> None:
     with lock_organization_enrichment(organization_id):
         if OrganizationEnrichment.objects.filter(organization_id=organization_id).exists():
-            merge_into_record(organization_id, {}, remove=["icp_fit_ai_label_projected_result_id"])
+            merge_into_record(organization_id, {}, remove=["icp_fit_projected_input_hash"])
 
 
 def fit_projection_is_current(organization_id: str, fit: IcpFitResult) -> bool:
@@ -255,6 +244,7 @@ def fit_projection_is_current(organization_id: str, fit: IcpFitResult) -> bool:
     return (
         record is not None
         and record.data.get("icp_fit_lists_version") == fit.lists_version
+        and record.data.get("icp_fit_input_hash") == fit.input_hash
         and all(record.data.get(key) == value for key, value in _fit_projection(fit).items())
     )
 

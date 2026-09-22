@@ -41,7 +41,6 @@ from products.growth.backend.enrichment import (
     gates,
     icp_lists as icp_lists_module,
 )
-from products.growth.backend.enrichment.ai_pilled import normalize_fit_payload
 from products.growth.backend.enrichment.bridge import read_organization_bridge_inputs
 from products.growth.backend.enrichment.context import FIT_EVALUATION_KIND_BACKFILL
 from products.growth.backend.enrichment.fit_recomputation import latest_fetch, score_archived_fit
@@ -54,6 +53,7 @@ from products.growth.backend.enrichment.icp_lists import (
     parse_tags_csv_rows,
 )
 from products.growth.backend.enrichment.labels import recent_latest_fetches_qs, signup_domain_for_organization
+from products.growth.backend.enrichment.scoring_context import normalize_fit_payload, saved_wizard_ai_sdk
 from products.growth.backend.enrichment.writer import (
     lock_organization_enrichment,
     project_organization_enrichment,
@@ -117,8 +117,7 @@ def _lists_from_csvs(tags_csv: str, investors_csv: str) -> CuratedLists:
 
 
 def _wizard_ai_sdk_for_backfill(*, organization_id: str, record: Optional[OrganizationEnrichment]) -> Optional[bool]:
-    flags = record.data.get("icp_fit_flags") if record else None
-    persisted = isinstance(flags, dict) and flags.get("wizard_ai_sdk") is True
+    persisted = saved_wizard_ai_sdk(record.data if record else {})
     try:
         return read_organization_bridge_inputs(organization_id=organization_id).wizard.ai_sdk_detected
     except Exception as e:

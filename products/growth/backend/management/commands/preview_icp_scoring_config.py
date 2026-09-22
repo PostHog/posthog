@@ -4,11 +4,10 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db.models import OuterRef, Subquery
 
-from products.growth.backend.enrichment import gates
-from products.growth.backend.enrichment.fit_recomputation import score_archived_fit
 from products.growth.backend.enrichment.fit_score import IcpFitResult
 from products.growth.backend.enrichment.icp_lists import build_curated_lists
-from products.growth.backend.models import IcpScoringConfig, OrganizationEnrichment, OrganizationEnrichmentFetch
+from products.growth.backend.enrichment.scoring_lab import preview_company
+from products.growth.backend.models import IcpScoringConfig, OrganizationEnrichmentFetch
 
 
 def _result_summary(result: IcpFitResult) -> dict[str, Any]:
@@ -17,10 +16,7 @@ def _result_summary(result: IcpFitResult) -> dict[str, Any]:
         "status": result.status,
         "components": result.components,
         "dq_reason": result.dq_reason,
-        "data_coverage": result.data_coverage,
-        "low_confidence": result.low_confidence,
-        "quality_investor": result.quality_investor,
-        "ai_pilled_source": result.ai_pilled_source,
+        "flags": result.flags,
     }
 
 
@@ -47,27 +43,17 @@ class Command(BaseCommand):
             .order_by("-fetched_at", "-id")
             .values("id")[:1]
         )
-        fetches = OrganizationEnrichmentFetch.objects.filter(pk=Subquery(latest)).order_by("-fetched_at", "-id")[:limit]
+        fetches = (
+            OrganizationEnrichmentFetch.objects.filter(pk=Subquery(latest))
+            .select_related("organization")
+            .order_by("-fetched_at", "-id")[:limit]
+        )
         samples = []
         for fetch in fetches:
-            record = OrganizationEnrichment.objects.filter(organization_id=fetch.organization_id).first()
-            data = record.data if record and isinstance(record.data, dict) else {}
-            identity = gates.resolve_signup_identity(str(fetch.organization_id))
-            domain = identity.domain if isinstance(identity, gates.SignupIdentity) else None
-            flags = data.get("icp_fit_flags")
-            wizard = isinstance(flags, dict) and flags.get("wizard_ai_sdk") is True
-            results = [
-                score_archived_fit(
-                    fetch,
-                    lists=lists,
-                    domain=domain,
-                    role=data.get("signup_role"),
-                    wizard_ai_sdk=wizard,
-                    lock_prompt_config=False,
-                )
-                for lists in (active_lists, candidate_lists)
-            ]
-            before, after = results
+            preview = preview_company(fetch, active_lists, candidate_lists)
+            if preview.error is not None or preview.active is None or preview.preview is None:
+                raise CommandError(f"Could not preview organization {fetch.organization_id}: {preview.error}")
+            before, after = preview.active, preview.preview
             before_components, after_components = before.components or {}, after.components or {}
             samples.append(
                 {

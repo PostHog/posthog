@@ -22,7 +22,6 @@ from posthoganalytics.client import Client
 from posthog.exceptions_capture import capture_exception
 from posthog.models.person.util import get_person_by_distinct_id
 
-from products.growth.backend.enrichment.ai_pilled import score_with_ai_pilled_label
 from products.growth.backend.enrichment.bridge import (
     ClayBridgeInputs,
     OrganizationBridgeInputs,
@@ -37,6 +36,7 @@ from products.growth.backend.enrichment.harmonic_adapter import normalize_graphq
 from products.growth.backend.enrichment.icp_lists import load_active_lists
 from products.growth.backend.enrichment.providers import EnrichmentProvider, ProviderLookup
 from products.growth.backend.enrichment.score import IcpScoreInputs, compute_icp_score
+from products.growth.backend.enrichment.scoring_context import saved_wizard_ai_sdk, score_with_saved_inputs
 from products.growth.backend.enrichment.writer import (
     archive_provider_fetch,
     lock_organization_enrichment,
@@ -262,8 +262,7 @@ def _read_bridge_inputs(
 
 def _persisted_wizard_ai_sdk(*, organization_id: str) -> bool:
     record = OrganizationEnrichment.objects.filter(organization_id=organization_id).only("data").first()
-    flags = record.data.get("icp_fit_flags") if record else None
-    return isinstance(flags, dict) and flags.get("wizard_ai_sdk") is True
+    return saved_wizard_ai_sdk(record.data if record else {})
 
 
 def _score_fit(
@@ -307,7 +306,7 @@ def _score_fit(
         if payload is None:
             payload = normalize_graphql_company(latest_matched_payload(ctx.organization_id))
 
-        result = score_with_ai_pilled_label(
+        result = score_with_saved_inputs(
             payload,
             fetch=fetch,
             lists=lists,

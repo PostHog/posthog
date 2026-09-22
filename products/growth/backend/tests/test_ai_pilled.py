@@ -21,9 +21,10 @@ from products.growth.backend.enrichment.bridge import OrganizationBridgeInputs, 
 from products.growth.backend.enrichment.context import EnrichmentContext, EnrichmentPhase
 from products.growth.backend.enrichment.core import enrich_organization
 from products.growth.backend.enrichment.fields import EnrichmentFields
-from products.growth.backend.enrichment.fit_recomputation import apply_ai_pilled_label
+from products.growth.backend.enrichment.fit_recomputation import apply_enrichment_result, label_needs_application
 from products.growth.backend.enrichment.icp_lists import clear_lists_cache
 from products.growth.backend.enrichment.providers import ProviderLookup
+from products.growth.backend.enrichment.scoring_rules import DEFAULT_SCORING_SOURCE
 from products.growth.backend.models import (
     EnrichmentLabelResult,
     EnrichmentPromptConfig,
@@ -35,7 +36,7 @@ from products.growth.backend.models import (
 _BACKFILL = "products.growth.backend.management.commands.backfill_icp_fit_scores"
 
 
-class TestAiPilledScoreApplication(BaseTest):
+class TestEnrichmentScoreApplication(BaseTest):
     def setUp(self):
         super().setUp()
         self.user.email = "engineer@sample.example.com"
@@ -168,7 +169,7 @@ class TestAiPilledScoreApplication(BaseTest):
 
         assert outcome.fit is not None and outcome.fit.score == (15 if label_ready else 0)
         record.refresh_from_db()
-        assert ("icp_fit_ai_label_result_id" in record.data) is label_ready
+        assert ("enrichment/ai_pilled" in record.data["icp_fit_input_versions"]) is label_ready
         client.flush.assert_not_called()
 
     @parameterized.expand([("delivered", False), ("timed_out", True)])
@@ -200,15 +201,51 @@ class TestAiPilledScoreApplication(BaseTest):
         ):
             if timed_out:
                 with self.assertRaises(RuntimeError):
-                    apply_ai_pilled_label(self.label)
+                    apply_enrichment_result(self.label)
             else:
-                assert apply_ai_pilled_label(self.label)
+                assert apply_enrichment_result(self.label)
 
         record = OrganizationEnrichment.objects.get(organization=self.organization)
-        assert ("icp_fit_ai_label_projected_result_id" in record.data) is not timed_out
+        assert (record.data.get("icp_fit_projected_input_hash") == record.data["icp_fit_input_hash"]) is not timed_out
         assert clients[0].sync_mode is True
         assert session.post.call_count == (1 if timed_out else 2)
         assert all(call.kwargs["timeout"] == 10 for call in session.post.call_args_list)
+
+    @parameterized.expand(
+        [
+            ("not_found", {"companyFound": False}),
+            ("insufficient_data", {"id": "synthetic-company"}),
+        ]
+    )
+    def test_scoreless_projection_preserves_wizard_input_and_finishes_application(self, expected_status, payload):
+        self.fetch.payload = payload
+        self.fetch.save(update_fields=["payload"])
+        self.label.output = {"ai_pilled": "unknown"}
+        self.label.save(update_fields=["output"])
+        client = MagicMock()
+
+        with (
+            patch("products.growth.backend.enrichment.gates.get_instance_region", return_value="US"),
+            patch("products.growth.backend.enrichment.gates.enrichment_enabled", return_value=True),
+            patch("products.growth.backend.enrichment.fit_recomputation.get_regional_ph_client", return_value=client),
+            patch(
+                "products.growth.backend.enrichment.fit_recomputation.read_organization_bridge_inputs",
+                return_value=OrganizationBridgeInputs(wizard=WizardBridgeInputs(ai_sdk_detected=True)),
+            ),
+        ):
+            assert apply_enrichment_result(self.label)
+            record = OrganizationEnrichment.objects.get(organization=self.organization)
+            input_hash = record.data["icp_fit_input_hash"]
+            assert record.data["icp_fit_status"] == expected_status
+            assert "icp_fit_score" not in record.data
+            assert record.data["icp_fit_projected_input_hash"] == input_hash
+            assert not label_needs_application(self.label)
+            assert not apply_enrichment_result(self.label)
+
+        record.refresh_from_db()
+        assert record.data["icp_fit_input_hash"] == input_hash
+        assert record.data["icp_fit_projected_input_hash"] == input_hash
+        assert client.group_identify.call_count == 1
 
     @parameterized.expand([("matched", None), ("latest_not_found", {"companyFound": False}), ("latest_empty", {})])
     def test_batch_retries_score_projection_without_reclassifying(self, _name, missing_payload):
@@ -263,27 +300,36 @@ class TestAiPilledScoreApplication(BaseTest):
                 call_command("enrichment_label_batch", label="ai_pilled", workers=1)
             record = OrganizationEnrichment.objects.get(organization=self.organization)
             assert record.data["icp_fit_score"] == 15
-            assert "icp_fit_ai_label_projected_result_id" not in record.data
+            assert "icp_fit_projected_input_hash" not in record.data
 
             fail_delivery = False
             call_command("enrichment_label_batch", label="ai_pilled", workers=1)
             record.refresh_from_db()
-            assert record.data["icp_fit_ai_label_projected_result_id"] == str(self.label.id)
-            assert record.data["icp_fit_evaluation_kind"] == "ai_label"
+            assert record.data["icp_fit_projected_input_hash"] == record.data["icp_fit_input_hash"]
+            assert record.data["icp_fit_evaluation_kind"] == "enrichment"
             if missing_payload is not None:
-                assert "ai_pilled_label" not in record.data["icp_fit_flags"]
+                assert "enrichment/ai_pilled" not in record.data["icp_fit_input_versions"]
 
         assert EnrichmentLabelResult.objects.filter(organization=self.organization).count() == 1
         gateway.chat.completions.create.assert_not_called()
         assert client.group_identify.call_count == 2
 
-    @parameterized.expand([("ai_pilled",), ("reviewed_ai",)])
-    def test_batch_classifies_and_applies_positive_result(self, label_name):
+    @parameterized.expand([("ai_pilled",), ("reviewed_ai",), ("business_model",)])
+    def test_batch_classifies_and_applies_the_formula_to_saved_outputs(self, label_name):
         self.config.name = label_name
-        self.config.save(update_fields=["name"])
-        IcpScoringConfig.objects.filter(is_active=True).update(scoring_rules={"ai_labels": [label_name]})
-        clear_lists_cache()
         output = self.label.output.copy()
+        source = DEFAULT_SCORING_SOURCE.replace("enrichments.ai_pilled", f"enrichments.{label_name}")
+        if label_name == "business_model":
+            self.config.output_fields[0] = {"key": "segment", "type": "string"}
+            output.pop("ai_pilled")
+            output["segment"] = "b2b"
+            source = """
+                let points := if(enrichments.business_model.segment == 'b2b', 15, 0);
+                return {'status': 'scored', 'score': points, 'components': {'business_model': points}};
+            """
+        self.config.save(update_fields=["name", "output_fields"])
+        IcpScoringConfig.objects.filter(is_active=True).update(scoring_rules={"source": source})
+        clear_lists_cache()
         self.label.delete()
         gateway = MagicMock()
         gateway.with_options.return_value = gateway
@@ -323,7 +369,8 @@ class TestAiPilledScoreApplication(BaseTest):
         record = OrganizationEnrichment.objects.get(organization=self.organization)
         assert label.output["reasoning"] == output["reasoning"]
         assert record.data["icp_fit_score"] == 15
-        assert record.data["icp_fit_ai_label_projected_result_id"] == str(label.id)
+        assert record.data["icp_fit_input_versions"][f"enrichment/{label_name}"] == str(label.id)
+        assert record.data["icp_fit_projected_input_hash"] == record.data["icp_fit_input_hash"]
         assert OrganizationEnrichmentFetch.objects.filter(organization=self.organization).count() == 1
         assert gateway.chat.completions.create.call_count == 2
 
@@ -348,32 +395,34 @@ class TestAiPilledScoreApplication(BaseTest):
                 return_value=OrganizationBridgeInputs(),
             ),
         ):
-            assert apply_ai_pilled_label(self.label) is (not during_delivery)
+            assert apply_enrichment_result(self.label) is (not during_delivery)
             if not during_delivery:
                 activate_new_configuration()
             client.set.side_effect = None
-            assert apply_ai_pilled_label(self.label)
+            assert apply_enrichment_result(self.label)
 
         record = OrganizationEnrichment.objects.get(organization=self.organization)
         assert record.data["icp_fit_lists_version"] == "test-lists-v2"
-        assert record.data["icp_fit_ai_label_projected_result_id"] == str(self.label.id)
+        assert record.data["icp_fit_projected_input_hash"] == record.data["icp_fit_input_hash"]
         assert client.group_identify.call_count == 2
 
-    @parameterized.expand([("nondefault_label", "reviewed_ai", 15), ("disallowed_label", "ai_pilled", 0)])
-    def test_scoring_configuration_selects_eligible_label_names(self, _name, label_name, expected_score):
+    @parameterized.expand([("referenced_label", "reviewed_ai", 15), ("unused_label", "ai_pilled", 0)])
+    def test_formula_selects_which_saved_labels_contribute(self, _name, label_name, expected_score):
         self.config.name = label_name
         self.config.save(update_fields=["name"])
         self.label.label_name = label_name
         self.label.save(update_fields=["label_name"])
-        IcpScoringConfig.objects.filter(is_active=True).update(scoring_rules={"ai_labels": ["reviewed_ai"]})
+        IcpScoringConfig.objects.filter(is_active=True).update(
+            scoring_rules={"source": DEFAULT_SCORING_SOURCE.replace("enrichments.ai_pilled", "enrichments.reviewed_ai")}
+        )
         clear_lists_cache()
 
         record, _ = self._backfill()
 
         assert record.data["icp_fit_score"] == expected_score
-        assert ("ai_pilled_label" in record.data["icp_fit_flags"]) is (expected_score > 0)
+        assert record.data["icp_fit_input_versions"][f"enrichment/{label_name}"] == str(self.label.id)
 
-    def test_positive_second_label_prevents_alternating_score_repair(self):
+    def test_each_label_triggers_the_same_complete_input_snapshot(self):
         second_config = EnrichmentPromptConfig.objects.create(
             name="reviewed_ai",
             version=self.config.version,
@@ -396,7 +445,14 @@ class TestAiPilledScoreApplication(BaseTest):
         self.label.output = {"ai_pilled": False}
         self.label.save(update_fields=["output"])
         IcpScoringConfig.objects.filter(is_active=True).update(
-            scoring_rules={"ai_labels": ["ai_pilled", "reviewed_ai"]}
+            scoring_rules={
+                "source": """
+                    let positive := enrichments.ai_pilled.ai_pilled == true
+                        or enrichments.reviewed_ai.ai_pilled == true;
+                    let points := if(positive, 15, 0);
+                    return {'status': 'scored', 'score': points, 'components': {'ai_pilled': points}};
+                """
+            }
         )
         clear_lists_cache()
         client = MagicMock()
@@ -409,15 +465,19 @@ class TestAiPilledScoreApplication(BaseTest):
                 return_value=OrganizationBridgeInputs(),
             ),
         ):
-            assert not apply_ai_pilled_label(self.label)
-            assert apply_ai_pilled_label(positive)
-            assert not apply_ai_pilled_label(self.label)
-            assert not apply_ai_pilled_label(positive)
+            assert apply_enrichment_result(self.label)
+            assert not apply_enrichment_result(positive)
+            assert not apply_enrichment_result(self.label)
+            assert not apply_enrichment_result(positive)
 
         record = OrganizationEnrichment.objects.get(organization=self.organization)
         assert record.data["icp_fit_score"] == 15
-        assert record.data["icp_fit_ai_label_projected_result_id"] == str(positive.id)
-        assert record.data["icp_fit_flags"]["ai_pilled_label"]["result_id"] == str(positive.id)
+        assert record.data["icp_fit_projected_input_hash"] == record.data["icp_fit_input_hash"]
+        assert record.data["icp_fit_input_versions"] == {
+            "current_fetch": str(self.fetch.id),
+            "enrichment/ai_pilled": str(self.label.id),
+            "enrichment/reviewed_ai": str(positive.id),
+        }
         assert client.group_identify.call_count == 1
 
     @parameterized.expand([("limit", 1, 25), ("failure_streak", None, 1)])
@@ -497,9 +557,12 @@ class TestAiPilledScoreApplication(BaseTest):
         created = EnrichmentLabelResult.objects.get(fetch=new_fetch)
         record = OrganizationEnrichment.objects.get(organization_id=new_fetch.organization_id)
         assert record.data["icp_fit_score"] == 15
-        assert record.data["icp_fit_ai_label_projected_result_id"] == str(created.id)
+        assert record.data["icp_fit_input_versions"]["enrichment/ai_pilled"] == str(created.id)
+        assert record.data["icp_fit_projected_input_hash"] == record.data["icp_fit_input_hash"]
         repair_record = OrganizationEnrichment.objects.get(organization_id=repair.organization_id)
-        assert (repair_record.data.get("icp_fit_ai_label_projected_result_id") == str(repair.id)) is not fail_repair
+        assert (
+            repair_record.data.get("icp_fit_projected_input_hash") == repair_record.data["icp_fit_input_hash"]
+        ) is not fail_repair
         assert client.group_identify.call_count == 2
 
     @parameterized.expand([("consent",), ("signup_user_left",), ("domain",)])
@@ -536,7 +599,7 @@ class TestAiPilledScoreApplication(BaseTest):
             call_command("enrichment_label_batch", label="ai_pilled", workers=1, limit=1)
 
         record = OrganizationEnrichment.objects.get(organization=eligible.organization)
-        assert record.data["icp_fit_ai_label_projected_result_id"] == str(eligible.id)
+        assert record.data["icp_fit_projected_input_hash"] == record.data["icp_fit_input_hash"]
         gateway.chat.completions.create.assert_not_called()
 
     @parameterized.expand([("delivered", False), ("partial_failure", True)])
@@ -555,7 +618,7 @@ class TestAiPilledScoreApplication(BaseTest):
             client.set.side_effect = lambda *args, **kwargs: deliver_event("person", kwargs["properties"])
 
         def deliver_stale(*args, **kwargs):
-            assert apply_ai_pilled_label(self.label)
+            assert apply_enrichment_result(self.label)
             deliver_event("group", kwargs["properties"])
             if fail_delivery:
                 raise RuntimeError("synthetic partial delivery")
@@ -574,15 +637,15 @@ class TestAiPilledScoreApplication(BaseTest):
         ):
             if fail_delivery:
                 with self.assertRaises(RuntimeError):
-                    apply_ai_pilled_label(self.label)
+                    apply_enrichment_result(self.label)
             else:
-                assert not apply_ai_pilled_label(self.label)
+                assert not apply_enrichment_result(self.label)
             record = OrganizationEnrichment.objects.get(organization=self.organization)
             assert record.data["icp_fit_score"] == 15
-            assert "icp_fit_ai_label_projected_result_id" not in record.data
+            assert "icp_fit_projected_input_hash" not in record.data
             assert delivered["group"]["icp_fit_score"] == 0
 
-            assert apply_ai_pilled_label(self.label)
+            assert apply_enrichment_result(self.label)
 
         assert delivered["group"]["icp_fit_score"] == 15
         assert delivered["person"]["icp_fit_score"] == 15
@@ -592,19 +655,17 @@ class TestAiPilledScoreApplication(BaseTest):
 
         assert record.data["icp_fit_score"] == 15
         assert record.data["icp_fit_components"]["ai_pilled"] == 15
-        assert record.data["icp_fit_ai_label_result_id"] == str(self.label.id)
-        assert record.data["icp_fit_flags"]["ai_pilled_label"] == {
-            "result_id": str(self.label.id),
-            "fetch_id": str(self.fetch.id),
-            "prompt_version": self.config.version,
-            "prompt_hash": self.config.content_hash,
+        assert record.data["icp_fit_input_versions"]["enrichment/ai_pilled"] == str(self.label.id)
+        assert record.data["icp_fit_input_versions"] == {
+            "current_fetch": str(self.fetch.id),
+            "enrichment/ai_pilled": str(self.label.id),
         }
         assert "icp_score" not in record.data
         assert client.group_identify.call_args.kwargs["properties"]["icp_fit_score"] == 15
-        record.data["icp_fit_ai_label_projected_result_id"] = str(self.label.id)
+        record.data["icp_fit_projected_input_hash"] = record.data["icp_fit_input_hash"]
         record.save(update_fields=["data"])
         record, _ = self._backfill()
-        assert "icp_fit_ai_label_projected_result_id" not in record.data
+        assert "icp_fit_projected_input_hash" not in record.data
 
     @parameterized.expand(
         [
@@ -624,7 +685,7 @@ class TestAiPilledScoreApplication(BaseTest):
         record, _ = self._backfill()
 
         assert record.data["icp_fit_score"] == 15
-        assert record.data["icp_fit_flags"]["ai_pilled_label"]["result_id"] == str(self.label.id)
+        assert record.data["icp_fit_input_versions"]["enrichment/ai_pilled"] == str(self.label.id)
         self.label.refresh_from_db()
         if details is not None:
             assert all(self.label.output[key] == value for key, value in details.items())
@@ -661,7 +722,7 @@ class TestAiPilledScoreApplication(BaseTest):
         elif invalidation == "negative":
             self.label.output["ai_pilled"] = False
         elif invalidation == "skipped":
-            self.label.output["meta"] = {"skipped": "missing input"}
+            self.label.output = {"ai_pilled": "unknown", "meta": {"skipped": "missing input"}}
         elif invalidation == "version_changed":
             self.config.version = "label-v2"
             self.config.save(update_fields=["version"])
@@ -670,4 +731,6 @@ class TestAiPilledScoreApplication(BaseTest):
         record, _ = self._backfill()
 
         assert record.data["icp_fit_score"] == 0
-        assert "ai_pilled_label" not in record.data["icp_fit_flags"]
+        assert ("enrichment/ai_pilled" in record.data["icp_fit_input_versions"]) is (
+            invalidation in {"negative", "skipped"}
+        )

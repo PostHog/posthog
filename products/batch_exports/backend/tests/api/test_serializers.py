@@ -1,45 +1,56 @@
+from types import SimpleNamespace
 from typing import cast
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, materialized
+from unittest.mock import patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
-
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+from rest_framework import serializers
 
 from posthog.hogql import ast
-from posthog.hogql.hogql import HogQLContext
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_ast_for_printing
+from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.models import Organization, Team
+from posthog.models import Organization, PropertyDefinition, Team
 from posthog.models.integration import Integration
 
-from products.batch_exports.backend.api.batch_export import BatchExportDestinationSerializer, BatchExportSerializer
+from products.batch_exports.backend.api.batch_export import (
+    BatchExportDestinationSerializer,
+    BatchExportSerializer,
+    HogQLSelectQueryField,
+)
 
 
 def prepare_query(query: str, team_id: int) -> ast.SelectQuery:
     """Parse and resolve a HogQL query string into a prepared AST."""
-    parsed = parse_select(query)
-    return cast(
-        ast.SelectQuery,
-        prepare_ast_for_printing(
-            parsed,
-            context=HogQLContext(
-                team_id=team_id,
-                enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(
-                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
-                ),
-            ),
-            dialect="clickhouse",
-        ),
-    )
+    serializer = BatchExportSerializer(context={"team_id": team_id, "request": SimpleNamespace(user=None)})
+    field = HogQLSelectQueryField()
+    field.bind("hogql_query", serializer)
+    return cast(ast.SelectQuery, field.to_internal_value(query))
 
 
 class TestSerializeHogQLQueryToBatchExportSchema(BaseTest):
     def _make_serializer(self) -> BatchExportSerializer:
         return BatchExportSerializer(context={"team_id": self.team.pk})
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_resaving_legacy_query_preserves_types_and_column_names(self):
+        PropertyDefinition.objects.create(
+            team=self.team, name="amount", type=PropertyDefinition.Type.EVENT, property_type="Numeric"
+        )
+        query = "SELECT round(e.properties.amount) AS rounded, lower(e.event) FROM events AS e"
+        serializer = self._make_serializer()
+
+        schema = serializer.serialize_hogql_query_to_batch_export_schema(prepare_query(query, self.team.pk))
+        resaved = serializer.serialize_hogql_query_to_batch_export_schema(prepare_query(query, self.team.pk))
+
+        assert schema == resaved
+        assert [field["alias"] for field in schema["fields"]] == ["rounded", "`lower(e.event)`"]
+        assert schema["fields"][0]["expression"].startswith("round(accurateCastOrNull(")
+        assert schema["values"] == {"hogql_val_0": "amount", "hogql_val_1": "Float64"}
+        assert "toFloat(" in schema["hogql_query"]
 
     @parameterized.expand(
         [
@@ -134,6 +145,72 @@ class TestSerializeHogQLQueryToBatchExportSchema(BaseTest):
         # The alias must be wrapped in backticks, keeping the malicious string as a single identifier
         assert field["alias"] == "`x, (SELECT query FROM another_table LIMIT 100) AS leaked`"
         assert field["expression"] == "events.uuid"
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_native_query_keeps_property_type_casts(self):
+        PropertyDefinition.objects.create(
+            team=self.team, name="amount", type=PropertyDefinition.Type.EVENT, property_type="Numeric"
+        )
+        query = "SELECT e.properties.amount AS amount FROM events AS e"
+
+        schema = self._make_serializer().serialize_hogql_query_to_batch_export_schema(
+            prepare_query(query, self.team.pk)
+        )
+
+        assert schema["fields"][0]["expression"].startswith("accurateCastOrNull(")
+        assert schema["values"]["hogql_val_1"] == "Float64"
+
+    @parameterized.expand([("unrestricted", False), ("restricted", True)])
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_materialized_columns_are_kept_out_of_a_query_that_cannot_be_recompiled(self, _name: str, restricted: bool):
+        restrictions = (
+            {RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)} if restricted else set()
+        )
+        with (
+            patch(
+                "products.batch_exports.backend.api.batch_export."
+                "get_restricted_properties_with_group_type_index_for_team",
+                return_value=restrictions,
+            ),
+            materialized("events", "$browser"),
+        ):
+            query = prepare_query("SELECT properties.$browser AS browser FROM events", self.team.pk)
+            serializer = BatchExportSerializer(
+                context={"team_id": self.team.pk, "request": SimpleNamespace(user=self.user)}
+            )
+
+            schema = serializer.serialize_hogql_query_to_batch_export_schema(query)
+
+        expression = schema["fields"][0]["expression"]
+        if restricted:
+            assert "hogql_query" not in schema
+            assert "mat_" not in expression
+        else:
+            assert "mat_$browser" in expression
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    @patch("products.batch_exports.backend.api.batch_export.get_restricted_properties_with_group_type_index_for_team")
+    @patch("posthog.models.event.new_events_schema.use_new_events_schema", return_value=True)
+    def test_restricted_property_query_is_not_recompiled_without_user(
+        self, _use_new_events_schema, get_restricted_properties
+    ):
+        get_restricted_properties.return_value = {
+            RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)
+        }
+        query = prepare_query("SELECT properties.secret AS secret FROM events", self.team.pk)
+        serializer = BatchExportSerializer(
+            context={"team_id": self.team.pk, "request": SimpleNamespace(user=self.user)}
+        )
+
+        schema = serializer.serialize_hogql_query_to_batch_export_schema(query)
+
+        assert schema["fields"] == [{"expression": "NULL", "alias": "secret"}]
+        assert "hogql_query" not in schema
+
+        with self.assertRaises(serializers.ValidationError):
+            serializer.serialize_hogql_query_to_batch_export_schema(
+                prepare_query("SELECT properties FROM events", self.team.pk)
+            )
 
 
 class TestBatchExportDestinationSerializerTeamScoping(BaseTest):

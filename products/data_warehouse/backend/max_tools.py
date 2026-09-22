@@ -14,6 +14,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from ee.hogai.chat_agent.schema_generator.utils import SchemaGeneratorOutput
+from ee.hogai.chat_agent.sql.errors import hogql_validation_message
 from ee.hogai.chat_agent.sql.toolkit import SQL_SCHEMA
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
@@ -269,14 +270,8 @@ The newly updated query gave us this error:
         try:
             prepare_and_print_ast(parse_select(result.query), context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, ResolutionError) as err:
-            err_msg = str(err)
-            # Both the antlr-based cpp parser and the hand-rolled rust-py parser produce
-            # terse low-level error wording on syntax failures; collapse them into a
-            # single human/LLM-friendly message regardless of which backend handled the parse.
-            if err_msg.startswith(
-                ("no viable alternative", "trailing tokens after expression", "unexpected token in expression")
-            ):
-                err_msg = "HogQL parsing error: this query isn't valid HogQL."
-            raise PydanticOutputParserException(llm_output=result.query, validation_message=err_msg)
+            raise PydanticOutputParserException(
+                llm_output=result.query, validation_message=hogql_validation_message(err, result.query)
+            )
 
         return result.query

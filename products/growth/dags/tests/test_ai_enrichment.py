@@ -269,10 +269,14 @@ class TestAiEnrichmentJob(_EnrichmentDagTestCase):
             OrganizationEnrichment.objects.create(
                 organization=repair_org,
                 data={
-                    "icp_fit_evaluation_kind": "ai_label",
+                    "icp_fit_evaluation_kind": "enrichment",
                     "icp_fit_evaluated_at": timezone.now().isoformat(),
-                    "icp_fit_ai_label_result_id": str(stored_result.id),
-                    "icp_fit_ai_label_projected_result_id": str(stored_result.id),
+                    "icp_fit_input_versions": {
+                        "current_fetch": str(stored_result.fetch_id),
+                        f"enrichment/{config.name}": str(stored_result.id),
+                    },
+                    "icp_fit_input_hash": "example-input-hash",
+                    "icp_fit_projected_input_hash": "example-input-hash",
                 },
             )
             if command_error:
@@ -324,21 +328,24 @@ class TestAiEnrichmentJob(_EnrichmentDagTestCase):
 
 class TestCountProjectedScores(_EnrichmentDagTestCase):
     @parameterized.expand(
-        [
-            ("older_evaluation",),
-            ("other_evaluation_kind",),
-            ("missing_projection",),
-            ("mismatched_projection",),
-            ("null_markers",),
-            ("other_label",),
-            ("other_version",),
-            ("inactive_config",),
-            ("changed_prompt",),
-            ("other_organization",),
-        ]
+        (f"{mode}_{invalidation}", mode, invalidation)
+        for mode in ("included", "fallback")
+        for invalidation in (
+            "older_evaluation",
+            "other_evaluation_kind",
+            "missing_projection",
+            "mismatched_projection",
+            "null_markers",
+            "other_label",
+            "other_version",
+            "inactive_config",
+            "changed_prompt",
+            "other_organization",
+            "other_fetch",
+        )
     )
-    def test_only_completed_current_label_projections_count(self, invalidation: str) -> None:
-        config = self._config(name="ai_pilled")
+    def test_only_completed_current_label_projections_count(self, _name: str, mode: str, invalidation: str) -> None:
+        config = self._config(name="business_model")
         result = EnrichmentLabelResult.objects.create(
             organization=self.organization,
             fetch=self._fetch(),
@@ -348,13 +355,17 @@ class TestCountProjectedScores(_EnrichmentDagTestCase):
             model=config.model,
         )
         started_at = timezone.now()
+        input_versions = {"current_fetch": str(result.fetch_id)}
+        if mode == "included":
+            input_versions[f"enrichment/{config.name}"] = str(result.id)
         record = OrganizationEnrichment.objects.create(
             organization=self.organization,
             data={
-                "icp_fit_evaluation_kind": "ai_label",
+                "icp_fit_evaluation_kind": "enrichment",
                 "icp_fit_evaluated_at": started_at.isoformat(),
-                "icp_fit_ai_label_result_id": str(result.id),
-                "icp_fit_ai_label_projected_result_id": str(result.id),
+                "icp_fit_input_versions": input_versions,
+                "icp_fit_input_hash": "example-input-hash",
+                "icp_fit_projected_input_hash": "example-input-hash",
             },
         )
 
@@ -365,12 +376,12 @@ class TestCountProjectedScores(_EnrichmentDagTestCase):
         elif invalidation == "other_evaluation_kind":
             record.data["icp_fit_evaluation_kind"] = "backfill"
         elif invalidation == "missing_projection":
-            record.data.pop("icp_fit_ai_label_projected_result_id")
+            record.data.pop("icp_fit_projected_input_hash")
         elif invalidation == "mismatched_projection":
-            record.data["icp_fit_ai_label_projected_result_id"] = "example-other-result"
+            record.data["icp_fit_projected_input_hash"] = "example-other-input-hash"
         elif invalidation == "null_markers":
-            record.data["icp_fit_ai_label_result_id"] = None
-            record.data["icp_fit_ai_label_projected_result_id"] = None
+            record.data["icp_fit_input_hash"] = None
+            record.data["icp_fit_projected_input_hash"] = None
         elif invalidation == "other_label":
             result.label_name = "example_other_label"
         elif invalidation == "other_version":
@@ -381,6 +392,8 @@ class TestCountProjectedScores(_EnrichmentDagTestCase):
             config.prompt_text = "Example changed prompt"
         elif invalidation == "other_organization":
             result.organization = Organization.objects.create(name="Example other organization")
+        elif invalidation == "other_fetch":
+            result.fetch = self._fetch()
         record.save()
         result.save()
         config.save()

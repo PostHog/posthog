@@ -1,18 +1,20 @@
-from dataclasses import replace
 from typing import Any
 
 from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import get_regional_ph_client
 
 from products.growth.backend.enrichment import gates
-from products.growth.backend.enrichment.ai_pilled import (
-    current_ai_pilled_label,
-    normalize_fit_payload,
-    score_with_ai_pilled_label,
-)
 from products.growth.backend.enrichment.bridge import read_organization_bridge_inputs
-from products.growth.backend.enrichment.fit_score import SCORE_VERSION, IcpFitResult
+from products.growth.backend.enrichment.fit_score import SCORE_VERSION, IcpFitResult, score_context, scoring_input_hash
 from products.growth.backend.enrichment.icp_lists import CuratedLists, load_active_lists
+from products.growth.backend.enrichment.labels import ai_processing_approved
+from products.growth.backend.enrichment.scoring_context import (
+    ScoringContext,
+    load_scoring_context,
+    normalize_fit_payload,
+    saved_wizard_ai_sdk,
+    score_with_saved_inputs,
+)
 from products.growth.backend.enrichment.writer import (
     fit_projection_is_current,
     invalidate_fit_projection,
@@ -21,7 +23,12 @@ from products.growth.backend.enrichment.writer import (
     project_organization_enrichment,
     write_organization_enrichment,
 )
-from products.growth.backend.models import EnrichmentLabelResult, OrganizationEnrichment, OrganizationEnrichmentFetch
+from products.growth.backend.models import (
+    EnrichmentLabelResult,
+    EnrichmentPromptConfig,
+    OrganizationEnrichment,
+    OrganizationEnrichmentFetch,
+)
 
 
 def latest_matched_payload(organization_id: str) -> dict[str, Any] | None:
@@ -65,7 +72,7 @@ def score_archived_fit(
     payload = normalize_fit_payload(fetch.payload)
     if payload is None:
         payload = normalize_fit_payload(latest_matched_payload(str(fetch.organization_id)))
-    return score_with_ai_pilled_label(
+    return score_with_saved_inputs(
         payload,
         fetch=fetch,
         lists=lists,
@@ -76,28 +83,70 @@ def score_archived_fit(
     )
 
 
-def ai_label_needs_application(result: EnrichmentLabelResult) -> bool:
+def _current_result_context(
+    result: EnrichmentLabelResult,
+    *,
+    lists: CuratedLists,
+    domain: str,
+    data: dict[str, Any],
+    wizard_ai_sdk: bool | None = None,
+) -> ScoringContext | None:
+    fetch = latest_fetch(str(result.organization_id))
+    if fetch is None or fetch.id != result.fetch_id:
+        return None
+    config = (
+        EnrichmentPromptConfig.objects.select_for_update()
+        .filter(name=result.label_name, version=result.prompt_version, is_active=True)
+        .first()
+    )
+    identity = gates.resolve_signup_identity(str(result.organization_id))
+    if (
+        config is None
+        or config.content_hash != result.prompt_hash
+        or not isinstance(identity, gates.SignupIdentity)
+        or identity.domain != domain
+        or result.inputs.get("signup_domain") != domain
+        or not ai_processing_approved(result.organization_id)
+    ):
+        return None
+    payload = normalize_fit_payload(fetch.payload)
+    if payload is None:
+        payload = normalize_fit_payload(latest_matched_payload(str(result.organization_id)))
+    persisted_wizard = saved_wizard_ai_sdk(data)
+    context = load_scoring_context(
+        payload,
+        fetch=fetch,
+        lists=lists,
+        domain=domain,
+        role=data.get("signup_role"),
+        wizard_ai_sdk=wizard_ai_sdk if wizard_ai_sdk is not None else persisted_wizard,
+    )
+    return context
+
+
+def _application_is_current(data: dict[str, Any], context: ScoringContext, lists: CuratedLists) -> bool:
+    input_hash = scoring_input_hash(context.values, context.input_versions)
+    return (
+        data.get("icp_fit_version") == SCORE_VERSION
+        and data.get("icp_fit_lists_version") == lists.version
+        and data.get("icp_fit_input_hash") == input_hash
+        and data.get("icp_fit_projected_input_hash") == input_hash
+    )
+
+
+def label_needs_application(result: EnrichmentLabelResult) -> bool:
     lists = load_active_lists()
     if lists is None:
-        return False
-    if OrganizationEnrichment.objects.filter(
-        organization_id=result.organization_id,
-        data__icp_fit_ai_label_result_id=str(result.id),
-        data__icp_fit_ai_label_projected_result_id=str(result.id),
-        data__icp_fit_version=SCORE_VERSION,
-        data__icp_fit_lists_version=lists.version,
-    ).exists():
         return False
     organization_id = str(result.organization_id)
     identity = gates.resolve_signup_identity(organization_id)
     if not isinstance(identity, gates.SignupIdentity):
         return False
     with lock_organization_enrichment(organization_id):
-        fetch = latest_fetch(organization_id)
-        if fetch is None or fetch.id != result.fetch_id:
-            return False
-        current = current_ai_pilled_label(fetch, identity.domain, lists=lists)
-        return current is not None and current.id == result.id
+        record = OrganizationEnrichment.objects.filter(organization_id=organization_id).first()
+        data = record.data if record else {}
+        context = _current_result_context(result, lists=lists, domain=identity.domain, data=data)
+        return context is not None and not _application_is_current(data, context, lists)
 
 
 def _write_label_score(
@@ -109,33 +158,27 @@ def _write_label_score(
             return None
         record = OrganizationEnrichment.objects.filter(organization_id=organization_id).first()
         data = record.data if record else {}
-        fetch = latest_fetch(organization_id)
-        if fetch is None or fetch.id != result.fetch_id:
-            return None
         lists = load_active_lists()
         if lists is None:
-            raise RuntimeError("Cannot apply AI label without active ICP scoring lists")
-        current = current_ai_pilled_label(fetch, domain, lists=lists)
-        if current is None or current.id != result.id or not ai_label_needs_application(result):
-            return None
-        flags = data.get("icp_fit_flags")
-        persisted_wizard = isinstance(flags, dict) and flags.get("wizard_ai_sdk") is True
+            raise RuntimeError("Cannot update the score without an active scoring configuration")
+        persisted_wizard = saved_wizard_ai_sdk(data)
         if live_wizard is None and not persisted_wizard:
-            raise RuntimeError("Cannot apply AI label without the wizard signal")
-        fit = score_archived_fit(
-            fetch,
-            lists=lists,
-            domain=domain,
-            role=data.get("signup_role"),
-            wizard_ai_sdk=live_wizard if live_wizard is not None else persisted_wizard,
+            raise RuntimeError("Cannot update the score without the wizard signal")
+        context = _current_result_context(result, lists=lists, domain=domain, data=data, wizard_ai_sdk=live_wizard)
+        if context is None or _application_is_current(data, context, lists):
+            return None
+        fit = score_context(
+            context.values,
+            source=lists.rules.source,
+            lists_version=lists.version,
+            input_versions=context.input_versions,
         )
-        fit = replace(fit, ai_pilled_label_result_id=str(current.id))
         write_organization_enrichment(
             organization_id=organization_id,
             fields=None,
             pha_client=client,
             fit=fit,
-            fit_evaluation_kind="ai_label",
+            fit_evaluation_kind="enrichment",
             project=False,
         )
         return fit
@@ -148,25 +191,22 @@ def _mark_label_projection(result: EnrichmentLabelResult, domain: str, fit: IcpF
         if lists is None or lists.version != fit.lists_version:
             invalidate_fit_projection(organization_id)
             return False
-        fetch = latest_fetch(organization_id)
-        current = current_ai_pilled_label(fetch, domain, lists=lists) if fetch and fetch.id == result.fetch_id else None
-        if current is None or current.id != result.id or not fit_projection_is_current(organization_id, fit):
+        record = OrganizationEnrichment.objects.filter(organization_id=organization_id).first()
+        context = _current_result_context(result, lists=lists, domain=domain, data=record.data if record else {})
+        if (
+            context is None
+            or scoring_input_hash(context.values, context.input_versions) != fit.input_hash
+            or not fit_projection_is_current(organization_id, fit)
+        ):
             invalidate_fit_projection(organization_id)
             return False
-        if OrganizationEnrichment.objects.filter(
-            organization_id=organization_id,
-            data__icp_fit_ai_label_result_id=str(result.id),
-            data__icp_fit_version=SCORE_VERSION,
-            data__icp_fit_lists_version=lists.version,
-        ).exists():
-            merge_into_record(organization_id, {"icp_fit_ai_label_projected_result_id": str(result.id)})
-            return True
-        return False
+        merge_into_record(organization_id, {"icp_fit_projected_input_hash": fit.input_hash})
+        return True
 
 
-def apply_ai_pilled_label(result: EnrichmentLabelResult) -> bool:
+def apply_enrichment_result(result: EnrichmentLabelResult) -> bool:
     organization_id = str(result.organization_id)
-    if not gates.region_allowed() or not gates.enrichment_enabled() or not ai_label_needs_application(result):
+    if not gates.region_allowed() or not gates.enrichment_enabled() or not label_needs_application(result):
         return False
     identity = gates.resolve_signup_identity(organization_id)
     if not isinstance(identity, gates.SignupIdentity):
@@ -183,7 +223,7 @@ def apply_ai_pilled_label(result: EnrichmentLabelResult) -> bool:
 
     client = get_regional_ph_client(sync_mode=True, timeout=10, max_retries=0, on_error=on_delivery_error)
     if client is None:
-        raise RuntimeError("Cannot apply AI label without a regional analytics client")
+        raise RuntimeError("Cannot update the score without a regional analytics client")
     try:
         fit = _write_label_score(result, identity.domain, live_wizard, client)
         if fit is None:
@@ -197,7 +237,7 @@ def apply_ai_pilled_label(result: EnrichmentLabelResult) -> bool:
         )
         if delivery_errors:
             invalidate_fit_projection(organization_id)
-            raise RuntimeError("AI label score projection failed") from delivery_errors[0]
+            raise RuntimeError("Score projection failed") from delivery_errors[0]
         return current_projection and _mark_label_projection(result, identity.domain, fit)
     finally:
         client.shutdown()

@@ -6,8 +6,43 @@ from rest_framework import serializers
 from products.growth.backend.facade.scoring import validate_scoring_source
 
 
-@extend_schema_field({"type": "object", "additionalProperties": True})
+@extend_schema_field(
+    {
+        "type": "object",
+        "required": ["company", "signup", "enrichments", "lists"],
+        "properties": {
+            "company": {"type": "object", "nullable": True, "additionalProperties": True},
+            "signup": {
+                "type": "object",
+                "required": ["role", "domain", "wizard_ai_sdk"],
+                "properties": {
+                    "role": {"type": "string"},
+                    "domain": {"type": "string"},
+                    "wizard_ai_sdk": {"type": "boolean"},
+                },
+            },
+            "enrichments": {
+                "type": "object",
+                "additionalProperties": {"type": "object", "additionalProperties": True},
+            },
+            "lists": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}},
+        },
+    }
+)
 class ScoringInputsField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "additionalProperties": {
+            "oneOf": [{"type": "boolean"}, {"type": "number"}, {"type": "string"}],
+            "nullable": True,
+        },
+    }
+)
+class ScoringFlagsField(serializers.JSONField):
     pass
 
 
@@ -43,7 +78,7 @@ class ScoringSourceSerializer(serializers.Serializer):
 
 class ScoringPreviewRequestSerializer(ScoringSourceSerializer):
     base_config_id = serializers.UUIDField(
-        help_text="Configuration whose curated tags, investors, and label names to use for the draft."
+        help_text="Configuration whose curated tags and investors to use for the draft."
     )
     sample = serializers.IntegerField(
         default=10, min_value=1, max_value=10, help_text="Number of recent companies to preview."
@@ -52,9 +87,7 @@ class ScoringPreviewRequestSerializer(ScoringSourceSerializer):
 
 class ScoringSaveRequestSerializer(ScoringSourceSerializer):
     version = serializers.CharField(max_length=128, help_text="Unique name for the new scoring version.")
-    base_config_id = serializers.UUIDField(
-        help_text="Configuration whose curated tags, investors, and label names to retain."
-    )
+    base_config_id = serializers.UUIDField(help_text="Configuration whose curated tags and investors to retain.")
 
 
 class ScoringActivateRequestSerializer(serializers.Serializer):
@@ -69,9 +102,7 @@ class ScoringOutcomeSerializer(serializers.Serializer):
     components = serializers.DictField(
         child=serializers.IntegerField(), allow_null=True, help_text="Points for each scoring component."
     )
-    low_confidence = serializers.BooleanField(
-        allow_null=True, help_text="Whether the formula marks the score as low confidence."
-    )
+    flags = ScoringFlagsField(help_text="Named diagnostic values returned by the formula.")
     dq_reason = serializers.CharField(allow_null=True, help_text="Reason for disqualification, or null when absent.")
 
 
@@ -79,7 +110,7 @@ class ScoringPreviewRowSerializer(serializers.Serializer):
     company = serializers.CharField(help_text="Company name from the archived enrichment.")
     domain = serializers.CharField(allow_null=True, help_text="Company signup domain.")
     inputs = ScoringInputsField(
-        help_text="Saved company facts, curated lists, and eligible AI label supplied to the formula."
+        help_text="Saved company facts, signup answers, enrichment outputs, and curated lists supplied to the formula."
     )
     active = ScoringOutcomeSerializer(allow_null=True, help_text="Result from the active formula on these inputs.")
     preview = ScoringOutcomeSerializer(allow_null=True, help_text="Result from the draft formula, or null on failure.")

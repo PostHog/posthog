@@ -78,8 +78,8 @@ export function EnrichmentScoring(): JSX.Element {
             <div>
                 <h3>ICP scoring formula</h3>
                 <p className="text-secondary mb-0">
-                    Edit how company facts and AI labels contribute to the score. Test against saved inputs, then save
-                    and activate a version.
+                    Edit how company facts and saved enrichments contribute to the score. Test against saved inputs,
+                    then save and activate a version.
                 </p>
             </div>
             {!selectedConfig && (
@@ -110,9 +110,10 @@ export function EnrichmentScoring(): JSX.Element {
             </div>
             <div className="space-y-2">
                 <p className="text-secondary text-sm mb-0">
-                    Use variables such as <code>company</code>, <code>ai_pilled</code>, and <code>wizard_ai_sdk</code>.
-                    Return <code>status</code>, <code>score</code>, and <code>components</code>. Expand a sample company
-                    below to inspect all available inputs.
+                    Read <code>company</code>, <code>signup</code>, <code>enrichments</code>, and <code>lists</code>.
+                    Return <code>status</code>, <code>score</code>, <code>components</code>, and optional{' '}
+                    <code>flags</code>. Expand a sample company below to inspect the saved values. Compare boolean
+                    outputs explicitly; <code>'unknown'</code> is not a positive result.
                 </p>
                 <CodeEditor
                     key={selectedConfig?.id ?? 'default'}
@@ -121,14 +122,9 @@ export function EnrichmentScoring(): JSX.Element {
                     globals={
                         preview?.response.results[0]?.inputs ?? {
                             company: {},
-                            tags: [],
-                            tag_types: [],
-                            investors: [],
+                            signup: { role: '', domain: '', wizard_ai_sdk: false },
+                            enrichments: {},
                             lists: {},
-                            role: '',
-                            domain: '',
-                            wizard_ai_sdk: false,
-                            ai_pilled: false,
                         }
                     }
                     value={source}
@@ -200,8 +196,8 @@ export function EnrichmentScoring(): JSX.Element {
                 )}
             </div>
             <p className="text-secondary text-xs">
-                Preview uses saved company facts and AI labels. It does not fetch websites, call a model, or save
-                scores.
+                Preview uses saved company facts and enrichment outputs. It does not fetch websites, call a model, or
+                save scores.
             </p>
             <EnrichmentScoringResults />
         </div>

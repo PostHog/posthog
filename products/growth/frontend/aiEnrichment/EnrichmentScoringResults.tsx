@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonBanner, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import type { ScoringPreviewRowApi } from '../generated/api.schemas'
 import { enrichmentScoringLogic } from './enrichmentScoringLogic'
@@ -15,19 +15,23 @@ export function EnrichmentScoringResults(): JSX.Element {
                 <div className="min-w-0 break-words">
                     <div className="font-semibold">{row.company}</div>
                     <div className="text-secondary text-xs break-all">{row.domain ?? 'No domain'}</div>
-                    {row.preview?.low_confidence && <LemonTag type="warning">Low confidence</LemonTag>}
                 </div>
             ),
         },
         {
-            title: 'AI label',
-            key: 'label',
-            width: 80,
-            render: (_, row) => (
-                <LemonTag type={row.inputs.ai_pilled === true ? 'success' : 'muted'}>
-                    {row.inputs.ai_pilled === true ? 'Yes' : row.inputs.ai_pilled === false ? 'No' : 'Unknown'}
-                </LemonTag>
-            ),
+            title: 'Enrichments',
+            key: 'enrichments',
+            width: 120,
+            render: (_, row) =>
+                Object.keys(row.inputs.enrichments).length ? (
+                    <div className="space-y-1 break-all text-xs" translate="no">
+                        {Object.keys(row.inputs.enrichments).map((name) => (
+                            <div key={name}>{name}</div>
+                        ))}
+                    </div>
+                ) : (
+                    <span className="text-secondary">None</span>
+                ),
         },
         {
             title: 'Active',
@@ -94,22 +98,19 @@ export function EnrichmentScoringResults(): JSX.Element {
                                 <LemonTable
                                     size="small"
                                     tableLayout="fixed"
-                                    rowKey="name"
+                                    rowKey="key"
                                     dataSource={[
                                         {
+                                            key: 'status',
                                             name: 'Status',
                                             active: row.active?.status ?? 'Error',
                                             preview: row.preview?.status ?? 'Error',
                                         },
                                         {
+                                            key: 'dq_reason',
                                             name: 'Disqualification reason',
                                             active: row.active?.dq_reason ?? null,
                                             preview: row.preview?.dq_reason ?? null,
-                                        },
-                                        {
-                                            name: 'Low confidence',
-                                            active: row.active?.low_confidence ?? false,
-                                            preview: row.preview?.low_confidence ?? false,
                                         },
                                         ...Array.from(
                                             new Set([
@@ -117,13 +118,29 @@ export function EnrichmentScoringResults(): JSX.Element {
                                                 ...Object.keys(row.preview?.components ?? {}),
                                             ])
                                         ).map((name) => ({
+                                            key: `component:${name}`,
                                             name,
                                             active: row.active?.components?.[name] ?? null,
                                             preview: row.preview?.components?.[name] ?? null,
                                         })),
+                                        ...Array.from(
+                                            new Set([
+                                                ...Object.keys(row.active?.flags ?? {}),
+                                                ...Object.keys(row.preview?.flags ?? {}),
+                                            ])
+                                        ).map((name) => ({
+                                            key: `flag:${name}`,
+                                            name: `Flag: ${name}`,
+                                            active: row.active?.flags[name] ?? null,
+                                            preview: row.preview?.flags[name] ?? null,
+                                        })),
                                     ]}
                                     columns={[
-                                        { title: 'Component', dataIndex: 'name' },
+                                        {
+                                            title: 'Result',
+                                            dataIndex: 'name',
+                                            render: (_, detail) => <span className="break-all">{detail.name}</span>,
+                                        },
                                         {
                                             title: 'Active',
                                             key: 'active',
@@ -143,7 +160,7 @@ export function EnrichmentScoringResults(): JSX.Element {
                                             ),
                                         },
                                     ]}
-                                    emptyState="No score components returned."
+                                    emptyState="No score details returned."
                                 />
                             </div>
                             <div>
