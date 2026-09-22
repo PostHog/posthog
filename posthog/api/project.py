@@ -1780,20 +1780,18 @@ class ProjectViewSet(
             detail=Detail(name=str(project.name)),
         )
 
-        if teams:
-            report_user_action(
-                user,
-                "project deletion canceled",
-                {
-                    "project_name": project.name,
-                    # How much of the recovery window was left, so we can see how people use it
-                    "seconds_before_scheduled_deletion": (deletion_scheduled_at - now).total_seconds()
-                    if deletion_scheduled_at
-                    else None,
-                },
-                team=teams[0],
-                request=request,
-            )
+        report_user_action(
+            user,
+            "project deletion canceled",
+            {
+                "project_name": project.name,
+                "seconds_before_scheduled_deletion": (deletion_scheduled_at - now).total_seconds()
+                if deletion_scheduled_at
+                else None,
+            },
+            team=teams[0],
+            request=request,
+        )
 
         return response.Response(ProjectSerializer(project, context=self.get_serializer_context()).data)
 
