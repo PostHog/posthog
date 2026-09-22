@@ -150,9 +150,7 @@ class TestOauthIntegrationModel(BaseTest):
             )
 
     def test_linear_authorize_url_forces_the_approval_screen(self):
-        # Linear only shows the workspace switcher on its approval screen, and it skips that screen
-        # for an already authorized app. Without the prompt a person with several workspaces always
-        # lands back on the first one.
+        # Without the prompt, a person with several Linear workspaces never sees the switcher.
         with self.settings(**self.mock_settings):
             url = OauthIntegration.authorize_url("linear", token="state_token", next="/projects/test")
             params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
