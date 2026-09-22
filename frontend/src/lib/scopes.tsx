@@ -294,6 +294,8 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'support_ticket:read',
     'loop:write',
     'experiment:read',
+    'hog_flow:read',
+    'hog_flow:write',
     'offline_evaluation_ingestion:write',
 ] as const
 
