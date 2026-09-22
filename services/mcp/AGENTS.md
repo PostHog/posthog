@@ -2,7 +2,7 @@
 
 ## MCP analytics
 
-- Before you add or change MCP server analytics, read the [tracking and observability architecture](ARCHITECTURE.md#tracking-and-observability). Use `@posthog/mcp-analytics` for each signal that it supports. Do not duplicate SDK behavior in custom capture code.
+- Before you add or change MCP server analytics, read the [custom server integration guide](https://posthog.com/docs/mcp-analytics/custom-servers) and the [event and property reference](https://posthog.com/docs/mcp-analytics/events). Use `@posthog/mcp-analytics` for each signal that it supports. Do not duplicate SDK behavior in custom capture code.
 - Event and property names that start with `$mcp_` are reserved for MCP Analytics SDKs. Do not add, rename, or reuse these names in server code.
 - If the SDK does not support a required signal, check the design with `@mcp-analytics-folks` or `@team-mcp-analytics` before you implement it.
 - Tag `@mcp-analytics-folks` or `@team-mcp-analytics` in each PR that changes MCP analytics instrumentation, and request their review.
