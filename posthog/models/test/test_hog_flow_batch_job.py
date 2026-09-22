@@ -80,14 +80,14 @@ class TestHogFlowBatchJob(TestCase):
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
-    def test_unreachable_dispatch_marks_batch_job_failed(self, mock_create_invocation):
+    def test_unreachable_dispatch_leaves_batch_job_unfinished(self, mock_create_invocation):
         mock_create_invocation.side_effect = RuntimeError("CDP unreachable")
 
         with self.assertRaises(RuntimeError):
             HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow, variables=[])
 
         batch_job = HogFlowBatchJob.objects.get(hog_flow=self.hog_flow)
-        assert batch_job.status == HogFlowBatchJob.State.FAILED
+        assert batch_job.status == HogFlowBatchJob.State.QUEUED
 
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"

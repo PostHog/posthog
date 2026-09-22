@@ -89,7 +89,6 @@ def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
                 filters=instance.filters,
             )
         except Exception as e:
-            _mark_dispatch_failed(instance)
             logger.exception(
                 "Failed to create batch hogflow job invocation",
                 batch_job_id=instance.id,

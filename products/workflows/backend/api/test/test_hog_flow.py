@@ -3856,6 +3856,30 @@ class TestHogFlowAPI(APIBaseTest):
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
+    def test_internal_update_batch_job_status_does_not_overwrite_a_racing_cancellation(self, _mock_dispatch):
+        hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
+        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")
+        HogFlowBatchJob.objects.filter(id=batch_job.id).update(status="cancelled")
+
+        stale = HogFlowBatchJob.objects.get(id=batch_job.id)
+        stale.status = "active"
+        with patch.object(HogFlowBatchJob.objects, "get", return_value=stale):
+            response = self.client.put(
+                f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
+                {"status": "completed"},
+                content_type="application/json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["no_op"] is True
+        batch_job.refresh_from_db()
+        assert batch_job.status == "cancelled"
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
     def test_internal_update_batch_job_status_rejects_invalid_status(self, _mock_dispatch):
         hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
         batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")

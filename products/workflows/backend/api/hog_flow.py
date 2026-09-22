@@ -6306,12 +6306,24 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             )
 
         try:
-            batch_job.status = new_status
-            batch_job.save(update_fields=["status", "updated_at"])
+            updated = (
+                HogFlowBatchJob.objects.filter(id=batch_job.id)
+                .exclude(status__in=terminal_states)
+                .update(status=new_status, updated_at=timezone.now())
+            )
+            if not updated:
+                batch_job.refresh_from_db()
+                return Response(
+                    {
+                        "id": str(batch_job.id),
+                        "status": batch_job.status,
+                        "no_op": True,
+                    }
+                )
             return Response(
                 {
                     "id": str(batch_job.id),
-                    "status": batch_job.status,
+                    "status": new_status,
                     "no_op": False,
                 }
             )
