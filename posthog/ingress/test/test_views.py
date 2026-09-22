@@ -318,10 +318,25 @@ class TestWebhookView(SimpleTestCase):
         request = self._post(body, {"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "push"})
 
         with patch("posthog.ingress.github.provider.get_instance_setting", return_value=""):
-            response = build_webhook_view(build_github_provider("posthog"))(request)
+            with structlog.testing.capture_logs() as logs:
+                response = build_webhook_view(build_github_provider("posthog"))(request)
 
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.content, b"Webhook not configured")
+        missing = next(log for log in logs if log["event"] == "ingress_webhook_not_configured")
+        self.assertEqual(missing["log_level"], "error")
+
+    def test_an_unconfigured_provider_that_answers_a_4xx_logs_a_warning(self) -> None:
+        # Slack answers 403 when its secret is unset, so an error line here would let an anonymous
+        # prober of a self-hosted instance write to the error log at will.
+        request = self.factory.post("/slack/events", data="{}", content_type="application/json")
+
+        with structlog.testing.capture_logs() as logs:
+            response = build_webhook_view(build_slack_provider(secret_getter=lambda: None))(request)
+
+        self.assertEqual(response.status_code, 403)
+        missing = next(log for log in logs if log["event"] == "ingress_webhook_not_configured")
+        self.assertEqual(missing["log_level"], "warning")
 
     @parameterized.expand(
         [
