@@ -543,6 +543,64 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         self.assertEqual(failure_data["retry_count"], 1)
         self.assertEqual(failure_data["error_classification"], "unrecoverable")
 
+    def test_dependency_conflict_is_not_reported_to_error_tracking(self) -> None:
+        """A scheduled disable the dependency guard refuses is a user configuration conflict:
+        recorded on the row and logged, but never sent to error tracking"""
+        dependency = FeatureFlag.objects.create(
+            name="Dependency Flag",
+            key="test-dependency",
+            active=True,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            name="Dependent Flag",
+            key="test-dependent",
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"type": "flag", "key": str(dependency.id), "value": "true", "operator": None}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=dependency.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at=(datetime.now(UTC) - timedelta(seconds=30)),
+            created_by=self.user,
+        )
+
+        with (
+            patch("posthog.tasks.process_scheduled_changes.capture_exception") as mock_capture,
+            patch("posthog.tasks.process_scheduled_changes.logger") as mock_logger,
+        ):
+            process_scheduled_changes()
+
+            mock_capture.assert_not_called()
+            mock_logger.info.assert_called_once()
+
+        dependency.refresh_from_db()
+        self.assertTrue(dependency.active)
+
+        updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)
+        self.assertIsNotNone(updated_scheduled_change.executed_at)
+        self.assertEqual(updated_scheduled_change.failure_count, 1)
+        failure_reason = updated_scheduled_change.failure_reason
+        assert failure_reason is not None
+        failure_data = json.loads(failure_reason)
+        self.assertIn("other flags depend on it", failure_data["error"])
+        self.assertFalse(failure_data["will_retry"])
+        self.assertEqual(failure_data["error_classification"], "unrecoverable")
+
     def test_max_retries_exceeded(self) -> None:
         """Test that changes exceeding max retries preserve actual error info"""
         from posthog.tasks.process_scheduled_changes import MAX_RETRY_ATTEMPTS
