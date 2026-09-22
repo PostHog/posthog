@@ -57,6 +57,20 @@ Run the focus and submission checks with:
 pnpm --filter @posthog/ui test src/features/sessions/components/CommentComposer.integration.test.tsx
 ```
 
+## Composer text selection
+
+In the new-session and session composers, select text and release the mouse outside the editor.
+The selection must remain visible, including when you release over the surrounding padding.
+A plain click on that padding must still focus the editor.
+Buttons and menus must keep their own actions.
+
+## Profile pictures
+
+In Settings > Account, check a Gravatar with a transparent background. The picture must not show initials behind it.
+Refresh the picture, close Settings, then open Settings again. The refreshed picture must remain visible without another refresh.
+Other avatars for the same email must use the refreshed URL, including avatars at different sizes. Refresh state lasts until the app reloads.
+The `Settings/AccountSettings` stories cover transparent pictures, missing pictures, and loading states.
+
 ## File Location
 
 - Unit tests colocate with source as `.test.ts` or `.test.tsx`.
