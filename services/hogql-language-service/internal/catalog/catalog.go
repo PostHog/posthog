@@ -16,7 +16,9 @@ type Field struct {
 }
 
 type RelationDefinition struct {
-	Fields map[string]Field `json:"fields"`
+	Fields             map[string]Field  `json:"fields"`
+	Table              string            `json:"table,omitempty"`
+	PropertyNamespaces map[string]string `json:"propertyNamespaces,omitempty"`
 }
 
 type Table struct {
@@ -54,7 +56,9 @@ type PreparedTable struct {
 }
 
 type PreparedRelation struct {
-	Fields PreparedFields
+	Fields             *PreparedFields
+	propertyNamespaces map[string]string
+	ownedFields        bool
 }
 
 type FieldTraversal struct {
@@ -115,11 +119,25 @@ func Prepare(value *Catalog) *PreparedCatalog {
 		prepared.relations = make(map[string]*PreparedRelation, len(value.Relations))
 	}
 	for name, relation := range value.Relations {
-		entries := make([]Entry, 0, len(relation.Fields))
-		for fieldName, field := range relation.Fields {
-			entries = append(entries, newEntry(fieldName, intern(types, field.Type)))
+		preparedRelation := &PreparedRelation{}
+		if relation.Fields != nil {
+			entries := make([]Entry, 0, len(relation.Fields))
+			for fieldName, field := range relation.Fields {
+				entries = append(entries, newEntry(fieldName, intern(types, field.Type)))
+			}
+			fields := PreparedFields{Index: newIndex(entries)}
+			preparedRelation.Fields = &fields
+			preparedRelation.ownedFields = true
+		} else if tableIndex, ok := prepared.tablesByName[relation.Table]; ok {
+			preparedRelation.Fields = &prepared.tableValues[tableIndex].Fields
 		}
-		prepared.relations[name] = &PreparedRelation{Fields: PreparedFields{Index: newIndex(entries)}}
+		if len(relation.PropertyNamespaces) > 0 {
+			preparedRelation.propertyNamespaces = make(map[string]string, len(relation.PropertyNamespaces))
+			for fieldName, namespace := range relation.PropertyNamespaces {
+				preparedRelation.propertyNamespaces[fieldName] = namespace
+			}
+		}
+		prepared.relations[name] = preparedRelation
 	}
 	prepareTraversals := func(fields map[string]Field, target *PreparedFields) {
 		for fieldName, field := range fields {
@@ -138,7 +156,9 @@ func Prepare(value *Catalog) *PreparedCatalog {
 		prepareTraversals(table.Fields, &prepared.tableValues[prepared.tablesByName[name]].Fields)
 	}
 	for name, relation := range value.Relations {
-		prepareTraversals(relation.Fields, &prepared.relations[name].Fields)
+		if relation.Fields != nil {
+			prepareTraversals(relation.Fields, prepared.relations[name].Fields)
+		}
 	}
 	prepared.tableSpellings = prepared.tables
 	if prepared.valid {
@@ -175,6 +195,20 @@ func (f *PreparedFields) Traversal(name string) (FieldTraversal, bool) {
 	}
 	traversal, ok := f.traversals[entry.Name]
 	return traversal, ok
+}
+
+func (r *PreparedRelation) Traversal(name string) (FieldTraversal, bool) {
+	if r == nil || r.Fields == nil {
+		return FieldTraversal{}, false
+	}
+	entry, ok := r.Fields.Exact(name)
+	if !ok {
+		return FieldTraversal{}, false
+	}
+	if namespace, ok := r.propertyNamespaces[entry.Name]; ok {
+		return FieldTraversal{PropertyNamespace: namespace}, true
+	}
+	return r.Fields.Traversal(entry.Name)
 }
 
 func (c *PreparedCatalog) Table(name string) (*PreparedTable, bool) {
@@ -360,14 +394,22 @@ func (c *PreparedCatalog) estimateSize() int64 {
 	}
 	for name, relation := range c.relations {
 		size += int64(len(name) + 64)
-		for _, field := range relation.Fields.entries {
-			size += entrySize(field)
-			if traversal, ok := relation.Fields.traversals[field.Name]; ok {
-				size += int64(len(traversal.PropertyNamespace) + 48)
+		if relation.ownedFields && relation.Fields != nil {
+			for _, field := range relation.Fields.entries {
+				size += entrySize(field)
+				if traversal, ok := relation.Fields.traversals[field.Name]; ok {
+					size += int64(len(traversal.PropertyNamespace) + 48)
+				}
+			}
+			if relation.Fields.traversals != nil {
+				size += 64
 			}
 		}
-		if relation.Fields.traversals != nil {
+		if relation.propertyNamespaces != nil {
 			size += 64
+			for fieldName, namespace := range relation.propertyNamespaces {
+				size += int64(len(fieldName) + len(namespace) + 48)
+			}
 		}
 	}
 	for _, table := range c.tableValues {

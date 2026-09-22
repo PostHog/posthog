@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -118,6 +119,62 @@ func TestExplicitTraversalDoesNotFallBackToLegacyPropertyNamespace(t *testing.T)
 	result, err := Complete(schema, query, strings.Index(query, " FROM"), PositionEncodingUTF8, "")
 	if err != nil || len(result.Suggestions) != 0 {
 		t.Fatalf("explicit relation returned legacy properties: %#v, %v", result, err)
+	}
+}
+
+func TestTableBackedTraversalReusesFieldsAndScopesPropertyOverrides(t *testing.T) {
+	schema := catalog.Prepare(&catalog.Catalog{
+		Tables: map[string]catalog.Table{
+			"events": {Fields: map[string]catalog.Field{
+				"group": {Type: "lazy", Relation: "group_0"}, "other_group": {Type: "lazy", Relation: "group_1"},
+			}},
+			"groups": {Fields: map[string]catalog.Field{
+				"name": {Type: "String"}, "properties": {Type: "JSON", PropertyNamespace: "group"},
+				"owner": {Type: "lazy", Relation: "person"},
+			}},
+		},
+		Relations: map[string]catalog.RelationDefinition{
+			"group_0": {Table: "groups", PropertyNamespaces: map[string]string{"properties": "group:0"}},
+			"group_1": {Table: "groups", PropertyNamespaces: map[string]string{"properties": "group:1"}},
+			"person": {Fields: map[string]catalog.Field{
+				"properties": {Type: "JSON", PropertyNamespace: "person"}, "group": {Type: "lazy", Relation: "group_1"},
+			}},
+		},
+		Properties: map[string][]catalog.Property{
+			"group": {{Name: "base", ValueType: "String"}}, "group:0": {{Name: "zero", ValueType: "String"}},
+			"group:1": {{Name: "one", ValueType: "String"}},
+			"person":  {{Name: "email", ValueType: "String"}},
+		},
+	})
+	for _, test := range []struct {
+		query    string
+		expected []string
+	}{
+		{"SELECT e.group.na FROM events AS e", []string{"name"}},
+		{"SELECT e.group.properties. FROM events AS e", []string{"zero"}},
+		{"SELECT e.other_group.properties. FROM events AS e", []string{"one"}},
+		{"SELECT g.properties. FROM groups AS g", []string{"base"}},
+		{"SELECT e.group.owner.properties. FROM events AS e", []string{"email"}},
+		{"SELECT e.group.owner.group.properties. FROM events AS e", []string{"one"}},
+	} {
+		result, err := Complete(schema, test.query, strings.Index(test.query, " FROM"), PositionEncodingUTF8, "")
+		labels := make([]string, len(result.Suggestions))
+		for index, suggestion := range result.Suggestions {
+			labels[index] = suggestion.Label
+		}
+		if err != nil || !slices.Equal(labels, test.expected) {
+			t.Fatalf("query %q returned %#v, %v", test.query, result, err)
+		}
+	}
+	result := validation.Validate(schema, "SELECT e.group.properties.one FROM events AS e")
+	if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "unknown_property" {
+		t.Fatalf("group namespace isolation validation = %#v", result)
+	}
+	path := "e.group." + strings.Repeat("owner.group.", querylimits.MaxRelationTraversalHops/2)
+	query := "SELECT " + path + "properties. FROM events AS e"
+	completion, err := Complete(schema, query, strings.Index(query, " FROM"), PositionEncodingUTF8, "")
+	if !errors.Is(err, querylimits.ErrRelationTraversalTooDeep) || len(completion.Suggestions) != 0 {
+		t.Fatalf("overlong mixed traversal returned %#v, %v", completion, err)
 	}
 }
 

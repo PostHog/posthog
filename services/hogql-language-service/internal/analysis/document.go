@@ -316,6 +316,7 @@ func (b Bindings) Traversal(parts []string) TraversalTarget {
 		return TraversalTarget{}
 	}
 	var fields *catalog.PreparedFields
+	var relationView *catalog.PreparedRelation
 	index := 0
 	if relation, ok := b.Relation(parts[0]); ok {
 		if b.scope.hasDuplicateSource(parts[0]) {
@@ -367,7 +368,12 @@ func (b Bindings) Traversal(parts []string) TraversalTarget {
 		if !ok {
 			return TraversalTarget{Fields: fields, Explicit: explicit, Failed: explicit, FailureAt: index}
 		}
-		traversal, ok := fields.Traversal(parts[index])
+		var traversal catalog.FieldTraversal
+		if relationView != nil {
+			traversal, ok = relationView.Traversal(parts[index])
+		} else {
+			traversal, ok = fields.Traversal(parts[index])
+		}
 		if !ok {
 			if explicit && strings.EqualFold(entry.Type, "JSON") {
 				return TraversalTarget{Explicit: true}
@@ -395,7 +401,8 @@ func (b Bindings) Traversal(parts []string) TraversalTarget {
 		if traversal.Relation == nil {
 			return TraversalTarget{Explicit: true}
 		}
-		fields = &traversal.Relation.Fields
+		relationView = traversal.Relation
+		fields = traversal.Relation.Fields
 	}
 	return TraversalTarget{Fields: fields, Explicit: explicit, Valid: fields != nil}
 }

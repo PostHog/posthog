@@ -56,7 +56,11 @@ A field can carry one of two optional annotations:
 - `relation` points to an opaque key in the catalog's `relations` map.
 - `propertyNamespace` points to a key in the catalog's `properties` map.
 
-Each relation definition contains a `fields` map with the same field format as a top-level table.
+Each relation definition contains either a `table` reference to an exact canonical key in `tables`, or a `fields` map with the same field format as a top-level table.
+Use `table` when the target has the same permitted fields as an existing catalog table; the consumer reuses that table's prepared field index.
+Use `fields` for virtual targets or targets with a different schema.
+For example, HogQL can resolve `events.person` to a virtual person schema backed by event columns rather than the full `persons` schema.
+The publisher must resolve the effective target instead of inferring it from the field name.
 The relation key is not a SQL table name.
 Traversal definitions never appear in table suggestions, table aliases, or validation's `tableNames` output.
 They are reachable only through fields on a bound source.
@@ -97,12 +101,38 @@ With that snapshot, completion at `|` supports:
 | `SELECT person.\| FROM events`                           | `id`, `properties` |
 
 The same graph format can describe session fields, group fields, custom lazy joins, and multi-hop relationships.
+For example, when `sessions` and `groups` are published canonical tables, these relation definitions reuse their fields:
+
+```json
+{
+  "event-session": { "table": "sessions" },
+  "event-group-0": {
+    "table": "groups",
+    "propertyNamespaces": { "properties": "group:0" }
+  },
+  "event-group-1": {
+    "table": "groups",
+    "propertyNamespaces": { "properties": "group:1" }
+  }
+}
+```
+
+Attach those relation IDs to the corresponding `events.session`, `events.group_0`, and `events.group_1` fields.
+Completion for `SELECT e.session.| FROM events AS e` then lists fields from the published `sessions` table.
+Completion for `SELECT e.group_0.properties.| FROM events AS e` uses the published `group:0` property list; `group_1` uses `group:1`.
+The optional `propertyNamespaces` map binds direct fields of a referenced table to published property lists.
+Each binding applies only inside that relation, not to the top-level table or another relation that references it.
+The consumer does not infer group indices or carry a binding through a further relation hop.
+
 Completion and validation use the same traversal resolver.
 Explicit traversal metadata takes precedence over built-in property-name heuristics; a missing field on a traversed relation does not inherit a namespace from its spelling.
 Existing source binding, alias visibility, and ambiguity rules still apply.
 
 Relation IDs and property namespaces must refer to published definitions, and a field cannot carry both annotations.
-Admission allows at most 4,096 relation definitions and 120,000 fields across those definitions, in addition to existing top-level tables.
+Table references must use canonical keys, not aliases, and cannot also supply `fields`.
+Property-list bindings require a table reference and an exact target field that has no relation annotation.
+Admission allows at most 4,096 relation definitions and 120,000 inline fields and property-list bindings combined, in addition to existing top-level tables.
+Referenced table fields count once toward cache memory, regardless of how many relations reuse them.
 The cache budget includes the traversal graph and annotations; the catalog request remains bounded by 64 MiB.
 Cycles are allowed without recursive expansion.
 Each query path can follow at most 16 relation hops and also consumes the request's field-lookup work budget.
@@ -114,7 +144,8 @@ Quoted path completion, nested JSON schemas, scalar traverser expression inferen
 For deeper JSON paths under an explicit property namespace, validation checks the first property key but does not validate its descendants.
 
 The Python publisher follow-up must resolve `LazyJoin`, `VirtualTable`, and table-valued `FieldTraverser` targets using the same permission-filtered database as the snapshot.
-It must publish only permitted fields, deduplicate relation definitions, bound traversal during publication, and isolate unresolvable edges without exposing denied targets.
+It must publish only permitted fields, reuse canonical table schemas when they match the resolved target, and deduplicate virtual relation definitions.
+It must bound traversal during publication and isolate unresolvable edges without exposing denied targets.
 It must also distinguish traversal-capable revisions so cached flat snapshots refresh instead of hiding the new suggestions until expiry.
 Scalar traversers need no relation annotation.
 No Python resolver chains, join SQL, credentials, or executable expressions belong in the graph.

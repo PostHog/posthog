@@ -133,7 +133,7 @@ func TestCatalogAliasesStayWithinPublishedTeamAndUser(t *testing.T) {
 func TestTraversalRelationsStayWithinPublishedTeamAndUser(t *testing.T) {
 	s := newTestServer(t)
 	handler := s.handler()
-	body := `{"revision":"traversal","catalog":{"tables":{"events":{"fields":{"person":{"type":"lazy","relation":"person"}}}},"relations":{"person":{"fields":{"email":{"type":"String"},"properties":{"type":"JSON","propertyNamespace":"person"}}}},"properties":{"person":[{"name":"plan","property_type":"String"}]}}}`
+	body := `{"revision":"traversal","catalog":{"tables":{"events":{"fields":{"person":{"type":"lazy","relation":"person"},"session":{"type":"lazy","relation":"session"}}},"sessions":{"fields":{"session_id":{"type":"String"}}}},"relations":{"empty":{"fields":{}},"person":{"fields":{"email":{"type":"String"},"properties":{"type":"JSON","propertyNamespace":"person"}}},"session":{"table":"sessions"}},"properties":{"person":[{"name":"plan","property_type":"String"}]}}}`
 	request := httptest.NewRequest(http.MethodPut, scopePath(1, 10)+"/catalog", strings.NewReader(body))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -162,6 +162,19 @@ func TestTraversalRelationsStayWithinPublishedTeamAndUser(t *testing.T) {
 		if result.Valid != test.valid {
 			t.Fatalf("user %d result = %#v", test.userID, result)
 		}
+	}
+	request = httptest.NewRequest(http.MethodPost, scopePath(1, 10)+"/validate", strings.NewReader(`{"query":"SELECT e.session.session_id FROM events AS e"}`))
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("table-backed validate returned %d: %s", response.Code, response.Body.String())
+	}
+	var result validationResponse
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Valid {
+		t.Fatalf("table-backed traversal result = %#v", result)
 	}
 }
 

@@ -102,15 +102,31 @@ func ValidateCatalog(value *Catalog) error {
 		}
 	}
 	for name, relation := range value.Relations {
-		if name == "" || relation.Fields == nil {
+		ownsFields := relation.Fields != nil
+		referencesTable := relation.Table != ""
+		if name == "" || ownsFields == referencesTable || (!referencesTable && len(relation.PropertyNamespaces) > 0) {
 			return ErrInvalidRelations
 		}
-		relationFields += len(relation.Fields)
+		relationFields += len(relation.Fields) + len(relation.PropertyNamespaces)
 		if relationFields > MaxRelationFields {
 			return ErrInvalidRelations
 		}
-		if err := validateFields(relation.Fields); err != nil {
-			return err
+		if ownsFields {
+			if err := validateFields(relation.Fields); err != nil {
+				return err
+			}
+			continue
+		}
+		table, ok := value.Tables[relation.Table]
+		if !ok {
+			return ErrInvalidRelations
+		}
+		for fieldName, namespace := range relation.PropertyNamespaces {
+			field, fieldExists := table.Fields[fieldName]
+			_, namespaceExists := value.Properties[namespace]
+			if fieldName == "" || !fieldExists || field.Relation != "" || namespace == "" || !namespaceExists {
+				return ErrInvalidRelations
+			}
 		}
 	}
 	return nil

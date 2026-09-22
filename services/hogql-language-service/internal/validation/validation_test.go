@@ -38,13 +38,20 @@ func schema() *catalog.PreparedCatalog {
 
 func traversalSchema() *catalog.PreparedCatalog {
 	return catalog.Prepare(&catalog.Catalog{
-		Tables: map[string]catalog.Table{"events": {Fields: map[string]catalog.Field{
-			"event": {Type: "String"}, "person": {Type: "lazy", Relation: "person"},
-		}}},
-		Relations: map[string]catalog.RelationDefinition{"person": {Fields: map[string]catalog.Field{
-			"email": {Type: "String"}, "properties": {Type: "JSON", PropertyNamespace: "person"},
-			"manager": {Type: "lazy", Relation: "person"}, "payload": {Type: "JSON"},
-		}}},
+		Tables: map[string]catalog.Table{
+			"events": {Fields: map[string]catalog.Field{
+				"event": {Type: "String"}, "person": {Type: "lazy", Relation: "person"},
+				"session": {Type: "lazy", Relation: "session"},
+			}},
+			"sessions": {Fields: map[string]catalog.Field{"session_id": {Type: "String"}}},
+		},
+		Relations: map[string]catalog.RelationDefinition{
+			"person": {Fields: map[string]catalog.Field{
+				"email": {Type: "String"}, "properties": {Type: "JSON", PropertyNamespace: "person"},
+				"manager": {Type: "lazy", Relation: "person"}, "payload": {Type: "JSON"},
+			}},
+			"session": {Table: "sessions"},
+		},
 		Properties: map[string][]catalog.Property{"person": {{Name: "plan", ValueType: "String"}}},
 	})
 }
@@ -57,6 +64,7 @@ func TestValidateTraversalRelations(t *testing.T) {
 		"SELECT e.person.manager.email FROM events AS e",
 		"SELECT e.person.properties.plan.nested FROM events AS e",
 		"SELECT e.person.payload.unknown FROM events AS e",
+		"SELECT e.session.session_id FROM events AS e",
 	} {
 		result := Validate(traversalSchema(), query)
 		if !result.Valid || strings.Join(result.TableNames, ",") != "events" {
