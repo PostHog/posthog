@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Drive a hand-launched decision instance from an engineer's machine in one go: the SSH key and the CA key come from
-# 1Password, the checkpoint reaches the box through presigned URLs, the box's certificate is signed here from a CSR
-# the box made (its private key never leaves it), and the bearer comes from the gateway's secrets bag. Secrets
-# travel over the SSH session, never through a command line or a file on this machine.
+# Drive a hand-launched decision instance from an engineer's machine in one go: the SSH key, the CA key and the
+# bearer come from 1Password, the checkpoint reaches the box through presigned URLs, and the box's certificate is
+# signed here from a CSR the box made (its private key never leaves it). Secrets travel over the SSH session, never
+# through a command line or a file on this machine. Nothing here needs access to a production account.
 #
 #   deploy/phase1/lambda-host.sh prod-us all
 #
 # The first argument names the environment: its values live in envs/<environment>.env (see envs/prod-us.env.example),
-# with the SSH key and the CA key as op:// references. The script re-executes itself under `op run --env-file` so
-# 1Password prompts once. Steps: `sync` copies this directory to the box, `stage` downloads and verifies the
+# with the secrets as op:// references. The script re-executes itself under `op run --env-file` so 1Password
+# prompts once. Steps: `sync` copies this directory to the box, `stage` downloads and verifies the
 # checkpoint, `certificate` issues the box its certificate, `bootstrap` writes /etc/kev-vllm/env and runs
 # bootstrap.sh, `all` does the four.
 set -euo pipefail
@@ -31,12 +31,6 @@ eval "$(ssh-agent -s)" >/dev/null
 trap 'ssh-agent -k >/dev/null 2>&1' EXIT
 printf '%s\n' "$LAMBDA_SSH_KEY" | ssh-add -q - 2>/dev/null
 SSH=(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o "IdentityAgent=$SSH_AUTH_SOCK" -o IdentitiesOnly=no)
-
-secret_fields() {
-  local profile=$1 secret_id=$2; shift 2
-  aws secretsmanager get-secret-value --profile "$profile" --secret-id "$secret_id" --query SecretString --output text \
-    | python3 -c 'import json, sys; bag = json.load(sys.stdin); print(*(bag[field] for field in sys.argv[1:]), sep="\n")' "$@"
-}
 
 sync_files() {
   rsync -az -e "${SSH[*]}" --exclude 'envs' "$HERE/" "$TARGET:kev-vllm-phase1/"
@@ -87,14 +81,11 @@ issue_certificate() {
 }
 
 bootstrap_box() {
-  : "${GATEWAY_SECRETS_PROFILE:?}" "${MODEL_NAME:?}" "${IMAGE:?}"
-  local bearer
-  # The gateway reads the same bag, so the two sides of the bearer cannot drift.
-  read -r bearer < <(secret_fields "$GATEWAY_SECRETS_PROFILE" ai-gateway-secrets AI_GATEWAY_KEV_API_KEY)
+  : "${KEV_BEARER:?bearer from 1Password (op run resolves it)}" "${MODEL_NAME:?}" "${IMAGE:?}"
   # The env file goes over stdin and lands root-only on the box; bootstrap.sh reads it from there.
   printf '%s\n' \
     "INSTANCE_IP=$INSTANCE_IP" \
-    "KEV_BEARER=$bearer" \
+    "KEV_BEARER=$KEV_BEARER" \
     "IMAGE=$IMAGE" \
     "MODEL_DIR=/srv/models/${MODEL_NAME}" \
     "KEV_DATE_FACTS=${KEV_DATE_FACTS:-0}" \
