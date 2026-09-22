@@ -53,7 +53,6 @@ from posthog.api.services.query import (
     _DatabaseSchemaCatalog,
     _EditorAssistRoute,
     _language_service_call,
-    _language_service_eligible,
     _record_editor_assist_backend,
     process_query_model,
 )
@@ -91,11 +90,6 @@ class TestLanguageServiceRouting(SimpleTestCase):
                 cast(CollectorRegistry, REGISTRY.restricted_registry(["hogql_editor_assist_responses_total"]))
             )
         )
-
-    def test_hogql_metadata_with_index_usage_is_language_service_eligible(self) -> None:
-        query = HogQLMetadata(query="SELECT * FROM events", language=HogLanguage.HOG_QL, indexUsage=True)
-
-        assert _language_service_eligible(query)
 
     @patch("posthog.api.services.query._build_database_schema_query", side_effect=DatabaseSchemaUnavailable())
     @patch("posthog.hogql.language_service.get_client")
@@ -347,42 +341,72 @@ class TestLanguageServiceRouting(SimpleTestCase):
         assert timing_values["./editor_assist/catalog_coordination"] == (1.93 if publication_fails else 2.05)
         assert timing_values["./editor_assist"] == (2.73 if publication_fails else 2.15)
 
-    @patch("posthog.api.services.query._route_editor_assist")
-    def test_hogql_metadata_uses_language_service_diagnostics(self, mock_language_service_call: MagicMock):
-        mock_language_service_call.return_value = _EditorAssistRoute(
-            enabled=True,
-            reason="served",
-            result=LanguageServiceResult(
-                body={
-                    "valid": False,
-                    "diagnostics": [
-                        {
-                            "code": "unknown_table",
-                            "message": 'Unknown table "evnts"',
-                            "start": 14,
-                            "end": 19,
-                            "suggestions": [{"label": "events", "distance": 1}],
-                        }
-                    ],
-                    "tableNames": ["evnts"],
-                },
-                duration_seconds=0.001,
-                response_size_bytes=128,
-            ),
+    @parameterized.expand(
+        [
+            ("without_source", None, False),
+            ("with_stale_source", HogQLQuery(query="SELECT event FROM events WHERE"), False),
+            ("with_stale_source_and_indexes", HogQLQuery(query="SELECT event FROM events WHERE"), True),
+        ]
+    )
+    @patch("posthog.api.services.query.EDITOR_ASSIST_RESPONSES_TOTAL")
+    @patch("posthog.api.services.query.is_language_service_enabled", return_value=True)
+    @patch("posthog.api.services.query.LanguageServiceClient")
+    def test_hogql_metadata_with_source_context_uses_language_service_diagnostics(
+        self,
+        _name: str,
+        source_query: HogQLQuery | None,
+        index_usage: bool,
+        client_class: MagicMock,
+        _enabled: MagicMock,
+        responses_total: MagicMock,
+    ) -> None:
+        client_class.return_value.validate.return_value = LanguageServiceResult(
+            body={
+                "catalogRevision": "warehouse-aliases-v1:cached",
+                "valid": False,
+                "diagnostics": [
+                    {
+                        "code": "unknown_table",
+                        "message": 'Unknown table "evnts"',
+                        "start": 14,
+                        "end": 19,
+                        "suggestions": [{"label": "events", "distance": 1}],
+                    }
+                ],
+                "tableNames": ["evnts"],
+            },
+            duration_seconds=0.001,
+            response_size_bytes=128,
         )
 
+        query = HogQLMetadata(
+            query="SELECT * FROM evnts",
+            language=HogLanguage.HOG_QL,
+            sourceQuery=source_query,
+            indexUsage=index_usage,
+        )
+        original_query = query.model_dump()
         response = process_query_model(
             cast(Team, SimpleNamespace(pk=12)),
-            HogQLMetadata(query="SELECT * FROM evnts", language=HogLanguage.HOG_QL),
+            query,
             user=cast(User, SimpleNamespace(pk=34)),
         )
 
+        client_class.return_value.validate.assert_called_once_with(12, 34, query.query)
+        assert query.model_dump() == original_query
         assert isinstance(response, HogQLMetadataResponse)
         assert response.isValid is False
         assert response.errors[0].message == 'Unknown table "evnts"'
         assert response.errors[0].fix == "events"
+        assert response.query == query.query
         assert response.table_names == ["evnts"]
+        assert response.index_usage is None
+        assert response.isUsingIndices is None
         assert "timings" not in response.model_dump()
+        responses_total.labels.assert_called_once_with(
+            operation="metadata", backend="language_service", reason="served"
+        )
+        responses_total.labels.return_value.inc.assert_called_once_with()
 
     @parameterized.expand(
         [
@@ -422,13 +446,23 @@ class TestLanguageServiceRouting(SimpleTestCase):
             table_names=["events"],
         )
 
+        query = HogQLMetadata(
+            query="SELECT event FROM events",
+            language=HogLanguage.HOG_QL,
+            sourceQuery=HogQLQuery(query="SELECT distinct_id FROM events"),
+            indexUsage=True,
+        )
+        original_query = query.model_dump()
         response = process_query_model(
             cast(Team, SimpleNamespace(pk=12)),
-            HogQLMetadata(query="SELECT event FROM events", language=HogLanguage.HOG_QL),
+            query,
             user=cast(User, SimpleNamespace(pk=34)),
         )
 
         assert response is python_metadata.return_value
+        assert python_metadata.call_args.kwargs["query"] is query
+        assert query.model_dump() == original_query
+        client_class.return_value.validate.assert_called_once_with(12, 34, query.query)
         analytics_client.labels.assert_called_once_with(operation="metadata", backend="python", reason=reason)
         analytics_client.labels.return_value.inc.assert_called_once_with()
         enabled.assert_called_once()
@@ -708,7 +742,18 @@ class TestLanguageServiceRouting(SimpleTestCase):
             enabled.assert_called_once()
 
     @parameterized.expand(
-        [("debug", {"debug": True}), ("source", {"sourceQuery": {"kind": "HogQLQuery", "query": "SELECT 1"}})]
+        [
+            ("debug", {"debug": True}),
+            (
+                "expression",
+                {
+                    "language": "hogQLExpr",
+                    "sourceQuery": {"kind": "HogQLQuery", "query": "SELECT event FROM events"},
+                },
+            ),
+            ("non_sql_source", {"sourceQuery": {"kind": "EventsNode"}}),
+            ("variables", {"variables": {}}),
+        ]
     )
     @patch("posthog.api.services.query.LanguageServiceClient")
     @patch("posthog.api.services.query.EDITOR_ASSIST_RESPONSES_TOTAL")

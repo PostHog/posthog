@@ -8,6 +8,9 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const ExperimentHoldoutsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -21,6 +24,9 @@ export const ExperimentHoldoutsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const ExperimentHoldoutsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -305,6 +311,9 @@ export const ExperimentHoldoutsCreateBody = () => zod
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const ExperimentHoldoutsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment holdout.'),
     project_id: zod
@@ -314,6 +323,9 @@ export const ExperimentHoldoutsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const ExperimentHoldoutsPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment holdout.'),
     project_id: zod
@@ -600,6 +612,9 @@ export const ExperimentHoldoutsPartialUpdateBody = () => zod
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const ExperimentHoldoutsDestroyParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment holdout.'),
     project_id: zod
