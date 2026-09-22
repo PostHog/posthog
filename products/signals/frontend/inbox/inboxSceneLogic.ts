@@ -6,7 +6,7 @@ import type { CaptureOptions } from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -23,7 +23,11 @@ import { Breadcrumb } from '~/types'
 import type { UserType } from '~/types'
 
 import { OriginProduct, Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
-import { signalsReportsRefreshMetricsCreate, signalsReportsViewedCreate } from 'products/signals/frontend/generated/api'
+import {
+    signalsReportsRefreshMetricsCreate,
+    signalsReportsViewedCreate,
+    signalsScoutRunsList,
+} from 'products/signals/frontend/generated/api'
 import type { SignalReportMetricSnapshotsApi } from 'products/signals/frontend/generated/api.schemas'
 
 import {
@@ -695,7 +699,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             {
                 loadRuns: async (_payload: void, breakpoint) => {
                     const [scoutResult, signalResult] = await Promise.allSettled([
-                        api.signalScout.runs.list({ limit: SCOUT_RUNS_LIMIT }),
+                        signalsScoutRunsList(String(ApiConfig.getCurrentProjectId()), { limit: SCOUT_RUNS_LIMIT }),
                         // `internal: 'all'` so the pipeline's runs (research and implementation, both
                         // created internal) are included. They're hidden from the default task list.
                         api.tasks.list({

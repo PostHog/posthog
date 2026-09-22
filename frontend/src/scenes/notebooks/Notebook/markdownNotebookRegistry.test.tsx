@@ -106,7 +106,7 @@ describe('markdownNotebookRegistry', () => {
 
         it('gates widget insertion and registers only the Widget component', () => {
             expect(getInsertCommandsByLabel({ [FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]: true }, 'Widget')).toEqual([
-                { key: 'component-Widget', category: 'Common' },
+                { key: 'component-Widget', category: 'Common', badge: 'BETA' },
             ])
             expect(getInsertCommandsByLabel({}, 'Widget')).toEqual([])
             for (const legacyTag of ['GeneratedWidget', 'GenUI']) {
