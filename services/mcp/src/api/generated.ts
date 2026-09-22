@@ -95605,6 +95605,14 @@ export namespace Schemas {
       rich_content?: unknown;
     }
 
+    export interface TicketUnreadCountResponse {
+      /**
+         * Unread messages across the non-resolved tickets the caller can see.
+         * @minimum 0
+         */
+      count: number;
+    }
+
     /**
      * Fields accepted when updating a ticket.
      */
