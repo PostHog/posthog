@@ -255,8 +255,8 @@ jobs:
 
     commit-openapi-types:
         name: Commit generated OpenAPI types
-        needs: [route, commit-snapshots]
-        if: always() && needs.route.outputs.depot == 'true' && needs.commit-snapshots.result == 'success'
+        needs: [route]
+        if: needs.route.outputs.depot == 'true'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 35
         steps:

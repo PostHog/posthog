@@ -2189,32 +2189,10 @@ jobs:
                   if-no-files-found: error
                   retention-days: 1
                   compression-level: 0
-            - name: Wait for the trusted OpenAPI commit
+            - name: Fail for OpenAPI review
               if: steps.openapi-check.outputs.needs-commit == 'true'
-              timeout-minutes: 6
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-                  REPO: ${{ github.repository }}
               run: |
-                  set -euo pipefail
-                  deadline=$((SECONDS + 300))
-                  while [ "$SECONDS" -lt "$deadline" ]; do
-                      current=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.sha')
-                      if [ "$current" != "$HEAD_SHA" ]; then
-                          commit=$(gh api "repos/$REPO/commits/$current")
-                          jq -e --arg parent "$HEAD_SHA" '
-                              .parents[0].sha == $parent and
-                              .commit.message == "chore: update OpenAPI generated types" and
-                              .author.login == "tests-posthog[bot]"
-                          ' <<< "$commit" > /dev/null || { echo "::error::Branch advanced without the expected trusted OpenAPI commit"; exit 1; }
-                          echo "Trusted OpenAPI commit landed in $current"
-                          exit 0
-                      fi
-                      sleep 10
-                  done
-                  echo "::error::Trusted workflow did not commit the generated OpenAPI types within five minutes"
+                  echo "::notice::OpenAPI types changed. The trusted workflow will commit them; this run fails to require review."
                   exit 1
     build_django_matrix:
         name: Build Django matrix
