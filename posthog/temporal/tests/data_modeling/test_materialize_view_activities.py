@@ -103,9 +103,9 @@ async def _make_job(
 
 
 class TestMaterializeViewManagedWarehouseActivity:
-    @pytest.mark.parametrize("stale", [False, True])
+    @pytest.mark.parametrize("stale,alias_dispatch_fails", [(False, False), (True, False), (False, True)])
     async def test_trino_shadow_records_result_without_recompiling(
-        self, activity_environment, ateam, anode, ajob, adag, asaved_query, stale: bool
+        self, activity_environment, ateam, anode, ajob, adag, asaved_query, stale: bool, alias_dispatch_fails: bool
     ) -> None:
         inputs = ManagedWarehouseShadowInputs(
             team_id=ateam.pk,
@@ -119,6 +119,10 @@ class TestMaterializeViewManagedWarehouseActivity:
         await database_sync_to_async(asaved_query.save)(update_fields=["origin"])
         executable_query = {"kind": "HogQLQuery", "query": "SELECT 2"}
         with (
+            unittest.mock.patch(
+                "products.managed_warehouse.backend.facade.client.request_model_alias_reconciliation",
+                side_effect=RuntimeError("Temporal unavailable") if alias_dispatch_fails else None,
+            ) as reconcile_aliases,
             unittest.mock.patch(
                 "products.managed_warehouse.backend.facade.client.execute_trino_shadow_materialization",
                 return_value=DuckLakeTableResult(schema_name="shadow_models", table_name="test_model", row_count=12),
@@ -143,9 +147,11 @@ class TestMaterializeViewManagedWarehouseActivity:
         legacy_execute.assert_not_called()
         await database_sync_to_async(ajob.refresh_from_db)()
         if stale:
+            reconcile_aliases.assert_not_awaited()
             assert result.error == "No current Trino conversion"
             assert ajob.status == DataModelingJobStatus.FAILED
         else:
+            reconcile_aliases.assert_awaited_once_with(ateam.pk)
             assert result.row_count == 12
             assert result.error is None
             assert ajob.status == DataModelingJobStatus.COMPLETED

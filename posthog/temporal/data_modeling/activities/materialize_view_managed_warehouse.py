@@ -250,6 +250,16 @@ async def _materialize_view_managed_warehouse(
                 saved_query_id=saved_query.id,
                 source_query=saved_query.query,
             )
+            from products.managed_warehouse.backend.facade.client import request_model_alias_reconciliation
+
+            try:
+                await request_model_alias_reconciliation(team.pk)
+            except Exception as error:
+                capture_exception(error)
+                await logger.awarning(
+                    "Could not schedule Trino model aliases; retry alias reconciliation without rebuilding the model",
+                    team_id=team.pk,
+                )
         else:
             hogql_query = typing.cast(dict, saved_query.query)["query"]
             if inputs.dangerously_execute_raw_sql:

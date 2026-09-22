@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from products.managed_warehouse.backend.trino_compiler import PreparedTrinoCompiler
 
 __all__ = [
+    "request_model_alias_reconciliation",
     "ServiceCredential",
     "ServiceCredentialUnavailable",
     "ManagedWarehouseTrinoConnectionUnavailable",
@@ -219,3 +220,9 @@ def execute_ducklake_create_table(
         organization_id=organization_id,
         s3_secrets=s3_secrets,
     )
+
+
+async def request_model_alias_reconciliation(team_id: int) -> None:
+    from products.managed_warehouse.backend.model_alias_dispatch import request_model_alias_reconciliation as request
+
+    await request(team_id)
