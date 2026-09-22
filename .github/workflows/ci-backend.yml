@@ -572,10 +572,18 @@ jobs:
             telemetry: ${{ steps.discover.outputs.telemetry }}
 
         steps:
+            # A blobless clone checks out by fetching every file's contents in a separate
+            # request, which is far slower than one depth-1 pack. Check out depth 1, then
+            # deepen with commits and trees only, which is all the merge-base steps read.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  fetch-depth: 1000
-                  filter: blob:none
+                  fetch-depth: 1
+
+            - name: Fetch history without file contents
+              run: |
+                  git config remote.origin.promisor true
+                  git config remote.origin.partialclonefilter blob:none
+                  git fetch --no-tags --filter=blob:none --deepen=999 origin "$GITHUB_SHA"
 
             - name: Verify PR merge for test selection
               id: verify-merge
