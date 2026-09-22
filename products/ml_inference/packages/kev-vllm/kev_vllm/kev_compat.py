@@ -1,10 +1,13 @@
-"""Kev's record encoding and TypeSafe API mapping, vendored so the serving image needs no `kev` install.
+"""Kev's record encoding and TypeSafe API mapping, vendored so serving needs no `kev` install.
 
-Copied verbatim from https://github.com/jaredpalmer/kev at commit 35566d73bea14cc417df016f6044d5cd311f697b (kev/model.py and kev/api.py),
-Apache License 2.0, Copyright Jared Palmer. Only the torch-free parts are here: the delimiter tokens, `encode`
-(state + per-question branches), `rows_of` (one causal row per question, the form a hybrid backbone needs), and the
-request/response shapes. The `kev` package itself pins torch below 2.9 and cannot share an environment with vLLM.
-Re-vendor when the pinned commit moves, and keep the text as is (ruff skips this file), so a diff against upstream stays trivial.
+Copied verbatim from https://github.com/jaredpalmer/kev at commit
+35566d73bea14cc417df016f6044d5cd311f697b (kev/model.py and kev/api.py), Apache License 2.0, Copyright
+Jared Palmer. Only the torch-free parts are here: the delimiter tokens, `encode` (state plus
+per-question branches), `rows_of` (one causal row per question, the form a hybrid backbone needs),
+and the request/response shapes. The `kev` package itself pins torch below 2.9 and cannot share an
+environment with vLLM. Re-vendor with scripts/kev-vllm/vendor_kev_compat.py in the MLHog repo when
+the pinned commit moves, and keep the text as is (ruff skips this file), so a diff against upstream
+stays trivial.
 """
 
 import json
