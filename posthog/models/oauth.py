@@ -566,6 +566,11 @@ class OAuthIDToken(AbstractIDToken):
         verbose_name = "OAuth ID Token"
         verbose_name_plural = "OAuth ID Tokens"
         swappable = "OAUTH2_PROVIDER_ID_TOKEN_MODEL"
+        indexes = [
+            # The nightly cleanup job selects expired ID tokens that have no access token. Without
+            # this index that anti-join reads the whole table on every batch it deletes.
+            models.Index(fields=["expires"], name="oauthidtoken_expires_idx"),
+        ]
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
