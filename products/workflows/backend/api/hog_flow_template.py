@@ -237,8 +237,7 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
         ).exclude(scope=HogFlowTemplate.Scope.GLOBAL)
 
         if self.action == "list":
-            # updated_at is mutable and not unique, so on its own it cannot hold a row in
-            # place across the requests of a paging sequence.
+            # -id breaks updated_at ties, so a row keeps its place across a paging sequence.
             qs = qs.order_by("-updated_at", "-id")
 
         return qs

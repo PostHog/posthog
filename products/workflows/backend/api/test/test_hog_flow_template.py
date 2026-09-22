@@ -671,13 +671,12 @@ class TestHogFlowTemplateAPI(APIBaseTest):
 
     @patch("products.workflows.backend.api.hog_flow_template.load_global_templates", return_value=[])
     def test_list_is_stably_ordered_across_pages_when_updated_at_ties(self, _mock_load_global_templates):
-        # Insert in ascending id order, the reverse of what the endpoint must return, so the
-        # assertion cannot pass on an ordering that only reflects insertion order.
+        # Insert in ascending id order so the assertion cannot pass on insertion order alone.
         ids = sorted(uuid4() for _ in range(4))
-        for index, template_id in enumerate(ids):
+        for template_id in ids:
             HogFlowTemplate.objects.create(
                 id=template_id,
-                name=f"Template {index}",
+                name="Template",
                 team=self.team,
                 scope="team",
                 trigger={"type": "event"},
