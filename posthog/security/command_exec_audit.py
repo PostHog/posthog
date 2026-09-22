@@ -94,10 +94,20 @@ _CONTROL_CHARS[0x7F] = " "
 # Characters that let one command string spawn or chain into another.
 _SHELL_OPERATORS = frozenset(";|&$`<>\n")
 
-# Python's own multiprocessing bootstrap (spawn/forkserver/resource_tracker children). These are
-# continuous on dagster and the Temporal workers, so alerts need to exclude them by label.
-_MULTIPROCESSING_RE = re.compile(
-    r"from multiprocessing\.(?:spawn|forkserver|resource_tracker) import|--multiprocessing-fork"
+# Python's own multiprocessing bootstrap children (spawn / forkserver / resource_tracker). These
+# run continuously on dagster and the Temporal workers, so alerts exclude them by label. The label
+# hides an execution from those alerts, so it must match the exact `-c` program CPython builds
+# (multiprocessing/spawn.py, forkserver.py, resource_tracker.py), never a substring of argv.
+# The forkserver preload list and preparation dict are reprs of arbitrary data, so that shape is
+# anchored on its prefix and call signature only.
+_PYTHON_EXECUTABLE_RE = re.compile(r"^python(?:\d+(?:\.\d+)?)?$")
+_MULTIPROCESSING_PROGRAM_RES = (
+    re.compile(r"^from multiprocessing\.spawn import spawn_main; spawn_main\(\w+=\d+(?:, \w+=\d+)*\)$"),
+    re.compile(r"^from multiprocessing\.resource_tracker import main;main\(\d+\)$"),
+    re.compile(
+        r"^(?:import sys; )?from multiprocessing\.forkserver import main; "
+        r"main\(\d+, \d+, \[.*\], (?:sys_argv=sys\.argv\[1:\], )?\*\*\{.*\}\)$"
+    ),
 )
 
 _VOLUME_SUPPRESSION_RULES: dict[str, Callable[[list[str]], bool]] = {
@@ -163,6 +173,22 @@ def _is_volume_suppressed(command: Any, shell: bool) -> bool:
     argv = [_to_text(token) for token in command]
     predicate = _VOLUME_SUPPRESSION_RULES.get(os.path.basename(argv[0].strip()))
     return predicate is not None and predicate(argv[1:])
+
+
+def _is_multiprocessing_bootstrap(command: Any, shell: bool) -> bool:
+    if shell or not isinstance(command, (list, tuple)) or len(command) < 3:
+        return False
+    argv = [_to_text(token) for token in command]
+    if not _PYTHON_EXECUTABLE_RE.match(os.path.basename(argv[0])):
+        return False
+    try:
+        code_index = argv.index("-c")
+    except ValueError:
+        return False
+    if code_index + 1 >= len(argv):
+        return False
+    program = argv[code_index + 1]
+    return any(pattern.match(program) for pattern in _MULTIPROCESSING_PROGRAM_RES)
 
 
 def _scrub_args(tokens: Any) -> list[str]:
@@ -293,7 +319,7 @@ def _emit(
     try:
         if _is_volume_suppressed(command, shell):
             # Counted so the metric is a true execution rate; still not logged.
-            _count(sink, {"shell": shell}, suppressed=True)
+            _count(sink, {"shell": shell, **(extra or {})}, suppressed=True)
             return
         payload: dict[str, Any] = {"component": component, "sink": sink, "shell": bool(shell)}
         # raw = the real command (un-redacted) for detection scans; scrubbed = what we store.
@@ -318,7 +344,7 @@ def _emit(
         if _BLOB_RE.search(raw):
             payload["has_encoded_blob"] = True
 
-        if _MULTIPROCESSING_RE.search(raw):
+        if _is_multiprocessing_bootstrap(command, shell):
             payload["multiprocessing"] = True
 
         if cwd is not None:
