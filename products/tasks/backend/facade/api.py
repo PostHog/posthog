@@ -964,6 +964,15 @@ def get_task_id_for_run(run_id: str | UUID, team_id: int) -> UUID | None:
     return TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("task_id", flat=True).first()
 
 
+def is_verified_task_pr_url(*, task_id: str | UUID, team_id: int, pr_url: str) -> bool:
+    """Whether the GitHub webhook confirmed that a run of this task opened the pull request.
+
+    A run's `output.pr_url` is writable through the API. `verified_pr_urls` is server-owned, so a
+    caller that edits the pull request checks this before it trusts the URL.
+    """
+    return TaskRun.objects.filter(task_id=task_id, team_id=team_id, state__verified_pr_urls__contains=[pr_url]).exists()
+
+
 def task_exists(task_id: str | UUID, team_id: int) -> bool:
     """Whether a (non-deleted) task exists for the team."""
     return Task.objects.filter(id=task_id, team_id=team_id, deleted=False).exists()

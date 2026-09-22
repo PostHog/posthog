@@ -91,9 +91,13 @@ Skipping one of those tables is worse than under-deleting: the overrides that re
 ## Covered tables
 
 - `sharded_events` — all sweeps.
-- `sharded_events_json` — all sweeps, but `deletes_job` skips it by default today. Optional: only present after the native-JSON migration. See the known gap below.
+- `sharded_events_json` — person, team, queued-uuid and event removal, but `deletes_job` skips it by default today. Property rewriting is unsupported: temporary properties and quarantine diagnostics retain additional copies that the legacy property-removal machinery does not rewrite. Optional: only present after the native-JSON migration. See the known gap below.
 - `sharded_flag_evaluations` — person, team, queued-uuid and event removal. Not property removal (below). Optional.
 - `sharded_posthog_document_embeddings_<model>` — event and team deletion, through `delete_event_documents`. An embedded document is keyed by the id of the thing it describes (`document_id`), and an Event deletion's key is that same id, so the pending dictionary is joined on `(team_id, Event, document_id)`. Every per-model table listed by the error tracking facade's `document_embedding_tables` is swept and counted.
+
+Native property-removal requests fail when the selected rows retain a requested permanent or temporary property, or a matching person `$set`/`$set_once` instruction.
+They also fail when that property class has quarantine diagnostics, because malformed raw data cannot prove that the requested value is absent.
+The gate runs before shard processing and again during verification, with the same event, time-range, and insertion-marker bounds.
 
 ## Tables on TTL alone
 

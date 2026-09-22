@@ -303,6 +303,7 @@ export class RequestContext {
         try {
             const resolvedDistinctId = distinctId ?? (await this.getDistinctId())
             const clientName = await this.tokenCache.get('clientName')
+            const apiKey = await this.tokenCache.get('apiKey').catch(() => undefined)
             const sessionUuid = await this.getEffectiveSessionUuid(this.requestContext)
             const contextProperties = analyticsContext ? buildMCPContextProperties(analyticsContext) : {}
             const previousContextProperties = previousContext
@@ -321,6 +322,7 @@ export class RequestContext {
                     ...contextProperties,
                     ...previousContextProperties,
                     ...properties,
+                    is_impersonated: apiKey?.is_impersonated === true,
                 },
             })
         } catch {
