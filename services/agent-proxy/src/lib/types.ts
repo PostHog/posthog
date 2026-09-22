@@ -17,6 +17,13 @@ export class TaskRunStreamError extends Error {
     }
 }
 
+export class TaskRunStreamCursorTrimmedError extends Error {
+    constructor(public readonly cursor: string) {
+        super(`Stream cursor ${cursor} was trimmed`)
+        this.name = 'TaskRunStreamCursorTrimmedError'
+    }
+}
+
 export class TaskRunStreamSequenceGap extends Error {
     constructor(
         public readonly expectedSequence: number,
@@ -77,6 +84,14 @@ export class ClientDisconnected extends Error {
 // Redis stream types
 // ---------------------------------------------------------------------------
 
+export interface TaskRunStreamWriteResult {
+    readonly accepted: boolean
+    readonly streamId: string | null
+}
+
+export const WRITE_RESULT_DUPLICATE: TaskRunStreamWriteResult = { accepted: false, streamId: null }
+export const WRITE_RESULT_SKIPPED: TaskRunStreamWriteResult = { accepted: true, streamId: null }
+
 // Returned by detectResumeGap when the client's Last-Event-ID has been trimmed.
 // S3 hydration is out of scope; callers log and continue from oldestAvailableId.
 export interface ResumeGap {
@@ -93,6 +108,9 @@ export interface StreamReadTokenPayload {
     runId: string
     taskId: string
     teamId: number
+    presenceGated: boolean
+    isTerminal: boolean
+    originProduct: string
 }
 
 // Claims extracted from a posthog:sandbox_event_ingest JWT (POST /v1/runs/:run/ingest leg)
@@ -100,15 +118,27 @@ export interface SandboxEventIngestTokenPayload {
     runId: string
     taskId: string
     teamId: number
+    presenceGated: boolean
+    thinTail: boolean
+    originProduct: string
 }
 
 // ---------------------------------------------------------------------------
 // SSE stream connection outcome (matches Python StreamConnectionOutcome values)
 // ---------------------------------------------------------------------------
 
-export type StreamConnectionOutcome = 'completed' | 'stream_error' | 'unavailable' | 'client_disconnect'
+export type StreamConnectionOutcome =
+    | 'completed'
+    | 'stream_error'
+    | 'unavailable'
+    | 'drained'
+    | 'client_disconnect'
+    | 'rotated'
+    | 'resync'
 
 export type DisconnectClassification = 'run_over' | 'idle' | 'mid_turn'
+
+export type StreamWriteSkippedPath = 'ingest'
 
 // ---------------------------------------------------------------------------
 // Ingest HTTP response shape (200 OK body)
@@ -141,7 +171,7 @@ export type IngestLine = IngestEventLine | IngestCompleteLine
 // Side-effect callback kind (matches Python callback contract in docs/DESIGN.md)
 // ---------------------------------------------------------------------------
 
-export type SideEffectKind = 'heartbeat' | 'awaiting_input'
+export type SideEffectKind = 'heartbeat' | 'awaiting_input' | 'turn_failed' | 'command_dispatched' | 'agent_activity'
 
 // ---------------------------------------------------------------------------
 // TaskRunRedisStream method interface
@@ -159,4 +189,5 @@ export interface ReadStreamEntriesOptions {
     // When provided, this connection is used for the blocking XREAD call instead
     // of the class-level shared client — isolates blocking reads from ingest writes.
     blockingRedis?: Redis
+    cursorRecheckAfterStallMs?: number
 }

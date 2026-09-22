@@ -44,6 +44,7 @@ interface LemonInputPropsBase extends Pick<
     prefix?: React.ReactElement | null
     /** Element to suffix input field */
     suffix?: React.ReactElement | null
+    suffixAfterClear?: boolean
     /** @deprecated Use `disabledReason` instead and provide a reason. */
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
@@ -105,6 +106,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
         autoWidth,
         prefix,
         suffix,
+        suffixAfterClear = false,
         type,
         value,
         transparentBackground = false,
@@ -196,8 +198,8 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
         )
         suffix = suffix ? (
             <>
-                {suffix}
-                {clearButton}
+                {suffixAfterClear ? clearButton : suffix}
+                {suffixAfterClear ? suffix : clearButton}
             </>
         ) : (
             clearButton

@@ -86,6 +86,20 @@ describe('VolumeSparkline', () => {
         })
     })
 
+    describe('bucket clicks', () => {
+        it('selects the clicked bucket using its start and end boundaries', () => {
+            const onRangeSelect = jest.fn()
+            const data = buildData({ 3: { date: new Date('2024-01-01T04:00:00.000Z') } })
+            const wrapper = renderChart({ data, onBucketClick: onRangeSelect })
+
+            hoverAtIndex(wrapper, 2, data.length)
+            fireEvent.click(wrapper)
+
+            expect(onRangeSelect).toHaveBeenCalledWith(data[2].date, data[3].date)
+            expect(wrapper.classList.contains('cursor-pointer')).toBe(true)
+        })
+    })
+
     describe('spike clicks', () => {
         it('fires onSpikeClick with the viewport cursor position when a flagged bucket is clicked', () => {
             const onSpikeClick = jest.fn()
@@ -109,6 +123,31 @@ describe('VolumeSparkline', () => {
 
             expect(onSpikeClick).toHaveBeenCalledTimes(1)
             expect(onSpikeClick).toHaveBeenCalledWith(data[2], 123, 45)
+        })
+
+        it('prefers onSpikeClick over onBucketClick when a flagged bucket is clicked', () => {
+            const onBucketClick = jest.fn()
+            const onSpikeClick = jest.fn()
+            const data = buildData({ 2: { isSpike: true, color: 'var(--brand-red)' } })
+            const { container } = render(
+                <VolumeSparkline
+                    sparklineKey={SPARKLINE_KEY}
+                    data={data}
+                    layout="detailed"
+                    xAxis="full"
+                    onBucketClick={onBucketClick}
+                    onSpikeClick={onSpikeClick}
+                />
+            )
+            const wrapper = getHogChart(container).element
+
+            hoverAtIndex(wrapper, 2, data.length)
+            fireEvent.mouseMove(container.firstElementChild as HTMLElement, { clientX: 123, clientY: 45 })
+            fireEvent.click(wrapper)
+
+            expect(onSpikeClick).toHaveBeenCalledTimes(1)
+            expect(onSpikeClick).toHaveBeenCalledWith(data[2], 123, 45)
+            expect(onBucketClick).not.toHaveBeenCalled()
         })
 
         it('does not fire onSpikeClick for an ordinary (non-spike) bucket', () => {
@@ -203,10 +242,15 @@ describe('VolumeSparkline', () => {
         })
     })
 
-    describe('event marker hover', () => {
+    describe('event markers', () => {
         const data = buildData()
         const firstSeen: SparklineEvent<string> = { id: 'first_seen', date: data[1].date, payload: 'First Seen' }
         const lastSeen: SparklineEvent<string> = { id: 'last_seen', date: data[3].date, payload: 'Last Seen' }
+        const beforeRange: SparklineEvent<string> = {
+            ...firstSeen,
+            date: new Date(data[0].date.getTime() - 3 * BUCKET_MS),
+        }
+        const rangeEnd = data[data.length - 1].date.getTime() + BUCKET_MS
 
         function renderWithEvents(events: SparklineEvent<string>[]): {
             container: HTMLElement
@@ -236,9 +280,35 @@ describe('VolumeSparkline', () => {
             }
         }
 
-        function hoverFirstPill(container: HTMLElement): void {
-            fireEvent.mouseEnter(container.querySelectorAll('[data-attr="error-tracking-volume-event-label"]')[0])
+        function getPills(container: HTMLElement): HTMLElement[] {
+            return Array.from(container.querySelectorAll('[data-attr="error-tracking-volume-event-label"]'))
         }
+
+        function hoverFirstPill(container: HTMLElement): void {
+            fireEvent.mouseEnter(getPills(container)[0])
+        }
+
+        // The edges matter: the first bucket starts on the plot's left edge, so a pixel comparison
+        // would drop a first-bucket event on a rounding error.
+        it.each([
+            { name: 'at the start of the first bucket', date: data[0].date },
+            { name: 'inside a middle bucket', date: new Date(data[2].date.getTime() + BUCKET_MS / 2) },
+            { name: 'at the end of the last bucket', date: new Date(rangeEnd) },
+        ])('renders a pill for an event $name', ({ date }) => {
+            const { container } = renderWithEvents([{ ...firstSeen, date }, lastSeen])
+
+            expect(getPills(container).map((pill) => pill.textContent)).toEqual(['First Seen', 'Last Seen'])
+        })
+
+        // A pill clamped to the plot edge would read as if the event happened in the edge bucket.
+        it.each([
+            { name: 'before the charted range', date: beforeRange.date },
+            { name: 'after the charted range', date: new Date(rangeEnd + 1) },
+        ])('renders no pill for an event $name', ({ date }) => {
+            const { container } = renderWithEvents([{ ...firstSeen, date }, lastSeen])
+
+            expect(getPills(container).map((pill) => pill.textContent)).toEqual(['Last Seen'])
+        })
 
         it('publishes the hovered event to the logic', () => {
             const { container } = renderWithEvents([firstSeen, lastSeen])
@@ -255,6 +325,7 @@ describe('VolumeSparkline', () => {
         // `hoverSelection` and keeps the bar hover paused.
         it.each([
             { name: 'the hovered event drops out of the list', remaining: [lastSeen] },
+            { name: 'the hovered event moves outside the charted range', remaining: [beforeRange, lastSeen] },
             { name: 'every event disappears at once', remaining: [] },
         ])('clears the hover when $name', ({ remaining }) => {
             const { container, rerenderWith } = renderWithEvents([firstSeen, lastSeen])

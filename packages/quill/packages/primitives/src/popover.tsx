@@ -12,18 +12,34 @@ function PopoverTrigger({ ...props }: PopoverPrimitive.Trigger.Props): React.Rea
     return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />
 }
 
+function PopoverArrow({ className, ...props }: PopoverPrimitive.Arrow.Props): React.ReactElement {
+    return (
+        <PopoverPrimitive.Arrow data-slot="popover-arrow" className={cn('quill-popover__arrow', className)} {...props} />
+    )
+}
+
 function PopoverContent({
     className,
     align = 'center',
     alignOffset = 0,
     side = 'bottom',
-    sideOffset = 4,
+    arrow = false,
+    // the arrow tip juts ~7px past the popup, so it needs a wider gap than a flush popover to clear the trigger
+    sideOffset = arrow ? 9 : 4,
+    arrowPadding,
     collisionAvoidance,
     container,
+    children,
     ...props
 }: PopoverPrimitive.Popup.Props &
-    Pick<PopoverPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'collisionAvoidance'> &
-    Pick<PopoverPrimitive.Portal.Props, 'container'>): React.ReactElement {
+    Pick<
+        PopoverPrimitive.Positioner.Props,
+        'align' | 'alignOffset' | 'side' | 'sideOffset' | 'arrowPadding' | 'collisionAvoidance'
+    > &
+    Pick<PopoverPrimitive.Portal.Props, 'container'> & {
+        /** Renders a pointer connecting the popover to its trigger. */
+        arrow?: boolean
+    }): React.ReactElement {
     /*
      * `container` opt-in lets consumers mount the popover inside a
      * specific DOM subtree instead of `document.body`. Useful when
@@ -42,6 +58,7 @@ function PopoverContent({
                 alignOffset={alignOffset}
                 side={side}
                 sideOffset={sideOffset}
+                arrowPadding={arrowPadding}
                 collisionAvoidance={collisionAvoidance}
                 className="isolate"
             >
@@ -52,7 +69,10 @@ function PopoverContent({
                         className
                     )}
                     {...props}
-                />
+                >
+                    {arrow && <PopoverArrow />}
+                    {children}
+                </PopoverPrimitive.Popup>
             </PopoverPrimitive.Positioner>
         </PopoverPrimitive.Portal>
     )
@@ -82,4 +102,4 @@ function PopoverDescription({ className, ...props }: PopoverPrimitive.Descriptio
     )
 }
 
-export { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger }
+export { Popover, PopoverArrow, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger }

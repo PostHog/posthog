@@ -5,8 +5,8 @@ import { LemonButton, LemonMenu, LemonMenuSection, LemonSwitch } from '@posthog/
 
 import { customerProfileLogic } from '../customerProfileLogic'
 
-export function CustomerProfileMenu(): JSX.Element | null {
-    const { changed, isProfileConfigEnabled, defaultContent, content } = useValues(customerProfileLogic)
+export function CustomerProfileMenu(): JSX.Element {
+    const { changed, defaultContent, content } = useValues(customerProfileLogic)
     const { removeNode, addNode, resetToDefaults, saveChanges } = useActions(customerProfileLogic)
 
     const handleChange = (nodeType: string | undefined, checked: boolean): void => {
@@ -32,10 +32,6 @@ export function CustomerProfileMenu(): JSX.Element | null {
             })),
         },
     ]
-
-    if (!isProfileConfigEnabled) {
-        return null
-    }
 
     return (
         <div className="flex flex-row items-center">

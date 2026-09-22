@@ -36,6 +36,13 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
         help_text="Review the user's pull requests when the trigger label is added on GitHub. "
         "On by default; turning it off makes the label trigger skip PRs this user authored.",
     )
+    resolve_comments = serializers.BooleanField(
+        required=False,
+        help_text="After a review of the user's pull requests is published, run the resolution stage: "
+        "triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR "
+        "branch, and reply on every thread. On by default; turning it off makes reviews stop at "
+        "publishing.",
+    )
     urgency_threshold = serializers.ChoiceField(
         required=False,
         choices=ReviewUserSettings.UrgencyThreshold.choices,
@@ -45,7 +52,7 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
     )
     can_trigger_reviews = serializers.SerializerMethodField(
         help_text="Whether reviews can be started from this project's Code review page (the UI trigger "
-        "is limited to the designated ReviewHog team while the product is in alpha).",
+        "is limited to the designated ReviewHog teams while the product is in alpha).",
     )
     stamphog_connected = serializers.SerializerMethodField(
         help_text="Whether this project has at least one synced, enabled Stamphog repository. When "
@@ -59,6 +66,7 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
             "review_inbox_prs",
             "stamphog_review_inbox_prs",
             "review_labeled_prs",
+            "resolve_comments",
             "urgency_threshold",
             "can_trigger_reviews",
             "stamphog_connected",
@@ -66,7 +74,7 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_can_trigger_reviews(self, instance: ReviewUserSettings) -> bool:
-        return bool(settings.REVIEWHOG_TEAM_ID) and instance.team_id == settings.REVIEWHOG_TEAM_ID
+        return instance.team_id in settings.REVIEWHOG_TEAM_IDS
 
     @extend_schema_field(serializers.BooleanField())
     def get_stamphog_connected(self, instance: ReviewUserSettings) -> bool:

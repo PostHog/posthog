@@ -20,7 +20,14 @@ const FEEDBACK_NOTE_MAX_LENGTH = 4000
  * once it's recorded does an optional note appear, so the note can never gate the rating, and
  * ignoring it leaves the flow exactly as it was.
  */
-export function ReportFeedbackFooter({ report }: { report: SignalReport }): JSX.Element {
+export function ReportFeedbackFooter({
+    report,
+    align = 'start',
+}: {
+    report: SignalReport
+    /** `end` pins the row to the right edge, for the redesign's summary column. */
+    align?: 'start' | 'end'
+}): JSX.Element {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
     const { feedbackSentiment, feedbackNoteOpen, feedbackNoteDraft, feedbackNoteSent, feedbackNoteSubmitting } =
         useValues(logic)
@@ -41,7 +48,7 @@ export function ReportFeedbackFooter({ report }: { report: SignalReport }): JSX.
     }
 
     return (
-        <div className="flex flex-col gap-2 pt-1">
+        <div className={align === 'end' ? 'flex flex-col items-end gap-2 pt-1' : 'flex flex-col gap-2 pt-1'}>
             {/* `select-none` stays on the rating row: on the wrapper it would also cover the note
                 textarea, where it blocks selecting text to edit or copy a draft. */}
             <div className="flex items-center gap-2 flex-wrap text-xs text-tertiary select-none">

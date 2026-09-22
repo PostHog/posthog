@@ -3,6 +3,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+import httpx
+from openai import APITimeoutError
 from rest_framework import status
 
 from products.ai_observability.backend.translation.constants import (
@@ -12,6 +14,20 @@ from products.ai_observability.backend.translation.constants import (
 )
 
 MOCK_PATH = "products.ai_observability.backend.translation.llm.get_llm_client"
+
+
+def mock_llm_client(mock_get_client: MagicMock) -> MagicMock:
+    # Self-referential so `with_options(...)` returns the same client the assertions inspect.
+    client = MagicMock()
+    client.with_options.return_value = client
+    mock_get_client.return_value = client
+    return client
+
+
+def mock_completion(client: MagicMock, content: str | None) -> None:
+    response = MagicMock()
+    response.choices = [MagicMock(message=MagicMock(content=content))]
+    client.chat.completions.create.return_value = response
 
 
 class TestTranslateAPI(APIBaseTest):
@@ -24,9 +40,7 @@ class TestTranslateAPI(APIBaseTest):
     def test_successful_translation(self, mock_get_client):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock(message=MagicMock(content="Hola mundo"))]
-        mock_get_client.return_value.chat.completions.create.return_value = mock_response
+        mock_completion(mock_llm_client(mock_get_client), "Hola mundo")
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/translate",
@@ -42,11 +56,8 @@ class TestTranslateAPI(APIBaseTest):
     def test_translation_uses_correct_model(self, mock_get_client):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock(message=MagicMock(content="Translated"))]
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_response
-        mock_get_client.return_value = mock_client
+        mock_client = mock_llm_client(mock_get_client)
+        mock_completion(mock_client, "Translated")
 
         self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/translate",
@@ -61,11 +72,8 @@ class TestTranslateAPI(APIBaseTest):
     def test_translation_uses_default_language_when_not_specified(self, mock_get_client):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock(message=MagicMock(content="Translated"))]
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_response
-        mock_get_client.return_value = mock_client
+        mock_client = mock_llm_client(mock_get_client)
+        mock_completion(mock_client, "Translated")
 
         self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/translate",
@@ -121,7 +129,7 @@ class TestTranslateAPI(APIBaseTest):
     def test_translation_handles_llm_error(self, mock_get_client):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        mock_get_client.return_value.chat.completions.create.side_effect = Exception("API error")
+        mock_llm_client(mock_get_client).chat.completions.create.side_effect = Exception("API error")
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/translate",
@@ -130,17 +138,34 @@ class TestTranslateAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        assert response.data["detail"] == "Translation failed due to an internal error."
+        assert response.data["detail"] == "Translation failed. Please try again."
+
+    @patch(MOCK_PATH)
+    def test_translation_timeout_is_reported_as_gateway_timeout(self, mock_get_client):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        mock_llm_client(mock_get_client).chat.completions.create.side_effect = APITimeoutError(
+            request=httpx.Request("POST", "http://gateway.invalid/chat/completions")
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/translate",
+            {"text": "Hello world", "target_language": "es"},
+            format="json",
+        )
+
+        # A slow model is not an internal error, and the copy has to tell the user what to do next.
+        assert response.status_code == status.HTTP_504_GATEWAY_TIMEOUT
+        assert response.data["detail"] == (
+            "Translation took too long. Try again, and if it keeps failing this message may be too long to translate."
+        )
 
     @patch(MOCK_PATH)
     def test_translation_preserves_formatting(self, mock_get_client):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock(message=MagicMock(content="Translated"))]
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_response
-        mock_get_client.return_value = mock_client
+        mock_client = mock_llm_client(mock_get_client)
+        mock_completion(mock_client, "Translated")
 
         self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/translate",
@@ -156,9 +181,7 @@ class TestTranslateAPI(APIBaseTest):
     def test_translation_handles_empty_response(self, mock_get_client):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock(message=MagicMock(content=None))]
-        mock_get_client.return_value.chat.completions.create.return_value = mock_response
+        mock_completion(mock_llm_client(mock_get_client), None)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/translate",
@@ -186,9 +209,7 @@ class TestTranslateAPI(APIBaseTest):
     def test_translation_allowed_when_ai_consent_approved(self, mock_get_client):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock(message=MagicMock(content="Hola mundo"))]
-        mock_get_client.return_value.chat.completions.create.return_value = mock_response
+        mock_completion(mock_llm_client(mock_get_client), "Hola mundo")
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/translate",
@@ -202,11 +223,8 @@ class TestTranslateAPI(APIBaseTest):
     def test_translation_passes_user_distinct_id(self, mock_get_client):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock(message=MagicMock(content="Translated"))]
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_response
-        mock_get_client.return_value = mock_client
+        mock_client = mock_llm_client(mock_get_client)
+        mock_completion(mock_client, "Translated")
 
         self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/translate",

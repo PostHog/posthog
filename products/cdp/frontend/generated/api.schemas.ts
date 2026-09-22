@@ -249,6 +249,7 @@ export type HogFunctionApiInputs = { [key: string]: InputsItemApi }
  * * `site_app` - Site App
  * * `transformation` - Transformation
  * * `transformation_log` - Transformation Log
+ * * `legacy_destination` - Legacy Destination
  */
 export type HogFunctionTypeEnumApi = (typeof HogFunctionTypeEnumApi)[keyof typeof HogFunctionTypeEnumApi]
 
@@ -261,6 +262,7 @@ export const HogFunctionTypeEnumApi = {
     SiteApp: 'site_app',
     Transformation: 'transformation',
     TransformationLog: 'transformation_log',
+    LegacyDestination: 'legacy_destination',
 } as const
 
 /**
@@ -281,6 +283,11 @@ export const HogFunctionTypeEnumApi = {
  * * `non_failure_status_codes` - non_failure_status_codes
  * * `customer_analytics_account_properties` - customer_analytics_account_properties
  * * `customer_analytics_account_relationships` - customer_analytics_account_relationships
+ * * `task_model` - task_model
+ * * `task_repository` - task_repository
+ * * `task_mcp_installations` - task_mcp_installations
+ * * `signals_scout` - signals_scout
+ * * `task_skills` - task_skills
  */
 export type InputsSchemaItemTypeEnumApi = (typeof InputsSchemaItemTypeEnumApi)[keyof typeof InputsSchemaItemTypeEnumApi]
 
@@ -302,6 +309,11 @@ export const InputsSchemaItemTypeEnumApi = {
     NonFailureStatusCodes: 'non_failure_status_codes',
     CustomerAnalyticsAccountProperties: 'customer_analytics_account_properties',
     CustomerAnalyticsAccountRelationships: 'customer_analytics_account_relationships',
+    TaskModel: 'task_model',
+    TaskRepository: 'task_repository',
+    TaskMcpInstallations: 'task_mcp_installations',
+    SignalsScout: 'signals_scout',
+    TaskSkills: 'task_skills',
 } as const
 
 export type InputsSchemaItemApiChoicesItem = { [key: string]: unknown }
@@ -327,16 +339,20 @@ export interface InputsSchemaItemApi {
 
 /**
  * * `events` - events
+ * * `internal-events` - internal-events
  * * `person-updates` - person-updates
  * * `data-warehouse-table` - data-warehouse-table
+ * * `data-warehouse-view` - data-warehouse-view
  */
 export type HogFunctionFiltersSourceEnumApi =
     (typeof HogFunctionFiltersSourceEnumApi)[keyof typeof HogFunctionFiltersSourceEnumApi]
 
 export const HogFunctionFiltersSourceEnumApi = {
     Events: 'events',
+    InternalEvents: 'internal-events',
     PersonUpdates: 'person-updates',
     DataWarehouseTable: 'data-warehouse-table',
+    DataWarehouseView: 'data-warehouse-view',
 } as const
 
 export type HogFunctionFiltersApiActionsItem = { [key: string]: unknown }
@@ -397,7 +413,8 @@ export interface HogFunctionApi {
      * * `warehouse_source_webhook` - Warehouse Source Webhook
      * * `site_app` - Site App
      * * `transformation` - Transformation
-     * * `transformation_log` - Transformation Log */
+     * * `transformation_log` - Transformation Log
+     * * `legacy_destination` - Legacy Destination */
     type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.
@@ -486,7 +503,8 @@ export interface PatchedHogFunctionApi {
      * * `warehouse_source_webhook` - Warehouse Source Webhook
      * * `site_app` - Site App
      * * `transformation` - Transformation
-     * * `transformation_log` - Transformation Log */
+     * * `transformation_log` - Transformation Log
+     * * `legacy_destination` - Legacy Destination */
     type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.
@@ -640,6 +658,7 @@ export interface HogFunctionPublishResponseApi {
  * * `running` - running
  * * `succeeded` - succeeded
  * * `failed` - failed
+ * * `canceled` - canceled
  */
 export type HogInvocationRerunFilterStatusEnumApi =
     (typeof HogInvocationRerunFilterStatusEnumApi)[keyof typeof HogInvocationRerunFilterStatusEnumApi]
@@ -648,6 +667,7 @@ export const HogInvocationRerunFilterStatusEnumApi = {
     Running: 'running',
     Succeeded: 'succeeded',
     Failed: 'failed',
+    Canceled: 'canceled',
 } as const
 
 /**
@@ -662,6 +682,11 @@ export interface HogInvocationRerunFilterApi {
     status?: HogInvocationRerunFilterStatusEnumApi[]
     /** Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout'). */
     error_kind?: string[]
+    /**
+     * Restrict to invocations whose error_message contains this substring (case-insensitive). Use to isolate one failure mode when error_kind is too coarse (most app-level errors share the 'hog_error' kind).
+     * @maxLength 200
+     */
+    error_message_contains?: string
     /**
      * Skip invocations that have already been attempted this many times or more.
      * @minimum 1
@@ -732,6 +757,21 @@ export interface HogFunctionRevisionApi {
 export interface HogFunctionRevisionRestoreRequestApi {
     /** Replace the open staged draft with this revision's config. Without it, restoring while a draft is open returns 409. */
     overwrite?: boolean
+}
+
+export interface HogFunctionMaskedSecretApi {
+    /** ID of the hog function. */
+    id: string
+    /** Name of the hog function. */
+    name: string
+    /** Hog function type, for example 'destination'. */
+    type: string
+    /** Whether the hog function is enabled. */
+    enabled: boolean
+    /** Keys of the live secret inputs to enter again. Only keys are returned, never values. */
+    input_keys: string[]
+    /** Keys of the staged draft's secret inputs to enter again. Only keys are returned. */
+    draft_input_keys: string[]
 }
 
 /**

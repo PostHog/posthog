@@ -10,6 +10,8 @@ export interface EditorSizingLogicProps {
     sidebarRef: React.RefObject<HTMLDivElement>
     databaseTreeRef: React.RefObject<HTMLDivElement>
     queryPaneDefaultHeight?: number
+    /** Floor for a dragged query pane. Notebook cells pass a smaller one than the scene. */
+    queryPaneMinHeight?: number
     biEditorResizerProps: ResizerLogicProps
     sourceNavigatorResizerProps: ResizerLogicProps
     sidebarResizerProps: ResizerLogicProps
@@ -89,7 +91,11 @@ export interface editorSizingLogicMeta {
         biEditorHeight: (biEditorDesiredSize: number | null) => number
         biEditorResizerProps: (biEditorResizerProps: ResizerLogicProps) => ResizerLogicProps
         sourceNavigatorWidth: (sourceNavigatorDesiredSize: number | null) => number
-        queryPaneHeight: (queryPaneDesiredSize: number | null, arg: number | undefined) => number
+        queryPaneHeight: (
+            queryPaneDesiredSize: number | null,
+            arg: number | undefined,
+            arg2: number | undefined
+        ) => number
         queryTabsWidth: (queryPaneDesiredSize: number | null) => number
         sourceNavigatorResizerProps: (sourceNavigatorResizerProps: ResizerLogicProps) => ResizerLogicProps
         queryPaneResizerProps: (queryPaneResizerProps: ResizerLogicProps) => ResizerLogicProps
@@ -189,11 +195,22 @@ export const editorSizingLogic = kea<editorSizingLogicType>([
             (desiredSize: number | null) => Math.max(desiredSize || NAVIGATOR_DEFAULT_WIDTH, MINIMUM_NAVIGATOR_WIDTH),
         ],
         queryPaneHeight: [
-            (s) => [s.queryPaneDesiredSize, (_, props: EditorSizingLogicProps) => props.queryPaneDefaultHeight],
-            (queryPaneDesiredSize: number | null, queryPaneDefaultHeight: number | undefined) =>
+            (s) => [
+                s.queryPaneDesiredSize,
+                (_, props: EditorSizingLogicProps) => props.queryPaneDefaultHeight,
+                (_, props: EditorSizingLogicProps) => props.queryPaneMinHeight,
+            ],
+            (
+                queryPaneDesiredSize: number | null,
+                queryPaneDefaultHeight: number | undefined,
+                queryPaneMinHeight: number | undefined
+            ) =>
                 Math.max(
-                    queryPaneDesiredSize || queryPaneDefaultHeight || DEFAULT_QUERY_PANE_HEIGHT,
-                    MINIMUM_QUERY_PANE_HEIGHT
+                    // `??`, not `||`: a drag that lands on exactly 0 is still a size the user
+                    // chose, and the clamp below turns it into the floor. `||` would read it as
+                    // "no size yet" and snap the pane back to its default height.
+                    queryPaneDesiredSize ?? queryPaneDefaultHeight ?? DEFAULT_QUERY_PANE_HEIGHT,
+                    queryPaneMinHeight ?? MINIMUM_QUERY_PANE_HEIGHT
                 ),
         ],
         queryTabsWidth: [

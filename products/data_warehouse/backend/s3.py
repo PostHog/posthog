@@ -1,3 +1,4 @@
+import time
 import contextlib
 from typing import Optional
 from urllib.parse import urlparse
@@ -114,8 +115,29 @@ def get_size_of_folder(path: str) -> float:
                 s3fs.S3FileSystem.close_session(s3.loop, s3._s3creator)
 
 
+# HeadBucket returns no body on either success or failure, so a 403 from it carries only the HTTP
+# status as its "Code" — it can't be told apart from a still-registering local object store (e.g.
+# SeaweedFS's credential bootstrap loop, see docker-compose.base.yml) by message here, same ambiguity
+# `_is_retryable_purge_error` documents for the sibling HeadObject case. Retry the bounded budget below
+# to let that race self-heal; a persistent misconfiguration still raises once it's exhausted.
+_HEAD_BUCKET_MAX_ATTEMPTS = 4
+
+
 def ensure_bucket_exists(s3_url: str, s3_key: str, s3_secret: str, s3_endpoint: Optional[str] = None) -> None:
-    s3_client = boto3.client("s3", aws_access_key_id=s3_key, aws_secret_access_key=s3_secret, endpoint_url=s3_endpoint)
+    try:
+        s3_client = boto3.client(
+            "s3", aws_access_key_id=s3_key, aws_secret_access_key=s3_secret, endpoint_url=s3_endpoint
+        )
+    except ValueError as e:
+        # botocore refuses to build a client for endpoint hostnames it deems malformed (e.g. a
+        # container service name containing an underscore), yet delta-rs's object store — which does
+        # the pipeline's actual reads and writes — talks to the same endpoint fine. This bucket check
+        # is a best-effort convenience for local/self-hosted setups where the bucket is provisioned
+        # out of band, so skip it rather than abort the sync; the storage layer surfaces a real error
+        # later if the bucket is genuinely absent.
+        if "Invalid endpoint" in str(e):
+            return
+        raise
 
     parsed = urlparse(s3_url)
     if parsed.scheme != "s3":
@@ -123,18 +145,36 @@ def ensure_bucket_exists(s3_url: str, s3_key: str, s3_secret: str, s3_endpoint: 
 
     bucket_name = parsed.netloc
 
-    try:
-        s3_client.head_bucket(Bucket=bucket_name)
-    except botocore.exceptions.ClientError as e:
-        error = e.response.get("Error")
-        if not error:
-            raise
+    attempt = 0
+    while True:
+        try:
+            s3_client.head_bucket(Bucket=bucket_name)
+            return
+        except botocore.exceptions.ClientError as e:
+            error = e.response.get("Error")
+            if not error:
+                raise
 
-        error_code = error.get("Code")
-        if not error_code:
-            raise
+            error_code = error.get("Code")
+            if not error_code:
+                raise
 
-        if int(error_code) == 404:
-            s3_client.create_bucket(Bucket=bucket_name)
-        else:
-            raise
+            if int(error_code) == 404:
+                try:
+                    s3_client.create_bucket(Bucket=bucket_name)
+                except botocore.exceptions.ClientError as create_error:
+                    # Concurrent callers can both see the 404 above before either creates the bucket;
+                    # the loser's create_bucket then reports it already owns the bucket the winner just
+                    # made. That's the intended end state, not a failure.
+                    create_error_code = create_error.response.get("Error", {}).get("Code")
+                    if create_error_code != "BucketAlreadyOwnedByYou":
+                        raise
+                return
+
+            if int(error_code) != 403:
+                raise
+
+            attempt += 1
+            if attempt >= _HEAD_BUCKET_MAX_ATTEMPTS:
+                raise
+            time.sleep(2**attempt)

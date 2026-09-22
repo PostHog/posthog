@@ -31,16 +31,10 @@ export interface sessionRecordingViewedLogicActions {
         errorObject?: any
     }
     loadRecordingViewedSuccess: (
-        recordingViewed: {
-            otherViewers: number
-            viewed: boolean
-        },
+        recordingViewed: SessionRecordingViewedResult,
         payload?: any
     ) => {
-        recordingViewed: {
-            otherViewers: number
-            viewed: boolean
-        }
+        recordingViewed: SessionRecordingViewedResult
         payload?: any
     }
     userClickedThrough: () => any
@@ -87,7 +81,7 @@ export const sessionRecordingViewedLogic = kea<sessionRecordingViewedLogicType>(
     })),
     loaders(({ props, values }) => ({
         recordingViewed: {
-            loadRecordingViewed: async () => {
+            loadRecordingViewed: async (): Promise<SessionRecordingViewedResult> => {
                 if (!props.sessionRecordingId || !values.currentTeamId || props.sessionRecordingId === '') {
                     return { viewed: false, otherViewers: 0 }
                 }

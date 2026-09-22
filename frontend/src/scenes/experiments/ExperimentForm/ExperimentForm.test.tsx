@@ -7,7 +7,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { Experiment } from '~/types'
 
-import { NEW_EXPERIMENT } from '../constants'
+import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
+
 import { createExperimentLogic } from './createExperimentLogic'
 
 describe('ExperimentForm Integration', () => {

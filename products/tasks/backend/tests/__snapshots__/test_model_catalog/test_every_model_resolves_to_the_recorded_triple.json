@@ -1,0 +1,259 @@
+{
+  "model_families": [
+    {
+      "prefix": "gpt-6-astra",
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "runtime_adapter": "codex"
+    },
+    {
+      "prefix": "gpt-5.6",
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "runtime_adapter": "codex"
+    },
+    {
+      "prefix": "gpt-5.5",
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "runtime_adapter": "codex"
+    }
+  ],
+  "reasoning_efforts": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "ultracode"
+  ],
+  "runtime_adapters": {
+    "claude": {
+      "default_model": "claude-sonnet-5",
+      "fallback_reasoning_efforts": [],
+      "models": {
+        "@cf/zai-org/glm-5.2": {
+          "cost_multiplier": "≈0.57×",
+          "reasoning_efforts": [
+            "high",
+            "max"
+          ]
+        },
+        "claude-fable-5": {
+          "cost_multiplier": "5×",
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode"
+          ]
+        },
+        "claude-fable-5-1": {
+          "cost_multiplier": "5×",
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode"
+          ]
+        },
+        "claude-opus-4-5": {
+          "cost_multiplier": "2.5×",
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "claude-opus-4-6": {
+          "cost_multiplier": "2.5×",
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "claude-opus-4-7": {
+          "cost_multiplier": "2.5×",
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode"
+          ]
+        },
+        "claude-opus-4-8": {
+          "cost_multiplier": "2.5×",
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode"
+          ]
+        },
+        "claude-opus-5": {
+          "cost_multiplier": "2.5×",
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode"
+          ]
+        },
+        "claude-sonnet-4-6": {
+          "cost_multiplier": "1.5×",
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "claude-sonnet-5": {
+          "cost_multiplier": "1×",
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode"
+          ]
+        },
+        "deepseek-ai/deepseek-v4-flash-0731": {
+          "cost_multiplier": "≈0.05×",
+          "reasoning_efforts": []
+        },
+        "moonshotai/kimi-k3": {
+          "cost_multiplier": "1.5×",
+          "reasoning_efforts": []
+        },
+        "zai-org/glm-5.3": {
+          "cost_multiplier": "≈0.57×",
+          "reasoning_efforts": [
+            "high",
+            "max"
+          ]
+        },
+        "zai-org/glm-5.3-flash": {
+          "cost_multiplier": "≈0.06×",
+          "reasoning_efforts": [
+            "high",
+            "max"
+          ]
+        }
+      },
+      "provider": "anthropic"
+    },
+    "codex": {
+      "default_model": "gpt-5",
+      "fallback_reasoning_efforts": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "models": {
+        "gpt-5": {
+          "cost_multiplier": null,
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "gpt-5.5": {
+          "cost_multiplier": "≈2.8×",
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ]
+        },
+        "gpt-5.6-luna": {
+          "cost_multiplier": "≈0.55×",
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "gpt-5.6-sol": {
+          "cost_multiplier": "≈2.8×",
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "gpt-5.6-terra": {
+          "cost_multiplier": "≈1.4×",
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "gpt-6-astra": {
+          "cost_multiplier": "5×",
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
+      },
+      "provider": "openai"
+    }
+  },
+  "runtimes": [
+    {
+      "label": "Claude Code",
+      "runtime": "acp",
+      "runtime_adapter": "claude"
+    },
+    {
+      "label": "Codex",
+      "runtime": "acp",
+      "runtime_adapter": "codex"
+    },
+    {
+      "label": "Pi",
+      "runtime": "pi",
+      "runtime_adapter": null
+    }
+  ]
+}

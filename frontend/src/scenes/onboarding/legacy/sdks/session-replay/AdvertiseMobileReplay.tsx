@@ -32,6 +32,9 @@ export function AdvertiseMobileReplay({
         case SDKKey.FLUTTER:
             platform = 'Flutter'
             break
+        case SDKKey.KMP:
+            platform = 'Kotlin Multiplatform'
+            break
     }
     const dataAttrPlatform = platform.toLowerCase().replace(/\s+/g, '-')
 

@@ -979,7 +979,7 @@ function listExcludeCandidates(
   });
 }
 
-export interface WorktreeSetupWarning {
+interface WorktreeSetupWarning {
   path: string;
   error: string;
 }
@@ -987,7 +987,7 @@ export interface WorktreeSetupWarning {
 /**
  * copy gitignored files to workspace, per .worktreeinclude
  */
-export async function processWorktreeInclude(
+async function processWorktreeInclude(
   mainRepoPath: string,
   worktreePath: string,
   options?: { onOutput?: (data: string) => void },
@@ -1028,7 +1028,7 @@ export async function processWorktreeInclude(
 /**
  * symlink gitignored paths into workspace, per .worktreelink
  */
-export async function processWorktreeLink(
+async function processWorktreeLink(
   mainRepoPath: string,
   worktreePath: string,
   options?: { onOutput?: (data: string) => void },
@@ -1102,7 +1102,7 @@ function findPostCheckoutHook(mainRepoPath: string): Promise<string | null> {
  * hooks are intentionally skipped during worktree creation to avoid
  * potentially wonky behavior
  */
-export async function runPostCheckoutHook(
+async function runPostCheckoutHook(
   mainRepoPath: string,
   worktreePath: string,
   options?: { onOutput?: (data: string) => void },

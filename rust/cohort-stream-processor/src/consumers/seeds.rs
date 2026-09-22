@@ -2,11 +2,13 @@
 //!
 //! Assignment arrives via the events group's rebalance mirror. Four admission gates share one
 //! holdover + pause mechanism: the apply fence (a tile dispatches only once its partition's live
-//! watermark clears `s_chunk + margin`), a full worker channel, live-priority (the partition's
-//! live watermark age crossed the pause threshold — live traffic always wins), and pod-wide disk
+//! watermark clears `s_chunk + margin`), a full seed lane, live-priority (the partition's live
+//! watermark age crossed the pause threshold — live traffic always wins), and pod-wide disk
 //! pressure. An un-dispatched tile was never `mark_dispatched`ed, so its offset cannot commit.
-//! Consume-side skips ride the worker channel so their offsets mark in order; they never close
-//! the fence, but a live-lag/disk gate holds them too (nothing leapfrogs a gated partition).
+//! The live-lag gate remains an admission backstop because an admitted seed run still uses the
+//! worker and its CPU and I/O even though separate lanes keep queued seeds behind live traffic.
+//! Consume-side skips ride the seed lane so their offsets mark in order; they never close the
+//! fence, but a live-lag/disk gate holds them too (nothing leapfrogs a gated partition).
 //! The [`PauseLedger`] records why each partition is held and since when; the pause target and
 //! the age/count gauges all derive from it.
 
@@ -39,7 +41,6 @@ use crate::partitions::pacing::{
 };
 use crate::partitions::pause::PartitionPauser;
 use crate::partitions::rebalance::CohortConsumerContext;
-use crate::partitions::shuffle_message::ShuffleMessage;
 use crate::partitions::watermarks::WatermarkMs;
 
 /// Back-off after a Kafka transport error, mirroring the sibling consume loops.
@@ -91,31 +92,6 @@ pub struct ConsumedSeed {
 }
 
 impl ConsumedSeed {
-    pub(crate) fn into_message(self) -> ShuffleMessage {
-        ShuffleMessage::Seed {
-            work: Box::new(self.work),
-            offset: self.offset,
-            broker_ts_ms: self.broker_ts_ms,
-        }
-    }
-
-    /// Inverse of [`into_message`](Self::into_message); `None` for a non-seed message.
-    pub(crate) fn from_message(partition: i32, message: ShuffleMessage) -> Option<Self> {
-        match message {
-            ShuffleMessage::Seed {
-                work,
-                offset,
-                broker_ts_ms,
-            } => Some(Self {
-                work: *work,
-                partition,
-                offset,
-                broker_ts_ms,
-            }),
-            _ => None,
-        }
-    }
-
     /// The fence input. Control messages, person seeds, and skips are fence-open: none of them
     /// bounds the arrival of events over the live stream.
     fn s_chunk_ms(&self) -> Option<SChunkMs> {
@@ -1310,43 +1286,6 @@ mod tests {
             decode_payload(None, 0, 0),
             SeedWork::Skip(SeedSkipReason::DecodeError),
         ));
-    }
-
-    /// A channel-full bounce round-trips through the shuffle message; losing `broker_ts_ms` there
-    /// would zero the oldest-held age gauge exactly when the partition is stuck.
-    #[test]
-    fn consumed_seed_round_trips_through_its_shuffle_message() {
-        let consumed = ConsumedSeed {
-            broker_ts_ms: Some(1_700_000_000_000),
-            ..seed(9, 42, 123)
-        };
-        let message = consumed.into_message();
-        assert_eq!(message.seed_offset(), Some(42));
-        let back = ConsumedSeed::from_message(9, message).unwrap();
-        assert_eq!(back.partition, 9);
-        assert_eq!(back.offset, 42);
-        assert_eq!(back.broker_ts_ms, Some(1_700_000_000_000));
-        assert!(matches!(back.work, SeedWork::Tile(tile) if tile.s_chunk_ms() == SChunkMs(123)));
-
-        let reconcile = ReconcileTile::new(
-            TeamId(2),
-            CohortId(42),
-            ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
-            RunId(Uuid::nil()),
-        );
-        let consumed = ConsumedSeed {
-            work: SeedWork::Reconcile(reconcile.clone()),
-            partition: 9,
-            offset: 43,
-            broker_ts_ms: None,
-        };
-        let back = ConsumedSeed::from_message(9, consumed.into_message()).unwrap();
-        assert_eq!(back.offset, 43);
-        assert_eq!(back.broker_ts_ms, None);
-        assert!(matches!(back.work, SeedWork::Reconcile(tile) if tile == reconcile));
-
-        let not_seed = ShuffleMessage::RedrivePendingTransfers;
-        assert!(ConsumedSeed::from_message(9, not_seed).is_none());
     }
 
     #[test]

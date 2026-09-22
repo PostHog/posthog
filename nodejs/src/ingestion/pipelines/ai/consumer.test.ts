@@ -30,6 +30,11 @@ describe('createAiConsumer', () => {
             SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
             INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: '',
             EVENT_SCHEMA_ENFORCEMENT_ENABLED: false,
+            USAGE_INGESTION_ADDR: '',
+            USAGE_INGESTION_TLS: false,
+            USAGE_INGESTION_TIMEOUT_MS: 5000,
+            USAGE_INGESTION_MAX_BATCH_SIZE: 500,
+            USAGE_INGESTION_REPORT_TEAMS: '',
             // Read eagerly by createAiConsumer (not deferred like the scope-builder services
             // below), so these need real fail-closed values rather than the cast-away pattern.
             AI_BLOB_S3_BUCKET: '',

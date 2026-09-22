@@ -1,6 +1,9 @@
 import type { Task, TaskRun } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
-import { getTaskStatusPresentationKind } from "./taskStatusPresentation";
+import {
+  getTaskStatusPresentationKind,
+  runStatusForDisplay,
+} from "./taskStatusPresentation";
 
 function makeTask(latestRun?: Partial<TaskRun>): Pick<Task, "latest_run"> {
   return {
@@ -66,4 +69,23 @@ describe("getTaskStatusPresentationKind", () => {
   it("falls back to chat when a task has no run", () => {
     expect(getTaskStatusPresentationKind(makeTask())).toBe("chat");
   });
+
+  it.each([
+    ["an active interactive run", "interactive", true, "in_progress"],
+    ["an idle interactive run", "interactive", false, null],
+    ["an idle run from an older server", undefined, false, null],
+    ["a restored background run", "background", false, "in_progress"],
+  ] as const)(
+    "shows the status for %s",
+    (_case, runMode, isGenerating, expected) => {
+      expect(
+        runStatusForDisplay({
+          status: "in_progress",
+          environment: "cloud",
+          runMode,
+          isGenerating,
+        }),
+      ).toBe(expected);
+    },
+  );
 });

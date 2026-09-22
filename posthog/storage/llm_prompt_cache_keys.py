@@ -1,5 +1,4 @@
-from dataclasses import dataclass
-
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.storage.hypercache import KeyType
 
@@ -22,7 +21,7 @@ def prompt_label_cache_key(team: Team | str | int, prompt_name: str, label_name:
     return f"{_prompt_cache_key_prefix(team, prompt_name)}:label:{label_name}"
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class ParsedPromptCacheKey:
     team_id: int
     prompt_name: str

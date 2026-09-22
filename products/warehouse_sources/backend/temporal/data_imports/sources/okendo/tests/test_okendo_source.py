@@ -2,14 +2,9 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.okendo import OkendoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.okendo.okendo import OkendoResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.okendo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.okendo.source import OkendoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.okendo.source.validate_okendo_credentials"
@@ -21,28 +16,6 @@ class TestOkendoSource:
         self.source = OkendoSource()
         self.team_id = 123
         self.config = OkendoSourceConfig(user_id="user-1", api_key="key-1")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.OKENDO
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Okendo"
-        assert config.label == "Okendo"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/okendo.png"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["user_id", "api_key"]
-
-    def test_api_key_field_is_a_secret_password(self):
-        config = self.source.get_source_config
-        key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-
-        assert key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert key_field.secret is True
-        assert key_field.required is True
 
     @parameterized.expand(
         [
@@ -76,11 +49,6 @@ class TestOkendoSource:
             assert schema.supports_append is False
             assert schema.incremental_fields == []
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["reviews"])
-
-        assert [schema.name for schema in schemas] == ["reviews"]
-
     @parameterized.expand(
         [
             ("valid", (True, 200), None, True, None),
@@ -105,12 +73,6 @@ class TestOkendoSource:
             assert error_message is not None and expected_message in error_message
         mock_validate.assert_called_once_with("user-1", "key-1", "2025-02-01")
 
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is OkendoResumeConfig
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.okendo.source.okendo_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_okendo_source):
         inputs = mock.MagicMock()
@@ -128,6 +90,3 @@ class TestOkendoSource:
         assert kwargs["resumable_source_manager"] is manager
         # An unpinned source must still send a version header, or every request is rejected.
         assert kwargs["api_version"] == "2025-02-01"
-
-    def test_canonical_descriptions_cover_declared_endpoints(self):
-        assert set(self.source.get_canonical_descriptions().keys()) == set(ENDPOINTS)

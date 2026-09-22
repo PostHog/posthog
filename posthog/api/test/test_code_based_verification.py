@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -111,7 +111,7 @@ class TestCodeBasedVerificationAPI(APIBaseTest):
 
     @pytest.mark.disable_mock_code_based_verifier
     def test_expired_code_is_rejected(self):
-        with freeze_time("2024-01-01T10:00:00") as frozen, enable_code_sending() as mock_send:
+        with time_machine.travel("2024-01-01T10:00:00", tick=False) as frozen, enable_code_sending() as mock_send:
             code = self._trigger(mock_send)
             frozen.move_to("2024-01-01T10:30:01")  # > 30 minute TTL
             response = self.client.post(VERIFY_URL, {"code": code})
@@ -135,7 +135,7 @@ class TestCodeBasedVerificationAPI(APIBaseTest):
 
     @pytest.mark.disable_mock_code_based_verifier
     def test_resend_issues_a_fresh_code_and_invalidates_the_previous_one(self):
-        with freeze_time("2024-01-01T10:00:00") as frozen, enable_code_sending() as mock_send:
+        with time_machine.travel("2024-01-01T10:00:00", tick=False) as frozen, enable_code_sending() as mock_send:
             first_code = self._trigger(mock_send)
             frozen.move_to("2024-01-01T10:01:01")  # past the 1/min resend throttle
             self.assertEqual(self.client.post(RESEND_URL).status_code, status.HTTP_200_OK)
@@ -150,7 +150,7 @@ class TestCodeBasedVerificationAPI(APIBaseTest):
 
     @pytest.mark.disable_mock_code_based_verifier
     def test_resend_does_not_reset_the_failed_attempt_cap(self):
-        with freeze_time("2024-01-01T10:00:00") as frozen, enable_code_sending() as mock_send:
+        with time_machine.travel("2024-01-01T10:00:00", tick=False) as frozen, enable_code_sending() as mock_send:
             code = self._trigger(mock_send)
             wrong = "000000" if code != "000000" else "111111"
 

@@ -14,11 +14,11 @@ import { MarketingAnalyticsAttributionBreakdown } from '~/queries/schema/schema-
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import {
-    BREAKDOWN_LABELS,
     MARKETING_ANALYTICS_ATTRIBUTION_COLLECTION_ID,
     marketingAttributionLogic,
     unattributedTooltip,
 } from '../../logic/marketingAttributionLogic'
+import { BREAKDOWN_LABELS } from '../../logic/marketingBreakdown'
 import { AttributionTable } from './AttributionTable'
 import { ConversionPaths } from './ConversionPaths'
 

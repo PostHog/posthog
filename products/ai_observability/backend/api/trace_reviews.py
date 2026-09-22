@@ -24,8 +24,8 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.permissions import AccessControlPermission
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.models.review_queues import ReviewQueueItem
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion

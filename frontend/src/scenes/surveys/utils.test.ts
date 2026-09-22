@@ -1,5 +1,6 @@
 import { getAppContext } from 'lib/utils/getAppContext'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
+import { urls } from 'scenes/urls'
 
 import {
     EventPropertyFilter,
@@ -19,8 +20,10 @@ import {
 } from '~/types'
 
 import {
+    buildAggregateQuery,
+    buildOpenEndedQuery,
     buildSurveyExampleInvocationGlobals,
-    buildPartialResponsesFilter,
+    buildSurveyResponsesExportQuery,
     buildSurveyOptionalBooleanPropertyFilter,
     buildSurveyTimestampFilter,
     calculateNpsBreakdown,
@@ -34,6 +37,9 @@ import {
     getSurveyDisplayConditionsSummary,
     getSurveyEndDateForQuery,
     getSurveyResponse,
+    getSurveyResponseOutcomeBreakdown,
+    getSurveyResponseStatus,
+    transformSurveyResponseRows,
     getSurveyStartDateForQuery,
     isSimpleSurveyAudienceTargeting,
     sanitizeColor,
@@ -41,9 +47,11 @@ import {
     sanitizeSurveyAppearance,
     sanitizeSurveyDisplayConditions,
     splitChoicesOnPaste,
+    surveyEmitsPartialSentEvents,
     validateCSSProperty,
     validateSurveyAppearance,
 } from './utils'
+import type { SurveyQueryFilters } from './utils'
 
 jest.mock('lib/utils/getAppContext', () => ({
     getAppContext: jest.fn(() => undefined),
@@ -56,6 +64,127 @@ afterEach(() => {
 })
 
 describe('survey utils', () => {
+    it('exports readable answers without table-only payloads or link questions', () => {
+        const survey = {
+            id: 'export-survey',
+            questions: [
+                { type: SurveyQuestionType.Open, question: 'What worked?\nWhat could improve?' },
+                { type: SurveyQuestionType.MultipleChoice, question: 'Tools', choices: ['Brush', 'Pen'] },
+                { type: SurveyQuestionType.Rating, question: 'Helpful?', scale: 2, display: 'emoji' },
+                { type: SurveyQuestionType.Link, question: 'Visit the guide' },
+                { type: SurveyQuestionType.Open, question: 'Tools' },
+                { type: SurveyQuestionType.Open, question: '' },
+            ],
+        } as Survey
+        const query = buildSurveyResponsesExportQuery(survey, {
+            timestampFilter: 'AND timestamp >= now() - INTERVAL 7 DAY',
+            answerFilters: [],
+            archivedResponsesFilter: "AND uuid NOT IN ('archived-response')",
+        })
+
+        expect(query.columns).toEqual([
+            'Respondent ID',
+            'Email',
+            'Submitted at (UTC)',
+            'Status',
+            'Q1: What worked? What could improve?',
+            'Q2: Tools',
+            'Q3: Helpful?',
+            'Q5: Tools',
+            'Q6',
+        ])
+        expect(query.source).toMatchObject({ kind: 'HogQLQuery' })
+        const sql = (query.source as { query: string }).query
+        expect(sql).toContain("arrayStringConcat(arrayMap(choice -> JSONExtractString(choice), q1_answer), ', ')")
+        expect(sql).toContain("'Thumbs up'")
+        expect(sql).toContain("'Thumbs down'")
+        expect(sql).toContain('GROUP BY submission_key')
+        expect(sql).toContain('AND timestamp >= now() - INTERVAL 7 DAY')
+        expect(sql).toContain("HAVING uuid NOT IN ('archived-response')")
+        expect(sql).not.toMatch(/AS response\b|AS actions\b|AS answer_\d|LIMIT 100/)
+        expect(sql).toContain(
+            "coalesce(nullIf(JSONExtractString(person_properties, '$email'), ''), nullIf(JSONExtractString(person_properties, 'email'), ''), '') AS Email"
+        )
+        expect(sql.split(' FROM (')[0]).not.toMatch(/person_properties AS|event_properties/)
+    })
+
+    it.each([
+        ['Quotes " and ` ticks \\ path', '`Q1: Quotes " and `` ticks \\\\ path`'],
+        ['Estado\n¿Todo bien?', '"Q1: Estado ¿Todo bien?"'],
+    ])('escapes export heading %s as a HogQL identifier', (question, alias) => {
+        const query = buildSurveyResponsesExportQuery(
+            { id: 'export-survey', questions: [{ type: SurveyQuestionType.Open, question }] } as Survey,
+            { timestampFilter: '', answerFilters: [], archivedResponsesFilter: '' }
+        )
+        expect((query.source as { query: string }).query).toContain(`AS ${alias}`)
+    })
+
+    it.each<{ counts: [number, number, number]; percentages: number[] }>([
+        { counts: [2, 1, 2], percentages: [0.4, 0.2, 0.4] },
+        { counts: [0, 1, 3], percentages: [0, 0.25, 0.75] },
+        { counts: [3, 0, 0], percentages: [1, 0, 0] },
+        { counts: [0, 0, 0], percentages: [0, 0, 0] },
+    ])('calculates response outcome shares for $counts', ({ counts, percentages }) => {
+        expect(getSurveyResponseOutcomeBreakdown(counts)).toEqual(
+            ['Completed', 'Dismissed', 'Abandoned'].map((label, index) => ({
+                label,
+                count: counts[index],
+                percentage: percentages[index],
+            }))
+        )
+    })
+
+    it.each([
+        ['survey sent', { $survey_completed: false }, 'Abandoned'],
+        ['survey dismissed', { $survey_partially_completed: true }, 'Dismissed'],
+        ['survey abandoned', { $survey_partially_completed: 'true' }, 'Abandoned'],
+        ['survey sent', {}, null],
+        ['survey dismissed', { $survey_completed: true, $survey_partially_completed: true }, null],
+    ])('labels %s using completion and dismissal status', (event, properties, expected) => {
+        expect(getSurveyResponseStatus(event, properties)).toBe(expected)
+    })
+
+    it.each(['completed', 'abandoned'])('renders merged answers and the %s outcome', (outcome) => {
+        const survey = {
+            questions: [
+                { id: 'rating', type: SurveyQuestionType.Rating },
+                { id: 'text', type: SurveyQuestionType.Open },
+            ],
+        } as Survey
+        const rows = [
+            {
+                result: [
+                    [
+                        'event-id',
+                        'respondent',
+                        '2026-09-08T12:00:00Z',
+                        'person-id',
+                        '{}',
+                        JSON.stringify({
+                            $survey_id: 'survey-id',
+                            $survey_response_text: 'Final answer',
+                            $survey_completed: false,
+                        }),
+                        outcome,
+                        ['9', 'Final answer'],
+                        SurveyEventName.SENT,
+                    ],
+                ],
+            },
+        ]
+        const [row] = transformSurveyResponseRows(rows, survey)
+        expect(Array.isArray(row.result) ? row.result[0] : null).toMatchObject({
+            uuid: 'event-id',
+            event: SurveyEventName.SENT,
+            properties: {
+                $survey_response_rating: '9',
+                $survey_response_text: 'Final answer',
+                $survey_completed: outcome === 'completed',
+                $survey_partially_completed: outcome !== 'completed',
+            },
+        })
+    })
+
     beforeAll(() => {
         // Mock CSS.supports
         global.CSS = {
@@ -188,7 +317,7 @@ describe('survey utils', () => {
 
     describe('getSurveyNotificationFilters', () => {
         it('builds survey-specific notification filters', () => {
-            expect(getSurveyNotificationFilters('survey-123')).toEqual({
+            expect(getSurveyNotificationFilters('survey-123', true)).toEqual({
                 events: [
                     {
                         id: SurveyEventName.SENT,
@@ -228,6 +357,36 @@ describe('survey utils', () => {
                     },
                 ],
             })
+        })
+
+        it('also matches a sent event with no completion flag when partial responses are off', () => {
+            const sentBranches = getSurveyNotificationFilters('survey-123', false).events?.filter(
+                (event) => event.id === SurveyEventName.SENT
+            )
+
+            expect(sentBranches).toHaveLength(2)
+            expect(sentBranches?.[1].properties).toContainEqual({
+                key: SurveyEventProperties.SURVEY_COMPLETED,
+                type: PropertyFilterType.Event,
+                value: PropertyOperator.IsNotSet,
+                operator: PropertyOperator.IsNotSet,
+            })
+        })
+    })
+
+    // An API survey's `survey sent` events come from the integrator's own code, which has no reason
+    // to set `$survey_completed` — so requiring it left the notification silently matching nothing.
+    describe('surveyEmitsPartialSentEvents', () => {
+        it.each([
+            [SurveyType.Popover, true, true],
+            [SurveyType.Popover, false, false],
+            [SurveyType.Widget, true, true],
+            [SurveyType.API, true, false],
+            [SurveyType.API, false, false],
+        ])('%s with partial responses %s', (type, enablePartialResponses, expected) => {
+            expect(surveyEmitsPartialSentEvents({ type, enable_partial_responses: enablePartialResponses })).toBe(
+                expected
+            )
         })
     })
 
@@ -606,6 +765,18 @@ describe('survey utils', () => {
         })
     })
 
+    it.each([undefined, 'test-1'])('keeps the linked flag and variant %s in display conditions', (variant) => {
+        const survey = {
+            linked_flag: { id: 123, key: 'survey-test-flag' },
+            conditions: { linkedFlagVariant: variant },
+        } as Survey
+
+        expect(getSurveyDisplayConditionsSummary(survey)).toEqual([
+            { type: 'flag', label: 'Feature flag', value: 'survey-test-flag', href: urls.featureFlag(123) },
+            ...(variant ? [{ type: 'flag_variant', label: 'Variant', value: variant }] : []),
+        ])
+    })
+
     describe('audience targeting summaries', () => {
         const baseSurvey = {
             id: 'survey-id',
@@ -979,52 +1150,177 @@ describe('survey utils', () => {
         })
     })
 
-    describe('buildPartialResponsesFilter', () => {
-        it('keeps missing survey_completed values eligible for complete-response queries', () => {
-            const survey = {
+    describe('submission merging in the results queries', () => {
+        const buildSurvey = (enablePartialResponses: boolean): Survey =>
+            ({
                 id: 'test-survey-id',
                 created_at: '2024-11-19T00:00:00Z',
                 end_date: null,
-                enable_partial_responses: false,
-            } as Survey
+                enable_partial_responses: enablePartialResponses,
+                questions: [
+                    { id: 'q-rating', type: SurveyQuestionType.Rating, question: 'How was it?' },
+                    { id: 'q-open', type: SurveyQuestionType.Open, question: 'Why?' },
+                    {
+                        id: 'q-multi',
+                        type: SurveyQuestionType.MultipleChoice,
+                        question: 'Which ones?',
+                        choices: ['a', 'b'],
+                    },
+                ],
+            }) as Survey
 
-            expect(buildPartialResponsesFilter(survey)).toBe(
-                `AND ${buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_COMPLETED, 'false')}`
+        const buildFilters = (survey: Survey, overrides: Partial<SurveyQueryFilters> = {}): SurveyQueryFilters => ({
+            timestampFilter: buildSurveyTimestampFilter(survey),
+            answerFilters: [],
+            archivedResponsesFilter: '',
+            ...overrides,
+        })
+
+        it.each([
+            ['rating', 0, 'isNotNull(q0_raw)'],
+            ['open', 1, 'isNotNull(q1_raw)'],
+            // Multiple-choice answers are arrays, so an `isNotNull` merge condition would be true on
+            // every event and re-elect the latest one, dropping choices made on an earlier event.
+            ['multiple choice', 2, 'length(q2_raw) > 0'],
+        ])('merges the %s answer across the submission with argMaxIf', (_type, index, presenceExpr) => {
+            const survey = buildSurvey(true)
+
+            const query = buildAggregateQuery(survey, buildFilters(survey))
+
+            expect(query).toContain(
+                `argMaxIf(q${index}_raw, tuple(timestamp, event_uuid), ${presenceExpr}) AS q${index}_answer`
             )
+            expect(query).toContain('GROUP BY submission_key')
         })
 
-        it('uses same date bounds as buildSurveyTimestampFilter', () => {
-            const survey = {
-                id: 'test-survey-id',
-                created_at: '2024-11-19T00:00:00Z',
-                end_date: '2024-11-25T00:00:00Z',
-                enable_partial_responses: true,
-            } as Survey
-            const dateRange = { date_from: '2024-11-20', date_to: '2024-11-22' }
-
-            const timestampFilter = buildSurveyTimestampFilter(survey, dateRange)
-            const partialFilter = buildPartialResponsesFilter(survey, dateRange)
-
-            const fromMatch = timestampFilter.match(/timestamp >= '([^']+)'/)
-            const toMatch = timestampFilter.match(/timestamp <= '([^']+)'/)
-
-            expect(partialFilter).toContain(`greaterOrEquals(timestamp, '${fromMatch?.[1]}')`)
-            expect(partialFilter).toContain(`lessOrEquals(timestamp, '${toMatch?.[1]}')`)
+        it.each([true, false])('includes captured answers with partial collection set to %s', (enabled) => {
+            const survey = buildSurvey(enabled)
+            for (const query of [
+                buildAggregateQuery(survey, buildFilters(survey)),
+                buildOpenEndedQuery(survey, buildFilters(survey))?.query,
+            ]) {
+                expect(query).toContain("event = 'survey sent'")
+                expect(query).toContain("'survey dismissed', 'survey abandoned'")
+                expect(query).toContain(SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED)
+                expect(query).toContain('GROUP BY submission_key')
+                expect(query).not.toContain('HAVING countIf(is_completed_event) > 0')
+            }
         })
 
-        it('uses direct property access for fixed survey properties', () => {
+        it('applies answer and archive filters to the merged answer, not to single events', () => {
+            const survey = buildSurvey(true)
+            const filters = buildFilters(survey, {
+                answerFilters: [
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$survey_response_q-rating',
+                        operator: PropertyOperator.Exact,
+                        value: '2',
+                    } as EventPropertyFilter,
+                ],
+                archivedResponsesFilter: "AND uuid NOT IN ('archived-uuid')",
+            })
+
+            const query = buildAggregateQuery(survey, filters)
+
+            // Filtering on the raw event expression would discard a submission whose matching
+            // answer arrived on a non-final event.
+            expect(query).toContain("(q0_answer = '2')")
+            expect(query).not.toContain("getSurveyResponse(0, 'q-rating') = '2'")
+            expect(query).toContain("uuid NOT IN ('archived-uuid')")
+        })
+
+        it('counts an unanswered optional single choice when the merge yields null instead of an empty string', () => {
             const survey = {
-                id: 'test-survey-id',
-                created_at: '2024-11-19T00:00:00Z',
-                end_date: null,
-                enable_partial_responses: true,
+                ...buildSurvey(true),
+                questions: [
+                    {
+                        id: 'q-choice',
+                        type: SurveyQuestionType.SingleChoice,
+                        question: 'Pick one',
+                        choices: ['a', 'b'],
+                        optional: true,
+                    },
+                ],
             } as Survey
 
-            const partialFilter = buildPartialResponsesFilter(survey)
+            const query = buildAggregateQuery(survey, buildFilters(survey))
 
-            expect(partialFilter).toContain('properties.`$survey_id`')
-            expect(partialFilter).toContain('properties.`$survey_submission_id`')
-            expect(partialFilter).not.toContain('JSONExtractString')
+            // argMaxIf returns the type default when no event answered the question, so the old
+            // `= ''` test silently missed those submissions.
+            expect(query).toContain("length(trim(coalesce(q0_answer, ''))) = 0")
+        })
+
+        it('reads the merged submissions once rather than once per question', () => {
+            const survey = buildSurvey(true)
+
+            const query = buildAggregateQuery(survey, buildFilters(survey))
+
+            // ClickHouse inlines a CTE instead of materializing it, so counting each question in
+            // its own UNION ALL branch re-runs the whole merge per branch. Measured at roughly
+            // twice the runtime on a four-question survey before this collapsed to one arrayJoin.
+            expect(query).not.toContain('UNION ALL')
+            expect(query!.match(/argMaxIf\(q0_raw/g)).toHaveLength(1)
+        })
+
+        it.each([
+            ['rating', { id: 'q-rating', type: SurveyQuestionType.Rating, question: 'How was it?' }],
+            ['open', { id: 'q-open', type: SurveyQuestionType.Open, question: 'Why?' }],
+            [
+                'single choice',
+                {
+                    id: 'q-choice',
+                    type: SurveyQuestionType.SingleChoice,
+                    question: 'Pick one',
+                    choices: ['a', 'b'],
+                },
+            ],
+        ])('builds a valid query for a survey with only one required %s question', (_type, question) => {
+            const survey = { ...buildSurvey(true), questions: [question] } as Survey
+
+            const query = buildAggregateQuery(survey, buildFilters(survey))
+
+            // These questions each emit one label-pair expression, and HogQL rejects arrayConcat
+            // with a single argument, so the results tab failed to load.
+            expect(query).not.toContain('arrayConcat')
+            expect(query).toContain('arrayJoin(if(isNotNull(q0_answer)')
+        })
+
+        it('concatenates the label pairs when a survey emits more than one expression', () => {
+            const survey = buildSurvey(true)
+
+            const query = buildAggregateQuery(survey, buildFilters(survey))
+
+            expect(query).toContain('arrayJoin(arrayConcat(')
+        })
+
+        it('does not alias the merged timestamp back onto the column the merge orders by', () => {
+            const survey = buildSurvey(true)
+
+            const query = buildAggregateQuery(survey, buildFilters(survey))
+
+            // `max(timestamp) AS timestamp` makes every sibling `argMax(..., timestamp)` resolve
+            // its ordering argument to that aggregate, and ClickHouse rejects the nesting with
+            // "Aggregate function ... is found inside another aggregate function".
+            expect(query).toContain('max(timestamp) AS submitted_at')
+            expect(query).not.toContain('max(timestamp) AS timestamp')
+        })
+
+        it('keeps respondent metadata after the open columns so positional parsing still lines up', () => {
+            const survey = buildSurvey(true)
+
+            const result = buildOpenEndedQuery(survey, buildFilters(survey))
+
+            const openColumnIndex = result!.query.indexOf('q1_answer AS q1_response')
+            expect(openColumnIndex).toBeGreaterThan(-1)
+            expect(
+                result!.query.indexOf('distinct_id,\n            submitted_at,\n            session_id')
+            ).toBeGreaterThan(openColumnIndex)
+            expect(result!.columnMap['q-open']).toEqual({
+                columnIndex: 0,
+                questionIndex: 1,
+                type: SurveyQuestionType.Open,
+            })
         })
     })
 

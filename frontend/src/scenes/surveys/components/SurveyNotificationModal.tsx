@@ -56,7 +56,7 @@ function TestResultPanel({
           : result?.status === 'success'
             ? 'Test notification sent.'
             : result?.status === 'skipped'
-              ? 'Test was skipped — the event did not match the notification filters.'
+              ? "Test skipped. The test event didn't match this notification's filters. Adjust the filters and try again."
               : 'Test failed.'
 
     return (

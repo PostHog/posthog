@@ -44,7 +44,7 @@ export interface FleetScoutReportRow {
     skillNames: string[]
 }
 
-export type FindingsSortKey = 'newest' | 'oldest' | 'severity' | 'confidence'
+export type FindingsSortKey = 'newest' | 'oldest' | 'severity'
 export const FINDINGS_SCOUT_FILTER_ALL = 'all'
 export const FINDINGS_SEVERITY_FILTER_ALL = 'all'
 
@@ -591,9 +591,8 @@ export const findingsLogic = kea<findingsLogicType>([
             },
         ],
         // Visible report set: same search / scout / severity filters and sort control as the findings
-        // (severity matches the report's priority). The shared sort applies where it has meaning —
-        // newest/oldest by report update time, severity by priority; the finding-only "confidence"
-        // key falls back to newest so one control never leaves the two lists contradicting each other.
+        // (severity matches the report's priority): newest/oldest by report update time, severity by
+        // priority.
         filteredReportRows: [
             (s) => [s.reportRows, s.searchText, s.scoutFilter, s.severityFilter, s.sortKey],
             (
@@ -732,10 +731,6 @@ export const findingsLogic = kea<findingsLogicType>([
                         const diff = severityRank(a.emission.severity) - severityRank(b.emission.severity)
                         return diff !== 0 ? diff : byNewest(a, b)
                     }
-                    if (sortKey === 'confidence') {
-                        const diff = (b.emission.confidence ?? 0) - (a.emission.confidence ?? 0)
-                        return diff !== 0 ? diff : byNewest(a, b)
-                    }
                     return byNewest(a, b)
                 })
             },
@@ -871,9 +866,12 @@ export const findingsLogic = kea<findingsLogicType>([
             // the report-link retry listener a poll to ride. It lives on this logic's own disposables
             // under its own key, so it never disposes the section's `runsPoll` — when both are mounted
             // the overlap just costs one extra capped request, since `loadRunsWindow` is idempotent.
-            scoutFleetLogic.actions.loadRunsWindow()
+            scoutFleetLogic.findMounted()?.actions.loadRunsWindow()
             cache.disposables.add(() => {
-                const interval = setInterval(() => scoutFleetLogic.actions.loadRunsWindow(), RUNS_REFETCH_INTERVAL_MS)
+                const interval = setInterval(
+                    () => scoutFleetLogic.findMounted()?.actions.loadRunsWindow(),
+                    RUNS_REFETCH_INTERVAL_MS
+                )
                 return () => clearInterval(interval)
             }, 'findingsRunsPoll')
         },

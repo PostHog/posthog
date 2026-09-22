@@ -11,6 +11,7 @@ behind a mocked S3 fetch so tests exercise the production code path
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Generator
 from pathlib import Path
 
@@ -51,6 +52,19 @@ def reset_scorer_singleton() -> None:
     scorer_mod._BOOSTER = None
     scorer_mod._FEATURE_NAMES = None
     scorer_mod._S3_CACHED_PATH = None
+
+
+@pytest.fixture(autouse=True)
+def _temporal_loggers_at_info(caplog: pytest.LogCaptureFixture) -> None:
+    """Run the Temporal loggers at INFO, as the production worker does.
+
+    The Temporal loggers are stdlib `LoggerAdapter`s that reject structured
+    keyword fields, and they only reach the rejecting call once the level lets
+    the record through. At the default WARNING level an `info` call with a bad
+    field is inert, so a crash that happens on every production tick passes here.
+    """
+    caplog.set_level(logging.INFO, logger="temporalio.activity")
+    caplog.set_level(logging.INFO, logger="temporalio.workflow")
 
 
 @pytest.fixture(autouse=True)

@@ -41,6 +41,10 @@ class NorthpassEndpointConfig:
 QUIZ_COMPLETED_EVENT_TYPE = "quiz_completed_events"
 # `/webhooks` documents a maximum page size of 50, unlike the other list endpoints.
 WEBHOOKS_PAGE_SIZE = 50
+# Raised when the log walk ends with no quiz-completed event. `source.py` maps it to the operator
+# message, so the two must share this prefix.
+QUIZ_LOG_EMPTY_MESSAGE = "Northpass sent-webhooks log returned no quiz-completed events"
+QUIZ_LOG_ENDPOINTS = ("quiz_attempts", "quiz_attempt_answers")
 
 NORTHPASS_ENDPOINTS: dict[str, NorthpassEndpointConfig] = {
     "people": NorthpassEndpointConfig(

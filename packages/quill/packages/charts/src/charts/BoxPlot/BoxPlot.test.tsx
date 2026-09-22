@@ -37,6 +37,14 @@ describe('BoxPlot', () => {
         expect(chart.seriesCount).toBe(2)
     })
 
+    it('renders a legend when requested', () => {
+        const { container } = renderHogChart(
+            <BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} config={{ legend: { show: true } }} />
+        )
+        const buttons = container.querySelectorAll('[data-attr="hog-chart-box-plot-legend"] button')
+        expect(Array.from(buttons, (button) => button.textContent)).toEqual(['A', 'B'])
+    })
+
     it('renders y-axis ticks for the value range that spans whiskers', () => {
         const series: BoxPlotSeries[] = [
             {
@@ -76,6 +84,20 @@ describe('BoxPlot', () => {
             ...ticks.map((t) => parseFloat(t.replace(/[^\d.-]/g, ''))).filter((n) => Number.isFinite(n))
         )
         expect(maxTickNumeric).toBeGreaterThanOrEqual(250)
+    })
+
+    it('lists the labels down the y-axis and the values along x when horizontal', () => {
+        const { chart } = renderHogChart(
+            <BoxPlot
+                series={TWO_SERIES}
+                labels={LABELS}
+                theme={THEME}
+                config={{ axisOrientation: 'horizontal' }}
+            />
+        )
+        expect(chart.yTicks()).toEqual(LABELS)
+        const values = chart.xTicks().map((tick) => parseFloat(tick.replace(/[^\d.-]/g, '')))
+        expect(Math.max(...values)).toBeGreaterThanOrEqual(100)
     })
 
     it('forwards `dataAttr` to the chart wrapper', () => {

@@ -276,13 +276,11 @@ class CIMDVerificationTokenViewSet(
         # revoke-confirm UX ("partners using this token will no longer be
         # recognized") without touching apps that have a different linking
         # token.
-        for url in OAuthApplication.objects.filter(
+        for client_id in OAuthApplication.objects.filter(
             is_cimd_client=True,
             organization_id=org_id,
-            cimd_metadata_url__isnull=False,
-        ).values_list("cimd_metadata_url", flat=True):
-            if url:
-                cache.delete(_cache_key(url))
+        ).values_list("client_id", flat=True):
+            cache.delete(_cache_key(client_id))
 
         request = self.request
         log_activity(

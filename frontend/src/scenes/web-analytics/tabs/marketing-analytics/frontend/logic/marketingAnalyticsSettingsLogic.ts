@@ -52,6 +52,7 @@ const createEmptyConfig = (): MarketingAnalyticsConfig => ({
     conversion_goals: [],
     attribution_window_days: DEFAULT_ATTRIBUTION_WINDOW_DAYS,
     attribution_mode: AttributionMode.LastTouch,
+    filter_test_accounts: false,
     campaign_name_mappings: {},
     custom_source_mappings: {},
     campaign_field_preferences: {},
@@ -69,6 +70,7 @@ export interface marketingAnalyticsSettingsLogicValues {
     attribution_mode: AttributionMode
     attribution_window_days: number
     conversion_goals: ConversionGoalFilter[]
+    filter_test_accounts: boolean
     integrationCampaignTables: Record<string, string>
     integrationCampaigns: Record<
         string,
@@ -181,6 +183,9 @@ export interface marketingAnalyticsSettingsLogicActions {
     updateCustomSourceMappings: (customSourceMappings: Record<string, string[]>) => {
         customSourceMappings: Record<string, string[]>
     }
+    updateFilterTestAccounts: (filterTestAccounts: boolean) => {
+        filterTestAccounts: boolean
+    }
     updateSourceMapping: (
         tableId: string,
         fieldName: MarketingAnalyticsColumnsSchemaNames,
@@ -199,6 +204,7 @@ export interface marketingAnalyticsSettingsLogicMeta {
         conversion_goals: (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => ConversionGoalFilter[]
         attribution_window_days: (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => number
         attribution_mode: (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => AttributionMode
+        filter_test_accounts: (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => boolean
         integrationCampaignTables: (
             dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null
@@ -249,6 +255,9 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         updateAttributionMode: (mode: AttributionMode) => ({
             mode,
         }),
+        updateFilterTestAccounts: (filterTestAccounts: boolean) => ({
+            filterTestAccounts,
+        }),
         updateCampaignNameMappings: (campaignNameMappings: Record<string, Record<string, string[]>>) => ({
             campaignNameMappings,
         }),
@@ -277,6 +286,10 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         marketingAnalyticsConfig: [
             null as MarketingAnalyticsConfig | null,
             {
+                [teamLogic.actionTypes.loadCurrentTeamSuccess]: (
+                    _,
+                    { currentTeam }: { currentTeam: TeamType | TeamPublicType | null }
+                ) => currentTeam?.marketing_analytics_config || createEmptyConfig(),
                 updateConversionGoals: (state: MarketingAnalyticsConfig | null, { conversionGoals }) => {
                     if (!state) {
                         return { ...createEmptyConfig(), conversion_goals: conversionGoals }
@@ -363,6 +376,12 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                     }
                     return { ...state, attribution_mode: mode }
                 },
+                updateFilterTestAccounts: (state: MarketingAnalyticsConfig | null, { filterTestAccounts }) => {
+                    if (!state) {
+                        return { ...createEmptyConfig(), filter_test_accounts: filterTestAccounts }
+                    }
+                    return { ...state, filter_test_accounts: filterTestAccounts }
+                },
                 updateCampaignNameMappings: (state: MarketingAnalyticsConfig | null, { campaignNameMappings }) => {
                     if (!state) {
                         return { ...createEmptyConfig(), campaign_name_mappings: campaignNameMappings }
@@ -389,6 +408,10 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         savedMarketingAnalyticsConfig: [
             values.currentTeam?.marketing_analytics_config || createEmptyConfig(),
             {
+                [teamLogic.actionTypes.loadCurrentTeamSuccess]: (
+                    _,
+                    { currentTeam }: { currentTeam: TeamType | TeamPublicType | null }
+                ) => currentTeam?.marketing_analytics_config || createEmptyConfig(),
                 updateCurrentTeam: (_, { marketing_analytics_config }) => {
                     return marketing_analytics_config || createEmptyConfig()
                 },
@@ -481,6 +504,12 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 return marketingAnalyticsConfig?.attribution_mode ?? AttributionMode.LastTouch
             },
         ],
+        filter_test_accounts: [
+            (s) => [s.marketingAnalyticsConfig],
+            (marketingAnalyticsConfig: MarketingAnalyticsConfig | null) => {
+                return marketingAnalyticsConfig?.filter_test_accounts ?? false
+            },
+        ],
         integrationCampaignTables: [
             (s) => [s.dataWarehouseTables, s.dataWarehouseSources],
             (
@@ -523,23 +552,23 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         ],
     }),
     listeners(({ actions, values }) => {
-        const updateCurrentTeam = (): void => {
+        const updateCurrentTeam = (field: keyof MarketingAnalyticsConfig): void => {
             if (values.marketingAnalyticsConfig) {
-                const payload = { marketing_analytics_config: values.marketingAnalyticsConfig }
+                const payload = { marketing_analytics_config: { [field]: values.marketingAnalyticsConfig[field] } }
                 actions.updateCurrentTeam(payload)
             }
         }
 
         const trackSourceConfigured = (): void => {
-            updateCurrentTeam()
+            updateCurrentTeam('sources_map')
             actions.addProductIntent({
                 product_type: ProductKey.MARKETING_ANALYTICS,
                 intent_context: ProductIntentContext.MARKETING_ANALYTICS_SOURCE_CONFIGURED,
             })
         }
 
-        const trackSettingsUpdated = (): void => {
-            updateCurrentTeam()
+        const trackSettingsUpdated = (field: keyof MarketingAnalyticsConfig): void => {
+            updateCurrentTeam(field)
             actions.addProductIntent({
                 product_type: ProductKey.MARKETING_ANALYTICS,
                 intent_context: ProductIntentContext.MARKETING_ANALYTICS_SETTINGS_UPDATED,
@@ -548,14 +577,16 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
 
         return {
             updateSourceMapping: trackSourceConfigured,
-            updateConversionGoals: trackSettingsUpdated,
-            addOrUpdateConversionGoal: trackSettingsUpdated,
-            removeConversionGoal: trackSettingsUpdated,
-            updateAttributionWindowDays: trackSettingsUpdated,
-            updateAttributionMode: trackSettingsUpdated,
-            updateCampaignNameMappings: trackSettingsUpdated,
-            updateCustomSourceMappings: trackSettingsUpdated,
-            updateCampaignFieldPreferences: trackSettingsUpdated,
+            updateConversionGoals: () => trackSettingsUpdated('conversion_goals'),
+            addOrUpdateConversionGoal: () => trackSettingsUpdated('conversion_goals'),
+            removeConversionGoal: () => trackSettingsUpdated('conversion_goals'),
+            updateAttributionWindowDays: () => trackSettingsUpdated('attribution_window_days'),
+            updateAttributionMode: () => trackSettingsUpdated('attribution_mode'),
+            // Persist only: this one is a dashboard filter, not a trip to the settings screen.
+            updateFilterTestAccounts: () => updateCurrentTeam('filter_test_accounts'),
+            updateCampaignNameMappings: () => trackSettingsUpdated('campaign_name_mappings'),
+            updateCustomSourceMappings: () => trackSettingsUpdated('custom_source_mappings'),
+            updateCampaignFieldPreferences: () => trackSettingsUpdated('campaign_field_preferences'),
             testMapping: async ({ tableId, sourceMap }) => {
                 try {
                     const response = await api.create(

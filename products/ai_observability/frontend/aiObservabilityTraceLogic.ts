@@ -907,7 +907,8 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
             }
             // Always include tab parameter
             params.tab = values.viewMode
-            return urls.aiObservabilityTrace(values.traceId, params)
+            // combineUrl JSON encodes object values (e.g. the filters array), so they survive the round trip.
+            return combineUrl(urls.aiObservabilityTrace(values.traceId), params).url
         }
 
         return {

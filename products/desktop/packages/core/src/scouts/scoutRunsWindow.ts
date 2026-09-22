@@ -39,24 +39,22 @@ export interface ScoutRunsWindow {
   complete: boolean;
 }
 
+/** The window as a span, e.g. "last 3 days", with no completeness suffix. */
+export const SCOUT_RUNS_WINDOW_LABEL = `last ${SCOUT_RUNS_WINDOW_SPAN}`;
+
 /** Label for stats derived from a window, e.g. "last 3 days". */
 export function scoutRunsWindowLabel(window?: ScoutRunsWindow): string {
   const base = `last ${SCOUT_RUNS_WINDOW_SPAN}`;
   return window && !window.complete ? `${base} · truncated` : base;
 }
 
-/**
- * Fetch every fleet run from the last SCOUT_RUNS_WINDOW_HOURS hours.
- *
- * The backend filters and orders on `created_at` but does not serialize it;
- * `started_at` (the linked TaskRun's creation time) is the closest available
- * cursor, so pages are deduped by run_id to absorb boundary drift between the
- * two timestamps.
- */
 export async function fetchScoutRunsWindow(
   client: ScoutRunsClient,
   projectId: number,
   now: Date = new Date(),
+  /** Called with the runs collected so far after each page, newest page first. */
+  onPage?: (partial: ScoutRunsWindow) => void,
+  skillName?: string,
 ): Promise<ScoutRunsWindow> {
   const dateFrom = new Date(
     now.getTime() - SCOUT_RUNS_WINDOW_HOURS * 60 * 60 * 1000,
@@ -67,34 +65,36 @@ export async function fetchScoutRunsWindow(
 
   for (let page = 0; page < MAX_PAGES; page++) {
     const batch = await client.listScoutRuns(projectId, {
+      skill_name: skillName,
       date_from: dateFrom,
       date_to: dateTo,
       limit: PAGE_LIMIT,
     });
 
     let added = 0;
-    let oldestStartedAt: string | undefined;
+    let oldestCreatedAt: string | undefined;
     for (const run of batch) {
       if (!runsById.has(run.run_id)) {
         runsById.set(run.run_id, run);
         added++;
       }
       if (
-        run.started_at &&
-        (!oldestStartedAt || run.started_at < oldestStartedAt)
+        run.created_at &&
+        (!oldestCreatedAt || run.created_at < oldestCreatedAt)
       ) {
-        oldestStartedAt = run.started_at;
+        oldestCreatedAt = run.created_at;
       }
     }
 
     if (batch.length < PAGE_LIMIT) {
       return { runs: [...runsById.values()], complete: true };
     }
-    if (added === 0 || !oldestStartedAt || oldestStartedAt === dateTo) {
-      // Cursor cannot move: either pure duplicates or runs without started_at.
+    if (added === 0 || !oldestCreatedAt || oldestCreatedAt === dateTo) {
+      // Cursor cannot move: either pure duplicates or runs without created_at.
       return { runs: [...runsById.values()], complete: false };
     }
-    dateTo = oldestStartedAt;
+    dateTo = oldestCreatedAt;
+    onPage?.({ runs: [...runsById.values()], complete: false });
   }
 
   return { runs: [...runsById.values()], complete: false };

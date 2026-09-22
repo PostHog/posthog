@@ -19,7 +19,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.conversations.backend.models import EmailChannel, ZendeskImportJob
+from products.conversations.backend.models import EmailChannel, EmailChannelKind, ZendeskImportJob
 from products.conversations.backend.permissions import IsConversationsAdmin
 from products.conversations.backend.temporal.zendesk_import.client import (
     ZendeskCredentials,
@@ -160,7 +160,11 @@ class ZendeskImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         default_email_channel_id = data.get("default_email_channel_id")
         if (
             default_email_channel_id is not None
-            and not EmailChannel.objects.filter(team_id=team_id, id=default_email_channel_id).exists()
+            and not EmailChannel.objects.filter(
+                team_id=team_id,
+                id=default_email_channel_id,
+                kind=EmailChannelKind.SUPPORT,
+            ).exists()
         ):
             return Response(
                 {"detail": "The selected default email channel does not belong to this team"},

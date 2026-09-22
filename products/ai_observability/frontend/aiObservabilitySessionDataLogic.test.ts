@@ -6,6 +6,16 @@ import { initKeaTests } from '~/test/init'
 
 import { aiObservabilitySessionDataLogic } from './aiObservabilitySessionDataLogic'
 import { aiObservabilitySessionLogic } from './aiObservabilitySessionLogic'
+import { llmAnalyticsSummarizationBatchCheckCreate, llmAnalyticsSummarizationCreate } from './generated/api'
+
+jest.mock('./generated/api', () => ({
+    ...jest.requireActual('./generated/api'),
+    llmAnalyticsSummarizationBatchCheckCreate: jest.fn(),
+    llmAnalyticsSummarizationCreate: jest.fn(),
+}))
+
+const batchCheckCreate = llmAnalyticsSummarizationBatchCheckCreate as jest.Mock
+const summarizationCreate = llmAnalyticsSummarizationCreate as jest.Mock
 
 describe('aiObservabilitySessionDataLogic', () => {
     let sessionLogic: ReturnType<typeof aiObservabilitySessionLogic.build>
@@ -39,6 +49,9 @@ describe('aiObservabilitySessionDataLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
+        batchCheckCreate.mockReset()
+        batchCheckCreate.mockResolvedValue({ summaries: [] })
+        summarizationCreate.mockReset()
         querySpy = jest.spyOn(api, 'query').mockResolvedValue(sessionResponse([traceWithEvents()]))
         sessionLogic = aiObservabilitySessionLogic()
         sessionLogic.mount()
@@ -133,5 +146,22 @@ describe('aiObservabilitySessionDataLogic', () => {
         await settleListeners()
 
         expect(logic.values.expandedGenerationIds).toEqual(new Set(['first-event']))
+    })
+
+    it('summarizes a trace by ID instead of posting its contents', async () => {
+        summarizationCreate.mockResolvedValue({ summary: { title: 'A short title' }, text_repr: '' })
+        logic.actions.loadFullTraceSuccess('trace-1', traceWithEvents(), '-7d\0')
+
+        logic.actions.summarizeTrace('trace-1', false)
+        await settleListeners()
+
+        expect(summarizationCreate.mock.calls[0][1]).toEqual({
+            mode: 'minimal',
+            force_refresh: false,
+            trace_id: 'trace-1',
+            date_from: '2025-12-31T00:00:00.000Z',
+            date_to: '2026-01-02T00:00:00.000Z',
+        })
+        expect(logic.values.traceSummaries['trace-1'].title).toBe('A short title')
     })
 })

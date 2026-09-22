@@ -8,13 +8,11 @@ Stripe-based revenue analytics view sources.
 from typing import Optional
 from uuid import uuid4
 
-from unittest.mock import Mock
-
 from posthog.schema import CurrencyCode
 
 from products.revenue_analytics.backend.views.core import SourceHandle
 from products.revenue_analytics.backend.views.sources.test.base import RevenueAnalyticsViewSourceBaseTest
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.contracts import RevenueSource, RevenueSourceSchema, RevenueSourceTable
 from products.warehouse_sources.backend.facade.sources import (
     CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
@@ -44,36 +42,24 @@ def create_mock_stripe_external_data_source(team, schemas: Optional[list[str]] =
             SUBSCRIPTION_RESOURCE_NAME,
         ]
 
-    # Create mock external data source
-    source = Mock(spec=ExternalDataSource)
-    source.id = uuid4()
-    source.team = team
-    source.source_type = "stripe"
-    source.prefix = "stripe_test"
-
-    # Create mock schemas and tables
-    mock_schemas = []
+    prefix = "stripe_test"
+    source_schemas = []
     for schema_name in schemas:
-        # Create mock table
-        table = Mock(spec=DataWarehouseTable)
-        table.id = uuid4()
-        table.name = f"{source.prefix}_{schema_name.lower()}"
-        table.team = team
+        source_schemas.append(
+            RevenueSourceSchema(
+                name=schema_name,
+                table=RevenueSourceTable(id=uuid4(), name=f"{prefix}_{schema_name.lower()}"),
+            )
+        )
 
-        # Create mock schema
-        schema = Mock(spec=ExternalDataSchema)
-        schema.id = uuid4()
-        schema.name = schema_name
-        schema.table = table
-        schema.source = source
-
-        mock_schemas.append(schema)
-
-    # Set up the schemas relationship
-    source.schemas = Mock()
-    source.schemas.all.return_value = mock_schemas
-
-    return source
+    return RevenueSource(
+        id=uuid4(),
+        source_type="stripe",
+        prefix=prefix,
+        enabled=True,
+        include_invoiceless_charges=True,
+        schemas=tuple(source_schemas),
+    )
 
 
 def create_mock_stripe_table(team, table_name, schema_name=None):
@@ -91,12 +77,7 @@ def create_mock_stripe_table(team, table_name, schema_name=None):
     if schema_name is None:
         schema_name = table_name
 
-    table = Mock(spec=DataWarehouseTable)
-    table.id = uuid4()
-    table.name = table_name
-    table.team = team
-
-    return table
+    return RevenueSourceTable(id=uuid4(), name=table_name)
 
 
 def create_mock_stripe_schema(source, schema_name: str, table=None):
@@ -111,16 +92,7 @@ def create_mock_stripe_schema(source, schema_name: str, table=None):
     Returns:
         Mock ExternalDataSchema
     """
-    if table is None:
-        table = create_mock_stripe_table(source.team, f"{source.prefix}_{schema_name.lower()}", schema_name)
-
-    schema = Mock(spec=ExternalDataSchema)
-    schema.id = uuid4()
-    schema.name = schema_name
-    schema.table = table
-    schema.source = source
-
-    return schema
+    return RevenueSourceSchema(name=schema_name, table=table)
 
 
 class StripeSourceBaseTest(RevenueAnalyticsViewSourceBaseTest):
@@ -163,13 +135,17 @@ class StripeSourceBaseTest(RevenueAnalyticsViewSourceBaseTest):
             schema_configs: List of dictionaries with schema configuration:
                 [{"name": "charge", "table_name": "stripe_charges"}, ...]
         """
-        schemas = []
+        schemas: list[RevenueSourceSchema] = []
 
         for config in schema_configs:
             schema_name = config["name"]
             table_name = config.get("table_name", f"stripe_{schema_name.lower()}")
 
-            table = create_mock_stripe_table(team=self.team, table_name=table_name, schema_name=schema_name)
+            table = (
+                create_mock_stripe_table(team=self.team, table_name=table_name, schema_name=schema_name)
+                if table_name is not None
+                else None
+            )
 
             schema = create_mock_stripe_schema(
                 source=self.external_data_source if hasattr(self, "external_data_source") else None,
@@ -183,8 +159,14 @@ class StripeSourceBaseTest(RevenueAnalyticsViewSourceBaseTest):
         if not hasattr(self, "external_data_source"):
             self.external_data_source = create_mock_stripe_external_data_source(team=self.team, schemas=[])
 
-        # Update the schemas
-        self.external_data_source.schemas.all.return_value = schemas
+        self.external_data_source = RevenueSource(
+            id=self.external_data_source.id,
+            source_type=self.external_data_source.source_type,
+            prefix=self.external_data_source.prefix,
+            enabled=self.external_data_source.enabled,
+            include_invoiceless_charges=self.external_data_source.include_invoiceless_charges,
+            schemas=tuple(schemas),
+        )
 
         self.stripe_handle = SourceHandle(type="stripe", team=self.team, source=self.external_data_source)
 
@@ -198,8 +180,7 @@ class StripeSourceBaseTest(RevenueAnalyticsViewSourceBaseTest):
         Returns:
             Mock ExternalDataSchema or None if not found
         """
-        schemas = self.external_data_source.schemas.all()
-        return next((schema for schema in schemas if schema.name == schema_name), None)
+        return next((schema for schema in self.external_data_source.schemas if schema.name == schema_name), None)
 
     def get_stripe_table_by_schema_name(self, schema_name):
         """

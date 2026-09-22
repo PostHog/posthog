@@ -27,6 +27,7 @@ from posthog.temporal.ai_observability.evaluation_clustering.workflow import (
     AIObservabilityEvaluationClusteringWorkflow,
     AIObservabilityEvaluationSamplerWorkflow,
 )
+from posthog.temporal.ai_observability.trace_clustering.constants import WORKFLOW_EXECUTION_TIMEOUT
 from posthog.temporal.common.base import PostHogWorkflow
 
 with temporalio.workflow.unsafe.imports_passed_through():
@@ -268,7 +269,7 @@ class AIObservabilityEvaluationClusteringCoordinatorWorkflow(PostHogWorkflow):
                         id=(
                             f"{CLUSTERING_CHILD_WORKFLOW_ID_PREFIX}-{team_id}-{job.job_id}-{workflow.now().isoformat()}"
                         ),
-                        execution_timeout=timedelta(minutes=30),
+                        execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
                         retry_policy=SAMPLER_CHILD_WORKFLOW_RETRY_POLICY,
                         parent_close_policy=workflow.ParentClosePolicy.TERMINATE,
                     )

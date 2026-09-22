@@ -29,7 +29,7 @@ const POSTHOG_APP_HOSTS = new Set([
   "us.posthog.com",
 ]);
 
-const POSTHOG_CODE_PATH_PATTERN = /^\/(?:task|inbox|automation)(?:\/|$)/;
+const POSTHOG_CODE_PATH_PATTERN = /^\/(?:task|inbox)(?:\/|$)/;
 
 function decodeSegment(segment: string): string {
   try {
@@ -75,10 +75,6 @@ function labelForCode(segments: string[]): string {
     return labelWithId("Code / Inbox", segments[1] ?? null);
   }
 
-  if (segments[0] === "automation") {
-    return labelWithId("Code / Automation", segments[1] ?? null);
-  }
-
   return fallbackLabel("Code", segments);
 }
 
@@ -89,7 +85,7 @@ function refIdForCode(segments: string[]): string | null {
       : (segments[1] ?? null);
   }
 
-  if (segments[0] === "inbox" || segments[0] === "automation") {
+  if (segments[0] === "inbox") {
     return segments[1] ?? null;
   }
 

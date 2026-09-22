@@ -29,6 +29,55 @@ function actionIds(result: ReturnType<typeof computeGitInteractionState>) {
 }
 
 describe("computeGitInteractionState", () => {
+  describe("github cli environment gaps", () => {
+    it.each([
+      {
+        name: "missing",
+        ghStatus: { installed: false, authenticated: false },
+        reason: "Install GitHub CLI: `brew install gh`",
+      },
+      {
+        name: "unauthenticated",
+        ghStatus: { installed: true, authenticated: false },
+        reason: "Authenticate GitHub CLI with `gh auth login`",
+      },
+    ])(
+      "keeps create-pr visible but disabled when gh is $name",
+      ({ ghStatus, reason }) => {
+        const result = computeGitInteractionState(
+          makeState({ hasChanges: true, aheadOfRemote: 1, ghStatus }),
+        );
+        const createPr = result.actions.find((a) => a.id === "create-pr");
+        expect(createPr).toBeDefined();
+        expect(createPr?.enabled).toBe(false);
+        expect(createPr?.disabledReason).toBe(reason);
+        expect(result.primaryAction.id).not.toBe("create-pr");
+      },
+    );
+
+    it("still drops create-pr for routine states like an existing PR", () => {
+      const result = computeGitInteractionState(
+        makeState({
+          hasChanges: true,
+          prStatus: {
+            prExists: true,
+            baseBranch: "main",
+            headBranch: "feature/test",
+            prUrl: "https://github.com/test/test/pull/1",
+          },
+        }),
+      );
+      expect(actionIds(result)).not.toContain("create-pr");
+    });
+
+    it("does not surface create-pr while gh status is still loading", () => {
+      const result = computeGitInteractionState(
+        makeState({ hasChanges: true, aheadOfRemote: 1, ghStatus: null }),
+      );
+      expect(actionIds(result)).not.toContain("create-pr");
+    });
+  });
+
   describe("on default branch with changes", () => {
     it("returns create-pr as primary action", () => {
       const result = computeGitInteractionState(

@@ -25,17 +25,28 @@ from posthog.temporal.ai.slack_app.helpers import safe_react
 
 from products.slack_app.backend.api import SlackUserContext
 from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
+from products.slack_app.backend.services.slack_messages import (
+    SlackFileRef,
+    SlackThreadMessage,
+    encode_slack_file_refs,
+    parse_slack_file_refs,
+)
 
 
-def _make_inputs(integration_id: int, slack_team_id: str = "T_SLACK") -> PostHogCodeSlackMentionWorkflowInputs:
+def _make_inputs(
+    integration_id: int, user_id: int, slack_team_id: str = "T_SLACK"
+) -> PostHogCodeSlackMentionWorkflowInputs:
     return PostHogCodeSlackMentionWorkflowInputs(
         event={"channel": "C123", "ts": "1234.5678", "user": "U_ALICE", "text": "<@BOT> do something"},
         integration_id=integration_id,
         slack_team_id=slack_team_id,
+        user_id=user_id,
     )
 
 
 def _make_slack_file(**overrides: object) -> dict[str, object]:
+    """A file as Slack puts it on an event payload."""
     file: dict[str, object] = {
         "id": "F123",
         "name": "debug.log",
@@ -46,6 +57,11 @@ def _make_slack_file(**overrides: object) -> dict[str, object]:
     }
     file.update(overrides)
     return file
+
+
+def _make_file_ref(**overrides: object) -> SlackFileRef:
+    """The same file as it reaches a thread snapshot."""
+    return parse_slack_file_refs([_make_slack_file(**overrides)])[0]
 
 
 def _assert_quota_denial_posted(mock_slack_instance: MagicMock, channel: str, thread_ts: str) -> None:
@@ -193,7 +209,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         bot_id_patcher.start()
         self.addCleanup(bot_id_patcher.stop)
 
-    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_no_repo_task_starts_with_pr_creation_enabled(self, mock_slack_cls, mock_execute_workflow):
         mock_slack_instance = MagicMock()
@@ -203,7 +219,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         }
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         create_posthog_code_task_for_repo_activity(
             inputs,
             "C123",
@@ -211,7 +227,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "run without repo"}],
+            [SlackThreadMessage(user="U_ALICE", text="run without repo")],
             None,
         )
 
@@ -238,7 +254,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert mapping.task_id == task.id
         assert mapping.task_run_id == task.latest_run.id
 
-    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_initial_task_uploads_slack_attachment_to_pending_prompt(
         self, mock_slack_cls, mock_execute_workflow
@@ -262,6 +278,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             event=event,
             integration_id=self.integration.id,
             slack_team_id="T_SLACK",
+            user_id=self.user.id,
         )
 
         with (
@@ -276,7 +293,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
                 "U_ALICE",
                 self.user.id,
                 event,
-                [{"user": "U_ALICE", "text": "review this log", "ts": "1234.5678"}],
+                [SlackThreadMessage(user="U_ALICE", text="review this log", ts="1234.5678")],
                 None,
             )
 
@@ -296,7 +313,73 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert mock_write.call_args.args[1] == b"log bytes"
         mock_execute_workflow.assert_called_once()
 
-    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_initial_task_uploads_an_attachment_posted_earlier_in_the_thread(
+        self, mock_slack_cls, mock_execute_workflow
+    ) -> None:
+        # Somebody posts a chart, the discussion runs, and the ask lands several replies
+        # later. The mention carries no file of its own, so the chart only reaches the
+        # agent if the thread's own attachments are fetched too.
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.token = "xoxb-test"
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+
+        event = {
+            "channel": "C123",
+            "ts": "1234.5678",
+            "user": "U_ALICE",
+            "text": "<@BOT> what is this telling us?",
+        }
+        inputs = PostHogCodeSlackMentionWorkflowInputs(
+            event=event,
+            integration_id=self.integration.id,
+            slack_team_id="T_SLACK",
+            user_id=self.user.id,
+        )
+        thread_messages = [
+            SlackThreadMessage(
+                user="U_ALICE",
+                text="",
+                ts="1234.0000",
+                files_json=encode_slack_file_refs(
+                    [_make_file_ref(name="costs.png", mimetype="image/png", filetype="png", size=9)]
+                ),
+            ),
+            SlackThreadMessage(user="U_ALICE", text="what is this telling us?", ts="1234.5678"),
+        ]
+
+        with (
+            patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"png bytes"),
+            patch("posthog.storage.object_storage.write"),
+            patch("posthog.storage.object_storage.tag"),
+        ):
+            create_posthog_code_task_for_repo_activity(
+                inputs,
+                "C123",
+                "1234.5678",
+                "U_ALICE",
+                self.user.id,
+                event,
+                thread_messages,
+                None,
+            )
+
+        task = self.Task.objects.get(team=self.team)
+        run = self.TaskRun.objects.get(task=task)
+        assert run.artifacts[0]["name"] == "costs.png"
+        assert run.artifacts[0]["id"] in run.state["pending_user_artifact_ids"]
+        assert (
+            "Slack attachment(s) available to the agent as task files: costs.png." in run.state["pending_user_message"]
+        )
+        # The context block says which message it came from, so the agent can place it.
+        assert "[Attached file(s): costs.png]" in task.description
+
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_existing_mapping_skips_duplicate_task_creation(self, mock_slack_cls, mock_execute_workflow):
         """A retried activity (or a concurrent duplicate mention) must not create a
@@ -323,7 +406,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             mentioning_slack_user_id="U_ALICE",
         )
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         create_posthog_code_task_for_repo_activity(
             inputs,
             "C123",
@@ -331,7 +414,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "do something"}],
+            [SlackThreadMessage(user="U_ALICE", text="do something")],
             None,
         )
 
@@ -343,7 +426,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert mapping.task_run_id == existing_run.id
         mock_execute_workflow.assert_not_called()
 
-    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_persists_explicit_event_id_in_workflow_id(self, mock_slack_cls, mock_execute_workflow):
         mock_slack_instance = MagicMock()
@@ -358,6 +441,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             integration_id=self.integration.id,
             slack_team_id="T_SLACK",
             slack_event_id="Ev01234567",
+            user_id=self.user.id,
         )
         create_posthog_code_task_for_repo_activity(
             inputs,
@@ -366,14 +450,14 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "hi"}],
+            [SlackThreadMessage(user="U_ALICE", text="hi")],
             None,
         )
 
         task = self.Task.objects.get(team=self.team)
         assert task.latest_run.state["slack_mention_workflow_id"] == "posthog-code-mention-T_SLACK:Ev01234567"
 
-    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_persists_repo_research_ids_when_provided(self, mock_slack_cls, mock_execute_workflow):
         mock_slack_instance = MagicMock()
@@ -383,7 +467,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         }
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         create_posthog_code_task_for_repo_activity(
             inputs,
             "C123",
@@ -391,7 +475,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "investigate the flaky checkout test"}],
+            [SlackThreadMessage(user="U_ALICE", text="investigate the flaky checkout test")],
             None,
             "11111111-1111-1111-1111-111111111111",
             "22222222-2222-2222-2222-222222222222",
@@ -402,7 +486,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert state["repo_research_task_id"] == "11111111-1111-1111-1111-111111111111"
         assert state["repo_research_run_id"] == "22222222-2222-2222-2222-222222222222"
 
-    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_no_repo_research_ids_when_not_provided(self, mock_slack_cls, mock_execute_workflow):
         # The unambiguous path (explicit mention / cascade auto) never runs the
@@ -414,7 +498,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         }
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         create_posthog_code_task_for_repo_activity(
             inputs,
             "C123",
@@ -422,7 +506,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "just answer this, no repo needed"}],
+            [SlackThreadMessage(user="U_ALICE", text="just answer this, no repo needed")],
             None,
         )
 
@@ -430,7 +514,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert "repo_research_task_id" not in task.latest_run.state
         assert "repo_research_run_id" not in task.latest_run.state
 
-    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_no_repo_task_falls_back_to_team_github_integration(self, mock_slack_cls, mock_execute_workflow):
         Integration.objects.create(team=self.team, kind="github", integration_id="12345", config={})
@@ -441,7 +525,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         }
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         create_posthog_code_task_for_repo_activity(
             inputs,
             "C123",
@@ -449,7 +533,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "clone a repo later"}],
+            [SlackThreadMessage(user="U_ALICE", text="clone a repo later")],
             None,
         )
 
@@ -460,7 +544,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert task.latest_run.state["pr_authorship_mode"] == "bot"
         mock_execute_workflow.assert_called_once()
 
-    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_no_repo_task_falls_back_to_team_github_integration_when_user_token_unusable(
         self, mock_slack_cls, mock_execute_workflow
@@ -480,7 +564,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         }
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         create_posthog_code_task_for_repo_activity(
             inputs,
             "C123",
@@ -488,7 +572,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "clone a repo later"}],
+            [SlackThreadMessage(user="U_ALICE", text="clone a repo later")],
             None,
         )
 
@@ -499,7 +583,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert task.latest_run.state["pr_authorship_mode"] == "bot"
         mock_execute_workflow.assert_called_once()
 
-    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_no_repo_task_prefers_user_github_integration(self, mock_slack_cls, mock_execute_workflow):
         UserIntegration.objects.create(
@@ -516,7 +600,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         }
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         create_posthog_code_task_for_repo_activity(
             inputs,
             "C123",
@@ -524,7 +608,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "clone a repo later"}],
+            [SlackThreadMessage(user="U_ALICE", text="clone a repo later")],
             None,
         )
 
@@ -541,7 +625,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
     # below cover the surrounding activity wiring: Slack permalink, mapping, workflow
     # start, quota blocking, etc.
 
-    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_description_is_wired_to_slack_thread_context_helper(self, mock_slack_cls, mock_execute_workflow):
         # Smoke-test that the activity calls into the helper and persists the result —
@@ -554,7 +638,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         }
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         create_posthog_code_task_for_repo_activity(
             inputs,
             "C123",
@@ -563,8 +647,8 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             self.user.id,
             inputs.event,
             [
-                {"user": "georgiy", "user_id": "U_GEORGIY", "text": "preamble", "ts": "1.000"},
-                {"user": "georgiy", "user_id": "U_GEORGIY", "text": "do something", "ts": "1234.5678"},
+                SlackThreadMessage(user="georgiy", user_id="U_GEORGIY", text="preamble", ts="1.000"),
+                SlackThreadMessage(user="georgiy", user_id="U_GEORGIY", text="do something", ts="1234.5678"),
             ],
             None,
         )
@@ -574,7 +658,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert "</slack_thread_context>" in task.description
         assert task.description.endswith("do something")
 
-    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     @patch("ee.billing.quota_limiting.is_team_limited", return_value=True)
     def test_quota_exceeded_blocks_task_creation_with_thread_message(
@@ -586,7 +670,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         create_posthog_code_task_for_repo_activity(
             inputs,
             "C123",
@@ -594,7 +678,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "do something"}],
+            [SlackThreadMessage(user="U_ALICE", text="do something")],
             None,
         )
 
@@ -650,7 +734,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
 
     def test_no_mapping_returns_false(self):
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "do something", "1234.5679"
         )
@@ -667,7 +751,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "do something", "1234.5679"
         )
@@ -677,7 +761,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert result is True
         _assert_quota_denial_posted(mock_slack_instance, "C123", "1234.5678")
 
-    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_terminal_run_resumes_same_task(self, mock_slack_cls, mock_execute_workflow):
         self.task_run.status = self.TaskRun.Status.COMPLETED
@@ -686,7 +770,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> do something", "1234.5679"
         )
@@ -721,7 +805,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
         mock_slack_instance.client.chat_postMessage.assert_not_called()
 
-    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_terminal_run_resumes_with_slack_attachment(self, mock_slack_cls, mock_execute_workflow) -> None:
         self.task_run.status = self.TaskRun.Status.COMPLETED
@@ -742,6 +826,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             event=event,
             integration_id=self.integration.id,
             slack_team_id="T_SLACK",
+            user_id=self.user.id,
         )
 
         with (
@@ -767,7 +852,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert new_run.artifacts[0]["name"] == "resume.txt"
         assert new_run.artifacts[0]["source"] == "slack_user_attachment"
 
-    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_terminal_no_repo_run_resumes_with_pr_creation_enabled(self, mock_slack_cls, mock_execute_workflow):
         self.task.repository = None
@@ -777,7 +862,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         self._create_mapping()
         mock_slack_cls.return_value = MagicMock()
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> clone org/repo and open PR", "1234.5679"
         )
@@ -786,7 +871,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_execute_workflow.assert_called_once()
         assert mock_execute_workflow.call_args.kwargs["create_pr"] is True
 
-    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_terminal_run_seeds_pr_context_into_new_run_prompt(self, mock_slack_cls, mock_execute_workflow):
         self.task_run.status = self.TaskRun.Status.COMPLETED
@@ -795,7 +880,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         self._create_mapping()
         mock_slack_cls.return_value = MagicMock()
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> fix the tests", "1234.5679"
         )
@@ -809,7 +894,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert "slack_pr_opened_notified" not in new_run.state
         assert "slack_notified_pr_url" not in new_run.state
 
-    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_terminal_failed_run_resumes_with_structured_recovery_prompt(self, mock_slack_cls, mock_execute_workflow):
         self.task_run.status = self.TaskRun.Status.FAILED
@@ -823,7 +908,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         self._create_mapping()
         mock_slack_cls.return_value = MagicMock()
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> I connected GitHub, try again", "1234.5679"
         )
@@ -850,7 +935,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_BOB", "<@BOT> do something", "1234.5679"
         )
@@ -869,7 +954,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> do something", "1234.5679"
         )
@@ -878,7 +963,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
         assert "original task creator" in call_kwargs["text"]
 
-    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow", side_effect=Exception("boom"))
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow", side_effect=Exception("boom"))
     @patch("posthog.models.integration.SlackIntegration")
     def test_terminal_run_workflow_start_failure_returns_true_with_error(self, mock_slack_cls, mock_execute_workflow):
         self.task_run.status = self.TaskRun.Status.COMPLETED
@@ -887,7 +972,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> do something", "1234.5679"
         )
@@ -908,7 +993,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_BOB", "do something", "1234.5679"
         )
@@ -929,7 +1014,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_cls.return_value = mock_slack_instance
         mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_BOB", "<@BOT> please retry the build", "1234.5679"
         )
@@ -958,7 +1043,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_cls.return_value = MagicMock()
         mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         forward_posthog_code_followup_activity(inputs, "C123", "1234.5678", "U_BOB", "<@BOT> ping", "1234.5679")
 
         mock_signal.assert_called_once()
@@ -977,7 +1062,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_BOB", "<@BOT> sneak in", "1234.5679"
         )
@@ -986,7 +1071,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_resolve.assert_called_once_with(mock_slack_instance, self.integration, "U_BOB", "C123", "1234.5678")
         mock_slack_instance.client.chat_postMessage.assert_not_called()
 
-    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("posthog.models.integration.SlackIntegration")
     def test_cross_user_terminal_run_resume_prefixes_actor_name(
@@ -1002,7 +1087,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_cls.return_value = MagicMock()
         mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_BOB", "<@BOT> fix the tests", "1234.5679"
         )
@@ -1016,21 +1101,99 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert new_run.state["slack_actor_user_id"] == bob.id
         assert new_run.state["slack_actor_slack_user_id"] == "U_BOB"
 
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
-    def test_sandbox_not_ready_returns_true_with_message(self, mock_slack_cls):
+    def test_a_resumed_run_carries_the_model_the_workspace_would_pick(self, mock_slack_cls, mock_execute_workflow):
+        # `create_run` builds a fresh state, so without this the follow-up reached the
+        # sandbox with no model and the agent server chose one we never recorded — leaving
+        # the thread's footer unable to name what ran.
+        self.task_run.status = self.TaskRun.Status.COMPLETED
+        self.task_run.save()
+        self._create_mapping()
+        mock_slack_cls.return_value = MagicMock()
+
+        inputs = _make_inputs(self.integration.id, self.user.id)
+        result = forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> fix the tests", "1234.5679"
+        )
+
+        assert result is True
+        new_run = self.TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"])
+        assert new_run.state["model"] == SLACK_DEFAULT_MODEL
+        assert new_run.state["runtime_adapter"]
+
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_a_resumed_run_carries_the_pr_authorship_mode(self, mock_slack_cls, mock_execute_workflow):
+        # `create_run` builds a fresh state, so without the carry-forward the follow-up re-derives
+        # USER authorship for a Slack task. A creator with no personal GitHub install then dead-ends
+        # at the token guard on every follow-up, while the first run ran as BOT.
+        self.task_run.status = self.TaskRun.Status.COMPLETED
+        self.task_run.state = {"pr_authorship_mode": "bot"}
+        self.task_run.save()
+        self._create_mapping()
+        mock_slack_cls.return_value = MagicMock()
+
+        inputs = _make_inputs(self.integration.id, self.user.id)
+        result = forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> fix the tests", "1234.5679"
+        )
+
+        assert result is True
+        new_run = self.TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"])
+        assert new_run.state["pr_authorship_mode"] == "bot"
+
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_a_resumed_run_promotes_bot_authorship_once_the_creator_connects_github(
+        self, mock_slack_cls, mock_execute_workflow
+    ):
+        # The carried BOT must not outlive its reason. A creator who connected GitHub after the
+        # previous run went terminal gets their identity on the successor, matching the promotion
+        # a live sandbox performs in _refresh_sandbox_github.
+        self.task_run.status = self.TaskRun.Status.COMPLETED
+        self.task_run.state = {"pr_authorship_mode": "bot"}
+        self.task_run.save()
+        self._create_mapping()
+        mock_slack_cls.return_value = MagicMock()
+        UserIntegration.objects.create(
+            user=self.user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="gh-1",
+            config={},
+            sensitive_config={"user_access_token": "at", "user_refresh_token": "rt"},
+        )
+
+        inputs = _make_inputs(self.integration.id, self.user.id)
+        result = forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> fix the tests", "1234.5679"
+        )
+
+        assert result is True
+        new_run = self.TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"])
+        assert new_run.state["pr_authorship_mode"] == "user"
+
+    @patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True)
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_forwards_while_sandbox_is_still_provisioning(self, mock_slack_cls, mock_signal):
+        # A run that has started but not yet written `sandbox_url` is mid-provisioning.
+        # Delivery is a signal onto the run's workflow, which is already running and
+        # queues the message, so the follow-up must be forwarded rather than refused.
         self.task_run.state = {}
         self.task_run.save()
         self._create_mapping()
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "do something", "1234.5679"
         )
+
         assert result is True
-        call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
-        assert "still starting up" in call_kwargs["text"]
+        mock_signal.assert_called_once()
+        assert mock_signal.call_args.kwargs["content"] == "do something"
+        mock_slack_instance.client.chat_postMessage.assert_not_called()
 
     @patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True)
     @patch("posthog.models.integration.SlackIntegration")
@@ -1039,7 +1202,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> do something", "1234.5679"
         )
@@ -1082,6 +1245,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             event=event,
             integration_id=self.integration.id,
             slack_team_id="T_SLACK",
+            user_id=self.user.id,
         )
 
         with (
@@ -1121,6 +1285,52 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert first_call.kwargs["message_id"] is not None
         assert first_call.kwargs["message_id"] == second_call.kwargs["message_id"]
 
+    def test_followup_forwards_an_attachment_posted_while_the_agent_was_quiet(self) -> None:
+        # The follow-up says "look at this" about an image somebody dropped in the thread
+        # since the agent last spoke. The reply carries no file, so the image reaches the
+        # agent only if the diff window's own attachments are fetched.
+        self._create_mapping()
+        inputs = _make_inputs(self.integration.id, self.user.id)
+        thread_messages = [
+            SlackThreadMessage(
+                user="mira",
+                user_id="U_MIRA",
+                text="",
+                ts="1234.5678999",
+                files_json=encode_slack_file_refs(
+                    [_make_file_ref(name="trace.png", mimetype="image/png", filetype="png", size=9)]
+                ),
+            ),
+        ]
+
+        with (
+            patch("posthog.models.integration.SlackIntegration") as mock_slack_cls,
+            patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True) as mock_signal,
+            patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"png bytes"),
+            patch(
+                "products.slack_app.backend.services.slack_messages.collect_thread_messages",
+                return_value=thread_messages,
+            ),
+            patch("posthog.storage.object_storage.write"),
+            patch("posthog.storage.object_storage.tag"),
+        ):
+            mock_slack_instance = MagicMock()
+            mock_slack_instance.client.token = "xoxb-test"
+            mock_slack_instance.client.auth_test.return_value = {"bot_id": "B123"}
+            mock_slack_cls.return_value = mock_slack_instance
+
+            result = forward_posthog_code_followup_activity(
+                inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> look at this", "1234.5679"
+            )
+
+        assert result is True
+        self.task_run.refresh_from_db()
+        assert [artifact["name"] for artifact in self.task_run.artifacts] == ["trace.png"]
+        content = mock_signal.call_args.kwargs["content"]
+        assert "[Attached file(s): trace.png]" in content
+        assert "Slack attachment(s) available to the agent as task files: trace.png." in content
+        assert mock_signal.call_args.kwargs["artifact_ids"] == [str(self.task_run.artifacts[0]["id"])]
+
     @parameterized.expand(
         [
             ("live_run", False),
@@ -1145,11 +1355,12 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             event=event,
             integration_id=self.integration.id,
             slack_team_id="T_SLACK",
+            user_id=self.user.id,
         )
 
         with (
             patch("posthog.models.integration.SlackIntegration") as mock_slack_cls,
-            patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow") as mock_execute_workflow,
+            patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow") as mock_execute_workflow,
             patch("products.tasks.backend.logic.services.agent_command.send_user_message") as mock_send,
             patch("posthog.storage.object_storage.write") as mock_write,
         ):
@@ -1175,7 +1386,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> do something", "1234.5679"
         )
@@ -1198,6 +1409,7 @@ class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):
     def setUp(self):
         self.org = Organization.objects.create(name="TestOrg")
         self.team = Team.objects.create(organization=self.org, name="TestTeam")
+        self.user = User.objects.create(email="alice@test.com")
         self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
 
     @patch("posthog.models.integration.SlackIntegration")
@@ -1206,7 +1418,7 @@ class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         blocked = enforce_posthog_code_billing_quota_activity(
             inputs,
             "C123",
@@ -1223,7 +1435,7 @@ class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
-        inputs = _make_inputs(self.integration.id)
+        inputs = _make_inputs(self.integration.id, self.user.id)
         blocked = enforce_posthog_code_billing_quota_activity(
             inputs,
             "C123",

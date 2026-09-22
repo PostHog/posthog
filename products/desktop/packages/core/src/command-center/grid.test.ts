@@ -3,8 +3,8 @@ import {
   BRAINROT_CELL,
   clampZoom,
   countActiveTaskCells,
+  getCanvasCellId,
   getCellCount,
-  getCellSessionId,
   getExpandedLayout,
   getExpansionCellIndex,
   getGridDimensions,
@@ -13,10 +13,13 @@ import {
   getTerminalCellCwd,
   getTerminalCellId,
   isBrainrotCell,
+  isCanvasCell,
   isTerminalCell,
+  makeCanvasCellValue,
   makeTerminalCellValue,
   reflowCells,
   resizeCells,
+  resizeCellsForLayout,
 } from "./grid";
 
 describe("getGridDimensions / getCellCount", () => {
@@ -166,6 +169,43 @@ describe("resizeCells", () => {
   });
 });
 
+describe("resizeCellsForLayout", () => {
+  it("packs occupied cells when the grid capacity shrinks", () => {
+    expect(
+      resizeCellsForLayout(
+        ["a", "b", "c", null, "deleted-task", "d"],
+        "3x2",
+        "2x2",
+        [0, 1, 2, 5],
+      ),
+    ).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it.each([
+    {
+      from: "3x1",
+      to: "2x2",
+      cells: ["a", null, "c"],
+      occupiedCellIndices: [0, 2],
+      expected: ["a", null, null, null],
+    },
+    {
+      from: "3x2",
+      to: "2x3",
+      cells: ["a", null, null, null, "b", null],
+      occupiedCellIndices: [0, 4],
+      expected: ["a", null, null, "b", null, null],
+    },
+  ] as const)(
+    "preserves coordinates when resizing from $from to $to without reducing capacity",
+    ({ from, to, cells, occupiedCellIndices, expected }) => {
+      expect(
+        resizeCellsForLayout(cells, from, to, occupiedCellIndices),
+      ).toEqual(expected);
+    },
+  );
+});
+
 describe("clampZoom", () => {
   it.each([
     { input: 0.1, expected: 0.5 },
@@ -185,6 +225,24 @@ describe("isBrainrotCell", () => {
     { value: null, expected: false },
   ])("$value -> $expected", ({ value, expected }) => {
     expect(isBrainrotCell(value)).toBe(expected);
+  });
+});
+
+describe("canvas cells", () => {
+  it("round-trips a canvas id through the cell value", () => {
+    const value = makeCanvasCellValue("canvas-1");
+    expect(isCanvasCell(value)).toBe(true);
+    expect(getCanvasCellId(value)).toBe("canvas-1");
+  });
+
+  it.each([
+    { value: "some-task-uuid", expected: false },
+    { value: BRAINROT_CELL, expected: false },
+    { value: makeTerminalCellValue("abc123"), expected: false },
+    { value: null, expected: false },
+  ])("isCanvasCell($value) -> $expected", ({ value, expected }) => {
+    expect(isCanvasCell(value)).toBe(expected);
+    if (!expected) expect(getCanvasCellId(value)).toBeNull();
   });
 });
 
@@ -213,12 +271,6 @@ describe("terminal cells", () => {
   });
 });
 
-describe("getCellSessionId", () => {
-  it("formats the cell session id", () => {
-    expect(getCellSessionId(2)).toBe("cc-cell-2");
-  });
-});
-
 describe("countActiveTaskCells", () => {
   const live = new Set(["task-1", "task-2"]);
 
@@ -236,6 +288,7 @@ describe("countActiveTaskCells", () => {
     { name: "empty cells", cells: [null, null] },
     { name: "the brainrot sentinel", cells: [BRAINROT_CELL] },
     { name: "terminal cells", cells: [makeTerminalCellValue("abc123")] },
+    { name: "canvas cells", cells: [makeCanvasCellValue("canvas-1")] },
   ])("does not count $name", ({ cells }) => {
     expect(countActiveTaskCells(cells, live)).toBe(0);
   });
@@ -243,7 +296,14 @@ describe("countActiveTaskCells", () => {
   it("counts a mixed grid correctly", () => {
     expect(
       countActiveTaskCells(
-        [null, BRAINROT_CELL, "task-1", "deleted", makeTerminalCellValue("t")],
+        [
+          null,
+          BRAINROT_CELL,
+          "task-1",
+          "deleted",
+          makeTerminalCellValue("t"),
+          makeCanvasCellValue("canvas-1"),
+        ],
         live,
       ),
     ).toBe(1);

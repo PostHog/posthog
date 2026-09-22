@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconArrowLeft, IconCheckCircle, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTextArea, Link, Spinner } from '@posthog/lemon-ui'
@@ -6,6 +7,7 @@ import { LemonBanner, LemonButton, LemonTextArea, Link, Spinner } from '@posthog
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { describeOAuthCallbackError, INTEGRATION_ERROR_PARAM } from 'lib/integrations/oauthCallbackErrors'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useSelfDrivingRunState } from 'scenes/onboarding/shared/wizard-sync/hooks'
 import { urls } from 'scenes/urls'
@@ -42,6 +44,8 @@ export function IntegrationFullPage({
                         />
                     </div>
 
+                    <ConnectErrorBanner definition={definition} />
+
                     {integrationsLoading ? (
                         <Spinner className="text-2xl" />
                     ) : connected ? (
@@ -60,6 +64,26 @@ export function IntegrationFullPage({
     )
 }
 
+/**
+ * Explains a connect attempt the provider sent back without a code. The callback handler parks the
+ * raw provider error code in the URL rather than firing a toast, because the user's next step is
+ * the connect button on this page and a toast is gone by the time they read the reason.
+ */
+function ConnectErrorBanner({ definition }: { definition: IntegrationDefinition }): JSX.Element | null {
+    const { searchParams } = useValues(router)
+
+    const error = searchParams[INTEGRATION_ERROR_PARAM]
+    if (!error) {
+        return null
+    }
+
+    return (
+        <LemonBanner type="warning" className="w-full">
+            {describeOAuthCallbackError(String(error), definition.kind)}
+        </LemonBanner>
+    )
+}
+
 function ConnectView({
     definition,
     SettingsSection,
@@ -68,6 +92,10 @@ function ConnectView({
     SettingsSection: SettingsSectionComponent
 }): JSX.Element {
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
+    // This page serves both the self-driving wizard, which parks a run here for the GitHub round
+    // trip, and everyone arriving under their own steam. Both leave the same click behind, so
+    // recording which it was is the only way to attribute a connect to a wizard run.
+    const { inFlight: selfDrivingRunInFlight } = useSelfDrivingRunState()
     // Connecting an integration requires project membership (enforced again in the backend);
     // editing or removing one still requires admin. Users with no project access fall back to
     // the request-access flow below.
@@ -77,7 +105,12 @@ function ConnectView({
     })
 
     const onConnectClick = (): void => {
-        reportIntegrationConnectClicked(definition.slug, definition.kind)
+        reportIntegrationConnectClicked(
+            definition.slug,
+            definition.kind,
+            'integration_landing_page',
+            selfDrivingRunInFlight
+        )
     }
 
     return (

@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import * as superheroPng from '@posthog/brand/hoggies/png/superhero'
 import { IconArrowRight } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
-import { SupermanHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -18,6 +19,8 @@ import { type BillingProductV2Type, OnboardingStepKey } from '~/types'
 import { onboardingLogic, OnboardingStepComponentType } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
 import PlanCards from './PlanCards'
+
+const HedgehogSuperhero = pngHoggie(superheroPng)
 
 type OnboardingUpgradeStepProps = {
     product: BillingProductV2Type
@@ -101,7 +104,7 @@ const SubscribedCelebration = (): JSX.Element => {
 
             {/* Superman Hog floating animation */}
             <div className="w-40 h-40 animate-float">
-                <SupermanHog className="w-full h-full object-contain" />
+                <HedgehogSuperhero className="w-full h-full object-contain" />
             </div>
 
             <h3 className="text-2xl font-bold mt-6">Go forth and build amazing products!</h3>
@@ -174,7 +177,7 @@ const PlatformPackagesUpsell = ({
 
             {/* Superman Hog floating animation */}
             <div className="w-24 h-24 animate-float">
-                <SupermanHog className="w-full h-full object-contain" />
+                <HedgehogSuperhero className="w-full h-full object-contain" />
             </div>
 
             <div className="w-full max-w-4xl mt-2">

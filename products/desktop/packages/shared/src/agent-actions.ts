@@ -1,0 +1,144 @@
+import { z } from "zod";
+
+/**
+ * An action an agent offers the user as a button. It names a verb and the verb's
+ * own fields rather than a URL, and the host builds the link itself with
+ * {@link buildActionUrl}. Agent output can carry text from anywhere, so a URL it
+ * picked and the user was invited to click would be a phishing primitive.
+ *
+ * Declared once here because three packages need the same shape and none of them
+ * can import the others: the agent's tool schema, the renderer that draws the
+ * buttons, and the host procedure that opens one. `describe` text is written for
+ * the model reading the tool schema; the other two ignore it.
+ */
+const requiredField = z.string().trim().min(1);
+
+const composeFields = {
+  kind: z.literal("compose"),
+  prompt: requiredField.describe(
+    "Text to prefill in a separate new task. This does not send a prompt in " +
+      "the current session. Do not use compose for approval, confirmation, " +
+      "or continued work in the current task.",
+  ),
+  repo: requiredField
+    .optional()
+    .describe(
+      "Repository slug to preselect, e.g. `posthog/posthog`. Omit when the " +
+        "task has no repository.",
+    ),
+};
+
+const openSpaceFields = {
+  kind: z.literal("open_space"),
+  channel_id: requiredField.describe("Id of the channel whose feed to open."),
+};
+
+const openCanvasFields = {
+  kind: z.literal("open_canvas"),
+  channel_id: requiredField.describe(
+    "Id of the channel the canvas lives in. Required.",
+  ),
+  canvas_id: requiredField.describe("Id of the canvas to open. Required."),
+};
+
+const openInboxFields = {
+  kind: z.literal("open_inbox"),
+  report_id: requiredField
+    .optional()
+    .describe(
+      "Id of a single report to open. Omit to open the inbox on its own.",
+    ),
+};
+
+/** What the host accepts and {@link buildActionUrl} turns into a link. */
+export const agentActionSchema = z.discriminatedUnion("kind", [
+  z.object(composeFields),
+  z.object(openSpaceFields),
+  z.object(openCanvasFields),
+  z.object(openInboxFields),
+]);
+
+export type AgentAction = z.infer<typeof agentActionSchema>;
+
+const labelSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(60)
+  .describe(
+    "Button text. Short and in sentence case, naming what the button does.",
+  );
+
+const descriptionSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(140)
+  .describe(
+    "Optional. One short sentence saying what the prefilled task will do. " +
+      "Never a restatement of the label.",
+  );
+
+/**
+ * One button as the agent offers it: an action plus the text on it. `label` and
+ * `description` never reach a link, which is why {@link agentActionSchema}
+ * leaves them out.
+ */
+export const showActionSchema = z.discriminatedUnion("kind", [
+  z.object({
+    ...composeFields,
+    label: labelSchema,
+    description: descriptionSchema.optional(),
+  }),
+  z.object({ ...openSpaceFields, label: labelSchema }),
+  z.object({ ...openCanvasFields, label: labelSchema }),
+  z.object({ ...openInboxFields, label: labelSchema }),
+]);
+
+export type ShowAction = z.infer<typeof showActionSchema>;
+
+export const openAgentActionInput = z.object({ action: agentActionSchema });
+
+/** One button as the renderer draws it: its text, and the verb behind it. */
+export interface ShowActionButton {
+  label: string;
+  description?: string;
+  action: AgentAction;
+}
+
+/** Split a button back into the text on it and the verb behind it. */
+export function splitShowAction(button: ShowAction): ShowActionButton {
+  // Only compose carries a description, so the two branches keep the rest of
+  // the object typed as an action the host will accept.
+  if (button.kind === "compose") {
+    const { label, description, ...action } = button;
+    return { label, description, action };
+  }
+  const { label, ...action } = button;
+  return { label, action };
+}
+
+/**
+ * The action is already validated by {@link agentActionSchema}, which rejects a
+ * blank required field, so every branch can build a whole link. Keep that
+ * guarantee at the schema rather than returning a partial link from here.
+ */
+export function buildActionUrl(action: AgentAction, scheme: string): string {
+  switch (action.kind) {
+    case "compose": {
+      const prompt = `prompt=${encodeURIComponent(action.prompt)}`;
+      const query = action.repo
+        ? `${prompt}&repo=${encodeURIComponent(action.repo)}`
+        : prompt;
+      return `${scheme}://new?${query}`;
+    }
+    case "open_space":
+      return `${scheme}://channel/${encodeURIComponent(action.channel_id)}`;
+    case "open_canvas":
+      return `${scheme}://canvas/${encodeURIComponent(action.channel_id)}/${encodeURIComponent(action.canvas_id)}`;
+    case "open_inbox":
+      return action.report_id
+        ? `${scheme}://inbox/${encodeURIComponent(action.report_id)}`
+        : `${scheme}://inbox`;
+  }
+}

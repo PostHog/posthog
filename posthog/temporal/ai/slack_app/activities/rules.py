@@ -2,54 +2,15 @@ import structlog
 from temporalio import activity
 
 from posthog.temporal.ai.slack_app.types import (
-    PostHogCodeRulesCommandResult,
     PostHogCodeSlackMentionCommandResult,
     PostHogCodeSlackMentionCommandWorkflowInputs,
     PostHogCodeSlackMentionWorkflowInputs,
 )
 from posthog.temporal.common.utils import close_db_connections
 
+from products.slack_app.backend.services.slack_messages import post_slack_ephemeral, post_slack_thread_reply
+
 logger = structlog.get_logger(__name__)
-
-
-@activity.defn
-@close_db_connections
-def handle_posthog_code_rules_command_activity(
-    inputs: PostHogCodeSlackMentionWorkflowInputs,
-    channel: str,
-    thread_ts: str,
-    slack_user_id: str,
-    user_id: int,
-) -> PostHogCodeRulesCommandResult:
-    from posthog.models.integration import Integration, SlackIntegration
-
-    from products.slack_app.backend.api import parse_rules_command
-    from products.slack_app.backend.services.commands import dispatch_rules_command
-
-    command = parse_rules_command(inputs.event.get("text", ""))
-    if not command:
-        return PostHogCodeRulesCommandResult(status="not_a_command")
-    # Picker flow is unique to this workflow; the command service can't drive a
-    # workflow signal, so catch it here before delegating.
-    if command.action == "add" and not command.repository:
-        return PostHogCodeRulesCommandResult(status="needs_picker", pending_rule_text=command.rule_text)
-
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
-    dispatch_rules_command(
-        command,
-        SlackIntegration(integration),
-        integration,
-        channel=channel,
-        thread_ts=thread_ts,
-        slack_user_id=slack_user_id,
-        slack_workspace_id=inputs.slack_team_id,
-        user_id=user_id,
-    )
-    return PostHogCodeRulesCommandResult(status="handled")
 
 
 @activity.defn
@@ -66,6 +27,7 @@ def create_posthog_code_routing_rule_activity(
     from posthog.models.repo_routing_rule import RepoRoutingRule
 
     from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
+    from products.slack_app.backend.services.commands import reject_invalid_rule_text
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
@@ -73,6 +35,16 @@ def create_posthog_code_routing_rule_activity(
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
+
+    rejection = reject_invalid_rule_text(integration.team_id, rule_text)
+    if rejection:
+        post_slack_thread_reply(
+            slack.client,
+            channel=channel,
+            thread_ts=thread_ts,
+            text=rejection,
+        )
+        return
 
     all_repos = _get_full_repo_names(integration, user_id=user_id)
     matched_repo = _extract_explicit_repo(repository, all_repos)
@@ -83,7 +55,8 @@ def create_posthog_code_routing_rule_activity(
             team_id=integration.team_id,
             user_id=user_id,
         )
-        slack.client.chat_postMessage(
+        post_slack_thread_reply(
+            slack.client,
             channel=channel,
             thread_ts=thread_ts,
             text=f"Repository `{repository}` is no longer connected to your account.",
@@ -104,7 +77,8 @@ def create_posthog_code_routing_rule_activity(
         priority=max_priority,
         created_by_id=user_id,
     )
-    slack.client.chat_postMessage(
+    post_slack_thread_reply(
+        slack.client,
         channel=channel,
         thread_ts=thread_ts,
         text=f"Added rule: {rule_text} → `{matched_repo}`",
@@ -160,7 +134,8 @@ def handle_posthog_code_slack_mention_command_activity(
                 "This Slack workspace is connected to multiple PostHog projects. "
                 f"Use `{inputs.command_prefix} project <id>` to set a default first, then re-run your command."
             )
-        SlackIntegration(candidates[0]).client.chat_postEphemeral(
+        post_slack_ephemeral(
+            SlackIntegration(candidates[0]).client,
             channel=channel,
             user=slack_user_id,
             thread_ts=thread_ts,

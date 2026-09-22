@@ -1,0 +1,263 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.ClustersPreview {
+    --clusters-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+    --clusters-preview-billing: var(--clusters-preview-accent);
+    --clusters-preview-bugs: var(--color-orange-500);
+    --clusters-preview-howto: var(--color-blue-500);
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden selected-cluster state. Direct children so `:checked ~` reaches every card.
+    &__radio {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__plot,
+    &__list,
+    &__detail {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    // Per-cluster detail is stacked on one grid cell and crossfaded, so switching
+    // never changes any element's size (no layout shift).
+    &__swap {
+        display: grid;
+    }
+
+    &__swap > * {
+        grid-area: 1 / 1;
+        min-width: 0;
+    }
+
+    &__when-billing,
+    &__when-bugs,
+    &__when-howto {
+        @include preview-swap-hidden;
+    }
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__scatter {
+        display: block;
+        width: 100%;
+        height: 120px;
+        padding: 0.25rem 0.5rem;
+    }
+
+    // Unselected clusters fade back; the selected one is painted at full strength below.
+    &__point {
+        opacity: 0.3;
+        transition: opacity 200ms ease;
+    }
+
+    &__group--billing &__point {
+        fill: var(--clusters-preview-billing);
+    }
+
+    &__group--bugs &__point {
+        fill: var(--clusters-preview-bugs);
+    }
+
+    &__group--howto &__point {
+        fill: var(--clusters-preview-howto);
+    }
+
+    &__list {
+        display: flex;
+        flex-direction: column;
+        padding: 0.25rem 0.5rem;
+    }
+
+    &__row {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.4375rem 0.5rem;
+        cursor: pointer;
+        user-select: none;
+        border: 1px solid transparent;
+        border-radius: var(--radius);
+        transition:
+            background-color 150ms ease,
+            border-color 150ms ease;
+    }
+
+    &__row:hover {
+        background: var(--color-bg-fill-highlight-50);
+    }
+
+    &__swatch {
+        flex-shrink: 0;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+
+        &--billing {
+            background: var(--clusters-preview-billing);
+        }
+
+        &--bugs {
+            background: var(--clusters-preview-bugs);
+        }
+
+        &--howto {
+            background: var(--clusters-preview-howto);
+        }
+    }
+
+    &__name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__share {
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+    }
+
+    &__hint,
+    &__listening {
+        padding: 0.375rem 0.5rem;
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+    }
+
+    // waiting-for-data: the list ends on a row that reads as "listening".
+    &__listening {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    &__listening-dot {
+        flex-shrink: 0;
+        width: 7px;
+        height: 7px;
+        background: var(--clusters-preview-accent);
+        border-radius: 50%;
+        animation: ClustersPreview__pulse 1.8s ease-in-out infinite;
+    }
+
+    &__detail {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        padding: 0.625rem 0.75rem;
+    }
+
+    &__detail-title {
+        margin-right: 0.5rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+
+        @include preview-accent-text(var(--clusters-preview-accent));
+    }
+
+    &__detail-meta {
+        font-size: 0.6875rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__sample {
+        overflow: hidden;
+        font-size: 0.6875rem;
+        font-style: italic;
+        color: var(--color-text-secondary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}
+
+// Selected cluster, driven purely by the hidden radios.
+
+#clusters-preview-billing:checked ~ * .ClustersPreview__when-billing,
+#clusters-preview-bugs:checked ~ * .ClustersPreview__when-bugs,
+#clusters-preview-howto:checked ~ * .ClustersPreview__when-howto {
+    @include preview-swap-visible;
+}
+
+#clusters-preview-billing:checked ~ .ClustersPreview__list .ClustersPreview__row--billing,
+#clusters-preview-bugs:checked ~ .ClustersPreview__list .ClustersPreview__row--bugs,
+#clusters-preview-howto:checked ~ .ClustersPreview__list .ClustersPreview__row--howto {
+    background: color-mix(in oklab, var(--clusters-preview-accent) 8%, transparent);
+    border-color: color-mix(in oklab, var(--clusters-preview-accent) 40%, transparent);
+}
+
+#clusters-preview-billing:checked ~ .ClustersPreview__plot .ClustersPreview__group--billing .ClustersPreview__point,
+#clusters-preview-bugs:checked ~ .ClustersPreview__plot .ClustersPreview__group--bugs .ClustersPreview__point,
+#clusters-preview-howto:checked ~ .ClustersPreview__plot .ClustersPreview__group--howto .ClustersPreview__point {
+    opacity: 1;
+}
+
+// The ambient bit: one trace in the selected cluster keeps arriving.
+.ClustersPreview:not(.ClustersPreview--static) {
+    #clusters-preview-billing:checked ~ .ClustersPreview__plot .ClustersPreview__group--billing,
+    #clusters-preview-bugs:checked ~ .ClustersPreview__plot .ClustersPreview__group--bugs,
+    #clusters-preview-howto:checked ~ .ClustersPreview__plot .ClustersPreview__group--howto {
+        .ClustersPreview__point:first-child {
+            transform-box: fill-box;
+            transform-origin: center;
+            animation: ClustersPreview__arrive 2.2s ease-in-out infinite;
+        }
+    }
+}
+
+// The radios stay keyboard-focusable while visually hidden, so the row they label
+// needs a visible focus indicator (WCAG 2.4.7).
+#clusters-preview-billing:focus-visible ~ .ClustersPreview__list .ClustersPreview__row--billing,
+#clusters-preview-bugs:focus-visible ~ .ClustersPreview__list .ClustersPreview__row--bugs,
+#clusters-preview-howto:focus-visible ~ .ClustersPreview__list .ClustersPreview__row--howto {
+    outline: 2px solid var(--clusters-preview-accent);
+    outline-offset: 1px;
+}
+
+@keyframes ClustersPreview__arrive {
+    0%,
+    100% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.8);
+    }
+}
+
+@keyframes ClustersPreview__pulse {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--clusters-preview-accent) 45%, transparent);
+    }
+
+    50% {
+        box-shadow: 0 0 0 4px color-mix(in oklab, var(--clusters-preview-accent) 0%, transparent);
+    }
+}
+
+@include preview-motion-guards('ClustersPreview');

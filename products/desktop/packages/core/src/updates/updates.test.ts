@@ -125,6 +125,13 @@ async function initializeService(service: UpdatesService): Promise<void> {
   await vi.advanceTimersByTimeAsync(0);
 }
 
+const PRE_INSTALL_CHECK_TIMEOUT_MS = 5_000;
+const DOWNLOAD_STALL_TIMEOUT_MS = 60_000;
+
+async function flushPreInstallCheck(): Promise<void> {
+  await vi.advanceTimersByTimeAsync(PRE_INSTALL_CHECK_TIMEOUT_MS);
+}
+
 describe("UpdatesService", () => {
   let service: UpdatesService;
   let originalPlatform: PropertyDescriptor | undefined;
@@ -389,6 +396,7 @@ describe("UpdatesService", () => {
       );
 
       const resultPromise = service.installUpdate();
+      await flushPreInstallCheck();
       await vi.advanceTimersByTimeAsync(20_000);
 
       await expect(resultPromise).resolves.toEqual({ installed: true });
@@ -430,7 +438,9 @@ describe("UpdatesService", () => {
         throw new Error("Failed to install");
       });
 
-      await service.installUpdate();
+      const pending = service.installUpdate();
+      await flushPreInstallCheck();
+      await pending;
 
       expect(mockLifecycleService.clearQuittingForUpdate).toHaveBeenCalled();
       const setOrder =
@@ -451,7 +461,9 @@ describe("UpdatesService", () => {
       const statusHandler = vi.fn();
       service.on(UpdatesEvent.Status, statusHandler);
 
-      const first = await service.installUpdate();
+      const firstPending = service.installUpdate();
+      await flushPreInstallCheck();
+      const first = await firstPending;
       expect(first).toEqual({ installed: false });
       expect(service.hasUpdateReady).toBe(true);
       expect(statusHandler).toHaveBeenLastCalledWith({
@@ -462,8 +474,9 @@ describe("UpdatesService", () => {
       });
 
       mockUpdater.quitAndInstall.mockImplementationOnce(() => undefined);
-      const second = await service.installUpdate();
-      expect(second).toEqual({ installed: true });
+      const secondPending = service.installUpdate();
+      await flushPreInstallCheck();
+      await expect(secondPending).resolves.toEqual({ installed: true });
     });
 
     it("is idempotent when install is already in progress", async () => {
@@ -471,9 +484,9 @@ describe("UpdatesService", () => {
 
       updaterHandlers.updateDownloaded?.("v2.0.0");
 
-      await expect(service.installUpdate()).resolves.toEqual({
-        installed: true,
-      });
+      const firstPending = service.installUpdate();
+      await flushPreInstallCheck();
+      await expect(firstPending).resolves.toEqual({ installed: true });
       expect(mockUpdater.quitAndInstall).toHaveBeenCalledTimes(1);
 
       await expect(service.installUpdate()).resolves.toEqual({
@@ -484,6 +497,140 @@ describe("UpdatesService", () => {
         "installUpdate called but no update is ready",
         expect.anything(),
       );
+    });
+
+    it("installs the newer build when one shipped after the staged one", async () => {
+      await initializeService(service);
+      updaterHandlers.updateDownloaded?.("v2.0.0");
+      mockUpdater.check.mockClear();
+      mockUpdater.download.mockClear();
+
+      const pending = service.installUpdate();
+      await Promise.resolve();
+      expect(mockUpdater.check).toHaveBeenCalled();
+
+      updaterHandlers.updateAvailable?.({
+        version: "v3.0.0",
+        releaseNotes: null,
+      });
+      expect(mockUpdater.download).toHaveBeenCalled();
+      expect(mockUpdater.quitAndInstall).not.toHaveBeenCalled();
+
+      updaterHandlers.updateDownloaded?.("v3.0.0");
+      await expect(pending).resolves.toEqual({ installed: true });
+      expect(mockUpdater.quitAndInstall).toHaveBeenCalled();
+      expect(service.getStatus()).toMatchObject({ version: "v3.0.0" });
+    });
+
+    it.each([
+      ["the feed reports no update", () => updaterHandlers.noUpdate?.()],
+      [
+        "the feed offers nothing newer",
+        () =>
+          updaterHandlers.updateAvailable?.({
+            version: "v2.0.0",
+            releaseNotes: null,
+          }),
+      ],
+      [
+        "the check errors",
+        () => updaterHandlers.error?.(new Error("Network error")),
+      ],
+      ["the check times out", () => undefined],
+    ])("installs the staged build when %s", async (_case, fire) => {
+      await initializeService(service);
+      updaterHandlers.updateDownloaded?.("v2.0.0");
+      mockUpdater.download.mockClear();
+
+      const pending = service.installUpdate();
+      await Promise.resolve();
+      fire();
+      await flushPreInstallCheck();
+
+      await expect(pending).resolves.toEqual({ installed: true });
+      expect(mockUpdater.download).not.toHaveBeenCalled();
+      expect(mockUpdater.quitAndInstall).toHaveBeenCalled();
+    });
+
+    it("gives up when the pre-install download stalls", async () => {
+      await initializeService(service);
+      updaterHandlers.updateDownloaded?.("v2.0.0");
+
+      const pending = service.installUpdate();
+      await Promise.resolve();
+      updaterHandlers.updateAvailable?.({
+        version: "v3.0.0",
+        releaseNotes: null,
+      });
+      expect(mockUpdater.download).toHaveBeenCalled();
+
+      await flushPreInstallCheck();
+      await vi.advanceTimersByTimeAsync(DOWNLOAD_STALL_TIMEOUT_MS);
+
+      await expect(pending).resolves.toEqual({ installed: false });
+      expect(mockUpdater.quitAndInstall).not.toHaveBeenCalled();
+      expect(service.getStatus()).toMatchObject({ downloading: true });
+    });
+
+    it("waits out a slow download while progress keeps arriving", async () => {
+      await initializeService(service);
+      updaterHandlers.updateDownloaded?.("v2.0.0");
+
+      let settled = false;
+      const pending = service.installUpdate().then((result) => {
+        settled = true;
+        return result;
+      });
+      await Promise.resolve();
+      updaterHandlers.updateAvailable?.({
+        version: "v3.0.0",
+        releaseNotes: null,
+      });
+      await flushPreInstallCheck();
+
+      for (let i = 0; i < 3; i++) {
+        await vi.advanceTimersByTimeAsync(DOWNLOAD_STALL_TIMEOUT_MS - 1_000);
+        updaterHandlers.downloadProgress?.({
+          percent: 25 * (i + 1),
+          bytesPerSecond: 1_000,
+          transferred: 25 * (i + 1),
+          total: 100,
+        });
+      }
+      expect(settled).toBe(false);
+      expect(mockUpdater.quitAndInstall).not.toHaveBeenCalled();
+
+      updaterHandlers.updateDownloaded?.("v3.0.0");
+
+      await expect(pending).resolves.toEqual({ installed: true });
+      expect(mockUpdater.quitAndInstall).toHaveBeenCalled();
+      expect(service.getStatus()).toMatchObject({ version: "v3.0.0" });
+    });
+
+    it("abandons a pending install when the service shuts down", async () => {
+      await initializeService(service);
+      updaterHandlers.updateDownloaded?.("v2.0.0");
+
+      const pending = service.installUpdate();
+      await Promise.resolve();
+      service.shutdown();
+
+      await expect(pending).resolves.toEqual({ installed: false });
+      expect(mockUpdater.quitAndInstall).not.toHaveBeenCalled();
+      expect(mockLifecycleService.setQuittingForUpdate).not.toHaveBeenCalled();
+    });
+
+    it("joins a second install request while the pre-install check is open", async () => {
+      await initializeService(service);
+      updaterHandlers.updateDownloaded?.("v2.0.0");
+
+      const first = service.installUpdate();
+      const second = service.installUpdate();
+      await flushPreInstallCheck();
+
+      await expect(first).resolves.toEqual({ installed: true });
+      await expect(second).resolves.toEqual({ installed: true });
+      expect(mockUpdater.quitAndInstall).toHaveBeenCalledTimes(1);
     });
 
     it("rejects install while a newer update is re-downloading", async () => {
@@ -680,13 +827,27 @@ describe("UpdatesService", () => {
       );
 
       void service.installUpdate();
-      // Allow the synchronous part of installUpdate to run.
-      await Promise.resolve();
+      await flushPreInstallCheck();
 
       expect(service.getStatus()).toEqual({
         checking: false,
         updateReady: true,
         installing: true,
+        version: "v2.0.0",
+      });
+    });
+
+    it("keeps the staged update installable while the pre-install check runs", async () => {
+      await initializeService(service);
+
+      updaterHandlers.updateDownloaded?.("v2.0.0");
+      void service.installUpdate();
+      await Promise.resolve();
+
+      expect(service.getStatus()).toEqual({
+        checking: false,
+        updateReady: true,
+        installing: false,
         version: "v2.0.0",
       });
     });
@@ -1161,24 +1322,21 @@ describe("UpdatesService", () => {
       expect(service.hasUpdateReady).toBe(true);
     });
 
-    it("user check still shows existing notification when update is ready", async () => {
+    it("user check re-notifies and still hits the feed when an update is staged", async () => {
       await initializeService(service);
 
-      // Simulate update downloaded
-      const downloadedHandler = updaterHandlers.updateDownloaded;
-      if (downloadedHandler) {
-        downloadedHandler("v2.0.0");
-      }
+      updaterHandlers.updateDownloaded?.("v2.0.0");
 
       const readyHandler = vi.fn();
       service.on(UpdatesEvent.Ready, readyHandler);
 
-      // User check should show existing notification, not re-check
       mockUpdater.check.mockClear();
       const result = service.checkForUpdates("user");
+
       expect(result).toEqual({ success: true });
-      expect(mockUpdater.check).not.toHaveBeenCalled();
       expect(readyHandler).toHaveBeenCalledWith({ version: "v2.0.0" });
+      expect(mockUpdater.check).toHaveBeenCalled();
+      expect(service.hasUpdateReady).toBe(true);
     });
 
     it("preserves downloaded update when later updater errors fire", async () => {
@@ -1496,7 +1654,7 @@ describe("UpdatesService", () => {
           new Promise(() => {}),
         );
         void service.installUpdate();
-        await Promise.resolve();
+        await flushPreInstallCheck();
 
         const statusHandler = vi.fn();
         service.on(UpdatesEvent.Status, statusHandler);
@@ -1533,7 +1691,7 @@ describe("UpdatesService", () => {
         new Promise(() => {}),
       );
       void service.installUpdate();
-      await Promise.resolve();
+      await flushPreInstallCheck();
 
       const statusHandler = vi.fn();
       const readyHandler = vi.fn();
@@ -1585,25 +1743,6 @@ describe("UpdatesService", () => {
           downloadedVersion: "v2.0.0",
           skippedBecauseUpdateStaged: false,
           reason: "background check while an update is available or staged",
-        }),
-      );
-    });
-
-    it("logs skipped user checks after an update is staged", async () => {
-      await initializeService(service);
-      updaterHandlers.updateDownloaded?.("v2.0.0");
-
-      mockLog.info.mockClear();
-      service.checkForUpdates("user");
-
-      expect(mockLog.info).toHaveBeenCalledWith(
-        "Update state transition",
-        expect.objectContaining({
-          source: "user",
-          fromState: "ready",
-          toState: "ready",
-          downloadedVersion: "v2.0.0",
-          skippedBecauseUpdateStaged: true,
         }),
       );
     });

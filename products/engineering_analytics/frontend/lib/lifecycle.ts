@@ -1,26 +1,4 @@
-// Collapses a PR's raw lifecycle events (opened, ci_started, ci_finished, merged, closed — dozens per
-// PR) into the facts the drill-in panel renders: milestones plus a verdict rollup.
-
 import type { PRLifecycleEventApi } from '../generated/api.schemas'
-
-export interface WorkflowVerdict {
-    workflow: string
-    conclusion: string
-    at: string
-}
-
-export interface LifecycleSummary {
-    openedAt: string | null
-    firstCiStartedAt: string | null
-    lastCiFinishedAt: string | null
-    mergedAt: string | null
-    closedAt: string | null
-    /** Completed runs whose conclusion was not a pass — the rows worth listing. */
-    notPassing: WorkflowVerdict[]
-    passed: number
-    /** Runs that started but never reported a finish — queued or in progress. */
-    unsettled: number
-}
 
 export interface WorkflowRun {
     workflow: string
@@ -36,15 +14,17 @@ export interface WorkflowRun {
 }
 
 const PASSING_CONCLUSIONS = new Set(['success', 'skipped', 'neutral', 'completed'])
+// Mirrors DECISIVE_FAILURE_CONCLUSIONS in backend/logic/queries/_workflow_filters.py (keep the two in sync).
+const DECISIVE_FAILURE_CONCLUSIONS = new Set(['failure', 'timed_out', 'startup_failure', 'stale'])
 
 /** For a finished run's conclusion; 'completed' stands in when no conclusion was recorded. */
 export function isPassingConclusion(conclusion: string): boolean {
     return PASSING_CONCLUSIONS.has(conclusion)
 }
 
-/** A decisive failure — the verdict that turns a run red. Cancelled/skipped/neutral are not failures. */
+/** A decisive failure that turns a run red. Non-verdict outcomes and unknown values stay neutral. */
 export function isDecisiveFailure(conclusion: string | null): boolean {
-    return conclusion === 'failure' || conclusion === 'timed_out'
+    return conclusion != null && DECISIVE_FAILURE_CONCLUSIONS.has(conclusion)
 }
 
 /**
@@ -112,55 +92,4 @@ export function workflowRuns(events: PRLifecycleEventApi[]): WorkflowRun[] {
     }
 
     return runs
-}
-
-export function summarizeLifecycle(events: PRLifecycleEventApi[]): LifecycleSummary {
-    const summary: LifecycleSummary = {
-        openedAt: null,
-        firstCiStartedAt: null,
-        lastCiFinishedAt: null,
-        mergedAt: null,
-        closedAt: null,
-        notPassing: [],
-        passed: 0,
-        unsettled: 0,
-    }
-    let started = 0
-    let finished = 0
-
-    for (const event of events) {
-        switch (event.kind) {
-            case 'opened':
-                summary.openedAt = event.at
-                break
-            case 'merged':
-                summary.mergedAt = event.at
-                break
-            case 'closed':
-                summary.closedAt = event.at
-                break
-            case 'ci_started':
-                started += 1
-                if (!summary.firstCiStartedAt || event.at < summary.firstCiStartedAt) {
-                    summary.firstCiStartedAt = event.at
-                }
-                break
-            case 'ci_finished': {
-                finished += 1
-                if (!summary.lastCiFinishedAt || event.at > summary.lastCiFinishedAt) {
-                    summary.lastCiFinishedAt = event.at
-                }
-                const { workflow, conclusion } = parseFinishedDetail(event.detail)
-                if (conclusion === null || PASSING_CONCLUSIONS.has(conclusion)) {
-                    summary.passed += 1
-                } else {
-                    summary.notPassing.push({ workflow, conclusion, at: event.at })
-                }
-                break
-            }
-        }
-    }
-
-    summary.unsettled = Math.max(0, started - finished)
-    return summary
 }

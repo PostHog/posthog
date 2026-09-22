@@ -206,6 +206,18 @@ class TestApitallyFanout:
         assert kwargs["page_size_param"] is None
         assert isinstance(kwargs["child_endpoint_extra"]["paginator"], SinglePagePaginator)
 
+    @parameterized.expand(["Consumers", "Endpoints", "Traffic", "RequestLogs"])
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally.build_dependent_resource"
+    )
+    def test_fanout_unwraps_parent_data_envelope(self, endpoint, mock_build) -> None:
+        mock_build.return_value = iter([])
+
+        apitally_source(api_key="key", endpoint=endpoint, team_id=1, job_id="job-1")
+
+        _, kwargs = mock_build.call_args
+        assert kwargs["parent_endpoint_extra"] == {"data_selector": "data"}
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.apitally.apitally.build_dependent_resource"
     )

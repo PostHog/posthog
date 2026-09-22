@@ -77,7 +77,6 @@ def service_account_config() -> dict[str, str]:
 
 
 def test_google_ads_source_config_loads(customer_id: str, developer_token: str):
-    """Test basic case of source configuration loading."""
     private_key = "private_key"
     private_key_id = "id"
     client_email = "posthog@posthog.com"
@@ -106,7 +105,6 @@ def test_google_ads_source_config_loads(customer_id: str, developer_token: str):
 
 
 def test_google_ads_source_config_handles_customer_id_with_dashes(developer_token: str):
-    """Test source configuration handles clean up of customer id."""
     private_key = "private_key"
     private_key_id = "id"
     client_email = "posthog@posthog.com"

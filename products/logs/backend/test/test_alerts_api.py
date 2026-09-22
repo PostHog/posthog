@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
@@ -11,9 +11,9 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
-from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.clickhouse.client import sync_execute
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -27,6 +27,8 @@ from products.logs.backend.presentation.views.alerts_api import (
     ALLOWED_WINDOW_MINUTES,
     LOGS_ALERT_EVENT_IDS,
     MAX_ALERTS_PER_TEAM,
+    MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
+    LogsAlertViewSet,
 )
 
 
@@ -86,6 +88,57 @@ class TestLogsAlertAPI(APIBaseTest):
         assert mock_report.call_args.args[2]["config_type"] == "LogsAlertConfig"
         assert mock_report.call_args.args[2]["alert_name"] == "High error rate"
         assert mock_report.call_args.args[2]["threshold_count"] == 10
+
+    @time_machine.travel("2026-01-01T23:00:00Z", tick=False)
+    def test_create_with_quiet_hours_defers_next_check(self):
+        data = self._create_via_api(schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]})
+
+        assert data["schedule_restriction"] == {"blocked_windows": [{"start": "22:00", "end": "07:00"}]}
+        assert data["next_check_at"] == "2026-01-02T07:00:00Z"
+
+    @time_machine.travel("2026-01-01T23:00:00Z", tick=False)
+    def test_update_with_quiet_hours_defers_next_check(self):
+        created = self._create_via_api()
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"schedule_restriction": {"blocked_windows": [{"start": "22:00", "end": "07:00"}]}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["next_check_at"] == "2026-01-02T07:00:00Z"
+
+    def test_enabling_alert_during_quiet_hours_defers_next_check(self):
+        with time_machine.travel("2026-01-01T16:00:00Z", tick=False):
+            created = self._create_via_api(
+                schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]}
+            )
+            self.client.patch(f"{self.base_url}{created['id']}/", {"enabled": False}, format="json")
+
+        with time_machine.travel("2026-01-01T23:00:00Z", tick=False):
+            response = self.client.patch(f"{self.base_url}{created['id']}/", {"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["next_check_at"] == "2026-01-02T07:00:00Z"
+
+    @parameterized.expand(
+        [
+            ("unknown_root_key", {"typo": True}),
+            (
+                "unknown_window_key",
+                {"blocked_windows": [{"start": "22:00", "end": "07:00", "typo": True}]},
+            ),
+        ]
+    )
+    def test_create_rejects_unknown_quiet_hours_keys(self, _name: str, schedule_restriction: dict[str, Any]) -> None:
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(schedule_restriction=schedule_restriction),
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_list(self):
         self._create_via_api(name="Alert 1")
@@ -750,6 +803,11 @@ class TestLogsAlertAPI(APIBaseTest):
     def _destinations_url(self, alert_id: str) -> str:
         return f"{self.base_url}{alert_id}/destinations/"
 
+    def _read_destinations(self, alert_id: str) -> list[dict]:
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()["destinations"]
+
     def _destinations_delete_url(self, alert_id: str) -> str:
         return f"{self.base_url}{alert_id}/destinations/delete/"
 
@@ -818,7 +876,7 @@ class TestLogsAlertAPI(APIBaseTest):
         reset_calls = [c for c in mock_report.call_args_list if c.args[1] == "logs alert destination created"]
         assert len(reset_calls) == 1
 
-    @patch("products.alerts.backend.destinations.reload_hog_functions_on_workers")
+    @patch("products.alerts.backend.logic.destinations.reload_hog_functions_on_workers")
     @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_create_webhook_destination_creates_one_hog_function_per_event_kind(
         self, signal_reload_hog_functions, alert_reload_hog_functions
@@ -842,6 +900,8 @@ class TestLogsAlertAPI(APIBaseTest):
         hog_functions = HogFunction.objects.filter(id__in=ids)
         for hf in hog_functions:
             assert hf.template_id == "template-webhook"
+            # A destination with no creator is unattributable in the activity log.
+            assert hf.created_by_id == self.user.id
             inputs = hf.inputs or {}
             assert inputs["url"]["value"] == "https://example.com/hook"
             body = inputs["body"]["value"]
@@ -875,6 +935,84 @@ class TestLogsAlertAPI(APIBaseTest):
             assert text_value.startswith("**")
             assert "[View logs](" in text_value or "[View alert](" in text_value
 
+    def test_reading_an_alert_groups_its_destinations_and_strips_webhook_credentials(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        webhook_url = "https://user:password@example.com:8443/hooks/credential?token=secret"
+        create_response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": webhook_url},
+            format="json",
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        destinations = response.json()["destinations"]
+        assert len(destinations) == 1
+        assert set(destinations[0]["hog_function_ids"]) == set(create_response.json()["hog_function_ids"])
+        assert destinations[0]["type"] == "webhook"
+        # Host and port survive so two webhooks are tellable apart; the secret does not.
+        assert destinations[0]["webhook_url"] == "https://example.com:8443"
+        body = response.content.decode()
+        assert "password" not in body
+        assert "token=secret" not in body
+
+    def test_reading_an_alert_redacts_a_malformed_stored_webhook_url(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        create_response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        hog_function = HogFunction.objects.get(id=create_response.json()["hog_function_ids"][0])
+        inputs = hog_function.inputs or {}
+        inputs["url"]["value"] = "https://[broken/path"
+        hog_function.inputs = inputs
+        hog_function.save(update_fields=["inputs"])
+
+        assert self._read_destinations(created["id"])[0]["webhook_url"] == "<redacted>"
+
+    def test_listing_alerts_reports_destination_types_without_reading_each_destination(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        listed = self.client.get(self.base_url)
+
+        assert listed.status_code == status.HTTP_200_OK
+        alert = next(row for row in listed.json()["results"] if row["id"] == created["id"])
+        assert alert["destination_types"] == ["webhook"]
+        # Reading a destination pulls its stored inputs, so the list must not carry them.
+        assert "destinations" not in alert
+
+    def test_a_destination_reports_disabled_when_one_of_its_hog_functions_is_off(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        create_response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        hog_function_ids = create_response.json()["hog_function_ids"]
+        assert self._read_destinations(created["id"])[0]["enabled"] is True
+
+        HogFunction.objects.filter(id=hog_function_ids[0]).update(enabled=False)
+
+        destinations = self._read_destinations(created["id"])
+        assert len(destinations) == 1
+        assert destinations[0]["enabled"] is False
+        assert set(destinations[0]["hog_function_ids"]) == set(hog_function_ids)
+
     @parameterized.expand(
         [
             ("slack_missing_workspace", {"type": "slack", "slack_channel_id": "C1"}),
@@ -902,7 +1040,7 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    @patch("products.alerts.backend.destinations.reload_hog_functions_on_workers")
+    @patch("products.alerts.backend.logic.destinations.reload_hog_functions_on_workers")
     def test_delete_destination_removes_hog_functions(self, reload_hog_functions):
         self._sync_destination_templates()
         created = self._create_via_api()
@@ -970,17 +1108,220 @@ class TestLogsAlertAPI(APIBaseTest):
         assert b_ids[0] not in message
         assert "Refresh the alert and try again." in message
 
-    def test_delete_destination_rejects_more_ids_than_one_destination_group(self):
+    def test_delete_destination_rejects_more_ids_than_the_request_cap(self):
         created = self._create_via_api()
 
         response = self.client.post(
             self._destinations_delete_url(created["id"]),
-            {"hog_function_ids": [str(uuid4()) for _ in range(len(LOGS_ALERT_EVENT_IDS) + 1)]},
+            {"hog_function_ids": [str(uuid4()) for _ in range(MAX_DESTINATION_IDS_PER_DELETE_REQUEST + 1)]},
             format="json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "hog_function_ids"
+
+    def _create_destination(self, alert_id: str, payload: dict) -> list[str]:
+        response = self.client.post(self._destinations_url(alert_id), payload, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return response.json()["hog_function_ids"]
+
+    @parameterized.expand(
+        [
+            (
+                "two_slack_channels",
+                {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C111", "slack_channel_name": "eng"},
+                {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C222", "slack_channel_name": "ops"},
+            ),
+            (
+                "two_webhook_urls",
+                {"type": "webhook", "webhook_url": "https://example.com/a"},
+                {"type": "webhook", "webhook_url": "https://example.com/b"},
+            ),
+        ]
+    )
+    def test_delete_destination_removes_only_the_named_destination(
+        self, _name: str, first_payload: dict, second_payload: dict
+    ):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        first_ids = self._create_destination(created["id"], first_payload)
+        second_ids = self._create_destination(created["id"], second_payload)
+
+        response = self.client.post(
+            self._destinations_delete_url(created["id"]),
+            {"hog_function_ids": first_ids},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.json()
+        assert HogFunction.objects.filter(id__in=first_ids, deleted=False).count() == 0
+        assert HogFunction.objects.filter(id__in=second_ids, deleted=False, enabled=True).count() == len(second_ids)
+
+        response = self.client.post(
+            self._destinations_delete_url(created["id"]),
+            {"hog_function_ids": second_ids},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.json()
+        assert HogFunction.objects.filter(id__in=second_ids, deleted=False).count() == 0
+
+    def test_delete_destination_rejects_partial_group(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        ids = self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"})
+
+        response = self.client.post(
+            self._destinations_delete_url(created["id"]),
+            {"hog_function_ids": ids[:-1]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "hog_function_ids"
+        assert "Delete all destinations in this group together." in response.json()["detail"]
+        assert HogFunction.objects.filter(id__in=ids, deleted=False, enabled=True).count() == len(ids)
+
+    @parameterized.expand(
+        [
+            (
+                "slack_channel",
+                {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C111", "slack_channel_name": "eng"},
+            ),
+            ("webhook_url", {"type": "webhook", "webhook_url": "https://example.com/hook"}),
+        ]
+    )
+    def test_create_destination_rejects_a_duplicate_of_an_existing_destination(self, _name: str, payload: dict):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        ids = self._create_destination(created["id"], payload)
+
+        response = self.client.post(self._destinations_url(created["id"]), payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "This destination is already configured for this alert."
+        assert HogFunction.objects.filter(id__in=ids, deleted=False, enabled=True).count() == len(ids)
+        assert HogFunction.objects.filter(team=self.team, deleted=False).count() == len(LOGS_ALERT_EVENT_IDS)
+
+    def test_create_destination_locks_the_alert_row_before_the_duplicate_check(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+
+        with patch.object(
+            LogsAlertViewSet,
+            "_get_locked_alert",
+            autospec=True,
+            side_effect=LogsAlertViewSet._get_locked_alert,
+        ) as get_locked_alert:
+            response = self.client.post(
+                self._destinations_url(created["id"]),
+                {"type": "webhook", "webhook_url": "https://example.com/hook"},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        get_locked_alert.assert_called_once()
+
+    def _clone_row_without_the_duplicate_check(self, hog_function: HogFunction) -> HogFunction:
+        return HogFunction.objects.create(
+            team=self.team,
+            name=hog_function.name,
+            type=hog_function.type,
+            template_id=hog_function.template_id,
+            enabled=True,
+            inputs_schema=hog_function.inputs_schema,
+            inputs=hog_function.inputs,
+            hog=hog_function.hog,
+            filters=hog_function.filters,
+        )
+
+    def test_delete_destination_removes_a_pre_existing_duplicate_pair(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        ids = self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"})
+        duplicate_ids = [
+            str(self._clone_row_without_the_duplicate_check(hog_function).id)
+            for hog_function in HogFunction.objects.filter(id__in=ids)
+        ]
+
+        response = self.client.post(
+            self._destinations_delete_url(created["id"]),
+            {"hog_function_ids": [*ids, *duplicate_ids]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.json()
+        assert HogFunction.objects.filter(id__in=[*ids, *duplicate_ids], deleted=False).count() == 0
+
+    def test_delete_destination_accepts_a_server_group_larger_than_100_ids(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        ids = self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"})
+        source = HogFunction.objects.get(id=ids[0])
+        duplicate_ids = [str(self._clone_row_without_the_duplicate_check(source).id) for _ in range(100)]
+        source.inputs = {}
+        source.save(update_fields=["inputs"])
+
+        response = self.client.post(
+            self._destinations_delete_url(created["id"]),
+            {"hog_function_ids": [*ids, *duplicate_ids]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert HogFunction.objects.filter(id__in=[*ids, *duplicate_ids], deleted=False).count() == 0
+
+    def test_delete_destination_rejects_more_ids_than_any_server_group(self) -> None:
+        created = self._create_via_api()
+
+        response = self.client.post(
+            self._destinations_delete_url(created["id"]),
+            {"hog_function_ids": [str(uuid4()) for _ in range(101)]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Too many destination IDs" in str(response.json())
+
+    def test_delete_alert_removes_both_destinations_of_the_same_type(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        first_ids = self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/a"})
+        second_ids = self._create_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/b"}
+        )
+
+        response = self.client.delete(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert HogFunction.objects.filter(id__in=[*first_ids, *second_ids], deleted=False).count() == 0
+
+    def test_destination_types_ignores_a_row_carrying_another_products_event(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        self._create_destination(
+            created["id"],
+            {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C111", "slack_channel_name": "eng"},
+        )
+        HogFunction.objects.create(
+            team=self.team,
+            name="Billing alert destination",
+            type="destination",
+            template_id="template-webhook",
+            enabled=True,
+            inputs_schema=[{"key": "url", "type": "string"}],
+            inputs={"url": {"value": "https://example.com/hook"}},
+            hog="return event",
+            filters={
+                "events": [{"id": "$billing_alert_firing", "type": "events"}],
+                "properties": [{"key": "alert_id", "value": created["id"]}],
+            },
+        )
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["destination_types"] == ["slack"]
 
     # --- Reset ---
 
@@ -1313,7 +1654,7 @@ class TestLogsAlertAPI(APIBaseTest):
         event.refresh_from_db()
         return event
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     def test_state_timeline_single_interval_for_empty_alert(self):
         created = self._create_via_api()
 
@@ -1330,7 +1671,7 @@ class TestLogsAlertAPI(APIBaseTest):
         # 24h span, ending at "now".
         assert (end - start) == timedelta(hours=24)
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     def test_state_timeline_splits_on_state_transitions(self):
         created = self._create_via_api()
         alert_id = created["id"]
@@ -1361,7 +1702,7 @@ class TestLogsAlertAPI(APIBaseTest):
             2025, 12, 16, 8, 30, tzinfo=UTC
         )
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     def test_state_timeline_collapses_same_state_checks(self):
         created = self._create_via_api()
         alert_id = created["id"]
@@ -1376,7 +1717,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert timeline[0]["state"] == "not_firing"
         assert timeline[0]["enabled"] is True
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     def test_state_timeline_tracks_enable_disable_toggles(self):
         created = self._create_via_api()
         alert_id = created["id"]
@@ -1402,7 +1743,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert [i["enabled"] for i in timeline] == [True, False, True]
         assert all(i["state"] == "not_firing" for i in timeline)
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     def test_state_timeline_seeds_enabled_from_pre_window_toggle(self):
         created = self._create_via_api()
         alert_id = created["id"]
@@ -1421,7 +1762,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert len(timeline) == 1
         assert timeline[0]["enabled"] is False
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     def test_state_timeline_excludes_events_older_than_24h(self):
         created = self._create_via_api()
         alert_id = created["id"]
@@ -1465,7 +1806,7 @@ class TestLogsAlertAPI(APIBaseTest):
         base = datetime(2025, 12, 16, 10, 0, tzinfo=UTC)
         return [BucketedCount(timestamp=base + timedelta(minutes=m), count=c) for m, c in offset_counts]
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_returns_response_shape(self, mock_query_cls):
         mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets([(0, 50), (5, 20)])
@@ -1483,7 +1824,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert "state" in bucket
         assert "notification" in bucket
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_fills_empty_minutes(self, mock_query_cls):
         # Two data points 10 minutes apart — should fill 5-min cadence gaps between them
@@ -1516,7 +1857,7 @@ class TestLogsAlertAPI(APIBaseTest):
             ),
         ]
     )
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_rolling_window(self, _name, buckets, payload_overrides, expected, mock_query_cls):
         mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets(buckets)
@@ -1532,7 +1873,7 @@ class TestLogsAlertAPI(APIBaseTest):
         if "min_resolve_count" in expected:
             assert data["resolve_count"] >= expected["min_resolve_count"]
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_n_of_m_delays_firing(self, mock_query_cls):
         # window=5, 2-of-3 N-of-M. Cadence-spaced buckets at minute 0 and 5 each have
@@ -1560,7 +1901,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data_buckets[1]["state"] == "firing"
         assert data_buckets[1]["notification"] == "fire"
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_cooldown_suppresses_renotification(self, mock_query_cls):
         # window=5, cooldown=15 min. Two spikes 10 minutes apart: first fires at minute 0,
@@ -1587,7 +1928,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data_buckets[1]["notification"] == "none"
         assert data["fire_count"] == 1
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_empty_results(self, mock_query_cls):
         mock_query_cls.return_value.execute_bucketed.return_value = []
@@ -1623,7 +1964,7 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_echoes_threshold_config(self, mock_query_cls):
         mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets([(0, 10)])
@@ -1637,7 +1978,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data["threshold_count"] == 42
         assert data["threshold_operator"] == "below"
 
-    @freeze_time("2025-12-16T10:30:00Z")
+    @time_machine.travel("2025-12-16T10:30:00Z", tick=False)
     @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_rolling_window_excludes_current_bucket(self, mock_query_cls):
         # Regression test: the simulator's rolling sum at bucket time T must
@@ -1722,7 +2063,7 @@ class TestSimulateEvaluatorParity(ClickhouseTestMixin, APIBaseTest):
             ("c10_w30_m3", 10, 30, 3),
         ]
     )
-    @freeze_time("2025-12-16T11:30:00Z")
+    @time_machine.travel("2025-12-16T11:30:00Z", tick=False)
     def test_simulator_rolling_count_matches_evaluator_at_cadence_steps(
         self, _name: str, cadence: int, window: int, m: int
     ) -> None:
@@ -1797,7 +2138,7 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
         # A None return would read as "enqueue failed" and roll back every
         # notification, so the fake must return a (mock) ProduceResult.
         self._kafka_patcher = patch(
-            "products.alerts.backend.destinations.produce_internal_event",
+            "products.logs.backend.temporal.activities.produce_alert_internal_event",
             return_value=MagicMock(),
         )
         self._kafka_patcher.start()
@@ -1858,10 +2199,8 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
         start_nca: datetime,
         end_nca: datetime,
     ) -> list[tuple[datetime, str]]:
-        # Run the sync helpers directly rather than the async activities. The
-        # async path uses `database_sync_to_async_pool`, whose thread-pool
-        # dispatch loses freezegun's clock-patching for this lifecycle test.
-        # The async orchestration is covered by `test_logs_alerting_workflow.py`.
+        # Run the sync helpers directly rather than the async activities, whose
+        # orchestration is covered by `test_logs_alerting_workflow.py`.
         from products.logs.backend.temporal.activities import (
             _cohort_from_manifest,
             _discover_cohorts_sync,
@@ -1896,7 +2235,7 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
 
         nca = start_nca
         while nca <= end_nca:
-            with freeze_time(nca):
+            with time_machine.travel(nca, tick=False):
                 _one_cycle()
             nca += timedelta(minutes=alert.check_interval_minutes)
 
@@ -2011,7 +2350,7 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
         start = self.BASE_TIME
         end = self.BASE_TIME + timedelta(minutes=110)
 
-        with freeze_time(end + timedelta(minutes=cadence)):
+        with time_machine.travel(end + timedelta(minutes=cadence), tick=False):
             sim_events = self._run_simulator(
                 filters={"serviceNames": [self.service]},
                 threshold=100,

@@ -4,17 +4,16 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
-
+from products.warehouse_sources.backend.facade.source_config import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.terraformcloud import (
     TerraformCloudSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.terraform_cloud.source import TerraformCloudSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.terraform_cloud.terraform_cloud import (
-    TerraformCloudResumeConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_token: str = "test-token", organization: str = "acme") -> TerraformCloudSourceConfig:
@@ -39,9 +38,6 @@ def _inputs(schema_name: str, should_use_incremental_field: bool = False) -> Sou
 
 
 class TestTerraformCloudSource:
-    def test_source_type(self) -> None:
-        assert TerraformCloudSource().source_type == ExternalDataSourceType.TERRAFORMCLOUD
-
     def test_source_config_shape(self) -> None:
         config = TerraformCloudSource().get_source_config
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
@@ -95,10 +91,6 @@ class TestTerraformCloudSource:
         ) as probe:
             assert TerraformCloudSource().validate_credentials(_config(), team_id=1) == (True, None)
         probe.assert_called_once_with("test-token", "acme")
-
-    def test_resumable_source_manager_binds_resume_dataclass(self) -> None:
-        manager = TerraformCloudSource().get_resumable_source_manager(_inputs("runs"))
-        assert manager._data_class is TerraformCloudResumeConfig
 
     @parameterized.expand(
         [

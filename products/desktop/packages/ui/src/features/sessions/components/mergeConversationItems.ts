@@ -1,7 +1,9 @@
 import { stripTrailingAttachmentSummary } from "@posthog/core/editor/cloud-prompt";
+import {
+  hasInjectedBlocks,
+  stripInjectedBlocks,
+} from "@posthog/core/editor/injectedBlocks";
 import type { ConversationItem } from "./buildConversationItems";
-import { extractChannelContext } from "./session-update/channelContext";
-import { extractCustomInstructions } from "./session-update/customInstructions";
 
 interface MergeConversationItemsArgs {
   conversationItems: ConversationItem[];
@@ -11,20 +13,43 @@ interface MergeConversationItemsArgs {
 
 type UserMessageItem = Extract<ConversationItem, { type: "user_message" }>;
 
-// The pinned optimistic bubble is seeded from the bare task description, but the
-// echoed `session/prompt` that streams back from the sandbox may additionally
-// carry the channel's CONTEXT.md and/or the user's personalization, folded into
-// the prompt at task creation (see buildChannelContextText /
-// buildCustomInstructionsText in @posthog/core). The description side instead
-// appends an `Attached files: <names>` summary line that the echo carries as
-// resource_link blocks, not text (see buildCloudTaskDescription). Dedupe and
-// upgrade compare on the text with all three stripped so the echo still matches
-// its placeholder.
 function strippedUserContent(content: string): string {
-  const withoutChannel = extractChannelContext(content)?.stripped ?? content;
-  const withoutInstructions =
-    extractCustomInstructions(withoutChannel)?.stripped ?? withoutChannel;
-  return stripTrailingAttachmentSummary(withoutInstructions);
+  return stripTrailingAttachmentSummary(stripInjectedBlocks(content));
+}
+
+function reconcileInitialPromptEcho(
+  items: ConversationItem[],
+): ConversationItem[] {
+  let initial: UserMessageItem | undefined;
+  for (let index = 0; index < items.length; index++) {
+    const item = items[index];
+    if (
+      item.type === "session_update" &&
+      item.update.sessionUpdate === "progress_group"
+    ) {
+      continue;
+    }
+    if (item.type !== "user_message") return items;
+    if (!initial) {
+      if (hasInjectedBlocks(item.content)) return items;
+      initial = item;
+      continue;
+    }
+    if (
+      !hasInjectedBlocks(item.content) ||
+      strippedUserContent(initial.content) !== strippedUserContent(item.content)
+    ) {
+      return items;
+    }
+    // The stored startup transcript can contain both the bare request and its
+    // context-bearing echo even after the in-memory optimistic row is gone.
+    return items
+      .filter((_, itemIndex) => itemIndex !== index)
+      .map((entry) =>
+        entry === initial ? { ...item, id: initial.id } : entry,
+      );
+  }
+  return items;
 }
 
 // Cloud's initial optimistic is pinned to the top so the user's prompt stays
@@ -39,6 +64,9 @@ export function mergeConversationItems({
   optimisticItems,
   isCloud,
 }: MergeConversationItemsArgs): ConversationItem[] {
+  if (isCloud) {
+    conversationItems = reconcileInitialPromptEcho(conversationItems);
+  }
   if (optimisticItems.length === 0) {
     return conversationItems;
   }
@@ -64,10 +92,10 @@ export function mergeConversationItems({
   }
 
   // When the echoed prompt matches a pinned optimistic placeholder, drop the
-  // echo but remember it: it may carry the channel CONTEXT.md block and the
-  // attachment chips the placeholder lacks, so we surface the richer copy on
-  // the pinned bubble below.
+  // echo but remember it. The server copy supplies the authoritative timestamp
+  // as well as context and attachments, while the optimistic id keeps the row stable.
   const echoedItemByKey = new Map<string, UserMessageItem>();
+  const consumedPlainEchoByKey = new Set<string>();
   const dedupedConversation =
     unconsumedPinnedKeyCounts.size === 0
       ? conversationItems
@@ -75,12 +103,23 @@ export function mergeConversationItems({
           if (item.type !== "user_message") return true;
           const key = strippedUserContent(item.content);
           const remaining = unconsumedPinnedKeyCounts.get(key) ?? 0;
-          if (remaining === 0) return true;
-          unconsumedPinnedKeyCounts.set(key, remaining - 1);
-          if (!echoedItemByKey.has(key)) {
+          if (remaining > 0) {
+            unconsumedPinnedKeyCounts.set(key, remaining - 1);
             echoedItemByKey.set(key, item);
+            if (!hasInjectedBlocks(item.content))
+              consumedPlainEchoByKey.add(key);
+            return false;
           }
-          return false;
+
+          if (
+            consumedPlainEchoByKey.has(key) &&
+            hasInjectedBlocks(item.content)
+          ) {
+            echoedItemByKey.set(key, item);
+            consumedPlainEchoByKey.delete(key);
+            return false;
+          }
+          return true;
         });
 
   const resolvedPinnedItems =
@@ -89,14 +128,17 @@ export function mergeConversationItems({
       : pinnedOptimisticItems.map((item) => {
           if (item.type !== "user_message") return item;
           const echoed = echoedItemByKey.get(strippedUserContent(item.content));
-          if (
-            !echoed ||
-            (echoed.content === item.content && !echoed.attachments?.length)
-          ) {
-            return item;
+          if (!echoed) return item;
+          const resolvedItem = {
+            ...item,
+            timestamp: echoed.timestamp,
+            pinToTop: undefined,
+          };
+          if (echoed.content === item.content && !echoed.attachments?.length) {
+            return resolvedItem;
           }
           return {
-            ...item,
+            ...resolvedItem,
             content: echoed.content,
             ...(echoed.attachments?.length
               ? { attachments: echoed.attachments }

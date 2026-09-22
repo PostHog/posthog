@@ -4,7 +4,7 @@ from datetime import timedelta
 from time import sleep
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, get_index_from_explain
 from unittest import TestCase
 from unittest.mock import patch
@@ -111,7 +111,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
     def test_caching_and_materializing(self):
         base_time = datetime.datetime.fromisoformat("2020-01-04T13:01:01Z")
-        with freeze_time(base_time):
+        with time_machine.travel(base_time, tick=False):
             materialize("events", "$foo", create_minmax_index=True)
             materialize("events", "$bar", create_minmax_index=True)
             materialize("person", "$zeta", create_minmax_index=True)
@@ -146,7 +146,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 ]
             ) == sorted(["$foo", "$bar", "abc", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS])
 
-        with freeze_time(base_time + timedelta(minutes=59)):
+        with time_machine.travel(base_time + timedelta(minutes=59), tick=False):
             check_cache_updated()
 
     @patch("secrets.choice", return_value="X")
@@ -219,7 +219,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         assert self._count_materialized_rows("mat_prop") == 0
         assert self._count_materialized_rows("mat_another") == 0
 
-        with freeze_time("2021-05-10T14:00:01Z"):
+        with time_machine.travel("2021-05-10T14:00:01Z", tick=False):
             backfill_materialized_columns(
                 "events",
                 columns,

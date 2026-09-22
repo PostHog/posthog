@@ -14,7 +14,7 @@ import {
     InboxSortField,
 } from 'products/signals/frontend/inbox/logics/inboxFiltersLogic'
 import { SignalReport, SignalReportPriority, SignalReportStatus } from 'products/signals/frontend/inbox/types'
-import { DismissalReasonValue } from 'products/signals/frontend/inbox/utils/dismissalReasons'
+import { DismissalFeedback, suppressDismissalPayload } from 'products/signals/frontend/inbox/utils/dismissalReasons'
 
 import type { UserType } from '../../../../../frontend/src/types'
 
@@ -52,17 +52,9 @@ export interface feedLogicValues {
 export interface feedLogicActions {
     archiveReport: (
         reportId: string,
-        reason: DismissalReasonValue,
-        note: string
+        dismissal: DismissalFeedback
     ) => {
-        note: string
-        reason:
-            | 'already_fixed'
-            | 'analysis_wrong'
-            | 'other'
-            | 'report_unclear'
-            | 'wontfix_intentional'
-            | 'wontfix_irrelevant'
+        dismissal: DismissalFeedback
         reportId: string
     }
     clearFilters: () => {
@@ -156,7 +148,7 @@ export const feedLogic = kea<feedLogicType>([
         toggleScout: (scout: string) => ({ scout }),
         clearScoutFilter: true,
         clearFilters: true,
-        archiveReport: (reportId: string, reason: DismissalReasonValue, note: string) => ({ reportId, reason, note }),
+        archiveReport: (reportId: string, dismissal: DismissalFeedback) => ({ reportId, dismissal }),
     }),
     loaders(({ values }) => ({
         reportsResponse: [
@@ -272,12 +264,11 @@ export const feedLogic = kea<feedLogicType>([
             await breakpoint(300)
             actions.loadReports(null)
         },
-        archiveReport: async ({ reportId, reason, note }) => {
+        archiveReport: async ({ reportId, dismissal }) => {
             try {
                 await api.signalReports.setState(reportId, {
                     state: 'suppressed',
-                    dismissal_reason: reason,
-                    ...(note ? { dismissal_note: note } : {}),
+                    ...suppressDismissalPayload(dismissal),
                 })
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to archive report')

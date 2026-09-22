@@ -9,8 +9,19 @@ export function getPortalContainer(): HTMLElement {
   return portalContainer ?? document.body;
 }
 
-export function ThemeWrapper({ children }: { children: React.ReactNode }) {
-  const isDarkMode = useThemeStore((state) => state.isDarkMode);
+export function ThemeWrapper({
+  children,
+  appearance,
+}: {
+  children: React.ReactNode;
+  /**
+   * Fixed appearance for surfaces with a hard-coded palette; defaults to the
+   * user's theme preference.
+   */
+  appearance?: "light" | "dark";
+}) {
+  const storeIsDarkMode = useThemeStore((state) => state.isDarkMode);
+  const isDarkMode = appearance ? appearance === "dark" : storeIsDarkMode;
   const portalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

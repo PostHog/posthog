@@ -119,7 +119,7 @@ export function ChangeRequestsList(): JSX.Element {
     ]
 
     return (
-        <PayGateMini feature={AvailableFeature.APPROVALS}>
+        <PayGateMini feature={AvailableFeature.APPROVALS} featureDetail="approval-change-requests">
             <div className="space-y-4">
                 <div className={cn('flex flex-wrap gap-2 justify-between')}>
                     <div className="flex gap-2 items-center">

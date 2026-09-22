@@ -7,11 +7,12 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { StructuredSummary, summaryViewLogic } from '../summaryViewLogic'
+import type { StructuredSummaryApi } from '../../generated/api.schemas'
+import { summaryViewLogic } from '../summaryViewLogic'
 import { parseLineReferences } from '../utils/lineReferenceUtils'
 
 export interface SummaryRendererProps {
-    summary: StructuredSummary
+    summary: StructuredSummaryApi
     trace?: LLMTrace
     event?: LLMTraceEvent
     tree?: any[]

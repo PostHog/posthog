@@ -95,7 +95,6 @@ function TextCardInternal(
     const shouldHideMoreButton = placement === DashboardPlacement.Public || showEditingControls === false
 
     const isTransparent = textTile.transparent_background
-
     return (
         <div
             className={clsx(
@@ -115,7 +114,10 @@ function TextCardInternal(
             )}
 
             <div
-                className={clsx('TextCard__body w-full', onDragHandleMouseDown && 'cursor-grab')}
+                className={clsx(
+                    'DashboardTileCard__body TextCard__body w-full',
+                    onDragHandleMouseDown && 'cursor-grab'
+                )}
                 onMouseDown={onDragHandleMouseDown}
             >
                 <TextContent text={text.body} className={shouldHideMoreButton ? 'p-4' : 'p-4 pr-14'} />

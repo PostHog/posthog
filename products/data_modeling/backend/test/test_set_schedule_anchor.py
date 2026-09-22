@@ -41,7 +41,6 @@ class TestSetScheduleAnchor(BaseTest):
     def _run(self, *args, reconcile_applied=True):
         out = StringIO()
         with (
-            mock.patch(f"{COMMAND}.tiered_schedules_enabled", return_value=True),
             mock.patch(f"{COMMAND}.reconcile_dag_schedules", return_value=reconcile_applied) as reconcile,
         ):
             call_command("set_schedule_anchor", "--team-id", str(self.team.pk), *args, stdout=out)
@@ -143,13 +142,6 @@ class TestSetScheduleAnchor(BaseTest):
         downstream.refresh_from_db()
         self.assertEqual(get_declared_anchor(self.matview), 0)
         self.assertEqual(get_declared_anchor(downstream), 0)
-
-    def test_refuses_team_off_the_tiered_flag(self):
-        with mock.patch(f"{COMMAND}.tiered_schedules_enabled", return_value=False):
-            with self.assertRaisesRegex(CommandError, "tiered-schedules flag"):
-                call_command(
-                    "set_schedule_anchor", "--team-id", str(self.team.pk), "--dag-id", str(self.dag.id), "--at", "00:00"
-                )
 
     def test_rejects_malformed_arguments(self):
         for args, message in [

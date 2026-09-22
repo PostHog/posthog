@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseDestroyTablesMixin,
@@ -25,6 +25,7 @@ from posthog.tasks.ai_observability_usage_report import (
     AI_OBSERVABILITY_USAGE_EVENT,
     _get_all_ai_observability_reports,
     capture_ai_observability_report,
+    get_ai_trace_counts,
     get_all_ai_dimension_breakdowns,
     get_all_ai_metrics,
     get_llm_feedback_survey_metrics,
@@ -35,7 +36,7 @@ from posthog.tasks.ai_observability_usage_report import (
 from posthog.utils import get_previous_day
 
 
-@freeze_time("2022-01-10T00:01:00Z")
+@time_machine.travel("2022-01-10T00:01:00Z", tick=False)
 class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
     """Tests for AI observability usage reporting functionality."""
 
@@ -103,6 +104,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         self._create_ai_events(
             self.team, distinct_id, "$ai_evaluation", 1, properties={"$ai_evaluation_runtime": "sentiment"}
         )
+        self._create_ai_events(self.team, distinct_id, "$ai_tag", 9)
         self._create_ai_events(self.team, distinct_id, "$ai_trace_summary", 7)
         self._create_ai_events(self.team, distinct_id, "$ai_generation_summary", 12)
         self._create_ai_events(self.team, distinct_id, "$ai_trace_clusters", 2)
@@ -142,13 +144,14 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert metrics.ai_generation_count == 8  # 5 + 3
         assert metrics.ai_embedding_count == 3
         assert metrics.ai_span_count == 10
-        assert metrics.ai_trace_count == 2
+        assert metrics.ai_trace_event_count == 2
         assert metrics.ai_metric_count == 1
         assert metrics.ai_feedback_count == 4
         assert metrics.ai_evaluation_count == 6
         assert metrics.ai_llm_judge_evaluation_count == 3
         assert metrics.ai_hog_evaluation_count == 2
         assert metrics.ai_sentiment_evaluation_count == 1
+        assert metrics.ai_tag_count == 9
         assert metrics.ai_trace_summary_count == 7
         assert metrics.ai_generation_summary_count == 12
         assert metrics.ai_trace_clusters_count == 2
@@ -168,6 +171,30 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert metrics.reasoning_tokens == 75  # 3 * 25
         assert metrics.cache_read_tokens == 1500  # 3 * 500
         assert metrics.cache_creation_tokens == 600  # 3 * 200
+
+    def test_get_ai_trace_counts_counts_distinct_trace_ids(self) -> None:
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+
+        period = get_previous_day()
+
+        traced_id = str(uuid4())
+        self._create_ai_events(self.team, distinct_id, "$ai_generation", 3, properties={"$ai_trace_id": traced_id})
+        self._create_ai_events(self.team, distinct_id, "$ai_span", 2, properties={"$ai_trace_id": traced_id})
+        self._create_ai_events(self.team, distinct_id, "$ai_trace", 1, properties={"$ai_trace_id": traced_id})
+
+        # A trace whose SDK integration never emits the root $ai_trace event still counts.
+        rootless_id = str(uuid4())
+        self._create_ai_events(self.team, distinct_id, "$ai_generation", 2, properties={"$ai_trace_id": rootless_id})
+
+        self._create_ai_events(self.team, distinct_id, "$ai_generation", 1)
+
+        team_ids = get_teams_with_ai_events(period.start, period.end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
+
+        assert get_ai_trace_counts(period.start, period.end, team_ids)[self.team.id] == 2
+
+        # The root-event count stays available as its own signal, so the two can be compared.
+        assert get_all_ai_metrics(period.start, period.end, team_ids)[self.team.id].ai_trace_event_count == 1
 
     def test_get_all_ai_metrics_cost_anomaly_counts(self) -> None:
         """Test that cost anomaly counts (total, negative, zero) are correctly calculated."""
@@ -1080,7 +1107,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
             timestamp=jan_5_timestamp,
         )
 
-        # Create AI events for January 9th (within the default period based on freeze_time)
+        # Create AI events for January 9th (within the default period based on the frozen clock)
         jan_9_timestamp = datetime(2022, 1, 9, 12, 0, 0, tzinfo=UTC)
         self._create_ai_events(
             self.team,
@@ -1154,7 +1181,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert mock_capture_report.delay.call_count == expected_emissions
 
 
-@freeze_time("2022-01-10T00:01:00Z")
+@time_machine.travel("2022-01-10T00:01:00Z", tick=False)
 class TestAIObservabilityUsageReportTaskWiring(SimpleTestCase):
     @parameterized.expand(
         [

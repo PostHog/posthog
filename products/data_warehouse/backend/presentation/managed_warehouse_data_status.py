@@ -1,13 +1,18 @@
+from django.db import models
+
 from rest_framework import serializers
 
-READINESS_STATE_CHOICES = [
-    "not_configured",
-    "waiting",
-    "backfilling",
-    "up_to_date",
-    "needs_attention",
-    "sync_paused",
-]
+
+class ManagedWarehouseReadinessState(models.TextChoices):
+    NOT_CONFIGURED = "not_configured", "not_configured"
+    WAITING = "waiting", "waiting"
+    BACKFILLING = "backfilling", "backfilling"
+    UP_TO_DATE = "up_to_date", "up_to_date"
+    NEEDS_ATTENTION = "needs_attention", "needs_attention"
+    SYNC_PAUSED = "sync_paused", "sync_paused"
+
+
+READINESS_STATE_CHOICES = list(ManagedWarehouseReadinessState.values)
 WORKFLOW_TYPE_CHOICES = ["copy", "register"]
 WORKFLOW_STATUS_CHOICES = ["running", "completed", "failed", "skipped", "stale"]
 

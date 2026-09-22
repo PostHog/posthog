@@ -1,5 +1,7 @@
+import hmac
 import json
 import time
+import hashlib
 from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
@@ -12,12 +14,19 @@ from rest_framework.test import APIClient
 from posthog.models.oauth import OAuthApplication
 
 from ee.partners.stripe.api.provisioning import AUTH_CODE_CACHE_PREFIX
-from ee.partners.stripe.api.provisioning.signature import compute_signature
 
 HMAC_SECRET = "test_hmac_secret"
 TEST_STRIPE_OAUTH_CLIENT_ID = "test_stripe_oauth_client_id"
 
 BASE_PATH = "/api/partners/stripe"
+
+
+def compute_signature(secret: str, timestamp: int, body: bytes) -> str:
+    """Sign a request body the way Stripe does, so tests can forge a valid header."""
+    mac = hmac.new(secret.encode(), digestmod=hashlib.sha256)
+    mac.update(f"{timestamp}.".encode())
+    mac.update(body)
+    return mac.digest().hex()
 
 
 @override_settings(
@@ -31,8 +40,6 @@ class StripeProvisioningTestBase(APIBaseTest):
         self._ensure_stripe_oauth_app()
 
     def _ensure_stripe_oauth_app(self):
-        # No provisioning_* flags: this namespace authorizes by identity
-        # (client_id) alone and does not read the app's provisioning config.
         self.stripe_app, _ = OAuthApplication.objects.get_or_create(
             client_id=TEST_STRIPE_OAUTH_CLIENT_ID,
             defaults={
@@ -44,6 +51,7 @@ class StripeProvisioningTestBase(APIBaseTest):
                 "algorithm": "RS256",
             },
         )
+        self.stripe_app.update_provisioning(can_issue_deep_links=True)
 
     def _create_other_partner_app(self, **overrides):
         defaults = {

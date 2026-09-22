@@ -175,6 +175,39 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         )
         assert response.status_code == expected_status, response.json()
 
+    @parameterized.expand(
+        [
+            ("valid_steering", {"steering": "Ignore issues labeled chore"}, status.HTTP_201_CREATED),
+            ("steering_at_cap", {"steering": "x" * 2000}, status.HTTP_201_CREATED),
+            ("steering_over_cap", {"steering": "x" * 2001}, status.HTTP_400_BAD_REQUEST),
+            ("steering_not_string", {"steering": ["skip", "chores"]}, status.HTTP_400_BAD_REQUEST),
+            ("valid_default_not_actionable", {"default_not_actionable": True}, status.HTTP_201_CREATED),
+            ("default_not_actionable_not_bool", {"default_not_actionable": "yes"}, status.HTTP_400_BAD_REQUEST),
+            (
+                "both_keys_valid",
+                {"steering": "Release checklists are never actionable", "default_not_actionable": False},
+                status.HTTP_201_CREATED,
+            ),
+            # Falsy non-dict values must be rejected, not skipped by a truthiness guard.
+            ("config_list", [], status.HTTP_400_BAD_REQUEST),
+            ("config_string", "skip chores", status.HTTP_400_BAD_REQUEST),
+            # Explicit nulls violate the key types and must not persist.
+            ("steering_null", {"steering": None}, status.HTTP_400_BAD_REQUEST),
+            ("default_not_actionable_null", {"default_not_actionable": None}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_create_steering_config_validation(self, _name, config, expected_status):
+        # Steering keys are shared by every emission source, so they validate on a
+        # non-session-replay source too.
+        response = self.client.post(
+            self._url(),
+            data={"source_product": "github", "source_type": "issue", "enabled": False, "config": config},
+            format="json",
+        )
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_201_CREATED:
+            assert response.json()["config"] == config
+
     # --- List ---
 
     def test_list_source_configs(self):
@@ -487,16 +520,14 @@ class TestIsSourceEnabledGating(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("evaluation_requires_row", SignalSourceConfig.SourceType.EVALUATION, None, False),
-            ("evaluation_enabled_row", SignalSourceConfig.SourceType.EVALUATION, True, True),
             ("evaluation_report_requires_row", SignalSourceConfig.SourceType.EVALUATION_REPORT, None, False),
             ("evaluation_report_enabled_row", SignalSourceConfig.SourceType.EVALUATION_REPORT, True, True),
             ("evaluation_report_disabled_row", SignalSourceConfig.SourceType.EVALUATION_REPORT, False, False),
         ]
     )
     def test_llm_analytics_gating(self, _name, source_type, existing_enabled, expected):
-        # llm_analytics has no always-on bypass: both evaluation and evaluation_report signals
-        # go through the standard config-row check.
+        # llm_analytics has no always-on bypass: evaluation_report signals go through the
+        # standard config-row check.
         if existing_enabled is not None:
             SignalSourceConfig.objects.create(
                 team=self.team,

@@ -1,14 +1,11 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getAndroidSteps as getAndroidStepsPA } from '../product-analytics/android'
+import { getAndroidInstallSteps } from '../product-analytics/android'
 import { StepDefinition } from '../steps'
 
 export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
-
-    // Get installation steps from product-analytics only (exclude "Send events")
-    const installationSteps = getAndroidStepsPA(ctx).filter((step: StepDefinition) => step.title !== 'Send events')
 
     // Add experiments-specific steps
     const experimentSteps: StepDefinition[] = [
@@ -39,7 +36,7 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
         },
     ]
 
-    return [...installationSteps, ...experimentSteps]
+    return [...getAndroidInstallSteps(ctx), ...experimentSteps]
 }
 
 export const AndroidInstallation = createInstallation(getAndroidSteps)

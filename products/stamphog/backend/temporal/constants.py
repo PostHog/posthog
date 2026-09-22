@@ -13,18 +13,17 @@ from temporalio.common import RetryPolicy
 
 STAMPHOG_TASK_QUEUE = "stamphog-task-queue"
 
-# Where the target repo is cloned inside the review sandbox. The Action's review
-# engine is shipped into ENGINE_DIR (under the checkout, so its repo-root walk finds
-# the checkout and reads the injected trusted policy); the context JSON lands at
-# CONTEXT_PATH. Kept here so logic.reviewer.build_reviewer_invocation and
-# run_review_in_sandbox agree on paths.
+# Where the target repo is cloned inside the review sandbox. The review engine ships into
+# ENGINE_DIR, which sits under the checkout, so the engine's repo-root walk finds the checkout and
+# reads the injected trusted policy. The context JSON lands at CONTEXT_PATH. These paths stay here
+# so that logic.reviewer.build_reviewer_invocation and run_review_in_sandbox agree on them.
 STAMPHOG_SANDBOX_REPO_DIR = "/tmp/stamphog/target"
 STAMPHOG_SANDBOX_WORKSPACE_DIR = "/tmp/stamphog/workspace"
 STAMPHOG_SANDBOX_ENGINE_DIR = f"{STAMPHOG_SANDBOX_REPO_DIR}/tools/pr-approval-agent"
 
 # Reviewer bots whose 👀 reaction means "review in flight" — the hosted workflow waits these out
 # server-side before provisioning the sandbox (the sandbox holds no token to poll with). Mirrors the
-# engine's TRUSTED_REACTOR_BOTS (tools/pr-approval-agent/github.py) and its wait timings
+# engine's TRUSTED_REACTOR_BOTS (products/stamphog/packages/pr-approval-agent/github.py) and its wait timings
 # (review_pr.py); the server cannot import the hyphenated engine dir, so keep the two in sync.
 STAMPHOG_TRUSTED_REACTOR_BOTS = frozenset(
     {
@@ -37,15 +36,17 @@ STAMPHOG_TRUSTED_REACTOR_BOTS = frozenset(
 )
 STAMPHOG_BOT_EYES_MAX_AGE_SECONDS = 45 * 60
 STAMPHOG_BOT_REVIEW_POLL_SECONDS = 30
-STAMPHOG_BOT_REVIEW_MAX_POLLS = 10  # ~300s budget at 30s per poll, matching the Action's wait budget
+STAMPHOG_BOT_REVIEW_MAX_POLLS = 10  # ~300s budget at 30s per poll, matching the engine's wait budget
 
 # The GitHub label Stamphog adds to hand a refused/escalated PR to ReviewHog. ``review-hog.yml``
 # routes this label (when applied by stamphog[bot] — the one sanctioned bot exempted from its
 # bot-labeler-skip) to the ReviewHog trigger endpoint. Kept here so the activity references the same
 # scalar the workflow gates on.
 STAMPHOG_REVIEWHOG_LABEL = "reviewhog"
-# The posthog-owners resolver package, expected by the engine as a sibling of its own dir
-# (gates.py resolves `../owners` for the hogli-resolver ownership format).
+# The owners-yaml resolver package, expected by the engine as a sibling of its own dir
+# (gates.py resolves `../owners` for the hogli-resolver ownership format). This stays a sibling of
+# the engine dir although the monorepo source moved to packages/owners-yaml, because downstream repos
+# vendor the engine with the resolver beside it and the engine resolves the two layouts by offset.
 STAMPHOG_SANDBOX_OWNERS_DIR = f"{STAMPHOG_SANDBOX_REPO_DIR}/tools/owners"
 STAMPHOG_SANDBOX_CONTEXT_PATH = f"{STAMPHOG_SANDBOX_REPO_DIR}/.stamphog_review_context.json"
 
@@ -69,6 +70,17 @@ STAMPHOG_OPTIONAL_POLICY_PATHS: tuple[str, ...] = (STAMPHOG_STEERING_PATH,)
 # Per-activity start-to-close timeouts.
 FETCH_CONTEXT_TIMEOUT = timedelta(minutes=5)
 RUN_REVIEW_TIMEOUT = timedelta(minutes=30)
+
+# Ceilings for the steps inside the review activity. They add up to more than RUN_REVIEW_TIMEOUT on
+# purpose: each one caps a step that should never take that long, while the shared deadline in
+# run_review_in_sandbox caps what the steps can spend between them. Granting each step its own
+# independent budget was the bug — the clone alone could hold the activity for twice its ceiling.
+CLONE_STEP_TIMEOUT_SECONDS = 5 * 60
+PREFETCH_BLAME_TIMEOUT_SECONDS = 3 * 60
+REVIEWER_TIMEOUT_SECONDS = 25 * 60
+# Held back from the deadline so a step that runs to its limit still leaves room for the sandbox
+# teardown and the terminal save that follow it.
+SANDBOX_PHASE_RESERVE_SECONDS = 2 * 60
 POST_VERDICT_TIMEOUT = timedelta(minutes=5)
 MARK_FAILED_TIMEOUT = timedelta(minutes=1)
 
@@ -81,7 +93,20 @@ ACTIVITY_RETRY_POLICY = RetryPolicy(
     maximum_interval=timedelta(minutes=1),
 )
 
-# The sandbox review provisions a box, clones the repo, and runs the reviewer agent —
-# expensive and side-effecting, so a transient failure fails the run rather than
-# silently paying for it twice. The workflow-level wrapper marks the run FAILED.
-SANDBOX_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
+
+class SandboxPhaseError(Exception):
+    """Marks the paid phase of the review activity: this attempt made a sandbox, or found the claim
+    of an earlier one. SANDBOX_RETRY_POLICY excludes this type, so no run pays for a review twice.
+    """
+
+
+# Two attempts. The free phase — context load, token mint, sandbox config — costs nothing and is
+# safe to repeat, so a refusal there must not burn the whole review. The paid phase is fenced twice:
+# it raises SandboxPhaseError, which this policy excludes, and it records a claim that stops a
+# second sandbox when Temporal retries a lost worker instead. Both fences are on every worker, so
+# the rolling-deploy hole that held this at one attempt is closed.
+SANDBOX_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=2,
+    initial_interval=timedelta(seconds=10),
+    non_retryable_error_types=["SandboxPhaseError"],
+)

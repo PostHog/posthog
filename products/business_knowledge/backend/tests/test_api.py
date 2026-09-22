@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
@@ -20,6 +22,23 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         super().setUp()
         self.url = f"/api/projects/{self.team.id}/business_knowledge/sources/"
 
+    def _create_generated_source(self, *, source_team_id: int | None = None) -> str:
+        result = logic.create_generated_knowledge_document(
+            logic.CreateGeneratedKnowledgeDocument(
+                team_id=self.team.id,
+                provider="conversations",
+                ticket_id=UUID("10000000-0000-0000-0000-000000000001"),
+                ticket_number=42,
+                source_team_id=source_team_id if source_team_id is not None else self.team.id,
+                resolution_comment_id=UUID("20000000-0000-0000-0000-000000000002"),
+                analysis_version="post_resolution_v1",
+                title="Refund policy",
+                content="Refunds are available within 30 days.",
+                evidence_revision_at=timezone.now(),
+            )
+        )
+        return str(result.source_id)
+
     def test_create_text_source_and_chunks(self, _ff) -> None:
         response = self.client.post(
             self.url,
@@ -33,6 +52,8 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         assert body["status"] == "ready"
         assert body["document_count"] == 1
         assert body["chunk_count"] >= 1
+        assert body["learned_from_ticket_number"] is None
+        assert body["learned_from_ticket_url"] is None
         # Denormalized team_id landed on child rows.
         source = KnowledgeSource.objects.unscoped().get(id=body["id"])
         assert KnowledgeDocument.objects.unscoped().filter(source=source, team=self.team).count() == 1
@@ -53,6 +74,72 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         names = [row["name"] for row in response.json()["results"]]
         assert names == ["Mine"]
+
+    def test_list_applies_search_and_type_filters(self, _ff) -> None:
+        from posthog.models.team import Team
+
+        KnowledgeSource.objects.unscoped().create(team=self.team, name="Alpha docs", source_type="text", status="ready")
+        KnowledgeSource.objects.unscoped().create(
+            team=self.team,
+            name="Beta guide",
+            source_type="url",
+            status="ready",
+            source_url="https://example.com/beta-handbook",
+        )
+        KnowledgeSource.objects.unscoped().create(
+            team=self.team, name="Gamma report", source_type="file", status="ready"
+        )
+        other_team = Team.objects.create_with_data(
+            organization=self.organization, initiating_user=self.user, name="Other"
+        )
+        KnowledgeSource.objects.unscoped().create(
+            team=other_team, name="Alpha secrets", source_type="text", status="ready"
+        )
+
+        def names(query: str) -> list[str]:
+            resp = self.client.get(f"{self.url}?{query}")
+            assert resp.status_code == status.HTTP_200_OK, resp.content
+            return sorted(row["name"] for row in resp.json()["results"])
+
+        # Search matches the name case-insensitively and never leaks another team's row.
+        assert names("search=alpha") == ["Alpha docs"]
+        assert names("search=ALPHA") == ["Alpha docs"]
+        # Search also matches source_url, not just the name.
+        assert names("search=beta-handbook") == ["Beta guide"]
+        # Type filter narrows to a single source_type.
+        assert names("source_type=url") == ["Beta guide"]
+        # Search and type combine as AND.
+        assert names("source_type=file&search=gamma") == ["Gamma report"]
+        assert names("source_type=text&search=beta") == []
+
+    def test_list_pages_do_not_skip_or_repeat_sources_with_equal_timestamps(self, _ff) -> None:
+        created_ids = sorted(
+            str(
+                KnowledgeSource.objects.unscoped()
+                .create(team=self.team, name=f"Tied {index}", source_type="text", status="ready")
+                .id
+            )
+            for index in range(4)
+        )
+        sources = KnowledgeSource.objects.unscoped().filter(team=self.team)
+        sources.update(created_at=timezone.now())
+
+        def page(offset: int) -> list[str]:
+            resp = self.client.get(f"{self.url}?limit=2&offset={offset}")
+            assert resp.status_code == status.HTTP_200_OK, resp.content
+            return [row["id"] for row in resp.json()["results"]]
+
+        first_page = page(0)
+        # An edit between the two reads rewrites the row, which moves it in the
+        # database's own tie order. Only the id tie-breaker keeps the pages aligned.
+        sources.filter(id=first_page[0]).update(name="Edited between pages")
+        paged_ids = first_page + page(2)
+
+        assert paged_ids == created_ids
+
+    def test_list_rejects_unknown_source_type(self, _ff) -> None:
+        response = self.client.get(f"{self.url}?source_type=bogus")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_cannot_read_other_team_source_via_id(self, _ff) -> None:
         from posthog.models.team import Team
@@ -138,6 +225,129 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         )
         assert patch_resp.status_code == status.HTTP_200_OK, patch_resp.content
         assert patch_resp.json()["always_include"] is True
+
+    def test_generated_source_is_marked_in_list(self, _ff) -> None:
+        source_id = self._create_generated_source()
+
+        response = self.client.get(self.url)
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["id"] == source_id
+        assert results[0]["source_type"] == "text"
+        assert results[0]["is_generated"] is True
+        assert results[0]["name"] == "Refund policy"
+        assert results[0]["learned_from_ticket_number"] == 42
+        assert results[0]["learned_from_ticket_url"].endswith(f"/project/{self.team.id}/support/tickets/42")
+
+    def test_generated_source_ticket_url_uses_the_ticket_environment(self, _ff) -> None:
+        from posthog.models.team import Team
+
+        child_team = Team.objects.create(
+            organization=self.organization,
+            parent_team=self.team,
+            project=self.team.project,
+            name="Child environment",
+        )
+        self._create_generated_source(source_team_id=child_team.id)
+
+        response = self.client.get(self.url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["learned_from_ticket_url"].endswith(
+            f"/project/{child_team.id}/support/tickets/42"
+        )
+
+    def test_generated_source_text_can_be_read_and_updated(self, _ff) -> None:
+        source_id = self._create_generated_source()
+
+        text_response = self.client.get(f"{self.url}{source_id}/text/")
+        patch_response = self.client.patch(
+            f"{self.url}{source_id}/",
+            {"name": "Refund policy", "text": "Updated refund window."},
+            format="json",
+        )
+
+        assert text_response.status_code == status.HTTP_200_OK
+        assert text_response.json()["text"] == "Refunds are available within 30 days."
+        assert patch_response.status_code == status.HTTP_200_OK, patch_response.content
+        assert patch_response.json()["name"] == "Refund policy"
+        document = KnowledgeDocument.objects.unscoped().get(source_id=source_id)
+        assert document.content == "Updated refund window."
+        assert document.metadata["edited_by_user"] is True
+
+    def test_generated_source_update_without_document_is_rejected(self, _ff) -> None:
+        source_id = self._create_generated_source()
+        KnowledgeDocument.objects.unscoped().filter(source_id=source_id).delete()
+
+        text_response = self.client.get(f"{self.url}{source_id}/text/")
+        response = self.client.patch(
+            f"{self.url}{source_id}/",
+            {"text": "Updated refund window."},
+            format="json",
+        )
+
+        assert text_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_generated_source_with_multiple_documents_cannot_be_updated(self, _ff) -> None:
+        source_id = self._create_generated_source()
+        source = KnowledgeSource.objects.unscoped().get(id=source_id)
+        extra_id = UUID("30000000-0000-0000-0000-000000000003")
+        KnowledgeDocument.objects.unscoped().create(
+            id=extra_id,
+            team_id=self.team.id,
+            source=source,
+            stable_id=str(extra_id),
+            title="Second topic",
+            content="Second topic body.",
+            content_hash="abc",
+        )
+
+        text_response = self.client.get(f"{self.url}{source_id}/text/")
+        patch_response = self.client.patch(
+            f"{self.url}{source_id}/",
+            {"text": "Updated refund window."},
+            format="json",
+        )
+
+        assert text_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert text_response.json()["detail"] == logic.GENERATED_SOURCE_MULTIPLE_DOCUMENTS_MESSAGE
+        assert patch_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert patch_response.json()["detail"] == logic.GENERATED_SOURCE_MULTIPLE_DOCUMENTS_MESSAGE
+        assert KnowledgeDocument.objects.unscoped().filter(source_id=source_id).count() == 2
+        assert KnowledgeDocument.objects.unscoped().get(id=extra_id).content == "Second topic body."
+
+    def test_generated_source_can_be_deleted(self, _ff) -> None:
+        source_id = self._create_generated_source()
+
+        response = self.client.delete(f"{self.url}{source_id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not KnowledgeSource.objects.unscoped().filter(id=source_id).exists()
+
+    def test_generated_refresh_is_rejected_before_processing_source_checks(self, _ff) -> None:
+        source_id = self._create_generated_source()
+        KnowledgeSource.objects.unscoped().create(
+            team=self.team,
+            name="Refreshing URL",
+            source_type="url",
+            status="processing",
+        )
+
+        response = self.client.post(f"{self.url}{source_id}/refresh/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_generated_source_cannot_be_created_through_api(self, _ff) -> None:
+        response = self.client.post(
+            self.url,
+            {"is_generated": True, "name": "Spoofed", "text": "Content"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -353,9 +563,20 @@ class TestKnowledgeDocumentSearchAPI(APIBaseTest):
             "document_title",
             "heading_path",
             "content",
+            "is_generated",
         }
         assert first["source_name"] == "Docs"
+        assert first["is_generated"] is False
         assert "pricing" in first["content"].lower() or "Pricing" in first["content"]
+
+    @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))
+    def test_search_honors_limit(self, _embed, _ff) -> None:
+        # The default source chunks into several passages that all match "lorem",
+        # so neighbour expansion would return more than one chunk without the trim.
+        self._ready_safe_source()
+        response = self.client.get(self.url, {"query": "lorem", "limit": "1"})
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert len(response.json()) == 1
 
     @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))
     def test_search_requires_query(self, _embed, _ff) -> None:

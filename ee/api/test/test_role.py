@@ -8,8 +8,9 @@ from rest_framework import status
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 
+from products.access_control.backend.models.role import Role, RoleMembership
+
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.role import Role, RoleMembership
 
 
 class TestRoleCrossOrgAuthorization(APILicensedTest):
@@ -249,7 +250,7 @@ class TestRoleMemberVisibilityRestriction(APILicensedTest):
         super().setUp()
         from posthog.constants import AvailableFeature
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -268,13 +269,19 @@ class TestRoleMemberVisibilityRestriction(APILicensedTest):
                 organization_member=user.organization_memberships.get(organization=self.organization),
             )
         # Private project: explicit access for the requester and one project mate, none for `hidden`
-        AccessControl.objects.create(team=self.team, resource="project", access_level="none")
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
         for membership in [
             self.organization_membership,
             self.mate.organization_memberships.get(organization=self.organization),
         ]:
             AccessControl.objects.create(
-                team=self.team, resource="project", organization_member=membership, access_level="member"
+                team=self.team,
+                resource="project",
+                resource_id=str(self.team.id),
+                organization_member=membership,
+                access_level="member",
             )
 
     def test_restricted_member_cannot_see_hidden_members_via_roles(self):

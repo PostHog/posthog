@@ -1,5 +1,6 @@
 import { pickBy } from 'lodash'
 import { DateTime } from 'luxon'
+import { randomUUID } from 'node:crypto'
 
 import { CyclotronInvocationQueueParametersFetchSchema } from '~/cdp/schema/cyclotron'
 
@@ -34,6 +35,18 @@ registerAsyncFunction('fetch', {
             body,
             headers: pickBy(headers, (v) => typeof v == 'string'),
             ...(fetchOptions?.aws_sigv4 ? { aws_sigv4: fetchOptions.aws_sigv4 } : {}),
+            // Mint the webhook id here, once per fetch call, rather than in the
+            // executor: it has to survive every retry of this call (the receiver
+            // dedupes on it) and it must not be shared with another fetch from the
+            // same invocation, which anything derived from the invocation would be.
+            ...(fetchOptions?.standard_webhooks
+                ? {
+                      standard_webhooks: {
+                          ...fetchOptions.standard_webhooks,
+                          webhook_id: randomUUID(),
+                      },
+                  }
+                : {}),
         })
 
         result.invocation.queueParameters = fetchQueueParameters

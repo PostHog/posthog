@@ -21,10 +21,10 @@ function createMockDeepLinkService() {
   >();
   return {
     registerHandler: vi.fn((key, handler) => handlers.set(key, handler)),
-    _invoke(key: string, path: string) {
+    _invoke(key: string, path: string, query = "") {
       const handler = handlers.get(key);
       if (!handler) throw new Error(`No handler for key: ${key}`);
-      return handler(path, new URLSearchParams());
+      return handler(path, new URLSearchParams(query));
     },
   };
 }
@@ -105,6 +105,33 @@ describe("TaskLinkService", () => {
         taskRunId: "run-456",
       });
     });
+
+    it.each([
+      [
+        "with target params",
+        "comment=thread-1&scope=desktop_canvas&item=canvas-9",
+        { threadId: "thread-1", scope: "desktop_canvas", itemId: "canvas-9" },
+      ],
+      [
+        "bare",
+        "comment=thread-1",
+        { threadId: "thread-1", scope: undefined, itemId: undefined },
+      ],
+    ])(
+      "parses a comment anchor from query params (%s)",
+      (_name, query, expected) => {
+        const listener = vi.fn();
+        service.on(TaskLinkEvent.OpenTask, listener);
+
+        mockDeepLink._invoke("task", "task-123", query);
+
+        expect(listener).toHaveBeenCalledWith({
+          taskId: "task-123",
+          taskRunId: undefined,
+          comment: expected,
+        });
+      },
+    );
 
     it("ignores a second path segment that is not 'run'", () => {
       const listener = vi.fn();

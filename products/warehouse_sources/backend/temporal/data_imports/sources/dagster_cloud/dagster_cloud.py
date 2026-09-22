@@ -119,6 +119,84 @@ def _normalize_row(row: dict[str, Any], endpoint_config: DagsterCloudEndpointCon
     return normalized
 
 
+def _raise_for_http_status(response: requests.Response, url: str) -> None:
+    if response.status_code >= 500:
+        raise DagsterCloudRetryableError(f"Dagster Cloud: server error {response.status_code}")
+    if response.status_code == 429:
+        raise DagsterCloudRetryableError("Dagster Cloud: rate limited (429)")
+    # Redirects are pinned off (see _make_session), so a 30x is terminal — following it would
+    # hand the token header to whatever host the Location points at.
+    if 300 <= response.status_code < 400:
+        raise Exception(f"Dagster Cloud: unexpected redirect ({response.status_code}) for url: {url}")
+    if not response.ok:
+        raise Exception(f"{response.status_code} Client Error: {response.reason} for url: {url}")
+
+
+def _parse_json_body(response: requests.Response) -> dict[str, Any]:
+    try:
+        return response.json()
+    except Exception as e:
+        # The status is already known good, so a body that won't parse is almost always a truncated
+        # transfer; ride it out rather than failing the activity. Don't echo the body — a partial
+        # page can carry data.
+        raise DagsterCloudRetryableError(f"Dagster Cloud: incomplete JSON response ({e})") from e
+
+
+def _raise_for_graphql_errors(payload: dict[str, Any]) -> None:
+    if "errors" in payload:
+        messages = "; ".join(e.get("message", "") for e in payload["errors"])
+        if "rate limit" in messages.lower():
+            raise DagsterCloudRetryableError(f"Dagster Cloud: rate limited - {messages}")
+        raise Exception(f"Dagster Cloud GraphQL error: {messages}")
+
+    if "data" not in payload:
+        raise Exception(f"Unexpected Dagster Cloud response format. Keys: {list(payload.keys())}")
+
+
+def _validate_response(response: requests.Response, url: str) -> dict[str, Any]:
+    # Anything worth another attempt raises DagsterCloudRetryableError; every other failure raises a
+    # plain Exception, which the retry below treats as terminal.
+    _raise_for_http_status(response, url)
+    payload = _parse_json_body(response)
+    _raise_for_graphql_errors(payload)
+    return payload
+
+
+@retry(
+    retry=retry_if_exception_type(DagsterCloudRetryableError),
+    stop=stop_after_attempt(DAGSTER_CLOUD_MAX_RETRY_ATTEMPTS),
+    wait=wait_exponential_jitter(initial=1, max=60),
+    reraise=True,
+)
+def _execute_query(sess: requests.Session, url: str, query: str, variables: dict[str, Any]) -> dict[str, Any]:
+    try:
+        response = sess.post(url, json={"query": query, "variables": variables}, timeout=60)
+    except (requests.ConnectionError, requests.Timeout) as e:
+        # The session's urllib3 Retry only covers idempotent methods, so these POSTs get no
+        # transport-level retry — fold transient network failures into the application backoff.
+        raise DagsterCloudRetryableError(f"Dagster Cloud: transient network error - {e}")
+
+    return _validate_response(response, url)
+
+
+def _extract_success_member(payload: dict[str, Any], endpoint_config: DagsterCloudEndpointConfig) -> dict[str, Any]:
+    container = payload["data"][endpoint_config.response_field]
+    typename = container.get("__typename")
+    if typename != endpoint_config.success_typename:
+        message = container.get("message", "")
+        raise Exception(f"Dagster Cloud {endpoint_config.response_field} returned {typename}: {message}")
+    return container
+
+
+def _read_next_cursor(
+    container: dict[str, Any], rows: list[dict[str, Any]], endpoint_config: DagsterCloudEndpointConfig
+) -> Any:
+    if endpoint_config.cursor_mode == "connection":
+        return container.get("cursor")
+    assert endpoint_config.cursor_row_field is not None
+    return rows[-1].get(endpoint_config.cursor_row_field)
+
+
 def _make_paginated_request(
     organization: str,
     deployment: str,
@@ -135,52 +213,6 @@ def _make_paginated_request(
     url = build_graphql_url(organization, deployment)
     sess = _make_session(api_token)
 
-    @retry(
-        retry=retry_if_exception_type(DagsterCloudRetryableError),
-        stop=stop_after_attempt(DAGSTER_CLOUD_MAX_RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=1, max=60),
-        reraise=True,
-    )
-    def execute(variables: dict[str, Any]) -> dict:
-        try:
-            response = sess.post(url, json={"query": endpoint_config.query, "variables": variables}, timeout=60)
-        except (requests.ConnectionError, requests.Timeout) as e:
-            # The session's urllib3 Retry only covers idempotent methods, so these POSTs get no
-            # transport-level retry — fold transient network failures into the application backoff.
-            raise DagsterCloudRetryableError(f"Dagster Cloud: transient network error - {e}")
-
-        if response.status_code >= 500:
-            raise DagsterCloudRetryableError(f"Dagster Cloud: server error {response.status_code}")
-        if response.status_code == 429:
-            raise DagsterCloudRetryableError("Dagster Cloud: rate limited (429)")
-        # Redirects are pinned off (see _make_session), so a 30x is terminal — following it would
-        # hand the token header to whatever host the Location points at.
-        if 300 <= response.status_code < 400:
-            raise Exception(f"Dagster Cloud: unexpected redirect ({response.status_code}) for url: {url}")
-
-        try:
-            payload = response.json()
-        except Exception as e:
-            if not response.ok:
-                raise Exception(f"{response.status_code} Client Error: {response.reason} for url: {url}") from e
-            # A 2xx whose body won't parse is almost always a truncated transfer; ride it out rather
-            # than failing the activity. Don't echo the body — a partial page can carry data.
-            raise DagsterCloudRetryableError(f"Dagster Cloud: incomplete JSON response ({e})") from e
-
-        if not response.ok:
-            raise Exception(f"{response.status_code} Client Error: {response.reason} for url: {url}")
-
-        if "errors" in payload:
-            messages = "; ".join(e.get("message", "") for e in payload["errors"])
-            if "rate limit" in messages.lower():
-                raise DagsterCloudRetryableError(f"Dagster Cloud: rate limited - {messages}")
-            raise Exception(f"Dagster Cloud GraphQL error: {messages}")
-
-        if "data" not in payload:
-            raise Exception(f"Unexpected Dagster Cloud response format. Keys: {list(payload.keys())}")
-
-        return payload
-
     variables: dict[str, Any] = {"limit": DAGSTER_CLOUD_PAGE_SIZE}
     if runs_filter is not None:
         variables["filter"] = runs_filter
@@ -192,14 +224,8 @@ def _make_paginated_request(
 
     try:
         while True:
-            payload = execute(variables)
-            container = payload["data"][endpoint_config.response_field]
-
-            typename = container.get("__typename")
-            if typename != endpoint_config.success_typename:
-                message = container.get("message", "")
-                raise Exception(f"Dagster Cloud {endpoint_config.response_field} returned {typename}: {message}")
-
+            payload = _execute_query(sess, url, endpoint_config.query, variables)
+            container = _extract_success_member(payload, endpoint_config)
             rows = container.get(endpoint_config.results_key) or []
             yield [_normalize_row(row, endpoint_config) for row in rows]
 
@@ -207,12 +233,7 @@ def _make_paginated_request(
             if len(rows) < DAGSTER_CLOUD_PAGE_SIZE:
                 break
 
-            if endpoint_config.cursor_mode == "connection":
-                next_cursor = container.get("cursor")
-            else:
-                assert endpoint_config.cursor_row_field is not None
-                next_cursor = rows[-1].get(endpoint_config.cursor_row_field)
-
+            next_cursor = _read_next_cursor(container, rows, endpoint_config)
             if not next_cursor:
                 break
 

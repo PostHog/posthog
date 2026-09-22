@@ -76,6 +76,9 @@ class TestRunSandboxReview:
 
         context = mock_start.call_args.kwargs["context"]
         assert (context.team_id, context.user_id, context.repository) == (7, 9, "acme/app")
+        # Least privilege: an unset scope list means "full" MCP access for a session that reads
+        # untrusted PR-comment text — dropping this pin is a security regression.
+        assert context.posthog_mcp_scopes == ["llm_skill:read", "user:read"]
 
     @parameterized.expand(
         [
@@ -140,6 +143,8 @@ class TestRunSandboxReview:
         assert call_kwargs["internal"] is True
         assert call_kwargs["ai_stage"] == "validation-c3"
         assert call_kwargs["workflow_id_prefix"] == "review-pr:1:o/r:7/validate:validation-c3"
+        # The session path builds its own context, so the least-privilege pin must hold here too.
+        assert call_kwargs["context"].posthog_mcp_scopes == ["llm_skill:read", "user:read"]
 
     @parameterized.expand(
         [

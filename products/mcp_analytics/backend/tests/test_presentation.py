@@ -19,6 +19,7 @@ from posthog.temporal.mcp_analytics.intent_clustering.constants import (
 )
 
 from products.mcp_analytics.backend import intent_generation
+from products.mcp_analytics.backend.facade.contracts import MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 from products.mcp_analytics.backend.presentation.serializers import (
     MCP_SESSION_LIST_DEFAULT_LIMIT,
@@ -161,13 +162,16 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == field
 
-    def test_create_missing_capability_submission_defaults_blocked(self) -> None:
+    @patch("products.mcp_analytics.backend.facade.api.capture_internal")
+    def test_create_missing_capability_submission_defaults_blocked(self, mock_capture_internal: MagicMock) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_analytics/missing_capabilities/",
             {
                 "goal": "debug why my survey is not showing",
                 "missing_capability": "I need a tool that explains survey eligibility for a specific user.",
                 "attempted_tool": "survey_get",
+                "mcp_session_id": "mcp-session-123",
+                "mcp_trace_id": "mcp-trace-456",
             },
             format="json",
         )
@@ -178,6 +182,28 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert data["kind"] == MCPAnalyticsSubmission.Kind.MISSING_CAPABILITY
         assert data["blocked"] is True
         assert data["attempted_tool"] == "survey_get"
+
+        mock_capture_internal.assert_called_once_with(
+            token=self.team.api_token,
+            event_name="$mcp_missing_capability",
+            event_source="mcp_analytics_missing_capability",
+            distinct_id=self.user.distinct_id,
+            properties={
+                "submission_id": data["id"],
+                "kind": MCPAnalyticsSubmission.Kind.MISSING_CAPABILITY,
+                "attempted_tool_present": True,
+                "mcp_client_name_present": False,
+                "mcp_session_id_present": True,
+                "mcp_trace_id_present": True,
+                "$mcp_source": "posthog_mcp_analytics",
+                "$mcp_tool_name": "mcp-missing-capability-report",
+                "missing_capability_blocked": True,
+                "$mcp_session_id": "mcp-session-123",
+                "$mcp_trace_id": "mcp-trace-456",
+            },
+            event_uuid=data["id"],
+            process_person_profile=False,
+        )
 
     @parameterized.expand(
         [
@@ -208,6 +234,23 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert data["clusters"] == []
         assert data["last_computed_at"] is None
         assert data["computed_with"] is None
+
+    @parameterized.expand(
+        [
+            ("snapshot", "get", "intent_clusters/"),
+            ("recompute", "post", "intent_clusters/recompute/"),
+        ]
+    )
+    def test_intent_clusters_require_intent_routing_feature_flag(self, _name: str, method: str, path: str) -> None:
+        def only_product_flag_enabled(flag_key: str, *args: object, **kwargs: object) -> bool:
+            assert flag_key in {"mcp-analytics", MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG}
+            return flag_key == "mcp-analytics"
+
+        with patch("posthoganalytics.feature_enabled", side_effect=only_product_flag_enabled):
+            request = getattr(self.client, method)
+            response = request(f"/api/environments/{self.team.id}/mcp_analytics/{path}", {}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_intent_clusters_returns_stored_snapshot(self) -> None:
         MCPIntentClusterSnapshot.objects.create(

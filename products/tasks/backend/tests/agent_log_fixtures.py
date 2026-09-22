@@ -82,11 +82,11 @@ def _user_message_line(text: str) -> str:
 
 def _agent_error_line(message: str, category: str | None = None) -> str:
     """Build a `_posthog/error` notification line as the sandbox agent emits on a
-    terminal failure. `category` mirrors classifyAgentError() output and is absent
-    on older agent builds."""
-    params: dict = {"message": message}
+    terminal failure — the full param set the agent server writes. `category` mirrors
+    classifyAgentError() output and is absent on older agent builds."""
+    params: dict = {"source": "agent_server", "stopReason": "error", "message": message, "error": message}
     if category is not None:
-        params["error_category"] = category
+        params["errorCategory"] = category
     return json.dumps({"notification": {"method": "_posthog/error", "params": params}})
 
 

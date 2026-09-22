@@ -147,6 +147,14 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                             extraQueryParams={extraQueryParams}
                         />
                     ) : null}
+                    {precheckResponse?.oidc_available ? (
+                        <SSOEnforcedLoginButton
+                            provider="oidc"
+                            email={user!.email}
+                            size="medium"
+                            extraQueryParams={extraQueryParams}
+                        />
+                    ) : null}
                 </div>
             ) : null}
             {precheckResponseLoading && <SpinnerOverlay />}

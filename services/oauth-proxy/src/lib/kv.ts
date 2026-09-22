@@ -12,9 +12,11 @@ export interface ClientMapping {
 const CLIENT_PREFIX = 'client:'
 const REGION_PREFIX = 'region:'
 const CALLBACK_PREFIX = 'callback:'
+const PENDING_CALLBACK_PREFIX = 'pending_callback:'
 
 const REGION_SELECTION_TTL = 3600
 const CALLBACK_TTL = 3600
+const PENDING_CALLBACK_TTL = 3600
 
 // Cloudflare KV caps key names at 512 bytes. Callers may pass opaque values
 // (notably the OAuth `state` parameter) that exceed that limit, so we derive
@@ -55,6 +57,26 @@ export async function putCallbackRedirectUri(kv: KVNamespace, key: string, redir
 
 export async function getCallbackRedirectUri(kv: KVNamespace, key: string): Promise<string | null> {
     return kv.get(`${CALLBACK_PREFIX}${await hashKey(key)}`)
+}
+
+export interface PendingCallback {
+    redirect_uri: string
+    state: string | null
+}
+
+export async function putPendingCallback(kv: KVNamespace, nonce: string, record: PendingCallback): Promise<void> {
+    await kv.put(`${PENDING_CALLBACK_PREFIX}${await hashKey(nonce)}`, JSON.stringify(record), {
+        expirationTtl: PENDING_CALLBACK_TTL,
+    })
+}
+
+export async function getPendingCallback(kv: KVNamespace, nonce: string): Promise<PendingCallback | null> {
+    const data = await kv.get(`${PENDING_CALLBACK_PREFIX}${await hashKey(nonce)}`, 'json')
+    return data as PendingCallback | null
+}
+
+export async function deletePendingCallback(kv: KVNamespace, nonce: string): Promise<void> {
+    await kv.delete(`${PENDING_CALLBACK_PREFIX}${await hashKey(nonce)}`)
 }
 
 /**

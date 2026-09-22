@@ -9,6 +9,7 @@ from posthog.models.team import Team
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
 from products.engineering_analytics.backend.logic.sources import (
+    ISSUE_EVENTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
@@ -69,6 +70,22 @@ class TestResolveGitHubTables(BaseTest):
         assert tables == GitHubTables(
             pull_requests="myprefixgithub_pull_requests", workflow_runs="myprefixgithub_workflow_runs"
         )
+
+    @parameterized.expand([("with_team_requests", ["event", "requested_team"], True), ("without", ["event"], False)])
+    def test_flags_issue_events_that_hold_team_review_requests(
+        self, _name: str, columns: list[str], expected: bool
+    ) -> None:
+        source = self._connect(prefix="flag", schemas=self._BOTH_SYNCED)
+        table = create_warehouse_table_row(self.team, name="flaggithub_issue_events", source=source)
+        table.columns = {
+            column: {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"} for column in columns
+        }
+        table.save()
+        link_schema(self.team, source, name=ISSUE_EVENTS_SCHEMA, table=table, should_sync=True)
+
+        tables = resolve_github_tables(team=self.team)
+
+        assert (tables.issue_events, tables.issue_events_team_requests) == ("flaggithub_issue_events", expected)
 
     def test_repo_scoped_resolution_survives_non_dict_job_inputs(self) -> None:
         # job_inputs is an EncryptedJSONField that can hold any JSON value; the repo-first ordering
@@ -466,7 +483,7 @@ class TestMultiRepoGitHubResolution(BaseTest):
 
 class TestMultiSourceResolutionWarehouse(_WarehouseMixin, BaseTest):
     """A team with one GitHub source per repository: a repo-scoped read must resolve the source
-    connected for that repo, not the oldest one. Skips when object storage is unreachable."""
+    connected for that repo, not the oldest one."""
 
     def _connect_source(self, *, source_id: str, prefix: str, repository: str) -> ExternalDataSource:
         return ExternalDataSource.objects.create(

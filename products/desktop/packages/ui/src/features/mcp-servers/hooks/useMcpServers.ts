@@ -21,7 +21,7 @@ import { useSubscription } from "@trpc/tanstack-react-query";
 import { useCallback, useMemo } from "react";
 
 // `mcpKeys` + `createOAuthCallback` now live in the shared mcp-server-manager
-// module (also used by the agent-applications builder). Re-exported here so
+// module. Re-exported here so
 // existing importers (e.g. useMcpInstallationTools) keep their path.
 export { mcpKeys };
 

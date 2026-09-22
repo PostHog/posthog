@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='merge_flip_sources' */ \n        SELECT person_id FROM lifecycle_op_person_tmp\n        WHERE op_id = $1 AND role = $2 AND status = $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2b56dd5ffbaec1b2fc5e5bb3d79c30ca9a749263a4429cc0fdcc40f97b762380"
+}

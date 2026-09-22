@@ -4,7 +4,9 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
+from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -15,11 +17,10 @@ from posthog.models.team import Team
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.slo.types import SloOperation
 
-from products.product_analytics.backend.models.insight import Insight
+from products.access_control.backend.models.access_control import AccessControl
+from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.api.brief import ProductBriefViewSet
 from products.pulse.backend.models import BriefConfig, ProductBrief
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def _temporal_client() -> MagicMock:
@@ -335,6 +336,36 @@ class TestPulseAPI(APIBaseTest):
             format="json",
         )
         assert bad.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("brief_configs", BriefConfig, {"name": "tie"}),
+            ("briefs", ProductBrief, {"trigger": ProductBrief.Trigger.ON_DEMAND}),
+        ]
+    )
+    def test_list_pages_do_not_repeat_or_skip_rows_on_a_created_at_tie(
+        self,
+        _mock_connect: MagicMock,
+        _mock_flag: MagicMock,
+        route: str,
+        model: type[BriefConfig] | type[ProductBrief],
+        extra_fields: dict,
+    ) -> None:
+        # Ascending ids in insertion order, so the physical row order contradicts the newest-first
+        # order the list owes. created_at is auto_now_add, so the tie is forced after the insert.
+        row_ids = [uuid.UUID(f"018f0000-0000-7000-8000-00000000000{n}") for n in range(1, 5)]
+        with team_scope(self.team.pk, canonical=True):
+            for row_id in row_ids:
+                model.objects.create(id=row_id, team=self.team, created_by=self.user, **extra_fields)
+            model.objects.filter(pk__in=row_ids).update(created_at=timezone.now())
+
+        paged: list[str] = []
+        for offset in (0, 2):
+            response = self.client.get(f"/api/projects/{self.team.id}/pulse/{route}/?limit=2&offset={offset}")
+            assert response.status_code == status.HTTP_200_OK
+            paged += [row["id"] for row in response.json()["results"]]
+
+        assert paged == [str(row_id) for row_id in sorted(row_ids, reverse=True)]
 
     def test_generate_rejects_last_n_days_without_days(self, mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
         response = self.client.post(

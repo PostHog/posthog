@@ -3,7 +3,6 @@ import os
 import re
 import json
 import tarfile
-from dataclasses import dataclass
 from tarfile import ReadError
 from typing import Any, Optional
 from urllib.parse import parse_qs, quote
@@ -12,6 +11,9 @@ from zipfile import ZIP_DEFLATED, BadZipFile, Path, ZipFile
 from django.conf import settings
 
 import requests
+
+from posthog.dataclasses import frozen
+from posthog.egress.github.transport import github_request
 
 
 def parse_github_url(url: str, get_latest_if_none=False) -> Optional[dict[str, Optional[str]]]:
@@ -54,7 +56,15 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[dict[str, O
                     parsed["tag"] or "",
                     parsed["path"] or "",
                 )
-                commits = requests.get(commits_url, headers=headers).json()
+                # Identity-blind: a plugin URL carries no GitHub App installation to meter the
+                # call against, so this records request volume only.
+                commits = github_request(
+                    "GET",
+                    commits_url,
+                    source="plugins",
+                    headers=headers,
+                    installation_id=None,
+                ).json()
 
                 if isinstance(commits, dict):
                     raise Exception(commits.get("message"))
@@ -312,7 +322,7 @@ def find_index_ts_in_archive(archive: bytes, main_filename: Optional[str] = None
     raise ValueError(f"Could not find main file {' or '.join(main_filenames_to_try)}")
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class PluginCode:
     plugin_json: str
     index_ts: Optional[str]

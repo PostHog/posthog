@@ -1,4 +1,5 @@
 import type { ReadFileAsBase64 } from "@posthog/core/editor/cloud-prompt";
+import { base64ToUint8Array } from "@posthog/core/files/base64";
 import { getFileName } from "@posthog/shared";
 import { inject, injectable } from "inversify";
 import {
@@ -65,17 +66,6 @@ interface LoadedCloudAttachment {
   filePath: string;
   bytes: Uint8Array<ArrayBuffer>;
   upload: CloudArtifactUploadRequest;
-}
-
-function base64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
-
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-
-  return bytes;
 }
 
 function getFileExtension(filePath: string): string {

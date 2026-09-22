@@ -12,7 +12,7 @@ import { APIScopeObject } from '~/types'
 import { getAccessSummaryTags, getEntryId, isMemberEntry, isRoleEntry } from './helpers'
 import { AccessControlSettingsEntry, AccessControlsTab } from './types'
 
-const MAX_VISIBLE_RESOURCE_TAGS = 3
+const MAX_VISIBLE_TAGS = 4
 
 function getScopeColumnsForTab(activeTab: AccessControlsTab): LemonTableColumns<AccessControlSettingsEntry> {
     switch (activeTab) {
@@ -66,13 +66,21 @@ export interface AccessControlTableProps {
     loading: boolean
     canEditAny: boolean
     visibleResources: Set<APIScopeObject>
+    /** The tools selected in the Tool filter. They limit which tags each row shows. */
+    filteredResources: Set<APIScopeObject>
     onEdit: (entry: AccessControlSettingsEntry) => void
     /** Entry whose detail is currently open, highlighted in the list */
     selectedEntryId?: string | null
 }
 
 export function AccessControlTable(props: AccessControlTableProps): JSX.Element {
-    const columns = getColumns(props.activeTab, props.canEditAny, props.visibleResources, props.onEdit)
+    const columns = getColumns(
+        props.activeTab,
+        props.canEditAny,
+        props.visibleResources,
+        props.filteredResources,
+        props.onEdit
+    )
 
     return (
         <LemonTable
@@ -104,32 +112,31 @@ export function AccessControlTable(props: AccessControlTableProps): JSX.Element 
 function AccessSummary({
     entry,
     visibleResources,
+    filteredResources,
 }: {
     entry: AccessControlSettingsEntry
     visibleResources: Set<APIScopeObject>
+    filteredResources: Set<APIScopeObject>
 }): JSX.Element {
-    const tags = getAccessSummaryTags(entry, visibleResources)
+    const tags = getAccessSummaryTags(entry, visibleResources, filteredResources)
 
     if (tags.length === 0) {
         return <span className="text-muted">No access configured</span>
     }
 
-    const projectTag = tags.find((t) => t.resource === 'project')
-    const resourceTags = tags.filter((t) => t.resource !== 'project')
-    const visibleResourceTags = resourceTags.slice(0, MAX_VISIBLE_RESOURCE_TAGS)
-    const hiddenCount = resourceTags.length - MAX_VISIBLE_RESOURCE_TAGS
+    // The project tag comes first and counts towards the limit, so a row keeps the same width
+    // whether or not the Tool filter removed it
+    const visibleTags = tags.slice(0, MAX_VISIBLE_TAGS)
+    const hiddenCount = tags.length - visibleTags.length
 
     return (
         <div className="flex gap-2 flex-wrap items-center">
-            {projectTag && (
-                <LemonTag key="project" type="default">
-                    Project: {capitalizeFirstLetter(projectTag.level)}
-                </LemonTag>
-            )}
-            {visibleResourceTags.map(({ resource, level }) => (
+            {visibleTags.map(({ resource, level }) => (
                 <LemonTag key={resource} type="default">
-                    {capitalizeFirstLetter(pluralizeResource(resource as APIScopeObject))}:{' '}
-                    {capitalizeFirstLetter(level)}
+                    {resource === 'project'
+                        ? 'Project'
+                        : capitalizeFirstLetter(pluralizeResource(resource as APIScopeObject))}
+                    : {capitalizeFirstLetter(level)}
                 </LemonTag>
             ))}
             {hiddenCount > 0 && <span className="text-warning text-xs">+{hiddenCount} more</span>}
@@ -141,6 +148,7 @@ function getColumns(
     activeTab: AccessControlsTab,
     canEditAny: boolean,
     visibleResources: Set<APIScopeObject>,
+    filteredResources: Set<APIScopeObject>,
     onEdit: (entry: AccessControlSettingsEntry) => void
 ): LemonTableColumns<AccessControlSettingsEntry> {
     const scopeColumns = getScopeColumnsForTab(activeTab)
@@ -150,8 +158,18 @@ function getColumns(
         {
             title: 'Access',
             key: 'resource',
+            // This column takes the space that the other columns do not use. The other columns
+            // then get the width of their content, and this one starts at the same position for
+            // each filter.
+            width: '100%',
             render: function RenderResource(_: any, entry: AccessControlSettingsEntry) {
-                return <AccessSummary entry={entry} visibleResources={visibleResources} />
+                return (
+                    <AccessSummary
+                        entry={entry}
+                        visibleResources={visibleResources}
+                        filteredResources={filteredResources}
+                    />
+                )
             },
         },
         {

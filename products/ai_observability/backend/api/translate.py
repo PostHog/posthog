@@ -28,9 +28,17 @@ from posthog.rate_limit import (
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.translation.constants import DEFAULT_TARGET_LANGUAGE
-from products.ai_observability.backend.translation.llm import translate_text
+from products.ai_observability.backend.translation.llm import TranslationTimeoutError, translate_text
 
 logger = structlog.get_logger(__name__)
+
+
+class TranslationTimeout(exceptions.APIException):
+    status_code = status.HTTP_504_GATEWAY_TIMEOUT
+    default_detail = (
+        "Translation took too long. Try again, and if it keeps failing this message may be too long to translate."
+    )
+    default_code = "translation_timeout"
 
 
 class TranslateRequestSerializer(serializers.Serializer):
@@ -124,9 +132,18 @@ class AIObservabilityTranslateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
                 },
                 status=status.HTTP_200_OK,
             )
+        except TranslationTimeoutError:
+            # Not logger.exception: the traceback is all HTTP client plumbing, and the input length
+            # is what actually explains a timeout.
+            logger.warning(
+                "translation_timed_out",
+                target_language=target_language,
+                text_length=len(text),
+            )
+            raise TranslationTimeout()
         except Exception as e:
             logger.exception("translation_failed", error=str(e), target_language=target_language)
             raise exceptions.APIException(
-                detail="Translation failed due to an internal error.",
+                detail="Translation failed. Please try again.",
                 code="translation_error",
             )

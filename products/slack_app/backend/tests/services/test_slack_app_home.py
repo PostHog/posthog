@@ -27,12 +27,19 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
-from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, SlackUserProfileCache
+from products.slack_app.backend.models import (
+    SlackSettings,
+    SlackThreadTaskMapping,
+    SlackUserProfileCache,
+    UntaggedFollowupMode,
+)
 from products.slack_app.backend.services import slack_app_home
 from products.slack_app.backend.services.slack_app_home import (
     ACTION_EDIT_PERSONAL,
     ACTION_RESET_PERSONAL,
     ACTION_RESET_PROJECT_PERSONAL,
+    ACTION_SET_PROJECT_WORKSPACE,
+    ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
     ACTION_TASKS_FILTER_REPO,
     ACTION_TASKS_PAGE_NEXT,
     ACTION_TASKS_PAGE_PREV,
@@ -49,9 +56,9 @@ from products.slack_app.backend.services.slack_app_home import (
     AccountState,
     GitHubAccount,
     GitHubState,
-    PreferenceSource,
     ProjectChoice,
     ProjectState,
+    RunDefaultsState,
     StatsState,
     TaskItem,
     TasksState,
@@ -61,9 +68,9 @@ from products.slack_app.backend.services.slack_app_home import (
     parse_modal_submission,
     render_edit_modal,
     render_home_view,
-    resolve_source,
 )
 from products.slack_app.backend.services.slack_settings import AIPreferences
+from products.tasks.backend.facade.ai_run_defaults import get_user_ai_run_preferences, update_user_ai_run_preferences
 from products.tasks.backend.models import Task, TaskRun
 
 SLACK_WORKSPACE_ID = "T_HOME"
@@ -145,7 +152,7 @@ def _stub_picker_facade():
         ("codex", "gpt-5"): ("low", "medium", "high"),
         ("codex", "gpt-5.5"): ("low", "medium", "high", "xhigh"),
     }
-    public_efforts = tuple(_Effort(v) for v in ("low", "medium", "high", "xhigh", "max"))
+    public_efforts = ("low", "medium", "high", "xhigh", "max")
 
     def fake_get_supported(adapter, model):
         adapter_value = adapter.value if hasattr(adapter, "value") else adapter
@@ -203,7 +210,7 @@ def _stub_picker_facade():
     fake.get_provider_for_runtime_adapter = fake_get_provider
     fake.get_models_for_runtime_adapter = fake_get_models
     fake.validate_model_selection = fake_validate_selection
-    fake.PUBLIC_REASONING_EFFORTS = public_efforts
+    fake.REASONING_EFFORTS = public_efforts
 
     @dataclass(frozen=True)
     class _GatewayModel:
@@ -249,34 +256,15 @@ def _stub_picker_facade():
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class _Row:
-    """Duck-type stand-in for a SlackSettings row — keeps the renderer tests
-    off the database. Declared at module scope (instead of inside the helper
-    below) so mypy can resolve the dataclass-generated attribute types."""
-
-    runtime_adapter: str | None = None
-    model: str | None = None
-    reasoning_effort: str | None = None
-
-
-def _make_row(
-    *,
-    runtime_adapter: str | None = None,
-    model: str | None = None,
-    reasoning_effort: str | None = None,
-) -> Any:
-    # Returned as Any so call sites that pass this to render_home_view /
-    # resolve_source (which expect a real `SlackSettings`) don't trip mypy.
-    return _Row(runtime_adapter=runtime_adapter, model=model, reasoning_effort=reasoning_effort)
-
-
 def _action_ids(view: dict) -> list[str]:
     out: list[str] = []
     for block in view["blocks"]:
         for el in block.get("elements", []) or []:
             if "action_id" in el:
                 out.append(el["action_id"])
+        accessory = block.get("accessory")
+        if accessory and "action_id" in accessory:
+            out.append(accessory["action_id"])
     return out
 
 
@@ -344,14 +332,18 @@ def _block_action_payload(
     slack_user_id: str,
     trigger_id: str | None = None,
     channel: str | None = None,
+    selected_value: str | None = None,
 ) -> dict:
+    action: dict[str, Any] = {"action_id": action_id}
+    if selected_value is not None:
+        action["selected_option"] = {"value": selected_value}
     return {
         "type": "block_actions",
         "team": {"id": SLACK_WORKSPACE_ID},
         "user": {"id": slack_user_id},
         "trigger_id": trigger_id,
         "channel": {"id": channel} if channel else None,
-        "actions": [{"action_id": action_id}],
+        "actions": [action],
     }
 
 
@@ -402,11 +394,7 @@ def _view_submission_payload(
 class TestRenderHomeView:
     @pytest.mark.parametrize("is_admin", [False, True])
     def test_empty_state_renders_buttons_and_no_reset(self, is_admin):
-        view = render_home_view(
-            effective=AIPreferences(),
-            user_row=None,
-            is_admin=is_admin,
-        )
+        view = render_home_view(is_admin=is_admin)
         assert view["type"] == "home"
         ids = _action_ids(view)
         # Personal edit always present; reset hidden when no override. Admins get
@@ -414,34 +402,32 @@ class TestRenderHomeView:
         assert ACTION_EDIT_PERSONAL in ids
         assert ACTION_RESET_PERSONAL not in ids
 
-    def test_personal_override_renders_reset_button(self):
+    def test_reset_shows_when_the_viewer_has_a_personal_default(self):
         view = render_home_view(
-            effective=AIPreferences(runtime_adapter="claude", model="claude-opus-4-7", reasoning_effort="high"),
-            user_row=_make_row(runtime_adapter="claude", model="claude-opus-4-7", reasoning_effort="high"),
             is_admin=False,
+            run_defaults=RunDefaultsState(model="claude-opus-4-7", runtime_adapter="claude", source="user"),
         )
         assert ACTION_RESET_PERSONAL in _action_ids(view)
 
     def test_active_model_summary_mentions_model_label(self):
         view = render_home_view(
-            effective=AIPreferences(runtime_adapter="claude", model="claude-opus-4-7", reasoning_effort="high"),
-            user_row=_make_row(runtime_adapter="claude", model="claude-opus-4-7", reasoning_effort="high"),
             is_admin=True,
+            run_defaults=RunDefaultsState(model="claude-opus-4-7", runtime_adapter="claude", source="user"),
         )
         text_blob = " ".join(block["text"]["text"] for block in view["blocks"] if block.get("type") == "section")
         # Friendly label rather than raw model id; source attribution visible.
         assert "Claude Opus 4.7" in text_blob
-        assert "Your personal override" in _all_text(view)
+        assert "Your PostHog default" in _all_text(view)
 
     def test_every_control_the_tab_renders_is_routable(self):
         # The interactivity endpoint claims region ownership and dispatches off
         # HOME_ACTION_IDS, so a control missing from it renders as a button that
         # silently does nothing. Render every card at once and check the whole set.
         view = render_home_view(
-            effective=AIPreferences(runtime_adapter="claude", model="claude-opus-4-7"),
-            user_row=_make_row(runtime_adapter="claude", model="claude-opus-4-7"),
             is_admin=True,
+            run_defaults=RunDefaultsState(model="claude-opus-4-7", runtime_adapter="claude", source="user"),
             account_state=AccountState(enabled=True, link_url="https://app/link"),
+            github_state=GitHubState(user_resolved=True, settings_url="https://app/settings"),
             project_state=ProjectState(
                 candidates=(ProjectChoice(team_id=1, label="Org · Team"),),
                 personal_team_id=1,
@@ -453,6 +439,7 @@ class TestRenderHomeView:
                     TaskItem(
                         title="Fix flaky retention test",
                         posthog_url="https://app/project/1/tasks/abc",
+                        desktop_url=None,
                         status="in_progress",
                         repository="posthog/posthog",
                         pr_url=None,
@@ -467,6 +454,7 @@ class TestRenderHomeView:
                 total_filtered=25,
             ),
             stats_state=StatsState(tasks_started=4, tasks_with_pr=2, tasks_merged=1, active_people=2),
+            untagged_followup_mode=UntaggedFollowupMode.AUTO,
         )
 
         # Equality both ways: an unroutable control fails on the left, and a card that
@@ -474,24 +462,68 @@ class TestRenderHomeView:
         # Unlink only renders once an account is linked, which this fixture deliberately isn't.
         assert set(_action_ids(view)) == HOME_ACTION_IDS - {ACTION_UNLINK_ACCOUNT}
 
-    def test_source_resolution_is_atomic(self):
-        # A user row missing half the pair isn't a real override.
-        assert resolve_source(_make_row(reasoning_effort="medium")) == PreferenceSource.unset()
-        assert resolve_source(None) == PreferenceSource.unset()
-        assert (
-            resolve_source(_make_row(runtime_adapter="claude", model="claude-opus-4-7")) == PreferenceSource.personal()
+
+class TestThreadFollowupsCard:
+    def _view(self, mode) -> dict:
+        return render_home_view(is_admin=False, untagged_followup_mode=mode)
+
+    def test_card_absent_where_untagged_followups_do_not_run(self):
+        # Nothing to configure when replies are never picked up in the first place.
+        view = self._view(None)
+        assert ACTION_SET_UNTAGGED_FOLLOWUP_MODE not in _action_ids(view)
+
+    @pytest.mark.parametrize("mode", list(UntaggedFollowupMode))
+    def test_picker_preselects_the_stored_mode(self, mode):
+        # Without the right initial option the tab misreports the setting, and picking
+        # the value already stored is a no-op click that looks broken.
+        view = self._view(mode)
+        select = next(
+            el
+            for block in view["blocks"]
+            for el in block.get("elements", []) or []
+            if el.get("action_id") == ACTION_SET_UNTAGGED_FOLLOWUP_MODE
         )
+        assert select["initial_option"]["value"] == mode.value
+        assert {o["value"] for o in select["options"]} == set(UntaggedFollowupMode.values)
+
+
+class TestThreadFollowupsPicker:
+    def _pick(self, value: str) -> dict:
+        return {
+            "type": "block_actions",
+            "team": {"id": SLACK_WORKSPACE_ID},
+            "user": {"id": "U001"},
+            "actions": [
+                {"action_id": ACTION_SET_UNTAGGED_FOLLOWUP_MODE, "selected_option": {"value": value}},
+            ],
+        }
+
+    @pytest.mark.parametrize(
+        "picked,expected",
+        [
+            (UntaggedFollowupMode.ASK.value, UntaggedFollowupMode.ASK.value),
+            (UntaggedFollowupMode.NEVER.value, UntaggedFollowupMode.NEVER.value),
+            (UntaggedFollowupMode.AUTO.value, UntaggedFollowupMode.AUTO.value),
+            # A value the tab never rendered isn't worth persisting — it would read
+            # back as `auto` anyway, but only after a round trip through the DB.
+            ("something-else", None),
+        ],
+    )
+    def test_pick_is_persisted_against_the_clicking_user(
+        self, slack_integration, mock_slack_client, flag_on, picked, expected
+    ):
+        payload = self._pick(picked)
+        with patch("products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin", return_value=False):
+            handle_ai_preferences_block_action(payload, payload["actions"][0])
+
+        row = SlackSettings.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001").first()
+        assert (row.untagged_followup_mode if row else None) == expected
+        assert mock_slack_client.views_publish.called
 
 
 class TestLinkedAccountsCard:
     def _view(self, *, account_state=None, github_state=None) -> dict:
-        return render_home_view(
-            effective=AIPreferences(),
-            user_row=None,
-            is_admin=False,
-            account_state=account_state,
-            github_state=github_state,
-        )
+        return render_home_view(is_admin=False, account_state=account_state, github_state=github_state)
 
     def _rows(self, view: dict) -> list[tuple[str, dict | None]]:
         return [
@@ -585,17 +617,16 @@ _TASK_TITLES = ("Fix flaky retention test", "Refactor mention dispatcher")
 class TestTasksCard:
     def _kwargs(self, **overrides):
         base = {
-            "effective": AIPreferences(),
-            "user_row": None,
             "is_admin": False,
         }
         base.update(overrides)
         return base
 
     def _item(self, **overrides) -> TaskItem:
-        defaults = {
+        defaults: dict[str, Any] = {
             "title": "Fix flaky retention test",
             "posthog_url": "https://app/project/1/tasks/abc",
+            "desktop_url": None,
             "status": "in_progress",
             "repository": "posthog/posthog",
             "pr_url": "https://github.com/posthog/posthog/pull/123",
@@ -693,18 +724,11 @@ class TestTasksCard:
         assert "<https://github.com/posthog/posthog/pull/123|PR>" in sub_rows[1]
         assert "_Updated 5m ago_" in sub_rows[1]
 
-    @pytest.mark.parametrize(
-        "desktop_url,expected",
-        [
-            ("posthog-code://task/abc", "<posthog-code://task/abc|View on desktop>"),
-            (None, None),
-        ],
-    )
-    def test_desktop_link_appears_only_for_a_viewer_who_can_open_it(self, desktop_url, expected):
-        # A `posthog-code://` link dead-ends for anyone without the app, so it rides
-        # alongside the web link rather than replacing it.
+    def test_both_task_links_render_for_a_viewer_who_can_open_them(self):
+        # The desktop link dead-ends for anyone without the app, so it rides alongside the
+        # web one rather than replacing it.
         state = TasksState(
-            items=(self._item(desktop_url=desktop_url),),
+            items=(self._item(desktop_url="https://us.posthog.com/code/task/abc"),),
             has_any_tasks=True,
             page=0,
             total_pages=1,
@@ -714,10 +738,39 @@ class TestTasksCard:
         _, sub = self._task_items(view, expected_count=1)[0]
 
         assert "<https://app/project/1/tasks/abc|View on web>" in sub
-        if expected:
-            assert expected in sub
-        else:
-            assert "View on desktop" not in sub
+        assert "<https://us.posthog.com/code/task/abc|View on desktop>" in sub
+
+    def test_only_the_desktop_link_is_withheld_from_a_viewer_without_desktop_access(self):
+        # The task page enforces access itself, so the web link stays even when the
+        # desktop one is withheld — the same rule the reply footer's links follow.
+        state = TasksState(
+            items=(self._item(desktop_url=None),),
+            has_any_tasks=True,
+            page=0,
+            total_pages=1,
+            total_filtered=1,
+        )
+        view = render_home_view(**self._kwargs(tasks_state=state))
+        _, sub = self._task_items(view, expected_count=1)[0]
+
+        assert "View on web" in sub
+        assert "View on desktop" not in sub
+
+    def test_title_is_plain_text_when_neither_thread_nor_task_link_is_available(self):
+        # A row with no Slack permalink normally falls back to the task page. Withhold
+        # that too and the title has nowhere to point, so it must not render a link.
+        state = TasksState(
+            items=(self._item(thread_url=None, posthog_url=None),),
+            has_any_tasks=True,
+            page=0,
+            total_pages=1,
+            total_filtered=1,
+        )
+        view = render_home_view(**self._kwargs(tasks_state=state))
+        text = _all_text(view)
+
+        assert "*Fix flaky retention test*" in text
+        assert "|Fix flaky retention test>" not in text
 
     def test_task_with_no_repo_or_pr_skips_those_meta_parts(self):
         state = TasksState(
@@ -868,6 +921,21 @@ class TestRenderEditModal:
         assert option_values
         assert all(v.startswith("gpt-") for v in option_values)
 
+    def test_model_options_carry_the_cost_of_a_priced_model(self):
+        view = render_edit_modal(current=AIPreferences(runtime_adapter="claude"))
+        model_block = _find_block(view, MODAL_BLOCK_MODEL)
+        assert model_block
+        options = {o["value"]: o for o in model_block["element"]["options"]}
+        assert "Claude Sonnet 5" in options["claude-opus-5"]["description"]["text"]
+        assert "2.5×" in options["claude-opus-5"]["description"]["text"]
+
+    def test_model_option_omits_the_cost_line_when_the_catalog_prices_nothing(self):
+        view = render_edit_modal(current=AIPreferences(runtime_adapter="codex"))
+        model_block = _find_block(view, MODAL_BLOCK_MODEL)
+        assert model_block
+        options = {o["value"]: o for o in model_block["element"]["options"]}
+        assert "description" not in options["gpt-5"]
+
     def test_effort_block_renders_only_when_supported_efforts_provided(self):
         view = render_edit_modal(
             current=AIPreferences(runtime_adapter="claude", model="claude-opus-4-7"),
@@ -895,6 +963,9 @@ class TestRenderEditModal:
         assert runtime_block["element"]["initial_option"]["value"] == "claude"
         assert model_block["element"]["initial_option"]["value"] == "claude-opus-4-7"
         assert effort_block["element"]["initial_option"]["value"] == "high"
+        # Slack rejects the whole view when an initial option is not one of the offered
+        # options, down to the cost line under the name.
+        assert model_block["element"]["initial_option"] in model_block["element"]["options"]
 
     def test_dispatch_action_set_on_runtime_and_model(self):
         view = render_edit_modal(current=AIPreferences(runtime_adapter="claude"))
@@ -934,6 +1005,13 @@ class TestTasksControlsRepublishTheList:
     """
 
     def _seed(self, integration) -> None:
+        # The card is scoped to the projects the clicker can reach, so U001 needs an identity.
+        viewer = User.objects.create_and_join(integration.team.organization, "viewer@posthog.com", None)
+        SlackUserProfileCache.objects.create(
+            integration=integration,
+            slack_user_id="U001",
+            email=viewer.email,
+        )
         # More than one page, so a Next click has somewhere to go.
         for index in range(12):
             task = Task.objects.create(
@@ -1000,7 +1078,6 @@ class TestTasksControlsResolveViewState:
     def _resolved_state(self, monkeypatch, payload: dict):
         captured: dict[str, Any] = {}
         monkeypatch.setattr(slack_app_home, "_resolve_interaction_integration", lambda team_id, user_id: object())
-        monkeypatch.setattr(slack_app_home, "is_slack_app_home_enabled", lambda integration: True)
         monkeypatch.setattr(
             slack_app_home,
             "_republish_home",
@@ -1086,6 +1163,35 @@ class TestHandleAppHomeOpened:
         assert "opener-gh" in text
         assert "colleague-gh" not in text
 
+    @pytest.mark.parametrize(
+        "viewer_email, is_member, reaches_project",
+        [
+            (None, False, False),
+            ("outsider@example.com", False, False),
+            ("member@posthog.com", True, True),
+        ],
+        ids=["viewer_we_cannot_identify", "viewer_outside_every_connected_org", "organization_member"],
+    )
+    def test_only_an_organization_member_reaches_the_connected_project(
+        self, slack_integration, mock_slack_client, flag_on, admin_user, viewer_email, is_member, reaches_project
+    ):
+        slack_integration.team.name = "Zephyr Analytics"
+        slack_integration.team.save(update_fields=["name"])
+        if is_member:
+            User.objects.create_and_join(slack_integration.team.organization, viewer_email, None)
+        if viewer_email:
+            SlackUserProfileCache.objects.create(
+                integration=slack_integration,
+                slack_user_id="U001",
+                email=viewer_email,
+            )
+
+        handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        text = _all_text(mock_slack_client.views_publish.call_args.kwargs["view"])
+        assert ("Zephyr Analytics" in text) is reaches_project
+        assert ("No project to show yet" in text) is not reaches_project
+
     def test_deactivated_user_is_not_resolved_from_their_slack_identity(
         self, slack_integration, mock_slack_client, flag_on, admin_user
     ):
@@ -1104,7 +1210,7 @@ class TestHandleAppHomeOpened:
 
         text = _all_text(mock_slack_client.views_publish.call_args.kwargs["view"])
         assert "offboarded-gh" not in text
-        assert "Link your PostHog account first" in text
+        assert "No project to show yet" in text
 
 
 # ---------------------------------------------------------------------------
@@ -1126,37 +1232,35 @@ class TestEditPersonalAction:
 
 
 class TestResetPersonal:
-    def test_clears_ai_fields_and_republishes(self, slack_integration, mock_slack_client, flag_on, admin_user):
-        SlackSettings.objects.create(
-            default_integration=slack_integration,
-            slack_workspace_id=SLACK_WORKSPACE_ID,
-            slack_user_id="U001",
-            ai_preferences={"runtime_adapter": "claude", "model": "claude-opus-4-7", "reasoning_effort": "high"},
+    def test_mapped_viewer_reset_clears_central_config(self, slack_integration, mock_slack_client, flag_on):
+        user = User.objects.create_and_join(slack_integration.team.organization, "mapped@example.com", None)
+        SlackUserProfileCache.objects.create(
+            integration=slack_integration, slack_user_id="U001", email="mapped@example.com"
+        )
+        update_user_ai_run_preferences(
+            slack_integration.team_id, user.id, runtime_adapter="codex", model="gpt-5.5", reasoning_effort=None
         )
         payload = _block_action_payload(
             action_id=ACTION_RESET_PERSONAL,
             slack_user_id="U001",
-            trigger_id="trig.4",
+            trigger_id="trig.8",
         )
         handle_ai_preferences_block_action(payload, payload["actions"][0])
 
-        row = SlackSettings.objects.get(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
-        assert row.runtime_adapter is None
-        assert row.model is None
-        assert row.reasoning_effort is None
+        assert get_user_ai_run_preferences(slack_integration.team_id, user.id) == {}
         assert mock_slack_client.views_publish.called
 
 
 class TestResetProjectPersonal:
-    def test_clears_routing_only_when_ai_preferences_present(
+    def test_clears_routing_only_when_other_settings_present(
         self, slack_integration, mock_slack_client, flag_on, admin_user
     ):
-        # Mixed row → reset clears routing, AI fields stay.
+        # Mixed row → reset clears routing, the follow-up mode stays.
         SlackSettings.objects.create(
             default_integration=slack_integration,
             slack_workspace_id=SLACK_WORKSPACE_ID,
             slack_user_id="U001",
-            ai_preferences={"runtime_adapter": "claude", "model": "claude-opus-4-7", "reasoning_effort": "high"},
+            untagged_followup_mode=UntaggedFollowupMode.AUTO,
         )
         payload = _block_action_payload(
             action_id=ACTION_RESET_PROJECT_PERSONAL,
@@ -1167,12 +1271,10 @@ class TestResetProjectPersonal:
 
         row = SlackSettings.objects.get(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
         assert row.default_integration_id is None
-        assert row.runtime_adapter == "claude"
-        assert row.model == "claude-opus-4-7"
-        assert row.reasoning_effort == "high"
+        assert row.untagged_followup_mode == UntaggedFollowupMode.AUTO
         assert mock_slack_client.views_publish.called
 
-    def test_deletes_row_when_no_ai_preferences_remain(self, slack_integration, mock_slack_client, flag_on, admin_user):
+    def test_deletes_row_when_no_other_settings_remain(self, slack_integration, mock_slack_client, flag_on, admin_user):
         # Routing-only row → reset drops it so the resolver falls back to
         # the workspace default cleanly.
         SlackSettings.objects.create(
@@ -1201,13 +1303,74 @@ class TestResetProjectPersonal:
         assert mock_slack_client.views_publish.called
 
 
+class TestSetProjectWorkspace:
+    """The workspace default is one setting for everyone in the Slack workspace.
+
+    Slack's admin flag gates the control upstream and says nothing about PostHog, so
+    these cover the second gate: the clicker must reach the project they picked. Every
+    case arrives as a `block_actions` payload, which is what a view Slack published
+    before access was removed replays.
+    """
+
+    def _click(self, slack_user_id: str, team_id: int) -> dict:
+        return _block_action_payload(
+            action_id=ACTION_SET_PROJECT_WORKSPACE,
+            slack_user_id=slack_user_id,
+            selected_value=str(team_id),
+        )
+
+    def test_slack_admin_with_no_posthog_account_cannot_set_the_default(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        payload = self._click("U001", slack_integration.team_id)
+
+        handle_ai_preferences_block_action(payload, payload["actions"][0])
+
+        assert not SlackSettings.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id=None).exists()
+
+    def test_slack_admin_who_is_an_organization_member_sets_the_default(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        member = User.objects.create_and_join(slack_integration.team.organization, "admin@posthog.com", None)
+        SlackUserProfileCache.objects.create(integration=slack_integration, slack_user_id="U001", email=member.email)
+        payload = self._click("U001", slack_integration.team_id)
+
+        handle_ai_preferences_block_action(payload, payload["actions"][0])
+
+        row = SlackSettings.objects.get(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id=None)
+        assert row.default_integration_id == slack_integration.id
+
+    def test_member_of_one_connected_organization_cannot_pick_another_ones_project(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        other_integration = Integration.objects.create(
+            team=other_team,
+            kind="slack",
+            integration_id=SLACK_WORKSPACE_ID,
+            sensitive_config={"access_token": "xoxb"},
+        )
+        member = User.objects.create_and_join(slack_integration.team.organization, "admin@posthog.com", None)
+        SlackUserProfileCache.objects.create(integration=slack_integration, slack_user_id="U001", email=member.email)
+        payload = self._click("U001", other_integration.team_id)
+
+        handle_ai_preferences_block_action(payload, payload["actions"][0])
+
+        assert not SlackSettings.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id=None).exists()
+
+
 # ---------------------------------------------------------------------------
 # Handler tests — view_submission
 # ---------------------------------------------------------------------------
 
 
 class TestPersonalSubmit:
-    def test_writes_row_and_republishes(self, slack_integration, mock_slack_client, flag_on, admin_user):
+    def test_unmapped_viewer_submit_is_refused_with_a_link_prompt(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        # No PostHog user maps to U001, so there is nowhere to store the
+        # preference — the modal must say so instead of writing a Slack pin.
         payload = _view_submission_payload(
             callback_id=EDIT_MODAL_PERSONAL_CALLBACK_ID,
             slack_user_id="U001",
@@ -1216,44 +1379,139 @@ class TestPersonalSubmit:
             effort="high",
         )
         response = handle_app_home_view_submission(payload)
-        assert response.status_code == 200
-        assert json.loads(response.content) == {"response_action": "clear"}
+        body = json.loads(response.content)
+        assert body["response_action"] == "errors"
+        assert "Link your PostHog account" in str(body["errors"])
+        assert not SlackSettings.objects.filter(slack_user_id="U001").exists()
 
-        row = SlackSettings.objects.get(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
-        assert row.runtime_adapter == "claude"
-        assert row.model == "claude-opus-4-7"
-        assert row.reasoning_effort == "high"
-        assert mock_slack_client.views_publish.called
+    def test_multi_project_viewer_without_a_routing_default_is_asked_to_pick(
+        self, slack_integration, mock_slack_client, flag_on
+    ):
+        # Two accessible projects and no routing default must not silently save
+        # against the oldest install; the mention path refuses in the same state.
+        organization = slack_integration.team.organization
+        team_b = Team.objects.create(organization=organization, name="B")
+        Integration.objects.create(
+            team=team_b, kind="slack", integration_id=SLACK_WORKSPACE_ID, sensitive_config={"access_token": "x"}
+        )
+        User.objects.create_and_join(organization, "mapped@example.com", None)
+        for i in Integration.objects.filter(integration_id=SLACK_WORKSPACE_ID):
+            SlackUserProfileCache.objects.create(integration=i, slack_user_id="U001", email="mapped@example.com")
 
-    def test_invalid_pair_keeps_modal_open_with_error(self, slack_integration, mock_slack_client, flag_on):
-        # `xhigh` isn't supported on claude-sonnet-4-6 — validate_ai_preferences rejects.
         payload = _view_submission_payload(
             callback_id=EDIT_MODAL_PERSONAL_CALLBACK_ID,
             slack_user_id="U001",
             runtime_adapter="claude",
-            model="claude-sonnet-4-6",
-            effort="xhigh",
+            model="claude-opus-4-7",
+            effort="high",
+        )
+        response = handle_app_home_view_submission(payload)
+        body = json.loads(response.content)
+        assert body["response_action"] == "errors"
+        assert "Pick a default project" in str(body["errors"])
+
+    def test_save_targets_the_viewers_accessible_project_not_the_oldest_install(
+        self, slack_integration, mock_slack_client, flag_on
+    ):
+        # The workspace's oldest install (the fixture's) belongs to an org the
+        # viewer isn't in; the save must land on their own project rather than
+        # falling open to the oldest one.
+        foreign = slack_integration
+        own_org = Organization.objects.create(name="Mine")
+        own = Integration.objects.create(
+            team=Team.objects.create(organization=own_org, name="Mine team"),
+            kind="slack",
+            integration_id=SLACK_WORKSPACE_ID,
+            sensitive_config={"access_token": "x"},
+        )
+        user = User.objects.create_and_join(own_org, "mapped@example.com", None)
+        for i in (foreign, own):
+            SlackUserProfileCache.objects.create(integration=i, slack_user_id="U001", email="mapped@example.com")
+
+        payload = _view_submission_payload(
+            callback_id=EDIT_MODAL_PERSONAL_CALLBACK_ID,
+            slack_user_id="U001",
+            runtime_adapter="claude",
+            model="claude-opus-4-7",
+            effort="high",
+        )
+        response = handle_app_home_view_submission(payload)
+        assert json.loads(response.content) == {"response_action": "clear"}
+        assert get_user_ai_run_preferences(own.team_id, user.id).get("model") == "claude-opus-4-7"
+        assert get_user_ai_run_preferences(foreign.team_id, user.id) == {}
+
+    def test_gated_model_is_rejected_at_save(self, slack_integration, mock_slack_client, flag_on):
+        user = User.objects.create_and_join(slack_integration.team.organization, "mapped@example.com", None)
+        SlackUserProfileCache.objects.create(
+            integration=slack_integration, slack_user_id="U001", email="mapped@example.com"
+        )
+        payload = _view_submission_payload(
+            callback_id=EDIT_MODAL_PERSONAL_CALLBACK_ID,
+            slack_user_id="U001",
+            runtime_adapter="claude",
+            model="claude-opus-4-7",
+            effort="high",
+        )
+        with patch(
+            "products.tasks.backend.facade.run_config.get_model_access_error",
+            return_value="This model is not available on your account.",
+        ):
+            response = handle_app_home_view_submission(payload)
+        body = json.loads(response.content)
+        assert body["response_action"] == "errors"
+        assert "not available" in str(body["errors"])
+        assert get_user_ai_run_preferences(slack_integration.team_id, user.id) == {}
+
+    def test_mapped_viewer_submit_writes_central_config(self, slack_integration, mock_slack_client, flag_on):
+        user = User.objects.create_and_join(slack_integration.team.organization, "mapped@example.com", None)
+        SlackUserProfileCache.objects.create(
+            integration=slack_integration, slack_user_id="U001", email="mapped@example.com"
+        )
+        payload = _view_submission_payload(
+            callback_id=EDIT_MODAL_PERSONAL_CALLBACK_ID,
+            slack_user_id="U001",
+            runtime_adapter="claude",
+            model="claude-opus-4-7",
+            effort="high",
+        )
+        response = handle_app_home_view_submission(payload)
+        assert json.loads(response.content) == {"response_action": "clear"}
+
+        stored = get_user_ai_run_preferences(slack_integration.team_id, user.id)
+        assert stored.get("model") == "claude-opus-4-7"
+        assert stored.get("runtime_adapter") == "claude"
+
+    @pytest.mark.parametrize(
+        "runtime_adapter,model,effort",
+        [
+            # `max` isn't supported on claude-sonnet-4-6.
+            pytest.param("claude", "claude-sonnet-4-6", "max", id="unsupported-effort"),
+            # A model owned by the other runtime.
+            pytest.param("claude", "gpt-5.5", None, id="cross-runtime-model"),
+        ],
+    )
+    def test_invalid_triple_keeps_modal_open_with_error(
+        self, slack_integration, mock_slack_client, flag_on, runtime_adapter, model, effort
+    ):
+        # A mapped viewer, so the request reaches the central config write —
+        # whose validation is what rejects the triple.
+        user = User.objects.create_and_join(slack_integration.team.organization, "mapped@example.com", None)
+        SlackUserProfileCache.objects.create(
+            integration=slack_integration, slack_user_id="U001", email="mapped@example.com"
+        )
+        payload = _view_submission_payload(
+            callback_id=EDIT_MODAL_PERSONAL_CALLBACK_ID,
+            slack_user_id="U001",
+            runtime_adapter=runtime_adapter,
+            model=model,
+            effort=effort,
         )
         response = handle_app_home_view_submission(payload)
         body = json.loads(response.content)
         assert body["response_action"] == "errors"
         assert MODAL_BLOCK_RUNTIME_ADAPTER in body["errors"]
-        # Modal left open: no row written, no publish.
-        assert not SlackSettings.objects.filter(slack_user_id="U001").exists()
-
-    def test_model_from_another_runtime_keeps_modal_open_with_error(
-        self, slack_integration, mock_slack_client, flag_on
-    ):
-        payload = _view_submission_payload(
-            callback_id=EDIT_MODAL_PERSONAL_CALLBACK_ID,
-            slack_user_id="U001",
-            runtime_adapter="claude",
-            model="gpt-5",
-            effort=None,
-        )
-        response = handle_app_home_view_submission(payload)
-        assert json.loads(response.content)["response_action"] == "errors"
-        assert not SlackSettings.objects.filter(slack_user_id="U001").exists()
+        # Modal left open: nothing stored.
+        assert get_user_ai_run_preferences(slack_integration.team_id, user.id) == {}
 
 
 class TestModalRerender:
@@ -1365,8 +1623,6 @@ class TestNoProjectAccessCard:
 
     def _view(self, **overrides) -> dict:
         kwargs: dict[str, Any] = {
-            "effective": AIPreferences(),
-            "user_row": None,
             "is_admin": True,
             "has_project_access": False,
             "tasks_state": TasksState(),
@@ -1377,18 +1633,34 @@ class TestNoProjectAccessCard:
         kwargs.update(overrides)
         return render_home_view(**kwargs)
 
-    def test_explains_the_dead_end_and_links_to_the_settings_page(self):
-        text = _all_text(self._view())
-
-        assert "No project to show yet" in text
-        assert "ask an admin" in text
-        urls = [
+    @staticmethod
+    def _urls(view: dict) -> list[str]:
+        return [
             element["url"]
-            for block in self._view()["blocks"]
+            for block in view["blocks"]
             for element in block.get("elements", []) or []
             if "url" in element
         ]
-        assert urls == ["http://localhost:8010/settings/project-integrations"]
+
+    def test_explains_the_dead_end_and_links_to_the_settings_page(self):
+        view = self._view()
+
+        assert "No project to show yet" in _all_text(view)
+        assert "ask an admin" in _all_text(view)
+        assert self._urls(view) == ["http://localhost:8010/settings/project-integrations"]
+
+    def test_names_the_address_mismatch_and_routes_it_to_personal_integrations(self):
+        personal = "http://localhost:8010/project/7/settings/user-personal-integrations"
+        view = self._view(account_settings_url=personal)
+
+        assert "same email address as your Slack profile" in _all_text(view)
+        assert personal in self._urls(view)
+
+    def test_withholds_the_signed_account_link_from_a_viewer_who_was_not_identified(self):
+        # The URL is in `account_state` on this path, so its absence has to be asserted.
+        view = self._view(account_settings_url="http://localhost:8010/project/7/settings/user-personal-integrations")
+
+        assert "https://app/link" not in json.dumps(view)
 
     def test_suppresses_every_card_that_needs_a_project(self):
         # Each of these would otherwise render from the states passed above.
@@ -1401,3 +1673,43 @@ class TestNoProjectAccessCard:
 
     def test_normal_tab_is_untouched_when_a_project_is_reachable(self):
         assert "No project to show yet" not in _all_text(self._view(has_project_access=True))
+
+
+class TestUnidentifiedViewerProjectList:
+    """What the tab lists for a Slack user it cannot map to a PostHog account.
+
+    The regression to catch is the list widening again. A Slack workspace can connect
+    several organizations, so reaching any candidate publishes the project and
+    organization names of orgs the viewer is not a member of to anyone in the workspace.
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup(self, db):
+        from posthog.models.integration import Integration
+        from posthog.models.organization import Organization
+        from posthog.models.team.team import Team
+
+        self.own_org = Organization.objects.create(name="Acme")
+        self.other_org = Organization.objects.create(name="Umbrella")
+        self.rendered_for = Integration.objects.create(
+            team=Team.objects.create(organization=self.own_org, name="Acme prod"),
+            kind="slack",
+            integration_id="T_WS",
+            sensitive_config={"access_token": "xoxb"},
+        )
+        self.other_org_install = Integration.objects.create(
+            team=Team.objects.create(organization=self.other_org, name="Umbrella prod"),
+            kind="slack",
+            integration_id="T_WS",
+            sensitive_config={"access_token": "xoxb"},
+        )
+
+    def test_reaches_no_project_at_all(self):
+        from products.slack_app.backend.services.slack_app_home import _filter_accessible_integrations
+
+        # No SlackUserProfileCache row and no OAuth link, so the viewer is unidentifiable.
+        accessible = _filter_accessible_integrations(
+            self.rendered_for, "U_STRANGER", [self.rendered_for, self.other_org_install]
+        )
+
+        assert accessible == []

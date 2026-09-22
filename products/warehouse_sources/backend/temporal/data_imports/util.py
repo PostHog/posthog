@@ -66,9 +66,11 @@ S3_DELETE_TIME_BUFFER = 600
 
 # A zombie compaction+vacuum pass (a heartbeat-timed-out activity attempt still running) can keep
 # deleting source files for as long as its own rewrite takes - documented up to ~45s for a
-# fragmented table in core/delta/maintenance.py - which can outlive a single retry. Bound the retries
-# with backoff instead, mirroring _purge_s3_prefix's approach to the same class of race.
-_COPY_FILES_MAX_ATTEMPTS = 4
+# fragmented table in core/delta/maintenance.py, before vacuum even starts - which can outlive a
+# single retry. Bound the retries with backoff instead, mirroring _purge_s3_prefix's approach to
+# the same class of race. 6 attempts gives ~62s of cumulative backoff (2+4+8+16+32s), comfortably
+# past that documented worst case; 4 attempts (~14s) wasn't.
+_COPY_FILES_MAX_ATTEMPTS = 6
 
 
 def is_posthog_team(team_id: int) -> bool:
@@ -202,6 +204,12 @@ async def prepare_s3_files_for_querying(
                 # S3's SlowDown rate limiting on the destination prefix.
                 await s3._cp_file(file, f"{s3_path_for_querying}/{file_name}")
 
+        import deltalake.exceptions  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
+
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
+            is_transient_object_store_error,
+        )
+
         attempt = 0
         while True:
             attempt += 1
@@ -222,7 +230,32 @@ async def prepare_s3_files_for_querying(
                     level="error",
                 )
                 await asyncio.sleep(2**attempt)
-                file_uris = await refresh_file_uris()
+                try:
+                    file_uris = await refresh_file_uris()
+                except deltalake.exceptions.TableNotFoundError as refresh_error:
+                    # Re-listing reopens the same table mid-race, and can lose it the same way the
+                    # copy above did: delta-rs raises this (not FileNotFoundError/OSError) when the
+                    # rewrite in progress has left the log segment with zero readable commits for the
+                    # moment before its own commit lands. Keep the stale listing so the next attempt's
+                    # copy fails the same way and this loop retries the refresh again, instead of the
+                    # delta-kernel error escaping uncaught on the first unlucky refresh.
+                    await _log(
+                        f"Refreshing file listing hit the same table race (attempt "
+                        f"{attempt}/{_COPY_FILES_MAX_ATTEMPTS}), retrying: {refresh_error}",
+                        level="error",
+                    )
+            except OSError as e:
+                # s3fs wraps a CopyObject/PutObject 5xx (e.g. S3's InternalError, already retried to
+                # exhaustion at the boto layer) as a plain OSError. That's a blip on S3's side, not a
+                # bug here - retry the whole (idempotent) copy batch with backoff before giving up.
+                if attempt >= _COPY_FILES_MAX_ATTEMPTS or not is_transient_object_store_error(e):
+                    raise
+                await _log(
+                    f"Transient S3 error while copying files (attempt {attempt}/{_COPY_FILES_MAX_ATTEMPTS}), "
+                    f"retrying: {e}",
+                    level="error",
+                )
+                await asyncio.sleep(2**attempt)
 
         # Delete existing files after copying new ones
         if delete_existing and files_to_delete:

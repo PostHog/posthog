@@ -24,6 +24,8 @@ export interface PersonalizationSettingsViewProps {
   syncFromFile: boolean;
   onSyncToggle: (checked: boolean) => void;
   synced: SyncedCustomInstructions | null;
+  ste100Enabled: boolean;
+  onSte100Toggle: (checked: boolean) => void;
 }
 
 // Pure render of the instructions block. The container below owns the store
@@ -35,13 +37,26 @@ export function PersonalizationSettingsView({
   syncFromFile,
   onSyncToggle,
   synced,
+  ste100Enabled,
+  onSte100Toggle,
 }: PersonalizationSettingsViewProps) {
   return (
     <SettingsSection
       label="Custom instructions"
-      description="Included in every agent session."
+      description="Included in every agent session"
     >
       <SettingsCard>
+        <SettingsCardRow
+          label="Use Simplified Technical English (ASD-STE100)"
+          description="Ask the agent to use clear and consistent technical language"
+        >
+          <Switch
+            size="sm"
+            aria-label="Use Simplified Technical English (ASD-STE100)"
+            checked={ste100Enabled}
+            onCheckedChange={onSte100Toggle}
+          />
+        </SettingsCardRow>
         <SettingsCardRow
           label="Sync from AGENTS.md / CLAUDE.md"
           description="Use your user-level AGENTS.md (or CLAUDE.md) instead of the instructions below, so they live in one place"
@@ -78,7 +93,7 @@ export function PersonalizationSettingsView({
           />
           {syncFromFile ? (
             synced && (
-              <span className="text-right text-[12px] text-gray-10">
+              <span className="text-right text-[12px] text-muted-foreground">
                 Using{" "}
                 <span className="font-mono text-[11px]">
                   {synced.displayPath}
@@ -88,7 +103,7 @@ export function PersonalizationSettingsView({
               </span>
             )
           ) : (
-            <span className="text-right text-[12px] text-gray-10 tabular-nums">
+            <span className="text-right text-[12px] text-muted-foreground tabular-nums">
               {instructions.length}/{MAX_INSTRUCTIONS_LENGTH}
             </span>
           )}
@@ -110,6 +125,8 @@ export function PersonalizationSettings() {
     (s) => s.setSyncCustomInstructionsFromFile,
   );
   const synced = useSettingsStore((s) => s.syncedCustomInstructions);
+  const ste100Enabled = useSettingsStore((s) => s.ste100Enabled);
+  const setSte100Enabled = useSettingsStore((s) => s.setSte100Enabled);
 
   // The draft renders over the store value only while edits are pending
   // (null = none), instead of copying the store into state and mirroring it
@@ -155,6 +172,17 @@ export function PersonalizationSettings() {
     [setSyncFromFile],
   );
 
+  const handleSte100Toggle = useCallback(
+    (checked: boolean) => {
+      setSte100Enabled(checked);
+      track(ANALYTICS_EVENTS.SETTING_CHANGED, {
+        setting_name: "simplified_technical_english",
+        new_value: checked,
+      });
+    },
+    [setSte100Enabled],
+  );
+
   return (
     <div className="flex flex-col gap-7">
       <PersonalizationSettingsView
@@ -164,6 +192,8 @@ export function PersonalizationSettings() {
         syncFromFile={syncFromFile}
         onSyncToggle={handleSyncToggle}
         synced={synced}
+        ste100Enabled={ste100Enabled}
+        onSte100Toggle={handleSte100Toggle}
       />
       <FunSection />
     </div>
@@ -217,7 +247,10 @@ function FunSection() {
   );
 
   return (
-    <SettingsSection label="Fun">
+    <SettingsSection
+      label="Fun"
+      description="Extras that make the app a bit more playful"
+    >
       <SettingsCard>
         <SettingsCardRow
           label="Hedgehog mode"
@@ -232,7 +265,7 @@ function FunSection() {
 
         <SettingsCardRow
           label="Slot machine mode 🎰"
-          description="A pull-able lever while a task runs. Every run is a gamble."
+          description="A pull-able lever while a task runs; every run is a gamble"
         >
           <Switch
             size="sm"

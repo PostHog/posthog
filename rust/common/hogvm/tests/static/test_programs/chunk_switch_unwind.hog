@@ -1,0 +1,13 @@
+fun boom(x) {
+  throw Error('boom');
+}
+
+let caught := false;
+try {
+  arrayMap(x -> boom(x), [1, 2]);
+} catch (e) {
+  caught := e.message == 'boom';
+}
+
+fun after() { return true; }
+return caught and after();

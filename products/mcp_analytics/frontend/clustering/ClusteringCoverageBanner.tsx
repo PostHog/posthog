@@ -34,5 +34,7 @@ export function ClusteringCoverageBanner(): JSX.Element | null {
         parts.push(`descriptions captured for ${meta.description_coverage_pct.toFixed(0)}% of tools`)
     }
 
-    return <div className="text-xs text-muted">{parts.join(' · ')}.</div>
+    // The leading separator belongs to this component: it follows the run timestamp in the
+    // status row and has to disappear along with it when there is no coverage to report.
+    return <span className="text-xs text-muted">· {parts.join(' · ')}.</span>
 }

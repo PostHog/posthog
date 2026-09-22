@@ -1,0 +1,12 @@
+{
+    "id": "LA8",
+    "file": "products/stamphog/backend/tasks/tasks.py",
+    "lines": "1190-1222",
+    "priority": "should_fix",
+    "title": "Do not order different heads by equal timestamps",
+    "problem": "GitHub can give two close updates the same updated_at value. An inbox fetch for H1 can race a synchronize event for H2. If H2 commits first, the strict greater-than check treats stale H1 as current. The task supersedes the H2 run and creates an H1 run. post_verdict rejects H1 against the live H2 head, so no run reviews H2.",
+    "suggestion": "When equal timestamps have different head SHAs, fetch the live head before superseding. Keep the run that matches the live head. Add a regression test with equal timestamps and different SHAs.",
+    "cluster": null,
+    "cluster_issue": null,
+    "cluster_verified": null
+}

@@ -173,6 +173,7 @@ function ElapsedTimeWithTimings({
             <div
                 onClick={() => setPopoverVisible((visible) => !visible)}
                 className={clsx(hasError ? 'text-danger' : '', 'cursor-help')}
+                translate="no"
             >
                 {(elapsedTime / 1000).toFixed(elapsedTime < 1000 ? 2 : 1)}s
             </div>
@@ -209,5 +210,12 @@ export function ElapsedTime({ showTimings }: { showTimings?: boolean }): JSX.Ele
         return <ElapsedTimeWithTimings elapsedTime={elapsedTime} timings={timings} hasError={!!responseError} />
     }
 
-    return <div className={responseError ? 'text-danger' : ''}>{(time / 1000).toFixed(time < 1000 ? 2 : 1)}s</div>
+    // "{time}s" is two bare text nodes, so React tracks them individually. Once a page-translation
+    // extension replaces one with a <font> element React's updates go to the detached node and the
+    // counter freezes mid-query (react#11538). There is nothing to translate in "1.4s" anyway.
+    return (
+        <div className={responseError ? 'text-danger' : ''} translate="no">
+            {(time / 1000).toFixed(time < 1000 ? 2 : 1)}s
+        </div>
+    )
 }

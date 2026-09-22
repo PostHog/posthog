@@ -29,6 +29,8 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
 
 If your product isn't listed, key creation rejects the scope before auth is ever attempted. Add your `(scope_object, action)` tuple here first.
 
+Add the same scope to `PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION` in `frontend/src/lib/scopes.tsx`. The scope picker in project settings builds its checkboxes from that list, so a backend-only change leaves users with no way to grant the scope. `posthog/test/test_scopes.py` compares the two lists.
+
 ### 2. Add the authenticator and opt in actions
 
 ```python

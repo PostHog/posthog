@@ -21,6 +21,9 @@ RUN apt-get update && \
 RUN mkdir -p /etc/docker && \
     printf '%s\n' '{' '  "storage-driver": "overlay2"' '}' > /etc/docker/daemon.json
 
+COPY products/tasks/backend/sandbox/images/cpu_billing_sampler.py /usr/local/bin/posthog-cpu-billing-sampler
+RUN chmod +x /usr/local/bin/posthog-cpu-billing-sampler
+
 # There is no init system in the sandbox, so dockerd is launched on demand by
 # this idempotent helper rather than by systemd. dockerd is detached with setsid
 # and </dev/null so it survives its launching process. On the Modal VM runtime

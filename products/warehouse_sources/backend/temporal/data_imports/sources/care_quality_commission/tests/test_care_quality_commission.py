@@ -227,6 +227,67 @@ class TestGetRowsFanOut:
         assert rows == [{"providerId": "1-A"}]
 
 
+class TestGetRowsInspectionAreas:
+    def test_unpaginated_endpoint_fetches_a_single_page(self, monkeypatch: Any) -> None:
+        # The taxonomy endpoint ignores page/perPage and re-serves the whole table, so a request
+        # for page 2 would duplicate every row forever. Only page 1 is registered here, so a
+        # second fetch fails the test.
+        pages = {
+            f"{CQC_BASE_URL}/inspection-areas?partnerCode=PC": {
+                "inspectionAreas": [{"inspectionAreaId": "IA-1"}, {"inspectionAreaId": "IA-2"}],
+            },
+        }
+        rows = _collect(_FakeResumableManager(), monkeypatch, pages, endpoint="inspection_areas")
+        assert rows == [{"inspectionAreaId": "IA-1"}, {"inspectionAreaId": "IA-2"}]
+
+    @pytest.mark.parametrize(
+        "endpoint,collection,id_field,org_id",
+        [
+            ("provider_inspection_areas", "providers", "providerId", "1-P"),
+            ("location_inspection_areas", "locations", "locationId", "1-L"),
+        ],
+    )
+    def test_nested_rows_carry_the_parent_id(
+        self, monkeypatch: Any, endpoint: str, collection: str, id_field: str, org_id: str
+    ) -> None:
+        pages = {
+            f"{CQC_BASE_URL}/{collection}?page=1&perPage=500&partnerCode=PC": {
+                collection: [{id_field: org_id}],
+                "totalPages": 1,
+            },
+            f"{CQC_BASE_URL}/{collection}/{org_id}/inspection-areas?partnerCode=PC": {
+                "inspectionAreas": [
+                    {"inspectionAreaId": "IA-1", "status": "Active"},
+                    {"inspectionAreaId": "IA-2", "status": "Superseded"},
+                ]
+            },
+        }
+        rows = _collect(_FakeResumableManager(), monkeypatch, pages, endpoint=endpoint)
+        # The same inspectionAreaId recurs across organisations, so the parent id has to land on
+        # the row for the composite primary key to identify it.
+        assert rows == [
+            {id_field: org_id, "inspectionAreaId": "IA-1", "status": "Active"},
+            {id_field: org_id, "inspectionAreaId": "IA-2", "status": "Superseded"},
+        ]
+
+    def test_organisation_without_inspection_areas_is_skipped(self, monkeypatch: Any) -> None:
+        # Most organisations have no inspected areas, so an empty or absent list is routine — it
+        # must not stop the sweep over the remaining organisations.
+        pages = {
+            f"{CQC_BASE_URL}/providers?page=1&perPage=500&partnerCode=PC": {
+                "providers": [{"providerId": "1-A"}, {"providerId": "1-B"}, {"providerId": "1-C"}],
+                "totalPages": 1,
+            },
+            f"{CQC_BASE_URL}/providers/1-A/inspection-areas?partnerCode=PC": {"inspectionAreas": []},
+            f"{CQC_BASE_URL}/providers/1-B/inspection-areas?partnerCode=PC": {},
+            f"{CQC_BASE_URL}/providers/1-C/inspection-areas?partnerCode=PC": {
+                "inspectionAreas": [{"inspectionAreaId": "IA-1"}]
+            },
+        }
+        rows = _collect(_FakeResumableManager(), monkeypatch, pages, endpoint="provider_inspection_areas")
+        assert rows == [{"providerId": "1-C", "inspectionAreaId": "IA-1"}]
+
+
 class TestSourceResponse:
     @parameterized.expand([("providers", ["providerId"]), ("locations", ["locationId"])])
     def test_response_shape(self, endpoint: str, expected_keys: list[str]) -> None:
@@ -242,6 +303,27 @@ class TestSourceResponse:
         # Partition on the stable registration date so partitions never rewrite.
         assert response.partition_mode == "datetime"
         assert response.partition_keys == [CQC_ENDPOINTS[endpoint].partition_key]
+
+    @parameterized.expand(
+        [
+            ("inspection_areas", ["inspectionAreaId"]),
+            ("provider_inspection_areas", ["providerId", "inspectionAreaId"]),
+            ("location_inspection_areas", ["locationId", "inspectionAreaId"]),
+        ]
+    )
+    def test_inspection_area_responses_are_unpartitioned(self, endpoint: str, expected_keys: list[str]) -> None:
+        response = care_quality_commission_source(
+            api_key="key",
+            partner_code="PC",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+        )
+        assert response.primary_keys == expected_keys
+        # Inspection-area rows carry no stable creation date, so there is nothing safe to
+        # partition on — `endDate` and the retirement dates both move when CQC retires an area.
+        assert response.partition_mode is None
+        assert response.partition_keys is None
 
 
 class TestValidateCredentials:

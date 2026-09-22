@@ -55,12 +55,15 @@ _WAL_REPLICA = ("wal_level", [("replica",)])
 # PK check uses pg_catalog (pg_index) — match on "indisprimary"
 _HAS_PK = ("indisprimary", [(1,)])
 _NO_PK = ("indisprimary", [(0,)])
+# The primary-key lookup is also a COUNT, so the slot-capacity patterns name their own relation.
+# This one matches only when the schema and the table reach pg_catalog as separate literals.
+_PK_ON_ANALYTICS_EVENTS = ("Literal('analytics'), SQL(' AND c.relname = '), Literal('events')", [(1,)])
 # Replication role check — the OR expression returns a single boolean
 _HAS_REPL_ROLE = ("rolreplication", [(True,)])
 _NO_REPL_ROLE = ("rolreplication", [(False,)])
 _MAX_SLOTS_10 = ("max_replication_slots", [("10",)])
-_SLOT_COUNT_2 = ("COUNT", [("2",)])
-_SLOT_COUNT_10 = ("COUNT", [("10",)])
+_SLOT_COUNT_2 = ("FROM pg_replication_slots", [("2",)])
+_SLOT_COUNT_10 = ("FROM pg_replication_slots", [("10",)])
 _SLOT_EXISTS = ("slot_name", [(1,)])
 _SLOT_NOT_EXISTS: tuple[str, list] = ("slot_name", [])
 _PUB_EXISTS = ("pubname", [(1,)])
@@ -112,6 +115,15 @@ class TestValidateCDCPrerequisites:
         conn = _mock_conn([_PG_15, _WAL_LOGICAL, _NO_PK, _HAS_REPL_ROLE, _MAX_SLOTS_10, _SLOT_COUNT_2])
         errors = validate_cdc_prerequisites(conn=conn, management_mode="posthog", tables=["orders"])
         assert any("primary key" in e for e in errors)
+
+    def test_qualified_table_is_checked_under_its_own_schema(self):
+        # A source with no single schema configured lists its tables as `schema.table`. A relname
+        # lookup for the whole string finds no primary key on a table that has one.
+        conn = _mock_conn([_PG_15, _WAL_LOGICAL, _PK_ON_ANALYTICS_EVENTS, _HAS_REPL_ROLE, _MAX_SLOTS_10, _SLOT_COUNT_2])
+        errors = validate_cdc_prerequisites(
+            conn=conn, management_mode="posthog", tables=["analytics.events"], schema=None
+        )
+        assert errors == []
 
     def test_no_replication_role(self):
         conn = _mock_conn([_PG_15, _WAL_LOGICAL, _HAS_PK, _NO_REPL_ROLE, _MAX_SLOTS_10, _SLOT_COUNT_2])

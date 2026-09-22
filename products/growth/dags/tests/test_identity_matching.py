@@ -197,6 +197,7 @@ def _run_job(cluster: ClickhouseCluster, **config_overrides: Any) -> tuple[dagst
     return result, UUID(result.dagster_run.run_id)
 
 
+@pytest.mark.django_db
 def test_identity_matching_job(cluster: ClickhouseCluster) -> None:
     cluster.any_host(_insert_fixture_events).result()
 
@@ -259,6 +260,7 @@ def test_identity_matching_job(cluster: ClickhouseCluster) -> None:
     assert logreg_links == {"phone-anna", "phone-bob", "webview-cara"}
 
 
+@pytest.mark.django_db
 def test_logreg_skips_without_labels(cluster: ClickhouseCluster) -> None:
     cluster.any_host(_insert_fixture_events).result()
 
@@ -272,6 +274,7 @@ def test_logreg_skips_without_labels(cluster: ClickhouseCluster) -> None:
     assert cluster.any_host(get_logreg_link_count).result() == 0
 
 
+@pytest.mark.django_db
 def test_eval_labels_survive_edge_truncation(cluster: ClickhouseCluster) -> None:
     cluster.any_host(_insert_fixture_events).result()
 

@@ -1,8 +1,10 @@
+import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
 import { describe, expect, it } from "vitest";
 import {
   contentToXml,
   type EditorContent,
   extractFilePaths,
+  POSTHOG_OBJECT_KINDS,
   xmlToContent,
   xmlToPlainText,
 } from "./content";
@@ -124,6 +126,92 @@ describe("xmlToContent", () => {
     const xml = `<${type} id="${id}" />`;
     expect(xmlToContent(xml).segments).toEqual([
       { type: "chip", chip: { type, id, label: id } },
+    ]);
+  });
+
+  it.each([
+    ["insight", "9pQx3", '<insight id="9pQx3" />'],
+    [
+      "hogql",
+      "SELECT count() FROM events WHERE value < 3",
+      "<hogql>SELECT count() FROM events WHERE value &lt; 3</hogql>",
+    ],
+  ] as const)(
+    "serializes a %s object chip with its exact reference",
+    (objectKind, id, expected) => {
+      const content: EditorContent = {
+        segments: [
+          {
+            type: "chip",
+            chip: {
+              type: "posthog_object",
+              objectKind,
+              id,
+              label: "Referenced object",
+            },
+          },
+        ],
+      };
+
+      expect(contentToXml(content)).toBe(expected);
+    },
+  );
+
+  it("restores a hogql chip's exact query when parsing serialized content back", () => {
+    const query =
+      "SELECT count() FROM events WHERE value < 3 AND note = 'a & b'";
+    const serialized = contentToXml({
+      segments: [
+        {
+          type: "chip",
+          chip: {
+            type: "posthog_object",
+            objectKind: "hogql",
+            id: query,
+            label: "Referenced object",
+          },
+        },
+      ],
+    });
+
+    const { segments } = xmlToContent(serialized);
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toMatchObject({
+      type: "chip",
+      chip: { type: "posthog_object", objectKind: "hogql", id: query },
+    });
+  });
+
+  it.each([
+    ["dashboard", "17"],
+    ["report", "rep-1"],
+  ] as const)("parses a %s tag into a PostHog object chip", (kind, id) => {
+    expect(xmlToContent(`<${kind} id="${id}" />`).segments).toEqual([
+      {
+        type: "chip",
+        chip: {
+          type: "posthog_object",
+          objectKind: kind,
+          id,
+          label: id,
+        },
+      },
+    ]);
+  });
+
+  it("parses a paired report tag using its body as the label", () => {
+    expect(
+      xmlToContent('<report id="rep-1">Latency regression</report>').segments,
+    ).toEqual([
+      {
+        type: "chip",
+        chip: {
+          type: "posthog_object",
+          objectKind: "report",
+          id: "rep-1",
+          label: "Latency regression",
+        },
+      },
     ]);
   });
 
@@ -303,5 +391,11 @@ describe("xmlToContent", () => {
         },
       },
     ]);
+  });
+});
+
+describe("PostHog object kind prompt", () => {
+  it.each(POSTHOG_OBJECT_KINDS)("teaches agents the %s tag", (kind) => {
+    expect(RICH_OUTPUT_TAGS_PROMPT).toContain(kind);
   });
 });

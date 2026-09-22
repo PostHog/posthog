@@ -1,2 +1,2 @@
 class ComputeBillingLimitExceeded(Exception):
-    pass
+    reason = "posthog_code_billing_limit_exceeded"

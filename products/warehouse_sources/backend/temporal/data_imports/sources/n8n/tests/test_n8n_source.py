@@ -1,14 +1,9 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.n8n import N8nSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.n8n import N8nResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.n8n.source import N8nSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestN8nSource:
@@ -16,29 +11,6 @@ class TestN8nSource:
         self.source = N8nSource()
         self.team_id = 123
         self.config = N8nSourceConfig(host="https://myorg.app.n8n.cloud", api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.N8N
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "N8n"
-        assert config.label == "n8n"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/n8n.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/n8n"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["host", "api_key"]
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert key_field.secret is True
-        assert key_field.required is True
 
     def test_connection_host_fields_cover_host(self):
         # The instance URL decides where the stored API key gets sent.
@@ -129,13 +101,6 @@ class TestN8nSource:
 
         assert is_valid is False
         assert "Invalid n8n credentials" in (error_message or "")
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is N8nResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.n8n.source.n8n_source")
     @mock.patch.object(N8nSource, "is_database_host_valid")

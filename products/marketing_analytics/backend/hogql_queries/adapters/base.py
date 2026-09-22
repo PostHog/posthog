@@ -745,8 +745,12 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     ) -> ast.Expr | None:
         """Wrap value_expr with currency conversion if the currency column exists in the table.
 
-        Returns toFloat(convertCurrency(coalesce(currency_col, base_currency), base_currency, value_expr))
-        or None if the column doesn't exist or can't be checked.
+        Converts at the row's own stats date. Without a date `convertCurrency` falls back to
+        `today()`, which both reprices past spend every time the page loads and puts cost on a
+        different rate than conversion revenue, which converts at the event's timestamp.
+
+        Returns toFloat(convertCurrency(coalesce(currency_col, base_currency), base_currency,
+        value_expr, stats_date)) or None if the column doesn't exist or can't be checked.
         """
         if not self._table_has_column(table, currency_column):
             return None
@@ -754,9 +758,25 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         currency_with_fallback = ast.Call(
             name="coalesce", args=[currency_field, ast.Constant(value=self.context.base_currency)]
         )
+        # Warehouse date columns read back nullable, and `convertCurrency` resolves the rate
+        # through `dictGetOrDefault`, which rejects a Nullable(Date) key outright rather than
+        # returning the default. Falling back to today() for a row with no date is the old
+        # behaviour, kept only for those rows.
+        stats_date = ast.Call(
+            name="coalesce",
+            args=[
+                ast.Call(name="toDate", args=[ast.Field(chain=[table_name, self._stats_date_column])]),
+                ast.Call(name="today", args=[]),
+            ],
+        )
         converted = ast.Call(
             name="convertCurrency",
-            args=[currency_with_fallback, ast.Constant(value=self.context.base_currency), value_expr],
+            args=[
+                currency_with_fallback,
+                ast.Constant(value=self.context.base_currency),
+                value_expr,
+                stats_date,
+            ],
         )
         return ast.Call(name="toFloat", args=[converted])
 

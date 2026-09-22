@@ -7,6 +7,8 @@ import type {
     SignalScoutConfigApi as SignalScoutConfig,
 } from 'products/signals/frontend/generated/api.schemas'
 
+import { ScoutGroupKey } from '../../../utils/scoutGroups'
+
 /**
  * Where the scout stands with the system writers that can pause it: the failure breaker
  * (`repeated_failures`) or the inactivity sweep (`no_output` / `ignored`), plus the sweep's
@@ -69,6 +71,38 @@ export function ScoutLifecycleBadge({ config }: { config: SignalScoutConfig }): 
     return null
 }
 
+/**
+ * Why the inactivity sweep leaves this scout alone, in the terms the exemption came from: the role
+ * PostHog ships it with, or a choice someone made on this project. Nothing renders for a scout the
+ * sweep still judges. The role shows in any group, because it says what the scout is rather
+ * than how its run window went.
+ */
+export function ScoutExemptionBadge({
+    config,
+    group,
+}: {
+    config: SignalScoutConfig
+    group: ScoutGroupKey
+}): JSX.Element | null {
+    if (config.scout_role === 'operational') {
+        return (
+            <Tooltip title="Part of the self-driving system rather than this project's fleet. It checks whether shipped fixes held, so it keeps running and is never paused for being quiet.">
+                <LemonTag type="muted" size="small">
+                    Operational
+                </LemonTag>
+            </Tooltip>
+        )
+    }
+    if (config.auto_pause_exempt && group === 'watching') {
+        return (
+            <Tooltip title="Exempt from auto-pause, because this scout is supposed to stay quiet">
+                <LemonTag size="small">Quiet by design</LemonTag>
+            </Tooltip>
+        )
+    }
+    return null
+}
+
 /** Canonical (PostHog-maintained) vs Custom (team-authored) scout badge. */
 export function ScoutOriginBadge({ origin }: { origin: ScoutOriginEnumApi }): JSX.Element {
     return (
@@ -76,7 +110,7 @@ export function ScoutOriginBadge({ origin }: { origin: ScoutOriginEnumApi }): JS
             title={
                 origin === 'canonical'
                     ? 'Part of the standard scout troop built and maintained by PostHog'
-                    : 'A scout your team created as a signals-scout-* skill in this project'
+                    : 'A scout your team created as a skill in this project'
             }
         >
             <LemonTag type={origin === 'canonical' ? 'muted' : 'highlight'} size="small">
@@ -90,6 +124,39 @@ export function ScoutTagBadge({ tag }: { tag: string }): JSX.Element {
     return (
         <LemonTag type="highlight" size="small">
             {tag}
+        </LemonTag>
+    )
+}
+
+/** Where a scout stands right now, in one tag. Used on the scout page header and its settings modal. */
+export function ScoutStatusTag({ config }: { config: SignalScoutConfig }): JSX.Element {
+    if (config.status === 'paused_by_system') {
+        return (
+            <LemonTag type="danger" size="small">
+                Paused by the system
+            </LemonTag>
+        )
+    }
+    if (config.status === 'pending_pause') {
+        return (
+            <LemonTag type="warning" size="small">
+                {config.pause_reason === 'ignored' ? 'Pausing soon' : 'Warned'}
+            </LemonTag>
+        )
+    }
+    if (!config.enabled) {
+        return <LemonTag size="small">Off</LemonTag>
+    }
+    if (!config.emit) {
+        return (
+            <LemonTag type="option" size="small">
+                Dry run
+            </LemonTag>
+        )
+    }
+    return (
+        <LemonTag type="success" size="small">
+            On patrol
         </LemonTag>
     )
 }

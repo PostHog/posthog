@@ -13,6 +13,12 @@ from posthog.dags.common import chunk_ranges
 from posthog.models import Organization, Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationTable
+from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import (
+    ConversionGoalProcessor,
+    build_touchpoints_precompute_query,
+)
+from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
+from products.marketing_analytics.backend.hogql_queries.utils import convert_team_conversion_goals_to_objects
 from products.marketing_analytics.dags.marketing_precompute import (
     COST_MATERIALIZATION_GRAINS,
     DEFAULT_ROLLOUT_TEAM_IDS,
@@ -173,6 +179,43 @@ class TestConversionWarming(APIBaseTest):
         tables = _tables(ensure_mock)
         assert LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED in tables
         assert LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED in tables
+
+    @patch(_ENSURE, new_callable=_ready_mock)
+    @patch(_SINGLE_CHUNK, _BIG_CHUNK)
+    def test_warms_the_filtered_variant_a_team_that_drops_test_accounts_reads(self, ensure_mock):
+        # The framework keys each job on its insert query's AST, so warming the unfiltered variant for a
+        # team that reads the filtered one leaves every read to materialize inline.
+        team = self._make_team("A", goals=[_PRECOMPUTABLE_GOAL])
+        team.test_account_filters = [{"key": "$host", "value": "localhost", "operator": "exact", "type": "event"}]
+        team.save()
+        team.marketing_analytics_config.filter_test_accounts = True
+        team.marketing_analytics_config.save()
+
+        with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
+            ensure_marketing_precompute_op(dagster.build_op_context())
+
+        warmed = {
+            call.kwargs["table"]: call.kwargs["insert_query"]
+            for call in ensure_mock.call_args_list
+            if call.kwargs["table"]
+            in (
+                LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
+                LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED,
+            )
+        }
+        expected_touchpoints = build_touchpoints_precompute_query(team, True)
+        assert repr(warmed[LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED]) == repr(expected_touchpoints)
+
+        goal = convert_team_conversion_goals_to_objects(team.marketing_analytics_config.conversion_goals, team.pk)[0]
+        expected_conversions = ConversionGoalProcessor(
+            goal=goal,
+            index=0,
+            team=team,
+            config=MarketingAnalyticsConfig.from_team(team),
+            user=None,
+            filter_test_accounts=True,
+        ).build_conversions_precompute_query()
+        assert repr(warmed[LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED]) == repr(expected_conversions)
 
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)

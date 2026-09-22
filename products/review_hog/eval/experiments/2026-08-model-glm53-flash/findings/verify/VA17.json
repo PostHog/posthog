@@ -1,0 +1,6 @@
+{
+    "id": "VA17",
+    "real": false,
+    "source": "reused-LA6",
+    "reasoning": "Identical claim verified as LA6 (validator-model-sol run): is_real=false, high confidence. Early ack is factually true (tasks.py:1109 has no acks_late; repo-wide default), but the loss scenarios are recovered, not permanent. The docstring contract (tasks.py:1124-1128) and receiver (products/review_hog/backend/receivers.py:75-79, 124-136) re-fire the task on every TaskRun output save carrying the PR URL; a refire finding a still-QUEUED run restarts its workflow (tasks.py:1211-1214), directly refuting 'QUEUED forever'. A message lost mid-fetch/transaction is re-fired the same way, and later synchronize/reopen deliveries re-review via the webhook carve-out. The sibling webhook task (tasks.py:809) shares the identical decorator, so this copies the established pattern; acks_late is hardening, not a reachable defect."
+}

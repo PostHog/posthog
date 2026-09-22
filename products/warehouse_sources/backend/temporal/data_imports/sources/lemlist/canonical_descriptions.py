@@ -43,6 +43,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "userIds": "User IDs that belong to the team.",
             "createdBy": "User ID that created the team.",
             "createdAt": "When the team was created.",
+            "users": "Team members, each with userId, name, email and role. Returned on lemlist API v2.",
         },
     },
     "team_senders": {

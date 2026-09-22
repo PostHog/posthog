@@ -11,12 +11,12 @@ from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 # after their last sample (samples themselves expire at 30).
 #
 # This migration covers the storage tables only. The ingest MVs that populate the
-# new columns (and carry the table-qualified NULL-fingerprint guard) are
-# hand-managed, like all Avro Kafka-engine objects on the logs cluster — the
-# canonical definitions live in bin/clickhouse-metrics.sql and must be dropped and
-# recreated on each region as part of the fingerprint-cutover DDL. Until that
-# manual step runs, rows written by the old MVs simply leave the new columns at
-# their defaults.
+# new columns (and carry the table-qualified NULL-fingerprint guard) were
+# hand-managed at the time, like all Avro Kafka-engine objects on the logs
+# cluster, and had to be dropped and recreated on each region as part of the
+# fingerprint-cutover DDL. Until that manual step ran, rows written by the old
+# MVs simply left the new columns at their defaults. 0305 has since brought the
+# ingest objects under migrations (posthog/clickhouse/metrics/kafka_metrics.py).
 
 _DB = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 

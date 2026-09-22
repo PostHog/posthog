@@ -6,6 +6,7 @@ import { LemonButton, LemonInput, LemonSearchableSelect, LemonSkeleton, LemonSwi
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -24,6 +25,8 @@ export const scene: SceneExport = {
 }
 
 function GitHubConnectPrompt(): JSX.Element {
+    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
+
     return (
         <div className="border rounded-lg p-6 text-center">
             <div className="space-y-4 flex flex-col items-center">
@@ -42,6 +45,7 @@ function GitHubConnectPrompt(): JSX.Element {
                         kind: 'github',
                         next: window.location.pathname,
                     })}
+                    onClick={() => reportIntegrationConnectClicked('github', 'github', 'visual_review_settings')}
                 >
                     Connect GitHub
                 </LemonButton>

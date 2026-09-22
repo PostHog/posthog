@@ -1,5 +1,4 @@
 import {
-  type FlowTimedOut,
   GitHubIntegrationEvent,
   type GitHubIntegrationService,
   type IntegrationCallback,
@@ -52,5 +51,3 @@ export const githubIntegrationRouter = router({
         .consumePendingCallback(),
   ),
 });
-
-export type { IntegrationCallback, FlowTimedOut };

@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -11,6 +11,9 @@ from parameterized import parameterized
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemlist.lemlist import (
+    LEMLIST_API_VERSION_V1,
+    LEMLIST_API_VERSION_V2,
+    LEMLIST_DEFAULT_VERSION,
     PAGE_SIZE,
     LemlistResumeConfig,
     _clamp_future_value_to_now,
@@ -62,13 +65,20 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
     return param_snapshots
 
 
-def _source(endpoint: str, manager: mock.MagicMock | None = None, **kwargs: Any):
+def _source(
+    endpoint: str,
+    manager: mock.MagicMock | None = None,
+    *,
+    api_version: str = LEMLIST_DEFAULT_VERSION,
+    **kwargs: Any,
+):
     return lemlist_source(
         api_key="key",
         endpoint=endpoint,
         team_id=1,
         job_id="j",
         resumable_source_manager=manager if manager is not None else _make_manager(),
+        api_version=api_version,
         **kwargs,
     )
 
@@ -94,18 +104,18 @@ class TestFormatIncrementalValue:
 
 
 class TestClampFutureValueToNow:
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_datetime_clamped(self) -> None:
         assert _clamp_future_value_to_now(datetime(2027, 2, 5, tzinfo=UTC)) == datetime(
             2026, 6, 15, 12, 0, 0, tzinfo=UTC
         )
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_past_datetime_unchanged(self) -> None:
         value = datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)
         assert _clamp_future_value_to_now(value) == value
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_date_clamped(self) -> None:
         assert _clamp_future_value_to_now(date(2027, 2, 5)) == date(2026, 6, 15)
 
@@ -153,7 +163,7 @@ class TestRequestParams:
         assert params[0]["minDate"] == "2026-05-11T00:00:00Z"
         assert params[0]["version"] == "v2"
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_activities_first_sync_uses_lookback_window(self, MockSession) -> None:
         # No stored watermark -> bound the first sync by the configured lookback instead of full history.
@@ -162,7 +172,7 @@ class TestRequestParams:
         _rows(_source("activities", should_use_incremental_field=True, db_incremental_field_last_value=None))
         assert params[0]["minDate"] == "2025-06-15T12:00:00Z"
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_activities_future_watermark_clamped(self, MockSession) -> None:
         session = MockSession.return_value
@@ -182,6 +192,30 @@ class TestRequestParams:
         params = _wire(session, [_response([{"_id": "act_1"}])])
         _rows(_source("activities", should_use_incremental_field=False, db_incremental_field_last_value=None))
         assert "minDate" not in params[0]
+
+
+class TestVersionDispatch:
+    @parameterized.expand(
+        [
+            # campaigns/activities only serve v2, so the param rides either pin (v1 pins byte-for-byte).
+            ("campaigns_pin_v1", "campaigns", LEMLIST_API_VERSION_V1, [{"_id": "c"}], "v2"),
+            ("campaigns_pin_v2", "campaigns", LEMLIST_API_VERSION_V2, [{"_id": "c"}], "v2"),
+            # /team's v2 adds a users array, so version is sent only under a v2 pin.
+            ("team_pin_v1", "team", LEMLIST_API_VERSION_V1, {"_id": "t"}, None),
+            ("team_pin_v2", "team", LEMLIST_API_VERSION_V2, {"_id": "t"}, "v2"),
+            # Endpoints with no version variant never send the param, whatever the pin.
+            ("team_senders_pin_v2", "team_senders", LEMLIST_API_VERSION_V2, [{"userId": "u"}], None),
+            ("unsubscribes_pin_v2", "unsubscribes", LEMLIST_API_VERSION_V2, [{"_id": "u"}], None),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_version_param_per_endpoint_and_pin(
+        self, _name: str, endpoint: str, api_version: str, payload: Any, expected: str | None, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response(payload)])
+        _rows(_source(endpoint, api_version=api_version))
+        assert params[0].get("version") == expected
 
 
 class TestValidateCredentials:

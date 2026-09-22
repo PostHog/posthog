@@ -1,10 +1,31 @@
+from django.core.validators import URLValidator
+from django.db import models
+
 from rest_framework import serializers
+
+
+class LlmsTxtFetchRequestSerializer(serializers.Serializer):
+    url = serializers.URLField(
+        max_length=2048,
+        validators=[URLValidator(schemes=["http", "https"])],
+        help_text="Public HTTP or HTTPS URL of the llms.txt file to load.",
+    )
+
+
+class LlmsTxtFetchResponseSerializer(serializers.Serializer):
+    content = serializers.CharField(help_text="UTF-8 contents of the fetched llms.txt file.")
+    url = serializers.URLField(help_text="Final public URL after redirects.")
+
+
+class WoWChangeDirection(models.TextChoices):
+    UP = "Up", "Up"
+    DOWN = "Down", "Down"
 
 
 class WoWChangeSerializer(serializers.Serializer):
     percent = serializers.IntegerField(help_text="Absolute percentage change, rounded to nearest integer.")
     direction = serializers.ChoiceField(
-        choices=["Up", "Down"], help_text="Direction of the change relative to the prior period."
+        choices=WoWChangeDirection.choices, help_text="Direction of the change relative to the prior period."
     )
     color = serializers.CharField(help_text="Hex color indicating whether the change is a positive or negative signal.")
     text = serializers.CharField(help_text="Short label, e.g. 'Up 12%'.")

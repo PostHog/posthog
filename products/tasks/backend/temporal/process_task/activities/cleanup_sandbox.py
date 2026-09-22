@@ -6,8 +6,12 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.exceptions import SandboxNotFoundError
-from products.tasks.backend.logic.services.sandbox import Sandbox
-from products.tasks.backend.logic.services.sandbox_usage import close_sandbox_session, measure_sandbox_cpu_usage
+from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
+from products.tasks.backend.logic.services.sandbox_usage import (
+    close_sandbox_session,
+    measure_sandbox_billed_cpu_usage,
+    measure_sandbox_cpu_usage,
+)
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_complete
 from products.tasks.backend.models import SandboxSession, TaskRun
 from products.tasks.backend.redis import run_uses_dedicated_stream
@@ -40,9 +44,10 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
     strict_cleanup = input.complete_stream_on_cleanup or input.raise_on_error
     stream_completion_safe = False
     cpu_usage_usec = None
+    billed_cpu_usage_usec = None
     cpu_usage_measured_at = None
     try:
-        sandbox = Sandbox.get_by_id(input.sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
     except SandboxNotFoundError:
         stream_completion_safe = True
         sandbox = None
@@ -69,6 +74,7 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
                 )
 
         cpu_usage_usec, cpu_usage_measured_at = measure_sandbox_cpu_usage(sandbox)
+        billed_cpu_usage_usec = measure_sandbox_billed_cpu_usage(sandbox)
 
         try:
             sandbox.destroy()
@@ -80,6 +86,7 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
                     input.sandbox_id,
                     reason=SandboxSession.EndedReason.CLEANUP,
                     cpu_usage_usec=cpu_usage_usec,
+                    billed_cpu_usage_usec=billed_cpu_usage_usec,
                     cpu_usage_measured_at=cpu_usage_measured_at,
                 )
                 raise
@@ -91,6 +98,7 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
         input.sandbox_id,
         reason=SandboxSession.EndedReason.CLEANUP,
         cpu_usage_usec=cpu_usage_usec,
+        billed_cpu_usage_usec=billed_cpu_usage_usec,
         cpu_usage_measured_at=cpu_usage_measured_at,
     )
 

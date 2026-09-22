@@ -1,0 +1,6 @@
+{
+    "id": "RA14",
+    "real": false,
+    "source": "fresh",
+    "reasoning": "Refuted on every factual anchor in the frozen tree. Lines 1134-1147 hold the StamphogRepoConfig read, not the _upsert_pull_request call (that is at tasks.py:1186). The local comment (tasks.py:1136-1137) reads 'Writer-pinned like every read that gates run creation (reader-lag invariant)' - it explicitly names the reader-lag invariant the finding says is missing. Lines 328-330 are code inside _upsert_pull_request (team_id/head/incoming_updated_at assignments), not a comment; the webhook path's writer-pin rationale lives in _resolve_repo_config's docstring (tasks.py:295-296) and the inbox comment already points at that shared invariant by name, which is the collapse the finding asks for."
+}

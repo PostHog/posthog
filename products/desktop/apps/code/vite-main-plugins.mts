@@ -181,7 +181,59 @@ export function copyPiRpcHost(): Plugin {
           `[copy-pi-rpc-host] Unable to find Pi RPC host, required at runtime by createPiRpcClient. Build @posthog/agent first. Checked:\n  ${candidates.join("\n  ")}`,
         );
       }
-      copyFileSync(source, join(__dirname, ".vite/build/rpc-host.js"));
+      const buildDirectory = join(__dirname, ".vite/build");
+      const productEngineerResources = join(
+        dirname(source),
+        "product-engineer",
+      );
+      const bundledAgents = join(dirname(source), "bundled-agents");
+      const orchestrationSkills = join(dirname(source), "skills");
+      const localToolsMcpServer = join(
+        dirname(source),
+        "../adapters/codex-app-server/local-tools-mcp-server.js",
+      );
+      if (!existsSync(productEngineerResources)) {
+        throw new Error(
+          `[copy-pi-rpc-host] Unable to find product engineer resources at ${productEngineerResources}. Build @posthog/agent first.`,
+        );
+      }
+      if (!existsSync(bundledAgents)) {
+        throw new Error(
+          `[copy-pi-rpc-host] Unable to find bundled agents at ${bundledAgents}. Build @posthog/agent first.`,
+        );
+      }
+      if (!existsSync(orchestrationSkills)) {
+        throw new Error(
+          `[copy-pi-rpc-host] Unable to find orchestration skills at ${orchestrationSkills}. Build @posthog/agent first.`,
+        );
+      }
+      if (!existsSync(localToolsMcpServer)) {
+        throw new Error(
+          `[copy-pi-rpc-host] Unable to find local tools MCP server at ${localToolsMcpServer}. Build @posthog/agent first.`,
+        );
+      }
+
+      copyFileSync(source, join(buildDirectory, "rpc-host.js"));
+      const localToolsBuildDirectory = join(
+        buildDirectory,
+        "adapters/codex-app-server",
+      );
+      mkdirSync(localToolsBuildDirectory, { recursive: true });
+      copyFileSync(
+        localToolsMcpServer,
+        join(localToolsBuildDirectory, "local-tools-mcp-server.js"),
+      );
+      cpSync(
+        productEngineerResources,
+        join(buildDirectory, "product-engineer"),
+        { recursive: true },
+      );
+      cpSync(bundledAgents, join(buildDirectory, "bundled-agents"), {
+        recursive: true,
+      });
+      cpSync(orchestrationSkills, join(buildDirectory, "skills"), {
+        recursive: true,
+      });
     },
   };
 }
@@ -439,16 +491,24 @@ let remoteSkillsFetched = false;
 export function copyPosthogPlugin(isDev: boolean): Plugin {
   const sourceDir = join(__dirname, "../../plugins/posthog");
   const localSkillsDir = join(sourceDir, "local-skills");
+  const checkoutSkillsDir = join(sourceDir, "checkout-skills");
+  const useCheckoutSkills =
+    isDev && process.env.POSTHOG_DESKTOP_SKILLS === "local";
 
   return {
     name: "copy-posthog-plugin",
     buildStart() {
       if (existsSync(sourceDir)) {
         for (const file of getFilesRecursive(sourceDir)) {
+          if (file.startsWith(checkoutSkillsDir)) continue;
           // Don't watch local-skills in production builds
           if (!isDev && file.startsWith(localSkillsDir)) continue;
           this.addWatchFile(file);
         }
+      }
+
+      if (useCheckoutSkills) {
+        this.addWatchFile(join(sourceDir, "checkout-skills.ready"));
       }
 
       // Watch local-skills dir in dev mode
@@ -461,6 +521,11 @@ export function copyPosthogPlugin(isDev: boolean): Plugin {
     async writeBundle() {
       const destDir = join(__dirname, ".vite/build/plugins/posthog");
       const destSkillsDir = join(destDir, "skills");
+      const baseSkillsDir = join(__dirname, ".vite/production-skills");
+
+      if (!remoteSkillsFetched) {
+        await rm(destSkillsDir, { recursive: true, force: true });
+      }
 
       // 1. Copy allowed plugin entries
       await mkdir(destDir, { recursive: true });
@@ -482,7 +547,12 @@ export function copyPosthogPlugin(isDev: boolean): Plugin {
 
         // 2b. Download and overlay context-mill omnibus skills (overrides same-named skills)
         await downloadAndExtractContextMillSkills(destSkillsDir);
+        await rm(baseSkillsDir, { recursive: true, force: true });
+        await cp(destSkillsDir, baseSkillsDir, { recursive: true });
         remoteSkillsFetched = true;
+      } else {
+        await rm(destSkillsDir, { recursive: true, force: true });
+        await cp(baseSkillsDir, destSkillsDir, { recursive: true });
       }
 
       // 3. In dev mode: overlay local-skills (overrides both shipped and remote)
@@ -498,6 +568,20 @@ export function copyPosthogPlugin(isDev: boolean): Plugin {
           }
         }
         console.log("[copy-posthog-plugin] Local dev skills overlaid");
+      }
+      if (useCheckoutSkills) {
+        const entries = await readdir(checkoutSkillsDir, {
+          withFileTypes: true,
+        });
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+          const dest = join(destSkillsDir, entry.name);
+          await rm(dest, { recursive: true, force: true });
+          await cp(join(checkoutSkillsDir, entry.name), dest, {
+            recursive: true,
+          });
+        }
+        console.log("[copy-posthog-plugin] Checkout skills active");
       }
     },
   };

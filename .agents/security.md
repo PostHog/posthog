@@ -22,7 +22,7 @@ Default to the smallest permission, narrowest field set, and shortest scope that
 - **Don't extend `SECRET_KEY` to new purposes.** Do not add code that reads `settings.SECRET_KEY` (or derives keys from it) for a new job. Mint a dedicated setting in `posthog/settings/` read from its own env var — e.g. `<PURPOSE>_SIGNING_KEY` / `<PURPOSE>_SECRET_KEYS`. A genuinely new purpose must NOT fall back to `SECRET_KEY`; fail closed when unprovisioned instead. Canonical example: `RECORDING_API_JWT_SECRET` (`posthog/settings/session_replay_v2.py`) — no `SECRET_KEY` default, empty in prod so only designated minters can sign. (Older keys like `JWT_SIGNING_KEY`, `TEMPORAL_SECRET_KEY`, `FLAGS_SECRET_KEYS` default to `SECRET_KEY` for self-hosted back-compat; that is migration debt, not the pattern to copy for new keys.)
 - **Support rotation from day one.** Read the key as a list, newest first: the first element signs/encrypts, all elements are tried for verify/decrypt. Prefer a single comma-separated env var (`KEY="<new>,<old>"`) parsed with `get_list()` — the Fernet `new,old` convention. Examples: `RECORDING_API_JWT_SECRET` (`recording_api_jwt.py`), `FLAGS_SECRET_KEYS` (`encrypted_flag_payloads.py`). For encryption use `MultiFernet` (encrypt with first, decrypt with any) — see `posthog/helpers/encrypted_fields.py`. Encrypting data at rest? ship a re-encryption path that re-wraps onto the primary key, like `posthog/management/commands/reencrypt_fields.py`. The primary + `_FALLBACKS` pair (`JWT_SIGNING_KEY` / `JWT_SIGNING_KEY_FALLBACKS`) is the older two-var variant; single-var comma-separated is preferred for new keys.
 - **Unique value per environment — including prod US and prod EU.** Never share a key value across environments; provision each (dev, prod-US, prod-EU) independently so one region can rotate without breaking another and a leak in one doesn't compromise the rest. Enforced at provisioning, not in code — so never hardcode a shared prod default. Fail closed when a prod key is unset (mirror the `SECRET_KEY` startup guard in `posthog/settings/access.py` and `RECORDING_API_JWT_SECRET`'s empty-in-prod default).
-- **Don't extend `INTERNAL_API_SECRET` to new service-to-service calls.** It's a single fleet-wide shared secret already trusted by many services across Django, Node, and Rust — one leak reaches all of them — so it must not grow new callers or protected endpoints (it's being actively retired edge-by-edge; adding one moves it backwards). For a new internal call, in order of preference: (1) **mint a scoped JWT (strongly preferred)** — a dedicated per-audience signing key (never `INTERNAL_API_SECRET`/`SECRET_KEY`/`JWT_SIGNING_KEY`) with claims pinning the token to its team and operation, verified per-route; canonical example `RECORDING_API_JWT_SECRET` (mint in `posthog/session_recordings/recordings/recording_api_jwt.py`, verify in `nodejs/src/session-replay/recording-api/auth.ts`). (2) If a JWT genuinely doesn't fit, **a dedicated static secret** scoped to that one caller→callee pair (`<PURPOSE>_API_SECRET`, its own env var, rotatable, empty-in-prod-fail-closed) — never reuse `INTERNAL_API_SECRET`. The goal is blast radius: no single "master" credential that authenticates to a dozen services — a scoped JWT limits a leak to one team + operation; a dedicated secret limits it to one hop.
+- **Don't extend `INTERNAL_API_SECRET` to new service-to-service calls.** It's a single fleet-wide shared secret already trusted by many services across Django, Node, and Rust — one leak reaches all of them — so it must not grow new callers or protected endpoints (it's being actively retired edge-by-edge; adding one moves it backwards). For a new internal call, in order of preference: (1) **mint a scoped JWT (strongly preferred)** — a dedicated per-audience signing key (never `INTERNAL_API_SECRET`/`SECRET_KEY`/`JWT_SIGNING_KEY`) with claims pinning the token to its team and operation, verified per-route; use the shared machinery instead of hand-rolling: `ScopedServiceJwtPurpose` + `ScopedServiceJWTAuthentication` in `posthog/scoped_service_jwt.py` (Django mint/verify) and `ScopedServiceJwt` in `nodejs/src/cdp/utils/scoped-service-jwt.ts` (Node mint/verify); worked examples: the conversations ticket route (`products/conversations/backend/api/internal.py`) and its minting worker (`nodejs/src/cdp/async-functions/internal-api-call.ts`). (2) If a JWT genuinely doesn't fit, **a dedicated static secret** scoped to that one caller→callee pair (`<PURPOSE>_API_SECRET`, its own env var, rotatable, empty-in-prod-fail-closed) — never reuse `INTERNAL_API_SECRET`. The goal is blast radius: no single "master" credential that authenticates to a dozen services — a scoped JWT limits a leak to one team + operation; a dedicated secret limits it to one hop.
 
 ## SQL Security
 
@@ -100,7 +100,7 @@ queryset.filter(name__icontains=value)  # SAFE
 **Do not add new `pickle` usage.**
 Unpickling bytes that any other process could influence is arbitrary code execution — the pickle stream can name any importable callable and pass it arguments.
 This applies to the equivalents too: `cPickle`, `cloudpickle`, `dill`, `marshal`, `shelve`, `joblib`, `pandas.read_pickle`, and `numpy.load(..., allow_pickle=True)`.
-CI already fails on new pickle: the `avoid-pickle` rule from the `p/security-audit` Semgrep pack runs with `--error` (see `.github/workflows/ci-security.yaml`), so introducing one is a hard stop, not a warning.
+CI already fails on new pickle: the `avoid-pickle` rule from the `p/security-audit` Semgrep pack runs as a blocking rule in the diff-aware `semgrep ci` jobs (see `.github/workflows/ci-security.yaml`), so introducing one is a hard stop, not a warning.
 Pickle can also appear without the word `pickle`: Django's default cache backend (`cache.set` / `cache.get`) pickles values transparently, so treat the cache as a pickle boundary and only store JSON-serializable values in it.
 
 **Use JSON instead.**
@@ -157,3 +157,43 @@ semgrep --test .semgrep/rules/security/
 # Or via Docker
 docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/rules/security/
 ```
+
+## Content Security Policy
+
+`CSPMiddleware` in `posthog/middleware.py` attaches a policy to every HTML response.
+Treat it as enforced.
+A refused resource produces no user-visible error, so the feature simply does not work, and the only signal is a `$csp_violation` event in project 2.
+
+Three policies exist, and a change lands in whichever one covers the page:
+
+- **The app policy** governs every SPA page. It is enforced per user behind the `csp-enforce-app-policy` flag, and report-only otherwise.
+- **The admin policy** governs `/admin/`. It is enforced for every staff member, with no flag, so a mistake here breaks admin immediately.
+- **A view may set its own policy.** The canvas artifact and the workflow asset endpoint do this to sandbox untrusted HTML. `CSPMiddleware` returns a response that already carries the header unchanged, so do not expect the app policy on those documents.
+
+### What the app policy forbids
+
+| You want to                     | The policy says                                                                                                                                                       |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Load a script from a new origin | Only `'self'`, our own CDNs, and a named list. Stripe, Turnstile and Unlayer are there because each vendor requires its own origin. Prefer serving the file yourself. |
+| Call `eval` or `new Function`   | Refused. `wasm-unsafe-eval` permits WebAssembly compilation only.                                                                                                     |
+| Start a worker                  | `'self'` and `blob:` only. Never `data:`: a `data:` worker body is code the policy cannot inspect.                                                                    |
+| Load a font from a CDN          | Self-host it instead. A CDN font already caused a regression when the origin was removed.                                                                             |
+| Submit a form                   | `'self'` plus the admin OAuth origin. The directive is checked on every hop of a redirect chain, so a same-origin action that redirects off-origin is refused.        |
+| Set `<base href>`               | Refused. Chromium judges the assignment even on a detached document.                                                                                                  |
+
+### Traps that have already cost us
+
+- **A dependency can carry the origin.** Grep `node_modules` for the literal host before you call an origin unused. A font CDN was removed on the belief nothing used it, and a transitive dependency defaulted to it.
+- **posthog-js wraps `fetch`, so an extension's request is reported with our bundle as the source file.** Never conclude a violation is ours from the source file alone. Corroborate with the blocked URL and the document.
+- **A CSP report names the original URL, not the hop that failed.** For `form-action` and any redirected navigation, the blocked URL can be same-origin while the refusal happened later in the chain.
+- **The Vite dev server cannot reproduce any of this.** It injects CSS as `<style>` blocks and emits absolute asset URLs, so paths that depend on a stylesheet's own href never run. Only the esbuild build matches production.
+
+### Checking a change
+
+Add the source to the policy that covers the document, which is not always `CSPMiddleware`.
+An app or admin page takes the matching list in `CSPMiddleware`.
+A canvas artifact takes `artifact_csp()` in `products/canvas/backend/contract.py`, and a workflow message asset takes the header its endpoint sets in `products/workflows/backend/api/hog_flow.py`.
+`CSPMiddleware` returns a view-set header untouched, so widening the app policy does nothing for those two.
+Say why the source is needed in a comment either way, then run `posthog/test/test_middleware.py::TestCSPMiddleware`.
+To see what the policy currently blocks, query `$csp_violation` events in project 2.
+Filter to the current policy text and exclude browser extensions on both the source file and the blocked URL, or the result is mostly noise.

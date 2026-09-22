@@ -18,6 +18,7 @@ from products.managed_warehouse.backend import cp_teams
 from products.managed_warehouse.backend.common import _get_org_id_for_team, validate_duckgres_identifier
 from products.managed_warehouse.backend.facade.contracts import (
     CPUnavailableError,
+    DucklingTables,
     ManagedWarehouseBackfillState,
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
@@ -58,8 +59,8 @@ def _to_membership(row: cp_teams.CPTeam) -> ManagedWarehouseTeamMembership:
 # --- events/persons table names (Dagster duckling backfill) -----------------------
 
 
-def resolve_events_persons_tables(team_id: int) -> tuple[str, str]:
-    """The per-team (events, persons) duckling table names the backfill writes to.
+def resolve_events_persons_tables(team_id: int) -> DucklingTables:
+    """The per-team events/persons duckling table names the backfill writes to.
 
     Failure posture: raises :class:`CPUnavailableError` when the control plane can't
     answer and the cache is cold — the backfill run fails and retries rather than
@@ -68,11 +69,11 @@ def resolve_events_persons_tables(team_id: int) -> tuple[str, str]:
     row = _get_cp_row(team_id)
     if row is None:
         # Legacy single-team ducklings without a team row share the base tables.
-        return "events", "persons"
+        return DucklingTables(events_table="events", persons_table="persons")
     events_table, persons_table = row.resolved_events_table, row.resolved_persons_table
     validate_duckgres_identifier(events_table)
     validate_duckgres_identifier(persons_table)
-    return events_table, persons_table
+    return DucklingTables(events_table=events_table, persons_table=persons_table)
 
 
 # --- data-imports schema (v3 sink hot path) ---------------------------------------
@@ -158,10 +159,10 @@ def backfill_row_exists(team_id: int, organization_id: str) -> bool:
 
 
 def list_enabled_backfill_rows(call_site: str) -> list[ManagedWarehouseTeamMembership]:
-    """Every team with warehouse backfills enabled, for sensor enumeration.
+    """Every backfill-enabled team in a ready warehouse, for sensor enumeration.
 
-    Failure posture: an unreachable control plane yields an empty enumeration (the
-    sensor tick becomes a no-op and the next tick retries) — it must never raise.
+    Failure posture: an unavailable team or warehouse listing yields an empty enumeration.
+    The sensor tick becomes a no-op and the next tick retries; it must never raise.
     """
     cp_rows = cp_teams.list_enabled_backfills()
     if cp_rows is None:

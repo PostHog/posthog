@@ -7,11 +7,14 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from requests import Request, Response
+from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub import (
+    NO_PARTNER_PROGRAM_MESSAGE,
     DubCursorPaginator,
+    DubLinksScopePaginator,
     DubResumeConfig,
     _make_session,
     _scrub_link_password,
@@ -20,7 +23,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub im
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.dub.settings import DUB_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.dub.settings import (
+    DUB_ENDPOINTS,
+    ENDPOINTS,
+    PARTNER_PROGRAM_ENDPOINTS,
+)
 
 
 def _rows(n: int, prefix: str = "row") -> list[dict[str, Any]]:
@@ -99,6 +106,77 @@ class TestDubCursorPaginator:
         assert paginator.get_resume_state() is None
 
 
+class TestDubLinksScopePaginator:
+    def test_first_scope_sends_no_folder_id(self) -> None:
+        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
+        request = Request(method="GET", url="https://api.dub.co/links", params={})
+        paginator.init_request(request)
+
+        assert "folderId" not in request.params
+        assert "startingAfter" not in request.params
+
+    def test_full_page_advances_cursor_inside_the_scope(self) -> None:
+        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
+        paginator.update_state(MagicMock(), data=_rows(3))
+
+        assert paginator.has_next_page is True
+
+        request = Request(method="GET", url="https://api.dub.co/links", params={})
+        paginator.update_request(request)
+        assert request.params["startingAfter"] == "row-2"
+        assert "folderId" not in request.params
+
+    def test_exhausted_scope_moves_to_the_next_folder(self) -> None:
+        # /links hides folder contents unless folderId is sent, so a walk that stops after the
+        # unfiled scope imports none of a workspace's filed links.
+        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
+        paginator.update_state(MagicMock(), data=_rows(1))
+
+        assert paginator.has_next_page is True
+
+        request = Request(method="GET", url="https://api.dub.co/links", params={"startingAfter": "row-0"})
+        paginator.update_request(request)
+        assert request.params["folderId"] == "fold_a"
+        # The previous scope's cursor must not leak into the new one.
+        assert "startingAfter" not in request.params
+
+    def test_walk_ends_once_the_last_folder_is_exhausted(self) -> None:
+        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
+        paginator.update_state(MagicMock(), data=_rows(1))
+        paginator.update_state(MagicMock(), data=_rows(1))
+
+        assert paginator.has_next_page is False
+        assert paginator.get_resume_state() is None
+
+    def test_resume_state_round_trip_keeps_the_scope(self) -> None:
+        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a", "fold_b"])
+        paginator.update_state(MagicMock(), data=_rows(1))
+        paginator.update_state(MagicMock(), data=_rows(3))
+
+        state = paginator.get_resume_state()
+        assert state == {"scope_index": 1, "starting_after": "row-2"}
+
+        resumed = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a", "fold_b"])
+        resumed.set_resume_state(state or {})
+        request = Request(method="GET", url="https://api.dub.co/links", params={})
+        resumed.init_request(request)
+
+        assert request.params["folderId"] == "fold_a"
+        assert request.params["startingAfter"] == "row-2"
+
+    def test_resume_state_saved_before_folder_scoping_still_seeds_the_cursor(self) -> None:
+        # A sync interrupted across the deploy that added folder scoping resumes from a state
+        # with no scope_index; dropping it would silently restart the walk from the first page.
+        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
+        paginator.set_resume_state({"starting_after": "row-7"})
+
+        request = Request(method="GET", url="https://api.dub.co/links", params={})
+        paginator.init_request(request)
+
+        assert request.params["startingAfter"] == "row-7"
+        assert "folderId" not in request.params
+
+
 class TestGetResource:
     def test_event_endpoint_defaults_to_full_history(self) -> None:
         # /events defaults to a 24h window server-side; without interval=all a first
@@ -163,6 +241,42 @@ class TestScrubLinkPassword:
         assert _scrub_link_password(row) == row
 
 
+def _drive_source(
+    endpoint: str,
+    manager: MagicMock,
+    responses: list[Response],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> tuple[list[dict[str, Any]], list[Any]]:
+    """Drive ``dub_source`` with a mocked HTTP session; returns per-request params and yielded rows."""
+    sent_params: list[dict[str, Any]] = []
+    response_iter = iter(responses)
+
+    def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
+        sent_params.append(dict(request.params or {}))
+        return next(response_iter)
+
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session"
+    ) as MockSession:
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.side_effect = lambda req: req
+        mock_session.send.side_effect = fake_send
+
+        source_response = dub_source(
+            api_key="dub_test",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="job",
+            resumable_source_manager=manager,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+        )
+        rows = list(cast(Iterable[Any], source_response.items()))
+        return sent_params, rows
+
+
 class TestDubSourceResumeBehavior:
     def _drive(
         self,
@@ -172,33 +286,14 @@ class TestDubSourceResumeBehavior:
         should_use_incremental_field: bool = False,
         db_incremental_field_last_value: Any = None,
     ) -> list[dict[str, Any]]:
-        """Drive ``dub_source`` with a mocked HTTP session; returns per-request params."""
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            source_response = dub_source(
-                api_key="dub_test",
-                endpoint=endpoint,
-                team_id=1,
-                job_id="job",
-                resumable_source_manager=manager,
-                should_use_incremental_field=should_use_incremental_field,
-                db_incremental_field_last_value=db_incremental_field_last_value,
-            )
-            list(cast(Iterable[Any], source_response.items()))
-            return sent_params
+        sent_params, _ = _drive_source(
+            endpoint,
+            manager,
+            responses,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+        )
+        return sent_params
 
     def test_cursor_endpoint_saves_cursor_after_each_non_terminal_page(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
@@ -209,7 +304,7 @@ class TestDubSourceResumeBehavior:
             _make_http_response(_rows(100, "b")),
             _make_http_response(_rows(1, "c")),
         ]
-        sent_params = self._drive("links", manager, responses)
+        sent_params = self._drive("customers", manager, responses)
 
         assert [p.get("startingAfter") for p in sent_params] == [None, "a-99", "b-99"]
         saved = [call.args[0] for call in manager.save_state.call_args_list]
@@ -218,12 +313,30 @@ class TestDubSourceResumeBehavior:
             DubResumeConfig(starting_after="b-99"),
         ]
 
+    def test_links_walk_covers_unfiled_links_then_every_folder(self) -> None:
+        # Without the per-folder passes only the first request is made, and every link filed
+        # into a folder is missing from the table while the sync still reports success.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub._fetch_folder_ids",
+            return_value=["fold_a", "fold_b"],
+        ):
+            sent_params = self._drive(
+                "links",
+                manager,
+                [_make_http_response(_rows(1, p)) for p in ("unfiled", "a", "b")],
+            )
+
+        assert [p.get("folderId") for p in sent_params] == [None, "fold_a", "fold_b"]
+
     def test_cursor_endpoint_resumes_from_saved_cursor(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = True
         manager.load_state.return_value = DubResumeConfig(starting_after="a-42")
 
-        sent_params = self._drive("links", manager, [_make_http_response(_rows(1))])
+        sent_params = self._drive("customers", manager, [_make_http_response(_rows(1))])
 
         assert [p.get("startingAfter") for p in sent_params] == ["a-42"]
 
@@ -269,6 +382,31 @@ class TestDubSourceResumeBehavior:
         sent_params = self._drive("click_events", manager, [_make_http_response(_rows(1)), _make_http_response([])])
 
         assert sent_params[0]["page"] == 7
+
+
+class TestPartnerProgramTablesWithoutAProgram:
+    # Dub resolves the workspace's default partner program before reading any of these lists,
+    # so a workspace without one gets this 404 on the table's own list endpoint.
+    _NOT_FOUND = {"error": {"code": "not_found", "message": "Program not found"}}
+
+    @pytest.mark.parametrize("endpoint", PARTNER_PROGRAM_ENDPOINTS)
+    def test_404_ends_the_table_instead_of_failing_the_sync(self, endpoint: str) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        sent_params, rows = _drive_source(endpoint, manager, [_make_http_response(self._NOT_FOUND, 404)])
+
+        assert len(sent_params) == 1
+        assert rows == []
+
+    def test_404_elsewhere_still_fails(self) -> None:
+        # The tolerance is scoped to the partner-program tables; a 404 anywhere else is a real
+        # error and must not be swallowed into an empty table.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with pytest.raises(HTTPError):
+            _drive_source("customers", manager, [_make_http_response(self._NOT_FOUND, 404)])
 
 
 class TestMakeSession:
@@ -341,6 +479,25 @@ class TestCredentialValidation:
             return_value=self._mock_session(response),
         ):
             assert check_endpoint_access("dub_test", "click_events") == "Requires a Business plan or higher."
+
+    @pytest.mark.parametrize("endpoint", PARTNER_PROGRAM_ENDPOINTS)
+    def test_check_endpoint_access_reads_404_on_partner_tables_as_no_program(self, endpoint: str) -> None:
+        # Dub answers these with a bare "Program not found", which reads as a broken connector
+        # to a user who never had a partner program.
+        response = _make_http_response({"error": {"code": "not_found", "message": "Program not found"}}, 404)
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session",
+            return_value=self._mock_session(response),
+        ):
+            assert check_endpoint_access("dub_test", endpoint) == NO_PARTNER_PROGRAM_MESSAGE
+
+    def test_check_endpoint_access_leaves_other_tables_reachable_on_404(self) -> None:
+        response = _make_http_response({"error": {"code": "not_found", "message": "Program not found"}}, 404)
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session",
+            return_value=self._mock_session(response),
+        ):
+            assert check_endpoint_access("dub_test", "customers") is None
 
     @pytest.mark.parametrize("status_code", [200, 429, 500])
     def test_check_endpoint_access_only_denials_block(self, status_code: int) -> None:

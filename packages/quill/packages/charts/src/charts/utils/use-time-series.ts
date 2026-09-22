@@ -83,6 +83,15 @@ export function useTimeSeries<Meta>(
     }
 }
 
+/** The primary axis's `min`/`max` as a {@link ValueDomain}, memoized so a chart with no bounds set
+ *  doesn't churn its scales. Merge it with the goal-line domain rather than passing it alone, or a
+ *  chart carrying both a cap and an off-scale goal line keeps only one of them. */
+export function useValueBounds(axis: YAxisConfig | undefined): ValueDomain | undefined {
+    const min = typeof axis?.min === 'number' && isFinite(axis.min) ? axis.min : undefined
+    const max = typeof axis?.max === 'number' && isFinite(axis.max) ? axis.max : undefined
+    return useMemo(() => (min === undefined && max === undefined ? undefined : { min, max }), [min, max])
+}
+
 /** Goal lines resolved against the series they should scale with — the drawn (post-derived)
  *  series for the line chart, the hook's `chartSeries` for bar/combo. `valueDomain` extends the value
  *  axis to cover goal lines outside the data range, so an off-scale goal still renders on-plot;

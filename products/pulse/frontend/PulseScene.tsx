@@ -14,15 +14,19 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { BriefConfigModal } from './BriefConfigModal'
 import { BriefsView } from './BriefsView'
+import { pulseEmptyState } from './emptyState/pulseEmptyState'
 import { pulseLogic } from './pulseLogic'
 import { RunBriefButton } from './RunBriefButton'
 
 export const scene: SceneExport = {
     component: PulseScene,
     logic: pulseLogic,
+    productKey: ProductKey.PULSE,
+    emptyState: pulseEmptyState,
 }
 
 const PULSE_DESCRIPTION =

@@ -2,17 +2,20 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
@@ -77,8 +80,15 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         _create_person(team=self.team, distinct_ids=["user-1"], is_identified=True)
         flush_persons_and_events()
 
-    def create_issue(self, issue_id: str | None = None, fingerprint: str | None = None) -> ErrorTrackingIssue:
-        issue = ErrorTrackingIssue.objects.create(id=issue_id or self.issue_id, team=self.team, name="TypeError")
+    def create_issue(
+        self,
+        issue_id: str | None = None,
+        fingerprint: str | None = None,
+        severity: str | None = None,
+    ) -> ErrorTrackingIssue:
+        issue = ErrorTrackingIssue.objects.create(
+            id=issue_id or self.issue_id, team=self.team, name="TypeError", severity=severity
+        )
         ErrorTrackingIssueFingerprintV2.objects.create(
             team=self.team, issue=issue, fingerprint=fingerprint or self.fingerprint
         )
@@ -112,7 +122,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             timestamp=now() - relativedelta(hours=1),
         )
 
-    @freeze_time("2026-04-24T12:00:00Z")
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issues_list_accepts_typed_filters_and_matches_release_precisely(self) -> None:
         self.create_issue()
         self.create_exception_event(
@@ -162,6 +172,28 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert project_response.status_code == 200
         assert project_response.json()["results"] == []
 
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_queries_return_severity(self) -> None:
+        self.create_issue(severity=ErrorTrackingIssue.Severity.HIGH)
+        self.create_exception_event()
+        flush_persons_and_events()
+
+        list_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issues",
+            data={"status": "all", "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"}},
+            format="json",
+        )
+        detail_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": self.issue_id, "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"}},
+            format="json",
+        )
+
+        assert list_response.status_code == 200
+        assert list_response.json()["results"][0]["severity"] == "high"
+        assert detail_response.status_code == 200
+        assert detail_response.json()["severity"] == "high"
+
     def test_rejects_hogql_property_filters(self) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issues",
@@ -196,13 +228,13 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert list_response.status_code == 400
         assert detail_response.status_code == 400
 
-    @freeze_time("2026-04-24T12:00:00Z")
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issues_list_filters_by_assignee(self) -> None:
         self.create_issue()
         self.create_exception_event()
         ErrorTrackingIssueAssignment.objects.create(issue_id=self.issue_id, user=self.user, team=self.team)
         # re-sync with a strictly newer version so the assignment wins argMax over the create-time row
-        with freeze_time(now() + timedelta(seconds=1)):
+        with time_machine.travel(now() + timedelta(seconds=1), tick=False):
             sync_issues_to_clickhouse(issue_ids=[self.issue_id], team_id=self.team.pk)
         flush_persons_and_events()
 
@@ -369,7 +401,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         assert observed_filter_groups == [None]
 
-    @freeze_time("2026-04-24T12:00:00Z")
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_detail_returns_impact_top_frame_and_latest_release(self) -> None:
         self.create_issue()
         self.create_exception_event(
@@ -430,7 +462,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert data["latest_release"]["version"] == "2026.04.24"
         assert data["latest_release"]["commit_id"] == "commit-123"
 
-    @freeze_time("2026-04-24T12:00:00Z")
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_detail_returns_without_context_when_context_query_fails(self) -> None:
         self.create_issue()
         self.create_exception_event()
@@ -448,9 +480,9 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.json()["id"] == self.issue_id
         assert "top_in_app_frame" not in response.json()
 
-    @freeze_time("2026-04-24T12:00:00Z")
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_detail_distinguishes_missing_issue_from_empty_date_range(self) -> None:
-        self.create_issue()
+        self.create_issue(severity=ErrorTrackingIssue.Severity.HIGH)
 
         empty_range_response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issue",
@@ -468,6 +500,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert empty_range_response.status_code == 200
         assert empty_range_response.json()["impact"] == {}
+        assert empty_range_response.json()["severity"] == "high"
         assert missing_response.status_code == 404
 
     def test_issue_events_returns_404_for_foreign_issue(self) -> None:
@@ -503,7 +536,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         assert observed_tags == [(Product.ERROR_TRACKING, Feature.QUERY)]
 
-    @freeze_time("2026-04-24T12:00:00Z")
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_events_matches_by_fingerprint(self) -> None:
         self.create_issue()
         self.create_exception_event(
@@ -521,7 +554,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         assert response.json()["results"][0]["properties"]["$session_id"] == "session-id-1"
 
-    @freeze_time("2026-04-24T12:00:00Z")
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_events_matches_events_without_issue_id(self) -> None:
         self.create_issue()
         self.create_exception_event(include_issue_id=False, properties={"$session_id": "session-id-1"})
@@ -536,7 +569,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         assert response.json()["results"][0]["properties"]["$session_id"] == "session-id-1"
 
-    @freeze_time("2026-04-24T12:00:00Z")
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_events_without_fingerprints_returns_empty(self) -> None:
         ErrorTrackingIssue.objects.create(id=self.issue_id, team=self.team, name="TypeError")
 
@@ -576,7 +609,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 400
         assert "Access to property '$referrer' is restricted" in str(response.json())
 
-    @freeze_time("2026-04-24T12:00:00Z")
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_events_returns_plural_exception_arrays_and_truncates_summary_text(self) -> None:
         long_text = "x" * 1200
         self.create_issue()
@@ -601,7 +634,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert "[truncated from 1200 chars]" in summary_event["properties"]["$exception_list"][0]["value"]
         assert summary_event["properties"]["$session_id"] == "session-id-1"
 
-    @freeze_time("2026-04-24T12:00:00Z")
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_events_returns_only_requested_context_groups(self) -> None:
         self.create_issue()
         self.create_exception_event(
@@ -675,3 +708,25 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert "$exception_issue_id" not in variables_properties
         assert "$lib" not in variables_properties
         assert "$current_url" not in variables_properties
+
+    # The runner's access check reads the token owner's RBAC, not the token's granted scopes, so a
+    # kind registered on the generic query endpoint without a _QUERY_KIND_SCOPES entry is reachable
+    # by any token holding only query:read.
+    @parameterized.expand(
+        [
+            (["query:read"], 403),
+            (["error_tracking:read"], 403),
+            (["query:read", "error_tracking:read"], 200),
+        ]
+    )
+    def test_releases_query_needs_both_scopes(self, scopes: list[str], expected_status: int) -> None:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/query/",
+            {"query": {"kind": "ErrorTrackingReleasesQuery", "issueId": self.issue_id}},
+            HTTP_AUTHORIZATION=f"Bearer {value}",
+        )
+
+        assert response.status_code == expected_status, response.json()

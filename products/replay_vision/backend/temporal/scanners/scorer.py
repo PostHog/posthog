@@ -10,6 +10,8 @@ from products.replay_vision.backend.temporal.scanners.base import (
     BaseScannerOutput,
     Segment,
     confidence_field,
+    notability_field,
+    notability_reason_field,
 )
 
 
@@ -56,6 +58,8 @@ class ScorerScanner(BaseScanner, frozen=True):
             "ScorerLlmResponse",
             reasoning=(str, Field(description="One paragraph grounding the score in concrete moments.")),
             score=(float, Field(ge=self.scale.min, le=self.scale.max, description=score_description)),
+            notability_reason=(str | None, notability_reason_field()),
+            notability=(float | None, notability_field()),
             confidence=(float, confidence_field()),
         )
 

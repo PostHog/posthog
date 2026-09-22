@@ -3,10 +3,15 @@ import { PropsWithChildren, useMemo } from 'react'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
+import { cn } from 'lib/utils/css-classes'
 
 import { IntegrationKind, IntegrationType } from '~/types'
 
-export function Integration({ kind, children }: PropsWithChildren<{ kind: IntegrationKind }>): JSX.Element {
+export function Integration({
+    kind,
+    centered,
+    children,
+}: PropsWithChildren<{ kind: IntegrationKind; centered?: boolean }>): JSX.Element {
     const integrations = useIntegrations(kind)
 
     return (
@@ -15,7 +20,7 @@ export function Integration({ kind, children }: PropsWithChildren<{ kind: Integr
                 {integrations.map((integration) => (
                     <IntegrationView key={integration.id} integration={integration} />
                 ))}
-                <div className="flex">{children}</div>
+                <div className={cn('flex', centered && 'justify-center')}>{children}</div>
             </div>
         </div>
     )

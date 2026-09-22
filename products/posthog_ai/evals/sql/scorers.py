@@ -24,11 +24,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from products.posthog_ai.eval_harness.log_parser import EXECUTE_SQL_TOOL_NAME, is_schema_discovery_call
 from products.posthog_ai.eval_harness.scorers import GRADED_ALIGNMENT_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 from products.posthog_ai.evals.product_analytics.scorers import GRADED_ALIGNMENT_RUBRIC, parser_for, user_prompt
 
-QUERY_SQL_TOOL_NAME = "execute-sql"
+QUERY_SQL_TOOL_NAME = EXECUTE_SQL_TOOL_NAME
 _MAX_RESULT_CHARS_FOR_JUDGE = 12_000
 
 
@@ -52,7 +53,7 @@ def extract_last_execute_sql_call(output: dict[str, Any] | None) -> dict[str, st
     successful = [
         call
         for call in parser.get_tool_calls(QUERY_SQL_TOOL_NAME)
-        if not call.is_error and not _is_schema_discovery_query(call.input.get("query"))
+        if not call.is_error and not is_schema_discovery_call(call)
     ]
     if not successful:
         return None
@@ -62,11 +63,6 @@ def extract_last_execute_sql_call(output: dict[str, Any] | None) -> dict[str, st
     if not isinstance(query, str) or not query.strip():
         return None
     return {"query": query, "result": call.output}
-
-
-def _is_schema_discovery_query(query: Any) -> bool:
-    """True when the query is an ``information_schema`` schema-discovery lookup, not an answer."""
-    return isinstance(query, str) and "information_schema" in query.lower()
 
 
 class AnswerQueryRan(Scorer):

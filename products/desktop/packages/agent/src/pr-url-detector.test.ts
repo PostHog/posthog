@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   findPrUrl,
   findPrUrls,
+  parsePrRepository,
   wasCreatedByLogin,
+  wasCreatedByThisRun,
   wasCreatedRecently,
 } from "./pr-url-detector";
 
@@ -95,5 +97,112 @@ describe("wasCreatedRecently", () => {
 
   it("fails closed on an unparseable createdAt", () => {
     expect(wasCreatedRecently("not-a-date", now, maxAge)).toBe(false);
+  });
+});
+
+describe("parsePrRepository", () => {
+  it.each([
+    ["https://github.com/PostHog/posthog/pull/123", "posthog/posthog"],
+    ["https://github.com/PostHog/posthog.com/pull/1", "posthog/posthog.com"],
+    ["https://example.com/PostHog/posthog/pull/1", null],
+  ])("%s -> %s", (url, expected) => {
+    expect(parsePrRepository(url)).toBe(expected);
+  });
+});
+
+describe("wasCreatedByThisRun", () => {
+  const nowMs = new Date("2026-06-18T17:00:00Z").getTime();
+  const fresh = "2026-06-18T16:59:00Z";
+  const stale = "2026-06-18T12:00:00Z";
+  const ours = { repository: "posthog/posthog", branch: "run/branch" };
+  const base = {
+    createdAt: fresh,
+    nowMs,
+    author: "app/posthog",
+    ghLogin: null,
+    prRepository: "posthog/posthog",
+    headRefName: "run/branch",
+    isCrossRepository: false,
+    ownedBranches: [ours],
+    baseBranch: "master",
+  };
+
+  it.each([
+    ["fresh PR on a branch the run pushed", {}, true],
+    [
+      "fresh PR on another branch, run on master",
+      {
+        headRefName: "their/branch",
+        ownedBranches: [{ repository: "posthog/posthog", branch: "master" }],
+      },
+      false,
+    ],
+    [
+      "fresh PR whose head is the base branch",
+      {
+        headRefName: "master",
+        ownedBranches: [{ repository: "posthog/posthog", branch: "master" }],
+      },
+      false,
+    ],
+    ["fork PR with a matching branch name", { isCrossRepository: true }, false],
+    [
+      "same branch name in a different repository",
+      { prRepository: "posthog/posthog.com" },
+      false,
+    ],
+    [
+      "same branch name, run repository unknown",
+      { ownedBranches: [{ repository: null, branch: "run/branch" }] },
+      true,
+    ],
+    [
+      "branch pushed by signed commit, no checkout",
+      {
+        ownedBranches: [
+          { repository: "posthog/posthog", branch: "run/branch" },
+        ],
+      },
+      true,
+    ],
+    ["stale PR on the run's branch", { createdAt: stale }, false],
+    [
+      "fresh PR, no branches known, author matches login",
+      { headRefName: null, ownedBranches: [], ghLogin: "me", author: "me" },
+      true,
+    ],
+    [
+      "fresh PR, no branches known, author unknown",
+      { headRefName: null, ownedBranches: [] },
+      false,
+    ],
+    [
+      "fresh PR from another branch, author matches login",
+      { headRefName: "other/branch", ghLogin: "me", author: "me" },
+      false,
+    ],
+    [
+      "fresh PR, head known but no branches pushed, author matches login",
+      { ownedBranches: [], ghLogin: "me", author: "me" },
+      true,
+    ],
+    [
+      "fresh PR, only branches in other repositories known, author matches login",
+      {
+        ownedBranches: [
+          { repository: "posthog/posthog.com", branch: "run/branch" },
+        ],
+        ghLogin: "me",
+        author: "me",
+      },
+      true,
+    ],
+    [
+      "fresh fork PR, author matches login",
+      { isCrossRepository: true, ghLogin: "me", author: "me" },
+      false,
+    ],
+  ] as const)("%s -> %s", (_name, overrides, expected) => {
+    expect(wasCreatedByThisRun({ ...base, ...overrides })).toBe(expected);
   });
 });

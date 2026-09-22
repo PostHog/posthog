@@ -1,6 +1,7 @@
+import { Attributes } from '@opentelemetry/api'
 import { Counter, Gauge } from 'prom-client'
 
-import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { instrumentFn, setSpanAttributes } from '~/common/tracing/tracing-utils'
 
 import { defaultConfig } from '../config/config'
 import { logger } from './logger'
@@ -94,7 +95,21 @@ export type LazyLoaderOptions<T> = {
     maxSize?: number
 }
 
+export type LoadOptions = {
+    /**
+     * Issue the buffered load now instead of waiting out `bufferMs`. For a caller that already
+     * holds the whole batch, such as a chunk prefetch, the buffer only delays the query.
+     */
+    flush?: boolean
+}
+
 type LazyLoaderMap<T> = Record<string, T | null | undefined>
+
+/**
+ * How a `loadViaCache` call was served: every key from the cache, by invoking the loader, or by
+ * waiting on a load another caller already had in flight.
+ */
+export type LazyLoaderSpanOutcome = 'all_cached' | 'loaded' | 'waited_pending'
 
 /**
  * A cached value together with the deadlines that govern it. These live on one object so that
@@ -125,6 +140,8 @@ export class LazyLoader<T> {
         | {
               keys: Set<string>
               promise: Promise<void>
+              /** Fires the buffered load now; a no-op once the buffer timer has fired. */
+              flush: () => void
           }
         | undefined
 
@@ -162,8 +179,8 @@ export class LazyLoader<T> {
         return loaded[key] ?? null
     }
 
-    public async getMany(keys: string[]): Promise<Record<string, T | null>> {
-        return await this.loadViaCache(keys)
+    public async getMany(keys: string[], options?: LoadOptions): Promise<Record<string, T | null>> {
+        return await this.loadViaCache(keys, options)
     }
 
     public markForRefresh(key: string | string[]): void {
@@ -215,8 +232,8 @@ export class LazyLoader<T> {
      * If not cached, the value is loaded as part of the batch and added to the cache.
      * If the value is older than the refreshAge, it is loaded from the database.
      */
-    private async loadViaCache(keys: string[]): Promise<Record<string, T | null>> {
-        return await instrumentFn(`lazyLoader.loadViaCache`, async () => {
+    private async loadViaCache(keys: string[], options?: LoadOptions): Promise<Record<string, T | null>> {
+        return await instrumentFn({ key: `lazyLoader.loadViaCache`, tag: this.options.name }, async () => {
             // No prototype, for the same reason as the cache: keys are caller-supplied, and this
             // object is handed back to callers who may iterate or spread it.
             const results: Record<string, T | null> = Object.create(null)
@@ -262,13 +279,19 @@ export class LazyLoader<T> {
 
             if (keysToLoad.size === 0) {
                 lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
+                setSpanAttributes(this.spanAttributes(keys, keysToLoad, 'all_cached'))
                 return results
             }
 
             lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
 
+            // A span that only waits on another caller's in-flight load has no query child of its
+            // own, so record the distinction here or it looks like a slow cache lookup.
+            const allPending = Array.from(keysToLoad).every((key) => this.pendingLoads[key] !== undefined)
+            setSpanAttributes(this.spanAttributes(keys, keysToLoad, allPending ? 'waited_pending' : 'loaded'))
+
             // We have something to load so we schedule it and then await all of them
-            await this.load(Array.from(keysToLoad))
+            await this.load(Array.from(keysToLoad), options)
 
             for (const key of keys) {
                 // Grab the new cached result for all keys
@@ -279,13 +302,22 @@ export class LazyLoader<T> {
         })
     }
 
+    private spanAttributes(keys: string[], keysToLoad: Set<string>, outcome: LazyLoaderSpanOutcome): Attributes {
+        return {
+            'lazyloader.name': this.options.name,
+            'lazyloader.keys': keys.length,
+            'lazyloader.misses': keysToLoad.size,
+            'lazyloader.outcome': outcome,
+        }
+    }
+
     /**
      * Schedules the keys to be loaded with a buffer to allow batching multiple keys
      * This is somewhat complex but simplifies the usage around the codebase as you can safely do multiple gets without worrying about firing off duplicate DB requests
      *
      * Loaded values land in `this.cache` via `setValues`; callers read them back from there.
      */
-    private async load(keys: string[]): Promise<void> {
+    private async load(keys: string[], options?: LoadOptions): Promise<void> {
         const bufferMs = this.options.bufferMs ?? defaultConfig.LAZY_LOADER_DEFAULT_BUFFER_MS
         const keyPromises: Promise<void>[] = []
 
@@ -300,21 +332,7 @@ export class LazyLoader<T> {
             lazyLoaderQueuedCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
 
             if (!this.buffer) {
-                // If we don't have a buffer then we create one
-                // The buffer is a combination of a set of keys and a promise that will resolve after a setTimeout to then call the loader for those keys
-                this.buffer = {
-                    keys: new Set(),
-                    promise: new Promise<string[]>((resolve) => {
-                        setTimeout(() => {
-                            const keys = Array.from(this.buffer!.keys)
-                            this.buffer = undefined
-                            resolve(keys)
-                        }, bufferMs)
-                    }).then(async (bufferedKeys) => {
-                        logger.debug('[LazyLoader]', this.options.name, 'Loading: ', bufferedKeys)
-                        this.setValues(await this.invokeLoader(bufferedKeys))
-                    }),
-                }
+                this.buffer = this.createBuffer(bufferMs)
                 lazyLoaderBufferUsage.labels({ name: this.options.name, hit: 'miss' }).inc()
             } else {
                 lazyLoaderBufferUsage.labels({ name: this.options.name, hit: 'hit' }).inc()
@@ -330,7 +348,40 @@ export class LazyLoader<T> {
             keyPromises.push(pendingLoad)
         }
 
+        if (options?.flush) {
+            // Keys other callers buffered meanwhile ride along; they only get served sooner.
+            this.buffer?.flush()
+        }
+
         await Promise.all(keyPromises)
+    }
+
+    /**
+     * A buffer collects keys until its timer fires, or until `flush` fires it early, then calls
+     * the loader once for all of them. Whichever fires first wins; the other is a no-op.
+     */
+    private createBuffer(bufferMs: number): NonNullable<typeof this.buffer> {
+        const keys = new Set<string>()
+        let fired = false
+        let fire: () => void = () => {}
+
+        const promise = new Promise<string[]>((resolve) => {
+            const timer = setTimeout(() => fire(), bufferMs)
+            fire = () => {
+                if (fired) {
+                    return
+                }
+                fired = true
+                clearTimeout(timer)
+                this.buffer = undefined
+                resolve(Array.from(keys))
+            }
+        }).then(async (bufferedKeys) => {
+            logger.debug('[LazyLoader]', this.options.name, 'Loading: ', bufferedKeys)
+            this.setValues(await this.invokeLoader(bufferedKeys))
+        })
+
+        return { keys, promise, flush: () => fire() }
     }
 
     /**

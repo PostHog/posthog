@@ -4,7 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { ProjectTree, ProjectTreeProps } from './ProjectTree'
 
-interface StoryProps extends ProjectTreeProps {
+type StoryProps = ProjectTreeProps & {
     enableCustomProductsFlag?: boolean
 }
 

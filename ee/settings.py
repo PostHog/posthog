@@ -12,6 +12,7 @@ from posthog.utils import str_to_bool
 AUTHENTICATION_BACKENDS = [
     *AUTHENTICATION_BACKENDS,
     "ee.api.authentication.MultitenantSAMLAuth",
+    "posthog.api.oidc.MultitenantOIDCAuth",
     "ee.api.authentication.CustomGoogleOAuth2",
 ]
 
@@ -163,5 +164,5 @@ SCIM_SERVICE_PROVIDER = {
         }
     ],
     # User model is already configured via AUTH_USER_MODEL = "posthog.User"
-    "GROUP_MODEL": "ee.models.rbac.role.Role",
+    "GROUP_MODEL": "products.access_control.backend.models.role.Role",
 }

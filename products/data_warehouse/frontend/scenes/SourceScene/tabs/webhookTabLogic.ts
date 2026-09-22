@@ -8,8 +8,9 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
-import { SourceConfig } from '~/queries/schema/schema-general'
 import { ExternalDataSource, WebhookInfo } from '~/types'
+
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import type { WebhookCreateResult } from '../../../shared/components/forms/WebhookSetupForm'
 import { getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
@@ -45,7 +46,7 @@ export interface webhookTabLogicValues {
     }[]
     showWebhookFieldInputsErrors: boolean
     source: ExternalDataSource | null
-    sourceConfig: SourceConfig | null
+    sourceConfig: SourceConfigResponseApi | null
     webhookCreating: boolean
     webhookDeleting: boolean
     webhookFieldInputs: Record<string, any>
@@ -144,7 +145,7 @@ export interface webhookTabLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         source: (arg: ExternalDataSource | null) => ExternalDataSource | null
-        sourceConfig: (arg: SourceConfig | null) => SourceConfig | null
+        sourceConfig: (arg: SourceConfigResponseApi | null) => SourceConfigResponseApi | null
         internalStateLabel: (webhookInfo: WebhookInfo | null) => {
             label: string
             tagType: 'danger' | 'default' | 'success' | 'warning'
@@ -244,7 +245,7 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
                         availableSources: {},
                     }).selectors.sourceFieldConfig(state),
             ],
-            (sourceFieldConfig: SourceConfig | null): SourceConfig | null => sourceFieldConfig,
+            (sourceFieldConfig: SourceConfigResponseApi | null): SourceConfigResponseApi | null => sourceFieldConfig,
         ],
         internalStateLabel: [
             (s) => [s.webhookInfo],

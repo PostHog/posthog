@@ -2,7 +2,7 @@ import json
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -62,7 +62,7 @@ def _run_rows(
 
 
 class TestEventWindow:
-    @freeze_time("2026-07-14T12:00:00Z")
+    @time_machine.travel("2026-07-14T12:00:00Z", tick=False)
     def test_first_sync_backfills_the_max_retention_window(self) -> None:
         # received_after defaults to only 1 hour ago server-side, so leaving it off a first sync
         # would silently drop everything older than an hour.
@@ -76,12 +76,12 @@ class TestEventWindow:
             ("iso_string_z", "2026-07-10T08:30:00.500Z", "2026-07-10T08:30:00.500Z"),
         ]
     )
-    @freeze_time("2026-07-14T12:00:00Z")
+    @time_machine.travel("2026-07-14T12:00:00Z", tick=False)
     def test_incremental_run_advances_from_the_watermark(self, _name: str, value: Any, expected_after: str) -> None:
         window = _event_window(should_use_incremental_field=True, db_incremental_field_last_value=value)
         assert window.start == expected_after
 
-    @freeze_time("2026-07-14T12:00:00Z")
+    @time_machine.travel("2026-07-14T12:00:00Z", tick=False)
     def test_future_watermark_is_clamped_to_now(self) -> None:
         # A future-dated watermark would produce an inverted window that returns nothing forever.
         window = _event_window(
@@ -302,31 +302,15 @@ class TestV1Lists:
 
 
 class TestVersionDispatch:
-    @parameterized.expand([("v1", "/v1/webhooks"), ("v2", "/v2/webhooks")])
-    def test_webhooks_endpoint_follows_the_source_pin(self, api_version: str, expected_path: str) -> None:
-        # Webhooks is served under both API versions; the source pin decides which inventory a
-        # source reads. A v1 pin must stay on the original path (existing syncs byte-for-byte), a
-        # v2 pin must move to the v2 inventory. The url field is capability-bearing and dropped on
-        # either version.
-        seen_urls: list[str] = []
-
-        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
-            seen_urls.append(url)
-            return {
-                "data": [{"id": "wh1", "name": "intake", "url": "https://inn.gs/secret"}],
-                "page": {"hasMore": False},
-            }
-
-        rows, _ = _run_rows("webhooks", fake_fetch, api_version=api_version)
-        assert seen_urls[0] == f"https://api.inngest.com{expected_path}"
-        assert rows == [{"id": "wh1", "name": "intake"}]
-
     @parameterized.expand(
         [
-            # Cancellations only exist in v1 and the envs inventory only in v2, so a pin on the
-            # other version must not relocate them off their only compatible home (a 404 otherwise).
+            # Cancellations and the webhooks inventory only exist in v1 and the envs inventory only
+            # in v2, so a pin on the other version must not relocate them off their only compatible
+            # home (a 404 otherwise).
             ("cancellations", "v2", "/v1/cancellations"),
             ("environments", "v1", "/v2/envs"),
+            ("webhooks", "v2", "/v1/webhooks"),
+            ("webhooks", "v1", "/v1/webhooks"),
         ]
     )
     def test_version_locked_endpoint_ignores_the_pin(self, endpoint: str, api_version: str, expected_path: str) -> None:

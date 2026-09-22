@@ -1,41 +1,62 @@
-import { ArrowsClockwise, Gift, Spinner, X } from "@phosphor-icons/react";
+import { ArrowsClockwise, Gift, X } from "@phosphor-icons/react";
+import { updateStore } from "@posthog/core/updates/updateStore";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useUpdateBannerStore } from "@posthog/ui/features/updates/updateBannerStore";
 import { useUpdateModalStore } from "@posthog/ui/features/updates/updateModalStore";
 import {
+  useHasActiveUpdate,
   useInstallUpdate,
   useUpdateView,
 } from "@posthog/ui/features/updates/updateStore";
+import { Spin, Spinner } from "@posthog/ui/primitives/Spinner";
 import { Box } from "@radix-ui/themes";
 import { AnimatePresence, motion } from "framer-motion";
+import { useStore } from "zustand";
 
 interface UpdateBannerProps {
   variant?: "sidebar" | "compact";
 }
 
-export function UpdateBanner({ variant = "sidebar" }: UpdateBannerProps) {
-  const { status, version, availableVersion, downloadPercent, isEnabled } =
-    useUpdateView();
-  const installUpdate = useInstallUpdate();
-  const openModal = useUpdateModalStore((state) => state.open);
+function dismissKeyFor(
+  version: string | null,
+  availableVersion: string | null,
+): string {
+  return version ?? availableVersion ?? "unknown";
+}
+
+// Primitive selectors only, so download progress does not re-render the app shell.
+export function useUpdateBannerVisible(): boolean {
+  const hasActiveUpdate = useHasActiveUpdate();
+  const isEnabled = useStore(updateStore, (state) => state.isEnabled);
+  const dismissKey = useStore(updateStore, (state) =>
+    dismissKeyFor(state.version, state.availableVersion),
+  );
   const canDismiss = useSettingsStore(
     (state) => state.dismissibleUpdateBanners,
   );
   const dismissedVersion = useUpdateBannerStore(
     (state) => state.dismissedVersion,
   );
+
+  return (
+    isEnabled &&
+    hasActiveUpdate &&
+    !(canDismiss && dismissedVersion === dismissKey)
+  );
+}
+
+export function UpdateBanner({ variant = "sidebar" }: UpdateBannerProps) {
+  const { status, version, availableVersion, downloadPercent } =
+    useUpdateView();
+  const installUpdate = useInstallUpdate();
+  const openModal = useUpdateModalStore((state) => state.open);
+  const canDismiss = useSettingsStore(
+    (state) => state.dismissibleUpdateBanners,
+  );
   const dismissBanner = useUpdateBannerStore((state) => state.dismiss);
 
-  const dismissKey = version ?? availableVersion ?? "unknown";
-  const isDismissed = canDismiss && dismissedVersion === dismissKey;
-
-  const isVisible =
-    isEnabled &&
-    !isDismissed &&
-    (status === "available" ||
-      status === "downloading" ||
-      status === "ready" ||
-      status === "installing");
+  const dismissKey = dismissKeyFor(version, availableVersion);
+  const isVisible = useUpdateBannerVisible();
 
   const percent = Math.round(downloadPercent ?? 0);
 
@@ -71,7 +92,7 @@ export function UpdateBanner({ variant = "sidebar" }: UpdateBannerProps) {
                 className="flex items-center gap-1.5 text-(--green-11) text-[13px] opacity-70"
                 onClick={openModal}
               >
-                <Spinner size={14} className="animate-spin" />
+                <Spinner size="md" />
                 <span>Downloading update... {percent}%</span>
               </button>
             )}
@@ -81,12 +102,10 @@ export function UpdateBanner({ variant = "sidebar" }: UpdateBannerProps) {
                 <button
                   type="button"
                   className="flex items-center gap-1.5 rounded-2 border border-(--green-a5) bg-(--green-a3) px-2.5 py-1 font-medium text-(--green-11) text-[13px] transition-colors hover:bg-(--green-a4)"
-                  onClick={() => void installUpdate()}
+                  onClick={openModal}
                 >
                   <Gift size={14} weight="duotone" />
-                  <span>
-                    {version ? `${version} ready` : "Update ready"} — Restart
-                  </span>
+                  <span>{version ? `${version} ready` : "Update ready"}</span>
                 </button>
                 {canDismiss && (
                   <DismissButton onClick={() => dismissBanner(dismissKey)} />
@@ -96,7 +115,9 @@ export function UpdateBanner({ variant = "sidebar" }: UpdateBannerProps) {
 
             {status === "installing" && (
               <div className="flex items-center gap-1.5 text-(--green-11) text-[13px] opacity-70">
-                <ArrowsClockwise size={14} className="animate-spin" />
+                <Spin>
+                  <ArrowsClockwise size={14} />
+                </Spin>
                 <span>Restarting...</span>
               </div>
             )}
@@ -222,10 +243,9 @@ export function UpdateBanner({ variant = "sidebar" }: UpdateBannerProps) {
             {status === "installing" && (
               <BannerCard key="installing">
                 <div className="flex w-full items-center gap-2 rounded-md border border-[var(--green-a5)] bg-[var(--green-a3)] px-3 py-2.5 text-[13px] text-[var(--green-11)]">
-                  <ArrowsClockwise
-                    size={16}
-                    className="shrink-0 animate-spin"
-                  />
+                  <Spin className="shrink-0">
+                    <ArrowsClockwise size={16} />
+                  </Spin>
                   <span className="font-medium">Restarting...</span>
                 </div>
               </BannerCard>

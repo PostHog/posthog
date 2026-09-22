@@ -158,6 +158,7 @@ export type SupportEditorProps = {
     disabled?: boolean
     minRows?: number
     className?: string
+    autoFocus?: boolean
 }
 
 const DEFAULT_INITIAL_CONTENT: JSONContent = {
@@ -477,6 +478,7 @@ export function SupportEditor({
     disabled = false,
     minRows,
     className,
+    autoFocus = false,
 }: SupportEditorProps): JSX.Element {
     const [isDragging, setIsDragging] = useState<boolean>(false)
     const [ttEditor, setTTEditor] = useState<TTEditor | null>(null)
@@ -523,6 +525,7 @@ export function SupportEditor({
         onSelectionUpdate: () => {
             setEditorState((n) => n + 1)
         },
+        autoFocus,
     })
 
     const dropRef = useRef<HTMLDivElement>(null)
@@ -615,7 +618,7 @@ export function SupportEditor({
             <EditorContent
                 editor={editor}
                 className="SupportEditor__content p-2"
-                autoFocus
+                autoFocus={autoFocus}
                 style={minRows ? { minHeight: `${minRows * 1.5}em` } : undefined}
             />
             <div className="flex justify-between p-0.5">

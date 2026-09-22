@@ -1,5 +1,4 @@
 import time
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
@@ -21,6 +20,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import DagsterTags, get_query_tags, tags_context
 from posthog.dags.common import dagster_tags
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.settings.base_variables import DEBUG
 
@@ -227,7 +227,7 @@ def log_query_sql(
         context.log.warning(f"Failed to log {query_name}: {e}")
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class AccuracyCheckConfig:
     tolerance_percentage: float
     days_back: int
@@ -257,7 +257,7 @@ def setup_accuracy_check_config(context: AssetCheckExecutionContext, check_name:
     )
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class AccuracyCheckRunners:
     pre_aggregated: WebOverviewQueryRunner
     regular: WebOverviewQueryRunner

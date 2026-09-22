@@ -2,10 +2,26 @@ import { describe, expect, it } from "vitest";
 import {
   fillSpendDays,
   formatTokens,
+  formatUsdCompact,
   type SpendAnalysisWindow,
   windowToDateFrom,
   windowToDays,
 } from "./spendAnalysisFormat";
+
+describe("formatUsdCompact", () => {
+  it.each([
+    [20, undefined, "$20"],
+    [1250, undefined, "$1,250"],
+    [12.4, undefined, "$12.40"],
+    [0, undefined, "$0"],
+    [0, { exactCents: true }, "$0.00"],
+    [20, { exactCents: true }, "$20.00"],
+    [999.994, { exactCents: true }, "$999.99"],
+    [1250.4, { exactCents: true }, "$1,250"],
+  ] as const)("formats %s (%o) as %s", (value, options, expected) => {
+    expect(formatUsdCompact(value, options)).toBe(expected);
+  });
+});
 
 describe("formatTokens", () => {
   it.each([

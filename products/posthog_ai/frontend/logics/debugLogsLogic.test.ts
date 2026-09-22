@@ -40,6 +40,13 @@ describe('debugLogsLogic', () => {
         expect(logic.values.showDebugLogs).toBe(false)
     })
 
+    it('ignores a value left under a superseded storage key', () => {
+        localStorage.setItem('posthog_ai.debugLogsEnabled', 'true')
+        setup({ user: { is_staff: true }, isDev: false })
+        expect(logic.values.debugLogsEnabled).toBe(false)
+        expect(logic.values.showDebugLogs).toBe(false)
+    })
+
     it('offers no toggle to a staff user who is also impersonating, but still forces logs on', () => {
         // The toggle would be a no-op during impersonation (logs are force-shown), so it must not render.
         setup({ user: { is_staff: true, is_impersonated: true }, isDev: false })

@@ -1,0 +1,6 @@
+{
+    "id": "RB4",
+    "real": false,
+    "source": "reused-PB14",
+    "reasoning": "Identical claim to prior verdict PB14 (not real, high confidence); NA20's evidence covers the _start_review leg. Confirmed in /tmp/frozen-75215: imports do sit before try (receivers.py:222/224, 254-260), but the production saver set_task_run_output (tasks/backend/facade/api.py:2154) saves outside any atomic block, so on_commit runs each lambda inline inside handle_task_run_saved's own try/except (receivers.py:79, 139-140) — an ImportError is caught and logged, never reaching the saver or a commit sequence. And import failure has no runtime trigger: both deferred modules are first-party and imported at module level by api/reviews.py:45, api/trigger.py:16, api/settings.py:16, so a broken import kills django.setup()/URL routing before any save fires."
+}

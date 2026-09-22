@@ -47,12 +47,20 @@ vi.mock('@/tools', () => ({
     TOOL_MAP: {
         'tool-a': () => makeToolBase('tool-a'),
         'tool-b': () => makeToolBase('tool-b'),
+        'update-feature-flag': () =>
+            makeToolBase('update-feature-flag', {
+                schema: z.object({ source: z.literal('handwritten') }),
+            }),
     },
 }))
 
 vi.mock('@/tools/generated', () => ({
     GENERATED_TOOL_MAP: {
         'gen-tool-c': () => makeToolBase('gen-tool-c'),
+        'update-feature-flag': () =>
+            makeToolBase('update-feature-flag', {
+                schema: z.object({ source: z.literal('generated') }),
+            }),
     },
 }))
 
@@ -60,6 +68,7 @@ const DEFINITIONS: Record<string, FakeDefinition> = {
     'tool-a': fakeDef({ required_scopes: ['project:read'] }),
     'tool-b': fakeDef({ feature: 'insights', annotations: { ...fakeDef().annotations, readOnlyHint: true } }),
     'gen-tool-c': fakeDef({ required_scopes: ['action:write'] }),
+    'update-feature-flag': fakeDef({ required_scopes: ['feature_flag:write'] }),
 }
 
 vi.mock('@/tools/toolDefinitions', () => ({
@@ -138,6 +147,14 @@ describe('ToolCatalog', () => {
 
             expect(result.type).toBe('object')
         })
+
+        it('returns plain data with no handle back to the zod instance', () => {
+            // zod puts a non-enumerable `~standard` handle on its JSON Schema output. Kept on a
+            // catalog entry, it would pin every built schema for the life of the process.
+            const result = toMcpInputSchema(z.object({ a: z.string() }))
+
+            expect('~standard' in result).toBe(false)
+        })
     })
 
     describe('warmup', () => {
@@ -152,6 +169,14 @@ describe('ToolCatalog', () => {
             await catalog.warmup()
             expect(catalog.warmedUp).toBe(true)
         })
+
+        it('builds a fresh tool on every lookup instead of keeping one', async () => {
+            await catalog.warmup()
+
+            const preBuilt = catalog.getToolByName('gen-tool-c')!
+
+            expect(preBuilt.build().schema).not.toBe(preBuilt.build().schema)
+        })
     })
 
     describe('getFilteredTools', () => {
@@ -160,9 +185,20 @@ describe('ToolCatalog', () => {
         })
 
         it('should return all tools when no filters applied', () => {
-            const tools = catalog.getFilteredTools({ scopes: ['project:read', 'action:write'] })
+            const tools = catalog.getFilteredTools({
+                scopes: ['project:read', 'action:write', 'feature_flag:write'],
+            })
             const names = tools.map((t) => t.name).sort()
-            expect(names).toEqual(['gen-tool-c', 'tool-a', 'tool-b'])
+            expect(names).toEqual(['gen-tool-c', 'tool-a', 'tool-b', 'update-feature-flag'])
+        })
+
+        it('should prefer hand-written factory when name collides with generated', () => {
+            const tools = catalog.getFilteredTools({ scopes: ['feature_flag:write'] })
+            const update = tools.find((t) => t.name === 'update-feature-flag')
+            expect(update).toBeTruthy()
+            // Schema is from the TOOL_MAP mock (handwritten), not GENERATED_TOOL_MAP.
+            expect(update!.schema.safeParse({ source: 'handwritten' }).success).toBe(true)
+            expect(update!.schema.safeParse({ source: 'generated' }).success).toBe(false)
         })
 
         it('should exclude tools by name', () => {

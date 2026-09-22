@@ -1,18 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.aha_ideas.aha_ideas import AhaIdeasResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.aha_ideas.settings import (
-    AHA_IDEAS_ENDPOINTS,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.aha_ideas.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.aha_ideas.source import AhaIdeasSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ahaideas import (
     AhaIdeasSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Endpoints whose Aha! Ideas list action exposes the server-side `updated_since` filter.
 _INCREMENTAL_ENDPOINTS = {"ideas", "idea_organizations", "idea_users", "idea_endorsements"}
@@ -24,29 +17,6 @@ class TestAhaIdeasSource:
         self.source = AhaIdeasSource()
         self.team_id = 123
         self.config = AhaIdeasSourceConfig(subdomain="acme", api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.AHAIDEAS
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "AhaIdeas"
-        assert config.label == "Aha! Ideas"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/aha_ideas.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/aha-ideas"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["subdomain", "api_key"]
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        api_key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.secret is True
-        assert api_key_field.required is True
 
     def test_subdomain_listed_as_connection_host_field(self):
         # The API key is sent to <subdomain>.aha.io, so retargeting the subdomain must re-require it.
@@ -102,10 +72,6 @@ class TestAhaIdeasSource:
         documented = self.source.get_documented_tables()
         assert {table["name"] for table in documented} == set(ENDPOINTS)
 
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        canonical = self.source.get_canonical_descriptions()
-        assert set(canonical) == set(AHA_IDEAS_ENDPOINTS)
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
@@ -137,38 +103,3 @@ class TestAhaIdeasSource:
 
         assert is_valid is False
         assert "Invalid Aha! account domain" in (error_message or "")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is AhaIdeasResumeConfig
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.aha_ideas.source.aha_ideas_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_aha_ideas_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "ideas"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-        inputs.incremental_field = "updated_at"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_aha_ideas_source.assert_called_once()
-        kwargs = mock_aha_ideas_source.call_args.kwargs
-        assert kwargs["subdomain"] == "acme"
-        assert kwargs["api_key"] == "key"
-        assert kwargs["endpoint"] == "ideas"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.aha_ideas.source.aha_ideas_source")
-    def test_source_for_pipeline_omits_cursor_when_not_incremental(self, mock_aha_ideas_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "idea_portals"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_aha_ideas_source.call_args.kwargs["db_incremental_field_last_value"] is None

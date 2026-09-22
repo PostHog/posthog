@@ -93,6 +93,12 @@ class DetectionConfig:
     # A recurrence within this window reopens the resolved issue; later ones are new.
     reopen_window_buckets: int = 7 * BUCKETS_PER_DAY
 
+    def __post_init__(self) -> None:
+        if not (0.0 <= self.exclusion_cap_fraction <= 1.0):
+            raise ValueError(
+                f"DetectionConfig exclusion_cap_fraction must be between 0 and 1, got {self.exclusion_cap_fraction}"
+            )
+
     @property
     def alpha_per_bucket(self) -> float:
         return self.false_flag_budget_per_day / BUCKETS_PER_DAY

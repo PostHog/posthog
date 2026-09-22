@@ -1,4 +1,5 @@
 import { GitBranch, Warning } from "@phosphor-icons/react";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import {
   AlertDialog,
   Button,
@@ -120,8 +121,9 @@ export function BranchMismatchDialog({
             variant="solid"
             size="1"
             onClick={onSwitch}
-            loading={isSwitching}
+            disabled={isSwitching}
           >
+            {isSwitching && <Spinner size="sm" />}
             Switch branch
           </Button>
         </Flex>

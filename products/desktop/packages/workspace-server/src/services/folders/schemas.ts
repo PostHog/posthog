@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const registeredFolderSchema = z.object({
+const registeredFolderSchema = z.object({
   id: z.string(),
   path: z.string(),
   name: z.string(),
@@ -36,14 +36,6 @@ export const updateFolderAccessedInput = z.object({
 });
 
 export type RegisteredFolder = z.infer<typeof registeredFolderWithExistsSchema>;
-export type GetFoldersOutput = z.infer<typeof getFoldersOutput>;
-export type AddFolderInput = z.infer<typeof addFolderInput>;
-export type AddFolderOutput = z.infer<typeof addFolderOutput>;
-export type RemoveFolderInput = z.infer<typeof removeFolderInput>;
-export type UpdateFolderAccessedInput = z.infer<
-  typeof updateFolderAccessedInput
->;
-
 export const repositoryLookupResult = z
   .object({
     id: z.string(),
@@ -54,5 +46,3 @@ export const repositoryLookupResult = z
 export const getRepositoryByRemoteUrlInput = z.object({
   remoteUrl: z.string(),
 });
-
-export type RepositoryLookupResult = z.infer<typeof repositoryLookupResult>;

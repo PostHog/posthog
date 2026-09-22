@@ -741,7 +741,20 @@ export const getMcpGatewayServiceAccountsAccessCreateUrl = (projectId: string, i
 }
 
 /**
- * Grant or revoke this agent's access to one gateway server.
+ * Share, or stop sharing, one gateway server with this agent.
+ *
+ * Sharing is personal. `enabled=true` delegates the caller's own
+ * connection, and the agent may use it only when acting for the caller,
+ * unless the caller sends `scope=team` to lend it to the project's agent
+ * runs generally. Scope only ever applies to the caller's own share: it is
+ * their credential to lend, so no admin permission is involved and no
+ * member can change someone else's share.
+ * `enabled=false` removes the caller's own share and leaves other members'
+ * shares, and the agent's tool policies, in place.
+ *
+ * Project admins can send `all=true` alongside `enabled=false` to remove
+ * every member's share of this server with this agent, along with the
+ * agent's tool policies for it.
  */
 export const mcpGatewayServiceAccountsAccessCreate = async (
     projectId: string,

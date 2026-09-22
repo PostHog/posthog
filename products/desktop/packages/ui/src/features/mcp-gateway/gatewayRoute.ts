@@ -11,12 +11,13 @@ export type GatewayRoute =
   | { view: "settings" }
   | { view: "audit" };
 
+// The audit log is open to every member: the backend scopes it to calls made
+// through the caller's own connections unless they administer the gateway.
 const ADMIN_ONLY_VIEWS: GatewayRoute["view"][] = [
   "team",
   "agent",
   "member",
   "settings",
-  "audit",
 ];
 
 /** Keep the route inside what the caller's role may see. */

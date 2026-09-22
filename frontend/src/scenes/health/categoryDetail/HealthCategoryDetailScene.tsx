@@ -33,7 +33,8 @@ function HealthCategoryDetailScene(): JSX.Element {
         showDismissed,
         isValidCategory,
     } = useValues(healthCategoryDetailLogic)
-    const { refreshHealthData, setShowDismissed, dismissIssue, undismissIssue } = useActions(healthCategoryDetailLogic)
+    const { refreshHealthData, setShowDismissed, snoozeIssue, dismissIssue, undismissIssue } =
+        useActions(healthCategoryDetailLogic)
 
     if (!isValidCategory) {
         return <></>
@@ -56,6 +57,7 @@ function HealthCategoryDetailScene(): JSX.Element {
                     issues={categoryIssues}
                     statusSummary={statusSummary}
                     isLoading={healthIssuesLoading}
+                    onSnooze={snoozeIssue}
                     onDismiss={dismissIssue}
                     onUndismiss={undismissIssue}
                     onRefresh={refreshHealthData}
@@ -72,6 +74,7 @@ function HealthCategoryDetailScene(): JSX.Element {
                     healthIssuesLoading={healthIssuesLoading}
                     onRefresh={refreshHealthData}
                     onSetShowDismissed={setShowDismissed}
+                    onSnooze={snoozeIssue}
                     onDismiss={dismissIssue}
                     onUndismiss={undismissIssue}
                 />
@@ -99,6 +102,7 @@ function GenericCategoryContent({
     healthIssuesLoading,
     onRefresh,
     onSetShowDismissed,
+    onSnooze,
     onDismiss,
     onUndismiss,
 }: {
@@ -110,6 +114,7 @@ function GenericCategoryContent({
     healthIssuesLoading: boolean
     onRefresh: () => void
     onSetShowDismissed: (show: boolean) => void
+    onSnooze: (id: string, duration: string) => void
     onDismiss: (id: string) => void
     onUndismiss: (id: string) => void
 }): JSX.Element {
@@ -174,7 +179,13 @@ function GenericCategoryContent({
             ) : (
                 <div className="flex flex-col gap-4">
                     {issuesByKind.map((group: KindGroup) => (
-                        <KindSection key={group.kind} group={group} onDismiss={onDismiss} onUndismiss={onUndismiss} />
+                        <KindSection
+                            key={group.kind}
+                            group={group}
+                            onSnooze={onSnooze}
+                            onDismiss={onDismiss}
+                            onUndismiss={onUndismiss}
+                        />
                     ))}
                 </div>
             )}
@@ -214,10 +225,12 @@ function StatusBanner({
 
 function KindSection({
     group,
+    onSnooze,
     onDismiss,
     onUndismiss,
 }: {
     group: KindGroup
+    onSnooze: (id: string, duration: string) => void
     onDismiss: (id: string) => void
     onUndismiss: (id: string) => void
 }): JSX.Element {
@@ -244,6 +257,7 @@ function KindSection({
                                 <HealthIssueCard
                                     key={issue.id}
                                     issue={issue}
+                                    onSnooze={onSnooze}
                                     onDismiss={onDismiss}
                                     onUndismiss={onUndismiss}
                                 />

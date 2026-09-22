@@ -1,39 +1,39 @@
 # .stamphog
 
-Declarative policy for the stamphog PR-approval merge gate (`tools/pr-approval-agent/`).
-The engine loads these files from the checked-out working tree at run time.
-Engine and policy are vendored into other repos (see the note in `tools/pr-approval-agent/README.md`), so format changes here need those copies re-synced too.
+The PostHog monorepo's own stamphog configuration.
 
-## What lives here
+How the hosted product reads this directory: [`products/stamphog/README.md`](../products/stamphog/README.md#customize-the-review-for-your-repository).
+What each file contains and how per-folder overrides resolve: [the engine's "Policy files" section](../products/stamphog/packages/pr-approval-agent/README.md#policy-files).
 
-- `policy.yml` - the global machine policy: deny categories, allow-list, size gate, tier thresholds, dismiss-time triviality rules, the folder delegation contract, and the ownership source (the `hogli-resolver` input that feeds the reviewer's advisory team context via the shared hogli resolver). Trusted data. Each rule's `rationale` records why the rule became what it is (which false positives drove an exclusion, and when) - historical justification like a commit message, not a claim about the present.
-- `review-guidance.md` - the trusted review-norms prose injected into the reviewer's system prompt. Ordinary repo-formatted markdown. Editing it changes the production prompt directly, so update deliberately - the `stamphog_policy` deny guarantees a human reviews every change.
+## What this repository configures
 
-## Proposing a policy change
+`policy.yml` keeps the shipped defaults for `size_gate`, `tiers`, `overrides`, `familiarity` and `ownership`.
+It overrides `deny` and `allow`, and the differences are:
+
+- `auth` and `billing` exempt `products/warehouse_sources/backend/temporal/data_imports/sources/`, because connector code does OAuth and talks to the Stripe API without touching PostHog's auth system or its billing.
+- `infra_cicd` also matches `.github/pr-deploy`.
+- `stamphog_policy` also matches `products/stamphog/backend/logic/policy_defaults/`, `packages/owners-yaml/`, `owners.yaml` and `product.yaml`, because those are gate inputs here.
+- `allow` also lists `.github/CODEOWNERS`.
+- Every `rationale` records the false positives that shaped the rule in this repository.
+
+`review-guidance.md` replaces the default norms.
+It differs from the default in six lines:
+
+- Ownership is read from `owners.yaml` and `product.yaml` rather than CODEOWNERS, in two places.
+- Risky territory names event ingestion paths, where the default names data ingestion or write paths.
+- The opt-in signal is described as the stamphog label, where the default describes the repository's review settings and the label in label mode.
+- The incidental-keyword example is a warehouse connector fix.
+- The philosophy line says "We move fast" rather than "Move fast".
+
+There is no `steering.md`.
+
+`ownership` declares one `hogli-resolver` source at the repo root, so stamphog reads the same merged view the reviewer auto-assigner builds.
+
+`overrides` grants folders a ceiling of 50 files and 1000 lines.
+Two folders currently take it up: [`products/desktop/`](../products/desktop/AGENT_APPROVALS.md) and [`products/visual_review/`](../products/visual_review/AGENT_APPROVALS.md).
+
+## Proposing a change
 
 Open a PR that edits these files.
-Stamphog can never auto-approve it: the `stamphog_policy` deny category matches `.stamphog/**`, any `AGENT_APPROVALS.md`, and `tools/pr-approval-agent/**`, so every change to the gate's own policy or engine routes to a human reviewer.
+Stamphog can never auto-approve it: the `stamphog_policy` deny category matches `.stamphog/**`, any `AGENT_APPROVALS.md`, and the engine itself, so every change routes to a human reviewer.
 The loader also hard-fails if that self-governance entry is ever missing, so it cannot be dropped silently.
-
-## Per-folder overrides (`AGENT_APPROVALS.md`)
-
-A folder may carry an `AGENT_APPROVALS.md` with a `stamphog:` frontmatter block plus advisory prose.
-Resolution:
-
-- Every `AGENT_APPROVALS.md` at or above a changed file governs it: guidance accumulates outermost first, and a child file adds to its ancestors rather than replacing them.
-- For the delegated `size_gate.max_files`, the nearest file on the chain with a valid grant wins for its files (within the contract ceiling); files whose chain grants nothing belong to the global pool.
-- The frontmatter is a positive allow-list: only keys named in the `overrides` contract in `policy.yml` are read, within their ceilings. Anything else (unknown key, out-of-bounds value, unparseable frontmatter) invalidates the whole file - frontmatter and prose. An invalid file contributes nothing itself, but it does not cancel its ancestors: files under it still ride an ancestor's grant, or fall to the global pool if the chain grants nothing. Rationale: an author who can write an invalid file could equally delete it, so treating invalid as absent grants no extra power, and every `AGENT_APPROVALS.md` edit is human-reviewed via the `stamphog_policy` deny anyway.
-- The prose is untrusted advisory guidance. It is sanitized, length-capped, and injected inside the reviewer prompt's untrusted region; it can never override the deny rules or the refusal criteria.
-
-### Mixed PRs get mixed leniency
-
-Each scope's files are counted against that scope's own file ceiling, so a grant covers exactly the files that resolve to it (the nearest valid grant on their chain) and nothing else.
-Example: a PR changing 30 files under `products/visual_review/` (ceiling 50) plus 19 files elsewhere (global ceiling 20) passes, because each budget fits.
-Add a 21st global file and the PR is denied for the global budget, no matter how much headroom the folder still has.
-Files whose chain grants no valid `max_files` (no folder file, prose-only, or only invalid grants) count against the global budget, so splitting files across pseudo-scopes can never inflate the allowance.
-The line ceiling stays a single global total; it is not delegable.
-
-## Delegation contract
-
-The set of keys a folder file may override lives under `overrides` in `policy.yml` (currently just `size_gate.max_files`, ceiling 50).
-deny, allow, dismiss, tiers, and `size_gate.max_lines` are non-delegable by construction - they are absent from the contract and cannot be granted from a folder file.

@@ -1,0 +1,48 @@
+/*
+ * Width for the onboarding dialog.
+ *
+ * Quill clamps `.quill-dialog__content` to `max-width: 24rem` above 640px, and that rule lives in
+ * `@layer components` (packages/quill/packages/primitives/src/dialog.css). This override is deliberately
+ * unlayered so it wins the cascade outright rather than depending on where the app's utility layer sorts,
+ * which is the approach lemon-skin.scss documents. Everything else about the dialog is quill's own.
+ */
+.PhaiOnboardingTakeover {
+    /*
+     * `min()` keeps quill's own viewport gutter, which this override would otherwise beat as well: quill
+     * sets `max-width: calc(100vw - 3rem)` on the same property, so a bare 36rem would run the dialog edge
+     * to edge on a narrow screen.
+     */
+    max-width: min(36rem, calc(100vw - 3rem));
+}
+
+/*
+ * Quill assumes a header/body/footer dialog and hard-codes `auto minmax(0, 1fr) auto` whenever a
+ * `DialogBody` is present. This dialog has no header row, so that template would hand the `1fr` to the
+ * footer and stretch it. Two rows: the body takes the space, the footer stays its own height.
+ */
+.PhaiOnboardingTakeover:has([data-slot='dialog-body']) {
+    grid-template-rows: minmax(0, 1fr) auto;
+}
+
+/*
+ * Room for quill's close button, which is positioned against the dialog rather than against any row. With
+ * no header here the body starts at the top of the dialog, so the button would otherwise sit on the media
+ * panel — over a clip, on a surface that is light in both themes.
+ */
+.PhaiOnboardingTakeover [data-slot='dialog-body'] > [data-slot='scroll-area-viewport'] {
+    padding-top: 2.75rem;
+}
+
+/*
+ * The media panel. `--muted` sits too close to `--background` in both themes to read as a distinct slot, so
+ * mix the foreground in directly: one rule that steps down from the dialog surface by the same amount
+ * whether the page is light or dark.
+ *
+ * No top fade. Masking the panel's top edge to transparent hands it whatever is behind the dialog, which
+ * in dark mode is a dark band laid over a light clip and reads as a shadow rather than as a fade. A clip
+ * that needs its earliest messages to dissolve rather than cut has to fade them into its own surface,
+ * inside the recording, where the color is the one the clip was shot against.
+ */
+.PhaiOnboardingTakeover__media {
+    background: color-mix(in oklab, var(--foreground) 6%, var(--background));
+}

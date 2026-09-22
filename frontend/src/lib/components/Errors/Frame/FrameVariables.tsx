@@ -4,7 +4,7 @@ export function FrameVariables({ variables }: { variables: Record<string, unknow
     const entries = Object.entries(variables) as [string, unknown][]
 
     return (
-        <div className="border-t border-border">
+        <div className="border-t border-[color:var(--frame-border,var(--color-border-primary))]">
             <PropertiesTable entries={entries} alternatingColors={false} />
         </div>
     )

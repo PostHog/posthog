@@ -10,6 +10,7 @@ import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PersonHogConfig, createPersonHogClient } from '~/common/personhog'
 import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
 import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
+import { UsageIngestionConfig, createEventUsageBatchFactory } from '~/common/usage-ingestion'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
@@ -76,6 +77,7 @@ export type ErrorTrackingServerConfig = BaseServerConfig &
     RedisConnectionsConfig &
     KafkaConsumerBaseConfig &
     PersonHogConfig &
+    UsageIngestionConfig &
     CookielessServerConfig &
     Pick<
         CommonConfig,
@@ -194,6 +196,8 @@ export class ErrorTrackingServer implements NodeServer {
         // 3. Error tracking consumer
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
+        const createEventUsageBatch = createEventUsageBatchFactory(this.config, 'exceptions')
+
         serviceLoaders.push(async () => {
             const consumer = new ErrorTrackingConsumer(
                 {
@@ -222,6 +226,7 @@ export class ErrorTrackingServer implements NodeServer {
                     cookielessManager: this.cookielessManager!,
                     redisPool: this.redisPool!,
                     personRepository,
+                    createEventUsageBatch,
                 }
             )
             await consumer.start()

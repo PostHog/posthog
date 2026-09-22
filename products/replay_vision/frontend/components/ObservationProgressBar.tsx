@@ -112,9 +112,13 @@ export function ObservationProgressBar({
             <div className="flex flex-col gap-1.5">
                 <div className="flex items-center gap-2 text-muted text-sm">
                     <Spinner textColored />
+                    {/* `detail` ticks every second and comes and goes. Left bare it is a text node
+                        React tracks, so a page-translation extension replacing it with a <font>
+                        element freezes it and makes its removal throw removeChild NotFoundError
+                        (react#11538). The phase label is static and stays translatable. */}
                     <span>
                         {PHASE_LABELS[activePhase]}
-                        {detail}…
+                        <span translate="no">{detail}</span>…
                     </span>
                 </div>
                 <LemonProgress percent={overallPercent} />
@@ -137,7 +141,11 @@ export function ObservationProgressBar({
                             <PhaseStatusIcon status={status} />
                             <span className="truncate">
                                 {PHASE_LABELS[phase]}
-                                {detail ? <span className="text-muted-alt">&nbsp;({detail})</span> : null}
+                                {detail ? (
+                                    <span className="text-muted-alt" translate="no">
+                                        &nbsp;({detail})
+                                    </span>
+                                ) : null}
                             </span>
                         </div>
                         <div className="pl-6">

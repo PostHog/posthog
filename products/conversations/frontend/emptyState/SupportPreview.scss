@@ -1,0 +1,400 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.SupportPreview {
+    --support-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden sent state. A direct child of .SupportPreview so `:checked ~` reaches all cards.
+    &__checkbox {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__inbox,
+    &__site,
+    &__spark {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    // Off/on pairs are stacked on one grid cell and crossfaded, so sending the
+    // message never changes any element's size (no layout shift).
+    &__swap {
+        display: grid;
+    }
+
+    &__swap > * {
+        grid-area: 1 / 1;
+        min-width: 0;
+    }
+
+    &__when-on {
+        @include preview-swap-hidden;
+    }
+
+    &__when-off {
+        @include preview-swap-visible;
+    }
+
+    &__head {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__count {
+        margin-right: auto;
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__count--live {
+        font-weight: 600;
+
+        @include preview-accent-text(var(--support-preview-accent));
+    }
+
+    &__listening {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.5rem 0.75rem 0;
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+    }
+
+    &__rows {
+        display: flex;
+        flex-direction: column;
+        padding: 0.25rem 0.5rem 0.5rem;
+    }
+
+    &__row {
+        display: grid;
+        grid-template-columns: 2.5rem 1fr auto auto;
+        gap: 0.625rem;
+        align-items: center;
+        padding: 0.375rem 0.5rem;
+        border-radius: var(--radius);
+    }
+
+    // The incoming ticket: invisible until the widget message is sent, but always
+    // occupying its slot so the list never jumps.
+    &__row--new {
+        background: color-mix(in oklab, var(--support-preview-accent) 8%, transparent);
+        opacity: 0;
+        transition: opacity 300ms ease;
+    }
+
+    &__num {
+        position: relative;
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__unread {
+        position: absolute;
+        top: 50%;
+        left: -0.5rem;
+        width: 6px;
+        height: 6px;
+        background: var(--support-preview-accent);
+        border-radius: 50%;
+        transform: translateY(-50%);
+        animation: SupportPreview__pulse 2s ease-in-out infinite;
+    }
+
+    &__who {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    &__person {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__subject {
+        overflow: hidden;
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    // Mini status tag, mimicking the ticket list's status column.
+    &__status {
+        padding: 0 0.375rem;
+        font-size: 0.625rem;
+        font-weight: 700;
+        color: var(--color-text-secondary);
+        text-transform: uppercase;
+        background: var(--color-fill-secondary);
+        border-radius: 999px;
+    }
+
+    &__status--new,
+    &__status--open {
+        background: color-mix(in oklab, var(--support-preview-accent) 12%, transparent);
+
+        @include preview-accent-text(var(--support-preview-accent));
+    }
+
+    &__status--solved {
+        color: var(--color-green-500);
+        background: color-mix(in oklab, var(--color-green-500) 12%, transparent);
+    }
+
+    &__sla {
+        min-width: 3.25rem;
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+        text-align: right;
+    }
+
+    &__sla--due {
+        font-weight: 600;
+
+        @include preview-accent-text(var(--support-preview-accent));
+    }
+
+    // Browser chrome for the fake site hosting the widget.
+    &__chrome {
+        display: flex;
+        gap: 0.3125rem;
+        align-items: center;
+        padding: 0.4375rem 0.75rem;
+        background: var(--color-bg-surface-secondary);
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__url {
+        margin-left: 0.375rem;
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__widget {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        max-width: 15rem;
+        padding: 0.625rem 0.75rem 0.75rem;
+        margin: 0.875rem 0.875rem 0.875rem auto;
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+        box-shadow: 0 2px 8px rgb(0 0 0 / 8%);
+    }
+
+    &__widget-head {
+        font-size: 0.6875rem;
+        font-weight: 600;
+
+        @include preview-accent-text(var(--support-preview-accent));
+    }
+
+    &__bubble {
+        justify-self: start;
+        max-width: 85%;
+        padding: 0.3125rem 0.5rem;
+        font-size: 0.6875rem;
+        background: var(--color-fill-secondary);
+        border-radius: 0.625rem;
+    }
+
+    &__bubble--agent {
+        align-self: flex-start;
+    }
+
+    &__bubble--user {
+        justify-self: end;
+        color: var(--color-bg-surface-primary);
+        background: var(--support-preview-accent);
+    }
+
+    // The customer's typed-but-unsent message, styled as the widget's input.
+    &__draft {
+        display: flex;
+        gap: 0.375rem;
+        align-items: center;
+        padding: 0.3125rem 0.5rem;
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: 0.625rem;
+    }
+
+    &__typing {
+        display: inline-flex;
+        gap: 2px;
+        align-items: center;
+    }
+
+    &__typing span {
+        width: 4px;
+        height: 4px;
+        background: var(--color-text-tertiary);
+        border-radius: 50%;
+        animation: SupportPreview__typing 1.2s ease-in-out infinite;
+    }
+
+    &__typing span:nth-child(2) {
+        animation-delay: 0.2s;
+    }
+
+    &__typing span:nth-child(3) {
+        animation-delay: 0.4s;
+    }
+
+    &__widget-foot {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    &__sent-note {
+        font-size: 0.5625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__send {
+        padding: 0.1875rem 0.625rem;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        color: var(--color-bg-surface-primary);
+        cursor: pointer;
+        user-select: none;
+        background: var(--support-preview-accent);
+        border-radius: var(--radius);
+    }
+
+    // First-response stat card.
+    &__spark {
+        padding: 0.75rem 0.875rem 0.875rem;
+    }
+
+    // Response time falling is the good direction.
+    &__spark-delta {
+        font-size: 0.6875rem;
+        font-weight: 600;
+        color: var(--color-green-500);
+    }
+
+    &__spark-chart {
+        margin-top: 0.5rem;
+    }
+
+    &__spark-area {
+        fill: color-mix(in oklab, var(--support-preview-accent) 13%, transparent);
+        stroke: none;
+    }
+
+    &__spark-line {
+        fill: none;
+        stroke: color-mix(in oklab, var(--support-preview-accent) 32%, transparent);
+        stroke-width: 2;
+    }
+
+    // The moving bit: a short bright segment cycling along the line.
+    &__spark-trace {
+        fill: none;
+        stroke: var(--support-preview-accent);
+        stroke-dasharray: 16 84;
+        stroke-linecap: round;
+        stroke-width: 2;
+        animation: SupportPreview__trace 3.2s linear infinite;
+    }
+
+    @include preview-chrome-dot;
+    @include preview-sparkline;
+}
+
+// Sent state (user clicked Send in the widget)
+
+.SupportPreview__checkbox:checked ~ * .SupportPreview__when-on {
+    @include preview-swap-visible;
+}
+
+.SupportPreview__checkbox:checked ~ * .SupportPreview__when-off {
+    @include preview-swap-hidden;
+}
+
+.SupportPreview__checkbox:checked ~ .SupportPreview__inbox .SupportPreview__row--new {
+    opacity: 1;
+}
+
+.SupportPreview__checkbox:checked ~ .SupportPreview__site .SupportPreview__typing span {
+    animation: none;
+}
+
+// The checkbox stays keyboard-focusable while visually hidden, so the send button
+// it labels needs a visible focus indicator (WCAG 2.4.7).
+.SupportPreview__checkbox:focus-visible ~ .SupportPreview__site .SupportPreview__send {
+    outline: 2px solid var(--support-preview-accent);
+    outline-offset: 1px;
+}
+
+// Nudge attention at the send button until the message is sent.
+.SupportPreview:not(.SupportPreview--static)
+    .SupportPreview__checkbox:not(:checked)
+    ~ .SupportPreview__site
+    .SupportPreview__send {
+    animation: SupportPreview__pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes SupportPreview__pulse {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--support-preview-accent) 45%, transparent);
+    }
+
+    50% {
+        box-shadow: 0 0 0 4px color-mix(in oklab, var(--support-preview-accent) 18%, transparent);
+    }
+}
+
+@keyframes SupportPreview__typing {
+    0%,
+    60%,
+    100% {
+        opacity: 0.35;
+        transform: translateY(0);
+    }
+
+    30% {
+        opacity: 1;
+        transform: translateY(-2px);
+    }
+}
+
+// pathLength is normalized to 100, so the dash offset loops cleanly regardless of length.
+@keyframes SupportPreview__trace {
+    to {
+        stroke-dashoffset: -100;
+    }
+}
+
+// Storybook snapshots and reduced motion drop all ambient motion; sending the
+// message still works (transitions only).
+@include preview-motion-guards('SupportPreview');

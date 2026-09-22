@@ -1,6 +1,6 @@
 # PostHog `exec` covers
 
-dashboard|execute-sql|feature-flag|query
+business-knowledge-documents|dashboard|docs-search|execute-sql|feature-flag|query
 
 # Tools
 

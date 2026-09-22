@@ -8,7 +8,7 @@ export const template: HogFunctionTemplate = {
     type: 'destination',
     id: 'template-posthog-update-account-property',
     name: 'Update account property',
-    description: 'Set custom property values on a Customer analytics account.',
+    description: 'Set or clear custom property values on a Customer analytics account.',
     icon_url: '/static/posthog-icon.svg',
     category: ['Custom'],
     code_language: 'hog',
@@ -48,10 +48,10 @@ return response.body
         {
             key: 'properties',
             type: 'customer_analytics_account_properties',
-            label: 'Properties to set',
+            label: 'Properties to update',
             secret: false,
             required: true,
-            description: 'Custom property values to set on the account.',
+            description: 'Custom property values to set or clear. Omitted properties are unchanged.',
         },
     ],
 }

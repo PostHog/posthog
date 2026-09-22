@@ -1,17 +1,27 @@
+import ast
 import json
+import inspect
+import tempfile
+import zoneinfo
+import importlib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.models import Organization
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team import Team
-from posthog.tasks.process_scheduled_changes import process_scheduled_changes
+from posthog.tasks.process_scheduled_changes import process_scheduled_changes, resolve_schedule_timezone
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
@@ -169,7 +179,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         self.assertEqual(updated_scheduled_change.failure_count, 1)
 
     @snapshot_postgres_queries
-    @freeze_time("2023-12-21T09:00:00Z")
+    @time_machine.travel("2023-12-21T09:00:00Z", tick=False)
     def test_schedule_feature_flag_multiple_changes(self) -> None:
         feature_flag = FeatureFlag.objects.create(
             name="Flag",
@@ -341,7 +351,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         self.assertEqual(active_change["before"], False)  # type: ignore
         self.assertEqual(active_change["after"], True)  # type: ignore
 
-    @freeze_time("2023-12-21T09:00:00Z")
+    @time_machine.travel("2023-12-21T09:00:00Z", tick=False)
     def test_updated_at_field_tracks_processing_time(self) -> None:
         """Test that updated_at is automatically updated when scheduled changes are processed"""
         feature_flag = FeatureFlag.objects.create(
@@ -370,7 +380,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         self.assertEqual(original_created_at, original_updated_at)
 
         # Advance time to simulate processing delay
-        with freeze_time("2023-12-21T09:00:10Z"):
+        with time_machine.travel("2023-12-21T09:00:10Z", tick=False):
             # Process the scheduled change
             process_scheduled_changes()
 
@@ -809,8 +819,9 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         # Verify the flag was updated correctly
         updated_flag = FeatureFlag.objects.get(key="test-variant-flag")
 
-        # Check that variants were cleared
-        self.assertEqual(updated_flag.filters["multivariate"]["variants"], [])
+        # Clearing variants stores the canonical boolean shape (multivariate: null), not
+        # the invalid {"variants": []} the filters serializer rejects (#50084).
+        self.assertIsNone(updated_flag.filters["multivariate"])
         self.assertEqual(updated_flag.filters["payloads"], {})
 
     def test_schedule_feature_flag_update_variants_with_mismatched_payload_keys_fails(self) -> None:
@@ -995,9 +1006,11 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         # This should not raise any exception (empty variants should be allowed)
         feature_flag.scheduled_changes_dispatcher(empty_payload, self.user)
 
-        # Verify the flag was updated correctly with empty variants
+        # Verify clearing variants stored the canonical boolean shape (multivariate: null)
+        # and dropped the now-orphaned payloads
         feature_flag.refresh_from_db()
-        self.assertEqual(feature_flag.filters["multivariate"]["variants"], [])
+        self.assertIsNone(feature_flag.filters["multivariate"])
+        self.assertEqual(feature_flag.filters["payloads"], {})
 
     def test_scheduled_changes_dispatcher_validates_payload_keys_match_variants(self) -> None:
         """Test that scheduled_changes_dispatcher validates that payload keys match variant keys"""
@@ -1195,7 +1208,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         updated_flag = FeatureFlag.objects.get(key="past-test-flag")
         self.assertEqual(updated_flag.active, True)
 
-    @freeze_time("2024-01-15T09:00:00Z")
+    @time_machine.travel("2024-01-15T09:00:00Z", tick=False)
     def test_recurring_schedule_computes_next_weekly_run(self) -> None:
         """Recurring weekly schedule should advance scheduled_at by 1 week, not mark as executed."""
         feature_flag = FeatureFlag.objects.create(
@@ -1228,7 +1241,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         feature_flag.refresh_from_db()
         self.assertEqual(feature_flag.active, False)
 
-    @freeze_time("2024-01-15T09:00:00Z")
+    @time_machine.travel("2024-01-15T09:00:00Z", tick=False)
     def test_recurring_schedule_computes_next_daily_run(self) -> None:
         """Recurring daily schedule should advance scheduled_at by 1 day."""
         feature_flag = FeatureFlag.objects.create(
@@ -1256,7 +1269,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         self.assertIsNone(scheduled_change.executed_at)
         self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 1, 16, 9, 0, tzinfo=UTC))
 
-    @freeze_time("2024-01-15T09:00:00Z")
+    @time_machine.travel("2024-01-15T09:00:00Z", tick=False)
     def test_recurring_schedule_computes_next_monthly_run(self) -> None:
         """Recurring monthly schedule should advance scheduled_at by 1 month."""
         feature_flag = FeatureFlag.objects.create(
@@ -1284,7 +1297,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         self.assertIsNone(scheduled_change.executed_at)
         self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 2, 15, 9, 0, tzinfo=UTC))
 
-    @freeze_time("2024-01-15T09:00:00Z")
+    @time_machine.travel("2024-01-15T09:00:00Z", tick=False)
     def test_non_recurring_schedule_still_marks_executed(self) -> None:
         """Non-recurring schedules should continue to mark executed_at (existing behavior)."""
         feature_flag = FeatureFlag.objects.create(
@@ -1311,7 +1324,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         # Should be marked as executed
         self.assertIsNotNone(scheduled_change.executed_at)
 
-    @freeze_time("2024-01-15T09:00:00Z")
+    @time_machine.travel("2024-01-15T09:00:00Z", tick=False)
     def test_paused_recurring_schedule_does_not_execute(self) -> None:
         """Paused recurring schedules (is_recurring=False with interval) should be skipped."""
         feature_flag = FeatureFlag.objects.create(
@@ -1343,7 +1356,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         self.assertIsNone(scheduled_change.last_executed_at)
         self.assertEqual(feature_flag.active, True)  # Unchanged
 
-    @freeze_time("2024-01-15T09:00:00Z")
+    @time_machine.travel("2024-01-15T09:00:00Z", tick=False)
     def test_recurring_schedule_executes_multiple_times(self) -> None:
         """Recurring schedule should execute each time its scheduled_at is due."""
         feature_flag = FeatureFlag.objects.create(
@@ -1377,7 +1390,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         feature_flag.save()
 
         # Second execution (next day)
-        with freeze_time("2024-01-16T09:00:00Z"):
+        with time_machine.travel("2024-01-16T09:00:00Z", tick=False):
             process_scheduled_changes()
             scheduled_change.refresh_from_db()
             feature_flag.refresh_from_db()
@@ -1385,7 +1398,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             self.assertEqual(feature_flag.active, False)
             self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 1, 17, 9, 0, tzinfo=UTC))
 
-    @freeze_time("2024-01-15T09:00:00Z")
+    @time_machine.travel("2024-01-15T09:00:00Z", tick=False)
     def test_recurring_schedule_computes_next_yearly_run(self) -> None:
         """Recurring yearly schedule should advance scheduled_at by 1 year."""
         feature_flag = FeatureFlag.objects.create(
@@ -1415,7 +1428,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         feature_flag.refresh_from_db()
         self.assertEqual(feature_flag.active, False)
 
-    @freeze_time("2024-02-29T09:00:00Z")
+    @time_machine.travel("2024-02-29T09:00:00Z", tick=False)
     def test_recurring_yearly_schedule_handles_leap_year(self) -> None:
         """Yearly schedule on Feb 29 should advance to Feb 28 in non-leap years."""
         feature_flag = FeatureFlag.objects.create(
@@ -1487,7 +1500,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         self.assertFalse(failure_data["will_retry"])
         self.assertEqual(failure_data["error_classification"], "unrecoverable")
 
-    @freeze_time("2024-01-15T09:00:00Z")
+    @time_machine.travel("2024-01-15T09:00:00Z", tick=False)
     def test_cron_recurring_schedule_executes_and_advances(self) -> None:
         feature_flag = FeatureFlag.objects.create(
             name="Cron Flag",
@@ -1519,7 +1532,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         # Next weekday at 09:00 is Tuesday 2024-01-16
         self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 1, 16, 9, 0, tzinfo=UTC))
 
-    @freeze_time("2024-01-15T09:00:00Z")
+    @time_machine.travel("2024-01-15T09:00:00Z", tick=False)
     def test_cron_recurring_schedule_paused_is_skipped(self) -> None:
         feature_flag = FeatureFlag.objects.create(
             name="Cron Paused Flag",
@@ -1545,7 +1558,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         feature_flag.refresh_from_db()
         self.assertFalse(feature_flag.active)
 
-    @freeze_time("2024-01-19T09:00:00Z")
+    @time_machine.travel("2024-01-19T09:00:00Z", tick=False)
     def test_cron_recurring_schedule_skips_missed_runs(self) -> None:
         feature_flag = FeatureFlag.objects.create(
             name="Cron Delayed Flag",
@@ -1574,7 +1587,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         # Should skip past Tue/Wed/Thu/Fri and land on Monday Jan 22
         self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 1, 22, 9, 0, tzinfo=UTC))
 
-    @freeze_time("2024-01-16T09:00:00Z")
+    @time_machine.travel("2024-01-16T09:00:00Z", tick=False)
     def test_cron_recurring_schedule_respects_end_date(self) -> None:
         feature_flag = FeatureFlag.objects.create(
             name="Cron End Flag",
@@ -1646,7 +1659,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
                 datetime(2024, 1, 16, 9, 0, tzinfo=UTC),
             ),
             # Unknown / typo'd timezone falls back to UTC rather than raising and stalling
-            # the schedule. Exercises the ZoneInfoNotFoundError branch.
+            # the schedule.
             (
                 "invalid_timezone_falls_back_to_utc",
                 "2024-01-15T09:00:00Z",
@@ -1686,7 +1699,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         tz: str | None,
         expected_next: datetime,
     ) -> None:
-        with freeze_time(frozen_now):
+        with time_machine.travel(frozen_now, tick=False):
             feature_flag = FeatureFlag.objects.create(
                 name=f"Flag {name}",
                 key=f"flag-{name.replace('_', '-')}",
@@ -1711,3 +1724,53 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
             scheduled_change.refresh_from_db()
             self.assertEqual(scheduled_change.scheduled_at, expected_next)
+
+
+@contextmanager
+def corrupt_system_tzdata() -> Iterator[None]:
+    """
+    Point the zoneinfo search path at a directory whose TZif files are corrupt.
+
+    A name that no file matches raises ZoneInfoNotFoundError and then falls back to the tzdata
+    package, so an empty directory does not reproduce the failure. The file has to exist and be
+    unreadable, which is what makes ZoneInfo raise ValueError.
+    """
+    original_tzpath = zoneinfo.TZPATH
+    with tempfile.TemporaryDirectory() as tzdir:
+        for name in ("UTC", "America/New_York"):
+            tzfile = Path(tzdir) / name
+            tzfile.parent.mkdir(parents=True, exist_ok=True)
+            tzfile.write_bytes(b"this is not a TZif file")
+        zoneinfo.reset_tzpath([tzdir])
+        zoneinfo.ZoneInfo.clear_cache()
+        try:
+            yield
+        finally:
+            zoneinfo.reset_tzpath(original_tzpath)
+            zoneinfo.ZoneInfo.clear_cache()
+
+
+class TestScheduledChangesWithoutReadableTzdata(SimpleTestCase):
+    @parameterized.expand([("unreadable_zone", "America/New_York"), ("unreadable_utc", "UTC")])
+    def test_corrupt_tzif_file_falls_back_to_utc(self, _name: str, tz_name: str) -> None:
+        with corrupt_system_tzdata():
+            self.assertEqual(resolve_schedule_timezone(tz_name), UTC)
+
+    def test_module_builds_no_zoneinfo_at_import_time(self) -> None:
+        # posthog/tasks/__init__.py imports this module, so a ZoneInfo built at module scope
+        # reads a TZif file while every management command is still starting up. One corrupt
+        # file then stops the process before it runs, the temporal worker included. Use
+        # datetime.UTC, which needs no tzdata file.
+        module = importlib.import_module(resolve_schedule_timezone.__module__)
+        module_scope = [
+            statement
+            for statement in ast.parse(inspect.getsource(module)).body
+            if not isinstance(statement, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+        ]
+        zoneinfo_calls = [
+            node
+            for statement in module_scope
+            for node in ast.walk(statement)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "ZoneInfo"
+        ]
+        self.assertEqual(zoneinfo_calls, [])

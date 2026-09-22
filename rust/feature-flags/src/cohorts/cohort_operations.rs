@@ -16,11 +16,10 @@ use crate::metrics::consts::{
     COHORT_MALFORMED_FILTER_COUNTER, COHORT_UNSUPPORTED_FILTER_COUNTER,
     FLAG_COHORT_STAMP_POLICY_DIVERGENCE_COUNTER,
 };
-use crate::properties::property_matching::match_property;
+use crate::properties::property_matching::{match_property, PropertyMatchingContext};
 use crate::properties::property_models::OperatorType;
 use crate::utils::graph_utils::{DependencyGraph, DependencyProvider, DependencyType};
 use crate::{api::errors::FlagError, properties::property_models::PropertyFilter};
-use chrono_tz::Tz;
 use common_database::PostgresReader;
 use common_types::TeamId;
 
@@ -318,7 +317,7 @@ impl InnerCohortProperty {
         &self,
         target_properties: &HashMap<String, Value>,
         cohort_matches: &HashMap<CohortId, bool>,
-        team_timezone: Tz,
+        matching_context: PropertyMatchingContext,
     ) -> Result<bool, FlagError> {
         match self.prop_type {
             CohortPropertyType::OR => {
@@ -328,7 +327,7 @@ impl InnerCohortProperty {
                         target_properties,
                         cohort_matches,
                         0,
-                        team_timezone,
+                        matching_context,
                     )? {
                         return Ok(true);
                     }
@@ -342,7 +341,7 @@ impl InnerCohortProperty {
                         target_properties,
                         cohort_matches,
                         0,
-                        team_timezone,
+                        matching_context,
                     )? {
                         return Ok(false);
                     }
@@ -359,7 +358,7 @@ fn evaluate_cohort_item(
     target_properties: &HashMap<String, Value>,
     cohort_matches: &HashMap<CohortId, bool>,
     depth: usize,
-    team_timezone: Tz,
+    matching_context: PropertyMatchingContext,
 ) -> Result<bool, FlagError> {
     if depth > MAX_COHORT_FILTER_DEPTH {
         return Err(FlagError::CohortFiltersParsingError);
@@ -370,10 +369,10 @@ fn evaluate_cohort_item(
             target_properties,
             cohort_matches,
             depth,
-            team_timezone,
+            matching_context,
         ),
         CohortValuesItem::Filter(filter) => {
-            evaluate_cohort_filter(filter, target_properties, cohort_matches, team_timezone)
+            evaluate_cohort_filter(filter, target_properties, cohort_matches, matching_context)
         }
         // A known filter type that's otherwise malformed; fail loud rather than
         // silently resolving to non-match (see `traverse_item`).
@@ -388,7 +387,7 @@ fn evaluate_cohort_filter(
     filter: &PropertyFilter,
     target_properties: &HashMap<String, Value>,
     cohort_matches: &HashMap<CohortId, bool>,
-    team_timezone: Tz,
+    matching_context: PropertyMatchingContext,
 ) -> Result<bool, FlagError> {
     if filter.is_cohort() {
         // Handle cohort membership check with negation
@@ -400,7 +399,7 @@ fn evaluate_cohort_filter(
         Ok(evaluate_property_with_negation(
             filter,
             target_properties,
-            team_timezone,
+            matching_context,
         ))
     }
 }
@@ -416,7 +415,7 @@ fn evaluate_cohort_values(
     target_properties: &HashMap<String, Value>,
     cohort_matches: &HashMap<CohortId, bool>,
     depth: usize,
-    team_timezone: Tz,
+    matching_context: PropertyMatchingContext,
 ) -> Result<bool, FlagError> {
     match values.prop_type.as_str() {
         "OR" => {
@@ -426,7 +425,7 @@ fn evaluate_cohort_values(
                     target_properties,
                     cohort_matches,
                     depth + 1,
-                    team_timezone,
+                    matching_context,
                 )? {
                     return Ok(true);
                 }
@@ -440,7 +439,7 @@ fn evaluate_cohort_values(
                     target_properties,
                     cohort_matches,
                     depth + 1,
-                    team_timezone,
+                    matching_context,
                 )? {
                     return Ok(false);
                 }
@@ -458,10 +457,10 @@ fn evaluate_cohort_values(
 fn evaluate_property_with_negation(
     filter: &PropertyFilter,
     target_properties: &HashMap<String, Value>,
-    team_timezone: Tz,
+    matching_context: PropertyMatchingContext,
 ) -> bool {
     let property_result =
-        match_property(filter, target_properties, false, team_timezone).unwrap_or(false);
+        match_property(filter, target_properties, false, matching_context).unwrap_or(false);
 
     // Apply negation if specified
     if filter.negation.unwrap_or(false) {
@@ -477,7 +476,7 @@ fn evaluate_single_cohort(
     cohort: &Cohort,
     target_properties: &HashMap<String, Value>,
     evaluation_results: &HashMap<CohortId, bool>,
-    team_timezone: Tz,
+    matching_context: PropertyMatchingContext,
 ) -> Result<bool, FlagError> {
     // Get the filters for this cohort
     let filters = match &cohort.filters {
@@ -494,7 +493,7 @@ fn evaluate_single_cohort(
     // Use our evaluation method that respects OR/AND structure
     cohort_property
         .properties
-        .evaluate(target_properties, evaluation_results, team_timezone)
+        .evaluate(target_properties, evaluation_results, matching_context)
         .inspect_err(|_| record_malformed_cohort_filter(cohort.id, cohort.team_id, "evaluation"))
 }
 
@@ -503,7 +502,7 @@ pub fn evaluate_dynamic_cohorts(
     target_properties: &HashMap<String, Value>,
     cohorts: &[Cohort],
     static_cohort_matches: &HashMap<CohortId, bool>,
-    team_timezone: Tz,
+    matching_context: PropertyMatchingContext,
 ) -> Result<bool, FlagError> {
     // First check if this is a static cohort
     let initial_cohort = cohorts
@@ -534,7 +533,7 @@ pub fn evaluate_dynamic_cohorts(
             return Ok(());
         }
 
-        *result = evaluate_single_cohort(cohort, target_properties, results, team_timezone)?;
+        *result = evaluate_single_cohort(cohort, target_properties, results, matching_context)?;
         Ok(())
     })?;
 
@@ -603,7 +602,24 @@ mod tests {
     use super::*;
     use crate::cohorts::cohort_models::CohortType;
     use crate::utils::test_utils::TestContext;
+    use chrono_tz::Tz;
     use serde_json::json;
+
+    fn evaluate_dynamic_cohorts(
+        initial_cohort_id: CohortId,
+        target_properties: &HashMap<String, Value>,
+        cohorts: &[Cohort],
+        static_cohort_matches: &HashMap<CohortId, bool>,
+        team_timezone: Tz,
+    ) -> Result<bool, FlagError> {
+        super::evaluate_dynamic_cohorts(
+            initial_cohort_id,
+            target_properties,
+            cohorts,
+            static_cohort_matches,
+            PropertyMatchingContext::new(team_timezone, false),
+        )
+    }
 
     #[tokio::test]
     async fn test_list_from_pg() {
@@ -1175,6 +1191,39 @@ mod tests {
             condition_type: None,
             last_realtime_cohort_calculation_at: None,
         }
+    }
+
+    #[test]
+    fn test_dynamic_cohort_exact_matching_preserves_legacy_behavior_without_rollout() {
+        let cohort = create_dynamic_cohort_with_filters(
+            1,
+            json!({
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"key": "enabled", "type": "person", "value": false, "operator": "exact", "negation": true}
+                    ]
+                }
+            }),
+        );
+        let target_properties = HashMap::from([("enabled".to_string(), json!("banana"))]);
+
+        assert!(!super::evaluate_dynamic_cohorts(
+            1,
+            &target_properties,
+            std::slice::from_ref(&cohort),
+            &HashMap::new(),
+            PropertyMatchingContext::new(Tz::UTC, false),
+        )
+        .unwrap());
+        assert!(super::evaluate_dynamic_cohorts(
+            1,
+            &target_properties,
+            &[cohort],
+            &HashMap::new(),
+            PropertyMatchingContext::new(Tz::UTC, true),
+        )
+        .unwrap());
     }
 
     #[test]

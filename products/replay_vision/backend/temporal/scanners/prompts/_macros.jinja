@@ -3,3 +3,12 @@
 {%- macro cite_in(field_name) -%}
 Cite key moments inside `{{ field_name }}` as `(t <seconds>)`, following the Citations rules above.
 {%- endmacro -%}
+
+{# Session-level notability, asked of every scanner type. Independent of the scanner's *answer* so a
+   non-event answer can still flag a session worth watching, but not of its *subject*: the area the
+   scanner watches is the team's declared interest, so trouble there counts for more than the same
+   trouble elsewhere. Calibration lives in the preamble's <notability_calibration> block (cached
+   once). Call as `{{ rate_notability() }}`. #}
+{%- macro rate_notability() -%}
+Separately from your answer above, judge the session itself: in `notability_reason` name the single moment a product team would most want to see (or say plainly that nothing stands out), then set `notability` per the notability calibration rules. Judge what happened to the person, not whether it matches your answer above — a session can be worth watching even when your answer is a non-event, and a routine session stays low even when your answer is a hit. Weigh the area this scanner watches: the team chose it, so difficulty there matters more to them than the same difficulty elsewhere in the session, and repeated or severe trouble in that area is worth watching even when your answer already covers it.
+{%- endmacro -%}

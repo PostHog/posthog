@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   computeBulkPinDirection,
-  computeEffectiveBulkIds,
   computeOrderedVisibleTaskIds,
+  computeOrderedVisibleTasks,
   computePriorTaskIds,
   computeRangeSelection,
   dedupeTaskIds,
@@ -79,24 +79,6 @@ describe("pruneToVisible", () => {
   });
 });
 
-describe("computeEffectiveBulkIds", () => {
-  it("returns empty when nothing selected", () => {
-    expect(computeEffectiveBulkIds([], "t1")).toEqual([]);
-  });
-
-  it("returns selection unchanged when no active task", () => {
-    expect(computeEffectiveBulkIds(["t1", "t2"], null)).toEqual(["t1", "t2"]);
-  });
-
-  it("prepends active task when not already selected", () => {
-    expect(computeEffectiveBulkIds(["t2"], "t1")).toEqual(["t1", "t2"]);
-  });
-
-  it("leaves selection unchanged when active task already selected", () => {
-    expect(computeEffectiveBulkIds(["t1", "t2"], "t1")).toEqual(["t1", "t2"]);
-  });
-});
-
 describe("computeOrderedVisibleTaskIds", () => {
   it("uses flat order in chronological mode", () => {
     const ids = computeOrderedVisibleTaskIds(
@@ -125,6 +107,35 @@ describe("computeOrderedVisibleTaskIds", () => {
       new Set(["g2"]),
     );
     expect(ids).toEqual(["a"]);
+  });
+
+  it("uses every rendered project row instead of the flat slice", () => {
+    const tasks = computeOrderedVisibleTasks(
+      {
+        pinnedTasks: [makeTaskData("p1")],
+        flatTasks: [makeTaskData("first-project-only")],
+        groupedTasks: [
+          {
+            id: "g1",
+            name: "g1",
+            tasks: [makeTaskData("first-project-only")],
+          },
+          {
+            id: "g2",
+            name: "g2",
+            tasks: [makeTaskData("second-project")],
+          },
+        ],
+      },
+      "by-project",
+      new Set(),
+    );
+
+    expect(tasks.map((task) => task.id)).toEqual([
+      "p1",
+      "first-project-only",
+      "second-project",
+    ]);
   });
 });
 

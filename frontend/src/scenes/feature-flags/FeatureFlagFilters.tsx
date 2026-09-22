@@ -5,7 +5,7 @@ import { TagSelect } from 'lib/components/TagSelect'
 
 import { FeatureFlagEvaluationRuntime } from '~/types'
 
-import { FeatureFlagsFilters } from './featureFlagsLogic'
+import { FEATURE_FLAG_SEARCH_MAX_LENGTH, FeatureFlagsFilters } from './featureFlagsLogic'
 
 export interface FeatureFlagFiltersConfig {
     search?: boolean
@@ -50,6 +50,7 @@ export function FeatureFlagFiltersSection({
                         className="w-[335px] !max-w-[335px]"
                         type="search"
                         placeholder={searchPlaceholder}
+                        maxLength={FEATURE_FLAG_SEARCH_MAX_LENGTH}
                         onChange={(search) => setFeatureFlagsFilters({ search, page: 1 })}
                         value={filters.search || ''}
                         data-attr="feature-flag-search"

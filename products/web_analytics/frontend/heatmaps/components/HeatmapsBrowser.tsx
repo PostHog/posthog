@@ -25,7 +25,6 @@ import { FilterPanel } from './FilterPanel'
 import { FixedReplayHeatmapBrowser } from './FixedReplayHeatmapBrowser'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
-import { recordingClickmapLogic } from './recordingClickmapLogic'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
@@ -355,11 +354,9 @@ export function HeatmapsBrowser(): JSX.Element {
     const logicProps = { ref: iframeRef }
 
     const logic = heatmapsBrowserLogic({ iframeRef })
-    const clickmapLogic = recordingClickmapLogic({ iframeRef })
 
     const { displayUrl, isBrowserUrlAuthorized, hasValidReplayIframeData, isBrowserUrlValid, isHeightCapped } =
         useValues(logic)
-    const { clickmapAvailable } = useValues(clickmapLogic)
 
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
@@ -370,9 +367,7 @@ export function HeatmapsBrowser(): JSX.Element {
                     <LemonDivider className="my-4" />
                     <FilterPanel
                         clickmapSettings={
-                            hasValidReplayIframeData && clickmapAvailable ? (
-                                <ClickmapSettings iframeRef={iframeRef} />
-                            ) : undefined
+                            hasValidReplayIframeData ? <ClickmapSettings iframeRef={iframeRef} /> : undefined
                         }
                     />
                     <LemonDivider className="my-4" />

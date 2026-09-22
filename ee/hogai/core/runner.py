@@ -12,12 +12,13 @@ import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
 from langchain_core.callbacks.base import BaseCallbackHandler
+from langchain_core.outputs import LLMResult
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.errors import GraphInterrupt, GraphRecursionError
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, StreamMode
 from opentelemetry import trace
-from posthoganalytics.ai.langchain.callbacks import CallbackHandler
+from posthoganalytics.ai.langchain.callbacks import CallbackHandler, GenerationMetadata
 
 from posthog.schema import (
     AssistantEventType,
@@ -34,7 +35,7 @@ from posthog.schema import (
 
 from posthog import event_usage
 from posthog.cloud_utils import is_cloud
-from posthog.event_usage import report_user_action
+from posthog.event_usage import EventSource, report_user_action
 from posthog.models import Team, User
 from posthog.ph_client import get_client
 from posthog.sync import database_sync_to_async
@@ -45,6 +46,7 @@ from products.posthog_ai.backend.models.assistant import Conversation
 from ee.hogai.core.ai_event_truncation import ai_event_truncator
 from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
+from ee.hogai.llm import POSTHOG_AI_PRODUCT, is_ai_gateway_served
 from ee.hogai.tool import ApprovalRequest, ClientToolCallRequest
 from ee.hogai.utils.exceptions import (
     AGENT_RUN_UNHANDLED_ERROR_COUNTER,
@@ -76,7 +78,27 @@ logger = structlog.get_logger(__name__)
 _tracer = trace.get_tracer(__name__)
 
 
-class SubagentCallbackHandler(CallbackHandler):
+class MaxCallbackHandler(CallbackHandler):
+    """
+    Skips $ai_generation for gateway-served calls, which the gateway captures. $ai_trace and $ai_span still emit
+    because the AI credits query decides free turns from them.
+    """
+
+    def _capture_generation(
+        self,
+        trace_id: Any,
+        run_id: UUID,
+        run: GenerationMetadata,
+        output: LLMResult | BaseException,
+        parent_run_id: Optional[UUID] = None,
+        include_parent_id: bool = True,
+    ):
+        if is_ai_gateway_served(output):
+            return
+        super()._capture_generation(trace_id, run_id, run, output, parent_run_id, include_parent_id)
+
+
+class SubagentCallbackHandler(MaxCallbackHandler):
     """
     Callback handler for subagents that makes all events appear as children of a parent span.
 
@@ -120,7 +142,11 @@ class BaseAgentRunner(ABC):
     _parent_span_id: Optional[str | UUID]
     _slack_thread_context: Optional["SlackThreadContext"]
     _is_agent_billable: bool
+    _is_impersonated: bool
     _resume_payload: Optional[dict[str, Any]]
+    _event_source: EventSource
+    _ai_product: Optional[str]
+    _privacy_mode: Optional[bool]
 
     def __init__(
         self,
@@ -146,10 +172,12 @@ class BaseAgentRunner(ABC):
         is_agent_billable: bool = True,
         is_impersonated: bool = False,
         resume_payload: Optional[dict[str, Any]] = None,
+        event_source: EventSource = EventSource.POSTHOG_AI,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
         self._user = user
+        self._event_source = event_source
         self._session_id = session_id
         self._conversation = conversation
         self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())}) if new_message else None
@@ -164,11 +192,18 @@ class BaseAgentRunner(ABC):
         self._graph = graph
 
         self._callback_handlers = []
+        self._privacy_mode = None
         if callback_handler:
             self._callback_handlers.append(callback_handler)
+            # A caller's handler would capture gateway-served generations again, so these runs stay direct.
+            self._ai_product = None
         else:
+            self._ai_product = "mcp" if self._conversation.type == Conversation.Type.TOOL_CALL else POSTHOG_AI_PRODUCT
 
             def init_handler(client: posthoganalytics.Client):
+                # Evaluated lazily: the flag call creates a posthoganalytics default client when none exists.
+                if self._privacy_mode is None:
+                    self._privacy_mode = is_privacy_mode_enabled(team)
                 callback_properties = {
                     "conversation_id": str(self._conversation.id),
                     "$ai_session_id": str(self._conversation.id),
@@ -177,7 +212,7 @@ class BaseAgentRunner(ABC):
                     "is_subagent": not self._use_checkpointer,
                     "$groups": event_usage.groups(team=team),
                     "ai_support_impersonated": is_impersonated,
-                    "ai_product": "mcp" if self._conversation.type == Conversation.Type.TOOL_CALL else "posthog_ai",
+                    "ai_product": self._ai_product,
                     "conversation_type": self._conversation.type,
                 }
                 # Use SubagentCallbackHandler when parent_span_id is provided to nest all events under the parent
@@ -187,15 +222,15 @@ class BaseAgentRunner(ABC):
                         distinct_id=user.distinct_id if user else None,
                         properties=callback_properties,
                         trace_id=trace_id,
-                        privacy_mode=is_privacy_mode_enabled(team),
+                        privacy_mode=self._privacy_mode,
                         parent_span_id=parent_span_id,
                     )
-                return CallbackHandler(
+                return MaxCallbackHandler(
                     client,
                     distinct_id=user.distinct_id if user else None,
                     properties=callback_properties,
                     trace_id=trace_id,
-                    privacy_mode=is_privacy_mode_enabled(team),
+                    privacy_mode=self._privacy_mode,
                 )
 
             # flush_at=1 flushes each event immediately so traces deliver before short runs end;
@@ -222,6 +257,7 @@ class BaseAgentRunner(ABC):
         self._billing_context = billing_context
         self._initial_state = initial_state
         self._is_agent_billable = is_agent_billable
+        self._is_impersonated = is_impersonated
         # Initialize the stream processor with node configuration
         self._stream_processor = stream_processor
         self._slack_thread_context = slack_thread_context
@@ -524,6 +560,10 @@ class BaseAgentRunner(ABC):
                 "is_subagent": not self._use_checkpointer,
                 "slack_thread_context": self._slack_thread_context,
                 "is_agent_billable": self._is_agent_billable,
+                "is_impersonated": self._is_impersonated,
+                "ai_product": self._ai_product,
+                "privacy_mode": self._privacy_mode,
+                "event_source": self._event_source,
                 # Metadata to be sent to PostHog SDK (error tracking, etc).
                 "sdk_metadata": {
                     "tag": "max_ai",

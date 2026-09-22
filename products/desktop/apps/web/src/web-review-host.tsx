@@ -11,7 +11,5 @@ export const webDiffWorkerFactory = () =>
 
 export const webReviewHost: ReviewHost = {
   diffWorkerFactory: webDiffWorkerFactory,
-  renderExpandedSidebar: (task) => (
-    <ChangesPanel taskId={task.id} task={task} />
-  ),
+  renderFileBrowser: (task) => <ChangesPanel taskId={task.id} task={task} />,
 };

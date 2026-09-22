@@ -7,12 +7,17 @@ import requests
 from requests.adapters import HTTPAdapter
 
 from posthog.security import pinned_requests as pr
+from posthog.security.url_validation import PinnedUrlVerdict
 
 
 class TestPinnedRequest:
     def test_blocked_url_raises_before_any_connection(self):
         with (
-            patch.object(pr, "validate_url_and_pin_ips", return_value=(False, "Loopback host", set())),
+            patch.object(
+                pr,
+                "validate_url_and_pin_ips",
+                return_value=PinnedUrlVerdict(allowed=False, reason="Loopback host", pinned_ips=set()),
+            ),
             patch.object(pr.requests, "Session") as session_cls,
         ):
             with pytest.raises(pr.SSRFBlockedError, match="Loopback host"):

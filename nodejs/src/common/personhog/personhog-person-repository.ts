@@ -5,6 +5,7 @@ import { PersonUpdate } from '~/common/persons/person-update-batch'
 import {
     InternalPersonWithDistinctId,
     LifecycleMarkPerson,
+    PersonDistinctIdMapping,
     PersonRepository,
 } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
@@ -164,6 +165,13 @@ export class PersonHogPersonRepository implements PersonRepository {
                 this.postgres.fetchDistinctIdsForPersons(teamId, personIntIds, options)
             )
         }
+    }
+
+    fetchPersonDistinctIdMappings(_teamId: TeamId, _distinctIds: string[]): Promise<PersonDistinctIdMapping[]> {
+        // The personhog identity service produces the ClickHouse mapping messages
+        // itself, so mapping re-emission has nothing to heal on this backend.
+        // Returning no rows disables it without failing the merge.
+        return Promise.resolve([])
     }
 
     // All write operations delegate directly to Postgres

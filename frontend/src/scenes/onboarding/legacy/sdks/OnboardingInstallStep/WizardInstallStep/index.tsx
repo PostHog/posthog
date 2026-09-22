@@ -165,7 +165,7 @@ function WizardInstallShell({
             continueDisabledReason={continueDisabledReason}
             showSkip={showSkip}
             actions={
-                <div className="pr-2">
+                <div className="pr-2 min-w-0">
                     <RealtimeCheckIndicator
                         teamPropertyToVerify={teamPropertyToVerify}
                         listeningForName={listeningForName}

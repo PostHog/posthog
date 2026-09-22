@@ -10,6 +10,7 @@ from django.conf import settings
 import redis
 from statshog.defaults.django import statsd
 
+from posthog.dataclasses import frozen
 from posthog.redis import get_client
 
 logger = logging.getLogger(__name__)
@@ -141,6 +142,13 @@ def _get_redis() -> redis.Redis | None:
     )
 
 
+@frozen
+class _BreakerKeys:
+    fails: str
+    open_until: str
+    probe: str
+
+
 class ProductDBCircuitBreaker:
     """Per-alias fail-fast circuit breaker for product databases.
 
@@ -164,9 +172,9 @@ class ProductDBCircuitBreaker:
         # alias -> local monotonic-ish deadline (time.time) we believe it's open until
         self._local_open_until: dict[str, float] = {}
 
-    def _keys(self, alias: str) -> tuple[str, str, str]:
+    def _keys(self, alias: str) -> _BreakerKeys:
         base = f"{_KEY_PREFIX}:{alias}"
-        return f"{base}:fails", f"{base}:open_until", f"{base}:probe"
+        return _BreakerKeys(fails=f"{base}:fails", open_until=f"{base}:open_until", probe=f"{base}:probe")
 
     def before_connect(self, alias: str) -> BreakerDecision:
         config = _load_config()
@@ -184,12 +192,12 @@ class ProductDBCircuitBreaker:
         if client is None:
             return _CLOSED
 
-        _, open_until_key, probe_key = self._keys(alias)
+        keys = self._keys(alias)
         if self._allow_script is None:
             self._allow_script = client.register_script(_ALLOW_SCRIPT)
         try:
             result = self._allow_script(
-                keys=[open_until_key, probe_key], args=[now, config.probe_timeout_seconds], client=client
+                keys=[keys.open_until, keys.probe], args=[now, config.probe_timeout_seconds], client=client
             )
         except Exception:
             logger.exception("product_db_circuit_breaker_allow_failed", extra={"alias": alias})
@@ -220,7 +228,7 @@ class ProductDBCircuitBreaker:
         if client is None:
             return
 
-        fails_key, open_until_key, probe_key = self._keys(alias)
+        keys = self._keys(alias)
         if self._failure_script is None:
             self._failure_script = client.register_script(_FAILURE_SCRIPT)
         # Capture once so the local deadline matches the open_until Redis computes.
@@ -230,7 +238,7 @@ class ProductDBCircuitBreaker:
         open_marker_ttl = max(config.cooldown_seconds * 10, _OPEN_MARKER_MIN_TTL_SECONDS)
         try:
             opened = self._failure_script(
-                keys=[fails_key, open_until_key, probe_key],
+                keys=[keys.fails, keys.open_until, keys.probe],
                 args=[
                     now,
                     config.failure_threshold,
@@ -265,9 +273,9 @@ class ProductDBCircuitBreaker:
         if client is None:
             return
 
-        fails_key, open_until_key, probe_key = self._keys(alias)
+        keys = self._keys(alias)
         try:
-            client.delete(fails_key, open_until_key, probe_key)
+            client.delete(keys.fails, keys.open_until, keys.probe)
         except Exception:
             logger.exception("product_db_circuit_breaker_record_success_failed", extra={"alias": alias})
             return

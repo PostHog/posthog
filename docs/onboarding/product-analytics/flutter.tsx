@@ -4,7 +4,7 @@ import { StepDefinition } from '../steps'
 import { DEFAULT_SNIPPET_METHODS, snippetFunctions } from './_snippets/js-snippet-builder'
 import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
-export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+export const getFlutterInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, Tab, dedent } = ctx
 
     return [
@@ -143,21 +143,27 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                 </Tab.Group>
             ),
         },
-        {
-            title: 'Send events',
-            badge: 'recommended',
-            content: (
-                <>
-                    <Markdown>
-                        Once installed, PostHog will automatically start capturing events. You can also manually send
-                        events to test your integration:
-                    </Markdown>
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'dart',
-                                file: 'Dart',
-                                code: dedent`
+    ]
+}
+
+export const getFlutterEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
+    return {
+        title: 'Send events',
+        badge: 'recommended',
+        content: (
+            <>
+                <Markdown>
+                    Once installed, PostHog will automatically start capturing events. You can also manually send events
+                    to test your integration:
+                </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'dart',
+                            file: 'Dart',
+                            code: dedent`
                                     import 'package:posthog_flutter/posthog_flutter.dart';
 
                                     await Posthog().capture(
@@ -167,13 +173,17 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                         }
                                     );
                                 `,
-                            },
-                        ]}
-                    />
-                </>
-            ),
-        },
-    ]
+                        },
+                    ]}
+                />
+            </>
+        ),
+    }
 }
+
+export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getFlutterInstallSteps(ctx),
+    getFlutterEventStep(ctx),
+]
 
 export const FlutterInstallation = createInstallation(getFlutterSteps)

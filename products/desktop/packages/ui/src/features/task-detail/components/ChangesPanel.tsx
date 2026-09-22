@@ -13,6 +13,7 @@ import {
   type FileChangeType,
 } from "@posthog/shared/analytics-events";
 import type { ChangedFile, Task } from "@posthog/shared/domain-types";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import {
   Badge,
   Box,
@@ -20,7 +21,6 @@ import {
   DropdownMenu,
   Flex,
   IconButton,
-  Spinner,
   Text,
 } from "@radix-ui/themes";
 import { Fragment, useCallback, useMemo, useState } from "react";
@@ -348,7 +348,7 @@ function CloudChangesPanel({ taskId, task }: ChangesPanelProps) {
       return (
         <PanelMessage detail="Changes will appear once the agent starts writing code">
           <Flex align="center" gap="2">
-            <Spinner size="1" />
+            <Spinner size="sm" />
             <Text className="text-sm">Waiting for changes...</Text>
           </Flex>
         </PanelMessage>
@@ -383,7 +383,7 @@ function CloudChangesPanel({ taskId, task }: ChangesPanelProps) {
       return (
         <PanelMessage detail="Changes will appear as the agent modifies files">
           <Flex align="center" gap="2">
-            <Spinner size="1" />
+            <Spinner size="sm" />
             <Text className="text-sm">Waiting for changes...</Text>
           </Flex>
         </PanelMessage>
@@ -398,7 +398,7 @@ function CloudChangesPanel({ taskId, task }: ChangesPanelProps) {
         <ChangesTreeView files={effectiveFiles} renderFile={renderFile} />
         {isRunActive && (
           <Flex align="center" gap="2" px="3" py="2">
-            <Spinner size="1" />
+            <Spinner size="sm" />
             <Text color="gray" className="text-[13px]">
               Agent is still running...
             </Text>

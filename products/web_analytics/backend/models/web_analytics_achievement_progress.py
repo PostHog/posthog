@@ -11,8 +11,8 @@ class WebAnalyticsAchievementProgress(TeamScopedRootMixin, UUIDModel):
     detail: `unlocked_stages` (stage -> ISO timestamp), `pending_celebrations` (stages awaiting a
     client acknowledge), and `streak` (`last_visit_date`, `grace_used`)."""
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, null=True, blank=True)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, null=True, blank=True, related_name="+")
     track_key = models.CharField(max_length=64)
     current_stage = models.PositiveSmallIntegerField(default=0)
     progress_value = models.BigIntegerField(default=0)

@@ -1,12 +1,9 @@
-import type { UserBasic } from "@posthog/shared/domain-types";
+import type { UserLike } from "@posthog/core/auth/userInitials";
 
-/**
- * Display name for a task/thread author's `UserBasic`, shared by the channel
- * feed and the thread panel. Avatar initials come from the app-wide
- * `getUserInitials` (`@posthog/ui/features/auth/userInitials`).
- */
-export function userDisplayName(user: UserBasic | null | undefined): string {
+// Display name for a task/thread author, shared by the channel feed and the
+// thread panel.
+export function userDisplayName(user: UserLike | null | undefined): string {
   if (!user) return "Unknown";
   const name = [user.first_name, user.last_name].filter(Boolean).join(" ");
-  return name || user.email;
+  return name || user.email || "Unknown";
 }

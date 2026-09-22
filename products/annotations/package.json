@@ -2,5 +2,23 @@
     "name": "@posthog/products-annotations",
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
+    "dependencies": {
+        "kea": "catalog:",
+        "kea-forms": "catalog:",
+        "kea-router": "catalog:"
+    },
+    "devDependencies": {
+        "@storybook/react": "catalog:",
+        "kea-test-utils": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/brand": "catalog:",
+        "@posthog/icons": "catalog:",
+        "@testing-library/dom": "*",
+        "@testing-library/user-event": "*",
+        "@types/react": "*",
+        "clsx": "*",
+        "react": "*"
     }
 }

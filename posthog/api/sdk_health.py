@@ -25,12 +25,8 @@ from products.growth.backend.constants import (
 from products.growth.backend.sdk_health import SdkHealthReport, compute_sdk_health
 
 # NOTE: products.growth.backend.team_sdk_versions is imported lazily inside get_team_data
-# below. It transitively imports from posthog/dags which calls django.setup() — that
-# causes a RuntimeError("populate() isn't reentrant") if we let it happen at module
-# import time from posthog/api/__init__.py. SDK_TYPES used to trigger the same chain
-# when it lived in products.growth.dags.github_sdk_versions; it now lives in
-# products.growth.backend.constants (which has no Django side effects) and can be a
-# top-level import.
+# below. Importing it pulls posthog.hogql.query, the direct-SQL adapters, and
+# ee.clickhouse.materialized_columns, none of which the rest of posthog/api needs.
 
 logger = structlog.get_logger(__name__)
 
@@ -180,7 +176,8 @@ class SdkHealthViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 required=False,
                 description=(
                     "When true, bypasses the Redis cache and re-queries ClickHouse for SDK usage. "
-                    "Use sparingly — data is refreshed every 12 hours by a background job."
+                    "A background job refreshes this data once a day, so the cached answer is "
+                    "usually current. Use sparingly."
                 ),
             ),
         ],

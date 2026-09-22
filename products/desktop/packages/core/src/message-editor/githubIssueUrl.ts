@@ -8,6 +8,7 @@ export interface ParsedGithubIssueUrl {
   repo: string;
   number: number;
   normalizedUrl: string;
+  isReviewComment: boolean;
 }
 
 const GITHUB_ISSUE_URL_PATTERN =
@@ -28,11 +29,13 @@ export function parseGithubIssueUrl(text: string): ParsedGithubIssueUrl | null {
   // they were copied from. Without a fragment the tab/query suffix is noise.
   const hashIndex = suffix.indexOf("#");
   const hasFragment = hashIndex !== -1 && hashIndex < suffix.length - 1;
+  const fragment = hasFragment ? suffix.slice(hashIndex + 1) : "";
   return {
     kind,
     owner,
     repo,
     number,
     normalizedUrl: `https://github.com/${owner}/${repo}/${segment}/${number}${hasFragment ? suffix : ""}`,
+    isReviewComment: kind === "pr" && /^(?:discussion_)?r\d+$/.test(fragment),
   };
 }

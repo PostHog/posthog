@@ -35,6 +35,9 @@ _RE_MD_ESCAPED_CHAR = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])")
 _RE_ALT_ESCAPE = re.compile(r"([\\\]])")
 _RE_SLACK_EMOJI = re.compile(r":([a-z0-9_+\-]+):")
 _RE_MRKDWN_BLOCKQUOTE_UNESCAPE = re.compile(r"^&gt;", re.MULTILINE)
+_RE_MD_FENCED_CODE = re.compile(r"(^```[^\n]*\n.*?^```)", re.MULTILINE | re.DOTALL)
+_RE_MD_TRAILING_LINE_SPACES = re.compile(r"[ \t]+\n")
+_RE_BLANK_LINE_RUN = re.compile(r"\n{2,}")
 
 
 def escape_slack_mrkdwn(text: str) -> str:
@@ -176,6 +179,24 @@ def strip_slack_user_mentions(text: str) -> str:
     return _RE_SLACK_USER_MENTION.sub("", text)
 
 
+def _markdown_breaks_to_mrkdwn(text: str) -> str:
+    """Translate markdown's vertical whitespace into mrkdwn's.
+
+    Markdown needs a blank line to end a paragraph and two trailing spaces to force a line
+    break, because a lone newline is only a soft wrap. mrkdwn has no soft wrap — every newline
+    already breaks the line — so passing markdown spacing through doubles every gap: a
+    paragraph break renders as a blank line, and a blank line the author typed renders as
+    three. Halving each run of newlines maps one convention onto the other. Fenced code keeps
+    its own spacing, where blank lines are content rather than structure.
+    """
+    parts = _RE_MD_FENCED_CODE.split(text)
+    # split() interleaves the fenced blocks at the odd indices; only the prose needs rewriting.
+    for index in range(0, len(parts), 2):
+        prose = _RE_MD_TRAILING_LINE_SPACES.sub("\n", parts[index])
+        parts[index] = _RE_BLANK_LINE_RUN.sub(lambda match: "\n" * (len(match.group()) // 2), prose)
+    return "".join(parts)
+
+
 def content_to_slack_mrkdwn(
     content: str,
     organization_id: str | UUID | None = None,
@@ -200,6 +221,7 @@ def content_to_slack_mrkdwn(
     if not content:
         return ""
 
+    content = _markdown_breaks_to_mrkdwn(content)
     # Escape mrkdwn control chars up front so user content can't inject links,
     # user mentions, or <!channel>-style broadcasts. The conversions below
     # generate their own <url|label> constructs on top of the escaped text.
@@ -729,6 +751,24 @@ def rich_content_to_slack_blocks(rich_content: JSON | None, include_images: bool
         return None
 
     rich_text_elements: list[JSON] = []
+    # Empty paragraphs are blank lines the author typed. They carry to the next element that has
+    # content, so leading and trailing ones fall away — matching what rich_content_to_markdown strips.
+    pending_blank_lines = 0
+
+    def open_next_element(starts_its_own_line: bool) -> None:
+        """Emit the line breaks owed before the next element, then clear the debt.
+
+        Sections run together, so one following another needs an explicit line ending on top of any
+        blank lines. A preformatted element is its own code box and already starts a line, so it
+        needs the blank lines alone.
+        """
+        nonlocal pending_blank_lines
+        newlines = pending_blank_lines if starts_its_own_line else pending_blank_lines + 1
+        if rich_text_elements and newlines:
+            rich_text_elements.append(
+                {"type": "rich_text_section", "elements": [{"type": "text", "text": "\n" * newlines}]}
+            )
+        pending_blank_lines = 0
 
     for node in rich_content.get("content", []):
         node_type = node.get("type")
@@ -747,17 +787,19 @@ def rich_content_to_slack_blocks(rich_content: JSON | None, include_images: bool
                         alt = child.get("attrs", {}).get("alt", "image")
                         section_elements.append({"type": "link", "url": src, "text": alt})
 
-            if section_elements:
+            if not section_elements:
                 if rich_text_elements:
-                    rich_text_elements.append(
-                        {"type": "rich_text_section", "elements": [{"type": "text", "text": "\n"}]}
-                    )
-                rich_text_elements.append({"type": "rich_text_section", "elements": section_elements})
+                    pending_blank_lines += 1
+                continue
+
+            open_next_element(starts_its_own_line=False)
+            rich_text_elements.append({"type": "rich_text_section", "elements": section_elements})
             continue
 
         if node_type == "codeBlock":
             code_text = "".join(child.get("text", "") for child in node.get("content", []))
             if code_text:
+                open_next_element(starts_its_own_line=True)
                 rich_text_elements.append(
                     {"type": "rich_text_preformatted", "elements": [{"type": "text", "text": code_text}]}
                 )
@@ -766,6 +808,7 @@ def rich_content_to_slack_blocks(rich_content: JSON | None, include_images: bool
         if node_type == "image" and include_images:
             src = node.get("attrs", {}).get("src")
             if src:
+                open_next_element(starts_its_own_line=False)
                 rich_text_elements.append(
                     {
                         "type": "rich_text_section",

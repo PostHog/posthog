@@ -80,9 +80,54 @@ describe("UsageTracker", () => {
     expect(tracker.contextTokens()).toBe(500);
   });
 
-  it("resetForTurn clears stale per-turn usage", () => {
+  it("carryForNativeTurn sums the interrupted turn's usage into the continuation", () => {
     const tracker = new UsageTracker();
     tracker.ingest(payload());
+
+    tracker.carryForNativeTurn();
+    tracker.ingest(
+      payload({
+        last: {
+          inputTokens: 100,
+          cachedInputTokens: 10,
+          outputTokens: 20,
+          reasoningOutputTokens: 5,
+          totalTokens: 130,
+        },
+      }),
+    );
+
+    expect(tracker.perTurnUsage()).toEqual({
+      inputTokens: 500,
+      outputTokens: 100,
+      cachedReadTokens: 60,
+      cachedWriteTokens: 0,
+      thoughtTokens: 25,
+      totalTokens: 630,
+    });
+    expect(tracker.contextTokens()).toBe(130);
+  });
+
+  it("carryForNativeTurn keeps the interrupted usage when the continuation reports none", () => {
+    const tracker = new UsageTracker();
+    tracker.ingest(payload());
+
+    tracker.carryForNativeTurn();
+
+    expect(tracker.perTurnUsage()).toEqual({
+      inputTokens: 400,
+      outputTokens: 80,
+      cachedReadTokens: 50,
+      cachedWriteTokens: 0,
+      thoughtTokens: 20,
+      totalTokens: 500,
+    });
+  });
+
+  it("resetForTurn clears stale per-turn and carried usage", () => {
+    const tracker = new UsageTracker();
+    tracker.ingest(payload());
+    tracker.carryForNativeTurn();
 
     tracker.resetForTurn();
     expect(tracker.contextTokens()).toBeUndefined();

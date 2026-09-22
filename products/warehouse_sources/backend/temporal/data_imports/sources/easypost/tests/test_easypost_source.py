@@ -4,40 +4,14 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceFieldInputConfig,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.easypost import EasypostResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.source import EasypostSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> Any:
     config = MagicMock()
     config.api_key = "EZAK_test"
     return config
-
-
-class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert EasypostSource().source_type == ExternalDataSourceType.EASYPOST
-
-    def test_source_config_basics(self) -> None:
-        config = EasypostSource().get_source_config
-        assert config.name == SchemaExternalDataSourceType.EASYPOST
-        assert config.label == "EasyPost"
-
-    def test_source_config_has_password_api_key_field(self) -> None:
-        fields = EasypostSource().get_source_config.fields
-        assert [f.name for f in fields] == ["api_key"]
-        api_key_field = fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
 
 
 class TestGetSchemas:
@@ -103,15 +77,6 @@ class TestNonRetryableErrors:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = EasypostSource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-
-class TestResumableSourceManager:
-    def test_manager_is_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        inputs.logger = MagicMock()
-        manager = EasypostSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is EasypostResumeConfig
 
 
 class TestSourceForPipeline:

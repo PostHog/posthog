@@ -1,0 +1,31 @@
+{% extends "email/base.html" %}
+{% block heading %}Your workflow email sending limit was lowered{% endblock %}
+{% block section %}
+    <!-- prettier-ignore -->
+    <p>
+        Recent workflow emails from project <b>{{ team }}</b> caused deliverability problems, such as spam complaints or bounced addresses. To protect your sending reputation, we lowered the project's sending limit to <b>{{ per_day }} emails per day</b> ({{ per_hour }} per hour).
+    </p>
+    <p>Your workflows keep running. Emails over the limit are delayed and sent when capacity frees up, not dropped.</p>
+    <p><b>How to get the limit back up</b></p>
+    <ul>
+        <li>Remove old, purchased, or unengaged addresses from your lists.</li>
+        <li>Check the Reputation tab to see which workflows draw the most complaints and bounces.</li>
+        <li>Keep sending clean and keep using your limit. The limit raises again automatically once your recent sending history is healthy.</li>
+    </ul>
+    <div class="mb mt text-center">
+        <a class="button" href="{% absolute_uri reputation_path %}">View sending health</a>
+    </div>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{% absolute_uri reputation_path %}">{% absolute_uri reputation_path %}</a>
+        </p>
+    </div>
+{% endblock %}
+{% block footer %}
+    Need help?
+    <a href="https://posthog.com/questions?{{ utm_tags }}" target="_blank"><b>Contact support</b></a>
+    or
+    <a href="https://posthog.com/docs?{{ utm_tags }}" target="_blank"><b>read our documentation</b></a>.
+{% endblock %}

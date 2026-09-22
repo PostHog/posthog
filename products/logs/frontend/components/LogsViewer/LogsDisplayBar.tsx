@@ -4,9 +4,10 @@ import { Fragment } from 'react'
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { logsGroupByLogic } from 'products/logs/frontend/components/LogsGroupBy/logsGroupByLogic'
@@ -14,6 +15,7 @@ import { logsPatternsLogic } from 'products/logs/frontend/components/LogsPattern
 
 import { MAX_GROUP_BY_DIMENSIONS, logsViewerConfigLogic } from './config/logsViewerConfigLogic'
 import { resolveGroupBySource } from './groupBySource'
+import { LogsImpactStrip } from './LogsImpactStrip'
 import { LogsViewerToolbar } from './LogsViewerToolbar'
 
 export interface LogsDisplayBarProps {
@@ -43,19 +45,17 @@ export const LogsDisplayBar = ({
 }: LogsDisplayBarProps): JSX.Element => {
     const { facetRailCollapsed, viewMode } = useValues(logsViewerConfigLogic)
     const { setFacetRailCollapsed, setViewMode } = useActions(logsViewerConfigLogic)
-    const showPatternsView = useFeatureFlag('LOGS_PATTERNS_VIEW')
-    const showGroupBy = useFeatureFlag('LOGS_GROUP_BY')
 
-    const inPatternsMode = showPatternsView && viewMode === 'patterns'
+    const inPatternsMode = viewMode === 'patterns'
     // Group is a third view like Patterns: the mode lives in the segmented bar; the key
-    // picker below is the mode's configuration. Double-gated so it's unreachable flag-off.
-    const inGroupByMode = showGroupBy && viewMode === 'group'
+    // picker below is the mode's configuration.
+    const inGroupByMode = viewMode === 'group'
 
-    // Each lens joins the bar behind its own flag; the bar renders once any non-Logs lens exists.
+    // The bar renders once any non-Logs lens exists.
     const viewModeOptions = [
         { value: 'logs' as const, label: 'Logs' },
-        ...(showPatternsView ? [{ value: 'patterns' as const, label: 'Patterns' }] : []),
-        ...(showGroupBy ? [{ value: 'group' as const, label: 'Group' }] : []),
+        { value: 'patterns' as const, label: 'Patterns' },
+        { value: 'group' as const, label: 'Group' },
     ]
 
     return (
@@ -85,10 +85,15 @@ export const LogsDisplayBar = ({
                 ) : inGroupByMode ? (
                     <GroupsCountIndicator id={id} />
                 ) : (
-                    totalLogsCount !== undefined &&
-                    totalLogsCount > 0 && (
-                        <span className="text-muted text-xs">{humanFriendlyNumber(totalLogsCount)} logs</span>
-                    )
+                    <>
+                        {totalLogsCount !== undefined && totalLogsCount > 0 && (
+                            <span className="text-muted text-xs">{humanFriendlyNumber(totalLogsCount)} logs</span>
+                        )}
+                        {/* Gated here so the strip's logic (and its query) only mount when the flag is on. */}
+                        <FlaggedFeature flag={FEATURE_FLAGS.LOGS_IMPACT_STRIP}>
+                            <LogsImpactStrip id={id} />
+                        </FlaggedFeature>
+                    </>
                 )}
             </div>
             {inPatternsMode ? (

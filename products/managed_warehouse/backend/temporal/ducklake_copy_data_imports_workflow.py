@@ -511,7 +511,7 @@ def _copy_data_imports_via_duckgres(
     schema = inputs.model.ducklake_schema_name
     table = f"{schema}.{inputs.model.ducklake_table_name}"
 
-    with connect_to_duckgres(server) as conn:
+    with connect_to_duckgres(server, application_name="ducklake-copy") as conn:
         setup_duckgres_session(conn)
         create_staging_read_secret(conn, bucket)
         logger.info(
@@ -701,7 +701,7 @@ def _verify_data_imports_ducklake_copy_via_duckgres(
         inputs=inputs,
     )
 
-    with connect_to_duckgres(server) as conn:
+    with connect_to_duckgres(server, application_name="ducklake-copy") as conn:
         setup_duckgres_session(conn)
         create_staging_read_secret(conn, urlparse(inputs.model.staging_uri).netloc)
         return _run_data_imports_verification_checks(

@@ -356,6 +356,44 @@ describe('pydantic-ai middleware', () => {
         })
     })
 
+    // pydantic-ai carries the finish reason on each output message. The generic mapping turns
+    // `gen_ai.output.messages` into $ai_output_choices before this middleware runs, and that step is
+    // covered in attribute-mapping.test.ts, so these start from the post-mapping shape.
+    describe('sets $ai_stop_reason', () => {
+        it.each<[string, unknown[], string | undefined]>([
+            [
+                'the first choice that names one',
+                [
+                    { role: 'assistant', content: 'first', finish_reason: 'stop' },
+                    { role: 'assistant', content: 'second', finish_reason: 'length' },
+                ],
+                'stop',
+            ],
+            [
+                'past choices that name none',
+                [
+                    { role: 'assistant', content: 'first' },
+                    { role: 'assistant', content: 'second', finish_reason: 'content_filter' },
+                ],
+                'content_filter',
+            ],
+            ['nothing when no message names one', [{ role: 'assistant', content: 'only' }], undefined],
+            [
+                'nothing when the only named reason is longer than any real value',
+                [{ role: 'assistant', content: 'only', finish_reason: 'x'.repeat(129) }],
+                undefined,
+            ],
+        ])('reads %s', (_label, outputChoices, expected) => {
+            const event = createEvent('$ai_generation', {
+                'logfire.msg': 'chat',
+                $ai_output_choices: outputChoices,
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_stop_reason']).toBe(expected)
+        })
+    })
+
     describe('sets $ai_lib', () => {
         it.each(['$ai_generation', '$ai_span', '$ai_trace'])(
             'sets $ai_lib to opentelemetry/pydantic-ai on %s events',

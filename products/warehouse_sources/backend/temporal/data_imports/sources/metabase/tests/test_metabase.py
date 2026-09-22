@@ -220,7 +220,7 @@ class TestValidateCredentials:
         with self._patch_session(_response(status_code=302)) as patched:
             valid, msg = validate_credentials("https://x.metabaseapp.com", _api_key_auth())
             assert valid is False
-            assert msg == metabase_module.HOST_NOT_ALLOWED_ERROR
+            assert msg == metabase_module.REDIRECT_NOT_FOLLOWED_ERROR
             assert patched.return_value.get.call_args.kwargs["allow_redirects"] is False
 
     def test_blocks_unsafe_host(self):

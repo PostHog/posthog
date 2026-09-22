@@ -1,5 +1,5 @@
 import { ServiceProvider } from "@posthog/di/react";
-import { posthogToolMeta } from "@posthog/shared";
+import { createPiToolCallRecord, posthogToolMeta } from "@posthog/shared";
 import type { ConversationItem } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
@@ -14,6 +14,7 @@ function subagentItem(
   options: {
     status?: "completed" | "in_progress";
     turnComplete?: boolean;
+    subagentCount?: number;
   } = {},
 ): SessionUpdateItem {
   return {
@@ -26,12 +27,76 @@ function subagentItem(
       kind: "other",
       status: options.status ?? "completed",
       _meta: posthogToolMeta({ toolName: "spawn_agent" }),
+      details: options.subagentCount
+        ? {
+            mode: "parallel",
+            results: Array.from({ length: options.subagentCount }, () => ({
+              agent: "Explore",
+              task: "Inspect project files",
+            })),
+          }
+        : undefined,
     },
     turnContext: {
       toolCalls: new Map(),
       childItems: new Map(),
       turnCancelled: false,
       turnComplete: options.turnComplete ?? true,
+    },
+  } as SessionUpdateItem;
+}
+
+function toolItem(
+  id: string,
+  options: {
+    title: string;
+    details?: unknown;
+    toolMeta?: ReturnType<typeof posthogToolMeta>;
+  },
+): SessionUpdateItem {
+  return {
+    type: "session_update",
+    id,
+    update: {
+      sessionUpdate: "tool_call",
+      toolCallId: id,
+      title: options.title,
+      kind: "other",
+      status: "in_progress",
+      details: options.details,
+      _meta: options.toolMeta,
+    },
+    turnContext: {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: false,
+    },
+  } as SessionUpdateItem;
+}
+
+function piToolItem(
+  id: string,
+  name: string,
+  args: unknown,
+): SessionUpdateItem {
+  const toolCall = createPiToolCallRecord(
+    { id, name, arguments: args },
+    "in_progress",
+  );
+  return {
+    type: "session_update",
+    id,
+    update: {
+      sessionUpdate: "tool_call",
+      toolCallId: id,
+      ...toolCall,
+    },
+    turnContext: {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: false,
     },
   } as SessionUpdateItem;
 }
@@ -76,7 +141,7 @@ describe("ToolGroup", () => {
     {
       name: "tallies the run once it settles",
       items: [subagentItem("spawn-1"), subagentItem("spawn-2")],
-      expected: "2 subagents",
+      expected: "Ran 2 subagents",
     },
     {
       name: "names the current tool while the run is active",
@@ -85,6 +150,62 @@ describe("ToolGroup", () => {
         subagentItem("spawn-2", running),
       ],
       expected: "Subagents",
+    },
+    {
+      name: "names an MCP proxy call while it is active",
+      items: [
+        piToolItem("mcp-call", "mcp", {
+          tool: "mcp_posthog_query_trends",
+          args: "{}",
+        }),
+      ],
+      expected: "posthog - Query trends",
+    },
+    {
+      name: "names a direct PostHog exec call while it is active",
+      items: [
+        piToolItem("mcp-exec", "mcp_posthog_exec", {
+          command: "call feature-flag-get-all",
+        }),
+      ],
+      expected: "posthog - Get feature flags",
+    },
+    {
+      name: "names an MCP search while it is active",
+      items: [piToolItem("mcp-search", "mcp", { search: "dashboard metrics" })],
+      expected: 'Searching MCP tools for "dashboard metrics"',
+    },
+    {
+      name: "names a direct MCP tool while it is active",
+      items: [piToolItem("mcp-direct", "mcp__posthog__query-trends", {})],
+      expected: "posthog - Query trends",
+    },
+    {
+      name: "uses the server and tool after MCP metadata arrives",
+      items: [
+        toolItem("mcp-metadata", {
+          title: "mcp",
+          toolMeta: posthogToolMeta({
+            toolName: "mcp__posthog__query-trends",
+            mcp: {
+              server: "posthog",
+              tool: "query-trends",
+              title: "Query trends",
+            },
+          }),
+        }),
+      ],
+      expected: "posthog - Query trends",
+    },
+    {
+      name: "ignores malformed MCP display details",
+      items: [
+        toolItem("mcp-invalid", {
+          title: "mcp",
+          details: { kind: "tool", name: 42 },
+        }),
+      ],
+      expected: "MCP",
     },
     {
       name: "reads as thinking while a trailing thought streams",
@@ -101,6 +222,12 @@ describe("ToolGroup", () => {
   ])("$name", ({ items, expected }) => {
     renderGroup(items);
     expect(screen.getByText(expected)).toBeInTheDocument();
+  });
+
+  it("counts every parallel subagent in one tool call", () => {
+    renderGroup([subagentItem("spawn-1", { subagentCount: 2 })]);
+
+    expect(screen.getByText("Ran 2 subagents")).toBeInTheDocument();
   });
 
   it("starts collapsed", () => {

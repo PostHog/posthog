@@ -27,6 +27,23 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 _PURGE_S3_PREFIX_MAX_ATTEMPTS = 4
 
 
+def _is_retryable_purge_error(error: OSError) -> bool:
+    """True for an error worth retrying `_purge_s3_prefix` on.
+
+    Covers the known-transient object-store blips (see is_transient_object_store_error) plus a bare
+    `PermissionError`: s3fs translates every S3 auth-failure response code (AccessDenied,
+    ExpiredToken, InvalidAccessKeyId, ...) into this one exception type, and a HeadObject 403 never
+    carries the underlying code in its body (AWS omits it for HEAD requests), so a transient
+    credential-resolution race can't be told apart from a genuine permission problem by message here.
+    `_purge_s3_prefix` always runs against a freshly created client (aget_s3_client(fresh_instance=True)),
+    which re-resolves credentials on every call — the same IMDS/STS race already covered for
+    NoCredentialsError above, just surfacing as an explicit S3-side denial instead of a local
+    resolution failure. Retrying the same bounded budget lets that race self-heal; a persistent
+    misconfiguration still raises once the budget is exhausted, since this only defers the error.
+    """
+    return is_transient_object_store_error(error) or isinstance(error, PermissionError)
+
+
 async def _purge_s3_prefix(s3: Any, uri: str) -> None:
     """Delete every object under `uri`, retrying on transient S3 SlowDown throttling.
 
@@ -40,7 +57,7 @@ async def _purge_s3_prefix(s3: Any, uri: str) -> None:
             return
         except OSError as e:
             attempt += 1
-            if attempt >= _PURGE_S3_PREFIX_MAX_ATTEMPTS or not is_transient_object_store_error(e):
+            if attempt >= _PURGE_S3_PREFIX_MAX_ATTEMPTS or not _is_retryable_purge_error(e):
                 raise
             await asyncio.sleep(2**attempt)
 
@@ -66,6 +83,16 @@ async def _purge_s3_prefix_once(s3: Any, uri: str) -> None:
         await s3._rm([f"s3://{f.lstrip('/')}" for f in files])
     if await s3._exists(uri):
         await s3._rm(uri, recursive=True)
+
+
+def build_delta_table_uri(folder_path: str, resource_name: str) -> str:
+    """Canonical S3 URI of a schema's Delta table.
+
+    The writer (`DeltaTableRef`) and readers (e.g. the fan-out warehouse parent reader)
+    must agree byte-for-byte on where a table lives; both derive it here.
+    """
+    normalized_name = NamingConvention.normalize_identifier(resource_name)
+    return f"{settings.BUCKET_URL}/{folder_path}/{normalized_name}"
 
 
 def delta_storage_options() -> dict[str, str]:
@@ -150,9 +177,8 @@ class DeltaTableRef:
         return delta_storage_options()
 
     async def _get_delta_table_uri(self) -> str:
-        normalized_resource_name = NamingConvention.normalize_identifier(self._resource_name)
         folder_path = await database_sync_to_async_pool(self._job.folder_path)()
-        return f"{settings.BUCKET_URL}/{folder_path}/{normalized_resource_name}"
+        return build_delta_table_uri(folder_path, self._resource_name)
 
     async def get_table_uri(self) -> str:
         """Public accessor for the live Delta table S3 URI (used by the in-place repartitioner)."""

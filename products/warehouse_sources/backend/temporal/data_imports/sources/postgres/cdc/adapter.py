@@ -12,6 +12,7 @@ import structlog
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import cdc_error_info
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.errors import (
     classify_postgres_cdc_error,
@@ -64,6 +65,15 @@ def _slot_setup_error_message(exc: Exception) -> str:
             "The database user lacks permission to create logical replication slots. "
             "Either grant it replication access, or switch these tables to Incremental sync "
             "instead of CDC. Incremental needs only SELECT permission."
+        )
+    # A read replica or read-only standby rejects the CREATE PUBLICATION that CDC needs.
+    if "in a read-only transaction" in message:
+        return (
+            f"Failed to create replication slot: {exc} "
+            "CDC has to create a replication slot and publication, which only a writable primary "
+            "database allows. This connection points at a read replica or read-only standby. "
+            "Connect to the primary database, or switch these tables to Incremental sync, which "
+            "needs only SELECT."
         )
     return f"Failed to create replication slot: {exc}"
 
@@ -154,9 +164,10 @@ class PostgresCDCAdapter:
     def is_connection_error(self, exc: BaseException) -> bool:
         # psycopg raises OperationalError for every failure to reach the source DB
         # (connect timeout, refused, unreachable host, DNS, dropped, auth); sshtunnel
-        # raises BaseSSHTunnelForwarderError when the tunnel itself can't be established.
-        # Neither points at a bug in our code.
-        return isinstance(exc, psycopg.OperationalError | BaseSSHTunnelForwarderError)
+        # raises BaseSSHTunnelForwarderError when the tunnel itself can't be established;
+        # the host policy raises HostNotAllowedError before any socket opens.
+        # None points at a bug in our code.
+        return isinstance(exc, psycopg.OperationalError | BaseSSHTunnelForwarderError | HostNotAllowedError)
 
     def classify_error(self, exc: BaseException) -> CDCErrorInfo | None:
         category = classify_postgres_cdc_error(exc)

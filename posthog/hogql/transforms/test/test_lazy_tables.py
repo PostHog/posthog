@@ -1,7 +1,7 @@
 from typing import Any
 
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, NewEventsSchemaSnapshotExtension
 
 from django.conf import settings
 from django.test import override_settings
@@ -23,7 +23,7 @@ class TestLazyJoins(BaseTest):
     def _schema_snapshot(self, printed: str):
         self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in printed:
-            return self.snapshot(name="new_events_schema")
+            return self.snapshot(name="new_events_schema", extension_class=NewEventsSchemaSnapshotExtension)
         return self.snapshot
 
     def _assert_matches_snapshot(self, printed: str) -> None:

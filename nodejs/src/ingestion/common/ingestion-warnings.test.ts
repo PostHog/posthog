@@ -1,3 +1,5 @@
+import { randomInt } from 'node:crypto'
+
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { captureIngestionWarning } from '~/ingestion/common/ingestion-warnings'
@@ -10,12 +12,13 @@ describe('captureIngestionWarning()', () => {
     let hub: Hub
     let clickhouse: Clickhouse
     let kafkaProducer: KafkaProducerWrapper
+    let teamId: number
 
     beforeEach(async () => {
         hub = await createHub({ LOG_LEVEL: 'info' })
         kafkaProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
         clickhouse = Clickhouse.create()
-        await clickhouse.resetTestDatabase()
+        teamId = randomInt(1_000_000_000, 2_000_000_000)
     })
 
     afterEach(async () => {
@@ -25,7 +28,7 @@ describe('captureIngestionWarning()', () => {
     })
 
     it('can read own writes', async () => {
-        await captureIngestionWarning(kafkaProducer, 2, {
+        await captureIngestionWarning(kafkaProducer, teamId, {
             // registered as size/error in INGESTION_WARNING_TYPES
             type: 'message_size_too_large',
             // severity inside details must lose to the registry-derived field
@@ -39,12 +42,12 @@ describe('captureIngestionWarning()', () => {
         })
 
         const warnings = await clickhouse.delayUntilEventIngested(
-            async () => await clickhouse.query('SELECT * FROM ingestion_warnings')
+            async () => await clickhouse.query(`SELECT * FROM ingestion_warnings WHERE team_id = ${teamId}`)
         )
 
         expect(warnings).toEqual([
             expect.objectContaining({
-                team_id: 2,
+                team_id: teamId,
                 source: 'plugin-server',
                 type: 'message_size_too_large',
                 details: expect.any(String),
@@ -67,13 +70,13 @@ describe('captureIngestionWarning()', () => {
                     distinct_id: string | null
                     person_id: string | null
                 }>(
-                    'SELECT team_id, type, category, severity, pipeline_step, distinct_id, person_id FROM ingestion_warnings_v2'
+                    `SELECT team_id, type, category, severity, pipeline_step, distinct_id, person_id FROM ingestion_warnings_v2 WHERE team_id = ${teamId}`
                 )
         )
 
         expect(v2Warnings).toEqual([
             {
-                team_id: 2,
+                team_id: teamId,
                 type: 'message_size_too_large',
                 category: 'size',
                 severity: 'error',

@@ -23,16 +23,12 @@ def _make_context(
     product: str,
     *,
     credits_exhausted: bool = False,
-    plan_key: str | None = None,
-    seat_missing: bool = False,
     code_usage_billed: bool = False,
 ) -> ThrottleContext:
     return ThrottleContext(
         user=_make_user(),
         product=product,
         credits_exhausted=credits_exhausted,
-        plan_key=plan_key,
-        seat_missing=seat_missing,
         code_usage_billed=code_usage_billed,
     )
 
@@ -63,32 +59,24 @@ class TestBillableCreditThrottle:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("seat_missing", "code_usage_billed"),
+        "code_usage_billed",
         [
-            # Seatless in a paying org: the org's billing limit is the only
-            # ceiling (the per-user cap is lifted) - exhaustion must block, or
-            # usage runs past the org's configured limit.
-            (True, True),
-            # Seatless in a non-paying org: the free plan's monthly allocation
-            # surfaces the same way and must block the same way.
-            (True, False),
-            # Every generation is counted into the bucket regardless of seat
-            # state, so a seat-based carve-out would let the exempted callers
-            # burn past the limit their own spend is filling.
-            (False, True),
-            (False, False),
+            # Paying org: the org's billing limit is the only ceiling (the
+            # per-user cap is lifted) - exhaustion must block, or usage runs
+            # past the org's configured limit.
+            True,
+            # Non-paying org: the free plan's monthly allocation surfaces the
+            # same way and must block the same way.
+            False,
         ],
     )
-    async def test_bucket_blocks_regardless_of_seat_or_billing_state(
-        self, seat_missing: bool, code_usage_billed: bool
-    ) -> None:
+    async def test_bucket_blocks_regardless_of_billing_state(self, code_usage_billed: bool) -> None:
         throttle = BillableCreditThrottle()
 
         result = await throttle.allow_request(
             _make_context(
                 product="posthog_code",
                 credits_exhausted=True,
-                seat_missing=seat_missing,
                 code_usage_billed=code_usage_billed,
             )
         )

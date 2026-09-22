@@ -31,12 +31,9 @@ from django.utils import timezone
 
 from posthog.models import Team, User
 
-from products.signals.backend.dismissal_notes import (
-    DERIVED_NOTE_TTL,
-    principal_may_steer_scouts,
-    resolve_report_scout_skill,
-)
+from products.signals.backend.dismissal_notes import DERIVED_NOTE_TTL, principal_may_steer_scouts
 from products.signals.backend.models import SignalReport, SignalScoutNote
+from products.signals.backend.scout_authorship import resolve_report_scout_skill
 from products.signals.backend.scout_harness.tools.notes import leave_note
 
 logger = logging.getLogger(__name__)

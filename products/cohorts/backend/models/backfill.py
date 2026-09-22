@@ -41,6 +41,12 @@ ACTIVE_COHORT_BACKFILL_RUN_STATUSES = (
     CohortBackfillRunStatus.RECONCILING,
 )
 
+# Derived, so the two tuples always partition the enum: a ninth status joins one or the other, and
+# cannot fall out of both and into no gauge.
+TERMINAL_COHORT_BACKFILL_RUN_STATUSES = tuple(
+    status for status in CohortBackfillRunStatus if status not in ACTIVE_COHORT_BACKFILL_RUN_STATUSES
+)
+
 
 class CohortBackfillChunkStatus(models.TextChoices):
     PENDING = "pending", "Pending"
@@ -164,8 +170,28 @@ class CohortBackfillChunk(TeamScopedRootMixin, UUIDModel):
     person_range_lo = models.UUIDField(null=True, blank=True)
     person_range_hi = models.UUIDField(null=True, blank=True)
     attempts = models.IntegerField(default=0)
+    next_attempt_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Earliest instant the Rust seeder may claim this chunk again after a failure, stamped "
+            "by its retry backoff. Null means claimable now; every claim clears it."
+        ),
+    )
     last_error = models.TextField(blank=True, default="")
     tiles_produced = models.BigIntegerField(default=0)
+    # db_default, not only default: the Rust seeder raw-INSERTs an explicit column list, so a
+    # Python-side default leaves these NOT NULL columns unfilled by an old image during a rollout.
+    scan_received_bytes = models.BigIntegerField(
+        default=0,
+        db_default=0,
+        help_text="Bytes the chunk's ClickHouse scan received off the wire, written by the Rust seeder.",
+    )
+    scan_decoded_bytes = models.BigIntegerField(
+        default=0,
+        db_default=0,
+        help_text="Bytes the chunk's ClickHouse scan decompressed, written by the Rust seeder.",
+    )
     produce_hwms = models.JSONField(null=True, blank=True)
     confirmed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=django_timezone.now)

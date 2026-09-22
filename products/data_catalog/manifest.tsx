@@ -1,4 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -14,6 +13,7 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'data_warehouse',
             description: 'Review and manage governed metrics, certifications, and relationships for your data.',
+            docsHref: 'https://posthog.com/docs/semantic-layer',
         },
         DataCatalogMetric: {
             import: () => import('./frontend/DataCatalogMetricScene'),
@@ -28,7 +28,8 @@ export const manifest: ProductManifest = {
     redirects: {},
     urls: {
         dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
-        dataCatalogMetric: (name: string): string => `/data-catalog/metrics/${name}`,
+        dataCatalogMetric: (name: string, tab?: 'definition' | 'tests'): string =>
+            `/data-catalog/metrics/${name}${tab === 'tests' ? '?tab=tests' : ''}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
@@ -39,8 +40,7 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.ANALYTICS,
             iconType: 'data_warehouse',
             href: urls.dataCatalog(),
-            flag: FEATURE_FLAGS.PRODUCT_DATA_CATALOG,
-            tags: ['alpha'],
+            tags: ['beta'],
             sceneKey: 'DataCatalog',
         },
     ],

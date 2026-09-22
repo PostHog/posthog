@@ -1,0 +1,6 @@
+{
+    "id": "RA4",
+    "real": false,
+    "source": "fresh",
+    "reasoning": "Refuted by direct read. In /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1213-1214, existing_run_id = str(existing.id) is immediately used by the very next line's lambda: transaction.on_commit(lambda: _start_review_workflow(existing_run_id, team_id), using=run_write_db). The lambda captures existing_run_id, not existing.id, so the variable is not dead — it is the deliberate snapshot-before-closure pattern, mirroring review_run_id at lines 1231-1234. The claim's premise (lambda re-reads existing.id) is factually wrong in this tree."
+}

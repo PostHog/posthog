@@ -6,7 +6,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { featureFlagsStaffToolsLogic, StaffTeamResult } from './featureFlagsStaffToolsLogic'
+import type { StaffTeamConfigMutationApi } from '../generated/api.schemas'
+import { featureFlagsStaffToolsLogic, parseFlagLimit, StaffTeamResult } from './featureFlagsStaffToolsLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), warning: jest.fn(), error: jest.fn() },
@@ -19,6 +20,8 @@ const TEAM: StaffTeamResult = {
     organization_id: 'org-uuid',
     organization_name: 'Acme Org',
     project_id: 5,
+    // Null marks a project root, which is the team the flag limit can be set on.
+    parent_team_id: null,
 }
 
 describe('featureFlagsStaffToolsLogic', () => {
@@ -368,6 +371,25 @@ describe('featureFlagsStaffToolsLogic', () => {
             })
         })
 
+        it("surfaces the server's reason when the write is rejected", async () => {
+            // The endpoint refuses an override on an environment team, and the dialog's numeric
+            // bounds can't catch that. A bare `catch` would replace this with the generic failure
+            // message, leaving the operator no way to tell a refusal from a network blip.
+            useMocks({
+                post: {
+                    [SET_URL]: () => [
+                        400,
+                        { type: 'validation_error', code: 'invalid', detail: 'Team 5 is an environment of project 3.' },
+                    ],
+                },
+            })
+
+            logic.actions.setMaxFeatureFlagsOverride(5, 500)
+            await expectLogic(logic).toDispatchActions(['teamConfigMutationSettled'])
+
+            expect(lemonToast.error).toHaveBeenCalledWith('Team 5 is an environment of project 3.')
+        })
+
         it('only sends one mutation request when double-submitted for the same team', async () => {
             const handleSet = jest.fn(() => [200, { team_id: 5, minimal_flag_called_events: true }])
             useMocks({ post: { [SET_URL]: handleSet } })
@@ -380,6 +402,88 @@ describe('featureFlagsStaffToolsLogic', () => {
             }).toFinishAllListeners()
 
             expect(handleSet).toHaveBeenCalledTimes(1)
+        })
+
+        it.each([500, null])('setMaxFeatureFlagsOverride(%p) sends only its own field', async (override) => {
+            let lastBody: StaffTeamConfigMutationApi | undefined
+            useMocks({
+                // Seeded with the full row so the response below is a genuinely partial one, and
+                // the merge has something to preserve.
+                get: {
+                    [TEAM_CONFIG_URL]: {
+                        results: [
+                            {
+                                team_id: 5,
+                                minimal_flag_called_events: true,
+                                max_feature_flags_override: null,
+                                effective_max_feature_flags: 2000,
+                                feature_flag_count: 7,
+                            },
+                        ],
+                    },
+                },
+                post: {
+                    [SET_URL]: async ({ request }: { request: Request }) => {
+                        lastBody = await request.json()
+                        return [200, { team_id: 5, max_feature_flags_override: override }]
+                    },
+                },
+            })
+
+            logic.actions.setSelectedTeamIds([5])
+            await expectLogic(logic).toDispatchActions(['loadTeamConfigSuccess'])
+
+            logic.actions.setMaxFeatureFlagsOverride(5, override)
+            // Drives the pencil button's loading state and disabledReason while the write is in
+            // flight; without it staff get no feedback on a click that issues a request.
+            expect(logic.values.pendingTeamConfigTeamIds).toEqual([5])
+            await expectLogic(logic).toDispatchActions(['teamConfigMutationSucceeded', 'teamConfigMutationSettled'])
+            expect(logic.values.pendingTeamConfigTeamIds).toEqual([])
+
+            // Sending a stale minimal_flag_called_events alongside the limit would silently
+            // revert a concurrent staff change to that setting, which is why the backend takes
+            // partial updates and each mutation sends only the field it owns.
+            expect(lastBody).toEqual({ team_id: 5, max_feature_flags_override: override })
+            // The fields the response omits keep the values list() fetched. Replacing the row
+            // instead of merging would blank the whole Flag limit cell to "Loading…" after a save.
+            expect(logic.values.teamConfigByTeamId[5]).toEqual({
+                team_id: 5,
+                minimal_flag_called_events: true,
+                max_feature_flags_override: override,
+                effective_max_feature_flags: 2000,
+                feature_flag_count: 7,
+            })
+        })
+
+        it('only allows one request in flight per team across both mutations', async () => {
+            const handleSet = jest.fn(() => [200, { team_id: 5, minimal_flag_called_events: true }])
+            useMocks({ post: { [SET_URL]: handleSet } })
+
+            // Two separate in-flight guards, one per mutation, would let a switch toggle and a
+            // limit save fly concurrently for one team. Each response carries the whole row, so
+            // whichever landed second would clobber the other's field.
+            await expectLogic(logic, () => {
+                logic.actions.setMinimalFlagCalledEvents(5, true)
+                logic.actions.setMaxFeatureFlagsOverride(5, 500)
+            }).toFinishAllListeners()
+
+            expect(handleSet).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('parseFlagLimit', () => {
+        // Both "empty" branches are load-bearing and neither is reachable from the other's test.
+        // LemonInput type="number" reports a cleared field as NaN via valueAsNumber, while a field
+        // the operator never touched still holds the '' the dialog seeded. Drop the NaN branch and
+        // clearing an override fails validation; drop the '' branch and an untouched field submits
+        // Number('') === 0, which the serializer's min_value rejects.
+        it.each([
+            ['', null],
+            [NaN, null],
+            [500, 500],
+            [1, 1],
+        ])('parseFlagLimit(%p) is %p', (value, expected) => {
+            expect(parseFlagLimit(value)).toEqual(expected)
         })
     })
 })

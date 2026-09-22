@@ -1,0 +1,6 @@
+{
+    "id": "RB5",
+    "real": true,
+    "source": "fresh",
+    "reasoning": "Every link holds in /tmp/frozen-75215. settings.py:77-81 catches Exception, calls logger.exception (ERROR + traceback), returns False; the settings GET is the Code review tab's always-called endpoint (settings.py:139-141), so a stamphog-DB outage logs one ERROR per tab load. The raise is reachable by design: has_reviewable_repo_config (stamphog/backend/facade/api.py:112-127) queries a separate product DB behind a fail-fast circuit breaker (settings.py:73-76). The boolean carries no unknown state, and CodeReviewScene.tsx:1066-1067 renders 'Stamphog is not set up for this project yet' and disables the off-to-on toggle — asserting a fact the backend could not verify. Deliberate fail-soft (comment) mitigates but does not address the conflation; consider-level severity is right."
+}

@@ -1,7 +1,6 @@
 import copy
 import json
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 from time import time
@@ -20,6 +19,7 @@ import posthoganalytics
 from posthog.cache_utils import cache_for
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_organization_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationUsageInfo
@@ -186,6 +186,35 @@ def replace_limited_team_tokens(
     pipe.delete(f"{cache_key.value}{resource.value}")
     if tokens:
         pipe.zadd(f"{cache_key.value}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
+    pipe.execute()
+
+
+def reconcile_limited_team_tokens(
+    resource: QuotaResource,
+    snapshot_tokens: Iterable[str],
+    tokens: Mapping[str, int],
+    cache_key: QuotaLimitingCaches,
+) -> None:
+    """
+    Writes one quota run's verdict into the cache without discarding entries the run never saw.
+
+    `snapshot_tokens` is what the run read at its start. A snapshot token the run no longer lists
+    is removed. A listed token is added or has its score refreshed. A token in neither set was
+    added after the snapshot, by `refresh_org_self_driving_quota` when a PR landed or by
+    `update_org_billing_quotas` on a billing sync, while this run was in flight. The run judged
+    that org from state that predates the write, so its verdict is stale for that org and the
+    entry is kept; the next run reads the persisted `quota_limited_until` marker and settles it.
+    A wholesale replace would drop that entry and unblock the org until the next run.
+    Expired scores are purged so entries that lapsed on their own do not accumulate.
+    """
+    key = f"{cache_key.value}{resource.value}"
+    stale_tokens = [token for token in snapshot_tokens if token not in tokens]
+    pipe = get_client().pipeline()
+    pipe.zremrangebyscore(key, "-inf", timezone.now().timestamp())
+    if stale_tokens:
+        pipe.zrem(key, *stale_tokens)
+    if tokens:
+        pipe.zadd(key, tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
     pipe.execute()
 
 
@@ -664,18 +693,15 @@ def invalidate_llm_gateway_quota_cache(team_ids: Iterable[int]) -> None:
     Best-effort by design: the gateway TTL already bounds staleness, so a failure
     here must not fail the billing update that just committed.
     """
-    cache_keys = [
-        key
-        for team_id in team_ids
-        for key in (
-            f"quota:code_usage_billing:team:{team_id}",
-            *(f"quota:{resource.value}:team:{team_id}" for resource in QuotaResource),
-        )
-    ]
-    if not cache_keys:
+    id_set = {int(team_id) for team_id in team_ids}
+    if not id_set:
         return
     try:
-        get_client(settings.LLM_GATEWAY_REDIS_URL).delete(*cache_keys)
+        pipeline = get_client(settings.LLM_GATEWAY_REDIS_URL).pipeline(transaction=False)
+        for team_id in id_set:
+            pipeline.incr(f"quota:generation:team:{team_id}")
+            pipeline.delete(f"quota:code_usage_billing:team:{team_id}")
+        pipeline.execute()
     except Exception as e:
         capture_exception(e)
 
@@ -1038,7 +1064,7 @@ def _timed_query(name, fn, *args, **kwargs):
     return result
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class QuotaLimitingRunResult:
     quota_limited_orgs: dict[str, dict[str, int]]
     quota_limiting_suspended_orgs: dict[str, dict[str, int]]
@@ -1259,13 +1285,16 @@ def update_all_orgs_billing_quotas(
     previously_quota_limited_team_tokens: dict[str, list[str]] = {x.value: [] for x in QuotaResource}
     previously_quota_limiting_suspended_team_tokens: dict[str, list[str]] = {x.value: [] for x in QuotaResource}
 
-    # All teams that are currently under quota limits or in a suspension grace period
+    # All teams that are currently under quota limits or in a suspension grace period.
+    # `reconcile_limited_team_tokens` removes the snapshot entries this run judges under limit, so the
+    # snapshot must be this run's own start state. The 30-second cache refreshes in the background and
+    # returns the previous value, which for a 15-minute cron is the state at the previous run's start.
     for resource in QuotaResource:
         previously_quota_limited_team_tokens[resource.value] = list_limited_team_attributes(
-            resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY, use_cache=False
         )
         previously_quota_limiting_suspended_team_tokens[resource.value] = list_limited_team_attributes(
-            resource, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
+            resource, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY, use_cache=False
         )
 
     previously_recordings_zset_tokens: set[str] = _get_previous_recordings_zset_tokens()
@@ -1372,9 +1401,9 @@ def update_all_orgs_billing_quotas(
                     )
         except Exception as e:
             # TODO: revisit this swallow. Failures here mean the org never lands in
-            # `quota_limited_orgs` / `quota_limiting_suspended_orgs`, so the wholesale
-            # `replace_limited_team_tokens` calls below silently drop any prior Redis
-            # entries for the org's teams — effectively unblocking a previously
+            # `quota_limited_orgs` / `quota_limiting_suspended_orgs`, so the
+            # `reconcile_limited_team_tokens` calls below remove the org's teams from Redis
+            # when they were in this run's snapshot — effectively unblocking a previously
             # limited/suspended org on a transient error. Pick an explicit policy
             # (e.g. preserve prior Redis state on error, or intentionally fail-open
             # for customer-favorable behavior) rather than letting the outcome fall
@@ -1466,12 +1495,16 @@ def update_all_orgs_billing_quotas(
     if not dry_run:
         redis_start = time()
         for field in quota_limited_teams:
-            replace_limited_team_tokens(
-                QuotaResource(field), quota_limited_teams[field], QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            reconcile_limited_team_tokens(
+                QuotaResource(field),
+                previously_quota_limited_team_tokens[field],
+                quota_limited_teams[field],
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             )
         for field in quota_limiting_suspended_teams:
-            replace_limited_team_tokens(
+            reconcile_limited_team_tokens(
                 QuotaResource(field),
+                previously_quota_limiting_suspended_team_tokens[field],
                 quota_limiting_suspended_teams[field],
                 QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY,
             )

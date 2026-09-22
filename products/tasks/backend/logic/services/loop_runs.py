@@ -20,7 +20,7 @@ from django.db.models import Q
 from django.utils import timezone as django_timezone
 
 from posthog.models import User
-from posthog.temporal.oauth import PosthogMcpScopes, resolve_scopes
+from posthog.temporal.oauth import LOOP_CONTEXT_INTERNAL_SCOPE, PosthogMcpScopes, resolve_scopes
 from posthog.user_permissions import UserPermissions
 
 from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
@@ -103,11 +103,12 @@ def render_loop_run_message(loop_instructions: str, execution_context: str) -> s
     return f"{hidden_context}\n\n{loop_instructions}"
 
 
-# Least-privilege write grants for a loop that maintains a context's context.md or canvas,
+# Least-privilege write grants for a loop that maintains a context page or canvas,
 # added on top of whatever posthog_mcp_scopes the loop already carries rather than escalating
 # the run to the broad `full` write surface. resolve_scopes() re-adds the internal scopes at
-# mint time. Channel instructions ride the channels API (task scope); canvases have their own.
-_CONTEXT_MD_WRITE_SCOPES = ["task:read", "task:write"]
+# mint time. Context updates use the task surface plus server-minted internal-run provenance;
+# canvases have their own scopes.
+_CONTEXT_WRITE_SCOPES = ["task:read", "task:write", LOOP_CONTEXT_INTERNAL_SCOPE]
 _CANVAS_WRITE_SCOPES = ["canvas:read", "canvas:write"]
 
 
@@ -130,7 +131,7 @@ def _context_outputs(context_target: dict | None) -> dict:
     }
 
 
-def render_context_target_block(context_target: dict | None) -> str:
+def render_context_target_block(context_target: dict | None, *, loop_id: str) -> str:
     """The publish contract appended to a loop's prompt when it maintains a context's deliverables.
 
     Empty for an unattached loop or a feed-only attachment — filing the run into the feed needs no
@@ -150,12 +151,18 @@ def render_context_target_block(context_target: dict | None) -> str:
     ]
     if outputs["update_context"]:
         lines.append(
-            f"- Update its context.md: read the current version with the "
-            f"`channel-instructions-retrieve` tool (id: {channel_id}), revise it to reflect "
-            f"this run, then publish the full new markdown with "
-            f"`channel-instructions-update` (id: {channel_id}, base_version: the "
-            f"version you just read). Edit in place, carrying forward anything still true instead of "
-            f"rewriting from scratch."
+            f"- Update its context for channel id {channel_id}. When the context wiki tools are available, resolve "
+            f"the channel with `loop-context-wiki-channel-resolve`, read the returned path with "
+            f"`loop-context-wiki-page-retrieve`, then publish the complete Markdown with "
+            f"`loop-context-wiki-page-update` using the head_sha you just read as base_head. If resolution returns "
+            f"a path marked as not existing yet, publish the complete Markdown to that path with "
+            f"`loop-context-wiki-page-update`, starting it with frontmatter `channel_id: {channel_id}` and passing "
+            f"no base_head, to create the page. If resolution reports that the wiki is unavailable, use "
+            f"`loop-channel-instructions-retrieve` and "
+            f"`loop-channel-instructions-update` with the version you just read as base_version. Edit in place, "
+            f"carrying forward anything still true instead of rewriting from scratch."
+            " If a page read returns next_offset, continue with that offset, the same head_sha, and the same limit "
+            "until complete is true. Join all content chunks before editing. On a revision conflict, restart the read."
         )
     if outputs["canvas_id"]:
         lines.append(
@@ -163,7 +170,21 @@ def render_context_target_block(context_target: dict | None) -> str:
             f"`current_version_id` with `canvas-source-retrieve`, then publish the "
             f"complete project with `canvas-publish-create`, passing the version you "
             f"read as `expected_current_version_id`. Follow the `building-canvases` skill."
+            " Read runtime state with `canvas-state-retrieve`: list keys without values, follow next_offset, "
+            "and select only the keys needed. Read long values with `canvas-state-value-retrieve`, keeping "
+            "the revision fixed across chunks. Discover these tools through MCP search and info; do not assume "
+            "a composition storage tool is available. Missing tools, denied access, missing values, and incomplete "
+            "reads are different conditions. Report the actual condition instead of requesting broader permissions."
         )
+    # A context-only target has no canvas, and the run holds no canvas scopes for one.
+    destination = "canvas" if outputs["canvas_id"] else "context page"
+    lines.append(
+        f"- Read failures with `tasks-list`, channel={channel_id}, status=failed, internal=all, and archived=all. "
+        "Use hog_flow_id for workflow-backed loops and `tasks-runs-list` for earlier runs of a task. "
+        f"When available, `loops-runs-retrieve` with id={loop_id} also accepts status=failed and next_cursor. "
+        f"Show task/run links and stored errors in the {destination}, not a saved Enabled label. If a read fails, "
+        "report the failure in the task response; do not mark the work complete."
+    )
     return "\n".join(lines)
 
 
@@ -203,10 +224,10 @@ def _augment_scopes_for_context(scopes: PosthogMcpScopes, *, outputs: dict) -> P
     """
     extra: list[str] = []
     if outputs.get("update_context"):
-        extra.extend(_CONTEXT_MD_WRITE_SCOPES)
+        extra.extend(_CONTEXT_WRITE_SCOPES)
     if outputs.get("canvas_id"):
         extra.extend(_CANVAS_WRITE_SCOPES)
-    if not extra or scopes == "full":
+    if not extra:
         return scopes
     base = resolve_scopes(scopes, include_internal_scopes=False)
     return list(dict.fromkeys([*base, *extra]))
@@ -380,7 +401,7 @@ def _fire_loop_committed(
         # deactivation grabs the row lock first, the other either sees the disabled row (and skips)
         # or blocks until this fire commits, so deactivation's run-cancellation scan then sees the
         # new run instead of racing past it. A run must never start under a just-deactivated
-        # owner's credentials (see loop_lifecycle._pause_loop_and_cancel_runs).
+        # owner's credentials (see loop_lifecycle.pause_loop).
         # `for_team`: fire_loop runs outside request/team scope (Temporal workflow, webhook), so the
         # fail-closed default manager would raise without ambient team context.
         locked_loop = (
@@ -695,7 +716,7 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         raise ValueError("The loop's context canvas is no longer available.")
 
     title = f"{loop.name} ({django_timezone.now().isoformat()})"
-    context_block = render_context_target_block(context_target)
+    context_block = render_context_target_block(context_target, loop_id=str(loop.id))
     execution_context = "\n\n".join(part for part in [LOOP_FRAMING_BLOCK, context_block, trigger_context] if part)
     pending_user_message = render_loop_run_message(loop.instructions, execution_context)
 
@@ -744,6 +765,12 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
     # regular task's sandbox_environment_id flows through Task._build_task.
     if loop.sandbox_environment_id is not None:
         extra_state["sandbox_environment_id"] = str(loop.sandbox_environment_id)
+    # A repo-less loop still needs `gh` for evidence gathering (PR digests, commit
+    # history), so provisioning mints the team-scoped read-only GitHub token for it
+    # (see get_readonly_github_token; a team with no usable integration skips the
+    # mint). Repo-pinned loops get the repository integration's token instead.
+    if not loop.repositories:
+        extra_state["github_read_access"] = True
     # Reclaim the sandbox promptly once the agent goes idle — a loop run is unattended,
     # so nothing sends a follow-up. CI-watching loops keep the default window so the
     # sandbox survives the orchestrator's CI follow-up cadence.
@@ -777,18 +804,13 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
 
     task_run = task.create_run(mode="background", extra_state=extra_state)
 
-    team_id = loop.team_id
-    user_id = loop.created_by_id
-    task_id = str(task.id)
-    run_id = str(task_run.id)
-
     transaction.on_commit(
         lambda: _seed_skill_bundles_and_dispatch(
             task_run=task_run,
-            team_id=team_id,
-            user_id=user_id,
-            task_id=task_id,
-            run_id=run_id,
+            team_id=loop.team_id,
+            user_id=loop.created_by_id,
+            task_id=str(task.id),
+            run_id=str(task_run.id),
             create_pr=create_pr,
             posthog_mcp_scopes=posthog_mcp_scopes,
         )

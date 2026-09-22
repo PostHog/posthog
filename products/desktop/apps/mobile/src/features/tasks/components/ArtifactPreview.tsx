@@ -1,3 +1,4 @@
+import { applyCspToHtml } from "@posthog/core/mcp-apps/csp";
 import type { TaskRunArtifact } from "@posthog/shared";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -20,7 +21,6 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import WebView from "react-native-webview";
 import { MarkdownText } from "@/features/chat";
-import { applyCspToHtml } from "@/features/mcp/sandbox/mcpAppCsp";
 import { openExternalUrl } from "@/lib/openExternalUrl";
 import { useThemeColors } from "@/lib/theme";
 import { useCloudAttachmentPreview } from "../hooks/useCloudAttachmentPreview";

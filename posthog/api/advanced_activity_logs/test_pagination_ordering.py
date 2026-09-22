@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
@@ -13,7 +13,7 @@ from posthog.api.advanced_activity_logs.viewset import activity_log_ordering
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 
-@freeze_time("2024-01-01T12:00:00Z")
+@time_machine.travel("2024-01-01T12:00:00Z", tick=False)
 class TestActivityLogCursorOrdering(APIBaseTest):
     def _create_logs(self, count: int, same_timestamp: bool = False) -> None:
         stamp = timezone.now()

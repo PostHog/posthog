@@ -137,6 +137,10 @@ describe('inboxUsageLogic', () => {
                     404,
                     { detail: 'PR refunds are not enabled for this organization.' },
                 ],
+                '/api/projects/:team_id/signals/config/': () => [
+                    200,
+                    { id: 'cfg-1', default_autostart_priority: 'P4' },
+                ],
             },
         })
         featureFlagLogic.mount()

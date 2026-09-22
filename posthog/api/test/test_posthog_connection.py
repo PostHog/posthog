@@ -1,17 +1,22 @@
 import json
 import time
+from datetime import timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.test.client import Client as HttpClient
+from django.utils import timezone
 
 from rest_framework import status
 
 from posthog.api.posthog_connection import CONNECTION_MAX_INFLIGHT_PER_CONNECTION
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import Integration
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.oauth_provenance import SANDBOX_ORIGIN_HEADER
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 FORWARD_PATH = "posthog.api.posthog_connection.requests.request"
 
@@ -74,6 +79,71 @@ class TestPostHogConnectionForward:
         assert mock_request.call_args[1]["headers"]["Authorization"] == "Bearer AT"
         assert mock_request.call_args[1]["params"] == {"limit": "5"}
         assert mock_request.call_args[1]["allow_redirects"] is False
+
+    def test_forward_marks_the_target_as_mcp_only_for_mcp_origin(self, client: HttpClient):
+        from posthog.auth import MCP_USER_AGENT_MARKER
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="mcp", user=self.user, secure_value=hash_key_value(key_value), scopes=["*"])
+        with patch(FORWARD_PATH) as mock_request:
+            mock_request.return_value = _mock_response(201, {"id": "abc"})
+            client.post(
+                self._forward_url(),
+                {"method": "POST", "path": "api/projects/2/tasks/", "data": {"description": "hi"}},
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+                headers={"User-Agent": f"cursor/1.0 {MCP_USER_AGENT_MARKER}; version: 1.0.0"},
+            )
+        assert MCP_USER_AGENT_MARKER in mock_request.call_args[1]["headers"]["User-Agent"]
+
+        with patch(FORWARD_PATH) as mock_request:
+            mock_request.return_value = _mock_response(201, {"id": "abc"})
+            client.force_login(self.user)
+            client.post(
+                self._forward_url(),
+                {"method": "POST", "path": "api/projects/2/tasks/", "data": {"description": "hi"}},
+                content_type="application/json",
+            )
+        assert "User-Agent" not in mock_request.call_args[1]["headers"]
+
+    @pytest.mark.parametrize("sandbox", [False, True])
+    def test_forward_preserves_sandbox_origin(self, client: HttpClient, sandbox: bool):
+        application = OAuthApplication.objects.create(
+            name="Connection client",
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            user=self.user,
+            organization=self.organization,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_connection_caller_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="integration:write task:write" + (" internal_run:read" if sandbox else ""),
+            scoped_teams=[self.team.id],
+        )
+        self.integration.config["granted_scopes"] = ["task:write"]
+        self.integration.save(update_fields=["config"])
+
+        with patch(FORWARD_PATH) as mock_request:
+            mock_request.return_value = _mock_response(200, {})
+            response = client.post(
+                self._forward_url(),
+                {"method": "POST", "path": "api/projects/2/tasks/", "data": {"start_run": True}},
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {token.token}",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        headers = mock_request.call_args.kwargs["headers"]
+        assert headers["Authorization"] == "Bearer AT"
+        assert headers.get(SANDBOX_ORIGIN_HEADER) == ("1" if sandbox else None)
 
     def test_forward_sends_body_only_for_write_methods(self, client: HttpClient):
         client.force_login(self.user)

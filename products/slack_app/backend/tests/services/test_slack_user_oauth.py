@@ -121,6 +121,33 @@ class TestFindLinkedPosthogUser:
         assert found is not None
         assert found.id == first_user.id
 
+    def test_most_recent_link_skipped_when_that_user_is_deactivated(self, org_team_user, link_user):
+        org, _, first_user = org_team_user
+        # Both accounts are in `org`, so only `is_active` separates them.
+        second_user = User.objects.create(email="dev2@example.com", distinct_id="user-2", is_active=False)
+        OrganizationMembership.objects.create(user=second_user, organization=org)
+        link_user(first_user)
+        link_user(second_user)
+
+        found = find_linked_posthog_user(
+            slack_user_id=SLACK_USER_ID, slack_team_id=SLACK_TEAM_ID, candidate_org_ids={org.id}
+        )
+        assert found is not None
+        assert found.id == first_user.id
+
+    def test_returns_none_when_the_only_linked_user_is_deactivated(self, org_team_user, link_user):
+        org, _, user = org_team_user
+        link_user(user)
+        user.is_active = False
+        user.save(update_fields=["is_active"])
+
+        assert (
+            find_linked_posthog_user(
+                slack_user_id=SLACK_USER_ID, slack_team_id=SLACK_TEAM_ID, candidate_org_ids={org.id}
+            )
+            is None
+        )
+
 
 class TestUserSlackIntegrationFromIdentity:
     """Tests for the model factory that the OAuth callback hands off to.
@@ -169,7 +196,7 @@ class TestResolveSlackUserWithLink:
     delegates the lookup to it.
     """
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.is_slack_app_oauth_enabled")
     def test_flag_off_falls_through_to_email_path_unchanged(
         self, mock_flag, mock_webclient_class, org_team_user, workspace_integration, link_user
@@ -191,7 +218,7 @@ class TestResolveSlackUserWithLink:
         assert mock_client.users_info.called
         assert result.slack_email == "dev@example.com"
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.is_slack_app_oauth_enabled")
     def test_flag_on_with_link_short_circuits_email_lookup(
         self, mock_flag, mock_webclient_class, org_team_user, workspace_integration, link_user
@@ -217,7 +244,7 @@ class TestResolveSlackUserWithLink:
     # `tests/test_zz_resolve_slack_user_with_link_no_access.py` — see that
     # file's module docstring for why it can't live next to its siblings here.
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.post_link_invite_message")
     @patch("products.slack_app.backend.api.is_slack_app_oauth_enabled")
     def test_flag_on_with_no_link_and_no_membership_posts_invite(
@@ -255,7 +282,7 @@ class TestResolveSlackUserWithLink:
         assert invite_kwargs["slack_email"] == "stranger@example.com"
         assert invite_kwargs["invite_url"].startswith("http")
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.post_link_invite_message")
     @patch("products.slack_app.backend.api.is_slack_app_oauth_enabled")
     def test_flag_off_with_no_membership_does_not_post_invite(
@@ -319,7 +346,7 @@ class TestExchangeCode:
         assert identity.user_access_token == "xoxp-user"
         # userInfo must be asked with the token minted by the code exchange —
         # a bot or stale token would report the wrong (or no) identity.
-        slack_client.assert_any_call(token="xoxp-user")
+        slack_client.assert_any_call(token="xoxp-user", source="slack_user_oauth", app_id="posthog")
 
     def test_token_exchange_api_error_wraps_into_oauth_error(self, slack_client):
         slack_client.return_value.openid_connect_token.side_effect = SlackApiError(

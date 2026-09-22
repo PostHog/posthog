@@ -3,6 +3,7 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      "env": ["SKIP_PRODUCT_ENGINEER_SKILLS_DOWNLOAD"],
       "outputs": ["dist/**", ".vite/**"]
     },
     "typecheck": {

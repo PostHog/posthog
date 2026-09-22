@@ -88,6 +88,14 @@ SESSIONS_COLUMN_ALIAS = "Sessions"
 # enum so the sides can't drift apart and split one row in two.
 UNKNOWN_CHANNEL = DefaultChannelTypes.UNKNOWN.value
 
+# Revenue from goals marked counts_as_revenue over the channel's spend. Distinct from
+# REPORTED_ROAS, the platform's own figure. Not a base column: it needs the goals CTE.
+ROAS_COLUMN = MarketingAnalyticsConstants.ROAS.value
+
+# Joined to the "Cost per" prefix so it inherits that family's currency and higher-is-worse
+# formatting. Counts each customer goal's conversions as customers — see the aggregator.
+CAC_COLUMN_SUFFIX = MarketingAnalyticsConstants.CUSTOMER.value
+
 # What `$entry_referring_domain` holds when a session arrived with no referrer at all. Stored as a
 # sentinel rather than an empty string, so anything asking "does this session name a referrer?" has
 # to test for it explicitly. Matches the literal the channel-type classifier keys off in
@@ -312,6 +320,22 @@ BASE_COLUMN_MAPPING = {
         ),
     ),
 }
+
+# Metrics that only the cost side can report. A row with no cost match has no value for them,
+# which the table shows as "-" rather than as a spend of zero.
+COST_SIDE_METRIC_COLUMNS: frozenset[MarketingAnalyticsBaseColumns] = frozenset(
+    {
+        MarketingAnalyticsBaseColumns.COST,
+        MarketingAnalyticsBaseColumns.CLICKS,
+        MarketingAnalyticsBaseColumns.IMPRESSIONS,
+        MarketingAnalyticsBaseColumns.CPC,
+        MarketingAnalyticsBaseColumns.CTR,
+        MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS,
+        MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE,
+        MarketingAnalyticsBaseColumns.REPORTED_ROAS,
+        MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS,
+    }
+)
 
 BASE_COLUMNS = [BASE_COLUMN_MAPPING[column] for column in MarketingAnalyticsBaseColumns]
 
@@ -752,3 +776,10 @@ def to_marketing_analytics_data(
         changeFromPreviousPct=change_from_previous_pct,
         hasComparison=has_comparison,
     )
+
+
+# Spill the GROUP BY to disk past this much memory. Deliberately far below the shared
+# MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY (22 GiB): these queries peak around 1.5 GiB, so a threshold above
+# their peak never fires, and one above the per-query memory limit could never fire at all.
+# `test_spill_threshold_is_reachable` locks that relationship.
+MARKETING_SPILL_AFTER_BYTES = 512 * 1024 * 1024

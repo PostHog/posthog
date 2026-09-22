@@ -3,7 +3,9 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 
 export type LemonDialogFormPropsType = {
-    errors?: Record<string, (value: string) => string | undefined>
+    /** Per-field validators. The second argument is the whole form, for fields whose validity
+     * depends on another field (e.g. a setting that is only required once a toggle is on). */
+    errors?: Record<string, (value: any, allValues: Record<string, any>) => string | undefined>
     /** Unique key that isolates this dialog's form state from other open dialogs. */
     dialogKey?: string
     /** Surface field errors inline once a field is touched, instead of only via the submit button tooltip. */
@@ -87,7 +89,7 @@ export const lemonDialogLogic = kea<lemonDialogLogicType>([
             defaults: {} as Record<string, string>,
             errors: (values: Record<string, string>) => {
                 const entries = Object.entries(props.errors || []).map(([key, valueOf]) => {
-                    const result = valueOf(values[key])
+                    const result = valueOf(values[key], values)
                     return [key, result]
                 })
                 return Object.fromEntries(entries)

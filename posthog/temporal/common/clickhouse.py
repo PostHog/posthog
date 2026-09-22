@@ -22,6 +22,7 @@ from temporalio import activity
 
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.clickhouse import query_tagging
+from posthog.clickhouse.client.connection import ClickHouseCredentials
 from posthog.clickhouse.query_tagging import QueryTags, TemporalTags, get_query_tags
 from posthog.security.outbound_proxy import internal_requests_session
 
@@ -290,10 +291,11 @@ class ClickHouseClient:
         database: str = "default",
         timeout: None | aiohttp.ClientTimeout = None,
         ssl: ssl.SSLContext | bool = True,
+        password_file: str | None = None,
         **kwargs,
     ):
         self.url = url
-        self.headers = {}
+        self.headers: dict[str, str] = {}
         self.params = {}
         self.timeout = timeout
         self.ssl = ssl
@@ -301,16 +303,26 @@ class ClickHouseClient:
         self.session: None | aiohttp.ClientSession = None
         self.logger = LOGGER.bind(url=url, database=database, user=user)
 
-        if user:
-            self.headers["X-ClickHouse-User"] = user
-        if password:
-            self.headers["X-ClickHouse-Key"] = password
+        # Build auth per request from the credential, which may read a rotating token file. A long
+        # batch export holds one session for hours, longer than a short-lived token lives, so the
+        # auth header cannot be stamped once at construction.
+        self._credentials = ClickHouseCredentials(user=user, password=password, password_file=password_file)
+
         if database:
             self.params["database"] = database
 
         self.params["max_query_size"] = "1048576"  # 1MB
 
         self.params.update(kwargs)
+
+    def _request_headers(self) -> dict[str, str]:
+        headers = dict(self.headers)
+        if self._credentials.user:
+            headers["X-ClickHouse-User"] = self._credentials.user
+        key = self._credentials.read_password()
+        if key:
+            headers["X-ClickHouse-Key"] = key
+        return headers
 
     @classmethod
     def from_posthog_settings(cls, settings, **kwargs):
@@ -319,6 +331,7 @@ class ClickHouseClient:
             url=settings.CLICKHOUSE_URL,
             user=settings.CLICKHOUSE_USER,
             password=settings.CLICKHOUSE_PASSWORD,
+            password_file=settings.CLICKHOUSE_PASSWORD_FILE,
             database=settings.CLICKHOUSE_DATABASE,
             **kwargs,
         )
@@ -337,7 +350,7 @@ class ClickHouseClient:
         try:
             await self.session.get(
                 url=ping_url,
-                headers=self.headers,
+                headers=self._request_headers(),
                 raise_for_status=True,
                 timeout=aiohttp.ClientTimeout(total=timeout),
             )
@@ -386,7 +399,9 @@ class ClickHouseClient:
         return request_data
 
     @staticmethod
-    def raise_clickhouse_error(error_message: str, query: str | None = None) -> typing.NoReturn:
+    def raise_clickhouse_error(
+        error_message: str, query: str | None = None, query_id: str | None = None
+    ) -> typing.NoReturn:
         """Raise the appropriate ClickHouseError subclass based on the error message."""
         ERROR_CODE_TO_EXCEPTION: dict[str, type[ClickHouseError]] = {
             "ALL_REPLICAS_ARE_STALE": ClickHouseAllReplicasAreStaleError,
@@ -398,8 +413,8 @@ class ClickHouseClient:
         }
         for error_code, exc_class in ERROR_CODE_TO_EXCEPTION.items():
             if error_code in error_message:
-                raise exc_class(error_message, query=query)
-        raise ClickHouseError(error_message, query=query)
+                raise exc_class(error_message, query=query, query_id=query_id)
+        raise ClickHouseError(error_message, query=query, query_id=query_id)
 
     async def acheck_response(self, response, query) -> None:
         """Asynchronously check the HTTP response received from ClickHouse."""
@@ -452,7 +467,7 @@ class ClickHouseClient:
 
         add_log_comment_param(params)
 
-        async with self.session.get(url=self.url, headers=self.headers, params=params) as response:
+        async with self.session.get(url=self.url, headers=self._request_headers(), params=params) as response:
             await self.acheck_response(response, query)
             yield response
 
@@ -524,7 +539,7 @@ class ClickHouseClient:
 
         try:
             async with self.session.post(
-                url=self.url, params=params, headers=self.headers, data=request_data, timeout=client_timeout
+                url=self.url, params=params, headers=self._request_headers(), data=request_data, timeout=client_timeout
             ) as response:
                 await self.acheck_response(response, query)
                 yield response
@@ -586,7 +601,7 @@ class ClickHouseClient:
             response = s.post(
                 url=self.url,
                 params=params,
-                headers=self.headers,
+                headers=self._request_headers(),
                 data=request_data,
                 stream=True,
                 verify=False,
@@ -764,8 +779,11 @@ class ClickHouseClient:
         elif "ExceptionWhileProcessing" in events or "ExceptionBeforeStart" in events:
             if raise_on_error:
                 error_message = error or f"Unknown query error in query with ID: {query_id}"
-                # we don't have the original query here so just use the query id
-                raise ClickHouseError(error_message, query_id=query_id)
+                # The query log's `exception` column holds the same text ClickHouse returns over
+                # HTTP, so classify it the same way for consistency. Otherwise, the exception a
+                # caller sees for a query result we fetch from the query log would differ from that
+                # they would get running the query and waiting for the result.
+                self.raise_clickhouse_error(error_message, query_id=query_id)
 
             return ClickHouseQueryStatus.ERROR
         elif "QueryStart" in events:
@@ -1038,6 +1056,7 @@ async def get_client(
         url=url,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
+        password_file=settings.CLICKHOUSE_PASSWORD_FILE,
         database=settings.CLICKHOUSE_DATABASE,
         timeout=timeout,
         ssl=False,

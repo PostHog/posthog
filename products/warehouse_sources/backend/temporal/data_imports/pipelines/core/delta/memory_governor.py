@@ -81,7 +81,7 @@ _MARGINAL_PER_WORKER_MB = 133.0
 _MARGINAL_PER_SOURCE_MB = 0.73
 #: Beyond 4 partition workers the measured wall-clock gains vanish while memory keeps climbing.
 _MAX_PARALLEL_PARTITIONS = 4
-#: Per-call knobs the governor no longer tunes (mpp is the memory dial): deltalite's defaults, kept
+#: Per-call knobs the governor does not tune (mpp is the memory dial): deltalite's defaults, kept
 #: explicit so the write is deterministic.
 _MAX_PARALLEL_FILES = 4
 _DEFAULT_BUFFERED_BYTES = 64 * MB

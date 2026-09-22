@@ -1,0 +1,68 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/conformance/case.schema.json",
+    "title": "owners.yaml conformance case file",
+    "type": "object",
+    "required": ["cases"],
+    "additionalProperties": false,
+    "properties": {
+        "cases": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "#/$defs/case" }
+        }
+    },
+    "$defs": {
+        "case": {
+            "type": "object",
+            "required": ["name", "files", "expect"],
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "description": "A sentence that states the behavior. Unique within the file.",
+                    "type": "string",
+                    "minLength": 1
+                },
+                "files": {
+                    "description": "Repository-relative path to file content. Paths use / as the separator.",
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": { "type": "string" }
+                },
+                "purpose": {
+                    "description": "The channel purpose of SPEC section 5.2. slack is the purpose \"people\".",
+                    "enum": ["slack", "notifications"],
+                    "default": "slack"
+                },
+                "producer": {
+                    "description": "The automation name for the channel lookup of SPEC section 5.2.",
+                    "type": "string",
+                    "minLength": 1
+                },
+                "expect": {
+                    "description": "Path to resolve, as given to the resolver, to its expected resolution.",
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": { "$ref": "#/$defs/resolution" }
+                }
+            }
+        },
+        "resolution": {
+            "type": "object",
+            "required": ["owners", "unowned_by_design", "status", "source", "slack"],
+            "additionalProperties": false,
+            "properties": {
+                "owners": {
+                    "type": "array",
+                    "items": { "type": "string", "minLength": 1 }
+                },
+                "unowned_by_design": { "type": "boolean" },
+                "status": { "enum": ["active", "deprecated", "generated", "vendored"] },
+                "source": { "type": ["string", "null"] },
+                "slack": {
+                    "oneOf": [{ "type": "string", "pattern": "^#" }, { "type": "null" }]
+                }
+            }
+        }
+    }
+}

@@ -9,13 +9,195 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    PaginatedWizardProgramListApi,
+    PaginatedWizardRunArtifactListApi,
+    PaginatedWizardRunListApi,
     PaginatedWizardSessionDTOListApi,
+    PatchedWizardRunStatusUpdateRequestApi,
     UpsertWizardSessionRequestApi,
+    WizardRegistryListParams,
+    WizardRunApi,
+    WizardRunCreateRequestApi,
+    WizardRunsArtifactsListParams,
+    WizardRunsListParams,
     WizardSessionDTOApi,
     WizardSessionsLatestRetrieveParams,
     WizardSessionsListParams,
     WizardSessionsStreamRetrieveParams,
 } from './api.schemas'
+
+export const getWizardRegistryListUrl = (projectId: string, params?: WizardRegistryListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/wizard/registry/?${stringifiedParams}`
+        : `/api/projects/${projectId}/wizard/registry/`
+}
+
+/**
+ * List Wizard programs available for this project.
+ */
+export const wizardRegistryList = async (
+    projectId: string,
+    params?: WizardRegistryListParams,
+    options?: RequestInit
+): Promise<PaginatedWizardProgramListApi> => {
+    return apiMutator<PaginatedWizardProgramListApi>(getWizardRegistryListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWizardRunsListUrl = (projectId: string, params?: WizardRunsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/wizard/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/wizard/runs/`
+}
+
+/**
+ * List Wizard runs for this project, ordered from newest to oldest.
+ */
+export const wizardRunsList = async (
+    projectId: string,
+    params?: WizardRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedWizardRunListApi> => {
+    return apiMutator<PaginatedWizardRunListApi>(getWizardRunsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWizardRunsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/wizard/runs/`
+}
+
+/**
+ * Create a local or cloud Wizard run for a project workspace.
+ */
+export const wizardRunsCreate = async (
+    projectId: string,
+    wizardRunCreateRequestApi: WizardRunCreateRequestApi,
+    options?: RequestInit
+): Promise<WizardRunApi> => {
+    return apiMutator<WizardRunApi>(getWizardRunsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(wizardRunCreateRequestApi),
+    })
+}
+
+export const getWizardRunsRetrieveUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/wizard/runs/${runId}/`
+}
+
+/**
+ * Retrieve a Wizard run in this project.
+ */
+export const wizardRunsRetrieve = async (
+    projectId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<WizardRunApi> => {
+    return apiMutator<WizardRunApi>(getWizardRunsRetrieveUrl(projectId, runId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWizardRunsPartialUpdateUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/wizard/runs/${runId}/`
+}
+
+/**
+ * Change the terminal status of a local Wizard run.
+ */
+export const wizardRunsPartialUpdate = async (
+    projectId: string,
+    runId: string,
+    patchedWizardRunStatusUpdateRequestApi?: PatchedWizardRunStatusUpdateRequestApi,
+    options?: RequestInit
+): Promise<WizardRunApi> => {
+    return apiMutator<WizardRunApi>(getWizardRunsPartialUpdateUrl(projectId, runId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedWizardRunStatusUpdateRequestApi),
+    })
+}
+
+export const getWizardRunsArtifactsListUrl = (
+    projectId: string,
+    runId: string,
+    params?: WizardRunsArtifactsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/wizard/runs/${runId}/artifacts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/wizard/runs/${runId}/artifacts/`
+}
+
+/**
+ * List metadata for artifacts produced by a Wizard run.
+ */
+export const wizardRunsArtifactsList = async (
+    projectId: string,
+    runId: string,
+    params?: WizardRunsArtifactsListParams,
+    options?: RequestInit
+): Promise<PaginatedWizardRunArtifactListApi> => {
+    return apiMutator<PaginatedWizardRunArtifactListApi>(getWizardRunsArtifactsListUrl(projectId, runId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWizardRunsArtifactsContentRetrieveUrl = (projectId: string, runId: string, id: string) => {
+    return `/api/projects/${projectId}/wizard/runs/${runId}/artifacts/${id}/content/`
+}
+
+/**
+ * Get the unified git diff stored for a Wizard run artifact.
+ */
+export const wizardRunsArtifactsContentRetrieve = async (
+    projectId: string,
+    runId: string,
+    id: string,
+    options?: RequestInit
+): Promise<string> => {
+    return apiMutator<string>(getWizardRunsArtifactsContentRetrieveUrl(projectId, runId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getWizardSessionsListUrl = (projectId: string, params?: WizardSessionsListParams) => {
     const normalizedParams = new URLSearchParams()

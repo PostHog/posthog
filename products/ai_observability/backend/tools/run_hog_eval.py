@@ -26,7 +26,7 @@ from ee.hogai.tool import MaxTool
 
 TOOL_DESCRIPTION = f"""Test Hog evaluation code against sample data from the last {EVALUATION_TEST_LOOKBACK_DAYS} days.
 
-Returns compilation errors if the code is invalid, or pass/fail/error results for each sample.
+Returns compilation errors if the code is invalid, or raw true/false/N/A/error results for each sample.
 
 Set `target` to match how the evaluation will run: `generation` samples individual generations,
 `trace` samples whole traces, and `session` samples whole sessions that have gone quiet. For
@@ -46,7 +46,7 @@ Saved evaluations can still use the generation-only compatibility globals `input
 `properties`, and `event`, but do not use them in new source that should also work for traces
 or sessions.
 
-The code must return a boolean: `true` for pass, `false` for fail.
+The code must return `true` or `false`. Evaluation output settings determine which value counts as a failure.
 Use `print()` statements to output reasoning.
 """
 
@@ -63,9 +63,9 @@ def _format_sample(
     if error:
         verdict_str = "ERROR"
     elif verdict is True:
-        verdict_str = "PASS"
+        verdict_str = "true"
     elif verdict is False:
-        verdict_str = "FAIL"
+        verdict_str = "false"
     else:
         verdict_str = "N/A"
 
@@ -261,9 +261,9 @@ class RunHogEvalTestTool(MaxTool):
             if result["error"]:
                 verdict_str = "ERROR"
             elif verdict is True:
-                verdict_str = "PASS"
+                verdict_str = "true"
             elif verdict is False:
-                verdict_str = "FAIL"
+                verdict_str = "false"
             else:
                 verdict_str = "N/A"
 

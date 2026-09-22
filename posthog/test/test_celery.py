@@ -1,3 +1,4 @@
+import os
 import threading
 
 from unittest import TestCase
@@ -5,9 +6,15 @@ from unittest.mock import MagicMock, patch
 
 import posthoganalytics
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 import posthog.celery
-from posthog.celery import on_worker_process_shutdown
+from posthog.celery import _initialize_worker_metrics, on_worker_process_shutdown
+from posthog.celery_task_names import (
+    VERIFY_FLAG_DEFINITIONS_CACHE_TASK_NAME,
+    VERIFY_FLAGS_CACHE_TASK_NAME,
+    VERIFY_TEAM_METADATA_CACHE_TASK_NAME,
+)
 from posthog.tasks.tasks import clickhouse_errors_count
 
 
@@ -63,6 +70,31 @@ class TestAnalyticsMetricsConfig(TestCase):
         config = getattr(posthoganalytics, "metrics", None)
         assert isinstance(config, dict)
         assert config["service_name"]
+
+
+class TestWorkerMetricsInitialization(TestCase):
+    # "celery" excludes long_running, so this also proves the seed does not depend on
+    # the queue set (and keeps the DB-touching cohort branch off).
+    @patch.dict(os.environ, {"CELERY_WORKER_QUEUES": "celery"})
+    def test_seeds_hypercache_verification_task_series(self) -> None:
+        _initialize_worker_metrics()
+
+        for task_name in (
+            VERIFY_FLAGS_CACHE_TASK_NAME,
+            VERIFY_TEAM_METADATA_CACHE_TASK_NAME,
+            VERIFY_FLAG_DEFINITIONS_CACHE_TASK_NAME,
+        ):
+            for sample_name in (
+                "posthog_celery_task_pre_run_total",
+                "posthog_celery_task_success_total",
+                "posthog_celery_task_failure_total",
+            ):
+                # Existence, not == 0: another test running one of these tasks in the
+                # same process increments the counter, and the alert only needs the
+                # series to exist.
+                assert REGISTRY.get_sample_value(sample_name, {"task_name": task_name}) is not None, (
+                    f"{sample_name} has no series for {task_name}"
+                )
 
 
 class TestCeleryMetrics(TestCase):

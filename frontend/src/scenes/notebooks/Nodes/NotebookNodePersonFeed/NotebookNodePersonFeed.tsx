@@ -6,14 +6,14 @@ import { NotFound } from 'lib/components/NotFound'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { NotebookNodeProps, NotebookNodeType } from 'scenes/notebooks/types'
-import { personLogic } from 'scenes/persons/personLogic'
 
 import { PersonType } from '~/types'
+
+import { personLogic } from 'products/persons/frontend/logics/personLogic'
 
 import { getCustomerProfileRemoveMenuItem } from '../customerProfileNotebookNodeMenu'
 import { createPostHogWidgetNode } from '../NodeWrapper'
 import { notebookNodeLogic } from '../notebookNodeLogic'
-import { AISessionSummary } from './AISessionSummary/AISessionSummary'
 import { notebookNodePersonFeedLogic } from './notebookNodePersonFeedLogic'
 import { Session } from './Session'
 
@@ -39,7 +39,6 @@ const Feed = ({ person }: FeedProps): JSX.Element => {
 
     return (
         <div className="p-2">
-            <AISessionSummary personId={id} />
             <h3 className="font-semibold mb-2">Session timeline</h3>
             {sessions.map((session: any) => (
                 <Session key={session.sessionId} session={session} />

@@ -16,7 +16,7 @@ from typing import Any
 import requests
 
 from posthog.egress.github.limiter import classify_github_resource, consume_github_installation_sync
-from posthog.egress.github.observability import record_github_api_exception, record_github_api_response
+from posthog.egress.github.observability import github_egress
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
 
@@ -95,6 +95,8 @@ class GitHubClient(EgressClient):
     """The GitHub incarnation of :class:`EgressClient`. Stateless and token-agnostic, so one shared
     instance serves every caller; wire it through :func:`github_request`."""
 
+    observability = github_egress
+
     def _standard_headers(self) -> dict[str, str]:
         return {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": GITHUB_API_VERSION}
 
@@ -102,14 +104,6 @@ class GitHubClient(EgressClient):
         return consume_github_installation_sync(
             scope, resource=classify_github_resource(url), priority=priority, source=source
         )
-
-    def _record_response(
-        self, response: requests.Response, *, source: str, scope: str | None, method: str, endpoint: str | None
-    ) -> None:
-        record_github_api_response(response, source=source, installation_id=scope, method=method, endpoint=endpoint)
-
-    def _record_exception(self, *, source: str, scope: str | None, method: str, url: str, endpoint: str | None) -> None:
-        record_github_api_exception(source=source, installation_id=scope, method=method, url=url, endpoint=endpoint)
 
     def _budget_exhausted_error(self, scope: str) -> GitHubEgressBudgetExhausted:
         return GitHubEgressBudgetExhausted(f"GitHub egress budget exhausted for installation {scope}; deferring")

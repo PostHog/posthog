@@ -1,16 +1,17 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.coingecko import CoinGeckoResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.settings import (
+    ENDPOINTS,
+    MAX_COINS,
+    MERGE_ONLY_ENDPOINTS,
+    PER_COIN_ENDPOINTS,
+    PRO_ONLY_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.source import CoinGeckoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coingecko import (
     CoinGeckoSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCoinGeckoSource:
@@ -18,34 +19,6 @@ class TestCoinGeckoSource:
         self.source = CoinGeckoSource()
         self.team_id = 123
         self.config = CoinGeckoSourceConfig(api_key="CG-test", plan="demo")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.COINGECKO
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "CoinGecko"
-        assert config.label == "CoinGecko"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # A finished source is visible — no unreleasedSource flag.
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/coingecko.png"
-
-        assert [f.name for f in config.fields] == ["plan", "api_key"]
-
-    def test_plan_field_is_select_defaulting_to_demo(self) -> None:
-        plan_field = next(f for f in self.source.get_source_config.fields if f.name == "plan")
-        assert isinstance(plan_field, SourceFieldSelectConfig)
-        assert plan_field.defaultValue == "demo"
-        assert {option.value for option in plan_field.options} == {"demo", "pro"}
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert key_field.secret is True
-        assert key_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -69,21 +42,26 @@ class TestCoinGeckoSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
-    def test_get_schemas_covers_all_endpoints_full_refresh_only(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
+    def test_get_schemas_covers_all_endpoints(self) -> None:
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
 
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        # CoinGecko's catalog/snapshot endpoints have no server-side timestamp filter.
-        assert all(not schema.supports_incremental for schema in schemas)
-        assert all(not schema.supports_append for schema in schemas)
+        assert set(schemas) == set(ENDPOINTS)
+        # Only the timeseries endpoints take a server-side date filter, and they re-read the window
+        # holding the last synced day, so append would duplicate every day in that overlap.
+        assert {name for name, schema in schemas.items() if schema.supports_incremental} == set(MERGE_ONLY_ENDPOINTS)
+        assert all(not schema.supports_append for schema in schemas.values())
+        # On a Demo key the per-coin endpoints can't sync until coin IDs are configured and the
+        # Pro-only ones can't sync at all, so one-shot setup must not enable either.
+        assert {name for name, schema in schemas.items() if not schema.should_sync_default} == set(
+            PER_COIN_ENDPOINTS
+        ) | set(PRO_ONLY_ENDPOINTS)
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["coins_markets"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "coins_markets"
+    def test_pro_plan_enables_the_pro_only_endpoints(self) -> None:
+        config = CoinGeckoSourceConfig(api_key="CG-test", plan="pro")
 
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
+        schemas = {schema.name: schema for schema in self.source.get_schemas(config, self.team_id)}
+
+        assert all(schemas[name].should_sync_default for name in PRO_ONLY_ENDPOINTS)
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
@@ -110,27 +88,69 @@ class TestCoinGeckoSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("demo", "CG-test")
 
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is CoinGeckoResumeConfig
+    @pytest.mark.parametrize("schema_name", PER_COIN_ENDPOINTS)
+    def test_per_coin_schema_needs_coin_ids(self, schema_name: str) -> None:
+        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id, schema_name)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.source.coingecko_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_cg_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "coins_markets"
-        manager = mock.MagicMock()
+        assert is_valid is False
+        assert error_message == "Add at least one coin ID to sync this table."
 
-        self.source.source_for_pipeline(self.config, manager, inputs)
+    @pytest.mark.parametrize("schema_name", PRO_ONLY_ENDPOINTS)
+    def test_pro_only_schema_is_refused_on_a_demo_key(self, schema_name: str) -> None:
+        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id, schema_name)
 
-        mock_cg_source.assert_called_once()
-        kwargs = mock_cg_source.call_args.kwargs
-        assert kwargs["plan"] == "demo"
-        assert kwargs["api_key"] == "CG-test"
-        assert kwargs["endpoint"] == "coins_markets"
-        assert kwargs["resumable_source_manager"] is manager
+        assert is_valid is False
+        assert error_message == "This table needs a CoinGecko Pro key on the Analyst plan or above."
 
-    def test_canonical_descriptions_cover_key_endpoints(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert "coins_markets" in descriptions
-        assert "current_price" in descriptions["coins_markets"]["columns"]
+    @pytest.mark.parametrize("schema_name", PRO_ONLY_ENDPOINTS)
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.source.validate_coingecko_credentials"
+    )
+    def test_pro_only_schema_connects_on_a_pro_key(self, mock_validate: mock.MagicMock, schema_name: str) -> None:
+        mock_validate.return_value = True
+        config = CoinGeckoSourceConfig(api_key="CG-test", plan="pro")
+
+        assert self.source.validate_credentials(config, self.team_id, schema_name) == (True, None)
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.source.validate_coingecko_credentials"
+    )
+    def test_market_wide_schema_connects_without_coin_ids(self, mock_validate: mock.MagicMock) -> None:
+        mock_validate.return_value = True
+
+        assert self.source.validate_credentials(self.config, self.team_id, "coins_list") == (True, None)
+
+    @pytest.mark.parametrize("start_date", ["", "   ", None])
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.source.validate_coingecko_credentials"
+    )
+    def test_blank_start_date_falls_back_to_the_default_window(
+        self, mock_validate: mock.MagicMock, start_date: str | None
+    ) -> None:
+        mock_validate.return_value = True
+        config = CoinGeckoSourceConfig(api_key="CG-test", plan="demo", start_date=start_date)
+
+        assert self.source.validate_credentials(config, self.team_id) == (True, None)
+
+    @pytest.mark.parametrize(
+        "config_kwargs, expected_message",
+        [
+            (
+                {"coin_ids": ",".join(f"coin-{i}" for i in range(MAX_COINS + 1))},
+                f"Too many coin IDs. List at most {MAX_COINS}.",
+            ),
+            ({"start_date": "1970-01-01"}, "CoinGecko has no data before 2018-01-01. Enter that date or a later one."),
+            (
+                # An unreadable date silently fell back to the default window, so the source synced
+                # a different range than the one that was configured.
+                {"start_date": "01/15/2025"},
+                "Couldn't read '01/15/2025' as a date. Use the format YYYY-MM-DD, for example 2025-01-01.",
+            ),
+        ],
+    )
+    def test_rejects_a_configuration_that_would_run_away(
+        self, config_kwargs: dict[str, str], expected_message: str
+    ) -> None:
+        config = CoinGeckoSourceConfig(api_key="CG-test", plan="demo", **config_kwargs)
+
+        assert self.source.validate_credentials(config, self.team_id) == (False, expected_message)

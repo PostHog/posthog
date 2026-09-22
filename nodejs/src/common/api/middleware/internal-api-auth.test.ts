@@ -188,9 +188,13 @@ describe('createInternalApiAuthMiddleware', () => {
             expect(res.status).not.toHaveBeenCalled()
         })
 
-        it('should skip auth for scoped-JWT routes, which authenticate in their handler', () => {
+        it.each([
+            ['/api/projects/1/hog_flows/some-uuid/reschedule_parked'],
+            ['/api/projects/1/hog_flows/some-uuid/invocations/cancel'],
+            ['/api/projects/1/hog_flows/some-uuid/batch_jobs/some-job-id/cancel'],
+        ])('should skip auth for scoped-JWT route %s, which authenticates in its handler', (path) => {
             const middleware = createInternalApiAuthMiddleware({ secret: 'test-secret' })
-            const req = mockRequest('/api/projects/1/hog_flows/some-uuid/reschedule_parked', {})
+            const req = mockRequest(path, {})
             const res = mockResponse()
             const next = jest.fn()
 
@@ -198,6 +202,24 @@ describe('createInternalApiAuthMiddleware', () => {
 
             expect(next).toHaveBeenCalled()
             expect(res.status).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            // batch_invocations' last segment is a caller-controlled :parent_run_id and its handler
+            // verifies no token, so the literal id "cancel" must not inherit the scoped-JWT exemption.
+            ['/api/projects/1/hog_flows/some-uuid/batch_invocations/cancel'],
+            ['/api/some/other/route/cancel'],
+            ['/api/projects/1/hog_flows/some-uuid/reschedule_parked/extra'],
+        ])('should still require the secret for %s despite resembling a scoped route', (path) => {
+            const middleware = createInternalApiAuthMiddleware({ secret: 'test-secret' })
+            const req = mockRequest(path, {})
+            const res = mockResponse()
+            const next = jest.fn()
+
+            middleware(req, res, next)
+
+            expect(next).not.toHaveBeenCalled()
+            expect(res.status).toHaveBeenCalledWith(401)
         })
 
         it('should allow custom excluded path prefixes', () => {

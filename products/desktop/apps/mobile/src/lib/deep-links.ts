@@ -33,14 +33,10 @@ export const UNIVERSAL_LINK_PREFIX = `https://${UNIVERSAL_LINK_HOST}`;
 export const paths = {
   tasksTab: "/(tabs)/tasks" as const,
   inboxTab: "/(tabs)/inbox" as const,
-  automationsTab: "/(tabs)/automations" as const,
   settings: "/settings" as const,
   newTask: "/task" as const,
   task: (taskId: string) => `/task/${taskId}` as const,
   inboxReport: (reportId: string) => `/inbox/${reportId}` as const,
-  automation: (automationId: string) => `/automation/${automationId}` as const,
-  newAutomation: "/automation/create" as const,
-  automationTemplates: "/automation" as const,
 } as const;
 
 /** A path is the part after the host: starts with `/`, no scheme. */

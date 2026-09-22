@@ -103,7 +103,7 @@ class LoopTriggerProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTea
 
 
 class HasLoopsAccess(BasePermission):
-    """Gate every Loops endpoint on `has_loops_access` (tasks access plus the `loops` flag).
+    """Gate every Loops endpoint on its independent `loops` flag.
 
     Exempts PSAK-authenticated service calls (`trigger`, and `runs` readback): a PSAK is a
     project-scoped service credential, not a real user, so the person-targeted `loops` flag
@@ -433,9 +433,13 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if is_authenticated_via_project_secret_api_key(request):
             # PSAK is project-wide (it can already trigger any loop), so its readback skips the
             # personal/team visibility split, same as the trigger path.
-            page = loops_facade.list_loop_runs_for_service(pk, self.team_id, cursor=cursor, limit=limit)
+            page = loops_facade.list_loop_runs_for_service(
+                pk, self.team_id, cursor=cursor, limit=limit, status=query.get("status")
+            )
         else:
-            page = loops_facade.list_loop_runs(pk, self.team_id, request.user, cursor=cursor, limit=limit)
+            page = loops_facade.list_loop_runs(
+                pk, self.team_id, request.user, cursor=cursor, limit=limit, status=query.get("status")
+            )
         if page is None:
             raise NotFound()
         return Response(LoopRunPageSerializer({"results": page.runs, "next_cursor": page.next_cursor}).data)

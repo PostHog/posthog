@@ -55,10 +55,11 @@ export const parseHostname = (hostname: string, rootDomain: string): { subdomain
 
 const getEmailSenderFromIntegration = (integration: IntegrationType): EmailSenderFormType => {
     return {
-        email: integration.config.email,
-        name: integration.config.name,
-        provider: integration.config.provider,
-        mail_from_subdomain: integration.config.mail_from_subdomain,
+        // `config` is untyped, so a legacy or hand-edited row can miss keys. Keep the form defaults instead.
+        email: integration.config?.email ?? '',
+        name: integration.config?.name ?? '',
+        provider: integration.config?.provider ?? 'ses',
+        mail_from_subdomain: integration.config?.mail_from_subdomain,
     }
 }
 
@@ -268,7 +269,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
         domain: [
             (s) => [s.emailSender],
             (emailSender: EmailSenderFormType): string => {
-                return emailSender.email.includes('@') ? emailSender.email.split('@')[1] : ''
+                return emailSender.email?.includes('@') ? emailSender.email.split('@')[1] : ''
             },
         ],
         isDomainVerified: [

@@ -189,6 +189,8 @@ export function useCreateComment(target: CommentTarget, taskId?: string) {
         scope: target.scope,
         source_comment: request.sourceCommentId ?? null,
         completed_at: null,
+        completed_by: null,
+        slack_thread: null,
       };
       appendOptimisticComment(queryClient, caches, optimistic);
       return { previous, optimisticId: optimistic.id };
@@ -258,6 +260,8 @@ export function useSetCommentResolved(target: CommentTarget) {
         scope: target.scope,
         source_comment: root.id,
         completed_at: null,
+        completed_by: null,
+        slack_thread: null,
       };
       appendOptimisticComment(queryClient, caches, optimistic);
       return { previous };

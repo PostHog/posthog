@@ -40,7 +40,8 @@ class TestRecordSyncRun(TeamScopedTestMixin, APIBaseTest):
     def _record(self, **overrides) -> PersonPropertySyncRunRecord:
         kwargs: dict = {
             "team_id": self.team.id,
-            "schema_id": self.schema_id,
+            "binding_kind": "schema",
+            "binding_id": self.schema_id,
             "source_id": str(self.source.id),
             "job_id": "job-1",
             "trigger": "scheduled",
@@ -185,3 +186,12 @@ class TestRecordSyncRun(TeamScopedTestMixin, APIBaseTest):
         assert self.source.consecutive_failures == 0
         assert self.source.last_synced_at is not None
         assert self.source.last_sync_error is None
+
+    def test_view_binding_lands_in_the_saved_query_column(self):
+        # The two binding columns are how a run stays attributable after its schema or view is deleted.
+        # Writing a view's id into schema_id would attribute the run to a schema that never ran it.
+        record_sync_run(self._record(binding_kind="saved_query", binding_id="7bd1a4de-0000-4000-8000-000000000001"))
+
+        run = CustomPropertySyncRun.objects.unscoped().get(source_id=self.source.id)
+        assert str(run.saved_query_id) == "7bd1a4de-0000-4000-8000-000000000001"
+        assert run.schema_id is None

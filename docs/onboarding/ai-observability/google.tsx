@@ -1,6 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
+import { GO_OTEL_TAB } from './_snippets/go-otel-tab'
 
 export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
@@ -39,6 +40,7 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                     npm install @posthog/ai posthog-node @google/genai
                                 `,
                             },
+                            GO_OTEL_TAB,
                         ]}
                     />
                 </>

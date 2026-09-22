@@ -196,6 +196,47 @@ describe('stepWaitUntilTimeWindowLogic', () => {
             }),
         })
     })
+
+    it('should auto-update the description when the action has no description', async () => {
+        // Agent-created actions can arrive without a description key; editing one must not throw on .trim().
+        const action = {
+            id: `wait_action_${uuid()}`,
+            type: 'wait_until_time_window',
+            name: 'Wait until time window',
+            description: undefined as unknown as string,
+            config: {
+                day: 'weekday',
+                time: ['09:00', '17:00'],
+                timezone: 'UTC',
+                use_person_timezone: false,
+                fallback_timezone: null,
+            },
+            created_at: Date.now(),
+            updated_at: Date.now(),
+        } as HogFlowAction
+
+        await expectLogic(wfLogic, () => {
+            wfLogic.actions.setWorkflowInfo({
+                actions: [...wfLogic.values.workflow.actions, action],
+            })
+        }).toDispatchActions(['setWorkflowInfo'])
+
+        await expectLogic(logic, () => {
+            logic.actions.partialSetWaitUntilTimeWindowConfig(action.id, { day: 'weekend' })
+        })
+            .toDispatchActions(['partialSetWorkflowActionConfig'])
+            .toFinishListeners()
+
+        await expectLogic(logic).toMatchValues({
+            workflow: partial({
+                actions: expect.arrayContaining([
+                    expect.objectContaining({
+                        description: 'Wait until weekends between 09:00 and 17:00 (UTC).',
+                    }),
+                ]),
+            }),
+        })
+    })
 })
 
 describe('getWaitUntilTimeWindowDescription', () => {

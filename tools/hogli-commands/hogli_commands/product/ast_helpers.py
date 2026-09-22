@@ -5,6 +5,9 @@ from __future__ import annotations
 import re
 import ast
 import warnings
+import importlib.util
+from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 # Common suffixes/prefixes that contract dataclasses may use instead of mirroring the model name exactly.
@@ -35,58 +38,162 @@ def get_imported_module_names(tree: ast.Module) -> set[str]:
     return imported
 
 
-def _file_imports_django_models(tree: ast.Module) -> bool:
-    """Check whether a file imports from django.db.models (or django.db)."""
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            if node.module.startswith("django.db"):
-                return True
-        elif isinstance(node, ast.Import):
-            if any(alias.name.startswith("django.db") for alias in node.names):
+# The bases a Django model reaches. `Model` is django.db.models.Model under both the bare and the
+# `models.Model` spelling, because _base_names keeps the attribute and drops the module. The rest are
+# the abstract bases posthog/models/utils.py and posthog/models/scoping/ export, every one of which
+# subclasses models.Model itself. A base outside this list still counts once it resolves through
+# another class of the product's own model modules, which is how a product's own abstract base and a
+# proxy model are reached.
+_DJANGO_MODEL_BASES: frozenset[str] = frozenset(
+    {
+        "BytecodeModelMixin",
+        "CreatedMetaFields",
+        "DeletedMetaFields",
+        "Model",
+        "ProductTeamModel",
+        "RootTeamMixin",
+        "TeamScopedRootMixin",
+        "UpdatedMetaFields",
+        "UUIDModel",
+        "UUIDTClassicModel",
+        "UUIDTModel",
+    }
+)
+
+# Base-name suffixes whose subclasses are value/manager helpers, never registered models.
+_NON_MODEL_BASE_SUFFIXES = ("Choices", "Enum", "Manager", "QuerySet")
+
+
+def _base_names(node: ast.ClassDef) -> list[str]:
+    names: list[str] = []
+    for base in node.bases:
+        if isinstance(base, ast.Name):
+            names.append(base.id)
+        elif isinstance(base, ast.Attribute):
+            names.append(base.attr)
+    return names
+
+
+def _is_abstract_model(node: ast.ClassDef) -> bool:
+    for item in node.body:
+        if not (isinstance(item, ast.ClassDef) and item.name == "Meta"):
+            continue
+        for stmt in item.body:
+            if (
+                isinstance(stmt, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "abstract" for t in stmt.targets)
+                and isinstance(stmt.value, ast.Constant)
+                and stmt.value.value is True
+            ):
                 return True
     return False
 
 
-def get_model_names(backend_dir: Path) -> list[str]:
-    """Return names of Django ORM model subclasses in backend/models.py and/or backend/models/.
+@dataclass(frozen=True)
+class _ModelCandidate:
+    """One module-level class in a model module, with what decides whether it is a model.
 
-    Only counts classes whose base name ends with 'Model' (e.g. Model, UUIDTModel)
-    and only in files that import from django.db, to avoid false positives from
-    Pydantic BaseModel or similar.
-    """
+    An abstract class stays a candidate because it is how its subclasses reach a Django base, but
+    the registry never returns it, so it never becomes a name of its own."""
+
+    name: str
+    bases: tuple[str, ...]
+    is_abstract: bool
+
+
+def _model_source_files(backend_dir: Path) -> list[Path]:
+    """The product's model modules: backend/models.py, backend/models/, or both."""
     sources: list[Path] = []
     models_file = backend_dir / "models.py"
     models_dir = backend_dir / "models"
     if models_file.exists():
         sources.append(models_file)
     if models_dir.is_dir():
-        sources.extend(models_dir.rglob("*.py"))
+        sources.extend(sorted(models_dir.rglob("*.py")))
+    return sources
 
-    names: list[str] = []
-    for path in sources:
+
+def _model_candidates(backend_dir: Path) -> list[_ModelCandidate]:
+    """Every module-level class in the model modules that could be a registered model.
+
+    Nested classes (Meta, TextChoices) are never registered, and neither are the
+    choices/enum/manager/queryset subclasses, so both are out here.
+    """
+    candidates: list[_ModelCandidate] = []
+    for path in _model_source_files(backend_dir):
         tree = ast_parse_safe(path)
         if not tree:
             continue
-        if not _file_imports_django_models(tree):
-            continue
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef):
-                for base in node.bases:
-                    base_name = (
-                        base.id
-                        if isinstance(base, ast.Name)
-                        else base.attr
-                        if isinstance(base, ast.Attribute)
-                        else None
-                    )
-                    if base_name and base_name.endswith("Model"):
-                        names.append(node.name)
-                        break
-    return names
+        for node in tree.body:
+            if not isinstance(node, ast.ClassDef):
+                continue
+            bases = _base_names(node)
+            if not bases:
+                continue
+            if any(base.endswith(_NON_MODEL_BASE_SUFFIXES) for base in bases):
+                continue
+            candidates.append(_ModelCandidate(node.name, tuple(bases), _is_abstract_model(node)))
+    return candidates
+
+
+def get_model_names(backend_dir: Path) -> list[str]:
+    """Return names of Django ORM model classes in backend/models.py and/or backend/models/.
+
+    A class counts when one of its bases is a Django model base (_DJANGO_MODEL_BASES) or another
+    class of these modules that already counts. The resolution repeats to a fixpoint, so it reaches
+    a subclass of the product's own abstract base, and a proxy model, which sits in another module
+    and names nothing but its concrete model as a base.
+
+    Bases decide, and not the imports of the file, because a model module also holds classes that
+    are not tables: the pydantic models a JSON field is validated against, the TypedDicts a query
+    returns, and the errors the module raises. Excluded: abstract models (Meta.abstract = True) and
+    choices/enum/manager/queryset subclasses, which the app registry never returns.
+    """
+    candidates = _model_candidates(backend_dir)
+    reaches_model_base: set[str] = set()
+    pending = True
+    while pending:
+        pending = False
+        for candidate in candidates:
+            if candidate.name in reaches_model_base:
+                continue
+            if not any(base in _DJANGO_MODEL_BASES or base in reaches_model_base for base in candidate.bases):
+                continue
+            reaches_model_base.add(candidate.name)
+            pending = True
+    return [c.name for c in candidates if c.name in reaches_model_base and not c.is_abstract]
+
+
+def decorator_name(node: ast.expr) -> str | None:
+    """The bare name of a decorator, with any call and any module prefix stripped."""
+    target = node.func if isinstance(node, ast.Call) else node
+    if isinstance(target, ast.Name):
+        return target.id
+    if isinstance(target, ast.Attribute):
+        return target.attr
+    return None
+
+
+def _keyword_is(node: ast.expr, name: str, value: bool) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    return any(
+        kw.arg == name and isinstance(kw.value, ast.Constant) and kw.value.value is value for kw in node.keywords
+    )
+
+
+def _is_frozen_dataclass_decorator(node: ast.expr) -> bool:
+    """True for @dataclass(frozen=True) and for the house decorator, which is frozen by default."""
+    name = decorator_name(node)
+    if name == "dataclass":
+        return _keyword_is(node, "frozen", True)
+    if name == "frozen":
+        return not _keyword_is(node, "frozen", False)
+    return False
 
 
 def get_frozen_dataclass_names(file_path: Path) -> list[str]:
-    """Return names of @dataclass(frozen=True) classes in a file."""
+    """Return names of frozen dataclasses in a file."""
     tree = ast_parse_safe(file_path)
     if not tree:
         return []
@@ -94,18 +201,8 @@ def get_frozen_dataclass_names(file_path: Path) -> list[str]:
     for node in ast.walk(tree):
         if not isinstance(node, ast.ClassDef):
             continue
-        for dec in node.decorator_list:
-            if not isinstance(dec, ast.Call):
-                continue
-            func = dec.func
-            is_dc = (isinstance(func, ast.Name) and func.id == "dataclass") or (
-                isinstance(func, ast.Attribute) and func.attr == "dataclass"
-            )
-            if is_dc and any(
-                kw.arg == "frozen" and isinstance(kw.value, ast.Constant) and kw.value.value is True
-                for kw in dec.keywords
-            ):
-                names.append(node.name)
+        if any(_is_frozen_dataclass_decorator(dec) for dec in node.decorator_list):
+            names.append(node.name)
     return names
 
 
@@ -149,20 +246,57 @@ def module_dunder_all(tree: ast.Module) -> set[str] | None:
     return None
 
 
-def module_level_import_froms(tree: ast.Module) -> list[tuple[int, str | None, list[tuple[str, str | None]]]]:
-    """Every module-level `from ... import ...` as (level, module, [(name, asname)]).
+# What a module-level assignment may bind that can name a type. A call, a dict or a literal binds a
+# value, and expanding one where an annotation names it would read data as a type.
+_TYPE_ALIAS_VALUES: tuple[type[ast.expr], ...] = (ast.Name, ast.Attribute, ast.Subscript, ast.BinOp)
 
-    asname is None when no alias is given; `import Foo as Foo` yields ("Foo", "Foo") so callers
-    can tell the explicit self-alias re-export idiom apart from a plain import. Skips imports
-    nested in functions/classes (not module bindings) and inside `if TYPE_CHECKING:` blocks
-    (type-only, nothing crosses at runtime)."""
-    results: list[tuple[int, str | None, list[tuple[str, str | None]]]] = []
+
+def _is_type_alias_annotation(node: ast.expr) -> bool:
+    """True for the `TypeAlias` annotation, under both the bare and the `typing.TypeAlias` spelling."""
+    return (isinstance(node, ast.Name) and node.id == "TypeAlias") or (
+        isinstance(node, ast.Attribute) and node.attr == "TypeAlias"
+    )
+
+
+def module_type_aliases(tree: ast.Module) -> dict[str, ast.expr]:
+    """Module-level type aliases: {the name a module binds -> the expression it stands for}.
+
+    All three spellings count: a plain `Handler = Callable[[Thing], None]`, the explicit
+    `Handler: TypeAlias = ...`, and the PEP 695 statement `type Handler = ...`. An annotated
+    assignment with any other annotation binds an ordinary module variable
+    (`_handlers: dict[str, Handler] = {}`), which is data and not a type."""
+    aliases: dict[str, ast.expr] = {}
     for node in ast.iter_child_nodes(tree):
-        if _is_type_checking_guard(node):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            bound = node.targets[0].id
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and _is_type_alias_annotation(node.annotation)
+        ):
+            bound = node.target.id
+        elif isinstance(node, ast.TypeAlias) and isinstance(node.name, ast.Name):
+            bound = node.name.id
+        else:
             continue
-        if isinstance(node, ast.ImportFrom):
-            results.append((node.level, node.module, [(alias.name, alias.asname) for alias in node.names]))
-    return results
+        if isinstance(node.value, _TYPE_ALIAS_VALUES):
+            aliases[bound] = node.value
+    return aliases
+
+
+def module_level_import_nodes(tree: ast.Module, *, type_checking: bool = False) -> list[ast.Import | ast.ImportFrom]:
+    """Every module-level import statement, in source order.
+
+    An import nested in a function or a class binds no module name, so it is skipped. An import in
+    an `if TYPE_CHECKING:` block binds no runtime object either, but it still names the type a
+    signature promises, so `type_checking=True` includes it."""
+    nodes: list[ast.Import | ast.ImportFrom] = []
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            nodes.append(node)
+        elif type_checking and isinstance(node, ast.If) and _is_type_checking_guard(node):
+            nodes.extend(child for child in node.body if isinstance(child, (ast.Import, ast.ImportFrom)))
+    return nodes
 
 
 def lazy_reexport_map(tree: ast.Module) -> dict[str, str]:
@@ -200,20 +334,55 @@ def lazy_reexport_map(tree: ast.Module) -> dict[str, str]:
     return mapping
 
 
+def lazy_reexport_prefixes(tree: ast.Module) -> list[str]:
+    """Module-level string constants a lazy map prepends to its values (`_B = "products.x.backend."`).
+
+    A lazy map stores its source modules relative to some package, and the prefix constant is how
+    the module says which. Every module-level string that ends in a dot is a candidate, so a caller
+    tries each and keeps the one that names a real module."""
+    return [
+        node.value.value
+        for node in ast.iter_child_nodes(tree)
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+        and node.value.value.endswith(".")
+    ]
+
+
+def iter_public_callables(
+    tree: ast.Module, *, include_init: bool = False
+) -> Iterator[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]]:
+    """(owning class, node) for every public callable a module defines at its top level or in a
+    class body. The owning class is "" for a plain function, so a caller can spell a method as
+    `Mapper.to_contract`. Nested definitions are not part of any call surface, so they are out.
+
+    `include_init` adds `__init__` on a public class. A constructor takes what the caller hands the
+    class, so it is part of the call surface, while every other underscore name is a helper."""
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not node.name.startswith("_"):
+            yield "", node
+        elif isinstance(node, ast.ClassDef):
+            for child in ast.iter_child_nodes(node):
+                if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                if not child.name.startswith("_") or (include_init and child.name == "__init__"):
+                    yield node.name, child
+
+
 def get_public_function_names(file_path: Path) -> list[str]:
     """Return names of public top-level and class-level functions/methods (not nested)."""
     tree = ast_parse_safe(file_path)
     if not tree:
         return []
-    names: list[str] = []
-    for node in ast.iter_child_nodes(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not node.name.startswith("_"):
-            names.append(node.name)
-        elif isinstance(node, ast.ClassDef):
-            for child in ast.iter_child_nodes(node):
-                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and not child.name.startswith("_"):
-                    names.append(child.name)
-    return names
+    return [node.name for _, node in iter_public_callables(tree)]
+
+
+def module_has_prefix(module: str, prefixes: Sequence[str]) -> bool:
+    """True when a dotted module name is one of `prefixes` or sits under one.
+
+    Anchored on the dot, so `django.dbrouter` does not read as `django.db`."""
+    return any(module == p or module.startswith(p + ".") for p in prefixes)
 
 
 def imports_any(file_path: Path, prefixes: list[str]) -> bool:
@@ -223,10 +392,10 @@ def imports_any(file_path: Path, prefixes: list[str]) -> bool:
         return False
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module:
-            if any(node.module == p or node.module.startswith(p + ".") for p in prefixes):
+            if module_has_prefix(node.module, prefixes):
                 return True
         elif isinstance(node, ast.Import):
-            if any(alias.name == p or alias.name.startswith(p + ".") for alias in node.names for p in prefixes):
+            if any(module_has_prefix(alias.name, prefixes) for alias in node.names):
                 return True
     return False
 
@@ -354,6 +523,65 @@ def count_viewset_files(directory: Path) -> int:
                 count += 1
                 break
     return count
+
+
+def _importing_package(file_path: Path, package_root: Path, package_prefix: str) -> str:
+    """The dotted package a relative import in `file_path` resolves against.
+
+    A module names the directory it sits in, and an `__init__.py` names its own directory,
+    so both are the parent of the file path.
+    """
+    return ".".join([package_prefix, *file_path.relative_to(package_root).parent.parts])
+
+
+def _import_from_module(node: ast.ImportFrom, package: str) -> str | None:
+    """The absolute module an `ImportFrom` reads from, with relative forms resolved.
+
+    None when the import climbs past the top of the package and so names nothing.
+    """
+    if node.level == 0:
+        return node.module
+    try:
+        return importlib.util.resolve_name("." * node.level + (node.module or ""), package)
+    except ImportError:
+        return None
+
+
+def module_import_targets(file_path: Path, package_root: Path, package_prefix: str) -> list[tuple[int, str]]:
+    """(line, dotted module) for every import in the file that names a module under
+    `package_prefix` (e.g. "products.foo.backend"), resolved against `package_root` (the
+    directory that prefix maps to) so `from a.b import c` yields `a.b.c` when c is a
+    module or package and `a.b` when c is a name.
+
+    Relative imports (`from . import x`, `from ..services import y`) resolve to the same
+    absolute form first, so a rule reads one shape and a writer cannot dodge it by spelling
+    the import the other way.
+
+    Pure AST: unlike grimp it does not need __init__.py markers to see a module, which is
+    what lets a lint hold an import-linter contract in directories grimp cannot descend into.
+    """
+    tree = ast_parse_safe(file_path)
+    if not tree:
+        return []
+    prefix_dot = package_prefix + "."
+    package = _importing_package(file_path, package_root, package_prefix)
+
+    def is_module(dotted: str) -> bool:
+        rel = Path(*dotted[len(prefix_dot) :].split("."))
+        return (package_root / rel).is_dir() or (package_root / rel).with_suffix(".py").exists()
+
+    targets: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            targets.extend((node.lineno, a.name) for a in node.names if a.name.startswith(prefix_dot))
+        elif isinstance(node, ast.ImportFrom):
+            module = _import_from_module(node, package)
+            if not module or (module != package_prefix and not module.startswith(prefix_dot)):
+                continue
+            for alias in node.names:
+                candidate = f"{module}.{alias.name}"
+                targets.append((node.lineno, candidate if is_module(candidate) else module))
+    return [(line, dotted) for line, dotted in targets if dotted.startswith(prefix_dot)]
 
 
 def _collect_py_files(path: Path) -> list[Path]:

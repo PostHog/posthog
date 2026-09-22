@@ -20,7 +20,12 @@ export const aiCostModalityExtractionCounter = new Counter({
 
 export const aiCostTotalOutcomeCounter = new Counter({
     name: 'llma_ai_cost_outcome_total',
-    help: 'Outcome of total cost calculation (positive, zero, negative)',
+    // "unknown" means nothing priced the event — no token counts, no request or
+    // web search charge, and no cost the client sent — so no cost was recorded.
+    // "zero" is a usage report of nothing, which is a different fact. "error"
+    // means the computed total came out NaN, which takes an Infinity-sized cost
+    // component surviving the write guards; it should never fire.
+    help: 'Outcome of total cost calculation (positive, zero, negative, unknown, error)',
     labelNames: ['outcome'],
 })
 
@@ -67,6 +72,12 @@ export const aiCacheExclusiveFallbackCounter = new Counter({
     name: 'aio_ai_cost_cache_exclusive_fallback_total',
     help: 'Undeclared events resolved to exclusive cache reporting because cache tokens exceed input tokens',
     labelNames: ['prior'], // prior: inclusive | anthropic_inclusive
+})
+
+export const aiOtelUnknownPartTypeCounter = new Counter({
+    name: 'aio_ai_otel_unknown_part_type_total',
+    help: 'OTel GenAI message parts whose type no renderer handles, bucketed into a fixed label set, so new semconv part types surface here instead of as blank output',
+    labelNames: ['part_type'],
 })
 
 export const aiBlobOffloadS3Duration = new Histogram({

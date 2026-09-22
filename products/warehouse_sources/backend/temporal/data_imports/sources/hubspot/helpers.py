@@ -12,6 +12,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 
 from .auth import HubspotRetryableError, hubspot_refresh_access_token
+from .scopes import HubspotForbiddenError, missing_scope_error, scope_gated_object_for_url
 from .settings import OBJECT_TYPE_PLURAL, apply_crm_api_version
 
 BASE_URL = "https://api.hubapi.com/"
@@ -37,6 +38,23 @@ def _is_retryable_status(status_code: int) -> bool:
 def get_url(endpoint: str) -> str:
     """Get absolute hubspot endpoint URL"""
     return urllib.parse.urljoin(BASE_URL, endpoint)
+
+
+def raise_for_hubspot_status(response: requests.Response, url: str) -> None:
+    """Raise for a non-2xx HubSpot response, mapping 403 to a non-reportable failure.
+
+    A 403 means the connected portal's grant can't read this object, which the customer fixes by
+    reconnecting (or by turning the table off) — retrying and reporting it as a crash helps nobody.
+    When the object sits behind an optional scope, name that scope so the failure says what to do.
+    """
+    if response.status_code == HTTPStatus.FORBIDDEN:
+        gated = scope_gated_object_for_url(url)
+        if gated is not None:
+            raise missing_scope_error(gated.endpoint, gated.scope)
+        # Keep requests' own wording: `get_non_retryable_errors` matches on it.
+        raise HubspotForbiddenError(f"403 Client Error: Forbidden for url: {url}")
+
+    response.raise_for_status()
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -166,7 +184,7 @@ def fetch_data(
         if _is_retryable_status(r.status_code):
             raise HubspotRetryableError(f"Hubspot API error (retryable): status={r.status_code}, url={page_url}")
 
-        r.raise_for_status()
+        raise_for_hubspot_status(r, page_url)
 
         # See hubspot.fetch_page: a truncated/partial body is transient, so retry rather than crash.
         try:

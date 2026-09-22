@@ -141,6 +141,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             source_type=self._source.source_type,
             team_id=self._job.team_id,
             schema_name=self._schema.name,
+            primary_keys=self._resource.primary_keys,
         )
         self._internal_schema = HogQLSchema()
         self._sinks = build_pipeline_sinks(
@@ -340,7 +341,16 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         pa_table = await setup_partitioning(pa_table, delta_table, self._schema, self._resource, self._logger)
 
-        pa_table = evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
+        pa_table = evolve_pyarrow_schema(
+            pa_table,
+            delta_table.schema() if delta_table is not None else None,
+            merge_key_columns=[
+                *(self._resource.primary_keys or []),
+                *(self._schema.partitioning_keys_override or []),
+                *(self._schema.partitioning_keys or []),
+                *(self._resource.partition_keys or []),
+            ],
+        )
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
         write_type: Literal["incremental", "full_refresh", "append"] = "full_refresh"
@@ -450,6 +460,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             logger=self._logger,
             last_incremental_field_value=self._last_incremental_field_value,
             resource=self._resource,
+            allow_zero_row_skip=True,
         )
 
 

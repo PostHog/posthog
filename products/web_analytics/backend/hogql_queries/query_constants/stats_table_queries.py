@@ -171,8 +171,8 @@ GROUP BY session_id, breakdown_value
 
 MAIN_INNER_QUERY = """
 SELECT
-    any(person_id) AS filtered_person_id,
-    count() AS filtered_pageview_count,
+    {filtered_person_id} AS filtered_person_id,
+    {filtered_pageview_count} AS filtered_pageview_count,
     {breakdown_value} AS breakdown_value,
     session.session_id AS session_id,
     any(session.$is_bounce) AS is_bounce,
@@ -207,8 +207,8 @@ SELECT
     start_timestamp
 FROM (
     SELECT
-        any(person_id) AS filtered_person_id,
-        count() AS filtered_pageview_count,
+        {filtered_person_id} AS filtered_person_id,
+        {filtered_pageview_count} AS filtered_pageview_count,
         {first_pageview_properties} AS first_pageview_properties,
         session.session_id AS session_id,
         any(session.$is_bounce) AS is_bounce,
@@ -235,8 +235,8 @@ FROM (
 # to the single events scan.
 NO_JOIN_MAIN_INNER_QUERY = """
 SELECT
-    any(person_id) AS filtered_person_id,
-    count() AS filtered_pageview_count,
+    {filtered_person_id} AS filtered_person_id,
+    {filtered_pageview_count} AS filtered_pageview_count,
     {breakdown_value} AS breakdown_value,
     if(
         equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),

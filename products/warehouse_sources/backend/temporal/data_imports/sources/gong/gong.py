@@ -1,5 +1,4 @@
 import base64
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
@@ -9,6 +8,8 @@ import requests
 from dateutil import parser as dateutil_parser
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -33,10 +34,10 @@ class GongRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class GongResumeConfig:
-    # ISO-8601 start of the next `calls` date window to fetch. Only the windowed `calls`
-    # endpoint persists resume state; cursors are deliberately not cached (Gong expires
+    # ISO-8601 start of the next date window to fetch. Only the windowed, call-date-filtered
+    # endpoints persist resume state; cursors are deliberately not cached (Gong expires
     # them quickly), so on resume we restart the in-progress window from scratch and let
     # primary-key merge semantics dedupe any re-yielded rows.
     window_start: Optional[str] = None
@@ -104,41 +105,40 @@ def _build_url(path: str, params: dict[str, Any]) -> str:
     return f"{GONG_BASE_URL}{path}?{urlencode(params)}"
 
 
-def _extensive_body(window_start: datetime, window_end: datetime, cursor: Optional[str]) -> dict[str, Any]:
+def _extensive_body(
+    config: GongEndpointConfig, window_start: datetime, window_end: datetime, cursor: Optional[str]
+) -> dict[str, Any]:
     """Request body for `POST /v2/calls/extensive`.
 
-    `contentSelector.context = "Extended"` asks Gong to return each call's CRM associations
-    (linked Salesforce/HubSpot objects and their fields); `exposedFields.parties = true` returns
-    the participants (name, email address, affiliation). Neither is available from the basic
-    `/v2/calls` list endpoint. The pagination cursor travels in the body, not the query string.
+    Gong returns only the enrichment blocks named in `contentSelector`, so each extensive table
+    supplies its own — CRM associations and participants for `calls_extensive`, Spotlight
+    summaries for `calls_content`. None of it is available from the basic `/v2/calls` list
+    endpoint. The pagination cursor travels in the body, not the query string.
     """
     body: dict[str, Any] = {
         "filter": {
             "fromDateTime": _format_datetime(window_start),
             "toDateTime": _format_datetime(window_end),
         },
-        "contentSelector": {
-            "context": "Extended",
-            "exposedFields": {"parties": True},
-        },
+        "contentSelector": config.extensive_content_selector,
     }
     if cursor:
         body["cursor"] = cursor
     return body
 
 
-def _flatten_extensive_call(call: dict[str, Any]) -> dict[str, Any]:
+def _flatten_extensive_call(call: dict[str, Any], row_keys: tuple[str, ...]) -> dict[str, Any]:
     """Lift the `metaData` block of an extensive call row to the top level.
 
-    `/v2/calls/extensive` nests the core call fields under `metaData` and returns `parties`
-    and CRM `context` as siblings. Flattening `metaData` up keeps `id` and `started` available
-    at the top level for primary-key merge and datetime partitioning, while preserving the
-    enrichment as nested `parties`/`context` columns.
+    `/v2/calls/extensive` nests the core call fields under `metaData` and returns the requested
+    enrichment blocks as siblings. Flattening `metaData` up keeps `id` and `started` available at
+    the top level for primary-key merge and datetime partitioning, while preserving each
+    enrichment block as a nested column.
     """
     meta = call.get("metaData") or {}
     flattened = dict(meta)
-    flattened["parties"] = call.get("parties")
-    flattened["context"] = call.get("context")
+    for key in row_keys:
+        flattened[key] = call.get(key)
     return flattened
 
 
@@ -244,35 +244,135 @@ def _iter_windowed_rows(
 
     while window_start < end:
         window_end = min(window_start + timedelta(days=MAX_WINDOW_DAYS), end)
-        cursor: str | None = None
 
-        while True:
-            if config.uses_extensive:
-                data = fetch_page(
-                    _build_url(config.path, {}),
-                    json_body=_extensive_body(window_start, window_end, cursor),
-                )
-                rows = [_flatten_extensive_call(row) for row in data.get(config.response_key, [])]
-            else:
-                params: dict[str, Any] = {
-                    "fromDateTime": _format_datetime(window_start),
-                    "toDateTime": _format_datetime(window_end),
-                }
-                if cursor:
-                    params["cursor"] = cursor
-
-                data = fetch_page(_build_url(config.path, params))
-                rows = data.get(config.response_key, [])
-
-            if rows:
-                yield rows
-
-            cursor = data.get("records", {}).get("cursor")
-            if not cursor:
-                break
+        if config.uses_call_id_batches:
+            yield from _iter_transcript_rows(config, fetch_page, window_start, window_end)
+        else:
+            yield from _iter_call_rows(config, fetch_page, window_start, window_end)
 
         window_start = window_end
         resumable_source_manager.save_state(GongResumeConfig(window_start=_format_datetime(window_start)))
+
+
+def _iter_call_rows(
+    config: GongEndpointConfig, fetch_page, window_start: datetime, window_end: datetime
+) -> Iterator[Any]:
+    """Cursor-paginate one date window of `/v2/calls`, or of its extensive POST form."""
+    cursor: str | None = None
+
+    while True:
+        if config.uses_extensive:
+            data = fetch_page(
+                _build_url(config.path, {}),
+                json_body=_extensive_body(config, window_start, window_end, cursor),
+            )
+            rows = [
+                _flatten_extensive_call(row, config.extensive_row_keys) for row in data.get(config.response_key, [])
+            ]
+        else:
+            params: dict[str, Any] = {
+                "fromDateTime": _format_datetime(window_start),
+                "toDateTime": _format_datetime(window_end),
+            }
+            if cursor:
+                params["cursor"] = cursor
+
+            data = fetch_page(_build_url(config.path, params))
+            rows = data.get(config.response_key, [])
+
+        if rows:
+            yield rows
+
+        cursor = data.get("records", {}).get("cursor")
+        if not cursor:
+            break
+
+
+def _iter_transcript_rows(
+    config: GongEndpointConfig, fetch_page, window_start: datetime, window_end: datetime
+) -> Iterator[Any]:
+    """Yield one date window of transcripts, each stamped with the start time of its call.
+
+    Walks the `/v2/calls` list for the window and asks for the transcripts of one page of call ids
+    at a time. That keeps the `callIds` filter bounded to a page, and gives every transcript the
+    `started` of the call it belongs to — `POST /v2/calls/transcript` returns no date of its own.
+    """
+    calls_config = GONG_ENDPOINTS["calls"]
+    cursor: str | None = None
+
+    while True:
+        params: dict[str, Any] = {
+            "fromDateTime": _format_datetime(window_start),
+            "toDateTime": _format_datetime(window_end),
+        }
+        if cursor:
+            params["cursor"] = cursor
+
+        calls_page = fetch_page(_build_url(calls_config.path, params))
+
+        started_by_call_id = _call_start_times(calls_page.get(calls_config.response_key, []))
+        if started_by_call_id:
+            yield from _iter_transcripts_for_calls(config, fetch_page, window_start, window_end, started_by_call_id)
+
+        cursor = calls_page.get("records", {}).get("cursor")
+        if not cursor:
+            break
+
+
+def _call_start_times(calls: list[dict[str, Any]]) -> dict[str, Any]:
+    """Map each call's id to its start time, refusing a call that is missing either.
+
+    Both stamp the transcript rows that follow: the id is the primary key merge runs on, and
+    the start time is what the table partitions by and syncs incrementally on. A row missing
+    either is unmergeable and invisible to the watermark, so stop rather than write it.
+    """
+    start_times: dict[str, Any] = {}
+    for call in calls:
+        call_id, started = call.get("id"), call.get("started")
+        if not call_id or not started:
+            raise ValueError(f"Gong returned a call with no id or no start time (id={call_id!r})")
+        start_times[call_id] = started
+    return start_times
+
+
+def _stamp_transcript(transcript: dict[str, Any], started_by_call_id: dict[str, Any]) -> dict[str, Any]:
+    """Copy a transcript with the start time of the call it belongs to attached."""
+    call_id: Any = transcript.get("callId")
+    started = started_by_call_id.get(call_id)
+    if started is None:
+        raise ValueError(f"Gong returned a transcript for a call that was not asked for (callId={call_id!r})")
+    return {**transcript, "started": started}
+
+
+def _iter_transcripts_for_calls(
+    config: GongEndpointConfig,
+    fetch_page,
+    window_start: datetime,
+    window_end: datetime,
+    started_by_call_id: dict[str, Any],
+) -> Iterator[Any]:
+    cursor: str | None = None
+
+    while True:
+        body: dict[str, Any] = {
+            "filter": {
+                "fromDateTime": _format_datetime(window_start),
+                "toDateTime": _format_datetime(window_end),
+                "callIds": list(started_by_call_id),
+            }
+        }
+        if cursor:
+            body["cursor"] = cursor
+
+        data = fetch_page(_build_url(config.path, {}), json_body=body)
+
+        rows = [_stamp_transcript(row, started_by_call_id) for row in data.get(config.response_key, [])]
+        if rows:
+            yield rows
+
+        cursor = data.get("records", {}).get("cursor")
+        if not cursor:
+            break
 
 
 def gong_source(
@@ -305,4 +405,5 @@ def gong_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        chunk_size=config.chunk_size,
     )

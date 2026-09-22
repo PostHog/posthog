@@ -6,10 +6,9 @@ import { useEffect } from "react";
 /**
  * Looking at a channel reads it: stamp it seen so the sidebar drops its bold.
  *
- * Called from ChannelHeader, which every channel surface renders — the feed,
- * Artifacts, Recents and CONTEXT.md all count as being in the channel, and
- * hanging this off the header means a new surface gets it for free rather than
- * having to remember.
+ * Main channel surfaces call this through ChannelHeader. The sidebar calls it
+ * separately while its channel pane is visible because opening that pane does
+ * not navigate the main window.
  *
  * Stamped with the newest activity rather than "now": a mention landing while
  * you're looking re-stamps it, remounts don't churn the store, and the store

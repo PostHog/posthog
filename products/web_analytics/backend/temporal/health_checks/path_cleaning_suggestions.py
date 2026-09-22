@@ -3,7 +3,7 @@ from django.conf import settings
 import structlog
 
 from posthog.clickhouse.query_tagging import Product
-from posthog.dags.common.owners import JobOwners
+from posthog.job_owners import JobOwners
 from posthog.models import Team
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import HealthExecutionPolicy

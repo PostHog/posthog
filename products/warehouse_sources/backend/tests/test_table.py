@@ -1,4 +1,6 @@
+import tempfile
 import subprocess
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -14,6 +16,7 @@ from parameterized import parameterized
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.models import DatabaseField, StringDatabaseField, UUIDDatabaseField
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+from posthog.hogql.escape_sql import escape_param_clickhouse
 
 from posthog.exceptions import ClickHouseAtCapacity
 
@@ -167,6 +170,21 @@ class TestSafeExposeChError:
         with pytest.raises(Exception, match="Access was denied when reading the provided file"):
             DataWarehouseTable()._safe_expose_ch_error(delta_kernel_error)
 
+    @pytest.mark.parametrize(
+        "raw_message,expected_action",
+        [
+            ("DB::Exception: Access Denied: while reading key: my-data/file.csv, S3 exception", "s3:GetObject"),
+            ("DB::Exception: Could not list objects in bucket my-bucket, S3 exception", "s3:ListBucket"),
+        ],
+    )
+    def test_native_s3_access_denials_name_the_iam_action_to_check(
+        self, raw_message: str, expected_action: str
+    ) -> None:
+        # A self-managed S3 source reads and lists the customer's own bucket, so an access denial
+        # is theirs to fix — name the exact IAM action rather than dead-ending on "access denied".
+        with pytest.raises(Exception, match=expected_action):
+            DataWarehouseTable()._safe_expose_ch_error(ServerException(raw_message, code=499))
+
     def test_delta_kernel_object_store_blip_is_retried_not_blamed_on_the_bucket(self) -> None:
         # ClickHouse's own deltaLake() S3 table function hits the same transient object-store
         # blips as delta-rs (e.g. a dropped connection to our own data-warehouse bucket), just
@@ -193,18 +211,136 @@ class TestRunChdbQuery:
         with pytest.raises(RuntimeError, match="timed out"):
             run_chdb_query("SELECT sleep(2)", timeout=0.5)
 
-    def test_suppressed_delta_error_classification_survives_subprocess_boundary(self) -> None:
-        completed = subprocess.CompletedProcess(
-            args=[],
-            returncode=1,
-            stdout="",
-            stderr="Code: 36. DB::Exception: Unsupported DeltaLake type: timestamp_ntz. (BAD_ARGUMENTS)",
-        )
+    @pytest.mark.parametrize(
+        "stderr",
+        [
+            "Code: 36. DB::Exception: Unsupported DeltaLake type: timestamp_ntz. (BAD_ARGUMENTS)",
+            # Emitted when a source adds a column mid-stream and the parquet parts under one
+            # table disagree on column count. Kept verbatim: the suppression matches on this
+            # wording, so a ClickHouse rephrasing has to fail the test rather than pass silently.
+            "Code: 48. DB::Exception: Reading from files with different schema is not possible. "
+            "The table has 23 columns, which is different from 24 columns in the file. (NOT_IMPLEMENTED)",
+        ],
+    )
+    def test_suppressed_chdb_error_classification_survives_subprocess_boundary(self, stderr: str) -> None:
+        completed = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr=stderr)
         with patch("products.warehouse_sources.backend.models.table.subprocess.run", return_value=completed):
             with pytest.raises(RuntimeError) as exc_info:
                 run_chdb_query("DESCRIBE TABLE s3('https://example.com/table/')")
 
         assert DataWarehouseTable()._is_suppressed_chdb_error(exc_info.value)
+
+    def test_unrelated_chdb_error_is_not_suppressed(self) -> None:
+        # The suppression must stay a narrow allow-list. A chdb failure the ClickHouse fallback
+        # cannot absorb has to keep reaching error tracking.
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr="Code: 499. DB::Exception: Access Denied. (S3_ERROR)"
+        )
+        with patch("products.warehouse_sources.backend.models.table.subprocess.run", return_value=completed):
+            with pytest.raises(RuntimeError) as exc_info:
+                run_chdb_query("DESCRIBE TABLE s3('https://example.com/table/')")
+
+        assert not DataWarehouseTable()._is_suppressed_chdb_error(exc_info.value)
+
+    @pytest.mark.parametrize("platform, suppressed", [("darwin", True), ("linux", False)])
+    def test_missing_deltalake_function_is_suppressed_only_on_macos(self, platform: str, suppressed: bool) -> None:
+        # Kept verbatim from chdb 4.3.0 on macOS, where the wheel ships without delta-kernel.
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout="",
+            stderr="Code: 46. DB::Exception: Unknown table function deltaLake. (UNKNOWN_FUNCTION)",
+        )
+        with patch("products.warehouse_sources.backend.models.table.subprocess.run", return_value=completed):
+            with pytest.raises(RuntimeError) as exc_info:
+                run_chdb_query("DESCRIBE TABLE deltaLake('https://example.com/table/')")
+
+        with patch("products.warehouse_sources.backend.models.table.sys.platform", platform):
+            assert DataWarehouseTable()._is_suppressed_chdb_error(exc_info.value) is suppressed
+
+
+class TestStructureAgainstTheEngine(BaseTest):
+    # chdb embeds the same ClickHouse engine that introspects a table and that every warehouse read
+    # runs against, over local files instead of S3. These cases therefore prove what the engine does
+    # with a structure we built, which no mock-based test can. They go through run_chdb_query so that
+    # a hung embedded query fails the test instead of wedging the job, and the timeout is generous
+    # because importing chdb alone costs seconds.
+    CHDB_TIMEOUT_SECONDS = 120.0
+
+    def _json_file(self, lines: list[str], name: str = "rows.json", directory: Path | None = None) -> Path:
+        path = (directory or Path(tempfile.mkdtemp())) / name
+        path.write_text("".join(f"{line}\n" for line in lines))
+        return path
+
+    def test_array_of_objects_is_readable_through_the_stored_structure(self) -> None:
+        # The element names are what makes the column parseable. Without them ClickHouse reads
+        # `items` as a positional array, so every query over the table raises code 27, including
+        # queries that never mention the column.
+        table = DataWarehouseTable(
+            name="orders",
+            format=DataWarehouseTable.TableFormat.JSON,
+            team=self.team,
+            url_pattern="s3://bucket/team_1/orders/*",
+            columns={
+                "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField", "valid": True},
+                "items": {
+                    "clickhouse": "Array(Tuple(sku Nullable(String), qty Nullable(Int64)))",
+                    "hogql": "StringArrayDatabaseField",
+                    "valid": True,
+                },
+            },
+        )
+        path = self._json_file(['{"id": 1, "items": [{"sku": "widget", "qty": 2}]}'])
+
+        definition = table.hogql_definition()
+        assert isinstance(definition, HogQLDataWarehouseTable)
+        assert definition.structure is not None
+        result = run_chdb_query(
+            f"SELECT items.sku FROM file({escape_param_clickhouse(str(path))}, JSONEachRow, "
+            f"{escape_param_clickhouse(definition.structure)})",
+            timeout=self.CHDB_TIMEOUT_SECONDS,
+        )
+
+        assert "widget" in result
+
+
+class TestSchemaInferenceMode(BaseTest):
+    def _table(self, table_format: str) -> DataWarehouseTable:
+        return DataWarehouseTable(name="t", format=table_format, team=self.team, url_pattern="s3://bucket/team_1/t/*")
+
+    @parameterized.expand(
+        [
+            ("json", DataWarehouseTable.TableFormat.JSON),
+            ("csv_with_names", DataWarehouseTable.TableFormat.CSVWithNames),
+            ("delta", DataWarehouseTable.TableFormat.Delta),
+        ]
+    )
+    def test_introspection_does_not_widen_the_file_sample(self, _name: str, table_format: str) -> None:
+        # `union` reads the head of every object the pattern matches. A table whose pattern spans a
+        # date-partitioned bucket cannot finish that inside a request, and the refresh fails instead
+        # of returning the narrow schema. Widening belongs on an asynchronous path, so introspection
+        # must keep the default sample until one exists.
+        with patch(
+            "products.warehouse_sources.backend.models.table.sync_execute",
+            return_value=[("id", "Int64")],
+        ) as mock_sync_execute:
+            self._table(table_format).get_columns()
+
+        assert "schema_inference_mode" not in mock_sync_execute.call_args.kwargs["settings"]
+
+    def test_a_failed_describe_raises_instead_of_storing_a_narrower_schema(self) -> None:
+        # A degraded schema that persists silently is indistinguishable from the bug being fixed:
+        # the person refreshes, nothing changes, and no signal exists anywhere. The retries belong
+        # on this pass, because the cluster fails intermittently.
+        with patch("products.warehouse_sources.backend.models.table.time.sleep"):
+            with patch(
+                "products.warehouse_sources.backend.models.table.sync_execute",
+                side_effect=ServerException("DB::Exception: Unexpected", code=1002),
+            ) as mock_sync_execute:
+                with pytest.raises(Exception):
+                    self._table(DataWarehouseTable.TableFormat.JSON).get_columns()
+
+        assert mock_sync_execute.call_count == 5
 
 
 class TestGetHogqlFieldForColumn(SimpleTestCase):

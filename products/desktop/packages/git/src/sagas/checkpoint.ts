@@ -18,7 +18,7 @@ const CHECKPOINT_AUTHOR = {
   email: "posthog-code@local",
 };
 
-export interface CheckpointState {
+interface CheckpointState {
   checkpointId: string;
   commit: string;
   head: string | null;

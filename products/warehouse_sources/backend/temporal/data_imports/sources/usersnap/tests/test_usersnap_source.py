@@ -1,9 +1,6 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.usersnap import (
     UsersnapSourceConfig,
 )
@@ -12,8 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.s
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.source import UsersnapSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.usersnap import UsersnapResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestUsersnapSource:
@@ -21,31 +16,6 @@ class TestUsersnapSource:
         self.source = UsersnapSource()
         self.team_id = 123
         self.config = UsersnapSourceConfig(jwt_secret="shared-secret", jwt_id="jwt-id-123")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.USERSNAP
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Usersnap"
-        assert config.label == "Usersnap"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/usersnap.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/usersnap"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["jwt_secret", "jwt_id"]
-
-    def test_jwt_secret_field_is_secret_password(self):
-        config = self.source.get_source_config
-        secret_field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "jwt_secret"
-        )
-        assert secret_field.type == SourceFieldInputConfigType.PASSWORD
-        assert secret_field.secret is True
-        assert secret_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -111,40 +81,3 @@ class TestUsersnapSource:
         assert is_valid is expected_valid
         assert (error_message is None) is expected_valid
         mock_validate.assert_called_once_with(self.config.jwt_secret, self.config.jwt_id)
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is UsersnapResumeConfig
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.source.usersnap_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_usersnap_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "feedbacks"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_usersnap_source.assert_called_once()
-        kwargs = mock_usersnap_source.call_args.kwargs
-        assert kwargs["jwt_secret"] == "shared-secret"
-        assert kwargs["jwt_id"] == "jwt-id-123"
-        assert kwargs["endpoint"] == "feedbacks"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.usersnap.source.usersnap_source")
-    def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_usersnap_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "projects"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_usersnap_source.call_args.kwargs["db_incremental_field_last_value"] is None

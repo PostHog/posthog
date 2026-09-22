@@ -89,6 +89,7 @@ DatabricksField = tuple[str, str]
 
 # Common operation timeouts (seconds)
 ONE_MINUTE = 60
+TWO_MINUTES = 2 * 60
 FIVE_MINUTES = 5 * 60
 THIRTY_MINUTES = 30 * 60
 ONE_HOUR = 60 * 60
@@ -357,10 +358,14 @@ class DatabricksClient:
                 enable_telemetry=False,
                 # Per-RPC, not per-query — long queries poll via repeated status RPCs.
                 _socket_timeout=ONE_MINUTE,
-                _retry_stop_after_attempts_count=2,
+                # The SDK floors each retry wait at `_retry_delay_max` and skips the retry if that
+                # wait would exceed `_retry_stop_after_attempts_duration`, so the delay must stay
+                # under the budget.
+                _retry_delay_max=10,
+                _retry_stop_after_attempts_count=4,
                 # Cap the SDK's synchronous retry loop so a cancelled caller doesn't leave
                 # the worker thread polling for ~15 minutes (the SDK's 900s default).
-                _retry_stop_after_attempts_duration=ONE_MINUTE,
+                _retry_stop_after_attempts_duration=TWO_MINUTES,
                 session_configuration=(
                     {"STATEMENT_TIMEOUT": str(int(self.statement_timeout_seconds))}
                     if self.statement_timeout_seconds is not None
@@ -933,6 +938,9 @@ def databricks_default_fields() -> list[BatchExportField]:
     concerned about supporting legacy fields for backwards compatibility.
     """
     batch_export_fields = events_model_default_fields()
+    # `timestamp` comes from the client, whereas `created_at` is set server-side at ingestion, so
+    # users get an event time they can rely on.
+    batch_export_fields.append({"expression": "created_at", "alias": "created_at"})
     # add a metadata field for the ingested timestamp to aid with debugging
     # (this is not strictly the time the data is ingested into Databricks but rather the time we query it from ClickHouse)
     batch_export_fields.append({"expression": "NOW64()", "alias": "databricks_ingested_timestamp"})
@@ -1000,6 +1008,25 @@ def _get_databricks_fields_from_record_schema(
     return databricks_schema
 
 
+def _events_table_fields(json_type: str) -> list[DatabricksField]:
+    """Return the Databricks columns for the events model with the default schema.
+
+    Must stay in sync with the fields `databricks_default_fields` queries, minus `_inserted_at`,
+    which only tracks progress and is never exported.
+    """
+    return [
+        ("uuid", "STRING"),
+        ("event", "STRING"),
+        ("properties", json_type),
+        ("person_properties", json_type),
+        ("distinct_id", "STRING"),
+        ("team_id", "BIGINT"),
+        ("timestamp", "TIMESTAMP"),
+        ("created_at", "TIMESTAMP"),
+        ("databricks_ingested_timestamp", "TIMESTAMP"),
+    ]
+
+
 class TableSettings(t.NamedTuple):
     table_fields: list[DatabricksField]
     record_batch_schema: pa.Schema
@@ -1030,17 +1057,22 @@ def _get_databricks_table_settings(
         json_type = "STRING"
         known_variant_columns = []
 
-    if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
-        table_fields = [
-            ("uuid", "STRING"),
-            ("event", "STRING"),
-            ("properties", json_type),
-            ("person_properties", json_type),
-            ("distinct_id", "STRING"),
-            ("team_id", "BIGINT"),
-            ("timestamp", "TIMESTAMP"),
-            ("databricks_ingested_timestamp", "TIMESTAMP"),
-        ]
+    if model is None or (isinstance(model, BatchExportModel) and model.name == "events" and model.schema is None):
+        table_fields = _events_table_fields(json_type)
+
+        # Staging and copying are two activities, so a deploy of a schema change between them could
+        # leave the staged files a version behind this list. Outside that window the two lists
+        # always match, because the staging query is built from the same
+        # `databricks_default_fields`.
+        staged_columns = set(record_batch_schema.names)
+        missing_columns = [name for name, _ in table_fields if name not in staged_columns]
+        if missing_columns:
+            LOGGER.warning("Skipping columns absent from the staged data: %s", missing_columns)
+            staged_fields = [field for field in table_fields if field[0] in staged_columns]
+            # Keeping the full list is better than a `CREATE TABLE` with no columns, which cannot
+            # run at all. Sharing no column with the staged data means something else is wrong.
+            if staged_fields:
+                table_fields = staged_fields
     else:
         table_fields = _get_databricks_fields_from_record_schema(
             record_batch_schema,

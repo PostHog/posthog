@@ -252,6 +252,50 @@ describe('CyclotronJobInputsValidation', () => {
             })
         })
 
+        describe('native_email From overrides (object form)', () => {
+            // native_email stores `from` as { integrationId, email?, name? } where the optional
+            // keys are templated sender overrides resolved per invocation.
+            const nativeEmailInput = (from: unknown): Record<string, CyclotronJobInputType> => ({
+                email: {
+                    templating: 'liquid',
+                    value: { html: '<p>Hi</p>', subject: 'Subject', from, to: { name: '', email: 'a@example.com' } },
+                },
+            })
+            const schema: CyclotronJobInputSchemaType[] = [{ key: 'email', type: 'native_email', label: 'Email' }]
+
+            it.each([
+                ['from.email', { integrationId: 1, email: '{{ event.properties.sender' }],
+                ['from.name', { integrationId: 1, name: '{{ event.properties.sender' }],
+            ])('errors on a malformed Liquid template in %s', (_desc, from) => {
+                const result = CyclotronJobInputsValidation.validate(nativeEmailInput(from), schema)
+                expect(result.valid).toBe(false)
+                expect(result.errors.email).toContain('Liquid template error')
+            })
+
+            it('passes valid Liquid templates in the from overrides', () => {
+                const result = CyclotronJobInputsValidation.validate(
+                    nativeEmailInput({
+                        integrationId: 1,
+                        email: '{{ event.properties.sender_email }}',
+                        name: '{{ event.properties.sender_name }}',
+                    }),
+                    schema
+                )
+                expect(result.valid).toBe(true)
+                expect(result.errors).toEqual({})
+            })
+
+            it('errors when a sender rotation contains more than ten senders', () => {
+                const result = CyclotronJobInputsValidation.validate(
+                    nativeEmailInput({ integrationId: 1, integrationIds: Array.from({ length: 11 }, (_, i) => i + 1) }),
+                    schema
+                )
+
+                expect(result.valid).toBe(false)
+                expect(result.errors.email).toContain('Choose no more than 10 email senders')
+            })
+        })
+
         describe('templating validation', () => {
             it('should validate liquid templates and return error on parse failure', () => {
                 const inputs = { template: { value: '{% invalid %}', templating: 'liquid' as const } }

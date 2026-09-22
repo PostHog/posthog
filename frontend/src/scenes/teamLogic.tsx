@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api, { ApiConfig } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
@@ -252,6 +253,21 @@ export interface teamLogicActions {
         currentTeam: TeamPublicType | TeamType | null
         payload?: ProductOnboardingCompleteProperties
     }
+    refreshCurrentTeam: () => any
+    refreshCurrentTeamFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    refreshCurrentTeamSuccess: (
+        currentTeam: TeamPublicType | TeamType | null,
+        payload?: any
+    ) => {
+        currentTeam: TeamPublicType | TeamType | null
+        payload?: any
+    }
     resetToken: () => any
     resetTokenFailure: (
         error: string,
@@ -368,6 +384,14 @@ export const teamLogic = kea<teamLogicType>([
 
                     try {
                         return await api.get('api/environments/@current')
+                    } catch {
+                        return values.currentTeam
+                    }
+                },
+                refreshCurrentTeam: async () => {
+                    try {
+                        const team = await api.get('api/environments/@current')
+                        return team?.id === values.currentTeam?.id ? team : values.currentTeam
                     } catch {
                         return values.currentTeam
                     }
@@ -634,6 +658,14 @@ export const teamLogic = kea<teamLogicType>([
         updateCurrentTeamSuccess: () => {
             // Reload user after team update to keep user object in sync
             actions.loadUser()
+        },
+        updateCurrentTeamFailure: ({ error, errorObject }: { error: string; errorObject?: unknown }) => {
+            const apiError = errorObject as ApiError | undefined
+            // The global loader handler drops 409s, on the assumption that each conflict flow
+            // renders its own. This one has none, so the rename would fail with nothing on screen.
+            if (apiError?.status === 409) {
+                lemonToast.error(apiError.detail || error)
+            }
         },
         createTeamSuccess: ({ currentTeam }) => {
             if (currentTeam) {

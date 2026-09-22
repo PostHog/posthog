@@ -13,9 +13,23 @@ can be exercised without a database and shared with the build worker.
 import re
 import json
 from typing import Any
+from urllib.parse import urlsplit
 
+import jsonschema
+
+from products.canvas.backend.actions import CANVAS_ACTIONS
+from products.canvas.backend.connectors import (
+    MCP_PROVIDER_PREFIX,
+    NATIVE_CONNECTORS,
+    is_known_provider,
+    mcp_provider_host,
+    unregistered_native_tools,
+)
 from products.canvas.backend.contract import (
+    MAX_COMPONENT_HEIGHT,
+    MAX_COMPONENT_WIDTH,
     allowed_import_specifiers,
+    canonical_network_origin,
     canvas_sdk_version,
     contract_limits,
     platform_dependencies,
@@ -26,8 +40,72 @@ CANVAS_ENTRY_HTML = "index.html"
 # The conventional React entry component (also what the synthetic shell mounts).
 CANVAS_COMPONENT_PATH = "src/canvas.tsx"
 
+# Config schemas are author-supplied, so the vocabulary is an allowlist:
+# no $ref/$dynamicRef (nothing downstream may be induced to resolve one) and
+# no pattern/patternProperties (placement-config validation must not evaluate
+# author-supplied regexes). Size-capped so a schema cannot bloat version rows.
+MAX_CONFIG_SCHEMA_BYTES = 16 * 1024
+# Depth-capped as well: a schema well under the byte cap can still nest deeply
+# enough to exhaust the Python recursion limit inside jsonschema's check_schema
+# (or our own keyword scan), which would escape as a 500 rather than a validation
+# diagnostic. Bounded far below where check_schema starts recursing off the limit.
+MAX_CONFIG_SCHEMA_DEPTH = 32
+ALLOWED_CONFIG_SCHEMA_KEYWORDS = frozenset(
+    {
+        "type",
+        "title",
+        "description",
+        "default",
+        "properties",
+        "required",
+        "additionalProperties",
+        "items",
+        "enum",
+        "const",
+        "minimum",
+        "maximum",
+        "minLength",
+        "maxLength",
+        "minItems",
+        "maxItems",
+        "format",
+    }
+)
+
 # File extensions whose content is scanned as source code.
 _CODE_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx")
+# Files scanned for CSS custom property declarations: stylesheets, the entry
+# HTML, and code, because inline <style> blocks and CSS-in-JS carry CSS as
+# strings.
+_STYLE_EXTENSIONS = (".css", ".html", *_CODE_EXTENSIONS)
+
+# Quill design tokens that the bundled platform stylesheet (@posthog/quill
+# color-system.css) declares on the universal selector `*`, not on `:root`.
+# Every element then gets Quill's value directly, so an author's `:root` or
+# `html.dark` declaration of the same name never reaches any descendant and
+# text colored with `var(--muted)` silently becomes Quill's pale surface color.
+# Keep in sync with the `* { ... }` rule of the pinned Quill version.
+_PLATFORM_ELEMENT_TOKENS = frozenset(
+    {
+        "background",
+        "border",
+        "card",
+        "chrome",
+        "fill-expanded",
+        "fill-hover",
+        "fill-selected",
+        "input",
+        "muted",
+        "primary",
+    }
+)
+# A declaration sits at the start of a line or right after `{`, `;`, or `,`
+# (CSS rule bodies and inline-style object keys). Requiring that context keeps
+# a comment such as `// --muted: legacy` or a `var(--muted)` use from matching.
+_PLATFORM_TOKEN_DECLARATION_RE = re.compile(
+    r"(?:^|[{;,])\s*[\"']?--(" + "|".join(sorted(_PLATFORM_ELEMENT_TOKENS)) + r")[\"']?\s*:",
+    re.MULTILINE,
+)
 
 # The synthetic entry shell presented for pre-relational canvases whose only
 # source is a single stored React component.
@@ -64,14 +142,31 @@ _NETWORK_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     (
         re.compile(r"\bfetch\s*\("),
         "network_fetch",
-        "fetch() is blocked by the canvas sandbox — use the `ph` data bridge instead",
+        "fetch() requires every destination in capabilities.network.origins — prefer the `ph` data bridge for PostHog data",
     ),
     (
         re.compile(r"\bXMLHttpRequest\b"),
         "network_xhr",
-        "XMLHttpRequest is blocked by the canvas sandbox — use the `ph` data bridge instead",
+        "XMLHttpRequest requires every destination in capabilities.network.origins — prefer the `ph` data bridge for PostHog data",
     ),
 ]
+
+_FETCH_LITERAL_URL_RE = re.compile(r"\bfetch\s*\(\s*([\"'`])(https://[^\"'`]+)\1")
+# `object` and `embed` are left out on purpose: the artifact CSP keeps
+# `object-src 'none'`, so a declared origin cannot make them load. Matching
+# them would block publish with a remedy that does nothing.
+_RESOURCE_TAG_RE = re.compile(
+    r"<(?:img|audio|video|source|track|iframe)\b[^>]*?"
+    r"\b(?:src|poster)\s*=\s*(?:\{\s*)?([\"'`])(https://[^\"'`]+)\1",
+    re.IGNORECASE,
+)
+_SRCSET_TAG_RE = re.compile(r"<(?:img|source)\b[^>]*?\bsrcset\s*=\s*(?:\{\s*)?([\"'`])([^\"'`]+)\1", re.IGNORECASE)
+_SRCSET_URL_RE = re.compile(r"https://[^\s,]+")
+_LINK_TAG_RE = re.compile(r"<link\b[^>]*>", re.IGNORECASE)
+_REL_STYLESHEET_RE = re.compile(r"\brel\s*=\s*([\"'])stylesheet\1", re.IGNORECASE)
+_HREF_LITERAL_URL_RE = re.compile(r"\bhref\s*=\s*(?:\{\s*)?([\"'])(https://[^\"']+)\1", re.IGNORECASE)
+_CSS_URL_RE = re.compile(r"\burl\(\s*([\"']?)(https://[^\"')\s]+)\1\s*\)", re.IGNORECASE)
+_CSS_IMPORT_RE = re.compile(r"@import\s+([\"'])(https://[^\"']+)\1", re.IGNORECASE)
 
 # `ph` bridge calls checked against the project's declared capabilities. The
 # host enforces capabilities at runtime, so an undeclared call would build fine
@@ -80,6 +175,14 @@ _NETWORK_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
 _PH_LOAD_INSIGHT_RE = re.compile(r"\bph\s*\.\s*loadInsight\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
 _PH_QUERY_RE = re.compile(r"\bph\s*\.\s*query\s*\(")
 _PH_CAPTURE_RE = re.compile(r"\bph\s*\.\s*capture\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
+_PH_STATE_RE = re.compile(r"\bph\s*\.\s*state\s*\.")
+_PH_STATE_CALL_RE = re.compile(r"\bph\s*\.\s*state\s*\.\s*(get|set|list)\s*\(")
+_STATE_SCOPE_LITERAL_RE = re.compile(r"\bscope\s*:\s*[\"']([^\"']+)[\"']")
+_PH_ACTIONS_RE = re.compile(r"\bph\s*\.\s*actions\s*\.\s*invoke\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
+_PH_AGENT_REQUEST_RE = re.compile(r"\bph\s*\.\s*agent\s*\.\s*request\s*\(")
+_PH_CONNECTORS_CALL_RE = re.compile(
+    r"\bph\s*\.\s*connectors\s*\.\s*call\s*\(\s*(?:[\"']([^\"']+)[\"']\s*(?:,\s*[\"']([^\"']+)[\"'])?)?"
+)
 
 _PATH_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._@-]+$")
 
@@ -170,6 +273,89 @@ def _line_of(code: str, position: int) -> int:
     return code.count("\n", 0, position) + 1
 
 
+def _validate_network_origin(origin: Any) -> str | None:
+    if not isinstance(origin, str):
+        return "network origins must be strings"
+    canonical = canonical_network_origin(origin)
+    if canonical is None:
+        return (
+            "network origins must be exact HTTPS origins without paths, credentials, queries, fragments, or wildcards"
+        )
+    if origin.rstrip("/") != canonical:
+        return f'network origin must use its canonical form: "{canonical}"'
+    return None
+
+
+def _network_origin_from_url(url: str) -> str | None:
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError:
+        return None
+    if parsed.scheme != "https" or not parsed.hostname:
+        return None
+    hostname = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+    candidate = f"https://{hostname}" + (f":{port}" if port is not None else "")
+    return canonical_network_origin(candidate)
+
+
+def _literal_external_urls(content: str) -> list[tuple[str, int]]:
+    urls: list[tuple[str, int]] = []
+    for pattern in (_FETCH_LITERAL_URL_RE, _RESOURCE_TAG_RE, _CSS_URL_RE, _CSS_IMPORT_RE):
+        urls.extend((match.group(2), match.start(2)) for match in pattern.finditer(content))
+    for srcset in _SRCSET_TAG_RE.finditer(content):
+        urls.extend(
+            (match.group(0), srcset.start(2) + match.start()) for match in _SRCSET_URL_RE.finditer(srcset.group(2))
+        )
+    for tag in _LINK_TAG_RE.finditer(content):
+        if _REL_STYLESHEET_RE.search(tag.group(0)) is None:
+            continue
+        href = _HREF_LITERAL_URL_RE.search(tag.group(0))
+        if href is not None:
+            urls.append((href.group(2), tag.start() + href.start(2)))
+    return urls
+
+
+def _validate_network_capabilities(path: str, content: str, declared_origins: set[str]) -> list[dict[str, Any]]:
+    diagnostics: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for url, position in _literal_external_urls(content):
+        origin = _network_origin_from_url(url)
+        if origin is None or origin in seen:
+            continue
+        seen.add(origin)
+        if origin not in declared_origins:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "capability_missing_network_origin",
+                    f'External resource requires "{origin}" in capabilities.network.origins — '
+                    "the canvas sandbox blocks undeclared origins at runtime",
+                    path=path,
+                    line=_line_of(content, position),
+                )
+            )
+    return diagnostics
+
+
+def _validate_platform_tokens(path: str, content: str) -> list[dict[str, Any]]:
+    diagnostics: list[dict[str, Any]] = []
+    for match in _PLATFORM_TOKEN_DECLARATION_RE.finditer(content):
+        token = match.group(1)
+        diagnostics.append(
+            diagnostic(
+                "error",
+                "platform_token_redeclared",
+                f"--{token} is a platform design token that the platform stylesheet sets on every element, "
+                f"so this declaration is ignored and text colored with var(--{token}) can become unreadable. "
+                f"Rename it, for example --canvas-{token}, or use the platform token without redefining it",
+                path=path,
+                line=_line_of(content, match.start(1)),
+            )
+        )
+    return diagnostics
+
+
 def _validate_code_file(path: str, code: str) -> list[dict[str, Any]]:
     diagnostics: list[dict[str, Any]] = []
 
@@ -201,6 +387,97 @@ def _validate_code_file(path: str, code: str) -> list[dict[str, Any]]:
     return diagnostics
 
 
+def _validate_connector_declarations(declared: Any) -> list[dict[str, Any]]:
+    """Check capabilities.connectors: known providers, registered native tools, public MCP hosts."""
+    diagnostics: list[dict[str, Any]] = []
+    if not isinstance(declared, list):
+        return [diagnostic("error", "invalid_connector_declaration", "capabilities.connectors must be a list")]
+    for entry in declared:
+        provider = entry.get("provider") if isinstance(entry, dict) else None
+        tools = entry.get("tools") if isinstance(entry, dict) else None
+        if not isinstance(provider, str) or not isinstance(tools, list) or not tools:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "invalid_connector_declaration",
+                    "each capabilities.connectors entry needs a provider and a non-empty list of tool names",
+                )
+            )
+            continue
+        if not is_known_provider(provider):
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "connector_provider_unknown",
+                    f'capabilities.connectors names unknown provider "{provider}" — use one of '
+                    + ", ".join(sorted(NATIVE_CONNECTORS))
+                    + f', or "{MCP_PROVIDER_PREFIX}<server host>" for an MCP store server',
+                )
+            )
+            continue
+        host = mcp_provider_host(provider)
+        if host is not None and canonical_network_origin(f"https://{host}") is None:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "connector_provider_unknown",
+                    f'connector provider "{provider}" must name a public server host, e.g. "mcp:mcp.example.com"',
+                )
+            )
+            continue
+        unregistered = unregistered_native_tools(provider, [tool for tool in tools if isinstance(tool, str)])
+        if unregistered:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "connector_tool_not_registered",
+                    f"capabilities.connectors declares unknown {provider} tools: {', '.join(unregistered)} — "
+                    f"registered tools: {', '.join(sorted(NATIVE_CONNECTORS[provider].tools))}",
+                )
+            )
+    return diagnostics
+
+
+def _validate_connector_calls(path: str, code: str, capabilities: dict[str, Any]) -> list[dict[str, Any]]:
+    """Check ph.connectors.call sites against capabilities.connectors."""
+    diagnostics: list[dict[str, Any]] = []
+    declared: dict[str, set[str]] = {}
+    for entry in capabilities.get("connectors") or []:
+        if isinstance(entry, dict) and isinstance(entry.get("provider"), str):
+            declared.setdefault(entry["provider"], set()).update(
+                tool for tool in entry.get("tools") or [] if isinstance(tool, str)
+            )
+    for match in _PH_CONNECTORS_CALL_RE.finditer(code):
+        provider, tool = match.group(1), match.group(2)
+        line = _line_of(code, match.start())
+        if provider is None:
+            if not declared:
+                diagnostics.append(
+                    diagnostic(
+                        "warning",
+                        "capability_missing_connector",
+                        "ph.connectors.call() is called with a dynamic provider but capabilities.connectors is "
+                        "empty — declare every provider and tool the canvas calls",
+                        path=path,
+                        line=line,
+                    )
+                )
+            continue
+        if provider not in declared or (tool is not None and tool not in declared[provider]):
+            called = f'"{provider}", "{tool}"' if tool is not None else f'"{provider}"'
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "capability_missing_connector",
+                    f"ph.connectors.call({called}) requires that provider and tool in capabilities.connectors — "
+                    "the host rejects undeclared connector calls at runtime",
+                    path=path,
+                    line=line,
+                )
+            )
+    return diagnostics
+
+
 def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -> list[dict[str, Any]]:
     """Check `ph` bridge calls against the project's declared capabilities."""
     diagnostics: list[dict[str, Any]] = []
@@ -208,6 +485,79 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
     declared_insights = set(posthog_capabilities.get("insights") or [])
     declared_events = set(posthog_capabilities.get("captureEvents") or [])
     inline_queries = bool(posthog_capabilities.get("inlineQueries"))
+    agent_requests = bool(posthog_capabilities.get("agentRequests"))
+
+    declared_state = set(posthog_capabilities.get("state") or [])
+    if not declared_state:
+        state_match = _PH_STATE_RE.search(code)
+        if state_match is not None:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "capability_missing_state",
+                    'ph.state requires its scopes in capabilities.posthog.state (["user"] and/or ["shared"]) — '
+                    "the host rejects undeclared state access at runtime",
+                    path=path,
+                    line=_line_of(code, state_match.start()),
+                )
+            )
+    else:
+        # Declaring one scope is not declaring the other: check each call
+        # site's scope — the explicit literal, or the runtime's "user"
+        # default when get/set pass no options — against the declaration.
+        for call in _PH_STATE_CALL_RE.finditer(code):
+            window_end = min(len(code), call.end() + 200)
+            next_call = _PH_STATE_CALL_RE.search(code, call.end())
+            if next_call is not None:
+                window_end = min(window_end, next_call.start())
+            scope_literal = _STATE_SCOPE_LITERAL_RE.search(code, call.end(), window_end)
+            used_scope = scope_literal.group(1) if scope_literal else None
+            if used_scope is None:
+                used_scope = "user" if call.group(1) in ("get", "set") else None
+            if used_scope is not None and used_scope not in declared_state:
+                line = _line_of(code, call.start())
+                detail = (
+                    f'ph.state.{call.group(1)} uses scope "{used_scope}"'
+                    if scope_literal
+                    else f'ph.state.{call.group(1)} defaults to scope "user"'
+                )
+                diagnostics.append(
+                    diagnostic(
+                        "error",
+                        "capability_missing_state",
+                        f"{detail}, which capabilities.posthog.state does not declare — "
+                        "the host rejects undeclared state access at runtime",
+                        path=path,
+                        line=line,
+                    )
+                )
+
+    declared_action_verbs = set(posthog_capabilities.get("actions") or [])
+    for match in _PH_ACTIONS_RE.finditer(code):
+        verb = match.group(1)
+        line = _line_of(code, match.start())
+        if verb is not None and verb not in declared_action_verbs:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "capability_missing_action",
+                    f'ph.actions.invoke("{verb}") requires "{verb}" in capabilities.posthog.actions — '
+                    "the host rejects undeclared actions at runtime",
+                    path=path,
+                    line=line,
+                )
+            )
+        elif verb is None and not declared_action_verbs:
+            diagnostics.append(
+                diagnostic(
+                    "warning",
+                    "capability_missing_action",
+                    "ph.actions.invoke() is called with a dynamic verb but capabilities.posthog.actions is empty — "
+                    "declare every verb the canvas invokes",
+                    path=path,
+                    line=line,
+                )
+            )
 
     for match in _PH_LOAD_INSIGHT_RE.finditer(code):
         short_id = match.group(1)
@@ -275,19 +625,154 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
                 )
             )
 
+    if not agent_requests:
+        request_match = _PH_AGENT_REQUEST_RE.search(code)
+        if request_match is not None:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "capability_missing_agent_requests",
+                    "ph.agent.request() requires capabilities.posthog.agentRequests: true — "
+                    "the host rejects undeclared agent requests at runtime",
+                    path=path,
+                    line=_line_of(code, request_match.start()),
+                )
+            )
+
     return diagnostics
 
 
-def validate_source_project(project: dict[str, Any]) -> list[dict[str, Any]]:
+def _validate_component_size(size: Any) -> str | None:
+    """Validate a component's grid-size contract; returns the problem or None."""
+    if not isinstance(size, dict):
+        return "component.size must be an object with defaultW, defaultH, minW, and minH"
+    for key in ("defaultW", "defaultH", "minW", "minH", "maxW", "maxH"):
+        value = size.get(key)
+        if value is None:
+            if key in ("maxW", "maxH"):
+                continue
+            return f"component.size.{key} is required"
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            return f"component.size.{key} must be a positive integer"
+    for axis, cap in (("W", MAX_COMPONENT_WIDTH), ("H", MAX_COMPONENT_HEIGHT)):
+        maximum = size.get(f"max{axis}", cap)
+        if maximum > cap:
+            return f"component.size.max{axis} may not exceed {cap}"
+        if not size[f"min{axis}"] <= size[f"default{axis}"] <= maximum:
+            return f"component.size must satisfy min{axis} <= default{axis} <= max{axis} (cap {cap})"
+    return None
+
+
+def _unknown_config_schema_keywords(schema: Any) -> set[str]:
+    """Every schema keyword used anywhere in the schema tree that is not allowlisted."""
+    if not isinstance(schema, dict):
+        return set()
+    unknown = {key for key in schema if key not in ALLOWED_CONFIG_SCHEMA_KEYWORDS}
+    for key, value in schema.items():
+        if key == "properties" and isinstance(value, dict):
+            for nested in value.values():
+                unknown |= _unknown_config_schema_keywords(nested)
+        elif key in ("items", "additionalProperties"):
+            unknown |= _unknown_config_schema_keywords(value)
+    return unknown
+
+
+def _max_json_depth(value: Any) -> int:
+    """Deepest container nesting in a JSON value, walked with an explicit stack.
+
+    Author config schemas are hostile input, so depth is measured without
+    recursion — the point is to bound nesting before any recursive processing
+    (the keyword scan, jsonschema's check_schema) descends into it.
+    """
+    max_depth = 0
+    stack: list[tuple[Any, int]] = [(value, 1)]
+    while stack:
+        current, depth = stack.pop()
+        if isinstance(current, dict):
+            children: Any = current.values()
+        elif isinstance(current, list):
+            children = current
+        else:
+            continue
+        if depth > max_depth:
+            max_depth = depth
+        for child in children:
+            stack.append((child, depth + 1))
+    return max_depth
+
+
+def _validate_config_schema(config_schema: Any) -> str | None:
+    """Validate a component's placement-config schema; returns the problem or None."""
+    if not isinstance(config_schema, dict) or config_schema.get("type") != "object":
+        return 'component.configSchema must be a JSON Schema object with "type": "object"'
+    if len(json.dumps(config_schema, separators=(",", ":")).encode("utf-8")) > MAX_CONFIG_SCHEMA_BYTES:
+        return f"component.configSchema may not exceed {MAX_CONFIG_SCHEMA_BYTES // 1024} KB serialized"
+    if _max_json_depth(config_schema) > MAX_CONFIG_SCHEMA_DEPTH:
+        return f"component.configSchema may not nest deeper than {MAX_CONFIG_SCHEMA_DEPTH} levels"
+    unknown = _unknown_config_schema_keywords(config_schema)
+    if unknown:
+        return (
+            "component.configSchema uses unsupported keywords: "
+            + ", ".join(sorted(unknown))
+            + " — supported: "
+            + ", ".join(sorted(ALLOWED_CONFIG_SCHEMA_KEYWORDS))
+        )
+    try:
+        jsonschema.Draft202012Validator.check_schema(config_schema)
+    except jsonschema.SchemaError as error:
+        return f"component.configSchema is not a valid JSON Schema: {error.message}"
+    return None
+
+
+def validate_component_meta(project: dict[str, Any], kind: str) -> list[dict[str, Any]]:
+    """Validate a project's component placement contract for its canvas kind.
+
+    Components must declare how grids may place them (size, optional config
+    schema); every other kind must not carry a contract, so an author cannot
+    believe a freeform canvas is placeable.
+    """
+    meta = project.get("component")
+    if kind != "component":
+        if meta:
+            return [
+                diagnostic(
+                    "error",
+                    "component_meta_not_allowed",
+                    "only component-kind canvases may declare a `component` placement contract",
+                )
+            ]
+        return []
+    if not isinstance(meta, dict):
+        return [
+            diagnostic(
+                "error",
+                "component_meta_missing",
+                "a component project must declare `component` with a `size` contract "
+                '(e.g. {"size": {"defaultW": 2, "defaultH": 1, "minW": 1, "minH": 1}})',
+            )
+        ]
+    diagnostics: list[dict[str, Any]] = []
+    size_problem = _validate_component_size(meta.get("size"))
+    if size_problem is not None:
+        diagnostics.append(diagnostic("error", "component_size_invalid", size_problem))
+    if meta.get("configSchema") is not None:
+        schema_problem = _validate_config_schema(meta["configSchema"])
+        if schema_problem is not None:
+            diagnostics.append(diagnostic("error", "component_config_schema_invalid", schema_problem))
+    return diagnostics
+
+
+def validate_source_project(project: dict[str, Any], *, kind: str = "freeform") -> list[dict[str, Any]]:
     """Validate a candidate source project against the platform contract.
 
     Returns structured diagnostics; an empty list (or warnings only) means the
     project is publishable. Mirrors the build pipeline's stage-1 validation
     (schema, paths, file count, total size) plus dependency, runtime-safety,
     and capability constraints. The authoritative builder performs
-    module-graph validation.
+    module-graph validation. ``kind`` is the owning canvas's kind — it gates
+    the component placement contract, which only component projects carry.
     """
-    diagnostics: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = list(validate_component_meta(project, kind))
     limits = contract_limits()
 
     if project.get("schemaVersion") != CANVAS_SOURCE_SCHEMA_VERSION:
@@ -306,10 +791,33 @@ def validate_source_project(project: dict[str, Any]) -> list[dict[str, Any]]:
     assets = project.get("assets") or {}
     if project.get("entryHtml") not in files:
         diagnostics.append(diagnostic("error", "missing_entry", "entryHtml must name a file present in files"))
-    network_origins = ((project.get("capabilities") or {}).get("network") or {}).get("origins") or []
-    if network_origins:
+    capabilities = project.get("capabilities") or {}
+    network_origins = (capabilities.get("network") or {}).get("origins") or []
+    for origin in network_origins:
+        problem = _validate_network_origin(origin)
+        if problem is not None:
+            diagnostics.append(diagnostic("error", "invalid_network_origin", problem))
+    declared_verbs = ((project.get("capabilities") or {}).get("posthog") or {}).get("actions") or []
+    unregistered = sorted(set(declared_verbs) - set(CANVAS_ACTIONS))
+    if unregistered:
         diagnostics.append(
-            diagnostic("error", "network_origins_not_supported", "capabilities.network.origins must be empty")
+            diagnostic(
+                "error",
+                "action_not_registered",
+                "capabilities.posthog.actions declares unknown verbs: "
+                + ", ".join(unregistered)
+                + " — registered verbs: "
+                + ", ".join(sorted(CANVAS_ACTIONS)),
+            )
+        )
+    diagnostics.extend(_validate_connector_declarations(capabilities.get("connectors") or []))
+    if capabilities.get("connectors") and "shared" in (capabilities.get("posthog") or {}).get("state", []):
+        diagnostics.append(
+            diagnostic(
+                "error",
+                "connector_results_in_shared_state",
+                "Canvases with connectors cannot declare shared state. Use user-scoped state for connector data.",
+            )
         )
     if len(files) + len(assets) > limits["maxSourceFiles"]:
         diagnostics.append(
@@ -384,11 +892,18 @@ def validate_source_project(project: dict[str, Any]) -> list[dict[str, Any]]:
                 )
             )
 
-    capabilities = project.get("capabilities") or {}
+    declared_network_origins = {
+        canonical for origin in network_origins if (canonical := canonical_network_origin(origin)) is not None
+    }
     for path, content in files.items():
-        if not path.endswith(_CODE_EXTENSIONS) or not isinstance(content, str):
+        if not isinstance(content, str):
             continue
-        diagnostics.extend(_validate_code_file(path, content))
-        diagnostics.extend(_validate_capabilities(path, content, capabilities))
+        diagnostics.extend(_validate_network_capabilities(path, content, declared_network_origins))
+        if path.endswith(_STYLE_EXTENSIONS):
+            diagnostics.extend(_validate_platform_tokens(path, content))
+        if path.endswith(_CODE_EXTENSIONS):
+            diagnostics.extend(_validate_code_file(path, content))
+            diagnostics.extend(_validate_capabilities(path, content, capabilities))
+            diagnostics.extend(_validate_connector_calls(path, content, capabilities))
 
     return diagnostics

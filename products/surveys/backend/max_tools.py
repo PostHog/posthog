@@ -18,6 +18,7 @@ from posthog.constants import DEFAULT_SURVEY_APPEARANCE
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.api.survey import SurveySerializerCreateUpdateOnly
 from products.surveys.backend.models import Survey
 from products.surveys.backend.summarization.fetch import fetch_responses
@@ -83,6 +84,13 @@ def get_team_survey_config(team: Team) -> dict[str, Any]:
         "appearance": survey_config.get("appearance", {}),
         "default_settings": {"type": "popover", "enable_partial_responses": True},
     }
+
+
+async def _validate_linked_flag_id(team: Team, linked_flag_id: int | None) -> None:
+    if linked_flag_id is None:
+        return
+    if not await FeatureFlag.objects.filter(pk=linked_flag_id, team_id=team.id).aexists():
+        raise serializers.ValidationError("Feature Flag with this ID does not exist")
 
 
 # SimpleSurveyQuestion attribute -> internal question dict key. Rating-only fields (scale, display)
@@ -361,6 +369,9 @@ class CreateSurveyTool(MaxTool):
                     "error_message": "No questions provided in the survey configuration.",
                 }
 
+            if survey_type != Survey.SurveyType.EXTERNAL_SURVEY:
+                await _validate_linked_flag_id(self._team, linked_flag_id)
+
             survey_data = self._build_survey_data(
                 name=name,
                 description=description,
@@ -578,6 +589,8 @@ class EditSurveyTool(MaxTool):
                     "error": "not_found",
                     "error_message": f"No survey found with ID '{survey_id}' in your team.",
                 }
+
+            await _validate_linked_flag_id(team, linked_flag_id)
 
             update_data: dict[str, Any] = {}
 

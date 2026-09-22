@@ -14,6 +14,11 @@ still-running xid) on the row-serving connection, reads every row whose `xmin` f
 `[previous ceiling, this ceiling)`, and persists the ceiling at job completion. Rows are
 upserted by primary key, so a re-read of an already-synced row is idempotent.
 
+The first sync has no previous ceiling, so it reads the **whole table** with no `xmin`
+predicate. It still captures the ceiling first and persists it afterwards, which means rows
+committed while the scan runs are re-read on the next sync instead of being skipped. A
+multi-wrap epoch jump falls back to the same whole-table read.
+
 ### When to use it
 
 - The table has **no reliable incremental cursor** and you'd otherwise use `full_refresh`.
@@ -30,10 +35,11 @@ These are inherent to how `xmin` works, not bugs:
 - **Full sequential scan every sync.** `xmin` has no index (`xmin::text::bigint` is an
   expression), so each sync scans the whole table. On large tables this can hit the
   10-minute `statement_timeout`. The unindexed-field warning fires in the UI.
-- **Frozen tuples are invisible to future diffs.** `VACUUM FREEZE` rewrites very old tuples'
-  `xmin` to `FrozenTransactionId` (2). The initial full snapshot (first run reads everything
-  below the ceiling) is what guarantees those rows were synced — a frozen row can't be
-  re-detected afterwards.
+- **Frozen tuples are invisible to future diffs.** Since PG 9.4 freezing sets
+  `HEAP_XMIN_FROZEN` in the tuple's infomask and leaves the raw `xmin` alone (it no longer
+  rewrites it to `FrozenTransactionId`, 2), so a frozen row keeps an xid that says nothing about
+  when it last changed. The initial whole-table read is what guarantees those rows were synced,
+  because a frozen row can't be re-detected afterwards.
 - **PostgreSQL 13+ only.** The durable cursor uses the 64-bit, wraparound-safe `xid8`
   (`pg_snapshot_xmin`), available from PG13.
 - **Heap tables and materialized views only.** Plain views and foreign tables have no physical
@@ -43,9 +49,20 @@ These are inherent to how `xmin` works, not bugs:
 
 ### Wraparound
 
-The bare 32-bit `xmin` counter wraps every ~4 billion transactions. We persist the full
-`xid8` ceiling and its epoch (`xmin_num_wraparound`) so wraparound is handled explicitly: a
-single wrap reads `>= lower OR < upper`; a multi-wrap forces a full re-read.
+The bare 32-bit `xmin` counter wraps every ~4 billion transactions, and a tuple's `xmin`
+carries no epoch, so a raw comparison is only meaningful relative to the epoch the stored cursor
+was captured in. We persist the full `xid8` ceiling and its epoch (`xmin_num_wraparound`) so
+wraparound is handled explicitly: a single wrap reads `>= lower OR < upper`; a multi-wrap re-reads
+the whole table, as does a backfill.
+
+Bounding a backfill by `xmin < ceiling` is wrong on a cluster that has wrapped: the ceiling's low
+32 bits are a small remainder of the current epoch, and every tuple written in an earlier epoch
+sits above it, so the read silently returns almost nothing. Use
+`reset_wrapped_xmin_cursors` (management command) to find schemas whose cursor was captured past a
+wraparound and clear it, which makes the next sync re-read the whole table. A cursor captured past
+a wraparound is a candidate rather than proof: the command reports how much of the xid space each
+backfill window covered, and a window that covered most of the space may have read the whole table
+anyway.
 
 ### Feature flag
 

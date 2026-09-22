@@ -53,6 +53,20 @@ class TestHeaderLinkPaginator:
         p.update_state(resp)
         assert p.has_next_page is False
 
+    def test_resolves_relative_next_link_against_response_url(self) -> None:
+        # Ably returns its next link as a relative path (e.g. `./stats?...`). Without
+        # resolving it against the response URL, `requests` gets a schemeless URL and
+        # raises MissingSchema, so the sync dies after page one.
+        p = HeaderLinkPaginator()
+        resp = _make_response()
+        resp.url = "https://rest.ably.io/stats?unit=hour"
+        resp.headers["Link"] = '<./stats?start=1&unit=hour&direction=forwards>; rel="next"'
+        p.update_state(resp)
+        assert p.has_next_page is True
+        req = Request(method="GET", url="https://rest.ably.io/stats")
+        p.update_request(req)
+        assert req.url == "https://rest.ably.io/stats?start=1&unit=hour&direction=forwards"
+
 
 class TestJSONResponsePaginator:
     def test_follows_next_url(self) -> None:
@@ -63,6 +77,16 @@ class TestJSONResponsePaginator:
         req = Request(method="GET", url="https://api.example.com/page1")
         p.update_request(req)
         assert req.url == "https://api.example.com/page2"
+
+    def test_resolves_relative_next_url_against_response_url(self) -> None:
+        p = JSONResponsePaginator(next_url_path="next")
+        resp = _make_response({"next": "/v2/items?page=2", "data": []})
+        resp.url = "https://api.example.com/v2/items?page=1"
+        p.update_state(resp)
+        assert p.has_next_page is True
+        req = Request(method="GET", url="https://api.example.com/v2/items")
+        p.update_request(req)
+        assert req.url == "https://api.example.com/v2/items?page=2"
 
     def test_stops_when_next_is_null(self) -> None:
         p = JSONResponsePaginator(next_url_path="next")

@@ -1,0 +1,12 @@
+{
+    "id": "LB1",
+    "file": "products/stamphog/backend/temporal/activities.py",
+    "lines": "173-177",
+    "priority": "consider",
+    "title": "Self-driving attribution excludes failed reviews",
+    "problem": "This property labels only events emitted inside the sandbox. Server-side stamphog_review_failed events omit it. Rollout monitors cannot isolate failures from this feature.",
+    "suggestion": "Derive the flag from run.output in mark_review_failed. Add stamphog_self_driving_review and stamphog_review_run_id to the failure event.",
+    "cluster": null,
+    "cluster_issue": null,
+    "cluster_verified": null
+}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='op_advance_step' */ UPDATE lifecycle_op SET step = $3 WHERE op_id = $1 AND step = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3090615263a5880537d3961664062e1d6936c600b38e8665b89ad194d864afcc"
+}

@@ -13,6 +13,7 @@ function installation(id: string, url?: string): MCPServerInstallationApi {
         id,
         template_id: null,
         name: id,
+        description: '',
         icon_key: '',
         icon_domain: '',
         url,

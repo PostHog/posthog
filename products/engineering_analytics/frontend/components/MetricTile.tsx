@@ -9,7 +9,6 @@ import { MetricCard, type MetricChange } from '@posthog/quill-charts'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { cn } from 'lib/utils/css-classes'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 /** Relative change in percent, or null when there's no meaningful baseline. */
 export function percentChange(current: number | null | undefined, previous: number | null | undefined): number | null {
@@ -33,7 +32,6 @@ export function DeltaBadge({
     unit = '%',
     goodWhenDown = false,
     precision = 0,
-    vs = 'vs the previous window',
 }: {
     /** The delta to show; null hides the badge (no baseline to compare against). */
     value: number | null
@@ -41,7 +39,6 @@ export function DeltaBadge({
     /** For costs, durations, failures — a drop is the good direction. */
     goodWhenDown?: boolean
     precision?: number
-    vs?: string
 }): JSX.Element | null {
     if (value == null) {
         return null
@@ -49,7 +46,7 @@ export function DeltaBadge({
     const rounded = Number(value.toFixed(precision))
     if (rounded === 0) {
         return (
-            <Tooltip title={vs}>
+            <Tooltip title="vs the previous window">
                 <span className="text-xs font-medium text-tertiary whitespace-nowrap">±0{unit}</span>
             </Tooltip>
         )
@@ -59,36 +56,12 @@ export function DeltaBadge({
     // A near-zero baseline turns growth into a meaningless five-digit percentage — clamp the display.
     const display = Math.abs(rounded) > 999 ? '>999' : Math.abs(rounded).toFixed(precision)
     return (
-        <Tooltip title={vs}>
+        <Tooltip title="vs the previous window">
             <span className={cn('text-xs font-semibold whitespace-nowrap', good ? 'text-success' : 'text-danger')}>
                 {up ? '▲' : '▼'} {display}
                 {unit}
             </span>
         </Tooltip>
-    )
-}
-
-/** Current count + delta vs the prior window; a zero prior with current signal reads "new". */
-export function CountWithDelta({
-    current,
-    prior,
-    goodWhenDown = true,
-}: {
-    current: number
-    prior: number
-    goodWhenDown?: boolean
-}): JSX.Element {
-    return (
-        <div className="flex items-baseline justify-end gap-1.5">
-            <span className="text-sm font-semibold tabular-nums">{humanFriendlyNumber(current)}</span>
-            {prior > 0 ? (
-                <DeltaBadge value={percentChange(current, prior)} goodWhenDown={goodWhenDown} />
-            ) : current > 0 ? (
-                <Tooltip title="No signal in the previous window. This is new.">
-                    <span className="text-xs font-semibold whitespace-nowrap text-danger">new</span>
-                </Tooltip>
-            ) : null}
-        </div>
     )
 }
 

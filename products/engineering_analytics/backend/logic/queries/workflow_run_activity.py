@@ -25,12 +25,17 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
-from products.engineering_analytics.backend.facade.contracts import WorkflowRunActivity, WorkflowRunActivityPoint
+from products.engineering_analytics.backend.facade.contracts import (
+    WorkflowHealthRunScope,
+    WorkflowRunActivity,
+    WorkflowRunActivityPoint,
+)
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     NO_OP_RUN_FLAG,
     branch_filter_clause,
     date_to_filter_clause,
+    run_scope_filter_clause,
 )
 
 # The chart plots a point per run and needs enough span to cover the window: an order of magnitude
@@ -49,7 +54,7 @@ _SELECT = f"""
         {NO_OP_RUN_FLAG} AS is_noop
     FROM __RUNS_SOURCE__ AS r
     WHERE repo_owner = {{repo_owner}} AND repo_name = {{repo_name}} AND workflow_name = {{workflow_name}}
-        AND run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__
+        AND run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__
     ORDER BY is_noop ASC, run_started_at DESC, run_attempt DESC
     LIMIT {_LIMIT + 1}
 """
@@ -64,6 +69,7 @@ def query_workflow_run_activity(
     date_from: datetime,
     date_to: datetime | None,
     branch: str | None = None,
+    run_scope: WorkflowHealthRunScope = WorkflowHealthRunScope.ALL,
 ) -> WorkflowRunActivity:
     placeholders: dict[str, ast.Expr] = {
         "repo_owner": ast.Constant(value=repo_owner),
@@ -76,7 +82,8 @@ def query_workflow_run_activity(
     response = curated.run(
         _SELECT.replace("__RUNS_SOURCE__", curated.run_source())
         .replace("__DATE_TO__", date_to_clause)
-        .replace("__BRANCH__", branch_clause),
+        .replace("__BRANCH__", branch_clause)
+        .replace("__RUN_SCOPE__", run_scope_filter_clause(run_scope)),
         query_type="engineering_analytics.workflow_run_activity",
         placeholders=placeholders,
     )

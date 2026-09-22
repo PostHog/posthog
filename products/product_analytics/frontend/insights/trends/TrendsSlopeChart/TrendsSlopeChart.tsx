@@ -10,11 +10,12 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 
@@ -59,13 +60,14 @@ export function TrendsSlopeChart({ context }: TrendsSlopeChartProps): JSX.Elemen
             // insight's "Show legend" toggle, so there's only ever one legend and no in-chart names.
             showSeriesLabels: false,
             legend: { show: !!showLegend },
+            hideXAxis: context?.hideAxes,
             xTickFormatter: createXAxisTickCallback({
                 interval: interval ?? 'day',
                 allDays: currentPeriodResult?.days ?? [],
                 timezone,
             }),
         }),
-        [trendsFilter, baseCurrency, showLegend, interval, currentPeriodResult, timezone]
+        [trendsFilter, baseCurrency, showLegend, interval, currentPeriodResult, timezone, context?.hideAxes]
     )
 
     if (series.length === 0) {

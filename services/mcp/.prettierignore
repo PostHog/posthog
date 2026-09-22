@@ -1,0 +1,5 @@
+# Read by oxfmt as a default ignore file when commands run from this package.
+# The generated Zod modules keep the exact layout the generator writes (see
+# scripts/generate-orval-schemas.mjs): a formatter pass would re-indent every
+# schema body under the builder arrow and turn regenerations into full-file diffs.
+src/generated/

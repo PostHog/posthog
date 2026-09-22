@@ -1,6 +1,7 @@
 import type { LocalSkillBundle } from "@posthog/core/sessions/cloudArtifactIdentifiers";
 import {
   type ExportedSkill,
+  isIgnoredSkillPath,
   serializeSkillMarkdown,
   type UploadableSkillSource,
 } from "@posthog/shared";
@@ -14,12 +15,6 @@ import { strToU8, zipSync } from "fflate";
 // reconstructed via the shared serializeSkillMarkdown so it matches desktop.
 
 const SKILL_BUNDLE_MAX_BYTES = 30 * 1024 * 1024;
-const IGNORED_ENTRIES = new Set([
-  ".DS_Store",
-  ".git",
-  "node_modules",
-  "__pycache__",
-]);
 
 const CHUNK_SIZE = 8192;
 function bytesToBase64(bytes: Uint8Array): string {
@@ -61,8 +56,7 @@ export async function bundleExportedSkill(
   );
   for (const file of exported.files) {
     const normalized = file.path.replaceAll("\\", "/");
-    const base = normalized.split("/").pop() ?? "";
-    if (!base || IGNORED_ENTRIES.has(base)) continue;
+    if (isIgnoredSkillPath(normalized)) continue;
     if (normalized === "SKILL.md") continue; // body is the source of truth
     files[normalized] = strToU8(file.content);
   }

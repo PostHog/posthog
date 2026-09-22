@@ -3,7 +3,7 @@ import { Link } from '@posthog/lemon-ui'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import type { HealthIssue } from '../types'
-import { dismissActionColumn, severityColumn } from './healthTableColumns'
+import { issueActionsColumn, severityColumn } from './healthTableColumns'
 
 const SOURCE_MAPS_DOCS_URL = 'https://posthog.com/docs/error-tracking/upload-source-maps'
 
@@ -21,10 +21,12 @@ function missingSourceMapsDescription(issue: HealthIssue): string {
 
 export function ErrorTrackingHealthTable({
     issues,
+    onSnooze,
     onDismiss,
     onUndismiss,
 }: {
     issues: HealthIssue[]
+    onSnooze: (id: string, duration: string) => void
     onDismiss: (id: string) => void
     onUndismiss: (id: string) => void
 }): JSX.Element {
@@ -47,7 +49,7 @@ export function ErrorTrackingHealthTable({
             },
         },
         severityColumn(),
-        dismissActionColumn(onDismiss, onUndismiss),
+        issueActionsColumn(onSnooze, onDismiss, onUndismiss),
     ]
 
     return <LemonTable dataSource={issues} columns={columns} embedded size="small" rowClassName="group" />

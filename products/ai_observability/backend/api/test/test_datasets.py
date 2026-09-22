@@ -3,6 +3,7 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.core.cache import cache
 from django.db import IntegrityError, connection, transaction
 from django.db.models.deletion import RestrictedError
 from django.utils.timezone import now
@@ -978,6 +979,21 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(content_response.status_code, status.HTTP_200_OK)
         self.assertEqual(content_response.content, asset.content)
         self.assertIn("attachment", content_response["Content-Disposition"])
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch("products.ai_observability.backend.api.datasets.DatasetExportRateThrottle.rate", new="1/day")
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_dataset_export_throttles_session_authenticated_requests(
+        self, _async_connect: AsyncMock, *_args: object
+    ) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+        dataset = self._create_dataset()
+        self._create_item(dataset["id"])
+        export_url = f"{self.datasets_url}{dataset['id']}/exports/"
+
+        self.assertEqual(self.client.post(export_url, {}, format="json").status_code, status.HTTP_201_CREATED)
+        self.assertEqual(self.client.post(export_url, {}, format="json").status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     @patch("products.ai_observability.backend.api.datasets.is_impersonated", return_value=True)
     @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)

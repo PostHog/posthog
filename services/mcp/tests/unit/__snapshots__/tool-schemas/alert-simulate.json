@@ -2202,11 +2202,18 @@
                     "type": "object"
                 }
             ],
-            "description": "Detector configuration to simulate."
+            "description": "Detector configuration to simulate. Omit it to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing)."
         },
         "insight": {
-            "description": "Insight ID to simulate the detector on.",
-            "type": "number"
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "string"
+                }
+            ],
+            "description": "Numeric insight ID or saved insight short ID to simulate the detector on."
         },
         "series_index": {
             "default": 0,
@@ -2214,6 +2221,6 @@
             "type": "number"
         }
     },
-    "required": ["insight", "detector_config"],
+    "required": ["insight"],
     "type": "object"
 }

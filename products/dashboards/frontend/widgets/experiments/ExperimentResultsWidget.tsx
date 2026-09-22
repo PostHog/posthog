@@ -9,11 +9,12 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
 import { urls } from 'scenes/urls'
 
 import type { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import type { ExperimentStatus } from '~/types'
+
+import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
 
 import { WidgetCardBodyMessage, WidgetCardContent } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'

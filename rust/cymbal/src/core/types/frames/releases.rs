@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha512};
 use sqlx::Executor;
+use url::Url;
 use uuid::Uuid;
 
 use crate::symbolication::symbol_store::saving::truncate_ref;
@@ -129,7 +130,7 @@ impl ReleaseRecord {
             project: self.project.clone(),
             version: self.version.clone(),
             timestamp: self.created_at,
-            metadata: self.metadata.clone(),
+            metadata: self.metadata.as_ref().map(sanitize_metadata_for_event),
         }
     }
 
@@ -163,6 +164,92 @@ fn truncate_chars(value: &mut String, max_chars: usize) {
     }
 }
 
+fn sanitize_metadata_for_event(metadata: &Value) -> Value {
+    let mut sanitized = metadata.clone();
+    let Some(Value::String(remote_url)) = sanitized.pointer("/git/remote_url") else {
+        return sanitized;
+    };
+
+    match sanitize_remote_url(remote_url) {
+        Some(cleaned) => {
+            if let Some(Value::String(target)) = sanitized.pointer_mut("/git/remote_url") {
+                *target = cleaned;
+            }
+        }
+        // Dropping only the URL keeps branch, commit and repo name on the event.
+        None => {
+            if let Some(git) = sanitized.pointer_mut("/git").and_then(Value::as_object_mut) {
+                git.remove("remote_url");
+            }
+        }
+    }
+    sanitized
+}
+
+/// Removes the userinfo component, the query, and the fragment from a git remote URL.
+///
+/// Returns `None` when a credential sits where no parser can isolate it, so the caller drops
+/// the URL rather than store a secret.
+fn sanitize_remote_url(url: &str) -> Option<String> {
+    // `?token=` and `#access_token=` both carry secrets, and a git remote needs neither.
+    let trimmed = match url.find(['?', '#']) {
+        Some(index) => &url[..index],
+        None => url,
+    };
+
+    // `https://user:token?x@host/o/r.git` loses its `@` to the trim, and what remains is the
+    // credential. Nothing tells that from a query that legitimately holds an `@`.
+    if url.contains('@') && !trimmed.contains('@') {
+        return None;
+    }
+
+    if !trimmed.contains("://") {
+        // SSH carries no password, so the `git` in `git@host:owner/repo.git` is a fixed
+        // username. Any other userinfo is not an SSH login and may be a token.
+        let (authority, path) = trimmed.split_once(':').unwrap_or((trimmed, ""));
+        let user = authority.split_once('@').map_or("", |(user, _)| user);
+        return if (!user.is_empty() && user != "git") || path_holds_credential(path) {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+    }
+
+    // Userinfo must percent-encode `/`, so `https://user:secret/@host/o/r.git` is malformed and
+    // no scan can find where its authority ends. A parser that rejects it fails closed.
+    let Ok(mut parsed) = Url::parse(trimmed) else {
+        return if trimmed.contains('@') {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+    };
+
+    // `https://host/${TOKEN}@host/o/r.git` is a CI script interpolating one segment too late.
+    // The authority parses clean, so userinfo stripping never sees the token.
+    if path_holds_credential(parsed.path()) {
+        return None;
+    }
+
+    // Returning the input untouched keeps the parser from reshaping a URL holding no credential.
+    if parsed.username().is_empty() && parsed.password().is_none() {
+        return Some(trimmed.to_string());
+    }
+
+    parsed.set_username("").ok()?;
+    parsed.set_password(None).ok()?;
+    Some(parsed.to_string())
+}
+
+/// An `@` opening a segment is an npm scope (`/@scope/package`), not a credential.
+fn path_holds_credential(path: &str) -> bool {
+    path.split('/').any(|segment| {
+        segment
+            .split_once('@')
+            .is_some_and(|(before, _)| !before.is_empty())
+    })
+}
+
 /// Reconstruct the release `hash_id` the CLI wrote for a mobile build, from the app metadata the
 /// SDK sends on every event. Mobile events carry no injected `$release_id`, so this is how their
 /// release is resolved. It must stay byte-for-byte identical to the CLI, which keys releases on
@@ -186,6 +273,21 @@ fn pack_version(version: Option<&str>, build: Option<&str>) -> Option<String> {
         (Some(v), None) => Some(v.to_string()),
         (None, Some(b)) => Some(b.to_string()),
         (None, None) => None,
+    }
+}
+
+/// Split a packed release version back into the app version and the build number, inverting
+/// `pack_version`. Splitting on the last `+` recovers the build from a version that itself carries
+/// semver build metadata, such as `1.0.0+sha.abc` built as `1.0.0+sha.abc+42`.
+///
+/// The inverse is lossy in the one direction `pack_version` is: a release packed from a build
+/// alone is a bare build string on the way back out, and comes back as a version with no build.
+pub fn unpack_version(packed: &str) -> (&str, Option<&str>) {
+    match packed.rsplit_once('+') {
+        Some((version, build)) if !version.is_empty() && !build.is_empty() => {
+            (version, Some(build))
+        }
+        _ => (packed, None),
     }
 }
 
@@ -245,6 +347,30 @@ mod tests {
         }
     }
 
+    #[test]
+    fn unpack_version_recovers_the_build_pack_version_folded_in() {
+        // (packed version, app version, build number)
+        let cases: [(&str, &str, Option<&str>); 5] = [
+            ("1.0+42", "1.0", Some("42")),
+            // Splitting on the last `+` is what keeps semver build metadata with the version.
+            ("1.0.0+sha.abc+42", "1.0.0+sha.abc", Some("42")),
+            ("2.3", "2.3", None),
+            // A version whose own metadata reads as a build number: the packing is ambiguous, and
+            // the build wins so a real `--build` is never dropped.
+            ("1.0.0+sha.abc", "1.0.0", Some("sha.abc")),
+            // An empty half is not a build, or events would carry an empty `$app_build`.
+            ("1.0+", "1.0+", None),
+        ];
+
+        for (packed, version, build) in cases {
+            assert_eq!(
+                unpack_version(packed),
+                (version, build),
+                "unpacking {packed}"
+            );
+        }
+    }
+
     fn record(metadata: Option<Value>) -> ReleaseRecord {
         ReleaseRecord {
             id: Uuid::nil(),
@@ -254,6 +380,68 @@ mod tests {
             version: "1.0".to_string(),
             project: "com.app".to_string(),
             metadata,
+        }
+    }
+
+    #[test]
+    fn event_remote_urls_drop_credentials_query_and_fragment() {
+        // `None` means the URL cannot be cleaned, so the key is dropped from the event.
+        let cases: [(&str, Option<&str>); 12] = [
+            (
+                "https://user:password@github.com/example/repo.git?token=query#access_token=fragment",
+                Some("https://github.com/example/repo.git"),
+            ),
+            (
+                "https://github.com/example/repo.git#access_token=fragment",
+                Some("https://github.com/example/repo.git"),
+            ),
+            (
+                "https://github.com/example/repo.git",
+                Some("https://github.com/example/repo.git"),
+            ),
+            (
+                "git@github.com:example/repo.git",
+                Some("git@github.com:example/repo.git"),
+            ),
+            (
+                "git@github.com:example/repo.git?token=query#access_token=fragment",
+                Some("git@github.com:example/repo.git"),
+            ),
+            (
+                "https://github.com/ghs_tokenvalue@github.com/example/repo.git",
+                None,
+            ),
+            ("git@github.com:ghs_tokenvalue@example/repo.git", None),
+            // SSH has no password slot, so a non-`git` userinfo is not a login.
+            ("ghs_tokenvalue@github.com:example/repo.git", None),
+            // An unencoded `/` in the password moves the `@` to the head of a path segment,
+            // where it would otherwise read as a scope.
+            ("https://user:secret/@github.com/example/repo.git", None),
+            ("https://user:sec/ret@github.com/example/repo.git", None),
+            ("https://user:ghp_tokenvalue?x@github.com/example/repo.git", None),
+            (
+                "https://github.com/example/@scope/package.git",
+                Some("https://github.com/example/@scope/package.git"),
+            ),
+        ];
+
+        for (remote_url, expected) in cases {
+            let info = serde_json::to_value(
+                record(Some(
+                    json!({"git": {"remote_url": remote_url, "branch": "main"}}),
+                ))
+                .to_info(),
+            )
+            .unwrap();
+            let git = &info["metadata"]["git"];
+            match expected {
+                Some(value) => assert_eq!(git["remote_url"], value, "case: {remote_url}"),
+                None => assert!(
+                    git.get("remote_url").is_none(),
+                    "case: {remote_url} should have been dropped, got {git:?}"
+                ),
+            }
+            assert_eq!(git["branch"], "main", "case: {remote_url}");
         }
     }
 

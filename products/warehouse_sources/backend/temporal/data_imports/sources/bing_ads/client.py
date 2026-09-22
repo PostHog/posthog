@@ -256,7 +256,6 @@ class BingAdsClient:
                     end_date=end_date,
                 )
 
-                # Download and extract CSV from ZIP
                 csv_data = download_and_extract_report_csv(
                     reporting_service_manager=reporting_service_manager,
                     report_request=report_request,

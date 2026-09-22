@@ -3,7 +3,7 @@ import React, { useEffect, useMemo } from 'react'
 import { useChartHover } from '../../core/chart-context'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { useLatest } from '../../core/hooks/useLatest'
-import type { BarChartConfig, ChartTheme, LineChartConfig, Series, TooltipContext } from '../../core/types'
+import type { BarChartConfig, ChartTheme, LineChartConfig, Series, TooltipContext, ValueDomain } from '../../core/types'
 import { BarChart } from '../BarChart/BarChart'
 import { LineChart } from '../LineChart/LineChart'
 
@@ -28,6 +28,9 @@ export interface SparklineProps {
     fillOpacity?: number
     /** Dash the line from this index onward (e.g. an in-progress trailing period). Omit for a fully solid line. */
     dashedFromIndex?: number
+    /** Value-axis domain control — omit for data-derived auto-scaling. Pin both ends to keep
+     *  separate sparklines comparable (e.g. a column of per-provider rates all read against 0–100). */
+    valueDomain?: ValueDomain
     /** Fires the hovered index, or -1 when not hovering. */
     onHoverIndexChange?: (index: number) => void
     /** Tooltip content renderer. Sparkline tooltips are off by default; supplying this enables them. */
@@ -37,7 +40,16 @@ export interface SparklineProps {
     onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
-const BASE_CONFIG = { hideXAxis: true, hideYAxis: true } as const
+// A sparkline is a bare trend, but it renders through BarChart/LineChart, which layer the library's
+// default chrome (grid, axis lines, tick marks, monotone curve) under any config — opt back out here.
+const BASE_CONFIG = {
+    hideXAxis: true,
+    hideYAxis: true,
+    showGrid: false,
+    showAxisLines: false,
+    showTickMarks: false,
+    curve: 'linear',
+} as const
 // Reserve room for the hover highlight ring (radius + 2 = 6px) so it isn't clipped at the top/bottom edge.
 const LINE_MARGINS = { top: 6, right: 0, bottom: 6, left: 0 }
 // Bars have no hover ring — sit them flush on the baseline, with a sliver of headroom for the tallest stack.
@@ -63,6 +75,7 @@ function SparklineInner({
     fill = false,
     fillOpacity = 0.35,
     dashedFromIndex,
+    valueDomain,
     onHoverIndexChange,
     tooltip,
     className,
@@ -93,11 +106,18 @@ function SparklineInner({
         () => ({
             ...BASE_CONFIG,
             ...(type === 'bar'
-                ? { barCornerRadius: 2, margins: BAR_MARGINS }
+                ? {
+                      barCornerRadius: 2,
+                      margins: BAR_MARGINS,
+                      showCrosshair: false,
+                      // Sparkline bars can be a pixel tall, or absent at a zero bucket.
+                      tooltip: { hitArea: 'band' as const },
+                  }
                 : { showCrosshair: true, margins: LINE_MARGINS }),
             ...(hasTooltip ? {} : { tooltip: { enabled: false } }),
+            ...(valueDomain ? { valueDomain } : {}),
         }),
-        [type, hasTooltip]
+        [type, hasTooltip, valueDomain]
     )
     const wrapperStyle = useMemo<React.CSSProperties | undefined>(() => (fill ? undefined : { height }), [fill, height])
 

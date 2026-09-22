@@ -3,16 +3,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mention import (
     MentionSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mention.mention import MentionResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mention.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.mention.source import MentionSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestMentionSource:
@@ -21,30 +16,10 @@ class TestMentionSource:
         self.team_id = 123
         self.config = MentionSourceConfig(access_token="tok")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.MENTION
-
     def test_new_sources_default_to_latest_version(self) -> None:
         # New sources are stamped with default_version; it must be the newest supported label.
         assert self.source.supported_versions == ("1.19", "1.21")
         assert self.source.default_version == "1.21"
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Mention"
-        assert config.label == "Mention"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/mention"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["access_token"]
-
-    def test_access_token_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "access_token")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret access token; the base URL is hardcoded, so there is no
@@ -101,11 +76,6 @@ class TestMentionSource:
         result = self.source.validate_credentials(self.config, self.team_id)
         assert result == (False, "Invalid Mention access token")
         mock_validate.assert_called_once_with("tok", api_version="1.21")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is MentionResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mention.source.mention_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

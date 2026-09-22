@@ -5,10 +5,13 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
+import requests_mock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona import persona
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona.persona import (
+    PERSONA_BASE_URL,
+    PersonaRedirectError,
     PersonaResumeConfig,
     PersonaRetryableError,
     _build_params,
@@ -150,6 +153,40 @@ class TestFetchPageRetryClassification:
         with pytest.raises(requests.HTTPError):
             persona._fetch_page(session, "https://api.withpersona.com/api/v1/inquiries", {}, MagicMock())
         assert session.get.call_count == 1
+
+
+class TestRedirectsRefused:
+    # The apex host answers a redirected request with a 403 bot challenge, which must not be read
+    # as an auth failure. The session refuses the redirect so the key never leaves the API host.
+    API_URL = f"{PERSONA_BASE_URL}/inquiries"
+    TARGET_URL = "https://withpersona.com/api/v1/inquiries"
+
+    @parameterized.expand([("moved_permanently", 301), ("found", 302)])
+    def test_sync_refuses_redirect_and_keeps_key_on_api_host(self, _name: str, status: int) -> None:
+        with requests_mock.Mocker() as m:
+            m.get(self.API_URL, status_code=status, headers={"Location": self.TARGET_URL})
+            m.get(self.TARGET_URL, status_code=403)
+
+            with pytest.raises(PersonaRedirectError, match="redirected the API request to withpersona.com"):
+                list(
+                    get_rows(
+                        api_key="persona_test",
+                        endpoint="inquiries",
+                        logger=MagicMock(),
+                        resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                    )
+                )
+
+            assert [r.hostname for r in m.request_history] == ["api.withpersona.com"]
+            assert m.request_history[0].headers["Authorization"] == "Bearer persona_test"
+
+    def test_validate_credentials_returns_the_redirect_status_without_following(self) -> None:
+        with requests_mock.Mocker() as m:
+            m.get(self.API_URL, status_code=302, headers={"Location": self.TARGET_URL})
+            m.get(self.TARGET_URL, status_code=403)
+
+            assert persona.validate_credentials("persona_test") == 302
+            assert [r.hostname for r in m.request_history] == ["api.withpersona.com"]
 
 
 def _collect(

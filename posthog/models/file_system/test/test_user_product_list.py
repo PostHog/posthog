@@ -1,27 +1,12 @@
 from posthog.test.base import BaseTest
 
-from posthog.schema import ProductItemCategory
-
 from posthog.models import User
 from posthog.models.file_system.user_product_list import (
     DEFAULT_PRODUCT_PATHS,
     UserProductList,
     add_default_products_for_user,
-    get_user_product_list_count,
 )
 from posthog.products import Products
-
-from products.growth.backend.cross_sell_candidate_selector import (
-    BASE_PREFERENCE_WEIGHTS,
-    DEFAULT_IGNORED_CATEGORIES,
-    CrossSellCandidateSelector,
-)
-
-
-def _get_favored_product_paths() -> set[str]:
-    """Derive the favored product paths from the selector constants."""
-    selector = CrossSellCandidateSelector(user_enabled_products=set(), ignored_categories=DEFAULT_IGNORED_CATEGORIES)
-    return {p for key in BASE_PREFERENCE_WEIGHTS for p in selector.intent_to_paths.get(key, [])}
 
 
 class TestUserProductList(BaseTest):
@@ -40,7 +25,6 @@ class TestUserProductList(BaseTest):
         assert {row.product_path for row in rows} == set(DEFAULT_PRODUCT_PATHS)
         for row in rows:
             assert row.enabled is True
-            assert row.reason == UserProductList.Reason.DEFAULT
 
     def test_add_default_products_leaves_existing_rows_untouched(self):
         user = User.objects.create_user(email="user@posthog.com", password="password", first_name="User")
@@ -50,7 +34,6 @@ class TestUserProductList(BaseTest):
             team=self.team,
             product_path="Product analytics",
             enabled=False,
-            reason=UserProductList.Reason.PRODUCT_INTENT,
         )
 
         created_items = add_default_products_for_user(user, self.team)
@@ -58,7 +41,6 @@ class TestUserProductList(BaseTest):
         assert "Product analytics" not in {item.product_path for item in created_items}
         existing = UserProductList.objects.get(user=user, team=self.team, product_path="Product analytics")
         assert existing.enabled is False
-        assert existing.reason == UserProductList.Reason.PRODUCT_INTENT
 
         add_default_products_for_user(user, self.team)
         assert UserProductList.objects.filter(user=user, team=self.team).count() == len(DEFAULT_PRODUCT_PATHS)
@@ -74,308 +56,3 @@ class TestUserProductList(BaseTest):
         assert {row.product_path for row in rows} == set(DEFAULT_PRODUCT_PATHS)
         for row in rows:
             assert row.enabled is True
-            assert row.reason == UserProductList.Reason.DEFAULT
-
-    def test_sync_cross_sell_products_suggests_same_category_or_favored(self):
-        user = User.objects.create_user(
-            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
-        )
-
-        UserProductList.objects.create(user=user, team=self.team, product_path="Product analytics", enabled=True)
-
-        created_items = UserProductList.sync_cross_sell_products(user=user, team=self.team)
-
-        by_category = Products.get_products_by_category()
-        analytics_products = set(by_category.get(ProductItemCategory.ANALYTICS, []))
-        # Favored products are always candidates even if from a different category
-        favored_products = _get_favored_product_paths()
-        valid_candidates = analytics_products | favored_products
-
-        assert len(created_items) == 1
-        for item in created_items:
-            assert item.reason == UserProductList.Reason.USED_SIMILAR_PRODUCTS
-            assert item.enabled is True
-            assert item.product_path in valid_candidates
-            assert item.product_path != "Product analytics"
-
-    def test_sync_cross_sell_products_excludes_existing_products(self):
-        user = User.objects.create_user(
-            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
-        )
-
-        UserProductList.objects.create(user=user, team=self.team, product_path="Product analytics", enabled=True)
-        UserProductList.objects.create(user=user, team=self.team, product_path="Dashboards", enabled=True)
-
-        created_items: list[UserProductList] = []
-        while True:
-            items = UserProductList.sync_cross_sell_products(user=user, team=self.team)
-            if len(items) == 0:
-                break
-            created_items.extend(items)
-
-        created_paths = {item.product_path for item in created_items}
-        assert "Product analytics" not in created_paths
-        assert "Dashboards" not in created_paths
-
-    def test_sync_cross_sell_products_respects_allow_sidebar_suggestions_false(self):
-        user = User.objects.create_user(
-            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=False
-        )
-
-        UserProductList.objects.create(user=user, team=self.team, product_path="Product analytics", enabled=True)
-
-        created_items = UserProductList.sync_cross_sell_products(user=user, team=self.team)
-        assert len(created_items) == 0
-
-    def test_sync_cross_sell_products_respects_max_products(self):
-        user = User.objects.create_user(
-            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
-        )
-
-        UserProductList.objects.create(user=user, team=self.team, product_path="Product analytics", enabled=True)
-
-        created_items = UserProductList.sync_cross_sell_products(user=user, team=self.team, max_products=3)
-        assert 1 <= len(created_items) <= 3
-
-    def test_sync_cross_sell_products_with_no_enabled_products_suggests_favored(self):
-        user = User.objects.create_user(
-            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
-        )
-
-        created_items = UserProductList.sync_cross_sell_products(user=user, team=self.team)
-
-        # Even with no enabled products, favored products are still candidates
-        favored_products = _get_favored_product_paths()
-        assert len(created_items) == 1
-        assert created_items[0].product_path in favored_products
-
-    def test_sync_cross_sell_products_candidates_include_same_category_and_favored(self):
-        user = User.objects.create_user(
-            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
-        )
-
-        UserProductList.objects.create(user=user, team=self.team, product_path="Product analytics", enabled=True)
-
-        products_by_category = Products.get_products_by_category()
-        analytics_products = set(products_by_category.get(ProductItemCategory.ANALYTICS, []))
-        favored_products = _get_favored_product_paths()
-        valid_candidates = (analytics_products | favored_products) - {"Product analytics"}
-
-        created_items = UserProductList.sync_cross_sell_products(user=user, team=self.team, max_products=5)
-
-        created_paths = {item.product_path for item in created_items}
-        for path in created_paths:
-            assert path in valid_candidates
-
-    def test_sync_cross_sell_products_ignores_tools_and_unreleased_categories(self):
-        user = User.objects.create_user(
-            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
-        )
-
-        products_by_category = Products.get_products_by_category()
-        tools_products = products_by_category.get(ProductItemCategory.TOOLS, [])
-        unreleased_products = products_by_category.get(ProductItemCategory.UNRELEASED, [])
-
-        # Add a product from the Tools category
-        assert tools_products
-        assert "Web scripts" in tools_products
-        UserProductList.objects.create(user=user, team=self.team, product_path="Web scripts", enabled=True)
-
-        # Add a product from the Unreleased category
-        assert unreleased_products
-        UserProductList.objects.create(user=user, team=self.team, product_path=unreleased_products[0], enabled=True)
-
-        created_items = UserProductList.sync_cross_sell_products(user=user, team=self.team)
-        created_paths = {item.product_path for item in created_items}
-        assert not created_paths.intersection(tools_products)
-        assert not created_paths.intersection(unreleased_products)
-
-    def test_sync_cross_sell_products_respects_custom_ignored_categories(self):
-        user = User.objects.create_user(
-            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
-        )
-
-        UserProductList.objects.create(user=user, team=self.team, product_path="Product analytics", enabled=True)
-
-        created_items = UserProductList.sync_cross_sell_products(
-            user=user, team=self.team, ignored_categories=[ProductItemCategory.ANALYTICS]
-        )
-
-        products_by_category = Products.get_products_by_category()
-        analytics_products = set(products_by_category.get(ProductItemCategory.ANALYTICS, []))
-
-        created_paths = {item.product_path for item in created_items}
-        assert not created_paths.intersection(analytics_products)
-
-    def test_sync_cross_sell_products_falls_back_to_all_categories_when_no_same_category_or_favored(self):
-        user = User.objects.create_user(
-            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
-        )
-
-        products_by_category = Products.get_products_by_category()
-        favored_products = _get_favored_product_paths()
-
-        # Enable all favored products and all products from a category so the first candidate set
-        # (same-category + favored) would be empty, triggering the fallback to all categories.
-        for path in favored_products:
-            UserProductList.objects.create(user=user, team=self.team, product_path=path, enabled=True)
-        analytics_products = set(products_by_category.get(ProductItemCategory.ANALYTICS, []))
-        for path in analytics_products - favored_products:
-            UserProductList.objects.create(user=user, team=self.team, product_path=path, enabled=True)
-
-        created_items = UserProductList.sync_cross_sell_products(user=user, team=self.team)
-
-        # Should still suggest something via the fallback to all non-ignored categories
-        assert len(created_items) == 1
-        tools_products = set(products_by_category.get(ProductItemCategory.TOOLS, []))
-        unreleased_products = set(products_by_category.get(ProductItemCategory.UNRELEASED, []))
-        assert created_items[0].product_path not in tools_products
-        assert created_items[0].product_path not in unreleased_products
-        assert created_items[0].product_path not in favored_products | analytics_products
-
-    def test_sync_cross_sell_products_same_category_gets_weight_bump(self):
-        user = User.objects.create_user(
-            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
-        )
-
-        UserProductList.objects.create(user=user, team=self.team, product_path="Product analytics", enabled=True)
-
-        products_by_category = Products.get_products_by_category()
-        analytics_products = set(products_by_category.get(ProductItemCategory.ANALYTICS, [])) - {"Product analytics"}
-
-        all_created_paths: set[str] = set()
-        for _ in range(50):
-            items = UserProductList.sync_cross_sell_products(user=user, team=self.team)
-            for item in items:
-                all_created_paths.add(item.product_path)
-            UserProductList.objects.filter(
-                user=user, team=self.team, product_path__in=[i.product_path for i in items]
-            ).exclude(product_path="Product analytics").delete()
-
-        assert len(all_created_paths & analytics_products) > 0
-
-    def test_sync_cross_sell_products_returns_empty_when_all_products_enabled(self):
-        user = User.objects.create_user(
-            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
-        )
-
-        # Enable all products
-        for product in Products.products():
-            UserProductList.objects.create(user=user, team=self.team, product_path=product.path, enabled=True)
-
-        created_items = UserProductList.sync_cross_sell_products(user=user, team=self.team)
-        assert len(created_items) == 0
-
-    def test_sync_from_team_colleagues_filters_out_existing_products(self):
-        user = User.objects.create_user(
-            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
-        )
-
-        UserProductList.objects.create(user=user, team=self.team, product_path="Product analytics", enabled=True)
-        UserProductList.objects.create(user=user, team=self.team, product_path="Feature flags", enabled=True)
-
-        hardcoded_counts = [
-            {"product_path": "Product analytics", "colleague_count": 5},
-            {"product_path": "Session replay", "colleague_count": 4},
-            {"product_path": "Feature flags", "colleague_count": 3},
-            {"product_path": "Surveys", "colleague_count": 2},
-        ]
-
-        created_items = UserProductList.sync_from_team_colleagues(
-            user=user, team=self.team, count=2, colleague_product_counts=hardcoded_counts
-        )
-
-        assert {item.product_path for item in created_items} == {"Session replay", "Surveys"}
-        for item in created_items:
-            assert item.reason == UserProductList.Reason.USED_BY_COLLEAGUES
-            assert item.enabled is True
-
-    def test_sync_from_team_colleagues_ranks_by_counts_and_respects_limit(self):
-        user = User.objects.create_user(
-            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
-        )
-
-        hardcoded_counts = [
-            {"product_path": "Product analytics", "colleague_count": 10},
-            {"product_path": "Session replay", "colleague_count": 8},
-            {"product_path": "Feature flags", "colleague_count": 5},
-            {"product_path": "Surveys", "colleague_count": 3},
-            {"product_path": "Experiments", "colleague_count": 1},
-        ]
-
-        created_items = UserProductList.sync_from_team_colleagues(
-            user=user, team=self.team, count=3, colleague_product_counts=hardcoded_counts
-        )
-
-        assert [item.product_path for item in created_items] == [
-            "Product analytics",
-            "Session replay",
-            "Feature flags",
-        ]
-
-    def test_sync_from_team_colleagues_respects_allow_sidebar_suggestions_false(self):
-        user = User.objects.create_user(
-            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=False
-        )
-
-        hardcoded_counts = [
-            {"product_path": "Product analytics", "colleague_count": 10},
-            {"product_path": "Session replay", "colleague_count": 8},
-        ]
-
-        created_items = UserProductList.sync_from_team_colleagues(
-            user=user, team=self.team, colleague_product_counts=hardcoded_counts
-        )
-
-        assert len(created_items) == 0
-
-    def test_sync_from_team_colleagues_computes_counts_when_not_provided(self):
-        colleague1 = User.objects.create_user(
-            email="colleague1@posthog.com", password="password", first_name="Colleague1"
-        )
-        colleague2 = User.objects.create_user(
-            email="colleague2@posthog.com", password="password", first_name="Colleague2"
-        )
-        user = User.objects.create_user(
-            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=True
-        )
-
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Product analytics", enabled=True)
-        UserProductList.objects.create(user=colleague2, team=self.team, product_path="Product analytics", enabled=True)
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Session replay", enabled=True)
-
-        created_items = UserProductList.sync_from_team_colleagues(user=user, team=self.team, count=2)
-
-        assert {item.product_path for item in created_items} == {"Product analytics", "Session replay"}
-
-    def test_get_user_product_list_count_ranks_and_excludes_disabled(self):
-        # Counts are team-wide; drop the rows seeded for the fixture user so only
-        # the colleagues created below contribute.
-        UserProductList.objects.filter(team=self.team).delete()
-        colleague1 = User.objects.create_user(
-            email="colleague1@posthog.com", password="password", first_name="Colleague1"
-        )
-        colleague2 = User.objects.create_user(
-            email="colleague2@posthog.com", password="password", first_name="Colleague2"
-        )
-
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Product analytics", enabled=True)
-        UserProductList.objects.create(user=colleague2, team=self.team, product_path="Product analytics", enabled=True)
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Feature flags", enabled=True)
-        UserProductList.objects.create(user=colleague1, team=self.team, product_path="Session replay", enabled=False)
-        UserProductList.objects.create(user=colleague2, team=self.team, product_path="Session replay", enabled=False)
-
-        counts = get_user_product_list_count(self.team)
-
-        assert counts == [
-            {"product_path": "Product analytics", "colleague_count": 2},
-            {"product_path": "Feature flags", "colleague_count": 1},
-        ]
-
-    def test_user_product_list_reason_enum_matches_backend(self):
-        from posthog.schema import UserProductListReason
-
-        backend_reasons = {key for key, _ in UserProductList.Reason.choices}
-        schema_reasons = {value for _, value in UserProductListReason.__members__.items()}
-
-        assert backend_reasons == schema_reasons, "Backend reasons do not match schema reasons"

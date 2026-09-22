@@ -10,8 +10,26 @@ test.describe('Survey Settings', () => {
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
         await playwrightSetup.loginAndNavigateToTeam(page, workspace!)
+        // The scene shows its setup empty state, tab bar included, until the project
+        // holds a survey. Seed one over the API so the Settings tab is reachable.
+        await seedSurvey(page, workspace!)
         await page.goToMenuItem('surveys')
     })
+
+    async function seedSurvey(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
+        const response = await page.request.post(`/api/projects/${workspace.team_id}/surveys/`, {
+            headers: {
+                Authorization: `Bearer ${workspace.personal_api_key}`,
+                'Content-Type': 'application/json',
+            },
+            data: {
+                name: 'Settings fixture survey',
+                type: 'popover',
+                questions: [{ type: 'open', question: 'How is it going?' }],
+            },
+        })
+        expect(response.ok()).toBe(true)
+    }
 
     async function toggleSurveysSettingsAndWaitResponse(page: Page): Promise<void> {
         const responsePromise = page.waitForResponse(

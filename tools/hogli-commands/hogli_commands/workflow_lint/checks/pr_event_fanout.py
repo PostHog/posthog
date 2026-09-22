@@ -30,7 +30,9 @@ UNBUDGETED_ACTIONS = frozenset({"labeled", "unlabeled"})
 PR_EVENT_FANOUT_BUDGET: Mapping[str, int] = {
     "closed": 3,
     "converted_to_draft": 1,
-    "edited": 3,
+    # pr-approval-agent listens for base retargets (`edited` with `changes.base`); title/body
+    # edits skip every job there, but GitHub still counts the dispatch.
+    "edited": 4,
     "opened": 28,
     "ready_for_review": 11,
     "reopened": 24,

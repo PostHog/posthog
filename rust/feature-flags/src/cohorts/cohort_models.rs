@@ -174,7 +174,7 @@ impl Cohort {
     /// field existed, or a cohort with no filters) defaults to `false` — the safe choice,
     /// since it routes the cohort through legacy dynamic filter evaluation instead of the
     /// realtime `cohort_membership` table.
-    fn has_behavioral_condition(&self) -> bool {
+    pub(crate) fn has_behavioral_condition(&self) -> bool {
         self.condition_type
             .as_ref()
             .and_then(|value| value.as_object())

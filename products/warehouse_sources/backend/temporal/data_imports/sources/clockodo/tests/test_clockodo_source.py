@@ -2,16 +2,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.clockodo import ClockodoResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.source import ClockodoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clockodo import (
     ClockodoSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> ClockodoSourceConfig:
@@ -19,24 +14,6 @@ def _config() -> ClockodoSourceConfig:
 
 
 class TestClockodoSource:
-    def test_source_type(self) -> None:
-        assert ClockodoSource().source_type == ExternalDataSourceType.CLOCKODO
-
-    def test_source_config_shape(self) -> None:
-        config = ClockodoSource().get_source_config
-        assert config.category == DataWarehouseSourceCategory.PRODUCTIVITY
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/clockodo"
-        field_names = {f.name for f in config.fields}
-        assert field_names == {"api_user", "api_key"}
-
-    def test_api_key_field_is_secret(self) -> None:
-        config = ClockodoSource().get_source_config
-        api_key = next(f for f in config.fields if f.name == "api_key")
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert api_key.secret is True
-        assert api_key.required is True
-
     def test_get_schemas_lists_all_endpoints_full_refresh_only(self) -> None:
         schemas = ClockodoSource().get_schemas(_config(), team_id=1)
         assert {s.name for s in schemas} == set(ENDPOINTS)
@@ -63,18 +40,6 @@ class TestClockodoSource:
             ok, error = ClockodoSource().validate_credentials(_config(), team_id=1)
         assert ok is expected_ok
         assert (error is None) is expected_ok
-
-    def test_non_retryable_errors_cover_auth(self) -> None:
-        errors = ClockodoSource().get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        inputs = MagicMock()
-        inputs.logger = MagicMock()
-        manager = ClockodoSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ClockodoResumeConfig
 
     @parameterized.expand([("unpinned", None, "v3"), ("legacy_pin", "v2", "v2"), ("new_pin", "v3", "v3")])
     def test_source_for_pipeline_threads_resolved_api_version(

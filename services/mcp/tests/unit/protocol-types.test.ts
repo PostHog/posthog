@@ -26,7 +26,7 @@ describe('resolveMode', () => {
 
     it.each([
         ['Cursor client name', profile({ clientName: 'cursor' })],
-        ['ChatGPT user-agent', profile({ clientName: undefined, userAgent: 'openai-mcp/1.0.0 (ChatGPT)' })],
+        ['name-less Cursor user-agent', profile({ clientName: undefined, userAgent: 'Cursor/3.1.15 (darwin arm64)' })],
     ])('auto-selects tools mode for the %s', (_label, clientProfile) => {
         expect(resolveMode({ mode: undefined, clientProfile })).toEqual({ mode: 'tools', useSingleExec: false })
     })

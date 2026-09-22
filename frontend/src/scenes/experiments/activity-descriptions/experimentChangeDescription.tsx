@@ -6,12 +6,13 @@ import { ActivityChange } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
 import { getExposureConfigDisplayName } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
 import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
 import { Experiment, ExperimentConclusion } from '~/types'
+
+import { CONCLUSION_DISPLAY_CONFIG } from 'products/experiments/frontend/constants'
 
 import { getMetricChanges } from './metricChangeDescriptions'
 
@@ -38,6 +39,8 @@ export const nameOrLinkToExperiment = (name: string | null, id?: string): JSX.El
 type AllowedExperimentFields = Pick<
     Experiment,
     | 'conclusion'
+    | 'conclusion_comment'
+    | 'status'
     | 'start_date'
     | 'end_date'
     | 'metrics'
@@ -48,6 +51,8 @@ type AllowedExperimentFields = Pick<
     | 'excluded_variants'
     | 'primary_metrics_ordered_uuids'
     | 'secondary_metrics_ordered_uuids'
+    | 'archived'
+    | 'description'
 > & {
     deleted: boolean
 }
@@ -64,6 +69,17 @@ function withoutRunningTimeCalculationKeys(value: unknown): Record<string, unkno
     return Object.fromEntries(
         Object.entries((value as Record<string, unknown> | null) ?? {}).filter(
             ([key]) => !RUNNING_TIME_CALCULATION_KEYS.includes(key)
+        )
+    )
+}
+
+const DERIVED_RUNNING_TIME_KEYS = ['recommended_running_time', 'recommended_sample_size']
+
+/** Strip the derived calculator outputs so only deliberate input edits (MDE, exposure estimate) count. */
+function withoutDerivedRunningTimeKeys(value: unknown): Record<string, unknown> {
+    return Object.fromEntries(
+        Object.entries((value as Record<string, unknown> | null) ?? {}).filter(
+            ([key]) => !DERIVED_RUNNING_TIME_KEYS.includes(key)
         )
     )
 }
@@ -136,6 +152,14 @@ export const getExperimentChangeDescription = (
                 }
             }
 
+            /**
+             * a start_date clear rewrites the whole row to the 'reset' activity in the backend
+             * handler, so this only renders for rows logged before that rewrite shipped
+             */
+            if (action === 'deleted') {
+                return 'reset experiment:'
+            }
+
             return 'changed the start date'
         })
         .with({ field: 'end_date' }, ({ action, before, after }) => {
@@ -144,6 +168,10 @@ export const getExperimentChangeDescription = (
              */
             if (action === 'created' && before === null && after !== null) {
                 return 'stopped experiment'
+            }
+
+            if (action === 'deleted') {
+                return 'removed the end date of'
             }
 
             return 'changed the end date'
@@ -169,8 +197,16 @@ export const getExperimentChangeDescription = (
                 )
             }
 
+            if (action === 'deleted') {
+                return 'removed the conclusion of'
+            }
+
             return 'changed the conclusion'
         })
+        .with({ field: 'archived' }, ({ after }) =>
+            after === true ? 'archived experiment:' : 'unarchived experiment:'
+        )
+        .with({ field: 'description' }, () => 'updated the description')
         .with({ field: 'metrics', action: 'created', before: null }, () => 'added the first metric to')
         .with({ field: 'metrics', action: 'changed' }, ({ before, after }) =>
             getMetricChanges(before as ExperimentMetric[], after as ExperimentMetric[])
@@ -283,12 +319,26 @@ export const getExperimentChangeDescription = (
             }
             return 'updated parameters'
         })
-        .with({ field: 'running_time_calculation' }, () => {
+        .with({ field: 'running_time_calculation' }, ({ before, after }) => {
+            // Opening the calculator re-saves the recomputed outputs, so they drift as exposure
+            // data changes — a row only earns its place when a calculator input was edited.
+            if (equal(withoutDerivedRunningTimeKeys(before), withoutDerivedRunningTimeKeys(after))) {
+                return null
+            }
             return 'updated the running time calculation'
         })
         .with({ field: 'excluded_variants' }, () => {
             // The change is described by the `parameters` matcher, which the backend keeps
             // mirrored while `parameters` is deprecated — avoid a duplicate line.
+            return null
+        })
+        .with({ field: 'status' }, () => {
+            // Status only moves together with a lifecycle change (launch, stop, pause), and those
+            // already produce their own descriptions, so an "updated status" clause adds nothing.
+            return null
+        })
+        .with({ field: 'conclusion_comment' }, () => {
+            // The describer renders the comment text as the row's extended description instead.
             return null
         })
         .otherwise(({ field, action }) => {

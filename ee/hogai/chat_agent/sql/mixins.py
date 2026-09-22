@@ -36,13 +36,14 @@ from posthog.models import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.api import insight_variables_by_code_names
 
 from ee.hogai.chat_agent.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.warehouse import serialize_database_schema
 
 from ..schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
+from .errors import hogql_validation_message
 from .prompts import (
     HOGQL_GENERATOR_SYSTEM_PROMPT,
     SQL_EXPRESSIONS_DOCS,
@@ -142,7 +143,7 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
         code_names = {str(chain[1]) for chain in placeholder_fields if len(chain) >= 2 and chain[0] == "variables"}
         if not code_names:
             return []
-        insight_variables = InsightVariable.objects.filter(team_id=self._team.pk, code_name__in=code_names)
+        insight_variables = insight_variables_by_code_names(self._team.pk, code_names)
         return [
             HogQLVariable(variableId=str(variable.id), code_name=variable.code_name)
             for variable in insight_variables
@@ -187,22 +188,9 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
 
             prepare_and_print_ast(parsed_query, context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, HogQLNotImplementedError, QueryError, ResolutionError) as err:
-            err_msg = str(err)
-            # Both the antlr-based cpp parser and the hand-rolled rust-py parser produce
-            # terse low-level error wording on syntax failures ("no viable alternative…",
-            # "trailing tokens after expression…", "unexpected token in expression…",
-            # "mismatched input … expecting …"). Replace any of them with a single
-            # human/LLM-friendly message.
-            if err_msg.startswith(
-                (
-                    "no viable alternative",
-                    "trailing tokens after expression",
-                    "unexpected token in expression",
-                    "mismatched input",
-                )
-            ):
-                err_msg = "HogQL parsing error: this query isn't valid HogQL."
-            raise PydanticOutputParserException(llm_output=cleaned_query, validation_message=err_msg)
+            raise PydanticOutputParserException(
+                llm_output=cleaned_query, validation_message=hogql_validation_message(err, cleaned_query)
+            )
 
         return AssistantHogQLQuery(query=cleaned_query)
 

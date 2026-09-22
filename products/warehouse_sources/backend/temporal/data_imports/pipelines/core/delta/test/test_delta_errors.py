@@ -1,6 +1,9 @@
-from django.db import InterfaceError, OperationalError
+import errno
+
+from django.db import InterfaceError, InternalError, OperationalError
 
 import deltalake
+import psycopg.errors
 import botocore.exceptions
 from parameterized import parameterized
 
@@ -12,6 +15,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     is_transient_maintenance_error,
     is_transient_object_store_error,
 )
+
+
+def _internal_error_with_cause(cause: BaseException) -> InternalError:
+    """Mirrors how Django's DatabaseErrorWrapper re-raises a psycopg error: `raise dj_exc_value ... from exc_value`."""
+    error = InternalError("cannot execute SELECT FOR UPDATE in a read-only transaction")
+    error.__cause__ = cause
+    return error
 
 
 class TestIsTransientObjectStoreError:
@@ -27,12 +37,47 @@ class TestIsTransientObjectStoreError:
             ),
             ("unrelated_os_error", OSError("Permission denied: bucket policy forbids this operation"), False),
             (
+                # s3fs wraps a CopyObject/PutObject 5xx as a plain OSError once boto's own retries
+                # are exhausted - S3's fixed InternalError message, not a bug in our code.
+                "s3_internal_error_os_error",
+                OSError("[Errno 121] We encountered an internal error. Please try again."),
+                True,
+            ),
+            (
                 # s3fs/aiobotocore's own credential resolution (distinct from delta-rs's Rust
                 # object_store crate) can raise this bare, unwrapped — same IMDS/STS blip
                 # hitting our own instance-role-authenticated bucket, different client library.
                 "bare_no_credentials_error",
                 botocore.exceptions.NoCredentialsError(),
                 True,
+            ),
+            (
+                # A bare botocore connection failure reaching our own bucket endpoint (e.g.
+                # `ensure_bucket_exists`'s `head_bucket` hitting a still-booting local object store) —
+                # never an OSError subclass, so only the type check catches it.
+                "bare_endpoint_connection_error",
+                botocore.exceptions.EndpointConnectionError(endpoint_url="http://objectstorage:19000/data-warehouse"),
+                True,
+            ),
+            (
+                # aiobotocore's session bootstrap (e.g. inside `aget_s3_client`) opens botocore's own
+                # bundled endpoints.json before any network call is made - a full fd table fails that
+                # local open the same way it fails a socket connect, so it needs the same transient
+                # classification as the postgres connect-path EMFILE/ENFILE case.
+                "fd_table_full_emfile",
+                OSError(errno.EMFILE, "Too many open files"),
+                True,
+            ),
+            (
+                "fd_table_full_enfile",
+                OSError(errno.ENFILE, "Too many open files in system"),
+                True,
+            ),
+            (
+                # A different errno must not be swept up by the fd-exhaustion check.
+                "unrelated_os_error_with_errno",
+                OSError(errno.ENOENT, "No such file or directory"),
+                False,
             ),
             ("unrelated_exception_type", ValueError("some other unrelated failure"), False),
             # `get_delta_table` re-raises a recognized transient blip as this wrapper (see
@@ -165,6 +210,31 @@ class TestIsTransientMaintenanceError:
                 True,
             ),
             ("genuine_bug", RuntimeError("maintenance blew up"), False),
+            # The watermark-persist connect (`update_sync_type_config_keys`) raises a bare OSError,
+            # not an OperationalError, when this worker's own fd table is full — same condition
+            # `postgres.py::_is_too_many_open_files_error` already retries on the source's connect path.
+            ("watermark_persist_emfile", OSError(errno.EMFILE, "Too many open files"), True),
+            ("watermark_persist_enfile", OSError(errno.ENFILE, "Too many open files in system"), True),
+            # An OSError with an unrelated errno (e.g. a real permissions problem) must not be swept
+            # up by the fd-exhaustion check just because it shares the exception type.
+            ("unrelated_os_error_wrong_errno", OSError(errno.EACCES, "Permission denied"), False),
+            # A primary failover briefly turns the write connection into a read-only standby mid
+            # watermark-persist — Postgres raises ReadOnlySqlTransaction (25006), which psycopg
+            # classifies under InternalError rather than OperationalError.
+            (
+                "watermark_persist_during_failover",
+                _internal_error_with_cause(
+                    psycopg.errors.ReadOnlySqlTransaction("cannot execute SELECT FOR UPDATE in a read-only transaction")
+                ),
+                True,
+            ),
+            # Other InternalError subtypes (e.g. real corruption) must not be swept up by the
+            # ReadOnlySqlTransaction check just because they share the same Django exception class.
+            (
+                "internal_error_unrelated_cause_not_matched",
+                _internal_error_with_cause(psycopg.errors.DataCorrupted("index is corrupted")),
+                False,
+            ),
         ]
     )
     def test_classifies_transient_errors(self, _name: str, error: Exception, expected: bool):

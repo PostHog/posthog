@@ -27,7 +27,7 @@ jobs:
               with:
                   node-version-file: .nvmrc
                   token: ${{ github.token }}
-            - run: npm ci
+            - run: npm ci --no-audit --no-fund
             - run: npx tsc --noEmit
             - run: npx jest
             # The action runs the committed dist/index.js. Rebuild from src and fail if it

@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 from posthog.models import Organization, Team
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.data_warehouse.backend.facade.contracts import WebhookHogFunctionCreateResult
 from products.data_warehouse.backend.logic.external_data_source.webhooks import (
     create_and_register_webhook,
     get_or_create_webhook_hog_function,
@@ -92,6 +94,11 @@ def _make_webhook_source(
     return source
 
 
+def _hog_function(result: WebhookHogFunctionCreateResult) -> HogFunction:
+    assert result.hog_function_id is not None
+    return HogFunction.objects.get(id=result.hog_function_id)
+
+
 class TestGetOrCreateWebhookHogFunction:
     def test_returns_error_when_no_webhook_template(self):
         _, team = _create_org_and_team()
@@ -100,7 +107,7 @@ class TestGetOrCreateWebhookHogFunction:
 
         result = get_or_create_webhook_hog_function(team, source, "source-123", [])
 
-        assert result.hog_function is None
+        assert result.hog_function_id is None
         assert result.error == "No webhook template available for this source"
 
     def test_returns_error_when_template_not_in_db(self):
@@ -109,7 +116,7 @@ class TestGetOrCreateWebhookHogFunction:
 
         result = get_or_create_webhook_hog_function(team, source, "source-123", [])
 
-        assert result.hog_function is None
+        assert result.hog_function_id is None
         assert result.error is not None
         assert "template not found" in result.error.lower()
 
@@ -124,13 +131,13 @@ class TestGetOrCreateWebhookHogFunction:
 
         assert result.hog_function_created is True
         assert result.error is None
-        assert result.hog_function is not None
-        assert result.hog_function.inputs is not None
+        hog_function = _hog_function(result)
+        assert hog_function.inputs is not None
 
-        mapping = result.hog_function.inputs["schema_mapping"]["value"]
+        mapping = hog_function.inputs["schema_mapping"]["value"]
         assert mapping["customer"] == str(schemas[0].id)
         assert mapping["invoice"] == str(schemas[1].id)
-        assert result.hog_function.inputs["source_id"]["value"] == "source-123"
+        assert hog_function.inputs["source_id"]["value"] == "source-123"
 
     def test_falls_back_to_schema_name_when_not_in_resource_map(self):
         _, team = _create_org_and_team()
@@ -141,10 +148,10 @@ class TestGetOrCreateWebhookHogFunction:
 
         result = get_or_create_webhook_hog_function(team, source, "source-123", schemas)
 
-        assert result.hog_function is not None
-        assert result.hog_function.inputs is not None
+        hog_function = _hog_function(result)
+        assert hog_function.inputs is not None
 
-        mapping = result.hog_function.inputs["schema_mapping"]["value"]
+        mapping = hog_function.inputs["schema_mapping"]["value"]
         assert "customer" in mapping
         assert "UnknownTable" in mapping
         assert len(mapping) == 2
@@ -162,9 +169,9 @@ class TestGetOrCreateWebhookHogFunction:
             team, source, "source-123", schemas, extra_inputs={"signing_secret": "sec_123"}
         )
 
-        assert result.hog_function is not None
-        assert result.hog_function.inputs is not None
-        assert result.hog_function.inputs["signing_secret"]["value"] == "sec_123"
+        hog_function = _hog_function(result)
+        assert hog_function.inputs is not None
+        assert hog_function.inputs["signing_secret"]["value"] == "sec_123"
 
     def test_updates_existing_hog_function(self):
         _, team = _create_org_and_team()
@@ -175,14 +182,12 @@ class TestGetOrCreateWebhookHogFunction:
 
         first_result = get_or_create_webhook_hog_function(team, source, "source-123", schemas)
         assert first_result.hog_function_created is True
-        assert first_result.hog_function is not None
-
-        hog_id = first_result.hog_function.id
+        hog_id = first_result.hog_function_id
+        assert hog_id is not None
 
         second_result = get_or_create_webhook_hog_function(team, source, "source-123", schemas)
         assert second_result.hog_function_created is False
-        assert second_result.hog_function is not None
-        assert second_result.hog_function.id == hog_id
+        assert second_result.hog_function_id == hog_id
 
     def test_merges_schema_mapping_on_update(self):
         _, team = _create_org_and_team()
@@ -196,11 +201,9 @@ class TestGetOrCreateWebhookHogFunction:
         invoices_schema = _create_schemas(team, ext_source, ["Invoices"])
         result = get_or_create_webhook_hog_function(team, source, "source-123", invoices_schema)
 
-        assert result.hog_function is not None
-        assert result.hog_function.inputs is not None
-
-        result.hog_function.refresh_from_db()
-        mapping = result.hog_function.inputs["schema_mapping"]["value"]
+        hog_function = _hog_function(result)
+        assert hog_function.inputs is not None
+        mapping = hog_function.inputs["schema_mapping"]["value"]
         assert "customer" in mapping
         assert "invoice" in mapping
 
@@ -225,8 +228,8 @@ class TestGetOrCreateWebhookHogFunction:
             result = get_or_create_webhook_hog_function(team, source, "source-123", schemas)
 
         assert result.webhook_url.startswith(expected_host)
-        assert result.hog_function is not None
-        assert str(result.hog_function.id) in result.webhook_url
+        assert result.hog_function_id is not None
+        assert result.hog_function_id in result.webhook_url
 
     def test_webhook_url_falls_back_to_site_url(self):
         _, team = _create_org_and_team()
@@ -251,8 +254,7 @@ class TestGetOrCreateWebhookHogFunction:
 
         result = get_or_create_webhook_hog_function(team, source, "source-123", schemas)
 
-        hog = result.hog_function
-        assert hog is not None
+        hog = _hog_function(result)
         assert hog.name == db_template.name
         assert hog.hog == db_template.code
         assert hog.template_id == db_template.template_id
@@ -300,11 +302,9 @@ class TestCreateAndRegisterWebhook:
         result = create_and_register_webhook(webhook_source, config, hog_fn_result, team.id)
 
         assert result.success is True
-        assert hog_fn_result.hog_function is not None
-        assert hog_fn_result.hog_function.inputs is not None
-
-        hog_fn_result.hog_function.refresh_from_db()
-        assert hog_fn_result.hog_function.inputs["webhook_secret"]["value"] == "whsec_123"
+        hog_function = _hog_function(hog_fn_result)
+        assert hog_function.inputs is not None
+        assert hog_function.inputs["webhook_secret"]["value"] == "whsec_123"
 
     def test_failure_does_not_save_extra_inputs(self):
         _, team = _create_org_and_team()
@@ -326,11 +326,9 @@ class TestCreateAndRegisterWebhook:
 
         assert result.success is False
         assert result.error == "API error"
-        assert hog_fn_result.hog_function is not None
-        assert hog_fn_result.hog_function.inputs is not None
-
-        hog_fn_result.hog_function.refresh_from_db()
-        assert "webhook_secret" not in hog_fn_result.hog_function.inputs
+        hog_function = _hog_function(hog_fn_result)
+        assert hog_function.inputs is not None
+        assert "webhook_secret" not in hog_function.inputs
 
     def test_returns_webhook_url_from_hog_fn_result(self):
         _, team = _create_org_and_team()

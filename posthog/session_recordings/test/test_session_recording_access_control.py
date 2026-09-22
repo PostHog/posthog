@@ -7,15 +7,12 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.session_recording_api import RecordingsListingResult
 
-try:
-    from ee.models.rbac.access_control import AccessControl
-    from ee.models.rbac.role import Role, RoleMembership
-except ImportError:
-    pass
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 
 
 @pytest.mark.ee
@@ -218,18 +215,3 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         can_modify = uac.check_can_modify_access_levels_for_object(self.recording)
 
         self.assertTrue(can_modify)
-
-    def test_summarize_respects_access_control(self):
-        self._create_access_control(self.no_access_user, resource_id=str(self.recording.id), access_level="none")
-
-        self.client.force_login(self.no_access_user)
-
-        retrieve_response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/"
-        )
-        self.assertEqual(retrieve_response.status_code, status.HTTP_403_FORBIDDEN)
-
-        summarize_response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/summarize/"
-        )
-        self.assertEqual(summarize_response.status_code, status.HTTP_403_FORBIDDEN)

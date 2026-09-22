@@ -2,7 +2,7 @@ import datetime as dt
 from typing import cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -11,10 +11,13 @@ from parameterized import parameterized
 from posthog.schema import (
     DashboardFilter,
     DateRange,
+    GoalLine,
+    MetricsDisplaySettings,
     MetricsQuery,
     MetricsQueryClause,
     MetricsQueryFilter,
     MetricsQueryGroupBy,
+    MetricsYAxisSettings,
 )
 
 from posthog.constants import AvailableFeature
@@ -22,14 +25,13 @@ from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.shared_link_user import SharedLinkUser
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.access_control.backend.models.access_control import AccessControl
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
 from products.metrics.backend.tests._seeder import seed_metric
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -67,7 +69,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert request.interval == "minute"
         assert (request.date_to - request.date_from) == dt.timedelta(hours=1)
 
-    @freeze_time("2026-07-01T12:00:00Z")
+    @time_machine.travel("2026-07-01T12:00:00Z", tick=False)
     def test_default_date_range_is_last_24_hours(self) -> None:
         query = MetricsQuery(
             clauses=[MetricsQueryClause(name="a", metricName="http_requests_total", aggregation="sum")]
@@ -77,7 +79,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert (request.date_to - request.date_from) == dt.timedelta(hours=24)
 
-    @freeze_time("2026-07-01T12:00:00Z")
+    @time_machine.travel("2026-07-01T12:00:00Z", tick=False)
     def test_calculate_returns_one_series_per_group(self) -> None:
         base = dt.datetime(2026, 7, 1, 11, 30, tzinfo=dt.UTC)
         for container, value in (("capture", 5.0), ("ingestion", 7.0)):
@@ -105,8 +107,8 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         by_container = {series.labels.get("container"): series for series in response.results}
         assert set(by_container) == {"capture", "ingestion"}
-        assert max(point.value for point in by_container["capture"].points) == 5.0
-        assert max(point.value for point in by_container["ingestion"].points) == 7.0
+        assert max(point.value for point in by_container["capture"].points if point.value is not None) == 5.0
+        assert max(point.value for point in by_container["ingestion"].points if point.value is not None) == 7.0
 
     def test_generic_query_endpoint_accepts_metrics_query(self) -> None:
         response = self.client.post(
@@ -121,6 +123,22 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200, response.json()
         assert "results" in response.json()
+
+    def test_generic_query_endpoint_rejects_unknown_formula_alias_with_400(self) -> None:
+        # The facade reports a bad formula as ValueError; without the runner's
+        # translation to an exposed error, /query would surface it as a 500.
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/query/",
+            {
+                "query": {
+                    "kind": "MetricsQuery",
+                    "clauses": [{"name": "a", "metricName": "queue_depth", "aggregation": "sum"}],
+                    "formula": "a / b",
+                }
+            },
+        )
+
+        assert response.status_code == 400, response.json()
 
     def test_insight_saves_with_metrics_query(self) -> None:
         response = self.client.post(
@@ -216,3 +234,22 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert runner.query.dateRange is not None
         assert runner.query.dateRange.date_from == "-7d"
         assert runner.query.dateRange.date_to == "-1d"
+
+    def _cache_key_for(self, **kwargs) -> str:
+        return self._runner(
+            MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")], **kwargs)
+        ).get_cache_key()
+
+    @parameterized.expand(
+        [
+            ("chart_type", MetricsDisplaySettings(type="bar")),
+            ("goal_lines", MetricsDisplaySettings(goalLines=[GoalLine(label="SLO", value=99.9)])),
+            ("y_axis", MetricsDisplaySettings(yAxis=MetricsYAxisSettings(scale="log", min=10, max=100))),
+            ("stat_summary", MetricsDisplaySettings(type="stat", statSummary="average")),
+        ]
+    )
+    def test_display_settings_do_not_change_the_cache_key(self, _name: str, display: MetricsDisplaySettings) -> None:
+        assert self._cache_key_for(display=display) == self._cache_key_for()
+
+    def test_query_semantics_still_change_the_cache_key(self) -> None:
+        assert self._cache_key_for(dateRange=DateRange(date_from="-7d")) != self._cache_key_for()

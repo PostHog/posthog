@@ -80,7 +80,10 @@ export async function proxyPostWithClientId(
  * Try a POST request against US first, then EU if US fails.
  * Used for token exchange fallback when region is unknown.
  */
-export async function tryBothRegions(request: Request, path: string): Promise<{ response: Response; region: Region }> {
+export async function tryBothRegions(
+    request: Request,
+    path: string
+): Promise<{ response: Response; region: Region | null }> {
     const body = await request.text()
     const headers = new Headers(request.headers)
     headers.delete('host')
@@ -119,20 +122,34 @@ export async function tryBothRegions(request: Request, path: string): Promise<{ 
         return { response: euResponse, region: 'eu' }
     }
 
-    console.info(
+    const forwarded = preferClientError(usResponse, euResponse)
+    console.error(
         JSON.stringify({
             fn: 'tryBothRegions',
             path,
             resolved: 'none',
             us_status: usResponse.status,
             eu_status: euResponse.status,
+            forwarded_from: forwarded === usResponse ? 'us' : 'eu',
         })
     )
-    return {
-        response: new Response(
-            JSON.stringify({ error: 'invalid_request', error_description: 'Unable to determine region' }),
-            { status: 400, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
-        ),
-        region: 'us',
+    return { response: forwarded, region: null }
+}
+
+/**
+ * Pick which of two rejections to forward to the client.
+ *
+ * A 4xx carries the OAuth error code the client acts on: `invalid_grant` tells it
+ * to discard the token and re-authorize. A 5xx only says one region was unhealthy,
+ * which must not be reported as a dead grant.
+ */
+export function preferClientError(first: Response, second: Response): Response {
+    if (isClientError(first)) {
+        return first
     }
+    return isClientError(second) ? second : first
+}
+
+function isClientError(response: Response): boolean {
+    return response.status >= 400 && response.status < 500
 }

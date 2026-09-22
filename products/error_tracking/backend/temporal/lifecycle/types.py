@@ -8,6 +8,7 @@ class LifecycleIssueSnapshot:
     description: str | None
     status: str
     created_at: str
+    severity: str | None = None
 
 
 class SpikeEventPersistenceStatus(StrEnum):

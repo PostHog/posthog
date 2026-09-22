@@ -1,13 +1,4 @@
 import { toast } from "@posthog/ui/primitives/toast";
-import { create } from "zustand";
-
-// The error behind an error-level toast, captured so the details dialog can
-// show the full payload the toast had no room for.
-export interface ErrorDetail {
-  title: string;
-  error: unknown;
-  occurredAt: number;
-}
 
 // API error messages routinely arrive as a string with a JSON payload embedded
 // in them (e.g. `Failed request: [400] {"detail":"..."}`). Pull that payload
@@ -72,7 +63,7 @@ export function serializeError(error: unknown): string {
 const SUMMARY_LIMIT = 140;
 
 // One-line summary of an error payload, sized for a toast description. The
-// full payload stays behind the toast's "Details" action.
+// full payload stays behind the toast's "View larger" action.
 export function summarizeError(error: unknown): string {
   let message: string;
   if (typeof error === "string") {
@@ -96,37 +87,11 @@ export function summarizeError(error: unknown): string {
     : `${flat.slice(0, SUMMARY_LIMIT)}…`;
 }
 
-interface ErrorDetailsState {
-  detail: ErrorDetail | null;
-  show: (detail: ErrorDetail) => void;
-  close: () => void;
-}
-
-// View state for the global error details dialog (rendered once in App).
-export const useErrorDetailsStore = create<ErrorDetailsState>((set) => ({
-  detail: null,
-  show: (detail) => set({ detail }),
-  close: () => set({ detail: null }),
-}));
-
-// Open the error details dialog for a given error. Shared by the notification
-// bus's error toasts and the standalone `toastError` helper so both land on the
-// same inspectable dialog.
-export function showErrorDetails(title: string, error: unknown): void {
-  useErrorDetailsStore.getState().show({
-    title,
-    error,
-    occurredAt: Date.now(),
-  });
-}
-
-// Fire an error toast whose payload stays inspectable: a one-line summary in
-// the toast body plus a "Details" action that opens the full pretty-printed
-// error (and its logs) in the dialog. Use this instead of a bare
-// `toast.error(title, { description: someRawError })` — that overflows the
-// toast and can't be opened. This is the lightweight, synchronous path for
-// errors raised by a user action; task-lifecycle notifications that need
-// focus-aware routing and sound still go through `NotificationBus.notifyError`.
+// Fire an error toast with a short summary while preserving the complete
+// payload for the central toast wrapper's "View larger" action. This is the
+// lightweight, synchronous path for errors raised by a user action;
+// task-lifecycle notifications that need focus-aware routing and sound still
+// go through `NotificationBus.notifyError`.
 export function toastError(
   title: string,
   error: unknown,
@@ -136,9 +101,6 @@ export function toastError(
     id: options?.id,
     duration: options?.duration,
     description: summarizeError(error),
-    action: {
-      label: "Details",
-      onClick: () => showErrorDetails(title, error),
-    },
+    error,
   });
 }

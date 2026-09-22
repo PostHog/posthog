@@ -8,7 +8,7 @@ import { Breadcrumb } from '~/types'
 
 import { mcpGatewayAuditList } from '../generated/api'
 import { MCPAuditEventApi, MCPGatewayServerApi, MCPServiceAccountApi } from '../generated/api.schemas'
-import { mcpGatewayLogic } from './mcpGatewayLogic'
+import { AgentServerShare, agentServerShare, mcpGatewayLogic } from './mcpGatewayLogic'
 
 export interface GatewayAgentLogicProps {
     id: string
@@ -26,13 +26,16 @@ export interface gatewayAgentLogicValues {
     agentServerAccessLoadingKeys: Set<string> // mcpGatewayLogic
     allServers: MCPGatewayServerApi[] // mcpGatewayLogic
     allServersLoading: boolean // mcpGatewayLogic
+    currentUserId: number | null // mcpGatewayLogic
     serviceAccounts: MCPServiceAccountApi[] // mcpGatewayLogic
     account: MCPServiceAccountApi | null
     breadcrumbs: Breadcrumb[]
     recentCalls: MCPAuditEventApi[]
     recentCallsLoading: boolean
+    sharedByYouCount: number
     sharedServerIds: Set<string>
     sharedServers: MCPGatewayServerApi[]
+    sharesByServerId: Record<string, AgentServerShare>
     shownRecentCalls: number
     unsharedServers: MCPGatewayServerApi[]
     visibleRecentCalls: MCPAuditEventApi[]
@@ -44,11 +47,13 @@ export interface gatewayAgentLogicActions {
         accountId: string,
         serverId: string,
         enabled: boolean,
+        scope?: import('../generated/api.schemas').MCPAgentGrantScopeEnumApi | undefined,
         policies?: import('../generated/api.schemas').ToolPolicyEntryApi[] | undefined
     ) => {
         accountId: string
         enabled: boolean
         policies: import('../generated/api.schemas').ToolPolicyEntryApi[] | undefined
+        scope: import('../generated/api.schemas').MCPAgentGrantScopeEnumApi
         serverId: string
     } // mcpGatewayLogic
     toggleAccountStatus: (
@@ -85,6 +90,12 @@ export interface gatewayAgentLogicMeta {
         account: (serviceAccounts: MCPServiceAccountApi[], arg: any) => MCPServiceAccountApi | null
         breadcrumbs: (account: MCPServiceAccountApi | null) => Breadcrumb[]
         sharedServerIds: (account: MCPServiceAccountApi | null) => Set<string>
+        sharesByServerId: (
+            account: MCPServiceAccountApi | null,
+            allServers: MCPGatewayServerApi[],
+            currentUserId: number | null
+        ) => Record<string, AgentServerShare>
+        sharedByYouCount: (sharesByServerId: Record<string, AgentServerShare>) => number
         sharedServers: (allServers: MCPGatewayServerApi[], sharedServerIds: Set<string>) => MCPGatewayServerApi[]
         unsharedServers: (allServers: MCPGatewayServerApi[], sharedServerIds: Set<string>) => MCPGatewayServerApi[]
         visibleRecentCalls: (recentCalls: MCPAuditEventApi[], shownRecentCalls: number) => MCPAuditEventApi[]
@@ -109,6 +120,7 @@ export const gatewayAgentLogic = kea<gatewayAgentLogicType>([
             [
                 'accountStatusLoadingIds',
                 'agentServerAccessLoadingKeys',
+                'currentUserId',
                 'servers as allServers',
                 'serversLoading as allServersLoading',
                 'serviceAccounts',
@@ -158,6 +170,24 @@ export const gatewayAgentLogic = kea<gatewayAgentLogicType>([
         sharedServerIds: [
             (s) => [s.account],
             (account: MCPServiceAccountApi | null): Set<string> => new Set(account?.server_ids ?? []),
+        ],
+        sharesByServerId: [
+            (s) => [s.account, s.allServers, s.currentUserId],
+            (
+                account: MCPServiceAccountApi | null,
+                allServers: MCPGatewayServerApi[],
+                currentUserId: number | null
+            ): Record<string, AgentServerShare> =>
+                Object.fromEntries(
+                    allServers.map((server) => [server.id, agentServerShare(account, server.id, currentUserId)])
+                ),
+        ],
+        // Viewer's own share count. `sharedServerIds` spans every member's grants,
+        // so it would overcount next to the personal share switches.
+        sharedByYouCount: [
+            (s) => [s.sharesByServerId],
+            (sharesByServerId: Record<string, AgentServerShare>): number =>
+                Object.values(sharesByServerId).filter((share) => share.sharedByYou).length,
         ],
         sharedServers: [
             (s) => [s.allServers, s.sharedServerIds],

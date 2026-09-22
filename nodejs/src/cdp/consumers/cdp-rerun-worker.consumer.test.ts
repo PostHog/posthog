@@ -4,7 +4,6 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
-import { resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
 import { RERUN_PAGE_ERROR_BACKOFF_MAX_MS, RERUN_QUEUE_NAME, RerunJobState } from '../rerun/rerun-job.types'
 import { RerunJobQueues } from '../rerun/rerun-paginator.service'
@@ -22,8 +21,6 @@ const buildMockJobQueues = (): RerunJobQueues => {
         }) as any
     return { hog_function: stub(), hog_flow: stub() }
 }
-
-jest.setTimeout(20000)
 
 const buildDequeuedJob = (overrides: Partial<CyclotronV2DequeuedJob> = {}): jest.Mocked<CyclotronV2DequeuedJob> => {
     return {
@@ -71,7 +68,6 @@ describe('CdpRerunWorkerConsumer', () => {
     let mockProcessPage: jest.Mock
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
         // The worker needs the cyclotron-v2 node db to exist; pretend it does so the
         // consumer constructs cleanly. Real queue interactions are mocked below.

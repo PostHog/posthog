@@ -27,10 +27,10 @@ interface ComposerContextValue {
     value: string
     onChange: (value: string) => void
     loading: boolean
+    stopLoading: boolean
     disabled: boolean
     /** Empty input / loading / caller's `disabledReason`, collapsed to a single reason (undefined when sendable). */
     sendDisabledReason: string | undefined
-    /** True when the send button should swap to a Stop button (active turn + empty input + an `onStop` handler). */
     showStop: boolean
     /** Cancels the active turn; drives the Stop button that replaces send when `showStop`. */
     onStop: (() => void) | undefined
@@ -58,6 +58,7 @@ export interface ComposerRootProps {
     onSubmit: () => void
     /** Marks the send button in-flight and blocks submission. */
     loading?: boolean
+    stopLoading?: boolean
     /** Disables the textarea. */
     disabled?: boolean
     /** Extra reason to block sending, beyond the internally-handled empty input. */
@@ -86,6 +87,7 @@ const ComposerRoot = forwardRef<HTMLFormElement, ComposerRootProps>(function Com
         onChange,
         onSubmit,
         loading = false,
+        stopLoading = false,
         disabled = false,
         disabledReason,
         isTurnActive = false,
@@ -105,11 +107,17 @@ const ComposerRoot = forwardRef<HTMLFormElement, ComposerRootProps>(function Com
     const generatedId = useId()
     const id = idProp ?? generatedId
 
-    const sendDisabledReason = !value.trim() ? 'Type a message first' : loading ? 'Sending…' : disabledReason
+    const sendDisabledReason = stopLoading
+        ? 'Stopping…'
+        : !value.trim()
+          ? 'Type a message first'
+          : loading
+            ? 'Sending…'
+            : disabledReason
 
     // While a turn is active with no drafted text, the send button becomes a Stop button (cancel the run)
     // rather than a disabled "Type a message first" — a follow-up with text still sends/queues as usual.
-    const showStop = isTurnActive && !value.trim() && !loading && !!onStop
+    const showStop = !!onStop && (stopLoading || (isTurnActive && !value.trim() && !loading))
 
     // Focuses the textarea when blocked, otherwise submits — shared by the native form submit and the
     // textarea keyboard shortcuts.
@@ -126,6 +134,7 @@ const ComposerRoot = forwardRef<HTMLFormElement, ComposerRootProps>(function Com
             value,
             onChange,
             loading,
+            stopLoading,
             disabled,
             sendDisabledReason,
             showStop,
@@ -139,6 +148,7 @@ const ComposerRoot = forwardRef<HTMLFormElement, ComposerRootProps>(function Com
             value,
             onChange,
             loading,
+            stopLoading,
             disabled,
             sendDisabledReason,
             showStop,
@@ -351,7 +361,7 @@ const ComposerSubmit = forwardRef<HTMLDivElement, ComposerSubmitProps>(function 
     { icon, tooltip, className, ...rest },
     ref
 ): JSX.Element {
-    const { sendDisabledReason, loading, showStop, onStop, isThreadVisible } = useComposerContext()
+    const { sendDisabledReason, loading, stopLoading, showStop, onStop, isThreadVisible } = useComposerContext()
     return (
         <div
             data-slot="composer-submit"
@@ -371,7 +381,8 @@ const ComposerSubmit = forwardRef<HTMLDivElement, ComposerSubmitProps>(function 
                     htmlType="button"
                     icon={<IconStopFilled />}
                     onClick={() => onStop?.()}
-                    tooltip="Stop"
+                    loading={stopLoading}
+                    tooltip={stopLoading ? 'Stopping…' : 'Stop'}
                     {...rest}
                 />
             ) : (

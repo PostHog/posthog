@@ -1,5 +1,6 @@
 from django.db import models
 
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.utils import UUIDModel
 
 
@@ -12,9 +13,16 @@ class WebAuthnCredentialManager(models.Manager):
 
     def get_verified_for_email(self, email: str):
         """
-        Returns all verified credentials for a user by email (single query).
+        Returns the verified credentials of the account this email address resolves to.
+
+        Resolves through `EmailLookupHandler`, the same lookup login and the rest of the login
+        precheck use, so the passkeys offered belong to the account the precheck describes rather
+        than to every case variant of the address.
         """
-        return self.filter(user__email__iexact=email, user__is_active=True, verified=True)
+        user = EmailLookupHandler.get_user_by_email(email)
+        if user is None:
+            return self.none()
+        return self.filter(user=user, verified=True)
 
 
 class WebauthnCredential(UUIDModel):

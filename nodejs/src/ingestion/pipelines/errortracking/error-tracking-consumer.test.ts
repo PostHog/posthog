@@ -8,10 +8,11 @@ import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { PipelineEvent, Team } from '~/types'
 
 import { ErrorTrackingConsumer, ErrorTrackingHogTransformer } from './error-tracking-consumer'
@@ -196,6 +197,7 @@ describe('ErrorTrackingConsumer', () => {
             cookielessManager: infra.cookielessManager,
             redisPool: infra.redisPool,
             personRepository: createMockPersonRepository(),
+            createEventUsageBatch: () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
         }
         const consumer = new ErrorTrackingConsumer(config, deps)
         // Replace Kafka consumer with mock to avoid actual connections
@@ -228,15 +230,22 @@ describe('ErrorTrackingConsumer', () => {
         return events.map((event) => createKafkaMessage(event, token ?? team.api_token))
     }
 
+    // A batch is fully processed once the returned background task (the
+    // scheduled side-effect flush) has settled, matching the consumer loop.
+    const handleBatch = async (messages: Message[]): Promise<void> => {
+        const result = await consumer.handleKafkaBatch(messages)
+        expect(result.backgroundTask).toBeDefined()
+        await result.backgroundTask
+    }
+
     beforeEach(async () => {
         fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
         jest.spyOn(Date.prototype, 'toISOString').mockReturnValue(fixedTime.toISO()!)
 
         offsetIncrementer = 0
-        await resetTestDatabase()
         infra = await createIngestionTestInfra()
-        team = await getFirstTeam(infra.postgres)
+        team = (await createTestTeamFixture(infra.postgres)).team
 
         consumer = await createConsumer(infra)
     })
@@ -262,7 +271,7 @@ describe('ErrorTrackingConsumer', () => {
     describe('event processing', () => {
         it('should process a basic exception event', async () => {
             const messages = createKafkaMessages([createEvent()])
-            await consumer.handleKafkaBatch(messages)
+            await handleBatch(messages)
 
             const producedMessages =
                 mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
@@ -281,7 +290,7 @@ describe('ErrorTrackingConsumer', () => {
                 createEvent({ distinct_id: 'user-3' }),
             ]
             const messages = createKafkaMessages(events)
-            await consumer.handleKafkaBatch(messages)
+            await handleBatch(messages)
 
             const producedMessages =
                 mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
@@ -293,7 +302,7 @@ describe('ErrorTrackingConsumer', () => {
 
         it('should include exception fingerprint and issue id from Cymbal', async () => {
             const messages = createKafkaMessages([createEvent()])
-            await consumer.handleKafkaBatch(messages)
+            await handleBatch(messages)
 
             const producedMessages =
                 mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
@@ -316,7 +325,7 @@ describe('ErrorTrackingConsumer', () => {
                     },
                 }),
             ])
-            await consumer.handleKafkaBatch(messages)
+            await handleBatch(messages)
 
             const producedMessages =
                 mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
@@ -348,7 +357,7 @@ describe('ErrorTrackingConsumer', () => {
                     ip: '89.160.20.129',
                 }),
             ])
-            await consumer.handleKafkaBatch(messages)
+            await handleBatch(messages)
 
             const producedMessages =
                 mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
@@ -363,7 +372,7 @@ describe('ErrorTrackingConsumer', () => {
 
         it('should flush invocation results after batch processing', async () => {
             const messages = createKafkaMessages([createEvent()])
-            await consumer.handleKafkaBatch(messages)
+            await handleBatch(messages)
 
             expect(mockHogTransformer.processInvocationResults).toHaveBeenCalledTimes(1)
         })
@@ -383,7 +392,7 @@ describe('ErrorTrackingConsumer', () => {
     describe('error handling', () => {
         it('should reject events with invalid token', async () => {
             const messages = createKafkaMessages([createEvent()], 'invalid-token-that-does-not-exist')
-            await consumer.handleKafkaBatch(messages)
+            await handleBatch(messages)
 
             // Event should not be produced to output topic (team not found = dropped)
             const producedMessages =
@@ -395,7 +404,7 @@ describe('ErrorTrackingConsumer', () => {
         })
 
         it('should handle empty batch', async () => {
-            await consumer.handleKafkaBatch([])
+            await handleBatch([])
 
             const producedMessages = mockProducerObserver.getProducedKafkaMessages()
             expect(producedMessages).toHaveLength(0)
@@ -406,7 +415,7 @@ describe('ErrorTrackingConsumer', () => {
         it('should always use full person_mode', async () => {
             // Error tracking always uses full person_mode to preserve group properties
             const messages = createKafkaMessages([createEvent()])
-            await consumer.handleKafkaBatch(messages)
+            await handleBatch(messages)
 
             const producedMessages =
                 mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')

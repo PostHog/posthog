@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const McpServerInstallationsListParams = /* @__PURE__ */ zod.object({
+export const McpServerInstallationsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,12 +16,12 @@ export const McpServerInstallationsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const McpServerInstallationsListQueryParams = /* @__PURE__ */ zod.object({
+export const McpServerInstallationsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const McpServerInstallationsToolsRetrieveParams = /* @__PURE__ */ zod.object({
+export const McpServerInstallationsToolsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this mcp server installation.'),
     project_id: zod
         .string()

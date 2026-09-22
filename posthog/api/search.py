@@ -15,8 +15,8 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.full_text_search import build_rank, process_query
 from posthog.models import EventDefinition, PropertyDefinition
-from posthog.rbac.user_access_control import UserAccessControl, model_to_resource
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -24,7 +24,7 @@ from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
@@ -36,6 +36,14 @@ class EntityConfig(TypedDict, total=False):
     search_fields: dict[str, Literal["A", "B", "C"]]
     extra_fields: list[str]
     filters: dict[str, Any]
+
+
+FEATURE_FLAG_SEARCH_CONFIG: EntityConfig = {
+    "klass": FeatureFlag,
+    "search_fields": {"key": "A", "name": "C"},
+    "extra_fields": ["key", "name"],
+    "filters": {"archived": False},
+}
 
 
 ENTITY_MAP: dict[str, EntityConfig] = {
@@ -54,7 +62,7 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
     },
-    "feature_flag": {"klass": FeatureFlag, "search_fields": {"key": "A", "name": "C"}, "extra_fields": ["key", "name"]},
+    "feature_flag": FEATURE_FLAG_SEARCH_CONFIG,
     "notebook": {
         "klass": Notebook,
         "search_fields": {"title": "A", "text_content": "C"},
@@ -124,9 +132,9 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @extend_schema(
         parameters=[QuerySerializer],
         description=(
-            "Full-text search across project entities. Each result includes `user_access_level`, "
-            "the requesting user's resolved access level for that object (`none` means the user "
-            "cannot open it); `null` when access controls don't apply to the entity type."
+            "Full-text search across project entities. Objects the user cannot access are left out. "
+            "Each result includes `user_access_level`, the requesting user's resolved access level for "
+            "that object; `null` when access controls don't apply to the entity type."
         ),
     )
     def list(self, request: Request, **kw) -> HttpResponse:

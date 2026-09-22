@@ -29,6 +29,11 @@ TARGET_SESSIONS_PER_TICK = 200_000
 DEFAULT_OF_CHUNKS = 20
 TARGET_CHUNK_SIZE = TARGET_SESSIONS_PER_TICK // DEFAULT_OF_CHUNKS
 
+# Fanning all DEFAULT_OF_CHUNKS out at once exceeds ClickHouse's per-user concurrent query
+# limit (max_concurrent_queries_for_user, set per user in posthog-cloud-infra), and ClickHouse
+# rejects the excess outright, so those chunks score nothing until the next tick.
+MAX_CONCURRENT_SCORE_CHUNKS = 8
+
 # Window for "score eligible" rows. Older sessions are intentionally left
 # unscored — if a session hasn't been scored within this window its features
 # are no longer useful for downstream summarization.
@@ -58,6 +63,9 @@ SCORE_CHUNK_ACTIVITY_TIMEOUT = timedelta(minutes=4)
 SCORE_CHUNK_HEARTBEAT_TIMEOUT = timedelta(seconds=90)
 LIST_CHUNKS_ACTIVITY_TIMEOUT = timedelta(seconds=30)
 
-# Parent workflow has to outlive its longest in-flight chunk activity, but
-# must not stretch into the next 5-min tick.
+# Parent workflow has to outlive its longest in-flight chunk activity, but must not stretch
+# into the next 5-min tick. MAX_CONCURRENT_SCORE_CHUNKS makes this a throughput bound as well:
+# the tick fits while the mean chunk stays under
+# WORKFLOW_EXECUTION_TIMEOUT * MAX_CONCURRENT_SCORE_CHUNKS / DEFAULT_OF_CHUNKS. Past that the
+# workflow expires with chunks undispatched, and those sessions wait for the next tick.
 WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=4, seconds=30)

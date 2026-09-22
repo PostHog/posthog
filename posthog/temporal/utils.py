@@ -24,16 +24,24 @@ class ExternalDataWorkflowInputs:
         }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CDPProducerWorkflowInputs:
+    """Which staged run to produce to Kafka.
+
+    Exactly one of `schema_id` (a source sync) or `saved_query_id` (a materialized view) is set.
+    Both are optional and defaulted so payloads written by an older worker stay decodable.
+    """
+
     team_id: int
-    schema_id: str
     job_id: str
+    schema_id: str | None = None
+    saved_query_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
         return {
             "team_id": self.team_id,
             "schema_id": self.schema_id,
+            "saved_query_id": self.saved_query_id,
             "job_id": self.job_id,
         }

@@ -9,9 +9,10 @@ use personhog_proto::personhog::types::v1::{
     CountCohortMembersRequest, CreateGroupRequest, DeleteCohortMemberRequest,
     DeleteCohortMembersBulkRequest, DeleteGroupTypeMappingRequest,
     DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupsBatchForTeamRequest,
-    DeletePersonsBatchForTeamRequest, DeletePersonsRequest, GetGroupRequest, GetPersonRequest,
-    GetPersonsByDistinctIdsInTeamRequest, InsertCohortMembersRequest, ListCohortMemberIdsRequest,
-    UpdateGroupRequest, UpdateGroupTypeMappingRequest,
+    DeletePersonsBatchForTeamRequest, DeletePersonsRequest, DeleteTombstonedPersonsRequest,
+    GetGroupRequest, GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest,
+    InsertCohortMembersRequest, ListCohortMemberIdsRequest, UpdateGroupRequest,
+    UpdateGroupTypeMappingRequest,
 };
 use rstest::rstest;
 use tonic::Request;
@@ -189,6 +190,43 @@ async fn test_delete_persons_success(#[case] person_uuids: Vec<String>) {
         .await;
 
     assert!(result.is_ok());
+}
+
+// ============================================================
+// DeleteTombstonedPersons tests
+// ============================================================
+
+#[rstest]
+#[case::too_many_uuids(
+    (0..1001).map(|i| format!("00000000-0000-0000-0000-{i:012}")).collect(),
+    0,
+    "1000"
+)]
+#[case::invalid_uuid(vec!["not-a-valid-uuid".to_string()], 0, "Invalid UUID")]
+#[case::negative_max_rows(
+    vec!["00000000-0000-0000-0000-000000000001".to_string()],
+    -1,
+    "max_rows"
+)]
+#[tokio::test]
+async fn test_delete_tombstoned_persons_invalid_input(
+    #[case] person_uuids: Vec<String>,
+    #[case] max_rows: i64,
+    #[case] expected_message: &str,
+) {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let status = service
+        .delete_tombstoned_persons(Request::new(DeleteTombstonedPersonsRequest {
+            team_id: 1,
+            person_uuids,
+            max_rows,
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains(expected_message));
 }
 
 // ============================================================

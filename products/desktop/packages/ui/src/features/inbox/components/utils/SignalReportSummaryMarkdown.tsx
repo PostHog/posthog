@@ -98,7 +98,7 @@ export function SignalReportSummaryMarkdown({
   if (variant === "list") {
     return (
       <div
-        className={`line-clamp-3 min-w-0 overflow-hidden text-pretty text-left text-[12px] text-gray-11 [&_.rt-Text]:mb-0! [&_a]:pointer-events-auto [&_li]:mb-0 [&_p]:mb-0! [&_ul]:mb-0! ${pendingClass}`}
+        className={`line-clamp-3 min-w-0 overflow-hidden text-pretty text-left text-[13px] text-gray-11 [&_.rt-Text]:mb-0! [&_a]:pointer-events-auto [&_li]:mb-0 [&_p]:mb-0! [&_ul]:mb-0! ${pendingClass}`}
       >
         <MarkdownRenderer
           content={listMarkdown}
@@ -114,7 +114,7 @@ export function SignalReportSummaryMarkdown({
   // the cap with the container.
   return (
     <div
-      className={`min-w-0 max-w-[80ch] text-pretty break-words text-[13px] text-gray-11 [&_*]:leading-relaxed [&_.rt-Text]:mb-2 [&_a]:pointer-events-auto [&_li]:mb-1 [&_p:last-child]:mb-0 ${pendingClass}`}
+      className={`min-w-0 max-w-[80ch] text-pretty break-words text-[14px] text-gray-11 [&_*]:leading-relaxed [&_.rt-Text]:mb-2 [&_a]:pointer-events-auto [&_li]:mb-1 [&_p:last-child]:mb-0 ${pendingClass}`}
     >
       <MarkdownRenderer content={raw} componentsOverride={detailComponents} />
     </div>

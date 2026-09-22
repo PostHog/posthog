@@ -11,7 +11,6 @@ import {
   type ExecutionMode,
   getReasoningEffortOptions,
   isSupportedReasoningEffort,
-  KIMI_MODEL_FLAG,
   type SupportedReasoningEffort,
   serializeCloudPrompt,
   supports1MContext,
@@ -27,10 +26,10 @@ import {
   PaperclipIcon,
   StopIcon,
 } from "phosphor-react-native";
-import { useFeatureFlag } from "posthog-react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   TextInput,
@@ -59,7 +58,6 @@ import { DotBackground } from "@/features/tasks/composer/DotBackground";
 import {
   type ContextWindow,
   DEFAULT_CONTEXT_WINDOW,
-  filterKimiModelConfigOptions,
   getMobileExecutionModes,
   getModelConfigOption,
 } from "@/features/tasks/composer/options";
@@ -73,10 +71,7 @@ import {
   pendingTaskPromptStoreApi,
 } from "@/features/tasks/stores/pendingTaskPromptStore";
 import { useTaskStore } from "@/features/tasks/stores/taskStore";
-import type {
-  CreateTaskOptions,
-  RepositorySelection,
-} from "@/features/tasks/types";
+import type { RepositorySelection } from "@/features/tasks/types";
 import { buildCloudTaskRunConfig } from "@/features/tasks/utils/cloudTaskRunConfig";
 import {
   findRepositoryOption,
@@ -100,10 +95,14 @@ export default function NewTaskScreen() {
     prompt: initialPrompt,
     repo: initialRepo,
     signalReport,
+    signalReportRelationship,
+    signalReportDiscussionQuestion,
   } = useLocalSearchParams<{
     prompt?: string;
     repo?: string;
     signalReport?: string;
+    signalReportRelationship?: string;
+    signalReportDiscussionQuestion?: string;
   }>();
   const router = useRouter();
   const themeColors = useThemeColors();
@@ -111,16 +110,9 @@ export default function NewTaskScreen() {
   const keyboard = useReanimatedKeyboardAnimation();
   const restingBottom = bottom("compact");
   const [adapter, setAdapter] = useState<Adapter>("claude");
-  const {
-    configOptions: liveConfigOptions,
-    hasLiveConfig,
-    isConfigReady,
-  } = useCloudTaskConfigOptions(adapter);
-  const kimiEnabled = !!useFeatureFlag(KIMI_MODEL_FLAG);
-  const configOptions = useMemo(
-    () => filterKimiModelConfigOptions(liveConfigOptions, kimiEnabled),
-    [liveConfigOptions, kimiEnabled],
-  );
+  const [model, setModel] = useState<string>(DEFAULT_GATEWAY_MODEL);
+  const { configOptions, modelGroups, hasLiveConfig, isConfigReady } =
+    useCloudTaskConfigOptions(adapter, model);
   const modelConfigOption = getModelConfigOption(configOptions);
   const {
     error,
@@ -131,7 +123,7 @@ export default function NewTaskScreen() {
     isRefreshingInBackground,
     refetch,
     getUserIntegrationId,
-  } = useUserIntegrations();
+  } = useUserIntegrations({ enabled: !signalReport });
 
   const containerStyle = useAnimatedStyle(() => {
     const kbHeight = -keyboard.height.value;
@@ -182,6 +174,8 @@ export default function NewTaskScreen() {
     [setLastRepository],
   );
   const [mode, setMode] = useState<ExecutionMode>(() => {
+    if (signalReport && signalReportRelationship === "discussion")
+      return "auto";
     const prefs = usePreferencesStore.getState();
     if (prefs.defaultInitialTaskMode === "last_used") {
       const last = prefs.lastNewTaskMode;
@@ -192,7 +186,6 @@ export default function NewTaskScreen() {
     }
     return DEFAULT_CLAUDE_EXECUTION_MODE;
   });
-  const [model, setModel] = useState<string>(DEFAULT_GATEWAY_MODEL);
   const [reasoning, setReasoning] = useState<SupportedReasoningEffort>(() => {
     const prefs = usePreferencesStore.getState();
     const desired =
@@ -222,6 +215,12 @@ export default function NewTaskScreen() {
     if (next.reasoning !== reasoning) setReasoning(next.reasoning);
   }, [adapter, hasLiveConfig, model, modelConfigOption, reasoning]);
   const [creating, setCreating] = useState(false);
+  const creatingRef = useRef(false);
+  const reportTaskRef = useRef<{
+    reportId: string;
+    relationship: string;
+    id: string;
+  } | null>(null);
   const [repoSheetOpen, setRepoSheetOpen] = useState(false);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [attachmentSheetOpen, setAttachmentSheetOpen] = useState(false);
@@ -282,13 +281,21 @@ export default function NewTaskScreen() {
     : "Select repository…";
   const repositoryLoadBlocked =
     !!repositoryWarning && repositoryOptions.length === 0;
+  const repositoryReady =
+    !!signalReport || isRepositorySelectionComplete(selection);
 
   const handleCreateTask = useCallback(async () => {
     const hasContent = !!prompt.trim() || attachments.length > 0;
-    if (!hasContent || !isRepositorySelectionComplete(selection) || creating) {
+    if (
+      !hasContent ||
+      !repositoryReady ||
+      !isConfigReady ||
+      creatingRef.current
+    ) {
       return;
     }
 
+    creatingRef.current = true;
     setCreating(true);
 
     // Echo the prompt into the chat thread the moment the user taps send.
@@ -308,9 +315,9 @@ export default function NewTaskScreen() {
       setAt: Date.now(),
     });
 
-    // Durably record the prompt so it survives the app being killed before
-    // creation completes; cleared once the task exists (or on failure, when
-    // the text is still live in the composer).
+    // Durably record the prompt so it survives the app being killed. Cleared
+    // once the task exists; kept on failure so the next launch can restore
+    // the draft into the composer.
     if (trimmedPrompt) {
       pendingPromptRecoveryStoreApi.set(pendingKey, trimmedPrompt);
     }
@@ -330,23 +337,40 @@ export default function NewTaskScreen() {
           : `Attached ${attachments.length} files`);
 
       const client = getPostHogApiClient();
-      const task = await client.createTask({
+      const taskOptions = {
         description: descriptionText,
         title: descriptionText.slice(0, 100),
-        repository: selection.repository ?? undefined,
-        // User-scoped integration (matches desktop). `selection.integrationId`
-        // is the GitHub installation id; map it back to the UserIntegration
-        // UUID the API expects. The backend also auto-resolves this from the
-        // repository for user-created tasks, so it's a best-effort hint.
-        github_user_integration: getUserIntegrationId(selection.integrationId),
-        ...(signalReport
-          ? {
-              origin_product: "signal_report",
-              signal_report: signalReport,
-              signal_report_task_relationship: "implementation",
-            }
-          : {}),
-      } as CreateTaskOptions);
+      };
+      const relationship =
+        signalReportRelationship === "discussion"
+          ? "discussion"
+          : "implementation";
+      const existingReportTask = reportTaskRef.current;
+      const task = signalReport
+        ? existingReportTask?.reportId === signalReport &&
+          existingReportTask.relationship === relationship
+          ? existingReportTask
+          : await client.createSignalReportTask({
+              ...taskOptions,
+              reportId: signalReport,
+              relationship,
+              question: signalReportDiscussionQuestion,
+            })
+        : await client.createTask({
+            ...taskOptions,
+            repository: selection.repository ?? undefined,
+            github_user_integration: getUserIntegrationId(
+              selection.integrationId,
+            ),
+          });
+
+      if (signalReport) {
+        reportTaskRef.current = {
+          reportId: signalReport,
+          relationship,
+          id: task.id,
+        };
+      }
 
       pendingTaskPromptStoreApi.move(pendingKey, task.id);
       currentPendingKey = task.id;
@@ -396,14 +420,19 @@ export default function NewTaskScreen() {
     } catch (creationError) {
       log.error("Failed to create task", creationError);
       pendingTaskPromptStoreApi.clear(currentPendingKey);
-      pendingPromptRecoveryStoreApi.clear(pendingKey);
+      Alert.alert(
+        "Could not start task",
+        creationError instanceof Error
+          ? creationError.message
+          : "Check your connection and open the task list to check whether the task was created.",
+      );
     } finally {
+      creatingRef.current = false;
       setCreating(false);
     }
   }, [
     attachments,
     adapter,
-    creating,
     mode,
     model,
     prompt,
@@ -413,16 +442,16 @@ export default function NewTaskScreen() {
     router,
     selection,
     signalReport,
+    signalReportRelationship,
+    signalReportDiscussionQuestion,
+    repositoryReady,
+    isConfigReady,
     getUserIntegrationId,
     setComposerConfig,
   ]);
 
   const hasContent = !!prompt.trim() || attachments.length > 0;
-  const canSubmit =
-    isConfigReady &&
-    hasContent &&
-    isRepositorySelectionComplete(selection) &&
-    !creating;
+  const canSubmit = isConfigReady && hasContent && repositoryReady && !creating;
   const reasoningOptions = getReasoningEffortOptions(adapter, model) ?? [];
   const showReasoningPill = reasoningOptions.length > 0;
 
@@ -430,8 +459,8 @@ export default function NewTaskScreen() {
   // the GitHub installation id, not a PostHog integration id — the backend
   // resolves the integration from the repository, so this only keys the warm.
   useWarmTask({
-    repository: selection.repository,
-    githubIntegrationId: selection.integrationId,
+    repository: signalReport ? null : selection.repository,
+    githubIntegrationId: signalReport ? null : selection.integrationId,
     composerIsEmpty: !hasContent || !isConfigReady,
     runtimeAdapter: adapter,
     model,
@@ -490,11 +519,7 @@ export default function NewTaskScreen() {
     return (
       <View className="flex-1 bg-background">
         <View style={{ paddingTop: insets.top + 56 }} className="flex-1">
-          <GitHubConnectionPrompt
-            onConnected={refetch}
-            title="Connect GitHub to continue"
-            description="You need to connect your GitHub account before creating tasks. This allows PostHog to work on your repositories."
-          />
+          <GitHubConnectionPrompt onConnected={refetch} />
         </View>
       </View>
     );
@@ -508,19 +533,21 @@ export default function NewTaskScreen() {
         <Animated.View style={[{ flex: 1 }, containerStyle]}>
           <View className="flex-1 justify-center px-4">
             <View style={{ width: "100%", maxWidth: 600, alignSelf: "center" }}>
-              <View className="mb-2">
-                <RepositoryPickerInline
-                  open={repoSheetOpen}
-                  repositoryOptions={repositoryOptions}
-                  selected={selectedRepositoryOption}
-                  loading={isLoading && repositoryOptions.length === 0}
-                  isRefreshing={isRefreshingInBackground}
-                  onChange={(option) =>
-                    setSelection(toRepositorySelection(option))
-                  }
-                  onClose={() => setRepoSheetOpen(false)}
-                />
-              </View>
+              {!signalReport && (
+                <View className="mb-2">
+                  <RepositoryPickerInline
+                    open={repoSheetOpen}
+                    repositoryOptions={repositoryOptions}
+                    selected={selectedRepositoryOption}
+                    loading={isLoading && repositoryOptions.length === 0}
+                    isRefreshing={isRefreshingInBackground}
+                    onChange={(option) =>
+                      setSelection(toRepositorySelection(option))
+                    }
+                    onClose={() => setRepoSheetOpen(false)}
+                  />
+                </View>
+              )}
 
               {repositoryWarning ? (
                 <GitHubLoadNotice
@@ -530,43 +557,47 @@ export default function NewTaskScreen() {
                 />
               ) : null}
 
-              <View className="mb-2 flex-row items-center">
-                <Pressable
-                  onPress={() => setRepoSheetOpen((prev) => !prev)}
-                  className={`flex-row items-center gap-2 rounded-md border py-1.5 pr-2.5 pl-2 active:bg-gray-2 ${
-                    repoSheetOpen
-                      ? "border-accent-7 bg-accent-3"
-                      : "border-gray-6 bg-card"
-                  }`}
-                >
-                  <GithubLogo
-                    size={16}
-                    color={
-                      selectedRepositoryOption
-                        ? themeColors.gray[12]
-                        : themeColors.gray[10]
-                    }
-                    weight={selectedRepositoryOption ? "fill" : "regular"}
-                  />
-                  <Text
-                    className={`text-[13px] ${
-                      selectedRepositoryOption ? "text-gray-12" : "text-gray-10"
+              {!signalReport && (
+                <View className="mb-2 flex-row items-center">
+                  <Pressable
+                    onPress={() => setRepoSheetOpen((prev) => !prev)}
+                    className={`flex-row items-center gap-2 rounded-md border py-1.5 pr-2.5 pl-2 active:bg-gray-2 ${
+                      repoSheetOpen
+                        ? "border-accent-7 bg-accent-3"
+                        : "border-gray-6 bg-card"
                     }`}
-                    numberOfLines={1}
                   >
-                    {repositoryLabel}
-                  </Text>
-                  <CaretDown
-                    size={12}
-                    color={themeColors.gray[10]}
-                    style={{
-                      transform: [
-                        { rotate: repoSheetOpen ? "180deg" : "0deg" },
-                      ],
-                    }}
-                  />
-                </Pressable>
-              </View>
+                    <GithubLogo
+                      size={16}
+                      color={
+                        selectedRepositoryOption
+                          ? themeColors.gray[12]
+                          : themeColors.gray[10]
+                      }
+                      weight={selectedRepositoryOption ? "fill" : "regular"}
+                    />
+                    <Text
+                      className={`text-[13px] ${
+                        selectedRepositoryOption
+                          ? "text-gray-12"
+                          : "text-gray-10"
+                      }`}
+                      numberOfLines={1}
+                    >
+                      {repositoryLabel}
+                    </Text>
+                    <CaretDown
+                      size={12}
+                      color={themeColors.gray[10]}
+                      style={{
+                        transform: [
+                          { rotate: repoSheetOpen ? "180deg" : "0deg" },
+                        ],
+                      }}
+                    />
+                  </Pressable>
+                </View>
+              )}
 
               <View className="overflow-hidden rounded-lg border border-gray-6 bg-card">
                 <AttachmentsBar
@@ -622,6 +653,7 @@ export default function NewTaskScreen() {
                         contextWindow={contextWindow}
                         fastMode={fastMode}
                         configOptions={configOptions}
+                        modelGroups={modelGroups}
                         onAdapterChange={(next) => {
                           setAdapter(next.adapter);
                           setMode(next.mode);

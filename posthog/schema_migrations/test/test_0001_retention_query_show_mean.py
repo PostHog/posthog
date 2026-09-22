@@ -13,6 +13,10 @@ def test_retention_query_show_mean_migration():
     no_filter_query = {"kind": "RetentionQuery", "retentionFilter": None}
     assert migration.transform(no_filter_query) == no_filter_query
 
+    # Test query missing the retentionFilter key entirely does not raise (previously a KeyError → 500)
+    missing_filter_query = {"kind": "RetentionQuery"}
+    assert migration.transform(missing_filter_query) == missing_filter_query
+
     # Test showMean=True converts to simple
     query_show_mean_true = {"kind": "RetentionQuery", "retentionFilter": {"showMean": True}}
     assert migration.transform(query_show_mean_true) == {

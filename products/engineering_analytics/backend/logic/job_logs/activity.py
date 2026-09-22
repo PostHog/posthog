@@ -98,7 +98,6 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
     # (visible to any logs:read holder) by design and intentionally do NOT inherit the GitHub
     # source's resource-level access control. Don't emit anything a logs:read holder shouldn't see.
     def _thin_and_emit() -> int:
-        # Failures-only today; pass a different ThinningConfig once all-jobs ingestion lands.
         thinned = thin_log_lines(archive)
         with JobLogsEmitter(endpoint=settings.OTLP_LOGS_INGEST_ENDPOINT, token=log_ingest_token) as emitter:
             # run_id→trace, job_id→span so the Logs UI can group a whole run and isolate one job.

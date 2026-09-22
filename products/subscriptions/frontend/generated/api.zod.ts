@@ -15,6 +15,8 @@ export const subscriptionsCreateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
+export const subscriptionsCreateBodyContextsMax = 3
+
 export const subscriptionsCreateBodyIntervalMax = 2147483647
 
 export const subscriptionsCreateBodyBysetposMin = -2147483648
@@ -26,6 +28,8 @@ export const subscriptionsCreateBodyCountMax = 2147483647
 export const subscriptionsCreateBodyTitleMax = 100
 
 export const subscriptionsCreateBodySummaryPromptGuideMax = 500
+
+export const subscriptionsCreateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault = false
 
 export const SubscriptionsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -88,13 +92,33 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
+        contexts: zod
+            .array(
+                zod.union([
+                    zod.object({
+                        dashboard_id: zod.number().min(1),
+                    }),
+                    zod.object({
+                        insight_id: zod.number().min(1),
+                    }),
+                ])
+            )
+            .max(subscriptionsCreateBodyContextsMax)
+            .optional()
+            .describe(
+                'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
+            ),
         target_type: zod
-            .enum(['email', 'slack'])
-            .describe('\* `email` - Email\n\* `slack` - Slack')
-            .describe('Delivery channel: email or slack.\n\n\* `email` - Email\n\* `slack` - Slack'),
+            .enum(['email', 'slack', 'teams'])
+            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams')
+            .describe(
+                'Delivery channel: email, slack, or teams.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams'
+            ),
         target_value: zod
             .string()
-            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name\/ID for slack.'),
+            .describe(
+                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it.'
+            ),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
             .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
@@ -132,7 +156,11 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .max(subscriptionsCreateBodyCountMax)
             .nullish()
             .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso.datetime({ offset: true }).describe('When to start delivering (ISO 8601 datetime).'),
+        start_date: zod.iso
+            .datetime({ offset: true })
+            .describe(
+                'When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.'
+            ),
         until_date: zod.iso
             .datetime({ offset: true })
             .nullish()
@@ -176,6 +204,44 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
             ),
+        delivery_config: zod
+            .object({
+                post_all_insights_in_main_message: zod
+                    .boolean()
+                    .default(subscriptionsCreateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
+                    .describe(
+                        "Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message."
+                    ),
+                include_images: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include generated chart images. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+                include_feedback: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include report feedback links. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+                include_manage_link: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+                include_posthog_hint: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include PostHog product guidance. Defaults to true when omitted. Only a Slack report renders the guidance. Email and Microsoft Teams reports leave it out and accept the option without an error, unlike post_all_insights_in_main_message. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+            })
+            .describe('Typed view over the Subscription.delivery_config JSON blob.')
+            .optional()
+            .describe(
+                "Per-delivery rendering options. Every option applies to one subscription kind or delivery target only, and each option's own description says where it applies and whether a mismatch is rejected or ignored. Omit this field unless the user asks for one of the options."
+            ),
     })
     .describe('Standard Subscription serializer.')
 
@@ -184,6 +250,8 @@ export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 
 
 export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
+
+export const subscriptionsUpdateBodyContextsMax = 3
 
 export const subscriptionsUpdateBodyIntervalMax = 2147483647
 
@@ -196,6 +264,8 @@ export const subscriptionsUpdateBodyCountMax = 2147483647
 export const subscriptionsUpdateBodyTitleMax = 100
 
 export const subscriptionsUpdateBodySummaryPromptGuideMax = 500
+
+export const subscriptionsUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault = false
 
 export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -258,13 +328,33 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
+        contexts: zod
+            .array(
+                zod.union([
+                    zod.object({
+                        dashboard_id: zod.number().min(1),
+                    }),
+                    zod.object({
+                        insight_id: zod.number().min(1),
+                    }),
+                ])
+            )
+            .max(subscriptionsUpdateBodyContextsMax)
+            .optional()
+            .describe(
+                'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
+            ),
         target_type: zod
-            .enum(['email', 'slack'])
-            .describe('\* `email` - Email\n\* `slack` - Slack')
-            .describe('Delivery channel: email or slack.\n\n\* `email` - Email\n\* `slack` - Slack'),
+            .enum(['email', 'slack', 'teams'])
+            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams')
+            .describe(
+                'Delivery channel: email, slack, or teams.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams'
+            ),
         target_value: zod
             .string()
-            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name\/ID for slack.'),
+            .describe(
+                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it.'
+            ),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
             .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
@@ -302,7 +392,11 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .max(subscriptionsUpdateBodyCountMax)
             .nullish()
             .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso.datetime({ offset: true }).describe('When to start delivering (ISO 8601 datetime).'),
+        start_date: zod.iso
+            .datetime({ offset: true })
+            .describe(
+                'When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.'
+            ),
         until_date: zod.iso
             .datetime({ offset: true })
             .nullish()
@@ -346,6 +440,44 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
             ),
+        delivery_config: zod
+            .object({
+                post_all_insights_in_main_message: zod
+                    .boolean()
+                    .default(subscriptionsUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
+                    .describe(
+                        "Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message."
+                    ),
+                include_images: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include generated chart images. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+                include_feedback: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include report feedback links. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+                include_manage_link: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+                include_posthog_hint: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include PostHog product guidance. Defaults to true when omitted. Only a Slack report renders the guidance. Email and Microsoft Teams reports leave it out and accept the option without an error, unlike post_all_insights_in_main_message. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+            })
+            .describe('Typed view over the Subscription.delivery_config JSON blob.')
+            .optional()
+            .describe(
+                "Per-delivery rendering options. Every option applies to one subscription kind or delivery target only, and each option's own description says where it applies and whether a mismatch is rejected or ignored. Omit this field unless the user asks for one of the options."
+            ),
     })
     .describe('Standard Subscription serializer.')
 
@@ -354,6 +486,8 @@ export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneStartDaysAg
 
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
+
+export const subscriptionsPartialUpdateBodyContextsMax = 3
 
 export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
 
@@ -366,6 +500,8 @@ export const subscriptionsPartialUpdateBodyCountMax = 2147483647
 export const subscriptionsPartialUpdateBodyTitleMax = 100
 
 export const subscriptionsPartialUpdateBodySummaryPromptGuideMax = 500
+
+export const subscriptionsPartialUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault = false
 
 export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -428,15 +564,35 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
-        target_type: zod
-            .enum(['email', 'slack'])
-            .describe('\* `email` - Email\n\* `slack` - Slack')
+        contexts: zod
+            .array(
+                zod.union([
+                    zod.object({
+                        dashboard_id: zod.number().min(1),
+                    }),
+                    zod.object({
+                        insight_id: zod.number().min(1),
+                    }),
+                ])
+            )
+            .max(subscriptionsPartialUpdateBodyContextsMax)
             .optional()
-            .describe('Delivery channel: email or slack.\n\n\* `email` - Email\n\* `slack` - Slack'),
+            .describe(
+                'Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.'
+            ),
+        target_type: zod
+            .enum(['email', 'slack', 'teams'])
+            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams')
+            .optional()
+            .describe(
+                'Delivery channel: email, slack, or teams.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams'
+            ),
         target_value: zod
             .string()
             .optional()
-            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name\/ID for slack.'),
+            .describe(
+                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it.'
+            ),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
             .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
@@ -479,7 +635,9 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
         start_date: zod.iso
             .datetime({ offset: true })
             .optional()
-            .describe('When to start delivering (ISO 8601 datetime).'),
+            .describe(
+                'When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.'
+            ),
         until_date: zod.iso
             .datetime({ offset: true })
             .nullish()
@@ -522,6 +680,44 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
+            ),
+        delivery_config: zod
+            .object({
+                post_all_insights_in_main_message: zod
+                    .boolean()
+                    .default(subscriptionsPartialUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
+                    .describe(
+                        "Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message."
+                    ),
+                include_images: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include generated chart images. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+                include_feedback: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include report feedback links. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+                include_manage_link: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+                include_posthog_hint: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Prompt subscriptions only: include PostHog product guidance. Defaults to true when omitted. Only a Slack report renders the guidance. Email and Microsoft Teams reports leave it out and accept the option without an error, unlike post_all_insights_in_main_message. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.'
+                    ),
+            })
+            .describe('Typed view over the Subscription.delivery_config JSON blob.')
+            .optional()
+            .describe(
+                "Per-delivery rendering options. Every option applies to one subscription kind or delivery target only, and each option's own description says where it applies and whether a mismatch is rejected or ignored. Omit this field unless the user asks for one of the options."
             ),
     })
     .describe('Standard Subscription serializer.')

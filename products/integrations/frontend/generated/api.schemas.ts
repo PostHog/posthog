@@ -174,6 +174,7 @@ export interface RoleLookupResponseApi {
  * * `google-pubsub` - Google Pubsub
  * * `google-search-console` - Google Search Console
  * * `google-sheets` - Google Sheets
+ * * `helpscout` - Helpscout
  * * `hubspot` - Hubspot
  * * `instagram` - Instagram
  * * `intercom` - Intercom
@@ -197,6 +198,7 @@ export interface RoleLookupResponseApi {
  * * `tiktok-ads` - Tiktok Ads
  * * `twilio` - Twilio
  * * `vercel` - Vercel
+ * * `youtube-analytics` - Youtube Analytics
  */
 export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
 
@@ -224,6 +226,7 @@ export const IntegrationKindEnumApi = {
     GooglePubsub: 'google-pubsub',
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
+    Helpscout: 'helpscout',
     Hubspot: 'hubspot',
     Instagram: 'instagram',
     Intercom: 'intercom',
@@ -247,6 +250,18 @@ export const IntegrationKindEnumApi = {
     TiktokAds: 'tiktok-ads',
     Twilio: 'twilio',
     Vercel: 'vercel',
+    YoutubeAnalytics: 'youtube-analytics',
+} as const
+
+/**
+ * * `connected` - connected
+ * * `unavailable` - unavailable
+ */
+export type InstallationStatusEnumApi = (typeof InstallationStatusEnumApi)[keyof typeof InstallationStatusEnumApi]
+
+export const InstallationStatusEnumApi = {
+    Connected: 'connected',
+    Unavailable: 'unavailable',
 } as const
 
 /**
@@ -260,6 +275,15 @@ export interface IntegrationConfigApi {
     readonly created_by: UserBasicApi
     readonly errors: string
     readonly display_name: string
+    /** Slack only: whether reconnecting can request the files:write scope. */
+    readonly files_write_requestable: boolean
+    /**
+     * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
+     * @nullable
+     */
+    readonly installation_shared: boolean | null
+    /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
+    readonly installation_status: InstallationStatusEnumApi | null
 }
 
 export interface PaginatedIntegrationConfigListApi {
@@ -309,6 +333,15 @@ export interface PatchedIntegrationConfigApi {
     readonly created_by?: UserBasicApi
     readonly errors?: string
     readonly display_name?: string
+    /** Slack only: whether reconnecting can request the files:write scope. */
+    readonly files_write_requestable?: boolean
+    /**
+     * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
+     * @nullable
+     */
+    readonly installation_shared?: boolean | null
+    /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
+    readonly installation_status?: InstallationStatusEnumApi | null
 }
 
 export interface GitHubBranchesResponseApi {
@@ -348,11 +381,18 @@ export interface GitHubReposResponseApi {
     repositories: GitHubRepoApi[]
     /** Whether more repositories are available beyond this page. */
     has_more: boolean
+    /** Total number of repositories matching the search query, across all pages. */
+    total: number
 }
 
 export interface GitHubReposRefreshResponseApi {
     /** The refreshed repository cache. */
     repositories: GitHubRepoApi[]
+    /** `unavailable` when GitHub reports the App installation as uninstalled or suspended, in which case `repositories` is the last cached list rather than a fresh one.
+     *
+     * * `connected` - connected
+     * * `unavailable` - unavailable */
+    installation_status: InstallationStatusEnumApi
 }
 
 export interface GitHubTeamApi {
@@ -395,6 +435,27 @@ export interface LinearTeamApi {
 export interface LinearTeamsResponseApi {
     /** Linear teams available to this integration. */
     teams: LinearTeamApi[]
+}
+
+export interface SlackUserApi {
+    /** Slack member ID (e.g. U0123ABC) — post to it to open a direct message. */
+    id: string
+    /** Slack username (handle) without the leading '@'. */
+    name: string
+    /** Name to show in pickers: the member's display name, falling back to their real name or handle. */
+    display_name: string
+}
+
+export interface SlackUsersResponseApi {
+    /** Human Slack workspace members the PostHog Slack app can DM. */
+    users: SlackUserApi[]
+    /**
+     * ISO 8601 timestamp of the last full Slack API refresh (only set on full lists, not single-member lookups).
+     * @nullable
+     */
+    lastRefreshedAt?: string | null
+    /** Whether more members match the current search beyond this page. */
+    has_more?: boolean
 }
 
 export interface GitHubAvailableInstallationApi {
@@ -492,6 +553,7 @@ export interface IntegrationAccessRequestApi {
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
+     * * `helpscout` - Helpscout
      * * `hubspot` - Hubspot
      * * `instagram` - Instagram
      * * `intercom` - Intercom
@@ -514,7 +576,8 @@ export interface IntegrationAccessRequestApi {
      * * `stripe` - Stripe
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
-     * * `vercel` - Vercel */
+     * * `vercel` - Vercel
+     * * `youtube-analytics` - Youtube Analytics */
     kind: IntegrationKindEnumApi
     /**
      * Explanation from the requester of why this integration is needed. Shown to admins in the notification email.
@@ -654,6 +717,7 @@ export type IntegrationsListParams = {
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
+     * * `helpscout` - Helpscout
      * * `hubspot` - Hubspot
      * * `instagram` - Instagram
      * * `intercom` - Intercom
@@ -677,6 +741,7 @@ export type IntegrationsListParams = {
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
      * * `vercel` - Vercel
+     * * `youtube-analytics` - Youtube Analytics
      */
     kind?: IntegrationsListKind
     /**
@@ -715,6 +780,7 @@ export const IntegrationsListKind = {
     GooglePubsub: 'google-pubsub',
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
+    Helpscout: 'helpscout',
     Hubspot: 'hubspot',
     Instagram: 'instagram',
     Intercom: 'intercom',
@@ -738,6 +804,7 @@ export const IntegrationsListKind = {
     TiktokAds: 'tiktok-ads',
     Twilio: 'twilio',
     Vercel: 'vercel',
+    YoutubeAnalytics: 'youtube-analytics',
 } as const
 
 export type IntegrationsChannelsRetrieveParams = {
@@ -815,4 +882,30 @@ export type IntegrationsGithubTeamsRetrieveParams = {
      * Optional case-insensitive team name or slug search query.
      */
     search?: string
+}
+
+export type IntegrationsUsersRetrieveParams = {
+    /**
+     * Bypass the 1 hour member cache. Honored only for browser session callers; API key, OAuth, and MCP callers always read through the cache.
+     */
+    force_refresh?: boolean
+    /**
+     * Maximum number of members to return per request (max 200).
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+    /**
+     * Number of members to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Optional case-insensitive member name or ID search query.
+     */
+    search?: string
+    /**
+     * Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.
+     */
+    user_id?: string
 }

@@ -109,9 +109,10 @@ def record_request(
     method = (request.method or "GET").upper()
     raw_url = request.url or ""
     scrubbed_url = scrub_url(raw_url)
+    template = url_template(raw_url)
     if redact_values:
         scrubbed_url = redact_literal_values(scrubbed_url, redact_values)
-    template = url_template(raw_url)
+        template = redact_literal_values(template, redact_values)
     host = host_of(raw_url)
     status_code = response.status_code if response is not None else None
     error_class = type(exception).__name__ if exception is not None else None

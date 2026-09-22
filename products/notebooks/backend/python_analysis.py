@@ -1,8 +1,9 @@
 import ast
-import hashlib
 import builtins
 from dataclasses import dataclass
-from typing import Any
+from typing import Literal
+
+from posthog.dataclasses import frozen
 
 
 @dataclass(frozen=True)
@@ -81,9 +82,12 @@ def collect_arg_names(arguments: ast.arguments) -> set[str]:
     return names
 
 
-@dataclass
+ScopeKind = Literal["module", "function", "class", "lambda", "comprehension"]
+
+
+@frozen
 class Scope:
-    kind: str
+    kind: ScopeKind
     locals: set[str]
 
 
@@ -204,7 +208,7 @@ class GlobalAnalyzer(ast.NodeVisitor):
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         self._visit_function_like(node, "function")
 
-    def _visit_function_like(self, node: ast.AST, kind: str) -> None:
+    def _visit_function_like(self, node: ast.AST, kind: ScopeKind) -> None:
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             for decorator in node.decorator_list:
                 self.visit(decorator)
@@ -268,7 +272,7 @@ class GlobalAnalyzer(ast.NodeVisitor):
     def visit_GeneratorExp(self, node: ast.GeneratorExp) -> None:
         self._visit_comprehension(node, "comprehension")
 
-    def _visit_comprehension(self, node: ast.AST, kind: str) -> None:
+    def _visit_comprehension(self, node: ast.AST, kind: ScopeKind) -> None:
         generators = getattr(node, "generators", [])
         locals_set: set[str] = set()
         for generator in generators:
@@ -414,48 +418,3 @@ def analyze_python_globals(code: str) -> PythonGlobalsAnalysis:
         used=sorted(analyzer.used),
         exported_with_types=exported_with_types,
     )
-
-
-def compute_globals_analysis_hash(code: str) -> str:
-    return hashlib.sha256(code.encode("utf-8")).hexdigest()
-
-
-def annotate_python_nodes(content: Any) -> Any:
-    if not isinstance(content, dict):
-        return content
-
-    def walk(node: Any) -> Any:
-        if not isinstance(node, dict):
-            return node
-
-        node_type = node.get("type")
-        if node_type == "ph-python":
-            attrs = node.get("attrs")
-            if isinstance(attrs, dict):
-                code = attrs.get("code", "")
-                if isinstance(code, str):
-                    code_hash = compute_globals_analysis_hash(code)
-                    existing_hash = attrs.get("globalsAnalysisHash")
-                    has_cached_analysis = (
-                        isinstance(existing_hash, str)
-                        and existing_hash == code_hash
-                        and "globalsUsed" in attrs
-                        and "globalsExportedWithTypes" in attrs
-                    )
-                    if not has_cached_analysis:
-                        analysis = analyze_python_globals(code)
-                        attrs = {
-                            **attrs,
-                            "globalsUsed": analysis.used,
-                            "globalsExportedWithTypes": analysis.exported_with_types,
-                            "globalsAnalysisHash": code_hash,
-                        }
-                        node = {**node, "attrs": attrs}
-
-        content_nodes = node.get("content")
-        if isinstance(content_nodes, list):
-            node = {**node, "content": [walk(child) for child in content_nodes]}
-
-        return node
-
-    return walk(content)

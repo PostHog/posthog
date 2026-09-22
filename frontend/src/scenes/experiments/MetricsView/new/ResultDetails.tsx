@@ -1,21 +1,16 @@
 import { useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { LemonCollapse, LemonTable, LemonTableColumns, LemonTabs } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { ExperimentFunnelChart } from 'scenes/experiments/charts/funnel/ExperimentFunnelChart'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { getMetricRecordingModes } from 'scenes/experiments/ExperimentView/experimentRecordingModes'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
-import { applySessionLinkability, getExposureFallbackFilter, getViewRecordingFilters } from 'scenes/experiments/utils'
-import {
-    EXPOSURE_UNLINKABLE_REASON,
-    viewRecordingsLinkabilityLogic,
-} from 'scenes/experiments/viewRecordingsLinkabilityLogic'
+import { viewRecordingsLinkabilityLogic } from 'scenes/experiments/viewRecordingsLinkabilityLogic'
 
 import {
     CachedNewExperimentQueryResponse,
@@ -26,32 +21,36 @@ import {
     isExperimentMeanMetric,
     isExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
-import { Experiment, FilterLogicalOperator, RecordingUniversalFilters } from '~/types'
+import { Experiment } from '~/types'
 
 import {
     ExperimentVariantResult,
     formatChanceToWinForGoal,
+    formatIntervalPercent,
     formatMetricValue,
     formatPValue,
     getIntervalLabel,
-    getVariantInterval,
     isBayesianResult,
     isFrequentistResult,
 } from '../shared/utils'
+import { type ExperimentResultsSurface, VariantRecordingsButton } from './VariantRecordingsButton'
 
 function SqlCollapsible({
     hogql,
     clickhouseSql,
     showClickhouseSql,
+    embedded,
 }: {
     hogql?: string
     clickhouseSql?: string
     showClickhouseSql: boolean
+    embedded?: boolean
 }): JSX.Element {
     const [activeTab, setActiveTab] = useState<'hogql' | 'clickhouse'>('hogql')
 
     return (
         <LemonCollapse
+            embedded={embedded}
             panels={[
                 {
                     key: 'sql',
@@ -102,15 +101,23 @@ export function ResultDetails({
     experiment,
     result,
     metric,
+    embedded = false,
+    surface = 'inline',
 }: {
     experiment: Experiment
     result: CachedNewExperimentQueryResponse
     metric: ExperimentMetric
+    /** Renders the table, funnel, and SQL as divider-separated sections of a parent panel instead of standalone cards. */
+    embedded?: boolean
+    surface?: ExperimentResultsSurface
 }): JSX.Element {
     const { featureFlags } = useValues(experimentLogic)
     const { unlinkableEventNames, linkabilityLoaded } = useValues(viewRecordingsLinkabilityLogic({ experiment }))
 
     const baselineKey = result.baseline?.key
+    // Every row links to the same metric, so the labels and the reasons are decided once. An empty
+    // set while the check is in flight keeps today's fail-open behavior.
+    const recordingModes = getMetricRecordingModes(metric, linkabilityLoaded ? unlinkableEventNames : new Set<string>())
 
     const columns: LemonTableColumns<ExperimentVariantResult & { key: string }> = [
         {
@@ -120,7 +127,7 @@ export function ResultDetails({
         },
         {
             key: 'total-users',
-            title: 'Total users',
+            title: 'Exposures',
             render: (_, item) => humanFriendlyNumber(item.number_of_samples),
         },
         {
@@ -170,85 +177,30 @@ export function ResultDetails({
             title: result.variant_results?.[0]
                 ? `${getIntervalLabel(result.variant_results[0])} (95%)`
                 : 'Confidence interval (95%)',
+            tooltip:
+                "The range that likely contains the true effect. When it doesn't cross 0%, the result is significant.",
             render: (_, item: ExperimentVariantResult & { key: string }) => {
                 if (item.key === baselineKey) {
                     return '—'
                 }
-                const interval = getVariantInterval(item)
-                if (!interval) {
-                    return '—'
-                }
-                return `[${(interval[0] * 100).toFixed(2)}%, ${(interval[1] * 100).toFixed(2)}%]`
+                return formatIntervalPercent(item)
             },
         },
         {
             key: 'recordings',
             title: '',
-            render: (_, item) => {
-                const variantKey = item.key
-                const filters = getViewRecordingFilters(experiment, metric, variantKey)
-
-                // While the seenTogether check is in flight, keep today's behavior (fail open).
-                const {
-                    filters: safeFilters,
-                    droppedMetricEventCount,
-                    exposureUnlinkable,
-                    usedExposureFallback,
-                } = linkabilityLoaded
-                    ? applySessionLinkability(
-                          filters,
-                          unlinkableEventNames,
-                          getExposureFallbackFilter(experiment, variantKey)
-                      )
-                    : { filters, droppedMetricEventCount: 0, exposureUnlinkable: false, usedExposureFallback: false }
-
-                const filterGroup: Partial<RecordingUniversalFilters> = {
-                    filter_group: {
-                        type: FilterLogicalOperator.And,
-                        values: [
-                            {
-                                type: FilterLogicalOperator.And,
-                                values: safeFilters,
-                            },
-                        ],
-                    },
-                    date_from: experiment?.start_date,
-                    date_to: experiment?.end_date,
-                    filter_test_accounts: experiment.exposure_criteria?.filterTestAccounts ?? false,
-                }
-
-                return (
-                    <ViewRecordingsPlaylistButton
-                        filters={filterGroup}
-                        size="xsmall"
-                        type="secondary"
-                        tooltip={[
-                            usedExposureFallback
-                                ? "Watch recordings of sessions where this variant's flag was active. The exposure event is captured server-side without a session ID, so exact exposures can't be matched."
-                                : 'Watch recordings of people who were exposed to this variant.',
-                            ...(droppedMetricEventCount > 0
-                                ? [
-                                      `Excluded ${droppedMetricEventCount} server-side ${
-                                          droppedMetricEventCount === 1 ? 'event' : 'events'
-                                      } captured without a session ID, which can't match recordings.`,
-                                  ]
-                                : []),
-                        ].join(' ')}
-                        disabled={safeFilters.length === 0}
-                        disabledReason={
-                            exposureUnlinkable
-                                ? EXPOSURE_UNLINKABLE_REASON
-                                : filters.length === 0
-                                  ? 'Unable to identify recordings for this metric'
-                                  : undefined
-                        }
-                        data-attr="experiment-metrics-view-recordings"
-                        onClick={() => {
-                            posthog.capture('viewed recordings from experiment', { variant: variantKey })
-                        }}
+            render: (_, item) => (
+                <div className="flex justify-end">
+                    <VariantRecordingsButton
+                        experiment={experiment}
+                        metric={metric}
+                        variantKey={item.key}
+                        isBaseline={item.key === baselineKey}
+                        surface={surface}
+                        modes={recordingModes}
                     />
-                )
-            },
+                </div>
+            ),
         },
     ]
 
@@ -267,20 +219,22 @@ export function ResultDetails({
         : undefined
 
     return (
-        <div className="space-y-4">
-            <LemonTable columns={columns} dataSource={dataSource} loading={false} />
+        <div className={embedded ? 'divide-y divide-border' : 'space-y-4'}>
+            <LemonTable columns={columns} dataSource={dataSource} loading={false} embedded={embedded} />
             {isExperimentFunnelMetric(metric) && (
                 <ExperimentFunnelChart
                     result={result}
                     experiment={experiment}
                     metric={metric}
                     experimentQuery={experimentQuery}
+                    embedded={embedded}
                 />
             )}
             <SqlCollapsible
                 hogql={result.hogql}
                 clickhouseSql={result.clickhouse_sql}
                 showClickhouseSql={!!featureFlags[FEATURE_FLAGS.EXPERIMENTS_SHOW_SQL]}
+                embedded={embedded}
             />
         </div>
     )

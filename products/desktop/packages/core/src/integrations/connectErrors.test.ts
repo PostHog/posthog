@@ -1,5 +1,79 @@
+import { ApiRequestError } from "@posthog/api-client/fetcher";
 import { describe, expect, it } from "vitest";
-import { describeGithubConnectError } from "./connectErrors";
+import {
+  describeGithubConnectError,
+  describeIntegrationDisconnectError,
+  isAlreadyDisconnectedError,
+  isGithubConnectAlreadyLinked,
+  isGithubConnectionRequiredError,
+  isGithubConnectPendingApproval,
+} from "./connectErrors";
+
+describe("describeIntegrationDisconnectError", () => {
+  it.each([
+    [
+      "403 explains the admin gate",
+      new ApiRequestError(403, "{}", { detail: "nope" }),
+      "Only project admins can disconnect this integration.",
+    ],
+    [
+      "validation detail is shown verbatim",
+      new ApiRequestError(400, "{}", {
+        detail:
+          "This integration is used by enabled data pipelines: Slack alerts.",
+      }),
+      "This integration is used by enabled data pipelines: Slack alerts.",
+    ],
+    [
+      "plain error keeps its message",
+      new Error("network down"),
+      "network down",
+    ],
+    ["unknown falls back", "nope", "Failed to disconnect."],
+  ])("%s", (_name, error, expected) => {
+    expect(
+      describeIntegrationDisconnectError(error, "Failed to disconnect."),
+    ).toBe(expected);
+  });
+});
+
+describe("isAlreadyDisconnectedError", () => {
+  it.each([
+    [
+      "typed 404",
+      new ApiRequestError(
+        404,
+        '{"detail":"No GitHub integration found for this installation."}',
+      ),
+      true,
+    ],
+    [
+      "legacy message with status",
+      new Error(
+        'Failed request: [404] {"detail":"No GitHub integration found for this installation."}',
+      ),
+      true,
+    ],
+    [
+      "legacy status text",
+      new Error("Failed to disconnect GitHub integration: Not Found"),
+      true,
+    ],
+    ["typed 500", new ApiRequestError(500, "boom"), false],
+    [
+      "typed 400 whose blocker detail reads like a 404",
+      new ApiRequestError(
+        400,
+        '{"detail":"Workflow not found alerts uses it"}',
+      ),
+      false,
+    ],
+    ["unrelated error", new Error("network down"), false],
+    ["not an error", "nope", false],
+  ])("%s", (_name, error, expected) => {
+    expect(isAlreadyDisconnectedError(error)).toBe(expected);
+  });
+});
 
 describe("describeGithubConnectError", () => {
   it("returns an empty string for no error", () => {
@@ -16,5 +90,51 @@ describe("describeGithubConnectError", () => {
     expect(
       describeGithubConnectError({ message: "raw message", code: "unknown" }),
     ).toBe("raw message");
+  });
+
+  it("replaces the already-linked API detail with concise copy", () => {
+    const error = {
+      message:
+        "All GitHub App installations accessible to your account are already linked.",
+      code: "invalid_input",
+    };
+    expect(isGithubConnectAlreadyLinked(error)).toBe(true);
+    expect(describeGithubConnectError(error)).toBe(
+      "All GitHub organizations available to your account are already connected.",
+    );
+  });
+});
+
+describe("isGithubConnectPendingApproval", () => {
+  it.each([
+    ["github_install_pending", true],
+    ["access_denied", false],
+    [null, false],
+    [undefined, false],
+  ])("code %s -> %s", (code, expected) => {
+    expect(isGithubConnectPendingApproval(code)).toBe(expected);
+  });
+});
+
+describe("isGithubConnectionRequiredError", () => {
+  it.each([
+    ["GitHub is not connected for this project", true],
+    ["github_authorization_required", true],
+    ["Link a GitHub account with repo access before running this task.", true],
+    [
+      "User-authored run requires a linked GitHub account with repo access.",
+      true,
+    ],
+    ["GitHub user integration for this run requires reauthorization", true],
+    [
+      "GitHub user integration requires reauthorization and no team installation is available",
+      true,
+    ],
+    ["GitHub integration for this run no longer exists", true],
+    ["GitHub returned a temporary API error", false],
+    ["TaskRun 42 no longer exists; its rows were deleted", false],
+    [null, false],
+  ])("classifies %s", (message, expected) => {
+    expect(isGithubConnectionRequiredError(message)).toBe(expected);
   });
 });

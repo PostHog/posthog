@@ -15,8 +15,7 @@ import { AddWidgetModal } from './AddWidgetModal'
 
 type AddWidgetModalProps = React.ComponentProps<typeof AddWidgetModal>
 
-jest.mock('../widget_types/catalog', () => ({
-    ...jest.requireActual('../widget_types/catalog'),
+jest.mock('./previews/dashboardWidgetPreviews', () => ({
     DASHBOARD_WIDGET_PREVIEWS: {
         error_tracking_list: () => <div data-attr="error-tracking-preview">Preview</div>,
     },

@@ -23,10 +23,13 @@ from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.filters.filter import Filter
 from posthog.rate_limit import CopyFlagsBurstRateThrottle, CopyFlagsSustainedRateThrottle
-from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.user_permissions import UserPermissions
 from posthog.utils import safe_int
 
+from products.access_control.backend.facade.user_access_control import (
+    UserAccessControl,
+    access_level_satisfied_for_resource,
+)
 from products.approvals.backend.exceptions import ApprovalRequired, PolicyConflict
 from products.approvals.backend.scheduled_changes import gate_scheduled_change
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
@@ -1286,6 +1289,14 @@ class OrganizationFeatureFlagView(
         # references, whose target IDs are project-specific. Both remaps mutate this dict, so
         # working on a per-target copy keeps one target's IDs from leaking into the next.
         filters = copy.deepcopy(source_flag.get_filters())
+        # A copy replaces the target's filters; the flag serializer merges incoming filters
+        # over the target's stored ones, so any top-level key the source omits would be
+        # inherited from the flag being overwritten (a boolean source copied onto a
+        # multivariate target would keep serving variants). Spell out the omitted keys.
+        filters = {
+            **dict.fromkeys(("multivariate", "payloads", "holdout", "feature_enrollment", "early_exit")),
+            **filters,
+        }
 
         # reference correct destination cohort ids in the flag
         for group in filters.get("groups", []) or []:

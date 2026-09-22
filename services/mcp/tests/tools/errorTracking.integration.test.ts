@@ -37,6 +37,7 @@ describe('Error Tracking', { concurrent: false }, () => {
     const createdAssignmentRuleIds: string[] = []
     const createdGroupingRuleIds: string[] = []
     const createdSuppressionRuleIds: string[] = []
+    const createdSeverityRuleIds: string[] = []
     const createdResources: CreatedResources = {
         featureFlags: [],
         insights: [],
@@ -92,6 +93,17 @@ describe('Error Tracking', { concurrent: false }, () => {
             }
         }
         createdSuppressionRuleIds.length = 0
+        for (const id of createdSeverityRuleIds) {
+            try {
+                await context.api.request({
+                    method: 'DELETE',
+                    path: `/api/environments/${TEST_PROJECT_ID}/error_tracking/severity_rules/${id}/`,
+                })
+            } catch {
+                // Cleanup is best effort because another request can delete the rule first.
+            }
+        }
+        createdSeverityRuleIds.length = 0
         await cleanupResources(context.api, TEST_PROJECT_ID!, createdResources)
     })
 
@@ -381,6 +393,48 @@ describe('Error Tracking', { concurrent: false }, () => {
             expect(typeof result.id).toBe('string')
             expect(result.filters).toBeTruthy()
             expect(result.sampling_rate).toBe(0.25)
+        })
+    })
+
+    describe('severity rule tools', () => {
+        const severityRulesCreateTool = GENERATED_TOOLS['error-tracking-severity-rules-create']!()
+        const severityRulesListTool = GENERATED_TOOLS['error-tracking-severity-rules-list']!()
+        const severityRulesUpdateTool = GENERATED_TOOLS['error-tracking-severity-rules-update']!()
+
+        it('should create and update a severity rule', async () => {
+            const createdRule = (await severityRulesCreateTool.handler(context, {
+                filters: {
+                    type: 'AND',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                {
+                                    key: '$exception_type',
+                                    type: 'event',
+                                    value: ['McpSeverityRuleTestError'],
+                                    operator: 'exact',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                severity: 'low',
+                order_key: 100,
+            })) as { id: string; severity: string }
+
+            createdSeverityRuleIds.push(createdRule.id)
+            expect(createdRule.severity).toBe('low')
+
+            await severityRulesUpdateTool.handler(context, {
+                id: createdRule.id,
+                severity: 'high',
+            })
+            const listedRules = (await severityRulesListTool.handler(context, {})) as {
+                results: Array<{ id: string; severity: string }>
+            }
+
+            expect(listedRules.results.find((rule) => rule.id === createdRule.id)?.severity).toBe('high')
         })
     })
 

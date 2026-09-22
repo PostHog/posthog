@@ -1,11 +1,14 @@
-import { S3Client } from '@aws-sdk/client-s3'
+import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { defaultProvider } from '@aws-sdk/credential-provider-node'
 import { Upload } from '@aws-sdk/lib-storage'
 import { NodeHttpHandler } from '@smithy/node-http-handler'
 import * as fs from 'fs'
 import { HttpsProxyAgent } from 'https-proxy-agent'
+import { Readable } from 'stream'
+import { pipeline } from 'stream/promises'
 
 import { config } from './config'
+import { resolveEgressProxyUrl } from './egress-proxy'
 import { RasterizationError } from './errors'
 import { createLogger } from './logger'
 
@@ -31,26 +34,9 @@ function undecodableResponse(err: unknown): { status?: number; body: string } | 
 
 let s3Client: S3Client | null = null
 
-function resolveProxyUrl(): string | null {
-    const upstream =
-        process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
-    if (!upstream) {
-        return null
-    }
-    const killed = ['false', '0', 'no', 'off'].includes((process.env.RASTERIZER_USE_PROXY ?? '').trim().toLowerCase())
-    if (killed) {
-        log.warn(
-            { RASTERIZER_USE_PROXY: process.env.RASTERIZER_USE_PROXY },
-            'RASTERIZER_USE_PROXY disables egress proxy — s3 will dial direct'
-        )
-        return null
-    }
-    return upstream
-}
-
 function getS3Client(): S3Client {
     if (!s3Client) {
-        const proxyUrl = resolveProxyUrl()
+        const proxyUrl = resolveEgressProxyUrl()
         const requestHandler = proxyUrl ? { httpsAgent: new HttpsProxyAgent(proxyUrl) } : undefined
         s3Client = new S3Client({
             region: config.s3Region,
@@ -72,6 +58,7 @@ const FORMAT_META: Record<string, { ext: string; contentType: string }> = {
     mp4: { ext: 'mp4', contentType: 'video/mp4' },
     webm: { ext: 'webm', contentType: 'video/webm' },
     gif: { ext: 'gif', contentType: 'image/gif' },
+    png: { ext: 'png', contentType: 'image/png' },
 }
 
 export async function uploadToS3(
@@ -79,7 +66,7 @@ export async function uploadToS3(
     bucket: string,
     keyPrefix: string,
     id: string,
-    format: 'mp4' | 'webm' | 'gif' = 'mp4',
+    format: 'mp4' | 'webm' | 'gif' | 'png' = 'mp4',
     onProgress?: () => void
 ): Promise<string> {
     const { ext, contentType } = FORMAT_META[format] || FORMAT_META.mp4
@@ -105,7 +92,18 @@ export async function uploadToS3(
     } catch (err) {
         const undecodable = undecodableResponse(err)
         if (!undecodable) {
-            throw err
+            // Raw SDK errors would surface as UNKNOWN in the error metrics and as untyped
+            // ApplicationFailures to the workflow. Always retryable: a 403 can be a transient
+            // credential-refresh race, and a wasted retry is cheaper than discarding a finished
+            // render over a misclassified permanent failure.
+            const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode
+            log.warn({ bucket, key, status, err: (err as Error)?.message }, 'S3 upload failed')
+            throw new RasterizationError(
+                `S3 upload failed${status ? ` (status ${status})` : ''}: ${(err as Error)?.message ?? String(err)}`,
+                true,
+                'S3_UPLOAD_FAILED',
+                err
+            )
         }
         // Bucket, key and the raw body stay in this log line. The thrown message reaches team users as
         // ReplayObservation.error_reason, and the body is whatever an upstream proxy or gateway chose to
@@ -124,4 +122,44 @@ export async function uploadToS3(
     }
 
     return target
+}
+
+/** Fetch one object to a local path. The thumbnail activity reads the analysis MP4 this way. */
+export async function downloadFromS3(bucket: string, key: string, localPath: string): Promise<void> {
+    try {
+        const res = await getS3Client().send(new GetObjectCommand({ Bucket: bucket, Key: key }))
+        if (!res.Body) {
+            throw new RasterizationError(`S3 object is empty: s3://${bucket}/${key}`, false, 'S3_DOWNLOAD_EMPTY')
+        }
+        // Streamed, not buffered: the media worker reads several tens-of-megabytes MP4s at once.
+        await pipeline(res.Body as Readable, fs.createWriteStream(localPath))
+    } catch (err) {
+        if (err instanceof RasterizationError) {
+            throw err
+        }
+        const undecodable = undecodableResponse(err)
+        if (undecodable) {
+            // An egress proxy answering HTML surfaces as a parser error, with the real reason in the body.
+            log.warn(
+                { bucket, key, status: undecodable.status, response_body: undecodable.body },
+                'S3 download returned an unreadable response'
+            )
+            throw new RasterizationError(
+                `S3 download failed: the object store returned an unreadable (non-XML) response (status ${undecodable.status ?? 'unknown'})`,
+                true,
+                'S3_DOWNLOAD_UNDECODABLE_RESPONSE',
+                err
+            )
+        }
+        const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode
+        log.warn({ bucket, key, status, err: (err as Error)?.message }, 'S3 download failed')
+        // Only a missing object is permanent; a 403 is the credential-refresh race the upload path allows for.
+        const retryable = status !== 404
+        throw new RasterizationError(
+            `S3 download failed${status ? ` (status ${status})` : ''}: ${(err as Error)?.message ?? String(err)}`,
+            retryable,
+            'S3_DOWNLOAD_FAILED',
+            err
+        )
+    }
 }

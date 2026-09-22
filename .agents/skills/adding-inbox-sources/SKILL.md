@@ -69,7 +69,7 @@ Only two field types still lack a generic renderer (disable submit): `ssh-tunnel
 `DynamicSourceSetup` opportunistically; don't add new ones.
 
 Supported OAuth `kind` values (posthog `OauthIntegration.supported_kinds`,
-`posthog/models/integration.py`): `slack, salesforce, hubspot, google-ads,
+`posthog/models/integration/oauth.py`): `slack, salesforce, hubspot, google-ads,
 google-analytics, google-search-console, google-sheets, snapchat, linkedin-ads,
 reddit-ads, tiktok-ads, bing-ads, meta-ads, intercom, linear, clickup, jira,
 pinterest-ads, stripe` (+ `github` via App install). **A source not in this list

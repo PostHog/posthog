@@ -19,6 +19,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/types'
 
+import { surveysEmptyState } from 'products/surveys/frontend/emptyState/surveysEmptyState'
+
 import { SURVEY_CREATED_SOURCE } from './constants'
 import { DuplicateToProjectModal } from './DuplicateToProjectModal'
 import { SurveySettings, SurveysDisabledBanner } from './SurveySettings'
@@ -28,6 +30,7 @@ export const scene: SceneExport = {
     component: Surveys,
     logic: surveysLogic,
     productKey: ProductKey.SURVEYS,
+    emptyState: surveysEmptyState,
 }
 
 function NewSurveyButton(): JSX.Element {

@@ -35,6 +35,7 @@ function makeChecks(values: number[]): AlertCheck[] {
         calculated_value: calculatedValue,
         state: AlertState.NOT_FIRING,
         targets_notified: false,
+        deliveries: null,
     }))
 }
 
@@ -87,6 +88,27 @@ const makeAlert = (overrides: Partial<AlertType>): AlertType =>
     }) as AlertType
 
 const trendsAlert = makeAlert({})
+// Shows the delivery details tooltip on the History tab's "Targets notified" cell.
+trendsAlert.checks![trendsAlert.checks!.length - 1].targets_notified = true
+trendsAlert.checks![trendsAlert.checks!.length - 1].deliveries = [
+    {
+        channel: 'email',
+        target: 'alerts@example.com',
+        status: 'accepted',
+        at: '2026-07-16T14:00:00Z',
+        display_label: 'Email: alerts@example.com',
+    },
+    {
+        channel: 'hog_function',
+        target: 'Slack #eng-alerts',
+        template: 'slack',
+        status: 'accepted',
+        at: '2026-07-16T14:00:00Z',
+        display_label: 'Slack #eng-alerts',
+    },
+]
+// A check recorded before delivery receipts existed: a bare "Yes", no receipt list.
+trendsAlert.checks![trendsAlert.checks!.length - 2].targets_notified = true
 
 const funnelAlert = makeAlert({
     id: 'alert-funnel',
@@ -218,6 +240,35 @@ export const EditAlert: EditAlertVariant = {
                     200,
                     alertsById[request.params.alert_id as string],
                 ],
+                '/api/projects/:team_id/hog_functions/': EMPTY_PAGINATED_RESPONSE,
+            },
+        }),
+    ],
+}
+
+export const MissingAlert: EditAlertVariant = {
+    args: { insightType: 'trends' },
+    render: ({ insightType }) => {
+        const alert = storyAlerts[insightType]
+        return (
+            <EditAlertModal
+                isOpen
+                alertId="missing-alert"
+                insightId={alert.insight.id}
+                insightShortId={alert.insight.short_id}
+                insightLogicProps={{
+                    dashboardItemId: alert.insight.short_id,
+                    cachedInsight: alert.insight,
+                }}
+                onEditSuccess={() => {}}
+                onClose={() => {}}
+            />
+        )
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/alerts/:alert_id/': [404, { detail: 'Not found.' }],
                 '/api/projects/:team_id/hog_functions/': EMPTY_PAGINATED_RESPONSE,
             },
         }),

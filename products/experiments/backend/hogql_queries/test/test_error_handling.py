@@ -13,6 +13,7 @@ from rest_framework.exceptions import ErrorDetail, ValidationError
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.errors import CHQueryErrorNotAnAggregate
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 from products.experiments.backend.hogql_queries.error_handling import (
@@ -146,6 +147,52 @@ class TestExperimentErrorHandling(BaseTest):
         # Should still capture for internal tracking
         mock_capture.assert_called_once()
 
+    @patch("products.experiments.backend.hogql_queries.error_handling.capture_exception")
+    def test_decorator_converts_not_an_aggregate_without_capture(self, mock_capture):
+        # User-authored HogQL referencing a column outside an aggregate is a metric-config
+        # error: actionable ValidationError, no error-tracking capture.
+
+        @experiment_error_handler
+        def failing_method(self):
+            raise CHQueryErrorNotAnAggregate(
+                "Column 'events__override.distinct_id' is not under aggregate function",
+                code=215,
+                code_name="not_an_aggregate",
+            )
+
+        mock_self = Mock()
+        mock_self.experiment = Mock(id=123)
+        mock_self.metric = None
+        mock_self.user_facing = True
+
+        with self.assertRaises(ValidationError) as context:
+            failing_method(mock_self)
+
+        detail_list = cast(list[ErrorDetail], context.exception.detail)
+        self.assertIn("outside an aggregate", str(detail_list[0]))
+        mock_capture.assert_not_called()
+
+    @patch("products.experiments.backend.hogql_queries.error_handling.capture_exception")
+    def test_decorator_reraises_not_an_aggregate_raw_for_non_user_facing(self, mock_capture):
+        # Internal callers (recalculation, timeseries) classify raw types themselves —
+        # classify_experiment_query_error maps this to validation_error (permanent, no retry).
+
+        @experiment_error_handler
+        def failing_method(self):
+            raise CHQueryErrorNotAnAggregate(
+                "Column 'timestamp' is not under aggregate function", code=215, code_name="not_an_aggregate"
+            )
+
+        mock_self = Mock()
+        mock_self.experiment = Mock(id=123)
+        mock_self.metric = None
+        mock_self.user_facing = False
+
+        with self.assertRaises(CHQueryErrorNotAnAggregate):
+            failing_method(mock_self)
+
+        mock_capture.assert_not_called()
+
     def test_error_type_to_code_mapping(self):
         """Test that ClickHouseQueryMemoryLimitExceeded has a code mapping."""
         self.assertIn(ClickHouseQueryMemoryLimitExceeded, ERROR_TYPE_TO_CODE)
@@ -165,6 +212,12 @@ class TestExperimentErrorHandling(BaseTest):
             ("zero_division", ZeroDivisionError(), "insufficient_data"),
             ("validation_error", ValidationError("bad metric config"), "validation_error"),
             ("exposed_hogql_error", ExposedHogQLError("unknown property"), "validation_error"),
+            ("ch_not_an_aggregate_code", ServerException("not under aggregate", code=215), "validation_error"),
+            (
+                "wrapped_not_an_aggregate",
+                CHQueryErrorNotAnAggregate("not under aggregate", code=215, code_name="not_an_aggregate"),
+                "validation_error",
+            ),
             ("anything_else", RuntimeError("kaboom"), "server_error"),
         ]
     )

@@ -2,8 +2,8 @@
 // couple of table rows, but a scalar result doesn't need a tall cell either — so size to what
 // actually came back and cap it, instead of snapping every result to one large default.
 
-/** Tab bar, dataframe-name footer, and the padding around the output area. */
-const NODE_CHROME_HEIGHT = 80
+/** Output header row, dataframe-name footer, and the padding around the output area. */
+const NODE_CHROME_HEIGHT = 88
 /** Table header plus the pagination bar under it. */
 const TABLE_CHROME_HEIGHT = 68
 const ROW_HEIGHT = 28

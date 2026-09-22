@@ -57,6 +57,8 @@ FLOAT_ENDPOINTS: dict[str, FloatEndpointConfig] = {
     "status": FloatEndpointConfig(name="status", path="/status", primary_keys=["status_id"]),
     "roles": FloatEndpointConfig(name="roles", path="/roles", primary_keys=["id"]),
     "holidays": FloatEndpointConfig(name="holidays", path="/holidays", primary_keys=["holiday_id"]),
+    "rate_cards": FloatEndpointConfig(name="rate_cards", path="/rate-cards", primary_keys=["rate_card_id"]),
+    "currencies": FloatEndpointConfig(name="currencies", path="/currencies", primary_keys=["currency_id"]),
     # Delete Log endpoints — cursor pagination, append-only tombstones. Niche, so off by default.
     "deleted_tasks": FloatEndpointConfig(
         name="deleted_tasks",

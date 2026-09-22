@@ -48,90 +48,6 @@ def build_workflow_jobs(
     return query_workflow_jobs(curated=curated, run_id=run_id, run_attempt=run_attempt)
 
 
-def build_workflow_run_list(
-    *,
-    curated: CuratedGitHubSource,
-    repo: str | None,
-    workflow_name: str,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    branch: str | None = None,
-) -> list[WorkflowRunDetail]:
-    owner, name = _require_repo(repo)
-    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
-    return query_workflow_run_list(
-        curated=curated,
-        repo_owner=owner,
-        repo_name=name,
-        workflow_name=workflow_name,
-        date_from=parsed_from,
-        date_to=parsed_to,
-        branch=branch,
-    )
-
-
-def build_workflow_run_activity(
-    *,
-    curated: CuratedGitHubSource,
-    repo: str | None,
-    workflow_name: str,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    branch: str | None = None,
-) -> WorkflowRunActivity:
-    owner, name = _require_repo(repo)
-    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
-    return query_workflow_run_activity(
-        curated=curated,
-        repo_owner=owner,
-        repo_name=name,
-        workflow_name=workflow_name,
-        date_from=parsed_from,
-        date_to=parsed_to,
-        branch=branch,
-    )
-
-
-def build_workflow_runner_costs(
-    *,
-    curated: CuratedGitHubSource,
-    repo: str | None,
-    workflow_name: str,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    branch: str | None = None,
-) -> list[WorkflowRunnerCost]:
-    owner, name = _require_repo(repo)
-    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
-    return query_workflow_runner_costs(
-        curated=curated,
-        repo_owner=owner,
-        repo_name=name,
-        workflow_name=workflow_name,
-        date_from=parsed_from,
-        date_to=parsed_to,
-        branch=branch,
-    )
-
-
-def build_workflow_health(
-    *,
-    curated: CuratedGitHubSource,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    branch: str | None = None,
-    run_scope: str | None = None,
-) -> list[WorkflowHealthItem]:
-    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WORKFLOW_WINDOW)
-    return query_workflow_health(
-        curated=curated,
-        date_from=parsed_from,
-        date_to=parsed_to,
-        branch=branch,
-        run_scope=_parse_run_scope(run_scope),
-    )
-
-
 def _parse_run_scope(value: str | None) -> WorkflowHealthRunScope:
     """Absent/blank selects 'all'; anything else must be an exact enum value (ValueError → 400)."""
     normalized = value.strip() if value else ""
@@ -143,6 +59,98 @@ def _parse_run_scope(value: str | None) -> WorkflowHealthRunScope:
         raise ValueError(
             f"run_scope must be one of: {', '.join(scope.value for scope in WorkflowHealthRunScope)}"
         ) from None
+
+
+def build_workflow_run_list(
+    *,
+    curated: CuratedGitHubSource,
+    repo: str | None,
+    workflow_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+    run_scope: str | None = None,
+) -> list[WorkflowRunDetail]:
+    owner, name = _require_repo(repo)
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
+    return query_workflow_run_list(
+        curated=curated,
+        repo_owner=owner,
+        repo_name=name,
+        workflow_name=workflow_name,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        branch=branch,
+        run_scope=_parse_run_scope(run_scope),
+    )
+
+
+def build_workflow_run_activity(
+    *,
+    curated: CuratedGitHubSource,
+    repo: str | None,
+    workflow_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+    run_scope: str | None = None,
+) -> WorkflowRunActivity:
+    owner, name = _require_repo(repo)
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
+    return query_workflow_run_activity(
+        curated=curated,
+        repo_owner=owner,
+        repo_name=name,
+        workflow_name=workflow_name,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        branch=branch,
+        run_scope=_parse_run_scope(run_scope),
+    )
+
+
+def build_workflow_runner_costs(
+    *,
+    curated: CuratedGitHubSource,
+    repo: str | None,
+    workflow_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+    run_scope: str | None = None,
+) -> list[WorkflowRunnerCost]:
+    owner, name = _require_repo(repo)
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
+    return query_workflow_runner_costs(
+        curated=curated,
+        repo_owner=owner,
+        repo_name=name,
+        workflow_name=workflow_name,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        branch=branch,
+        run_scope=_parse_run_scope(run_scope),
+    )
+
+
+def build_workflow_health(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+    run_scope: str | None = None,
+    workflow_name: str | None = None,
+) -> list[WorkflowHealthItem]:
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WORKFLOW_WINDOW)
+    return query_workflow_health(
+        curated=curated,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        branch=branch,
+        run_scope=_parse_run_scope(run_scope),
+        workflow_name=workflow_name,
+    )
 
 
 def build_repo_overview(
@@ -210,8 +218,14 @@ def build_job_aggregates(
     date_from: str | None = None,
     date_to: str | None = None,
     branch: str | None = None,
+    run_scope: str | None = None,
 ) -> list[WorkflowJobAggregate]:
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
     return query_job_aggregates(
-        curated=curated, workflow_name=workflow_name, date_from=parsed_from, date_to=parsed_to, branch=branch
+        curated=curated,
+        workflow_name=workflow_name,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        branch=branch,
+        run_scope=_parse_run_scope(run_scope),
     )

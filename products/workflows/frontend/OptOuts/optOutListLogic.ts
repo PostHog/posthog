@@ -1,4 +1,16 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, path, props, reducers } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    isBreakpoint,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import Papa from 'papaparse'
 
@@ -51,7 +63,10 @@ export interface optOutListLogicValues {
     csvExport: null
     csvExportLoading: boolean
     csvFile: File | null
-    csvImportProgress: { processed: number; total: number } | null
+    csvImportProgress: {
+        processed: number
+        total: number
+    } | null
     csvImportResult: BulkAddOptOutsResultApi | null
     csvImportResultLoading: boolean
     currentPage: number
@@ -63,6 +78,7 @@ export interface optOutListLogicValues {
     personsModalOpen: boolean
     removeOptOut: string | null
     removeOptOutLoading: boolean
+    searchTerm: string
     selectedIdentifier: string | null
     showAddOptOutModal: boolean
     showImportCsvModal: boolean
@@ -134,25 +150,9 @@ export interface optOutListLogicActions {
     loadNextPage: () => {
         value: true
     }
-    loadNextPageFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
+    loadOptOutPersons: (page?: number) => {
+        page: number
     }
-    loadNextPageSuccess: (
-        optOutPersons: PaginatedOptOutsApi,
-        payload?: {
-            value: true
-        }
-    ) => {
-        optOutPersons: PaginatedOptOutsApi
-        payload?: {
-            value: true
-        }
-    }
-    loadOptOutPersons: () => any
     loadOptOutPersonsFailure: (
         error: string,
         errorObject?: any
@@ -162,31 +162,17 @@ export interface optOutListLogicActions {
     }
     loadOptOutPersonsSuccess: (
         optOutPersons: PaginatedOptOutsApi,
-        payload?: any
+        payload?: {
+            page: number
+        }
     ) => {
         optOutPersons: PaginatedOptOutsApi
-        payload?: any
+        payload?: {
+            page: number
+        }
     }
     loadPreviousPage: () => {
         value: true
-    }
-    loadPreviousPageFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadPreviousPageSuccess: (
-        optOutPersons: PaginatedOptOutsApi,
-        payload?: {
-            value: true
-        }
-    ) => {
-        optOutPersons: PaginatedOptOutsApi
-        payload?: {
-            value: true
-        }
     }
     loadUnsubscribeLink: () => {
         value: true
@@ -209,8 +195,16 @@ export interface optOutListLogicActions {
     setCsvFile: (file: File | null) => {
         file: File | null
     }
-    setCsvImportProgress: (progress: { processed: number; total: number } | null) => {
-        progress: { processed: number; total: number } | null
+    setCsvImportProgress: (
+        progress: {
+            processed: number
+            total: number
+        } | null
+    ) => {
+        progress: {
+            processed: number
+            total: number
+        } | null
     }
     setCurrentPage: (page: number) => {
         page: number
@@ -223,6 +217,9 @@ export interface optOutListLogicActions {
     }
     setPersonsModalOpen: (open: boolean) => {
         open: boolean
+    }
+    setSearchTerm: (searchTerm: string) => {
+        searchTerm: string
     }
     setSelectedIdentifier: (identifier: string | null) => {
         identifier: string | null
@@ -260,7 +257,9 @@ export const optOutListLogic = kea<optOutListLogicType>([
         setPersonsModalOpen: (open: boolean) => ({ open }),
         setManagePreferencesModalOpen: (open: boolean) => ({ open }),
         setSelectedIdentifier: (identifier: string | null) => ({ identifier }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setCurrentPage: (page: number) => ({ page }),
+        loadOptOutPersons: (page?: number) => ({ page: page ?? 1 }),
         loadNextPage: true,
         loadPreviousPage: true,
         setShowAddOptOutModal: (show: boolean) => ({ show }),
@@ -300,13 +299,19 @@ export const optOutListLogic = kea<optOutListLogicType>([
                 setSelectedIdentifier: (_, { identifier }) => identifier,
             },
         ],
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
         currentPage: [
             1,
             {
                 setCurrentPage: (_, { page }) => page,
-                loadOptOutPersonsSuccess: () => 1, // Reset to page 1 on initial load
-                loadNextPageSuccess: (state) => state + 1,
-                loadPreviousPageSuccess: (state) => Math.max(1, state - 1),
+                // Track the page that actually loaded, so a discarded stale response can't
+                // desync the label from the rows.
+                loadOptOutPersonsSuccess: (state, { payload }) => payload?.page ?? state,
             },
         ],
         showAddOptOutModal: [
@@ -367,6 +372,7 @@ export const optOutListLogic = kea<optOutListLogicType>([
             }
             return await messagingPreferencesOptOutsRetrieve(String(values.currentProjectId), {
                 category_key: props.category?.key,
+                search: values.searchTerm.trim() || undefined,
                 page,
             })
         }
@@ -414,30 +420,22 @@ export const optOutListLogic = kea<optOutListLogicType>([
             },
             optOutPersons: {
                 __default: EMPTY_OPT_OUTS,
-                loadOptOutPersons: async (): Promise<PaginatedOptOutsApi> => {
+                // Single loader for every page fetch (initial, search, next, prev) so overlapping
+                // requests share one action key and the breakpoint can discard the stale one — a
+                // pagination response resolving after a search reload must not overwrite it.
+                loadOptOutPersons: async ({ page }, breakpoint): Promise<PaginatedOptOutsApi> => {
                     try {
-                        return await fetchPage(1)
+                        const result = await fetchPage(page)
+                        breakpoint()
+                        return result
                     } catch (e) {
-                        lemonToast.error('Failed to load opt-out persons')
+                        if (isBreakpoint(e as Error)) {
+                            throw e
+                        }
+                        lemonToast.error('Failed to load opt-outs')
                         // Rethrow so kea-loaders emits a *Failure action: optOutPersons keeps its
                         // previous value instead of rendering a failed fetch as "no opt-outs found",
                         // and the currentPage reducer (which only moves on *Success) stays put.
-                        throw e
-                    }
-                },
-                loadNextPage: async (): Promise<PaginatedOptOutsApi> => {
-                    try {
-                        return await fetchPage(values.currentPage + 1)
-                    } catch (e) {
-                        lemonToast.error('Failed to load next page')
-                        throw e
-                    }
-                },
-                loadPreviousPage: async (): Promise<PaginatedOptOutsApi> => {
-                    try {
-                        return await fetchPage(Math.max(1, values.currentPage - 1))
-                    } catch (e) {
-                        lemonToast.error('Failed to load previous page')
                         throw e
                     }
                 },
@@ -524,6 +522,14 @@ export const optOutListLogic = kea<optOutListLogicType>([
             },
         }
     }),
+    listeners(({ actions, values }) => ({
+        setSearchTerm: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadOptOutPersons()
+        },
+        loadNextPage: () => actions.loadOptOutPersons(values.currentPage + 1),
+        loadPreviousPage: () => actions.loadOptOutPersons(Math.max(1, values.currentPage - 1)),
+    })),
     afterMount(({ props, actions }) => {
         // If no category is provided or it's a marketing category, load opt-out persons
         if (!props.category?.id || props.category?.category_type === 'marketing') {

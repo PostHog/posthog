@@ -20,6 +20,7 @@ use rstest::rstest;
 use std::num::NonZeroU32;
 
 use crate::global_rate_limiter::GlobalRateLimiter;
+use crate::outputs::OutputRegistry;
 use crate::router::HistoricalConfig;
 use crate::sinks::kafka::{test_topics, KafkaSinkBase};
 use crate::sinks::producer::MockKafkaProducer;
@@ -113,6 +114,7 @@ fn v0_context(now: DateTime<Utc>) -> ProcessingContext {
         historical_migration: false,
         chatty_debug_enabled: false,
         capture_mode: crate::config::CaptureMode::Events,
+        ai_max_event_bytes: 0,
         sdk_attribution: crate::ingestion_warnings::SdkAttribution::default(),
     }
 }
@@ -121,10 +123,10 @@ fn v0_context(now: DateTime<Utc>) -> ProcessingContext {
 /// at `observe` off the mock producer.
 async fn run_v0(limits: Limits, batch_size: usize, observe: usize) -> Observed {
     let producer = MockKafkaProducer::new();
-    let sink = Arc::new(KafkaSinkBase::with_producer(
+    let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
         producer.clone(),
         test_topics(),
-    ));
+    )));
     let global = limits.globally_limited.then(|| {
         Arc::new(GlobalRateLimiter::mock_limiting(&[&format!(
             "{V0_TOKEN}:{V0_DISTINCT_ID}"
@@ -136,7 +138,7 @@ async fn run_v0(limits: Limits, batch_size: usize, observe: usize) -> Observed {
         .with_timezone(&Utc);
 
     crate::events::analytics::process_events(
-        sink,
+        outputs,
         Arc::new(TokenDropper::default()),
         None,
         HistoricalConfig::new(false, 1),
@@ -146,6 +148,7 @@ async fn run_v0(limits: Limits, batch_size: usize, observe: usize) -> Observed {
         None,
         (0..batch_size).map(|_| v0_raw_event()).collect(),
         &v0_context(now),
+        None,
     )
     .await
     .expect("v0 pipeline must accept the batch");

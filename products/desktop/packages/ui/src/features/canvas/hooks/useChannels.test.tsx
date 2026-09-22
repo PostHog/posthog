@@ -8,6 +8,7 @@ const mockClient = vi.hoisted(() => ({
   getTaskChannels: vi.fn(),
   resolveTaskChannel: vi.fn(),
   starTaskChannel: vi.fn(),
+  updateTaskChannelAutoArchive: vi.fn(),
 }));
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => mockClient,
@@ -159,5 +160,33 @@ describe("useChannelMutations", () => {
     });
 
     expect(mockClient.starTaskChannel).not.toHaveBeenCalled();
+  });
+
+  it("updates the shared channel cache after changing automatic archiving", async () => {
+    const existing = taskChannel("1", "alpha");
+    const updated = {
+      ...existing,
+      auto_archive_after_days: 7,
+    };
+    mockClient.getTaskChannels
+      .mockResolvedValueOnce([existing])
+      .mockResolvedValue([updated]);
+    mockClient.updateTaskChannelAutoArchive.mockResolvedValue(updated);
+
+    const list = renderHook(() => useChannels(), { wrapper });
+    await waitFor(() => expect(list.result.current.isLoading).toBe(false));
+    const mutations = renderHook(() => useChannelMutations(), { wrapper });
+
+    await act(async () => {
+      await mutations.result.current.updateAutoArchive("1", 7);
+    });
+
+    expect(mockClient.updateTaskChannelAutoArchive).toHaveBeenCalledWith(
+      "1",
+      7,
+    );
+    await waitFor(() =>
+      expect(list.result.current.channels[0]?.autoArchiveAfterDays).toBe(7),
+    );
   });
 });

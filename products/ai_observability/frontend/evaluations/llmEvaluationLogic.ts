@@ -1,35 +1,38 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { MaxContextInput, createMaxContextHelpers } from '~/scenes/max/maxTypes'
-import { Breadcrumb } from '~/types'
+import { ActivityScope, Breadcrumb } from '~/types'
 
+import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import {
+    evaluationsBackfillsRetrieve,
     evaluationsCreate,
     evaluationsPartialUpdate,
     evaluationsRetrieve,
     evaluationsTestHogCreate,
-    llmAnalyticsEvaluationSummaryCreate,
 } from '../generated/api'
-import type { TestHogRequestApi, TestHogResultItemApi } from '../generated/api.schemas'
+import type { EvaluationBackfillApi, TestHogRequestApi, TestHogResultItemApi } from '../generated/api.schemas'
 import { parsePlaygroundProviderKeyId } from '../ModelPicker'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import type { EvaluationConfig as TeamEvaluationConfig } from '../settings/llmProviderKeysLogic'
 import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
 import { EvaluationRunsStats, queryEvaluationRuns, queryEvaluationRunsStats } from '../utils'
 import { evaluationErrorMessage } from './apiErrors'
-import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
+import { evaluationIsDetector } from './constants'
 import {
     evaluationCanResolveModel,
     evaluationSupportsReports,
-    evaluationSupportsRunSummary,
     isBooleanEvaluationOutput,
     isLLMJudgeEvaluation,
 } from './evaluationCapabilities'
@@ -42,9 +45,8 @@ import type {
     EvaluationConditionSet,
     EvaluationConfig,
     EvaluationRun,
+    EvaluationRunsFilter,
     EvaluationSettleStrategy,
-    EvaluationSummary,
-    EvaluationSummaryFilter,
     EvaluationTarget,
     EvaluationTargetConfig,
     EvaluationType,
@@ -65,10 +67,17 @@ export const DEFAULT_SESSION_QUIET_PERIOD_SECONDS = 60 * 60
 export const DEFAULT_SESSION_MAX_AGE_SECONDS = 24 * 60 * 60
 
 const AGGREGATE_TARGETS: EvaluationTarget[] = ['trace', 'session']
-const EVALUATION_DETAIL_TABS = new Set(['configuration', 'reports', 'runs'])
+const EVALUATION_DETAIL_TABS = new Set(['configuration', 'reports', 'runs', 'backfills'])
 
 function evaluationDetailTab(value: unknown): string | null {
-    return typeof value === 'string' && EVALUATION_DETAIL_TABS.has(value) ? value : null
+    if (typeof value !== 'string' || !EVALUATION_DETAIL_TABS.has(value)) {
+        return null
+    }
+    // Backfills is flag-gated, so a bookmarked URL for it falls back to the default tab.
+    if (value === 'backfills' && !featureFlagLogic.values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_BACKFILLS]) {
+        return null
+    }
+    return value
 }
 
 function seedSettleConfig(target: EvaluationTarget, strategy: EvaluationSettleStrategy): EvaluationTargetConfig {
@@ -116,6 +125,21 @@ const DEFAULT_SENTIMENT_SOURCE = 'user_messages' as const
 const DEFAULT_SENTIMENT_RUNS_FILTER = 'negative' as const
 const DEFAULT_CONDITION_ROLLOUT_PERCENTAGE = 100
 
+/** The rollout is a percentage the backend stores as typed, so the editor holds it to two decimals
+ * before anything is sent. Conditions that never carried the key keep it absent. */
+export function normalizeConditionRollouts<T extends { rollout_percentage?: number }>(conditions: T[]): T[] {
+    return conditions.map((condition) =>
+        condition.rollout_percentage != null
+            ? { ...condition, rollout_percentage: Math.round(condition.rollout_percentage * 100) / 100 }
+            : condition
+    )
+}
+
+/** A condition set at 0% matches nothing, so both editors refuse to send one. */
+export function hasUnsetConditionRollout(conditions: { rollout_percentage?: number }[]): boolean {
+    return conditions.some((condition) => (condition.rollout_percentage ?? 0) === 0)
+}
+
 function toLLMJudgeEvaluation(evaluation: EvaluationConfig): LLMJudgeEvaluation {
     return {
         ...evaluation,
@@ -151,7 +175,11 @@ function toSentimentEvaluation(evaluation: EvaluationConfig): SentimentEvaluatio
     }
 }
 
-function filterEvaluationRuns(runs: EvaluationRun[], filter: EvaluationSummaryFilter): EvaluationRun[] {
+function filterEvaluationRuns(
+    runs: EvaluationRun[],
+    filter: EvaluationRunsFilter,
+    evaluation: EvaluationConfig | null
+): EvaluationRun[] {
     if (filter === 'all') {
         return runs
     }
@@ -160,11 +188,12 @@ function filterEvaluationRuns(runs: EvaluationRun[], filter: EvaluationSummaryFi
     // A skipped run carries result=false when the evaluation disallows N/A, so it has to be
     // excluded before the outcome is read or it lands in the fail bucket without being graded.
     const gradedRuns = completedRuns.filter((r) => !r.skipped)
+    const passingResult = !(evaluation && evaluationIsDetector(evaluation))
     if (filter === 'pass') {
-        return gradedRuns.filter((r) => r.result === true)
+        return gradedRuns.filter((r) => r.result === passingResult)
     }
     if (filter === 'fail') {
-        return gradedRuns.filter((r) => r.result === false)
+        return gradedRuns.filter((r) => r.result === !passingResult)
     }
     if (filter === 'na') {
         return gradedRuns.filter((r) => r.result === null)
@@ -218,6 +247,7 @@ export interface LLMEvaluationLogicProps {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface llmEvaluationLogicValues {
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     activeProviderKey: LLMProviderKey | null | undefined // llmProviderKeysLogic
     providerKeys: LLMProviderKey[] // llmProviderKeysLogic
     providerKeysLoading: boolean // llmProviderKeysLogic
@@ -232,11 +262,9 @@ export interface llmEvaluationLogicValues {
     evaluationLoading: boolean
     evaluationProviderKeyIssue: LLMProviderKey | null
     evaluationRuns: EvaluationRun[]
+    evaluationRunsError: boolean
+    evaluationRunsFilter: EvaluationRunsFilter
     evaluationRunsLoading: boolean
-    evaluationSummary: EvaluationSummary | null
-    evaluationSummaryError: boolean
-    evaluationSummaryFilter: EvaluationSummaryFilter
-    evaluationSummaryLoading: boolean
     filteredEvaluationRuns: EvaluationRun[]
     formValid: boolean
     hasUnsavedChanges: boolean
@@ -248,7 +276,9 @@ export interface llmEvaluationLogicValues {
     maxContext: MaxContextInput[]
     modelSelectionRequired: boolean
     originalEvaluation: EvaluationConfig | null
-    runsLookup: Record<string, EvaluationRun>
+    runsBackfill: EvaluationBackfillApi | null
+    runsBackfillId: string | null
+    runsBackfillLoading: boolean
     runsStats: EvaluationRunsStats | null
     runsStatsLoading: boolean
     runsSummary: {
@@ -259,10 +289,9 @@ export interface llmEvaluationLogicValues {
         successRate: number
         total: number
     } | null
-    runsToSummarizeCount: number
     selectedModel: string
     selectedPickerProviderKeyId: string | null
-    summaryExpanded: boolean
+    sidePanelContext: SidePanelSceneContext | null
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -277,27 +306,6 @@ export interface llmEvaluationLogicActions {
     loadProviderKeys: () => any // llmProviderKeysLogic
     clearHogTestResults: () => {
         value: true
-    }
-    generateEvaluationSummary: ({ forceRefresh }: { forceRefresh?: boolean }) => {
-        forceRefresh?: boolean
-    }
-    generateEvaluationSummaryFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    generateEvaluationSummarySuccess: (
-        evaluationSummary: EvaluationSummary | null,
-        payload?: {
-            forceRefresh?: boolean
-        }
-    ) => {
-        evaluationSummary: EvaluationSummary | null
-        payload?: {
-            forceRefresh?: boolean
-        }
     }
     loadEvaluation: () => {
         value: true
@@ -321,6 +329,21 @@ export interface llmEvaluationLogicActions {
         evaluation: EvaluationConfig | null
         requestedTab: string | null
     }
+    loadRunsBackfill: () => any
+    loadRunsBackfillFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadRunsBackfillSuccess: (
+        runsBackfill: EvaluationBackfillApi | null,
+        payload?: any
+    ) => {
+        runsBackfill: EvaluationBackfillApi | null
+        payload?: any
+    }
     loadRunsStats: () => any
     loadRunsStatsFailure: (
         error: string,
@@ -340,9 +363,6 @@ export interface llmEvaluationLogicActions {
         patch: Partial<Omit<EvaluationTargetConfig, 'strategy'>>
     }
     refreshEvaluationRuns: () => {
-        value: true
-    }
-    regenerateEvaluationSummary: () => {
         value: true
     }
     resetEvaluation: () => {
@@ -382,12 +402,12 @@ export interface llmEvaluationLogicActions {
     setEvaluationPrompt: (prompt: string) => {
         prompt: string
     }
-    setEvaluationSummaryFilter: (
-        filter: EvaluationSummaryFilter,
-        previousFilter: EvaluationSummaryFilter
+    setEvaluationRunsFilter: (
+        filter: EvaluationRunsFilter,
+        previousFilter: EvaluationRunsFilter
     ) => {
-        filter: EvaluationSummaryFilter
-        previousFilter: EvaluationSummaryFilter
+        filter: EvaluationRunsFilter
+        previousFilter: EvaluationRunsFilter
     }
     setEvaluationTarget: (target: EvaluationTarget) => {
         target: EvaluationTarget
@@ -404,11 +424,17 @@ export interface llmEvaluationLogicActions {
     setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => {
         modelConfiguration: ModelConfiguration | null
     }
+    setRunsBackfillId: (backfillId: string | null) => {
+        backfillId: string | null
+    }
     setSettleStrategy: (strategy: EvaluationSettleStrategy) => {
         strategy: EvaluationSettleStrategy
     }
     setTriggerConditions: (conditions: EvaluationConditionSet[]) => {
         conditions: EvaluationConditionSet[]
+    }
+    setTrueIsFailure: (trueIsFailure: boolean) => {
+        trueIsFailure: boolean
     }
     testHogOnSample: (_?: void) => void
     testHogOnSampleFailure: (
@@ -424,12 +450,6 @@ export interface llmEvaluationLogicActions {
     ) => {
         hogTestResults: TestHogResultItemApi[] | null
         payload?: void
-    }
-    toggleSummaryExpanded: () => {
-        value: true
-    }
-    trackSummarizeClicked: () => {
-        value: true
     }
 }
 
@@ -454,8 +474,10 @@ export interface llmEvaluationLogicMeta {
             evaluation: EvaluationConfig | null,
             providerKeys: LLMProviderKey[]
         ) => LLMProviderKey | null
-        runsLookup: (evaluationRuns: EvaluationRun[]) => Record<string, EvaluationRun>
-        runsSummary: (runsStats: EvaluationRunsStats | null) => {
+        runsSummary: (
+            runsStats: EvaluationRunsStats | null,
+            evaluation: EvaluationConfig | null
+        ) => {
             applicabilityRate: number
             errors: number
             failed: number
@@ -465,12 +487,9 @@ export interface llmEvaluationLogicMeta {
         } | null
         filteredEvaluationRuns: (
             evaluationRuns: EvaluationRun[],
-            evaluationSummaryFilter: EvaluationSummaryFilter
+            evaluationRunsFilter: EvaluationRunsFilter,
+            evaluation: EvaluationConfig | null
         ) => EvaluationRun[]
-        runsToSummarizeCount: (
-            filteredEvaluationRuns: EvaluationRun[],
-            evaluationSummaryFilter: EvaluationSummaryFilter
-        ) => number
         breadcrumbs: (
             evaluation: EvaluationConfig | null,
             isNewEvaluation: boolean,
@@ -478,6 +497,10 @@ export interface llmEvaluationLogicMeta {
             searchParams: Record<string, any>
         ) => Breadcrumb[]
         maxContext: (evaluation: EvaluationConfig | null) => MaxContextInput[]
+        sidePanelContext: (
+            evaluation: EvaluationConfig | null,
+            isNewEvaluation: boolean
+        ) => SidePanelSceneContext | null
     }
 }
 
@@ -502,6 +525,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         values: [
             llmProviderKeysLogic,
             ['providerKeys', 'providerKeysLoading', 'requiresProviderKey', 'activeProviderKey'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [llmProviderKeysLogic, ['loadProviderKeys', 'loadEvaluationConfigSuccess']],
     })),
@@ -513,6 +538,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setEvaluationPrompt: (prompt: string) => ({ prompt }),
         setEvaluationEnabled: (enabled: boolean) => ({ enabled }),
         setAllowsNA: (allowsNA: boolean) => ({ allowsNA }),
+        setTrueIsFailure: (trueIsFailure: boolean) => ({ trueIsFailure }),
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
         setEvaluationType: (evaluationType: EvaluationType) => ({ evaluationType }),
@@ -525,6 +551,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
         // Tab navigation
         setActiveTab: (tab: string) => ({ tab }),
+        setRunsBackfillId: (backfillId: string | null) => ({ backfillId }),
 
         // Evaluation management actions
         saveEvaluation: true,
@@ -547,14 +574,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         clearHogTestResults: true,
         setHogTestMessage: (message: string | null) => ({ message }),
 
-        // Evaluation summary actions
-        setEvaluationSummaryFilter: (filter: EvaluationSummaryFilter, previousFilter: EvaluationSummaryFilter) => ({
+        // Runs table actions
+        setEvaluationRunsFilter: (filter: EvaluationRunsFilter, previousFilter: EvaluationRunsFilter) => ({
             filter,
             previousFilter,
         }),
-        toggleSummaryExpanded: true,
-        regenerateEvaluationSummary: true,
-        trackSummarizeClicked: true,
     }),
 
     loaders(({ props, values, actions }) => ({
@@ -623,8 +647,21 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
                     return await queryEvaluationRuns({
                         evaluationId: props.evaluationId,
+                        backfillId: values.runsBackfillId ?? undefined,
                         forceRefresh: values.isForceRefresh,
                     })
+                },
+            },
+        ],
+        runsBackfill: [
+            null as EvaluationBackfillApi | null,
+            {
+                loadRunsBackfill: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId || !values.runsBackfillId || props.evaluationId === 'new') {
+                        return null
+                    }
+                    return await evaluationsBackfillsRetrieve(String(teamId), props.evaluationId, values.runsBackfillId)
                 },
             },
         ],
@@ -638,47 +675,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
                     return await queryEvaluationRunsStats({
                         evaluationId: props.evaluationId,
+                        backfillId: values.runsBackfillId ?? undefined,
                         forceRefresh: values.isForceRefresh,
                     })
-                },
-            },
-        ],
-        evaluationSummary: [
-            null as EvaluationSummary | null,
-            {
-                generateEvaluationSummary: async ({ forceRefresh }: { forceRefresh?: boolean }) => {
-                    const shouldRefresh = forceRefresh ?? false
-                    const teamId = teamLogic.values.currentTeamId
-                    if (!teamId || !props.evaluationId || props.evaluationId === 'new') {
-                        return null
-                    }
-                    if (!evaluationSupportsRunSummary(values.evaluation)) {
-                        return null
-                    }
-
-                    const requestFilter = values.evaluationSummaryFilter
-                    if (
-                        requestFilter !== 'all' &&
-                        requestFilter !== 'pass' &&
-                        requestFilter !== 'fail' &&
-                        requestFilter !== 'na'
-                    ) {
-                        return null
-                    }
-
-                    // Backend fetches data server-side by ID - we just pass the filter
-                    const response = await llmAnalyticsEvaluationSummaryCreate(teamId.toString(), {
-                        evaluation_id: props.evaluationId,
-                        filter: requestFilter,
-                        force_refresh: shouldRefresh,
-                    })
-
-                    // Discard if the user changed the filter while the request was in flight
-                    if (values.evaluationSummaryFilter !== requestFilter) {
-                        return null
-                    }
-
-                    return response as EvaluationSummary
                 },
             },
         ],
@@ -706,17 +705,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     state && isBooleanEvaluationOutput(state.output_type)
                         ? { ...state, output_config: { ...state.output_config, allows_na: allowsNA } }
                         : state,
+                setTrueIsFailure: (state, { trueIsFailure }) =>
+                    state && isBooleanEvaluationOutput(state.output_type)
+                        ? { ...state, output_config: { ...state.output_config, true_is_failure: trueIsFailure } }
+                        : state,
                 setTriggerConditions: (state, { conditions }) =>
-                    state
-                        ? {
-                              ...state,
-                              conditions: conditions.map((c) =>
-                                  c.rollout_percentage != null
-                                      ? { ...c, rollout_percentage: Math.round(c.rollout_percentage * 100) / 100 }
-                                      : c
-                              ),
-                          }
-                        : null,
+                    state ? { ...state, conditions: normalizeConditionRollouts(conditions) } : null,
                 setModelConfiguration: (state, { modelConfiguration }) =>
                     state && isLLMJudgeEvaluation(state)
                         ? { ...state, model_configuration: modelConfiguration }
@@ -813,6 +807,16 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 loadEvaluationRunsFailure: () => false,
             },
         ],
+        // The runs loader keeps its default empty list when the query fails. Track the failure so
+        // the table can show a real error state with retry instead of the "no runs yet" empty state.
+        evaluationRunsError: [
+            false as boolean,
+            {
+                loadEvaluationRuns: () => false,
+                loadEvaluationRunsSuccess: () => false,
+                loadEvaluationRunsFailure: () => true,
+            },
+        ],
         evaluationLoading: [
             false,
             {
@@ -836,6 +840,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setEvaluationPrompt: () => true,
                 setEvaluationEnabled: () => true,
                 setAllowsNA: () => true,
+                setTrueIsFailure: () => true,
                 setTriggerConditions: () => true,
                 setModelConfiguration: () => true,
                 setEvaluationType: () => true,
@@ -848,32 +853,18 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 resetEvaluation: () => false,
             },
         ],
-        evaluationSummaryFilter: [
-            'all' as EvaluationSummaryFilter,
+        evaluationRunsFilter: [
+            'all' as EvaluationRunsFilter,
             {
-                setEvaluationSummaryFilter: (_, { filter }) => filter,
+                setEvaluationRunsFilter: (_, { filter }) => filter,
                 loadEvaluationSuccess: (_, { evaluation }) =>
                     evaluation?.evaluation_type === 'sentiment' ? DEFAULT_SENTIMENT_RUNS_FILTER : 'all',
             },
         ],
-        // Clear summary when filter changes so stale summary doesn't mismatch current filter
-        evaluationSummary: {
-            setEvaluationSummaryFilter: () => null,
-        },
-        evaluationSummaryError: [
-            false,
+        runsBackfillId: [
+            null as string | null,
             {
-                generateEvaluationSummary: () => false,
-                generateEvaluationSummarySuccess: () => false,
-                generateEvaluationSummaryFailure: () => true,
-                setEvaluationSummaryFilter: () => false,
-            },
-        ],
-        summaryExpanded: [
-            true,
-            {
-                toggleSummaryExpanded: (state) => !state,
-                generateEvaluationSummarySuccess: () => true,
+                setRunsBackfillId: (_, { backfillId }) => backfillId,
             },
         ],
         activeTab: [
@@ -984,32 +975,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             actions.loadRunsStats()
         },
 
-        regenerateEvaluationSummary: () => {
-            posthog.capture('llma evaluation regenerate clicked', {
-                filter: values.evaluationSummaryFilter,
-                runs_to_summarize: values.runsToSummarizeCount,
-            })
-            actions.generateEvaluationSummary({ forceRefresh: true })
-        },
-
-        trackSummarizeClicked: () => {
-            posthog.capture('llma evaluation summarize clicked', {
-                filter: values.evaluationSummaryFilter,
-                runs_to_summarize: values.runsToSummarizeCount,
-            })
-        },
-
-        setEvaluationSummaryFilter: ({ filter, previousFilter }) => {
+        setEvaluationRunsFilter: ({ filter, previousFilter }) => {
+            // pinned: analytics event name - renaming it breaks existing dashboards
             posthog.capture('llma evaluation summary filter changed', {
                 filter,
                 previous_filter: previousFilter,
-            })
-        },
-
-        toggleSummaryExpanded: () => {
-            posthog.capture('llma evaluation summary toggled', {
-                expanded: values.summaryExpanded,
-                filter: values.evaluationSummaryFilter,
             })
         },
 
@@ -1112,12 +1082,26 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 llmEvaluationsLogic.findMounted()?.actions.loadEvaluations()
                 if (isNew) {
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpLlmEvaluation)
+                    // Saving navigates away, so the offer to cover past data travels with the user.
+                    if (response?.id && values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_BACKFILLS]) {
+                        lemonToast.info('This evaluation grades new data from now on.', {
+                            button: {
+                                label: 'Evaluate past data',
+                                action: () =>
+                                    router.actions.push(
+                                        combineUrl(urls.aiObservabilityEvaluation(response.id), {
+                                            evaluation_tab: 'backfills',
+                                        }).url
+                                    ),
+                            },
+                        })
+                    }
                 }
 
                 // Piggyback the scheduled-report draft onto the main save so the single
-                // "Save changes" button at the top of the page commits both forms. The
-                // evaluationReportLogic is only mounted when EvaluationReportConfig is
-                // rendered (gated on the reports feature flag), so skip when it isn't —
+                // "Save changes" button at the top of the page commits both forms. Only
+                // the components that render the report config or history mount
+                // evaluationReportLogic, so skip when none of them is on screen —
                 // reading .values on an unmounted keyed logic would throw.
                 if (response?.id && evaluationSupportsReports(response) && reportLogic.isMounted()) {
                     const reportConfigStillLoading =
@@ -1260,27 +1244,15 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             },
         ],
 
-        runsLookup: [
-            (s) => [s.evaluationRuns],
-            (runs: EvaluationRun[]): Record<string, EvaluationRun> => {
-                const lookup: Record<string, EvaluationRun> = {}
-                for (const run of runs) {
-                    if (run.generation_id) {
-                        lookup[run.generation_id] = run
-                    }
-                }
-                return lookup
-            },
-        ],
-
         runsSummary: [
-            (s) => [s.runsStats],
-            (stats: EvaluationRunsStats | null) => {
+            (s) => [s.runsStats, s.evaluation],
+            (stats: EvaluationRunsStats | null, evaluation: EvaluationConfig | null) => {
                 if (!stats || stats.total === 0) {
                     return null
                 }
 
-                const { total, applicable, passed } = stats
+                const { total, applicable, trueCount } = stats
+                const passed = evaluation && evaluationIsDetector(evaluation) ? applicable - trueCount : trueCount
                 // Applicable runs excludes N/A results
                 const failed = applicable - passed
 
@@ -1296,19 +1268,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
 
         filteredEvaluationRuns: [
-            (s) => [s.evaluationRuns, s.evaluationSummaryFilter],
-            (runs: EvaluationRun[], filter: EvaluationSummaryFilter): EvaluationRun[] =>
-                filterEvaluationRuns(runs, filter),
-        ],
-
-        runsToSummarizeCount: [
-            (s) => [s.filteredEvaluationRuns, s.evaluationSummaryFilter],
-            (filteredRuns: EvaluationRun[], filter: EvaluationSummaryFilter): number => {
-                // When 'all', filteredEvaluationRuns includes non-completed runs, but summarization only uses completed
-                const count =
-                    filter === 'all' ? filteredRuns.filter((r) => r.status === 'completed').length : filteredRuns.length
-                return Math.min(count, EVALUATION_SUMMARY_MAX_RUNS)
-            },
+            (s) => [s.evaluationRuns, s.evaluationRunsFilter, s.evaluation],
+            (
+                runs: EvaluationRun[],
+                filter: EvaluationRunsFilter,
+                evaluation: EvaluationConfig | null
+            ): EvaluationRun[] => filterEvaluationRuns(runs, filter, evaluation),
         ],
 
         breadcrumbs: [
@@ -1356,6 +1321,19 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 ]
             },
         ],
+
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.evaluation, s.isNewEvaluation],
+            (evaluation: EvaluationConfig | null, isNewEvaluation: boolean): SidePanelSceneContext | null =>
+                evaluation?.id && !isNewEvaluation
+                    ? {
+                          activity_scope: ActivityScope.EVALUATION,
+                          activity_item_id: evaluation.id,
+                          access_control_resource: 'evaluation',
+                          access_control_resource_id: evaluation.id,
+                      }
+                    : null,
+        ],
     }),
 
     urlToAction(({ actions, props, values }) => ({
@@ -1364,6 +1342,16 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 evaluationDetailTab(searchParams.evaluation_tab) ?? (id === 'new' ? 'configuration' : 'runs')
             if (requestedTab !== values.activeTab) {
                 actions.setActiveTab(requestedTab)
+            }
+
+            const requestedBackfillId = searchParams.backfill_id ?? null
+            if (requestedBackfillId !== values.runsBackfillId) {
+                actions.setRunsBackfillId(requestedBackfillId)
+                actions.loadEvaluationRuns()
+                actions.loadRunsStats()
+                if (requestedBackfillId) {
+                    actions.loadRunsBackfill()
+                }
             }
 
             // Only reload when navigating to a different evaluation, not on search param changes (e.g., pagination)

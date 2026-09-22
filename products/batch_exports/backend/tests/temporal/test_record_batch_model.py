@@ -2,6 +2,8 @@ import datetime as dt
 
 import pytest
 
+from django.test import override_settings
+
 from posthog.hogql.hogql import ast
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
@@ -358,19 +360,37 @@ class TestHogQLQueryRecordBatchModel:
         # SETTINGS clause into the query
         assert "SETTINGS" not in printed_query
 
+    @override_settings(
+        BATCH_EXPORT_HOGQL_MAX_EXECUTION_TIME=900,
+        BATCH_EXPORT_HOGQL_MAX_MEMORY_USAGE=30_000_000_000,
+        BATCH_EXPORT_HOGQL_MAX_BYTES_TO_READ=200_000_000_000,
+    )
     async def test_get_clickhouse_request_settings(self):
         """Batch export settings are sent as query parameters rather than a SETTINGS clause.
 
-        Values are rendered the way the HogQL printer renders them (bools as 1/0), so a
-        setting reads the same in query_log however it was applied. ClickHouse rejects
-        unknown setting names outright, so a typo here fails the export.
+        Values are rendered the way the HogQL printer renders them (bools as 1/0), so a setting
+        reads the same in query_log however it was applied. ClickHouse rejects unknown setting names
+        outright, so a typo here fails the export. The per-query resource limits are read from Django
+        settings at call time, hence the `override_settings` above pins them for the assertion.
+
+        `read_overflow_mode`/`timeout_overflow_mode` are `throw` on purpose: without them a query
+        that hits the time or read limit could return a truncated result as a success. The spill
+        thresholds are half the memory cap, and the `max_bytes_ratio_before_external_*` settings are
+        0 so that those thresholds are what ClickHouse actually spills on.
         """
         model = HogQLQueryRecordBatchModel(team_id=1, hogql_query="SELECT event AS event FROM events")
 
         assert model.get_clickhouse_request_settings() == {
             "optimize_aggregation_in_order": "1",
-            "max_bytes_before_external_sort": "50000000000",
-            "max_bytes_before_external_group_by": "50000000000",
+            "max_bytes_before_external_sort": "15000000000",
+            "max_bytes_before_external_group_by": "15000000000",
+            "max_bytes_ratio_before_external_sort": "0.0",
+            "max_bytes_ratio_before_external_group_by": "0.0",
+            "max_execution_time": "900",
+            "max_memory_usage": "30000000000",
+            "max_bytes_to_read": "200000000000",
+            "read_overflow_mode": "throw",
+            "timeout_overflow_mode": "throw",
         }
 
     @pytest.mark.parametrize(
@@ -390,6 +410,28 @@ class TestHogQLQueryRecordBatchModel:
         model = HogQLQueryRecordBatchModel(team_id=1, hogql_query=hogql_query)
 
         with pytest.raises(UnsupportedHogQLQueryError, match=expected_message):
+            model.get_hogql_query(data_interval_start, data_interval_end)
+
+    @pytest.mark.parametrize(
+        "hogql_query",
+        [
+            "SELECT event AS event FROM events SETTINGS max_bytes_to_read=0",
+            "SELECT event AS event FROM events UNION ALL SELECT event AS event FROM events SETTINGS max_bytes_to_read=0",
+            "WITH x AS (SELECT event FROM events SETTINGS max_bytes_to_read=0) SELECT event AS event FROM x",
+        ],
+        ids=["top-level", "after-union", "in-cte"],
+    )
+    async def test_get_hogql_query_rejects_a_settings_clause(self, hogql_query, data_interval_start, data_interval_end):
+        """A user query carrying its own SETTINGS is rejected, wherever that clause appears.
+
+        The per-query resource limits are sent as request settings, and a query-level SETTINGS clause
+        takes precedence over those, so a query able to smuggle one through could lift its own memory,
+        time and bytes-read caps. The parser refusing these is what the limits rest on, and nothing
+        else asserts it.
+        """
+        model = HogQLQueryRecordBatchModel(team_id=1, hogql_query=hogql_query)
+
+        with pytest.raises(UnsupportedHogQLQueryError, match="settingsClause"):
             model.get_hogql_query(data_interval_start, data_interval_end)
 
     async def test_resolve_batch_exports_model_returns_hogql_model(self):

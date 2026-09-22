@@ -65,9 +65,19 @@ _RUN_SCOPE = OpenApiParameter(
     location=OpenApiParameter.QUERY,
     required=False,
     enum=[scope.value for scope in WorkflowHealthRunScope],
-    description="Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs "
-    "attributed to pull requests, excluding default-branch (master/main) runs. Fork PRs carry no PR attribution "
-    "(a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400.",
+    description="Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on "
+    "master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; "
+    "'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR "
+    "attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400.",
+)
+
+_WORKFLOW_NAME = OpenApiParameter(
+    name="workflow_name",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="Optional exact workflow name to scope results to, e.g. 'Backend CI'. Omit to rank every "
+    "workflow. Pass it when you want one workflow's figures over the whole window rather than the top slice.",
 )
 
 _SOURCE_ID = OpenApiParameter(

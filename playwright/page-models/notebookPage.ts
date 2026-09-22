@@ -19,13 +19,23 @@ export class NotebookPage {
         this.titleHeading = page.locator('.MarkdownNotebook__text-block--title')
     }
 
-    async goToList(): Promise<void> {
+    /**
+     * Open /notebooks. A project with no notebooks lands on the setup empty state
+     * instead of the table, and both screens carry the "New notebook" action.
+     */
+    async goToScene(): Promise<void> {
         await this.page.goto('/notebooks', { waitUntil: 'domcontentloaded' })
+        await expect(this.newNotebookButton).toBeVisible({ timeout: 15000 })
+    }
+
+    /** Open the notebooks table. Reaches it only once the project has a notebook. */
+    async goToList(): Promise<void> {
+        await this.goToScene()
         await expect(this.notebooksTable).toBeVisible({ timeout: 15000 })
     }
 
     async createNew(name?: string): Promise<void> {
-        await this.goToList()
+        await this.goToScene()
         await this.newNotebookButton.click()
         await expect(this.editor).toBeVisible({ timeout: 10000 })
         await this.page.waitForURL(/\/notebooks\/(?!new)/, { timeout: 15000 })

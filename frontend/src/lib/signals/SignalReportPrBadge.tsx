@@ -1,9 +1,11 @@
-import { IconPullRequest, type IconProps } from '@posthog/icons'
+import { IconCheckCircle, IconPullRequest, IconSpinner, IconWarning, type IconProps } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { PR_BADGE_STATE, type PrBadgeState } from './prState'
+import type { PullRequestCiStatusEnumApi } from 'products/signals/frontend/generated/api.schemas'
+
+import { PR_BADGE_STATE, PR_CI_GLYPH, prCiGlyphStatus, type PrBadgeState, type PrCiGlyphStatus } from './prState'
 
 function IconGitMerge(props: IconProps): JSX.Element {
     return (
@@ -21,18 +23,56 @@ function IconGitPullRequestClosed(props: IconProps): JSX.Element {
     )
 }
 
+/**
+ * The CI state of an open pull request, as one small glyph. Rendered nothing when the state says
+ * nothing: a head commit with no checks, and a status GitHub has not answered with.
+ */
+function PrCiGlyph({ status }: { status: PrCiGlyphStatus | null }): JSX.Element | null {
+    if (!status) {
+        return null
+    }
+    const className = cn('size-3', PR_CI_GLYPH[status].className)
+    if (status === 'failing') {
+        return <IconWarning className={className} />
+    }
+    if (status === 'pending') {
+        return <IconSpinner className={cn(className, 'animate-spin motion-reduce:animate-none')} />
+    }
+    return <IconCheckCircle className={className} />
+}
+
+function IconGitPullRequestDraft(props: IconProps): JSX.Element {
+    return (
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
+            <path d="M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 14a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0-5.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm0-3a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z" />
+        </svg>
+    )
+}
+
 export function PrBadge({
     prNumber,
     prUrl,
     state,
+    ciStatus,
 }: {
     prNumber: string
     prUrl?: string | null
     state: PrBadgeState
+    /** CI rollup of the pull request, when it is known. Only an open pull request shows one. */
+    ciStatus?: PullRequestCiStatusEnumApi | null
 }): JSX.Element {
     const { label, className, hoverClassName } = PR_BADGE_STATE[state]
+    // Each state carries its own shape, so the pill still reads when its colour does not.
     const StateIcon =
-        state === 'merged' ? IconGitMerge : state === 'closed' ? IconGitPullRequestClosed : IconPullRequest
+        state === 'merged'
+            ? IconGitMerge
+            : state === 'closed'
+              ? IconGitPullRequestClosed
+              : state === 'draft'
+                ? IconGitPullRequestDraft
+                : IconPullRequest
+    const glyphStatus = prCiGlyphStatus(state, ciStatus)
+    const description = glyphStatus ? `${label}, ${PR_CI_GLYPH[glyphStatus].label}` : label
     const badge = (
         <span
             className={cn(
@@ -43,21 +83,22 @@ export function PrBadge({
         >
             <StateIcon className="size-3" />
             <span className="font-mono tabular-nums">#{prNumber}</span>
+            <PrCiGlyph status={glyphStatus} />
         </span>
     )
 
     if (!prUrl) {
-        return <Tooltip title={`Pull request #${prNumber} (${label})`}>{badge}</Tooltip>
+        return <Tooltip title={`Pull request #${prNumber} (${description})`}>{badge}</Tooltip>
     }
 
     return (
-        <Tooltip title={`Open pull request #${prNumber} (${label}) on GitHub`}>
+        <Tooltip title={`Open pull request #${prNumber} (${description}) on GitHub`}>
             <Link
                 to={prUrl}
                 target="_blank"
                 disableClientSideRouting
                 onClick={(e) => e.stopPropagation()}
-                aria-label={`Open pull request #${prNumber} (${label}) on GitHub`}
+                aria-label={`Open pull request #${prNumber} (${description}) on GitHub`}
                 className="no-underline"
             >
                 {badge}

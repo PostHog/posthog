@@ -29,6 +29,7 @@ _LAZY = {
     "start_health_server": "pipelines.pipeline_v3.load.health",
     "ensure_bucket": "pipelines.pipeline_v3.s3.common",
     "strip_s3_protocol": "pipelines.pipeline_v3.s3.common",
+    "CDPProducer": "pipelines.core.cdp_producer",
 }
 
 __all__ = sorted(_LAZY)

@@ -4,35 +4,57 @@ from posthog.models.team import Team
 from posthog.models.utils import UUIDModel
 
 MAX_EMAIL_CONFIGS_PER_TEAM = 10
+MAX_CUSTOMER_COMMUNICATION_CHANNELS_PER_TEAM = 100
+MAX_PENDING_CUSTOMER_COMMUNICATION_CHANNELS_PER_OWNER = 5
+
+
+class EmailChannelKind(models.TextChoices):
+    SUPPORT = "support", "Support"
+    CUSTOMER_COMMUNICATION = "customer_communication", "Customer communication"
+
+
+class EmailChannelConnectionStatus(models.TextChoices):
+    PENDING_CONFIRMATION = "pending_confirmation", "Pending confirmation"
+    ACTIVE = "active", "Active"
+    CONFIRMATION_EXPIRED = "confirmation_expired", "Confirmation expired"
 
 
 class EmailChannel(UUIDModel):
-    """Per-team email channel configuration (many-per-team).
-
-    A team can have multiple email channels (e.g. support@, billing@).
-    Each channel has its own inbound_token for routing and its own sender identity.
-
-    The old TeamConversationsEmailConfig (one-per-team, team as PK) still exists
-    in the DB and will be removed in a follow-up PR.
-    """
+    """An inbound forwarding address and outbound sender identity for a team."""
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="email_channels")
+    kind = models.CharField(
+        max_length=32,
+        choices=EmailChannelKind.choices,
+        default=EmailChannelKind.SUPPORT,
+        db_default=EmailChannelKind.SUPPORT,
+    )
+    owner = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        related_name="owned_conversations_email_channels",
+    )
+    connection_status = models.CharField(
+        max_length=32,
+        choices=EmailChannelConnectionStatus.choices,
+        default=EmailChannelConnectionStatus.ACTIVE,
+        db_default=EmailChannelConnectionStatus.ACTIVE,
+    )
 
-    # Inbound routing — unique token in the receiving address
-    # Generated via secrets.token_hex(16) → 32 hex chars (128 bits)
+    # The random token keeps the team id out of the public forwarding address and supports rotation.
     inbound_token = models.CharField(max_length=64, unique=True, db_index=True)
 
-    # Sender identity
     from_email = models.EmailField()
     from_name = models.CharField(max_length=255)
 
-    # Domain verification (for outbound SPF/DKIM)
     domain = models.CharField(max_length=255)
     domain_verified = models.BooleanField(default=False)
     dns_records = models.JSONField(default=dict, blank=True)
 
-    # The team's primary channel — used as the send-from identity when a channel isn't chosen
-    # explicitly (e.g. tickets opened from the widget). At most one per team (partial constraint below).
+    # Only support channels can be the fallback sender for tickets without an explicit channel.
     is_default = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -54,5 +76,16 @@ class EmailChannel(UUIDModel):
                 fields=["team"],
                 condition=models.Q(is_default=True),
                 name="unique_default_email_channel_per_team",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(kind=EmailChannelKind.SUPPORT) | models.Q(is_default=False),
+                name="email_channel_customer_not_default",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(kind=EmailChannelKind.SUPPORT, owner__isnull=True)
+                    | models.Q(kind=EmailChannelKind.CUSTOMER_COMMUNICATION, owner__isnull=False)
+                ),
+                name="email_channel_kind_owner",
             ),
         ]

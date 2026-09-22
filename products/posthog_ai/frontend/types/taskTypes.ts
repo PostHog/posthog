@@ -1,9 +1,14 @@
 import { Optional } from 'lib/utils/types'
 
-import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import {
+    type TaskRunDetailDTOApi,
+    TaskRuntimeEnumApi,
+    type TasksListClientProvenance,
+    type TasksListOrdering,
+} from 'products/tasks/frontend/generated/api.schemas'
 
-export function isPiTaskRuntime(runtime: RuntimeEnumApi | undefined): boolean {
-    return runtime === RuntimeEnumApi.Pi
+export function isPiTaskRuntime(runtime: TaskRuntimeEnumApi | undefined): boolean {
+    return runtime === TaskRuntimeEnumApi.Pi
 }
 
 export interface RepositoryConfig {
@@ -26,15 +31,22 @@ export enum OriginProduct {
     // Tasks created autonomously by the headless Signals Scout — team-scoped, visible to everyone.
     SIGNALS_SCOUT = 'signals_scout',
     POSTHOG_AI = 'posthog_ai',
+    SLACK = 'slack',
     // "Create fix task" on the MCP analytics tool-quality failure drill-down.
     MCP_ANALYTICS = 'mcp_analytics',
 }
 
 /**
- * TaskTracker list filter: the current user's own tasks, team scout tasks, or — staff only —
- * every task on the team.
+ * Origin filters stay scoped to the current user, like "for you".
  */
-export type TaskAssigneeFilter = 'for_you' | 'team_scouts' | 'all_team'
+export type TaskAssigneeFilter =
+    | 'for_you'
+    | 'posthog_ai'
+    | 'slack'
+    | 'desktop'
+    | 'my_scouts'
+    | 'team_scouts'
+    | 'all_team'
 
 export enum TaskRunStatus {
     NOT_STARTED = 'not_started',
@@ -50,32 +62,9 @@ export enum TaskRunEnvironment {
     CLOUD = 'cloud',
 }
 
-export interface TaskRunArtifact {
-    id?: string
-    name: string
-    type: string
-    source?: string
-    size?: number
-    content_type?: string
-    storage_path: string
-    uploaded_at: string
-}
-
-export interface TaskRun {
-    id: string
-    task: string
-    stage: string | null
-    branch: string | null
+export interface TaskRun extends TaskRunDetailDTOApi {
     status: TaskRunStatus
     environment: TaskRunEnvironment
-    log_url: string | null
-    error_message: string | null
-    output: Record<string, any> | null
-    state: Record<string, any>
-    artifacts: TaskRunArtifact[]
-    created_at: string
-    updated_at: string
-    completed_at: string | null
 }
 
 export interface Task {
@@ -85,7 +74,7 @@ export interface Task {
     title: string
     description: string
     origin_product: OriginProduct
-    runtime: RuntimeEnumApi
+    runtime: TaskRuntimeEnumApi
     repository: string | null
     github_integration: number | null
     /** For signal-report-origin tasks: the inbox `SignalReport` this task ran for (set-once at creation). */
@@ -95,6 +84,12 @@ export interface Task {
     latest_run: TaskRun | null
     created_at: string
     updated_at: string
+    /**
+     * When something last happened in the task (a thread message, or a run starting, streaming, or
+     * finishing). Deliberately decoupled from `updated_at`, which only moves when the row is edited —
+     * a run can stream for hours without touching it. Null for rows written outside the ORM.
+     */
+    last_activity_at?: string | null
     created_by: {
         id: number
         uuid: string
@@ -115,12 +110,21 @@ export interface TaskListParams {
     organization?: string
     stage?: string
     origin_product?: string
+    client_provenance?: TasksListClientProvenance
+    exclude_origin_product?: string
     /** `all` includes internal tasks (shown-by-default flag, not an access gate); `true` narrows to only-internal tasks. */
     internal?: 'true' | 'false' | 'all'
     search?: string
     status?: TaskRunStatus
-    /** Staff-only. List every task on the team, bypassing the per-user visibility filter. Ignored server-side for non-staff. */
+    /**
+     * Drops the `created_by` pin, so the list widens to every task the caller can read.
+     * The server's full bypass of the per-user visibility filter is local development only: it needs
+     * `ph_debug=true` on the internal debug team, and staff alone does not unlock it. Production
+     * therefore returns the caller's readable tasks, not every task on the team.
+     */
     all_team_tasks?: boolean
+    /** Sort order; the server defaults to `-created_at` when unset. */
+    ordering?: TasksListOrdering
     /** Page size (LimitOffset pagination); the viewset caps it at 100. */
     limit?: number
     offset?: number

@@ -5,14 +5,18 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
+import { VISION_ROOT_BREADCRUMB } from '../utils/breadcrumbs'
+
 export enum ReplayScannerTab {
     Overview = 'overview',
     Observations = 'observations',
+    Search = 'search',
     Calibration = 'calibration',
     OnDemand = 'on-demand',
     Backfills = 'backfills',
     Configuration = 'configuration',
-    Actions = 'actions',
+    Scouts = 'scouts',
+    Alerts = 'alerts',
 }
 
 const SCANNER_TABS: ReplayScannerTab[] = Object.values(ReplayScannerTab)
@@ -82,12 +86,7 @@ export const replayScannerSceneLogic = kea<replayScannerSceneLogicType>([
         breadcrumbs: [
             (s) => [s.scannerId],
             (scannerId: string): Breadcrumb[] => [
-                {
-                    key: 'replay-vision',
-                    name: 'Replay vision',
-                    path: urls.replayVision(),
-                    iconType: 'replay_vision',
-                },
+                VISION_ROOT_BREADCRUMB,
                 {
                     key: scannerId === 'new' ? 'new-scanner' : `scanner-${scannerId}`,
                     name: scannerId === 'new' ? 'New scanner' : 'Scanner',
@@ -111,6 +110,20 @@ export const replayScannerSceneLogic = kea<replayScannerSceneLogicType>([
 
     urlToAction(({ actions, values }) => ({
         [urls.replayVision(':id')]: ({ id }, searchParams) => {
+            // Old per-scanner search links open the hub search.
+            if (searchParams.tab === ReplayScannerTab.Search) {
+                const q = searchParams.q != null ? String(searchParams.q) : ''
+                router.actions.replace(
+                    urls.replayVision(),
+                    {
+                        tab: ReplayScannerTab.Search,
+                        ...(id && id !== 'new' ? { scanner: id } : {}),
+                        ...(q ? { q } : {}),
+                    },
+                    router.values.hashParams
+                )
+                return
+            }
             const scannerId = id || 'new'
             if (scannerId !== values.scannerId) {
                 actions.setScannerId(scannerId)

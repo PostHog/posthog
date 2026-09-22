@@ -5,6 +5,10 @@ import type {
   TaskThreadMessage,
 } from "@posthog/shared/domain-types";
 import { ActivityTimeline } from "@posthog/ui/features/canvas/components/ActivityTimeline";
+import {
+  CommitFilesList,
+  DetailBlock,
+} from "@posthog/ui/features/canvas/components/activityRows";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 const shy = {
@@ -87,6 +91,56 @@ const messages: TaskThreadMessage[] = [
   ),
   event(
     "e6",
+    "commits_pushed",
+    {
+      run_id: "run-1",
+      branch: "shy/activity-events",
+      repository: "PostHog/posthog",
+      total: 2,
+      head_sha: "9c2f1aa",
+      commits: [
+        {
+          sha: "5a0a28b",
+          subject: "feat(desktop): draw activity events on the timeline",
+          url: "https://github.com/PostHog/posthog/commit/5a0a28b",
+        },
+        {
+          sha: "9c2f1aa",
+          subject: "fix(desktop): keep the timeline scroll anchored",
+          url: "https://github.com/PostHog/posthog/commit/9c2f1aa",
+        },
+      ],
+    },
+    "2026-08-05T14:45:00Z",
+  ),
+  {
+    ...event(
+      "e6b",
+      "comment_added",
+      {
+        comment_id: "c-1",
+        root_comment_id: "c-1",
+        scope: "task_artifact",
+        item_id: "artifact-1",
+      },
+      "2026-08-05T15:00:00Z",
+    ),
+    author_kind: "human",
+    author: shy,
+  } as TaskThreadMessage,
+  event(
+    "e6c",
+    "artifact_revised",
+    {
+      artifact_id: "artifact-1",
+      name: "activity-events.html",
+      artifact_type: "document",
+      version: 3,
+    },
+    "2026-08-05T15:10:00Z",
+  ),
+  event(
+    "e7",
     "pr_merged",
     {
       pr_url: "https://github.com/PostHog/posthog/pull/80060",
@@ -99,6 +153,46 @@ const messages: TaskThreadMessage[] = [
 ];
 
 const timeline = buildThreadTimeline(messages);
+
+const BUSY_BRANCHES = ["shy/reports-panel", "shy/drop-report-tables"];
+
+// One run's worth of noise: a push at a time, with the pull requests they opened between.
+const busyMessages: TaskThreadMessage[] = [
+  event(
+    "b0",
+    "run_started",
+    { run_id: "run-2", environment: "cloud", branch: BUSY_BRANCHES[0] },
+    "2026-08-05T09:00:00Z",
+  ),
+  ...Array.from({ length: 9 }, (_, index) =>
+    event(
+      `b${index + 1}`,
+      "commits_pushed",
+      {
+        run_id: "run-2",
+        branch: BUSY_BRANCHES[index % 2],
+        repository: "PostHog/posthog",
+        total: 1,
+        commits: [
+          {
+            sha: `${index + 1}c0ffee`,
+            subject: `chore(desktop): iterate ${index + 1}`,
+            url: `https://github.com/PostHog/posthog/commit/${index + 1}c0ffee`,
+          },
+        ],
+      },
+      `2026-08-05T${10 + Math.floor(index / 3)}:${String((index % 3) * 15 + 5).padStart(2, "0")}:00Z`,
+    ),
+  ),
+  ...[80061, 80062, 80063].map((number, index) =>
+    event(
+      `bp${number}`,
+      "pr_created",
+      { pr_url: `https://github.com/PostHog/posthog/pull/${number}` },
+      `2026-08-05T13:${index * 10 + 10}:00Z`,
+    ),
+  ),
+];
 
 const commentThreads: TaskCommentThreadSummary[] = [
   {
@@ -184,4 +278,57 @@ export const FullTimeline: Story = {
     commentThreads,
     currentUserId: ben.id,
   },
+};
+
+/** What a stack of branches looks like: nine pushes and three pull requests, which the
+ *  panel collapses into one row per branch and one row for the pull requests. */
+export const GroupedRun: Story = {
+  args: {
+    task,
+    timeline: buildThreadTimeline(busyMessages),
+    messages: busyMessages,
+    conversationItems: [],
+  },
+};
+
+/** The changed-file list a commit row shows once GitHub answers. In the timeline
+ *  above the fetch never resolves (no workspace-server in Storybook), so the
+ *  presentational list is shown on its own here. */
+export const CommitFiles: StoryObj = {
+  render: () => (
+    <div className="p-3">
+      <DetailBlock>
+        <CommitFilesList
+          files={[
+            {
+              path: "products/desktop/packages/core/src/canvas/activityEvents.ts",
+              status: "added",
+              linesAdded: 210,
+              linesRemoved: 0,
+            },
+            {
+              path: "products/desktop/packages/ui/src/features/canvas/components/activityRows.tsx",
+              status: "modified",
+              linesAdded: 96,
+              linesRemoved: 30,
+            },
+            {
+              path: "products/desktop/packages/core/src/canvas/rows/ActivityBead.tsx",
+              status: "renamed",
+              originalPath:
+                "products/desktop/packages/ui/src/features/canvas/Bead.tsx",
+              linesAdded: 4,
+              linesRemoved: 4,
+            },
+            {
+              path: "products/desktop/packages/core/src/canvas/activityFlags.ts",
+              status: "deleted",
+              linesAdded: 0,
+              linesRemoved: 41,
+            },
+          ]}
+        />
+      </DetailBlock>
+    </div>
+  ),
 };

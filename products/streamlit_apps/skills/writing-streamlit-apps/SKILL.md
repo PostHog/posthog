@@ -1,6 +1,6 @@
 ---
 name: writing-streamlit-apps
-description: Write Streamlit app source code that runs well in a PostHog sandbox — the posthog_apps.query() bridge for reading PostHog data, the packages baked into the sandbox image, caching and session state across Streamlit reruns, layout and chart patterns, and single-file app.py structure. Use when authoring or debugging the Python source of a PostHog Streamlit app, when a query inside an app fails, or when asked to "write a streamlit app that shows PostHog data".
+description: Write Streamlit app source code that runs well in a PostHog sandbox — the posthog_apps.query() bridge for reading PostHog data, the packages baked into the sandbox image, caching and session state across Streamlit reruns, layout and chart patterns, and the app.py entry point with any helper modules and data files bundled beside it. Use when authoring or debugging the Python source of a PostHog Streamlit app, when a query inside an app fails, or when asked to "write a streamlit app that shows PostHog data".
 ---
 
 # Writing Streamlit apps for the PostHog sandbox
@@ -56,7 +56,7 @@ There is no way to add dependencies: the sandbox never runs pip (a deliberate se
 
 ## Structure and runtime constraints
 
-- **One file.** Via the MCP set-source flow your source IS `app.py`; there are no other modules, so keep everything in it.
+- **`app.py` is the entry point.** Via the MCP set-source flow your source IS `app.py`. Helper modules and data files can ship next to it through the `files` (text) and `assets` (base64) maps; `import utils` works because Streamlit puts the app directory on `sys.path`, but the process does not run inside that directory, so open data files via `Path(__file__).parent / "data/events.parquet"`, never a bare relative path. Keep bundled data small: it is sent inline as JSON on every set-source call.
 - The sandbox is ephemeral: anything written to disk disappears on stop/restart. Don't build state on files; recompute from queries (with caching) or hold it in `st.session_state`.
 - Your code runs as an unprivileged user; there's no posthog SDK, no way to pass your own environment variables or secrets to the app, and no expectation of general network egress. Don't read from `os.environ` — anything there belongs to the sandbox runtime, not your app. Design around `posthog_apps.query()` as the data source.
 

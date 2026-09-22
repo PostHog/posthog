@@ -7,6 +7,7 @@ import __dataTableEvents from '../../mocks/fixtures/api/projects/team_id/insight
 import __dataTableHogQL from '../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
 import __lifecycle from '../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'
 import __retention from '../../mocks/fixtures/api/projects/team_id/insights/retention.json'
+import __sqlLineChart from '../../mocks/fixtures/api/projects/team_id/insights/sqlLineChart.json'
 import __stickiness from '../../mocks/fixtures/api/projects/team_id/insights/stickiness.json'
 import __trendsBarBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json'
 import __trendsLine from '../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
@@ -109,6 +110,21 @@ export const AdhocQueryExport: Story = {
         type: ExportType.Image,
         query: (__trendsLine as any).query,
         query_results: { results: (__trendsLine as any).result },
+    },
+    decorators: [adhocExportViewport],
+    parameters: adhocExportParameters,
+}
+
+export const AdhocSqlChartExport: Story = {
+    args: {
+        type: ExportType.Image,
+        query: (__sqlLineChart as any).query,
+        query_results: {
+            results: (__sqlLineChart as any).result,
+            columns: (__sqlLineChart as any).columns,
+            types: (__sqlLineChart as any).types,
+            hogql: (__sqlLineChart as any).hogql,
+        },
     },
     decorators: [adhocExportViewport],
     parameters: adhocExportParameters,

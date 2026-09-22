@@ -19,6 +19,7 @@ interface QuestionFieldProps {
     onSubmit: () => void
     onSkip?: () => void
     submitLabel?: string
+    disabled?: boolean
 }
 
 export function QuestionField({
@@ -29,6 +30,7 @@ export function QuestionField({
     onSubmit,
     onSkip,
     submitLabel = 'Next',
+    disabled = false,
 }: QuestionFieldProps): JSX.Element {
     const fieldType = question.type ?? 'select'
 
@@ -48,6 +50,7 @@ export function QuestionField({
         default:
             return (
                 <SelectField
+                    disabled={disabled}
                     question={question}
                     value={value as string | undefined}
                     onAnswer={onAnswer}
@@ -59,12 +62,14 @@ export function QuestionField({
 }
 
 function SelectField({
+    disabled,
     question,
     value,
     onAnswer,
     onSkip,
     submitLabel,
 }: {
+    disabled: boolean
     question: MultiQuestionFormQuestion
     value: string | undefined
     onAnswer: (value: string | null) => void
@@ -81,6 +86,7 @@ function SelectField({
 
     return (
         <OptionSelector
+            disabled={disabled}
             options={options}
             onSelect={onAnswer}
             allowCustom={allowCustomAnswer}

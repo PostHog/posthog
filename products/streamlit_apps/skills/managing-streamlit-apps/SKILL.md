@@ -14,6 +14,7 @@ The full lifecycle is driven with the `streamlit-apps-*` MCP tools.
 1. `streamlit-apps-create` with a `name` (optionally `description`, `cpu_cores` 0.25–8, `memory_gb` 0.5–16, defaults 0.5 / 1).
    The app exists but has no code yet.
 2. `streamlit-apps-set-source` with the complete `app.py` source as one string.
+   Extra files ride along in the same call: `files` maps a project-relative path to text (helper modules, CSV, JSON), `assets` maps a path to base64 (Parquet, images).
    This creates version 1 and activates it.
    Write the source per the `writing-streamlit-apps` skill — in particular use `posthog_apps.query()` for PostHog data, never `import posthog`.
 3. `streamlit-apps-start`.
@@ -33,9 +34,11 @@ An app whose version author has since been deleted can't start; upload a new ver
 ## Updating code
 
 Call `streamlit-apps-set-source` again: it creates the next version and activates it.
+Every call ships the complete app, so pass `files` and `assets` again too; a version holds only what that call carried.
 A running sandbox is stopped so it can't keep serving stale code — call `streamlit-apps-start` afterwards to serve the new version.
 Versions are immutable, but not permanent: `streamlit-apps-versions` lists the newest 50, and non-active versions older than 30 days are deleted along with their code.
-There is no rollback tool: to roll back, set the old source again (fetch it from your conversation or wherever it's kept — versions store the zip, not an inline source view).
+There is no rollback tool: to roll back, set the old `source`, `files`, and `assets` again, so a rollback needs a saved copy of the complete bundle.
+Fetch that copy from your conversation or wherever it's kept — versions store the zip, not an inline source view.
 
 ## Stopping, idling, and deleting
 

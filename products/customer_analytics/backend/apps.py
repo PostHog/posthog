@@ -8,6 +8,7 @@ class CustomerAnalyticsConfig(AppConfig):
 
     def ready(self) -> None:
         self._register_person_property_hooks()
+        self._register_account_property_hooks()
         self._register_workflows_account_audience()
 
     def _register_workflows_account_audience(self) -> None:
@@ -39,6 +40,24 @@ class CustomerAnalyticsConfig(AppConfig):
                 return api.get_account_group_type_name(team)
 
         register_account_audience_provider(_Provider())
+
+    def _register_account_property_hooks(self) -> None:
+        from products.warehouse_sources.backend.facade.hooks import (
+            AccountPropertySourceProjection,
+            WarehouseBinding,
+            register_account_property_projection,
+        )
+
+        def _projection_resolver(
+            team_id: int, binding: WarehouseBinding
+        ) -> list[AccountPropertySourceProjection] | None:
+            from products.customer_analytics.backend.logic.account_property_projection import (  # noqa: PLC0415
+                account_property_projection,
+            )
+
+            return account_property_projection(team_id, binding)
+
+        register_account_property_projection(_projection_resolver)
 
     def _register_person_property_hooks(self) -> None:
         """Tell the data-import pipeline which columns to stage for a schema's person-property

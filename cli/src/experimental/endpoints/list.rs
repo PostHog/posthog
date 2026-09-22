@@ -11,29 +11,29 @@ pub fn list_endpoints(args: &ListArgs) -> Result<()> {
     let client = &context().client;
     let env_id = client.get_env_id();
 
-    println!();
-    println!("Fetching endpoints from PostHog...");
-    println!();
+    crate::safe_println!();
+    crate::safe_println!("Fetching endpoints from PostHog...");
+    crate::safe_println!();
 
     let endpoint_list = fetch_all_endpoints(args.debug)?;
 
     if endpoint_list.results.is_empty() {
-        println!("No endpoints found in project {env_id}.");
-        println!();
-        println!("Create an endpoint by pushing a YAML file:");
-        println!("  posthog-cli exp endpoints push my-endpoint.yaml");
+        crate::safe_println!("No endpoints found in project {env_id}.");
+        crate::safe_println!();
+        crate::safe_println!("Create an endpoint by pushing a YAML file:");
+        crate::safe_println!("  posthog-cli exp endpoints push my-endpoint.yaml");
         return Ok(());
     }
 
-    println!("Endpoints in project {}:", env_id.bold());
-    println!();
+    crate::safe_println!("Endpoints in project {}:", env_id.bold());
+    crate::safe_println!();
 
     for endpoint in &endpoint_list.results {
         print_endpoint_summary(endpoint);
     }
 
-    println!();
-    println!(
+    crate::safe_println!();
+    crate::safe_println!(
         "{} endpoint{} total.",
         endpoint_list.results.len(),
         if endpoint_list.results.len() == 1 {
@@ -64,7 +64,7 @@ fn print_endpoint_summary(endpoint: &EndpointResponse) {
         " [inactive]"
     };
 
-    println!(
+    crate::safe_println!(
         "  {:<28} {}{}",
         endpoint.name.bold(),
         status,
@@ -77,7 +77,7 @@ fn print_endpoint_summary(endpoint: &EndpointResponse) {
         } else {
             endpoint.description.clone()
         };
-        println!("    {}", desc.dimmed());
+        crate::safe_println!("    {}", desc.dimmed());
     }
 }
 

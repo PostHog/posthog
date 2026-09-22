@@ -33,6 +33,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
@@ -60,9 +61,8 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
-
-from ee.models.rbac.access_control import AccessControl
 
 
 # Note that we use allow_unknown_events here since allowing it was the behavior before validating it
@@ -285,6 +285,73 @@ class TestExperimentService(APIBaseTest):
         )
 
         assert experiment.only_count_matured_users is False
+
+    # ------------------------------------------------------------------
+    # Minimum detectable effect defaults
+    # ------------------------------------------------------------------
+
+    def _set_default_minimum_detectable_effect(self, value: int | None) -> None:
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_minimum_detectable_effect = value
+        config.save()
+
+    def test_minimum_detectable_effect_defaults_from_team(self):
+        self._set_default_minimum_detectable_effect(10)
+
+        self._create_flag(key="mde-default")
+        service = self._service()
+
+        experiment = service.create_experiment(name="MDE Default", feature_flag_key="mde-default")
+
+        assert experiment.running_time_calculation == {"minimum_detectable_effect": 10}
+
+    def test_minimum_detectable_effect_keeps_provided_value(self):
+        self._set_default_minimum_detectable_effect(10)
+
+        self._create_flag(key="mde-provided")
+        service = self._service()
+
+        experiment = service.create_experiment(
+            name="MDE Provided",
+            feature_flag_key="mde-provided",
+            running_time_calculation={"minimum_detectable_effect": 5},
+        )
+
+        assert experiment.running_time_calculation == {"minimum_detectable_effect": 5}
+
+    def test_minimum_detectable_effect_not_stored_without_team_default(self):
+        self._set_default_minimum_detectable_effect(None)
+
+        self._create_flag(key="mde-unset")
+        service = self._service()
+
+        experiment = service.create_experiment(name="MDE Unset", feature_flag_key="mde-unset")
+
+        assert "minimum_detectable_effect" not in (experiment.running_time_calculation or {})
+
+    @parameterized.expand(
+        [
+            ("duplicate",),
+            ("copy_to_project",),
+        ]
+    )
+    def test_minimum_detectable_effect_does_not_apply_to_clone(self, clone_mode: str):
+        self._create_flag(key=f"mde-source-{clone_mode}")
+        service = self._service()
+        source = service.create_experiment(name="MDE Source", feature_flag_key=f"mde-source-{clone_mode}")
+
+        self._set_default_minimum_detectable_effect(10)
+
+        if clone_mode == "duplicate":
+            clone = service.duplicate_experiment(source)
+        else:
+            target_team = Team.objects.create(organization=self.organization, name="MDE Target Team")
+            target_config = get_or_create_team_extension(target_team, TeamExperimentsConfig)
+            target_config.default_minimum_detectable_effect = 10
+            target_config.save()
+            clone = service.copy_experiment_to_project(source, target_team)
+
+        assert "minimum_detectable_effect" not in (clone.running_time_calculation or {})
 
     # ------------------------------------------------------------------
     # Metric fingerprints
@@ -809,6 +876,17 @@ class TestExperimentService(APIBaseTest):
                 },
                 "exposure_criteria.activation_config requires the default exposure event",
             ),
+            (
+                "unknown_top_level_properties",
+                {"properties": [{"key": "email", "value": "x"}]},
+                "exposure_criteria contains unknown key(s): properties. Property filters on the "
+                "exposure event belong at exposure_criteria.exposure_config.properties.",
+            ),
+            (
+                "unknown_top_level_key",
+                {"filterTestAccounts": True, "custom_thing": 1},
+                "exposure_criteria contains unknown key(s): custom_thing",
+            ),
         ]
     )
     def test_validate_experiment_exposure_criteria_rejects_invalid_payloads(
@@ -854,6 +932,10 @@ class TestExperimentService(APIBaseTest):
             (
                 "explicit_null_configs",
                 {"exposure_config": None, "activation_config": None},
+            ),
+            (
+                "multiple_variant_handling",
+                {"multiple_variant_handling": "exclude"},
             ),
             (
                 "null_activation_with_custom_exposure",
@@ -3521,6 +3603,7 @@ class TestExperimentService(APIBaseTest):
         assert paused.end_date is None
         assert paused.is_paused is True
         assert paused.is_running is True  # status remains running while paused
+        assert ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.pk), activity="paused").exists()
 
     def test_resume_experiment_success(self):
         experiment = self._create_running_experiment(name="Resume Test", feature_flag_key="resume-flag")
@@ -3535,6 +3618,7 @@ class TestExperimentService(APIBaseTest):
         assert resumed.feature_flag.active is True
         assert resumed.start_date is not None
         assert resumed.end_date is None
+        assert ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.pk), activity="resumed").exists()
 
     def test_pause_experiment_already_paused_raises(self):
         experiment = self._create_running_experiment(name="Already Paused", feature_flag_key="already-paused-flag")
@@ -3793,6 +3877,14 @@ class TestExperimentService(APIBaseTest):
         assert log.user == self.user
         assert log.detail is not None
         assert log.detail["name"] == "Freeze Exposure"
+
+        # The flag rewrite carries the freeze trigger, so it does not render as a manual edit.
+        flag_log = ActivityLog.objects.filter(
+            scope="FeatureFlag", item_id=str(experiment.feature_flag_id), activity="updated"
+        ).latest("created_at")
+        assert flag_log.detail is not None
+        assert flag_log.detail["trigger"]["job_type"] == "experiment_exposure_frozen"
+        assert flag_log.detail["trigger"]["payload"]["experiment_id"] == experiment.pk
 
     def test_freeze_exposure_multi_group_flag(self):
         experiment = self._create_running_experiment(name="Freeze Multi", feature_flag_key="freeze-multi-flag")
@@ -4318,6 +4410,13 @@ class TestExperimentService(APIBaseTest):
         assert log.detail is not None
         assert log.detail["name"] == "Unfreeze Test"
 
+        # The flag rewrite carries the unfreeze trigger, so it does not render as a manual edit.
+        flag_log = ActivityLog.objects.filter(
+            scope="FeatureFlag", item_id=str(experiment.feature_flag_id), activity="updated"
+        ).latest("created_at")
+        assert flag_log.detail is not None
+        assert flag_log.detail["trigger"]["job_type"] == "experiment_exposure_unfrozen"
+
     def test_unfreeze_exposure_keeps_user_edits_made_while_frozen(self) -> None:
         experiment = self._create_running_experiment(name="Unfreeze Edits", feature_flag_key="unfreeze-edits-flag")
 
@@ -4391,6 +4490,10 @@ class TestExperimentService(APIBaseTest):
         assert reset.conclusion is None
         assert reset.conclusion_comment is None
         assert reset.flag_cleanup_task_id is None
+        assert (
+            ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.pk)).latest("created_at").activity
+            == "reset"
+        )
 
     def test_reset_experiment_leaves_feature_flag_unchanged(self):
         experiment = self._create_running_experiment(name="Reset Flag", feature_flag_key="reset-flag-unchanged")
@@ -4430,6 +4533,13 @@ class TestExperimentService(APIBaseTest):
         assert reset.feature_flag.filters["groups"] == original_groups
         cohort.refresh_from_db()
         assert cohort.deleted is True
+
+        # The reset's freeze-strip flag write carries the unfreeze trigger, like an unfreeze.
+        flag_log = ActivityLog.objects.filter(
+            scope="FeatureFlag", item_id=str(experiment.feature_flag_id), activity="updated"
+        ).latest("created_at")
+        assert flag_log.detail is not None
+        assert flag_log.detail["trigger"]["job_type"] == "experiment_exposure_unfrozen"
 
     def test_reset_experiment_clears_freeze_without_request(self):
         experiment = self._create_running_experiment(name="Reset No Request", feature_flag_key="reset-no-request-flag")
@@ -5293,6 +5403,30 @@ class TestExperimentService(APIBaseTest):
 
         assert list(queryset.values_list("name", flat=True)[:3]) == expected_order
 
+    @parameterized.expand(
+        [
+            ("ascending", "conclusion", ["Won", "Lost", "No conclusion"]),
+            ("descending", "-conclusion", ["No conclusion", "Lost", "Won"]),
+        ]
+    )
+    def test_filter_experiments_queryset_orders_by_conclusion(
+        self, _: str, order: str, expected_order: list[str]
+    ) -> None:
+        service = self._service()
+        service.create_experiment(name="Won", feature_flag_key="order-conclusion-won")
+        service.create_experiment(name="Lost", feature_flag_key="order-conclusion-lost")
+        service.create_experiment(name="No conclusion", feature_flag_key="order-conclusion-none")
+        Experiment.objects.filter(team=self.team, name="Won").update(conclusion="won")
+        Experiment.objects.filter(team=self.team, name="Lost").update(conclusion="lost")
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"order": order},
+        )
+
+        assert list(queryset.values_list("name", flat=True)[:3]) == expected_order
+
     def test_filter_experiments_queryset_validates_feature_flag_id(self) -> None:
         with self.assertRaises(ValidationError) as ctx:
             self._service().filter_experiments_queryset(
@@ -5816,6 +5950,15 @@ class TestExperimentService(APIBaseTest):
 
         updated = service.update_experiment(experiment, {"deleted": True}, allow_unknown_events=True)
         assert updated.deleted is True
+
+    def test_cannot_adopt_a_flag_another_product_owns(self):
+        flag = self._create_flag(key="owned-by-survey")
+        Survey.objects.create(team=self.team, name="s", type="popover", targeting_flag=flag)
+
+        with self.assertRaises(ValidationError) as cm:
+            self._service().create_experiment(name="Poacher", feature_flag_key="owned-by-survey")
+
+        assert "already belongs to a survey" in str(cm.exception)
 
     def test_clone_regenerates_metric_uuids(self):
         """Cloning an experiment must produce metrics with fresh uuids — never shared with the source."""

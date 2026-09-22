@@ -1,6 +1,8 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
@@ -70,20 +72,40 @@ function OrderingScene({ recentlySubscribedChannelIds }: { recentlySubscribedCha
     )
 }
 
+function MultipleSelectionScene(): JSX.Element {
+    const [selectedChannels, setSelectedChannels] = useState(['C1|#alerts', 'C5|#incidents'])
+
+    return (
+        <div className="p-4 max-w-md">
+            <SlackChannelPicker
+                integration={integration}
+                mode="multiple"
+                value={selectedChannels}
+                onChange={setSelectedChannels}
+            />
+        </div>
+    )
+}
+
 type StoryArgs = { recentlySubscribedChannelIds: string[] }
 
 const meta: Meta<StoryArgs> = {
     title: 'Components/Slack channel picker',
     parameters: { layout: 'fullscreen', viewMode: 'story' },
-    render: ({ recentlySubscribedChannelIds }) => {
-        useStorybookMocks({
-            get: {
-                '/api/projects/:id/integrations/:intId/channels': { channels },
-                '/api/environments/:id/integrations/:intId/channels': { channels },
-            },
-        })
-        return <OrderingScene recentlySubscribedChannelIds={recentlySubscribedChannelIds} />
-    },
+    decorators: [
+        function MocksDecorator(Story) {
+            useStorybookMocks({
+                get: {
+                    '/api/projects/:id/integrations/:intId/channels': { channels },
+                    '/api/environments/:id/integrations/:intId/channels': { channels },
+                },
+            })
+            return <Story />
+        },
+    ],
+    render: ({ recentlySubscribedChannelIds }) => (
+        <OrderingScene recentlySubscribedChannelIds={recentlySubscribedChannelIds} />
+    ),
 }
 export default meta
 
@@ -98,4 +120,32 @@ export const Alphabetical: Story = {
 // (most recent first); everything else stays alphabetical below them.
 export const RecentlySubscribedFirst: Story = {
     args: { recentlySubscribedChannelIds: ['C4', 'C1'] },
+}
+
+export const MultipleSelection: Story = {
+    render: () => <MultipleSelectionScene />,
+}
+
+// Typing a channel name and clicking away drops the search, because the picker takes an option
+// rather than free text. The state below is what tells the user their channel is still unset.
+export const SearchDroppedOnBlur: Story = {
+    render: () => (
+        <div className="p-4 max-w-md">
+            <SlackChannelPicker integration={integration} onChange={() => {}} />
+        </div>
+    ),
+    play: async ({ canvasElement }) => {
+        // WebKit can start the play phase before React commits the first render, so wait for
+        // the input instead of reading it straight out of the canvas.
+        const input = await waitFor(() => {
+            const element = canvasElement.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')
+            if (!element) {
+                throw new Error('Channel input not yet rendered')
+            }
+            return element
+        })
+        await userEvent.type(input, 'general')
+        await userEvent.click(canvasElement)
+        await within(canvasElement).findByText('No channel selected. Pick one from the list.')
+    },
 }

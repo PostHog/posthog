@@ -1,3 +1,4 @@
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import litellm
@@ -42,6 +43,22 @@ def test_inject_cloudflare_params_preserves_explicit_drop_params() -> None:
     kwargs: dict = {"model": "@cf/zai-org/glm-5.2", "drop_params": False}
     _inject_cloudflare_params(kwargs, "https://api.cloudflare.com/test/ai/v1", "secret")
     assert kwargs["drop_params"] is False
+
+
+@pytest.mark.parametrize(
+    ("initial", "expected"),
+    [
+        ({"stream": True, "stream_options": {"include_usage": False}}, {"include_usage": True}),
+        ({"stream": True}, {"include_usage": True}),
+        ({}, None),
+    ],
+)
+def test_inject_cloudflare_params_forces_streaming_usage(
+    initial: dict[str, Any], expected: dict[str, bool] | None
+) -> None:
+    kwargs: dict[str, Any] = {"model": "@cf/zai-org/glm-5.2", **initial}
+    _inject_cloudflare_params(kwargs, "https://api.cloudflare.com/test/ai/v1", "secret")
+    assert kwargs.get("stream_options") == expected
 
 
 def test_allowlist_derived_from_cost_aliases() -> None:

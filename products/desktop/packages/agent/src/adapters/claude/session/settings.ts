@@ -4,9 +4,26 @@ import * as path from "node:path";
 import type { PermissionRuleValue } from "@anthropic-ai/claude-agent-sdk";
 import { minimatch } from "minimatch";
 import { AsyncMutex } from "../../../utils/async-mutex";
+import { MACHINE_AUTH_STRIPPED_KEYS } from "../machine-auth";
 import { resolveMainRepoPath } from "./repo-path";
 
 const ACP_TOOL_NAME_PREFIX = "mcp__acp__";
+
+const MACHINE_AUTH_REJECTED_ENV_KEYS = new Set<string>(
+  MACHINE_AUTH_STRIPPED_KEYS,
+);
+
+function filterMachineAuthEnv(
+  env: Record<string, string>,
+): Record<string, string> {
+  const filtered: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (!MACHINE_AUTH_REJECTED_ENV_KEYS.has(key)) {
+      filtered[key] = value;
+    }
+  }
+  return filtered;
+}
 
 const acpToolNames = {
   read: `${ACP_TOOL_NAME_PREFIX}Read`,
@@ -210,7 +227,7 @@ export interface PermissionCheckResult {
   source?: "allow" | "deny" | "ask";
 }
 
-export function getManagedSettingsPath(): string {
+function getManagedSettingsPath(): string {
   switch (process.platform) {
     case "darwin":
       return "/Library/Application Support/ClaudeCode/managed-settings.json";
@@ -250,10 +267,12 @@ export class SettingsManager {
   private initialized = false;
   private initPromise: Promise<void> | null = null;
   private writeMutex = new AsyncMutex();
+  private readonly machineAuth: boolean;
 
-  constructor(cwd: string) {
+  constructor(cwd: string, machineAuth = false) {
     this.cwd = cwd;
     this.repoRoot = cwd;
+    this.machineAuth = machineAuth;
   }
 
   async initialize(): Promise<void> {
@@ -342,7 +361,11 @@ export class SettingsManager {
         }
       }
       if (settings.env) {
-        merged.env = { ...merged.env, ...settings.env };
+        let env = settings.env;
+        if (this.machineAuth && (layer === "project" || layer === "local")) {
+          env = filterMachineAuthEnv(env);
+        }
+        merged.env = { ...merged.env, ...env };
       }
       if (settings.model) {
         merged.model = settings.model;

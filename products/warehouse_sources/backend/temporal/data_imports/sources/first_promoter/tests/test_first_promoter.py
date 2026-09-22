@@ -189,6 +189,7 @@ class TestFirstPromoterTransport:
             (200, True, None),
             (401, False, "rejected these credentials"),
             (403, False, "rejected these credentials"),
+            (404, False, "couldn't find an account for that account ID"),
             (500, False, "unexpected status code"),
         ]
     )

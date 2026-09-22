@@ -19,6 +19,16 @@ describe('botDetection', () => {
             ['curl/8.5.0', 'curl', 'http_client'],
             ['Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)', 'Bingbot', 'search_crawler'],
             ['HeadlessChrome/120.0.6099.216', 'Headless Chrome', 'headless_browser'],
+            [
+                'Mozilla/5.0 (X11; Linux x86_64; rv:59.0) Gecko/20100101 Firefox/59.0 SlimerJS/1.1.0',
+                'SlimerJS',
+                'headless_browser',
+            ],
+            [
+                'Mozilla/5.0 (Unknown; Linux x86_64) AppleWebKit/538.1 (KHTML, like Gecko) wkhtmltopdf Safari/538.1',
+                'wkhtmltopdf',
+                'headless_browser',
+            ],
         ])('detects bot from user agent: %s', (userAgent, expectedName, expectedCategory) => {
             const bot = detectBot(userAgent)
             expect(bot).not.toBeNull()

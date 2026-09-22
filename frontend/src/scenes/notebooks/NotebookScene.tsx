@@ -23,6 +23,7 @@ import { notebookLogic } from './Notebook/notebookLogic'
 import {
     NotebookExpandButton,
     NotebookKernelInfoButton,
+    NotebookVariablesButton,
     NotebookPresence,
     NotebookSyncInfo,
 } from './Notebook/NotebookMeta'
@@ -132,6 +133,9 @@ export function NotebookScene(): JSX.Element {
                     <SceneBreadcrumbBackButton />
                     {isTemplate && <LemonTag type="highlight">TEMPLATE</LemonTag>}
                     <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />
+                    <BindLogic logic={notebookLogic} props={{ shortId: notebookId, target: NotebookTarget.Scene }}>
+                        <NotebookVariablesButton type="tertiary" size="small" />
+                    </BindLogic>
                 </div>
 
                 <div className="flex gap-2 items-center">

@@ -54,6 +54,12 @@ tools:
     business-knowledge-gap-suggestions-list:
         operation: business_knowledge_gap_suggestions_list
         enabled: false
+    business-knowledge-settings-partial-update:
+        operation: business_knowledge_settings_partial_update
+        enabled: false
+    business-knowledge-settings-retrieve:
+        operation: business_knowledge_settings_retrieve
+        enabled: false
     business-knowledge-sources-destroy:
         operation: business_knowledge_sources_destroy
         enabled: false
@@ -66,6 +72,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: '{id}'
         list: true
         title: List business knowledge sources
         description: >
@@ -116,6 +123,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: '{id}'
         title: Get business knowledge source
         description: >
             Get a single business knowledge source by ID, including processing status, document/chunk counts, and

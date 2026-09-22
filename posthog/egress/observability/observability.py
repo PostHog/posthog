@@ -1,16 +1,16 @@
 """Generic outbound API egress observability — the metrics analog of the egress limiter.
 
-Mirrors the limiter's shape (:mod:`posthog.egress.limiter.outbound`): a domain-agnostic mechanism,
-with each third-party API registered as a *domain* that supplies its own metric set and a parser for
-that API's rate-limit response headers. A consumer records a response against a domain; the registered
-:class:`EgressObservability` does the rest.
+A domain-agnostic mechanism: each third-party API constructs one :class:`EgressObservability` with
+its own metric set and, when the API reports its budget, a parser for its rate-limit response headers.
+The domain's transport records every request through that instance.
 
 Each domain keeps its own metric names (rather than one shared namespace) so existing dashboards stay
-valid and every API can name its metrics idiomatically — the reuse is in the recording mechanism, the
-endpoint-normalisation, and the registry, not in a single metric series.
+valid and every API can name its metrics idiomatically — the reuse is in the recording mechanism and
+the endpoint-normalisation, not in a single metric series.
 """
 
-from collections.abc import Callable
+import hashlib
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -29,9 +29,32 @@ class RateLimitSnapshot:
     reset_at: float | None = None
 
 
-# Parses a response into a RateLimitSnapshot. Per-domain because each API exposes its budget
-# differently (GitHub: X-RateLimit-* headers; others may use different headers or a body field).
-ResponseParser = Callable[[requests.Response], RateLimitSnapshot]
+# Parses a response into a RateLimitSnapshot from its headers and, for a domain that keys its
+# gauge resource by endpoint (e.g. Firecrawl), the request url. Per-domain because each API exposes
+# its budget differently (GitHub: X-RateLimit-* headers; others may use different headers or a body
+# field), and transport-agnostic — headers and a url exist whether the request was requests- or
+# aiohttp-based.
+ResponseParser = Callable[[Mapping[str, str] | None, str | None], RateLimitSnapshot]
+
+
+def float_header(headers: Mapping[str, str] | None, name: str) -> float | None:
+    """A numeric header, or ``None`` when it is absent or unparseable. Telemetry must never break the
+    request it records, so a malformed value is dropped rather than raised."""
+    if headers is None:
+        return None
+    value = headers.get(name)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def scope_fingerprint(*parts: str) -> str:
+    """A metric scope built from values that must not reach a label in plain form, such as a token.
+    The scope reaches Prometheus, and from there dashboards and alerts."""
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
 
 
 @dataclass(frozen=True)
@@ -39,6 +62,9 @@ class EgressMetrics:
     """The Prometheus instruments one domain records on. The recorder fills labels positionally,
     so a domain's metrics must declare them in this order: the counter as
     ``(<scope>, method, endpoint, status_code, source)`` and each gauge as ``(<scope>, resource)``.
+
+    The gauges are optional. A domain whose API reports no rate-limit headers declares none, because
+    a gauge that nothing can set only adds an empty series to every dashboard query.
 
     ``<scope>`` is the rate-limit budget owner in the *domain's own* id space — for GitHub the App
     ``installation_id`` (what GitHub actually meters), never a PostHog DB row id. Keeping the identity in
@@ -52,9 +78,9 @@ class EgressMetrics:
     value per source after that source goes quiet, misreporting remaining budget."""
 
     request_counter: Counter
-    remaining_gauge: Gauge
-    limit_gauge: Gauge
-    reset_gauge: Gauge
+    remaining_gauge: Gauge | None = None
+    limit_gauge: Gauge | None = None
+    reset_gauge: Gauge | None = None
 
 
 def default_normalize_endpoint(url: str | None) -> str:
@@ -69,8 +95,8 @@ def default_normalize_endpoint(url: str | None) -> str:
 
 
 class EgressObservability:
-    """One third-party API's egress telemetry: a metric set, a response parser, and an endpoint
-    normaliser. Construct one per domain and register it; consumers record through it.
+    """One third-party API's egress telemetry: a metric set, an optional response parser, and an
+    endpoint normaliser. Construct one per domain; the domain's transport records through it.
 
     ``scope`` is the rate-limit budget owner in the domain's own id space (e.g. a GitHub App installation
     id, which several PostHog integrations can share) — not a PostHog DB row id. The counter is always
@@ -80,17 +106,50 @@ class EgressObservability:
 
     def __init__(
         self,
-        domain: str,
         metrics: EgressMetrics,
-        parser: ResponseParser,
+        parser: ResponseParser | None = None,
         endpoint_normalizer: Callable[[str | None], str] = default_normalize_endpoint,
     ) -> None:
-        self.domain = domain
         self._metrics = metrics
         self._parser = parser
         self._normalize_endpoint = endpoint_normalizer
 
     def record_response(
+        self,
+        status_code: int,
+        headers: Mapping[str, str] | None,
+        *,
+        source: str,
+        scope: str | None = None,
+        method: str | None = None,
+        endpoint: str | None = None,
+        request_method: str | None = None,
+        request_url: str | None = None,
+    ) -> None:
+        """``status_code``/``headers`` are the response's own; ``request_method``/``request_url`` are
+        the request's, used only as a fallback when the caller doesn't pass a curated ``method``/
+        ``endpoint``. Callers unpack their transport's response type into these primitives (see
+        :meth:`record_requests_response` for the ``requests`` case) so this method stays
+        transport-agnostic — sync (``requests``) and async (``aiohttp``) domains share it alike."""
+        method_label = (method or request_method or "GET").upper()
+        endpoint_label = endpoint if endpoint is not None else self._normalize_endpoint(request_url)
+        self._metrics.request_counter.labels(scope or "", method_label, endpoint_label, str(status_code), source).inc()
+
+        if not scope or self._parser is None:
+            return
+
+        # Gauges are keyed by (scope, resource) only — the shared budget owner, no source. Every
+        # source sharing one budget updates one series; a per-source gauge would strand stale values.
+        snapshot = self._parser(headers, request_url)
+        for gauge, value in (
+            (self._metrics.remaining_gauge, snapshot.remaining),
+            (self._metrics.limit_gauge, snapshot.limit),
+            (self._metrics.reset_gauge, snapshot.reset_at),
+        ):
+            if gauge is not None and value is not None:
+                gauge.labels(scope, snapshot.resource).set(value)
+
+    def record_requests_response(
         self,
         response: requests.Response,
         *,
@@ -99,35 +158,25 @@ class EgressObservability:
         method: str | None = None,
         endpoint: str | None = None,
     ) -> None:
-        # The response's .request (and its method/url) may be absent or non-string — a response built
-        # without a prepared request, or a test mock whose attributes are themselves Mocks. Coerce to
-        # str-or-None so a recorder never raises into the request flow: telemetry is best-effort, and a
-        # urlparse(Mock) blowing up here must not fail the actual GitHub call.
+        """:meth:`record_response` for a ``requests.Response``, the shape every sync domain holds.
+
+        A response's ``.request`` (and its method/url) may be absent or non-string — a response built
+        without a prepared request, or a test mock whose attributes are themselves Mocks — so this
+        coerces them to str-or-None rather than raising: telemetry is best-effort, and a
+        urlparse(Mock) blowing up here must not fail the actual outbound call."""
         request = getattr(response, "request", None)
-        req_method = getattr(request, "method", None)
-        req_url = getattr(request, "url", None)
-        method_label = (method or (req_method if isinstance(req_method, str) else None) or "GET").upper()
-        endpoint_label = (
-            endpoint
-            if endpoint is not None
-            else self._normalize_endpoint(req_url if isinstance(req_url, str) else None)
+        request_method = getattr(request, "method", None)
+        request_url = getattr(request, "url", None)
+        self.record_response(
+            response.status_code,
+            response.headers if isinstance(response.headers, Mapping) else None,
+            source=source,
+            scope=scope,
+            method=method,
+            endpoint=endpoint,
+            request_method=request_method if isinstance(request_method, str) else None,
+            request_url=request_url if isinstance(request_url, str) else None,
         )
-        self._metrics.request_counter.labels(
-            scope or "", method_label, endpoint_label, str(response.status_code), source
-        ).inc()
-
-        if scope is None:
-            return
-
-        # Gauges are keyed by (scope, resource) only — the shared budget owner, no source. Every
-        # source sharing one budget updates one series; a per-source gauge would strand stale values.
-        snapshot = self._parser(response)
-        if snapshot.remaining is not None:
-            self._metrics.remaining_gauge.labels(scope, snapshot.resource).set(snapshot.remaining)
-        if snapshot.limit is not None:
-            self._metrics.limit_gauge.labels(scope, snapshot.resource).set(snapshot.limit)
-        if snapshot.reset_at is not None:
-            self._metrics.reset_gauge.labels(scope, snapshot.resource).set(snapshot.reset_at)
 
     def record_exception(
         self,
@@ -163,35 +212,3 @@ def record_outbound_decision(*, domain: str, source: str, priority: str, granted
     """Record one limiter decision. ``priority`` is the lane string (e.g. ``"batch"``); the caller
     derives ``domain`` from the limiter key's first segment so this stays limiter-library-agnostic."""
     outbound_rate_limit_decisions.labels(domain, source, priority, "true" if granted else "false").inc()
-
-
-_REGISTRY: dict[str, EgressObservability] = {}
-
-
-def register_egress_observability(observability: EgressObservability) -> None:
-    _REGISTRY[observability.domain] = observability
-
-
-def resolve_egress_observability(domain: str) -> EgressObservability:
-    obs = _REGISTRY.get(domain)
-    if obs is None:
-        raise ValueError(
-            f"No egress observability registered for domain '{domain}'; "
-            "register one with register_egress_observability() before recording against it"
-        )
-    return obs
-
-
-def record_outbound_api_response(
-    response: requests.Response,
-    *,
-    domain: str,
-    source: str,
-    scope: str | None = None,
-    method: str | None = None,
-    endpoint: str | None = None,
-) -> None:
-    """Domain-keyed convenience for generic callers that hold only a domain string."""
-    resolve_egress_observability(domain).record_response(
-        response, source=source, scope=scope, method=method, endpoint=endpoint
-    )

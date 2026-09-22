@@ -18,28 +18,29 @@ const reportOnly = process.argv.includes('--report-only')
 // recorded violations as warnings (GitHub Actions annotations) without failing CI — the
 // bundle-size Signals scout tracks regressions from the PR comment, so the check informs.
 const assertReportIndex = process.argv.indexOf('--assert-report')
+const failForbiddenHits = process.argv.includes('--fail-forbidden-hits')
 
 // The eager graph is everything a root actually SHIPS on the critical path — the bytes a
 // browser downloads and parses before that surface is interactive. It is measured from the
 // esbuild OUTPUT chunks: the root's entry chunk plus every chunk reachable through static
-// (import-statement) chunk edges, plus each visited chunk's attached stylesheet (cssBundle,
-// which is downloaded before render). Lazy (dynamic-import) chunks are excluded, and tree-shaken
+// (import-statement) chunk edges, plus the one stylesheet the page links (see `linkedStylesheet`;
+// it is downloaded before render). Lazy (dynamic-import) chunks are excluded, and tree-shaken
 // code is already gone from the output — so a side-effect-free re-export barrel only costs
 // what its used exports actually ship, not its whole surface (the earlier input-graph metric
 // counted the whole barrel and mistook reachability for shipped weight).
 // Total dist size can't see this regression class (a fake-lazy import moves no total bytes
 // but shifts them onto the eager path), which is why this check exists.
 //
-// Budgets are eager output bytes (shipped JS + eager CSS, minified).
+// Budgets are eager output bytes (shipped JS + the linked stylesheet, minified).
 // Ratchet policy: when a bundle-splitting win lands, lower the budget to lock it in;
 // raise a budget only as a conscious, reviewed decision in the PR that needs it.
 const ROOTS = [
     {
         root: 'src/index.tsx',
         label: 'entry (logged-out pages, app bootstrap)',
-        // 2026-07-01: 3.75 MiB eager output (2.73 MiB JS + 1.02 MiB eager CSS, 21 chunks).
+        // 2026-09-11: 1.54 MiB eager output (0.18 MiB JS + the 1.36 MiB linked stylesheet, 22 files).
         // ~20% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
-        budgetBytes: 4_725_000,
+        budgetBytes: 1_930_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'src/lib/components/ActivityLog/describers',
@@ -61,15 +62,46 @@ const ROOTS = [
         ],
     },
     {
+        // index.tsx imports App and bootApp as sibling dynamic imports, so neither alone is what
+        // a logged-out page downloads: measure the deduplicated union of all three closures.
+        root: ['src/index.tsx', 'src/scenes/App.tsx', 'src/scenes/bootApp.ts'],
+        label: 'logged-out boot: index + App + bootApp (preloaded by every page, including /login)',
+        // The backend preloads the App closure for logged-out pages too (preload-manifest.json
+        // `js`), so this is the whole JS cost of /login. 2026-09-11: 3.51 MiB eager output = 2.14 MiB
+        // JS (608 files) + the 1.36 MiB linked stylesheet.
+        // ~15% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
+        budgetBytes: 4_225_000,
+        forbidden: [
+            'node_modules/monaco-editor/',
+            // Authenticated-only code. Either of these on the App path means a component that
+            // logged-out pages render has grown a static import into the logged-in app.
+            'src/layout/navigation-3000/navigationLogic.tsx',
+            'src/scenes/dashboard/dashboardLogic.tsx',
+            // Nothing a logged-out page renders shows markdown, rich text or a code block; a hit means a
+            // PostHog AI tool card component became a static import.
+            'src/lib/lemon-ui/LemonMarkdown/',
+            'src/lib/components/RichContentEditor/',
+            'src/lib/components/CodeSnippet/',
+            // The taxonomy JSON is a quarter-MiB lookup table for the property editors, not for /login.
+            'src/taxonomy/core-filter-definitions-by-group.json',
+        ],
+    },
+    {
         root: 'src/scenes/AuthenticatedShell.tsx',
         label: 'authenticated shell (every logged-in page)',
-        // 2026-07-07: 8.02 MiB eager output after moving all @posthog/brand/hoggies usage in
-        // eager code to PNG stubs (lib/brand/hoggies) — the inline-SVG modules are now a
-        // forbidden module below. ~21% headroom so routine churn doesn't trip the warn.
-        budgetBytes: 10_185_000,
+        // 2026-09-11: 8.27 MiB eager output = 6.91 MiB JS (2688 files) + the 1.36 MiB linked
+        // stylesheet. ~15% headroom so routine churn doesn't trip the warn.
+        budgetBytes: 9_970_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'src/lib/components/ActivityLog/describers',
+            // Widget previews render product UI (recordings player, error tracking list, logs) and
+            // are only needed by the add-widget modal; the recordings player logic pulls in rrweb.
+            {
+                pattern: 'products/dashboards/frontend/widgets/previews/',
+                verifyPrefix: 'products/dashboards/frontend/widgets/',
+            },
+            'src/scenes/session-recordings/player/sessionRecordingPlayerLogic.ts',
             // See the entry root's note: inline-SVG hoggies must stay off the eager path.
             {
                 pattern: 'node_modules/@posthog/brand/dist/generated/hoggies/svg/',
@@ -98,10 +130,11 @@ function warnViolation(message) {
 function assertReport(reportFilePath) {
     if (!fs.existsSync(reportFilePath)) {
         warnViolation(`Report not found at ${reportFilePath} — did the build run the check?`)
-        return 1
+        return { violations: 1, forbiddenHits: 0, analysisErrors: 1 }
     }
     const reportToAssert = JSON.parse(fs.readFileSync(reportFilePath, 'utf-8'))
     let violations = 0
+    let forbiddenHits = 0
     for (const message of reportToAssert.warnings ?? []) {
         warnViolation(message)
     }
@@ -111,6 +144,7 @@ function assertReport(reportFilePath) {
         violations++
     }
     for (const r of reportToAssert.roots) {
+        const rootForbiddenHits = r.forbiddenHits ?? []
         if (r.overBudget) {
             warnViolation(
                 `Eager graph for '${r.root}' ships ${formatMiB(r.bytes)}, over the ${formatMiB(r.budgetBytes)} budget.\n` +
@@ -121,22 +155,23 @@ function assertReport(reportFilePath) {
             )
             violations++
         }
-        for (const hit of r.forbiddenHits) {
+        for (const hit of rootForbiddenHits) {
             warnViolation(
                 `'${hit.module}' ships eagerly from '${r.root}' — it must stay behind a dynamic import.\n` +
                     `Import chain:\n   ${hit.chain.join('\n   -> ')}`
             )
             violations++
+            forbiddenHits++
         }
-        if (topLevelErrors.length === 0 && !r.overBudget && r.forbiddenHits.length === 0) {
+        if (topLevelErrors.length === 0 && !r.overBudget && rootForbiddenHits.length === 0) {
             console.info(`🟢 ${r.label}: ${formatMiB(r.bytes)} within ${formatMiB(r.budgetBytes)}`)
         }
     }
-    return violations
+    return { violations, forbiddenHits, analysisErrors: topLevelErrors.length }
 }
 
 if (assertReportIndex !== -1) {
-    const violations = assertReport(process.argv[assertReportIndex + 1])
+    const { violations, forbiddenHits, analysisErrors } = assertReport(process.argv[assertReportIndex + 1])
     if (violations) {
         console.warn(
             `\n⚠️ Eager graph check — ${violations} issue(s) above. Not failing CI: the bundle-size ` +
@@ -146,6 +181,12 @@ if (assertReportIndex !== -1) {
         // Neutral wording: warnings (e.g. a stale forbidden pattern) may have printed above
         // without counting as violations, so don't declare an unqualified all-clear.
         console.info('\nNo eager graph budget violations.')
+    }
+    if (failForbiddenHits && (forbiddenHits > 0 || analysisErrors > 0)) {
+        console.error(
+            `\n❌ Eager graph check found ${forbiddenHits} forbidden eager import(s) and ${analysisErrors} analysis error(s).`
+        )
+        process.exit(1)
     }
     process.exit(0)
 }
@@ -224,6 +265,10 @@ function eagerChunkClosure(entry) {
     return seen
 }
 
+// The page links only the src/index.tsx entry's stylesheet (writePreloadManifest in build.mjs). esbuild
+// gives other chunks a `cssBundle` too, but the browser never downloads those files.
+const linkedStylesheet = outputs[entryChunk('src/index.tsx')]?.cssBundle
+
 const summaryLines = ['## Eager graph check', '', '| Root | Eager size | Budget | Files |', '| --- | --- | --- | --- |']
 const report = { roots: [], errors: [], warnings: [] }
 
@@ -251,40 +296,43 @@ for (const verifySubstr of new Set(ROOTS.flatMap((r) => r.forbidden.map(forbidde
     }
 }
 
-for (const { root, label, budgetBytes, forbidden } of ROOTS) {
-    const entry = entryChunk(root)
-    if (!entry) {
-        const candidates = Object.values(outputs)
-            .map((c) => c.entryPoint)
-            .filter((e) => e && e.endsWith(path.basename(root)))
-            .slice(0, 5)
-        const message = `Root '${root}' is not an entry chunk in the metafile. Was it moved, or is it no longer a code-split boundary? Candidates: ${candidates.join(', ')}`
+for (const { root: rootSpec, label, budgetBytes, forbidden } of ROOTS) {
+    // A root is one entry module, or several whose closures are downloaded together.
+    const rootModules = Array.isArray(rootSpec) ? rootSpec : [rootSpec]
+    const root = rootModules.join(' + ')
+    const entries = rootModules.map((module) => ({ module, entry: entryChunk(module) }))
+    const missing = entries.filter(({ entry }) => !entry)
+    if (missing.length > 0) {
+        const message = missing
+            .map(({ module }) => {
+                const candidates = Object.values(outputs)
+                    .map((c) => c.entryPoint)
+                    .filter((e) => e && e.endsWith(path.basename(module)))
+                    .slice(0, 5)
+                return `Root '${module}' is not an entry chunk in the metafile. Was it moved, or is it no longer a code-split boundary? Candidates: ${candidates.join(', ')}`
+            })
+            .join('\n')
         report.errors.push(message)
         fail(message)
         continue
     }
+    const eagerChunks = new Set(entries.flatMap(({ entry }) => [...eagerChunkClosure(entry)]))
 
     // Attribute each input module the bytes it actually contributes to the eager chunks —
     // tree-shaken modules contribute nothing, so a barrel only counts its used exports.
     const eagerBytesByFile = new Map()
-    const cssBundlesSeen = new Set()
     let totalBytes = 0
-    for (const chunk of eagerChunkClosure(entry)) {
+    for (const chunk of eagerChunks) {
         totalBytes += outputs[chunk].bytes
-        // esbuild attaches a JS chunk's stylesheet via `cssBundle`, not an `imports` edge, so
-        // the chunk walk never reaches it — but it's downloaded before render, so count each
-        // distinct eager stylesheet once. Without this, adding a large eager .scss moves real
-        // bytes onto the critical path while the metric stays flat.
-        const cssBundle = outputs[chunk].cssBundle
-        if (cssBundle && !cssBundlesSeen.has(cssBundle)) {
-            cssBundlesSeen.add(cssBundle)
-            totalBytes += outputs[cssBundle]?.bytes || 0
-        }
         for (const [file, info] of Object.entries(outputs[chunk].inputs || {})) {
             if (info.bytesInOutput > 0) {
                 eagerBytesByFile.set(file, (eagerBytesByFile.get(file) || 0) + info.bytesInOutput)
             }
         }
+    }
+    // `cssBundle` is not an `imports` edge, so the chunk walk never reaches the sheet every page links.
+    if (linkedStylesheet) {
+        totalBytes += outputs[linkedStylesheet].bytes
     }
     const largest = [...eagerBytesByFile.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15)
 
@@ -306,7 +354,15 @@ for (const { root, label, budgetBytes, forbidden } of ROOTS) {
     }
     const forbiddenHits = []
     if (hitFiles.size > 0) {
-        const { parentOf } = eagerClosure(inputs, root)
+        // One parent map across all root modules; a module reachable from several keeps its first chain.
+        const parentOf = new Map()
+        for (const module of rootModules) {
+            for (const [child, parent] of eagerClosure(inputs, module).parentOf) {
+                if (!parentOf.has(child)) {
+                    parentOf.set(child, parent)
+                }
+            }
+        }
         for (const [module, hit] of hitFiles) {
             forbiddenHits.push({ module, chain: chainTo(parentOf, hit) })
         }

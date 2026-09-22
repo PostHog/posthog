@@ -5,9 +5,10 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { personLogic } from 'scenes/persons/personLogic'
 
 import { PropertyDefinitionType } from '~/types'
+
+import { personLogic } from 'products/persons/frontend/logics/personLogic'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { Properties } from './components/Properties'

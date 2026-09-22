@@ -48,5 +48,5 @@ export const mcpAnalyticsOnboarding: ProductOnboardingProvider = {
             render: () => <MCPAnalyticsInstallStep />,
         },
     ],
-    completeRedirectUrl: () => urls.mcpAnalyticsDashboard(),
+    completeRedirectUrl: () => urls.mcpAnalytics(),
 }

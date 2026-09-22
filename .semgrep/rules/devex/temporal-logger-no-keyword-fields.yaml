@@ -1,0 +1,46 @@
+rules:
+    - id: temporal-logger-no-keyword-fields
+      message: |
+          `activity.logger` and `workflow.logger` are stdlib `logging.LoggerAdapter`
+          instances. They forward `**kwargs` to `Logger._log()`, which accepts only
+          `exc_info`, `stack_info`, `stacklevel` and `extra` — any other keyword
+          raises `TypeError: Logger._log() got an unexpected keyword argument '<name>'`.
+
+          Pass structured fields one of two ways:
+
+          - In an activity, log through the module's structlog logger, which takes
+            keyword fields directly. `merge_temporal_context` is registered as a
+            global processor, so activity id, workflow id and attempt are still
+            attached.
+          - In a workflow, keep `workflow.logger` (it suppresses duplicate logs
+            during replay) and move the fields into `extra={...}`.
+
+          Why this is easy to miss: `LoggerAdapter.log` checks `isEnabledFor(level)`
+          before it touches the kwargs, so a bad `info()` call is inert below INFO.
+          Tests default to WARNING and pass; the production worker runs at INFO and
+          raises on every call. In a workflow that surfaces as a workflow *task*
+          failure, which Temporal retries indefinitely, so the run wedges until its
+          execution timeout instead of failing — no error status, no metrics, no alert.
+      languages: [python]
+      severity: ERROR
+      paths:
+          include:
+              - 'posthog/temporal/'
+              - 'products/*/backend/temporal/'
+      pattern-either:
+          - patterns:
+                - pattern-either:
+                      - pattern: activity.logger.$LEVEL(..., $KEY=$VALUE, ...)
+                      - pattern: workflow.logger.$LEVEL(..., $KEY=$VALUE, ...)
+                - metavariable-regex:
+                      metavariable: $LEVEL
+                      regex: '^(debug|info|warning|warn|error|critical|exception|log)$'
+                - metavariable-regex:
+                      metavariable: $KEY
+                      regex: '^(?!exc_info$|stack_info$|stacklevel$|extra$).*'
+      metadata:
+          category: correctness
+          subcategory:
+              - audit
+          technology:
+              - temporal

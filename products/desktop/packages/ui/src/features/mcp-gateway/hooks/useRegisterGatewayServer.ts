@@ -78,6 +78,7 @@ export function useRegisterGatewayServer() {
           });
           queryClient.invalidateQueries({ queryKey: gatewayKeys.servers });
         }
+        queryClient.invalidateQueries({ queryKey: gatewayKeys.accounts });
         queryClient.invalidateQueries({ queryKey: mcpKeys.installations });
       },
       onError: (error: Error) =>

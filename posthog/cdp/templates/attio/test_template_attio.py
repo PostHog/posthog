@@ -39,6 +39,12 @@ class TestTemplateAttio(BaseHogFunctionTemplateTest):
             },
         )
 
+    def test_function_requires_email(self):
+        self.run_function(inputs=create_inputs(email=""))
+
+        assert not self.get_mock_fetch_calls()
+        assert self.get_mock_print_calls() == [("No email set. Skipping...",)]
+
     def test_ignores_empty_values(self):
         self.mock_fetch_response = lambda *args: {"status": 200, "body": {"ok": True}}  # type: ignore
         self.run_function(inputs=create_inputs(personAttributes={"name": "Max", "job_title": ""}))

@@ -107,7 +107,6 @@ def external_data_schema_full_refresh(external_data_source, team):
 async def test_mysql_source_full_refresh(
     team, mysql_source_table, external_data_source, external_data_schema_full_refresh
 ):
-    """Test that a full refresh sync works as expected."""
     table_name = f"mysql_{MYSQL_TABLE_NAME}"
     expected_num_rows = len(TEST_DATA)
 
@@ -220,7 +219,6 @@ def external_data_schema_incremental(external_data_source, team):
 async def test_mysql_source_incremental(
     team, mysql_source_table, external_data_source, external_data_schema_incremental, mysql_connection
 ):
-    """Test that an incremental sync works as expected."""
     table_name = f"mysql_{MYSQL_TABLE_NAME}"
     expected_num_rows = len(TEST_DATA)
 
@@ -590,8 +588,6 @@ def test_mysql_narrow_table_chunking(mysql_narrow_table, mysql_config):
 
 
 def test_mysql_wide_table_chunking(mysql_wide_table, mysql_config):
-    """Test that wide tables use reduced chunk size via dynamic chunking."""
-
     cursor, table_name = mysql_wide_table
     logger = structlog.get_logger()
 
@@ -616,8 +612,6 @@ def test_mysql_wide_table_chunking(mysql_wide_table, mysql_config):
 
 
 def test_mysql_medium_table_chunking(mysql_medium_table, mysql_config):
-    """Test that medium tables use moderately reduced chunk size."""
-
     cursor, table_name = mysql_medium_table
     logger = structlog.get_logger()
 
@@ -645,8 +639,6 @@ def test_mysql_medium_table_chunking(mysql_medium_table, mysql_config):
 
 
 def test_mysql_very_big_table_chunking(mysql_very_big_table, mysql_config):
-    """Test that very big tables with many rows use dynamic chunking and process multiple chunks."""
-
     cursor, table_name = mysql_very_big_table
     logger = structlog.get_logger()
 

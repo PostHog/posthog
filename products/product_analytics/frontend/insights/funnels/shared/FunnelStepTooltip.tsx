@@ -4,14 +4,15 @@ import { TooltipSurface, TooltipSwatch } from '@posthog/quill-charts'
 
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
-import { funnelTooltipHeaderLabel, hasBreakdown } from 'scenes/funnels/funnelUtils'
 import { formatBreakdownLabel, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
-import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { FunnelStepWithConversionMetrics } from '~/types'
+
+import { funnelTooltipHeaderLabel, hasBreakdown } from '../funnelUtils'
+import { getActionFilterFromFunnelStep } from './funnelStepTableUtils'
 
 export interface FunnelStepTooltipProps {
     showPersonsModal: boolean

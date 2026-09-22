@@ -3,9 +3,11 @@ import {
   ANY_SOURCE,
   type AttentionFilter,
   type ChannelItemFilters,
+  type ChannelItemGrouping,
   type ChannelItemSort,
   type CreatedByFilter,
   type EnvironmentFilter,
+  type KindFilter,
   type PinnedFilter,
 } from "@posthog/core/canvas/channelItems";
 import {
@@ -39,6 +41,12 @@ interface Option<T extends string> {
 // The two states a session can be in that are yours to clear, in the list's own
 // vocabulary: blue is blocked on you, the brand yellow is output you haven't
 // read. Everything settled is what's left, and has nothing to filter for.
+const KIND_OPTIONS: readonly Option<KindFilter>[] = [
+  { value: "any", label: "Sessions and canvases" },
+  { value: "task", label: "Sessions" },
+  { value: "canvas", label: "Canvases" },
+];
+
 const ATTENTION_OPTIONS: readonly Option<AttentionFilter>[] = [
   { value: "any", label: "Any status" },
   { value: "needs_input", label: "Needs input", tone: "blue" },
@@ -61,6 +69,17 @@ const ENVIRONMENT_OPTIONS: readonly Option<EnvironmentFilter>[] = [
   { value: "local", label: "Local" },
   { value: "cloud", label: "Cloud" },
 ];
+
+const DEFAULT_GROUPINGS: readonly ChannelItemGrouping[] = [
+  "date",
+  "repository",
+];
+
+const GROUPING_LABELS: Record<ChannelItemGrouping, string> = {
+  date: "Date",
+  repository: "Repository",
+  space: "Space",
+};
 
 const SORT_OPTIONS: readonly Option<ChannelItemSort>[] = [
   { value: "recent", label: "Recent activity" },
@@ -152,8 +171,13 @@ export function ChannelFilterMenu({
   onClearFilters,
   sort,
   onSortChange,
+  grouping,
+  groupings,
+  onGroupingChange,
+  onEditAppearance,
   sources,
   showCreatedBy,
+  showKindFilter = false,
   showRunFilters,
   active,
 }: {
@@ -173,15 +197,26 @@ export function ChannelFilterMenu({
   onClearFilters: () => void;
   sort: ChannelItemSort;
   onSortChange: (sort: ChannelItemSort) => void;
+  /** What the list's section headers stand for. */
+  grouping: ChannelItemGrouping;
+  onGroupingChange: (grouping: ChannelItemGrouping) => void;
+  groupings?: readonly ChannelItemGrouping[];
+  /** Opens the list's appearance dialog, which the list itself renders. */
+  onEditAppearance?: () => void;
   /** `origin_product` keys present in the list. */
   sources: readonly string[];
   /** False in #me, where every session is yours and the filter says nothing. */
   showCreatedBy: boolean;
   /** False on the canvases tab: a canvas has no run to ask these about. */
   showRunFilters: boolean;
+  showKindFilter?: boolean;
   /** A filter is narrowing the list, so the button says so. */
   active: boolean;
 }) {
+  const groupingOptions: Option<ChannelItemGrouping>[] = (
+    groupings ?? (showRunFilters ? DEFAULT_GROUPINGS : [])
+  ).map((value) => ({ value, label: GROUPING_LABELS[value] }));
+
   const sourceOptions: Option<string>[] = [
     { value: ANY_SOURCE, label: "Any source" },
     ...sources.map((source) => ({
@@ -202,7 +237,7 @@ export function ChannelFilterMenu({
             aria-label="Filter"
             className={cn("relative", cnHeaderButton(active))}
           >
-            <FunnelSimpleIcon size={12} />
+            <FunnelSimpleIcon size={14} />
             {active && (
               <span
                 aria-hidden
@@ -218,6 +253,30 @@ export function ChannelFilterMenu({
         sideOffset={6}
         className="min-w-fit"
       >
+        {groupingOptions.length > 1 && (
+          <FilterSubmenu
+            label="Group by"
+            options={groupingOptions}
+            value={grouping}
+            onChange={onGroupingChange}
+          />
+        )}
+        <FilterSubmenu
+          label="Sort by"
+          options={SORT_OPTIONS}
+          value={sort}
+          onChange={onSortChange}
+        />
+        <DropdownMenuSeparator />
+
+        {showKindFilter && (
+          <FilterSubmenu
+            label="Type"
+            options={KIND_OPTIONS}
+            value={filters.kind}
+            onChange={(value) => onFilterChange("kind", value)}
+          />
+        )}
         {showRunFilters && (
           <FilterSubmenu
             label="Status"
@@ -259,13 +318,18 @@ export function ChannelFilterMenu({
             />
           </>
         )}
-        <DropdownMenuSeparator />
-        <FilterSubmenu
-          label="Sort by"
-          options={SORT_OPTIONS}
-          value={sort}
-          onChange={onSortChange}
-        />
+
+        {showRunFilters && onEditAppearance && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              data-attr="edit-list-item-appearance"
+              onClick={onEditAppearance}
+            >
+              Edit list item appearance…
+            </DropdownMenuItem>
+          </>
+        )}
         {active && (
           <>
             <DropdownMenuSeparator />

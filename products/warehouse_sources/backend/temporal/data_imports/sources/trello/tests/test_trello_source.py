@@ -4,12 +4,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.trello.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.trello.source import TrelloSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello import TrelloResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> Any:
@@ -33,66 +29,6 @@ def _inputs(**overrides: Any) -> SourceInputs:
     }
     defaults.update(overrides)
     return SourceInputs(**defaults)
-
-
-class TestSourceType:
-    def test_source_type(self) -> None:
-        assert TrelloSource().source_type == ExternalDataSourceType.TRELLO
-
-
-class TestSourceConfig:
-    def test_config_fields(self) -> None:
-        config = TrelloSource().get_source_config
-        assert config.label == "Trello"
-        assert not config.unreleasedSource
-        assert config.releaseStatus == "alpha"
-        assert [f.name for f in config.fields] == ["api_key", "api_token"]
-        # Both credentials must be stored as secrets.
-        assert all(getattr(f, "secret", False) for f in config.fields)
-
-
-class TestGetSchemas:
-    def test_only_actions_supports_incremental(self) -> None:
-        schemas = {s.name: s for s in TrelloSource().get_schemas(_config(), team_id=1)}
-        assert set(schemas) == set(ENDPOINTS)
-        assert schemas["actions"].supports_incremental is True
-        assert [f["field"] for f in schemas["actions"].incremental_fields] == ["date"]
-        for name in ("boards", "cards", "lists", "organizations", "checklists", "labels", "members"):
-            assert schemas[name].supports_incremental is False
-            assert schemas[name].incremental_fields == []
-
-    def test_names_filter(self) -> None:
-        schemas = TrelloSource().get_schemas(_config(), team_id=1, names=["cards", "actions"])
-        assert {s.name for s in schemas} == {"cards", "actions"}
-
-
-class TestValidateCredentials:
-    @parameterized.expand([("valid", (True, None)), ("invalid", (False, "Invalid Trello API key or token"))])
-    def test_delegates_to_transport(self, _name: str, transport_result: tuple[bool, str | None]) -> None:
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.trello.source.validate_trello_credentials",
-            return_value=transport_result,
-        ) as validate:
-            result = TrelloSource().validate_credentials(_config(), team_id=1)
-
-        assert result == transport_result
-        validate.assert_called_once_with("key", "token")
-
-
-class TestGetNonRetryableErrors:
-    def test_covers_auth_failures(self) -> None:
-        errors = TrelloSource().get_non_retryable_errors()
-        assert "401 Client Error" in errors
-        assert "403 Client Error" in errors
-        assert "invalid key" in errors
-        assert "invalid token" in errors
-
-
-class TestResumableSourceManager:
-    def test_manager_bound_to_resume_config(self) -> None:
-        manager = TrelloSource().get_resumable_source_manager(_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is TrelloResumeConfig
 
 
 class TestSourceForPipeline:

@@ -1,4 +1,4 @@
-import type { TabsSnapshot } from "@posthog/shared";
+import { rewriteSavedLocation, type TabsSnapshot } from "@posthog/shared";
 import { asc } from "drizzle-orm";
 import { inject, injectable } from "inversify";
 import { DATABASE_SERVICE } from "../identifiers";
@@ -44,6 +44,11 @@ export class BrowserTabsRepository implements IBrowserTabsRepository {
       tabs: tabRows.map((t) => ({
         id: t.id,
         windowId: t.windowId,
+        // Rewritten on the way out: a snapshot written before the routes were
+        // flattened holds `/website/*` hrefs, and restoring one lands the tab
+        // on a route that no longer exists.
+        href: t.href ? rewriteSavedLocation(t.href) : null,
+        viewState: t.viewState ?? null,
         dashboardId: t.dashboardId,
         taskId: t.taskId ?? null,
         channelId: t.channelId ?? null,
@@ -85,6 +90,8 @@ export class BrowserTabsRepository implements IBrowserTabsRepository {
             snapshot.tabs.map((t) => ({
               id: t.id,
               windowId: t.windowId,
+              href: t.href ?? null,
+              viewState: t.viewState ?? null,
               dashboardId: t.dashboardId,
               taskId: t.taskId ?? null,
               channelId: t.channelId ?? null,

@@ -2,7 +2,10 @@ import itertools
 from collections import defaultdict
 from datetime import datetime, timedelta
 from math import ceil
-from re import escape
+from re import (
+    compile as re_compile,
+    escape,
+)
 from typing import Any, Literal, Optional, cast
 
 from posthog.schema import (
@@ -24,7 +27,6 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings, LimitContext
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
@@ -32,14 +34,19 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import HOGQL, PAGEVIEW_EVENT, SCREEN_EVENT
-from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
-from posthog.queries.util import correct_result_for_sampling
+
+from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner
+from products.product_analytics.backend.hogql_queries.funnels.utils import funnel_window_interval_unit_to_sql
+
+# ClickHouse `cutQueryString` cuts from the first `?` to the next `#`, so it also cuts the
+# parameters of a hash-routed URL. `urlsplit` reads those as fragment and keeps them.
+QUERY_STRING_PATTERN = re_compile(r"\?[^#]*")
 
 EVENT_IN_SESSION_LIMIT_DEFAULT = 5
 SESSION_TIME_THRESHOLD_DEFAULT_SECONDS = 30 * 60  # 30 minutes
@@ -103,7 +110,9 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.NotIn,
                     left=ast.Field(chain=["path_item"]),
-                    right=ast.Constant(value=self.query.pathsFilter.excludeEvents),
+                    right=ast.Constant(
+                        value=[self._strip_query_string(event) for event in self.query.pathsFilter.excludeEvents]
+                    ),
                 )
             )
 
@@ -118,12 +127,20 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
 
         return event in (self.query.pathsFilter.includeEventTypes or [])
 
-    @staticmethod
-    def _strip_trailing_slash(url: Optional[str]) -> Optional[str]:
-        # Mirrors the `(.)/$` regex applied to event URLs in `construct_event_hogql`,
-        # so that startPoint/endPoint values match the normalized values stored in
-        # `compact_path` / `start_filtered_path`. The bare "/" URL is preserved.
-        if url and len(url) > 1 and url.endswith("/"):
+    def _strip_query_string(self, path_item: str) -> str:
+        if self.query.pathsFilter.stripQueryString:
+            return QUERY_STRING_PATTERN.sub("", path_item, count=1)
+        return path_item
+
+    def _normalize_target(self, url: Optional[str]) -> Optional[str]:
+        # Mirrors the normalization applied to event URLs in `construct_event_hogql`,
+        # so that startPoint/endPoint values match the values stored in
+        # `compact_path` / `start_filtered_path`: the query string is cut first when
+        # `stripQueryString` is set, then one trailing slash. The bare "/" URL is preserved.
+        if not url:
+            return url
+        url = self._strip_query_string(url)
+        if len(url) > 1 and url.endswith("/"):
             return url[:-1]
         return url
 
@@ -135,9 +152,12 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
             event_hogql = parse_expr(self.query.pathsFilter.pathsHogQLExpression)
 
         if self._should_query_event(PAGEVIEW_EVENT):
+            url_hogql: ast.Expr = parse_expr("ifNull(properties.$current_url, '')")
+            if self.query.pathsFilter.stripQueryString:
+                url_hogql = ast.Call(name="cutQueryString", args=[url_hogql])
             event_hogql = parse_expr(
-                "if(event = {event}, replaceRegexpAll(ifNull(properties.$current_url, ''), '(.)/$', '\\\\1'), {event_hogql})",
-                {"event": ast.Constant(value=PAGEVIEW_EVENT), "event_hogql": event_hogql},
+                "if(event = {event}, replaceRegexpAll({url}, '(.)/$', '\\\\1'), {event_hogql})",
+                {"event": ast.Constant(value=PAGEVIEW_EVENT), "url": url_hogql, "event_hogql": event_hogql},
             )
 
         if self._should_query_event(SCREEN_EVENT):
@@ -232,7 +252,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         if not self.query.funnelPathsFilter:
             raise ValueError("Funnel paths filter is required for funnel paths.")
 
-        from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
+        from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
 
         funnelPathType, funnelSource, funnelStep = (
             self.query.funnelPathsFilter.funnelPathType,
@@ -538,8 +558,8 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
 
     def get_target_clause(self) -> list[ast.Expr]:
         if self.query.pathsFilter.startPoint and self.query.pathsFilter.endPoint:
-            start_point = self._strip_trailing_slash(self.query.pathsFilter.startPoint)
-            end_point = self._strip_trailing_slash(self.query.pathsFilter.endPoint)
+            start_point = self._normalize_target(self.query.pathsFilter.startPoint)
+            end_point = self._normalize_target(self.query.pathsFilter.endPoint)
             clauses: list[ast.Expr] = [
                 ast.Alias(
                     alias=f"start_target_index",
@@ -594,7 +614,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         )
 
     def paths_per_person_query(self) -> ast.SelectQuery:
-        target_point = self._strip_trailing_slash(self.query.pathsFilter.endPoint or self.query.pathsFilter.startPoint)
+        target_point = self._normalize_target(self.query.pathsFilter.endPoint or self.query.pathsFilter.startPoint)
 
         path_tuples_expr = ast.Call(
             name="arrayZip",
@@ -887,14 +907,14 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
 
     def _calculate(self) -> PathsQueryResponse:
         query = self.to_query()
-        # Display-only response HogQL (never executed); bypass warehouse ACL so printing doesn't fail closed userless.
-        hogql = to_printed_hogql(query, self.team, bypass_warehouse_access_control=True)
+        hogql = self.response_hogql(query)
 
         response = execute_hogql_query(
             query_type="PathsQuery",
             query=query,
             team=self.team,
             user=self.user,
+            context=self.build_hogql_context(),
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,

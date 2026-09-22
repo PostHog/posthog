@@ -1,5 +1,6 @@
 import json
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -10,7 +11,9 @@ from requests.exceptions import ConnectionError as RequestsConnectionError
 from products.warehouse_sources.backend.temporal.data_imports.sources.ably.ably import (
     ABLY_VERSION_2,
     AblyResumeConfig,
+    _add_channel_path,
     _add_interval_start,
+    _add_message_time,
     _parse_interval_start,
     ably_source,
     get_resource,
@@ -20,6 +23,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ably.ably 
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+
+
+def _pages(response: SourceResponse) -> list[list[dict[str, Any]]]:
+    # SourceResponse.items is typed for async sources too; every Ably endpoint is synchronous.
+    return list(cast(Iterable[list[dict[str, Any]]], response.items()))
 
 
 class TestVersionHeader:
@@ -93,7 +102,7 @@ class TestAddIntervalStart:
 
 class TestGetResource:
     def test_full_refresh_has_no_incremental_params(self) -> None:
-        resource = get_resource("hour", should_use_incremental_field=False)
+        resource = get_resource("Stats", "hour", should_use_incremental_field=False)
         endpoint = resource["endpoint"]
         assert isinstance(endpoint, dict)
         assert "incremental" not in endpoint
@@ -104,7 +113,7 @@ class TestGetResource:
         assert params["direction"] == "forwards"
 
     def test_incremental_sets_start_and_end_params(self) -> None:
-        resource = get_resource("day", should_use_incremental_field=True)
+        resource = get_resource("Stats", "day", should_use_incremental_field=True)
         endpoint = resource["endpoint"]
         assert isinstance(endpoint, dict)
         incremental = endpoint["incremental"]
@@ -116,6 +125,47 @@ class TestGetResource:
         end_value = incremental["end_value"]
         assert end_value is not None and int(end_value) > 1_700_000_000_000
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
+
+    def test_channels_asks_for_details_and_never_merges(self) -> None:
+        # `by=value` is what makes /channels return objects instead of bare name strings, and the
+        # endpoint has no time filter, so an incremental sync request must still write a replace.
+        resource = get_resource("Channels", "hour", should_use_incremental_field=True)
+        endpoint = resource["endpoint"]
+        assert isinstance(endpoint, dict)
+        params = endpoint["params"]
+        assert isinstance(params, dict)
+        assert params["by"] == "value"
+        assert "incremental" not in endpoint
+        assert resource["write_disposition"] == "replace"
+
+
+class TestAddChannelPath:
+    @pytest.mark.parametrize(
+        ("channel_id", "expected"),
+        [
+            ("plain-channel", "plain-channel"),
+            # Ably channel names routinely carry these separators; an unencoded `/` would address
+            # a different path once substituted into /channels/{channel_id}/messages.
+            ("chat:room1", "chat%3Aroom1"),
+            ("user/42/inbox", "user%2F42%2Finbox"),
+            ("with space", "with%20space"),
+        ],
+    )
+    def test_percent_encodes_reserved_characters(self, channel_id: str, expected: str) -> None:
+        assert _add_channel_path({"channelId": channel_id})["channel_path"] == expected
+
+    def test_missing_channel_id_adds_nothing(self) -> None:
+        # The fan-out raises its own error naming the missing field; don't bind an empty path.
+        assert "channel_path" not in _add_channel_path({"status": {}})
+
+
+class TestAddMessageTime:
+    def test_derives_iso_datetime_from_unix_ms(self) -> None:
+        assert _add_message_time({"timestamp": 1705327200000})["message_time"] == "2024-01-15T14:00:00+00:00"
+
+    @pytest.mark.parametrize("timestamp", [None, "1705327200000"])
+    def test_missing_or_non_numeric_timestamp_sets_none(self, timestamp: Any) -> None:
+        assert _add_message_time({"timestamp": timestamp})["message_time"] is None
 
 
 def _make_http_response(body: list[dict[str, Any]], *, next_url: str | None = None, status_code: int = 200) -> Response:
@@ -149,8 +199,9 @@ class TestAblySourceResumeBehavior:
             mock_session.prepare_request.side_effect = lambda req: req
             mock_session.send.side_effect = fake_send
 
-            resource = ably_source(
+            response = ably_source(
                 api_key="app.key:secret",
+                endpoint="Stats",
                 unit="hour",
                 team_id=123,
                 job_id="test_job",
@@ -159,7 +210,7 @@ class TestAblySourceResumeBehavior:
                 api_version=ABLY_VERSION_2,
                 should_use_incremental_field=should_use_incremental_field,
             )
-            pages = list(resource)
+            pages = _pages(response)
             return sent_urls, pages
 
     def test_fresh_run_follows_link_header_and_saves_state(self) -> None:
@@ -213,6 +264,170 @@ class TestAblySourceResumeBehavior:
         manager.load_state.assert_not_called()
 
 
+class TestChannelFanout:
+    """End-to-end behaviour of the channel-scoped endpoints, which fan out over ``/channels``."""
+
+    def _drive(
+        self,
+        endpoint: str,
+        responses: list[Response],
+        *,
+        manager: MagicMock | None = None,
+        should_use_incremental_field: bool = False,
+        db_incremental_field_last_value: Any = None,
+    ) -> tuple[list[tuple[str, dict[str, Any]]], list[dict[str, Any]]]:
+        if manager is None:
+            manager = MagicMock(spec=ResumableSourceManager)
+            manager.can_resume.return_value = False
+        requests: list[tuple[str, dict[str, Any]]] = []
+        response_iter = iter(responses)
+
+        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
+            requests.append((request.url, dict(request.params)))
+            return next(response_iter)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+        ) as MockSession:
+            mock_session = MockSession.return_value
+            mock_session.headers = {}
+            mock_session.prepare_request.side_effect = lambda req: req
+            mock_session.send.side_effect = fake_send
+
+            response = ably_source(
+                api_key="app.key:secret",
+                endpoint=endpoint,
+                unit="hour",
+                team_id=123,
+                job_id="test_job",
+                resumable_source_manager=manager,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+                api_version=ABLY_VERSION_2,
+                should_use_incremental_field=should_use_incremental_field,
+            )
+            rows = [row for page in _pages(response) for row in page]
+            return requests, rows
+
+    def test_child_path_uses_the_encoded_channel_name(self) -> None:
+        # An unencoded `/` in the channel name would address a different Ably endpoint.
+        requests, rows = self._drive(
+            "ChannelMessages",
+            [
+                _make_http_response([{"channelId": "user/42/inbox", "status": {"isActive": True}}]),
+                _make_http_response([{"id": "msg-1", "timestamp": 1705327200000}]),
+            ],
+        )
+
+        assert [url for url, _ in requests] == [
+            "https://main.realtime.ably.net/channels",
+            "https://main.realtime.ably.net/channels/user%2F42%2Finbox/messages",
+        ]
+        assert rows[0]["channel_id"] == "user/42/inbox"
+        assert rows[0]["message_time"] == "2024-01-15T14:00:00+00:00"
+
+    def test_message_history_is_windowed_and_ordered_forwards(self) -> None:
+        # Ably history defaults to newest-first, which would walk the watermark backwards, and
+        # every request needs an explicit end because there is no open-ended "since X" mode.
+        requests, _ = self._drive(
+            "ChannelMessages",
+            [
+                _make_http_response([{"channelId": "chat", "status": {"isActive": True}}]),
+                _make_http_response([{"id": "msg-1", "timestamp": 1705327200000}]),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=1705327100000,
+        )
+
+        _, child_params = requests[1]
+        assert child_params["direction"] == "forwards"
+        assert child_params["start"] == 1705327100000
+        assert int(child_params["end"]) > 1_700_000_000_000
+
+    def test_presence_sends_no_time_window_on_an_incremental_run(self) -> None:
+        # Presence reports who is present now and exposes no time filter, so an incremental
+        # request must not grow start/end params the API would reject or ignore.
+        requests, rows = self._drive(
+            "Presence",
+            [
+                _make_http_response([{"channelId": "chat", "status": {"isActive": True}}]),
+                _make_http_response([{"id": "pres-1", "clientId": "alice", "action": "PRESENT"}]),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=1705327100000,
+        )
+
+        _, child_params = requests[1]
+        assert "start" not in child_params
+        assert "end" not in child_params
+        assert rows[0]["channel_id"] == "chat"
+
+    def test_parent_listing_asks_for_channel_details(self) -> None:
+        requests, _ = self._drive(
+            "Presence",
+            [
+                _make_http_response([{"channelId": "chat", "status": {"isActive": True}}]),
+                _make_http_response([]),
+            ],
+        )
+
+        assert requests[0][1]["by"] == "value"
+
+    def test_checkpoint_records_each_finished_channel(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        self._drive(
+            "Presence",
+            [
+                _make_http_response([{"channelId": "a"}, {"channelId": "b"}]),
+                _make_http_response([{"id": "pres-a"}]),
+                _make_http_response([{"id": "pres-b"}]),
+            ],
+            manager=manager,
+        )
+
+        saved = [call.args[0].fanout_state["completed"] for call in manager.save_state.call_args_list]
+        assert saved[-1] == ["/channels/a/presence", "/channels/b/presence"]
+
+    def test_resume_skips_channels_already_finished(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = AblyResumeConfig(
+            fanout_state={"completed": ["/channels/a/presence"], "current": None, "child_state": None}
+        )
+
+        requests, rows = self._drive(
+            "Presence",
+            [
+                _make_http_response([{"channelId": "a"}, {"channelId": "b"}]),
+                _make_http_response([{"id": "pres-b"}]),
+            ],
+            manager=manager,
+        )
+
+        assert [url for url, _ in requests] == [
+            "https://main.realtime.ably.net/channels",
+            "https://main.realtime.ably.net/channels/b/presence",
+        ]
+        assert [row["id"] for row in rows] == ["pres-b"]
+
+
+class TestUnknownEndpoint:
+    def test_raises_rather_than_syncing_the_wrong_table(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        with pytest.raises(ValueError, match="Unknown Ably endpoint: Nope"):
+            ably_source(
+                api_key="app.key:secret",
+                endpoint="Nope",
+                unit="hour",
+                team_id=123,
+                job_id="test_job",
+                resumable_source_manager=manager,
+                db_incremental_field_last_value=None,
+                api_version=ABLY_VERSION_2,
+            )
+
+
 def _make_redirect_response(location: str, status_code: int = 302) -> Response:
     resp = Response()
     resp.status_code = status_code
@@ -242,8 +457,9 @@ class TestAblyHostPinningAndRedirects:
             mock_session.prepare_request.side_effect = lambda req: req
             mock_session.send.side_effect = fake_send
 
-            resource = ably_source(
+            response = ably_source(
                 api_key="app.key:secret",
+                endpoint="Stats",
                 unit="hour",
                 team_id=123,
                 job_id="test_job",
@@ -251,7 +467,7 @@ class TestAblyHostPinningAndRedirects:
                 db_incremental_field_last_value=None,
                 api_version=ABLY_VERSION_2,
             )
-            list(resource)
+            _pages(response)
 
     def test_off_origin_next_link_is_rejected_before_sending(self) -> None:
         # A spoofed `Link: rel="next"` pointing off Ably's host must be refused before the

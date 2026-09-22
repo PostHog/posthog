@@ -164,6 +164,21 @@ export function usePrChangedFiles(prUrl: string | null, pollFast?: boolean) {
   );
 }
 
+export function useCommitChangedFiles(repo: string | null, sha: string | null) {
+  const trpc = useHostTRPC();
+  return useQuery(
+    trpc.git.getCommitChangedFiles.queryOptions(
+      { repo: repo as string, sha: sha as string },
+      {
+        enabled: !!repo && !!sha,
+        // A commit is immutable per sha, so a fetched file list never goes stale.
+        staleTime: Number.POSITIVE_INFINITY,
+        retry: 1,
+      },
+    ),
+  );
+}
+
 export function useBranchChangedFiles(
   repo: string | null,
   branch: string | null,

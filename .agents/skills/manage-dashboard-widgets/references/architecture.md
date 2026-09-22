@@ -117,7 +117,7 @@ export const DASHBOARD_WIDGET_REGISTRY = {
 
 Checklist steps: [checklist-new-widget-type.md §7](checklist-new-widget-type.md#7-frontend-registry).
 
-Catalog entry in `widget_types/catalog.ts` drives add modal, layouts, headers, previews, and **public/shared placeholder copy** — registry alone is not enough.
+Catalog entry in `widget_types/catalog.ts` drives add modal, layouts, headers, and **public/shared placeholder copy** (previews live in `widgets/previews/dashboardWidgetPreviews.ts`) — registry alone is not enough.
 
 Optional catalog `availability` declares project setup prerequisites (exception autocapture, etc.). Gating runs at **tile render** via `WidgetRuntimeAvailabilityGuard`, not in the add modal — see [availability-and-gating.md](availability-and-gating.md).
 
@@ -156,7 +156,7 @@ Import `Component` / `EditModal` directly in `registry.tsx` (no `React.lazy`). E
 - BE: per-type `widget_type` enum overrides (`test_widget_openapi_enums.py`; `build:widget-types` preflight)
 - BE: dashboard PATCH OpenAPI ⊆ runtime writables (`test_dashboard_openapi.py` + `api/test/dashboard_openapi_test_helpers.py`)
 - FE: `DASHBOARD_WIDGET_REGISTRY satisfies Record<DashboardWidgetCatalogKey, …>`
-- FE: `DASHBOARD_WIDGET_PREVIEWS` keyed by catalog; `registry.test.tsx` covers every catalog key
+- FE: `DASHBOARD_WIDGET_PREVIEWS` (`widgets/previews/dashboardWidgetPreviews.ts`) keyed by catalog; `registry.test.tsx` covers every catalog key
 - FE: Zod config top-level keys match backend property map (`widgetConfigSchemaParity.test.ts` + `widget-config-property-keys.json`)
 - Runtime: `getDashboardWidgetDefinition` → PostHog `captureException` on miss (deploy skew)
 

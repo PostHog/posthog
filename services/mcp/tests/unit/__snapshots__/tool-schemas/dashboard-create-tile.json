@@ -1,0 +1,92 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "body": {
+            "description": "Markdown body. For image, provide exactly one Markdown image. For text, provide Markdown content that is not an image-only body.",
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string"
+        },
+        "color": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional tile accent color."
+        },
+        "id": {
+            "description": "Dashboard ID. Use dashboard-get or dashboards-get-all to find it.",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+        },
+        "layouts": {
+            "description": "Optional dashboard-grid layout for desktop (sm) and mobile (xs).",
+            "properties": {
+                "sm": {
+                    "properties": {
+                        "h": {
+                            "maximum": 9007199254740991,
+                            "minimum": 1,
+                            "type": "integer"
+                        },
+                        "w": {
+                            "maximum": 9007199254740991,
+                            "minimum": 1,
+                            "type": "integer"
+                        },
+                        "x": {
+                            "maximum": 9007199254740991,
+                            "minimum": 0,
+                            "type": "integer"
+                        },
+                        "y": {
+                            "maximum": 9007199254740991,
+                            "minimum": 0,
+                            "type": "integer"
+                        }
+                    },
+                    "type": "object"
+                },
+                "xs": {
+                    "properties": {
+                        "h": {
+                            "maximum": 9007199254740991,
+                            "minimum": 1,
+                            "type": "integer"
+                        },
+                        "w": {
+                            "maximum": 9007199254740991,
+                            "minimum": 1,
+                            "type": "integer"
+                        },
+                        "x": {
+                            "maximum": 9007199254740991,
+                            "minimum": 0,
+                            "type": "integer"
+                        },
+                        "y": {
+                            "maximum": 9007199254740991,
+                            "minimum": 0,
+                            "type": "integer"
+                        }
+                    },
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "type": {
+            "description": "Tile type. Use text for Markdown content. Use image for a body with exactly one Markdown image.",
+            "enum": ["text", "image"],
+            "type": "string"
+        }
+    },
+    "required": ["id", "type", "body"],
+    "type": "object"
+}

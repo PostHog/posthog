@@ -6,12 +6,12 @@ import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import posthog from 'lib/posthog-typed'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
-interface NavSearchButtonProps {
-    isLayoutNavCollapsed: boolean
+/** Icon-only search trigger, used in the collapsed nav where there is no room for the search bar. */
+export function NavSearchButton({
+    toggleCommand,
+}: {
     toggleCommand: (source: CommandOpenSource) => void
-}
-
-export function NavSearchButton({ isLayoutNavCollapsed, toggleCommand }: NavSearchButtonProps): JSX.Element {
+}): JSX.Element {
     return (
         <ButtonPrimitive
             iconOnly
@@ -21,7 +21,7 @@ export function NavSearchButton({ isLayoutNavCollapsed, toggleCommand }: NavSear
                     <span>Search</span> <RenderKeybind keybind={[keyBinds.search]} />
                 </div>
             }
-            tooltipPlacement={isLayoutNavCollapsed ? 'right' : undefined}
+            tooltipPlacement="right"
             onClick={() => {
                 posthog.capture('nav search clicked')
                 toggleCommand('nav-search-button')
@@ -32,7 +32,7 @@ export function NavSearchButton({ isLayoutNavCollapsed, toggleCommand }: NavSear
     )
 }
 
-/** Input-styled full-width search trigger shown below the nav header in the `search-bar` variant of the Cmd+K nav experiment. */
+/** Input-styled full-width search trigger shown below the nav header when the nav is expanded. */
 export function NavSearchBar({ toggleCommand }: { toggleCommand: (source: CommandOpenSource) => void }): JSX.Element {
     return (
         <ButtonPrimitive

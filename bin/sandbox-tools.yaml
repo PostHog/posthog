@@ -43,7 +43,7 @@ tools:
           - ~/.config/graphite
 
     - name: metabase
-      description: 'Metabase SSO cookies for the query-clickhouse-via-metabase skill (hogli metabase:*, regions us/eu/dev)'
+      description: 'Metabase SSO cookies for the querying-production-databases-via-metabase skill (hogli metabase:*, regions us/eu/dev)'
       copy:
           - ~/.config/posthog/metabase/cookie-us
           - ~/.config/posthog/metabase/cookie-eu

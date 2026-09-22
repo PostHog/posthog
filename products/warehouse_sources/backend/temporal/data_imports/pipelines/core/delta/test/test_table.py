@@ -11,7 +11,11 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import (
+    _PURGE_S3_PREFIX_MAX_ATTEMPTS,
+    DeltaTableRef,
+    _purge_s3_prefix,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import make_logger
 
 
@@ -294,3 +298,39 @@ class TestIsTableCorrupted:
             result = await table_ref.is_table_corrupted()
 
         assert result is expected
+
+
+class TestPurgeS3PrefixRetriesPermissionError:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
+
+    # A HeadObject 403 never carries the underlying S3 error code in its body (AWS omits it for HEAD
+    # requests), so a fresh client's brief IMDS/STS credential-resolution race surfaces identically to a
+    # genuine permission problem: a bare PermissionError("Forbidden"). Before this fix, `_purge_s3_prefix`
+    # only retried the needles in `is_transient_object_store_error` and raised immediately on any
+    # PermissionError, failing the whole sync for what was actually a transient, self-healing race.
+    @pytest.mark.asyncio
+    async def test_retries_permission_error_and_succeeds_once_it_clears(self):
+        with (
+            patch(
+                f"{self._MODULE}._purge_s3_prefix_once",
+                new=AsyncMock(side_effect=[PermissionError("Forbidden"), None]),
+            ) as mock_once,
+            patch(f"{self._MODULE}.asyncio.sleep", new=AsyncMock()),
+        ):
+            await _purge_s3_prefix(MagicMock(), "s3://bucket/prefix")
+
+        assert mock_once.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_gives_up_after_max_attempts_on_persistent_permission_error(self):
+        with (
+            patch(
+                f"{self._MODULE}._purge_s3_prefix_once",
+                new=AsyncMock(side_effect=PermissionError("Forbidden")),
+            ) as mock_once,
+            patch(f"{self._MODULE}.asyncio.sleep", new=AsyncMock()),
+        ):
+            with pytest.raises(PermissionError):
+                await _purge_s3_prefix(MagicMock(), "s3://bucket/prefix")
+
+        assert mock_once.await_count == _PURGE_S3_PREFIX_MAX_ATTEMPTS

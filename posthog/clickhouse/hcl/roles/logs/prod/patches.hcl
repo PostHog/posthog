@@ -33,6 +33,50 @@ database "posthog" {
       replica_name = "{replica}"
     }
   }
+  # Both prods kept the original span-count projection and added the is_root_span
+  # cut alongside it; local and dev carry the is_root_span cut under the original
+  # name instead.
+  patch_table "trace_spans" {
+    projection "projection_aggregate_counts" {
+      query = <<SQL
+SELECT
+  team_id,
+  time_bucket,
+  toStartOfMinute(timestamp),
+  service_name,
+  resource_fingerprint,
+  count() AS event_count
+GROUP BY
+  team_id, time_bucket, toStartOfMinute(timestamp), service_name, resource_fingerprint
+SQL
+
+    }
+    projection "projection_index_trace_id" {
+      query = <<SQL
+SELECT _part_offset
+ORDER BY trace_id
+SQL
+
+      settings = {
+        index_granularity = "512"
+      }
+    }
+    projection "projection_aggregate_counts2" {
+      query = <<SQL
+SELECT
+  team_id,
+  time_bucket,
+  toStartOfMinute(timestamp),
+  service_name,
+  resource_fingerprint,
+  is_root_span,
+  count() AS event_count
+GROUP BY
+  team_id, time_bucket, toStartOfMinute(timestamp), service_name, is_root_span, resource_fingerprint
+SQL
+
+    }
+  }
   patch_table "trace_attributes_distributed" {
     engine "distributed" {
       cluster_name    = "logs"

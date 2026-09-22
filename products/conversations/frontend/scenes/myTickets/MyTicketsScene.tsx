@@ -23,10 +23,6 @@ export const scene: SceneExport = {
     logic: myTicketsSceneLogic,
 }
 
-// Sized against the viewport so the thread fills the page without the scene itself scrolling
-const PANE_MIN_HEIGHT = 'min(400px, calc(100svh - 16rem))'
-const PANE_MAX_HEIGHT = 'calc(100svh - 16rem)'
-
 export function MyTicketsScene(): JSX.Element {
     const { view, currentTicket, newTicketDraftRevision, isBillingResolved } = useValues(sidepanelTicketsLogic)
     const { preflight } = useValues(preflightLogic)
@@ -81,31 +77,37 @@ export function MyTicketsScene(): JSX.Element {
     } else if (view === 'ticket' && currentTicket) {
         pane = (
             <Ticket
-                backButtonClassName="lg:hidden"
-                messagesMinHeight={PANE_MIN_HEIGHT}
-                messagesMaxHeight={PANE_MAX_HEIGHT}
+                fillParent
+                backButtonClassName="@min-[48rem]/main-content:hidden"
+                messagesMinHeight="300px"
+                messagesMaxHeight="none"
             />
         )
     } else {
         pane = (
-            <div className="flex items-center justify-center border border-dashed rounded-lg text-muted-alt min-h-[min(400px,calc(100svh-16rem))]">
+            <div className="flex items-center justify-center border border-dashed rounded-lg text-muted-alt h-full min-h-80">
                 Select a ticket to view the conversation
             </div>
         )
     }
 
     return (
-        <SceneContent>
+        <SceneContent className="flex-1 min-h-0 pb-4">
             <SceneTitleSection
                 name="Your tickets"
                 description="Support conversations with the PostHog team"
                 resourceType={{ type: 'conversation' }}
             />
-            <div className="flex flex-col lg:flex-row items-start gap-4">
-                <div className="w-full lg:w-96 shrink-0 overflow-y-auto max-h-[calc(100svh-16rem)]">
+            {/* Overflow clipping is only safe in the side-by-side row, where the list has a bounded
+                height and its inner scroller can run. Stacked, the list is content-sized; clipping
+                here would hide tickets and leave the thread with no height. */}
+            <div className="flex flex-col gap-4 @min-[48rem]/main-content:flex-row @min-[48rem]/main-content:flex-1 @min-[48rem]/main-content:min-h-0 @min-[48rem]/main-content:overflow-hidden">
+                <div className="w-full @min-[48rem]/main-content:w-96 @min-[48rem]/main-content:shrink-0 @min-[48rem]/main-content:min-h-0 @min-[48rem]/main-content:h-full @min-[48rem]/main-content:overflow-hidden">
                     <TicketsList selectedTicketId={view === 'ticket' ? (currentTicket?.id ?? null) : null} />
                 </div>
-                <div className="flex-1 min-w-0 w-full">{pane}</div>
+                <div className="w-full min-w-0 min-h-80 @min-[48rem]/main-content:flex-1 @min-[48rem]/main-content:min-h-0 @min-[48rem]/main-content:flex @min-[48rem]/main-content:flex-col">
+                    {pane}
+                </div>
             </div>
         </SceneContent>
     )

@@ -80,4 +80,29 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "type": "The type of object the template creates (e.g. sheet).",
         },
     },
+    "report_columns": {
+        "description": "A column in a report — one per report the account can access, fanned out across every report.",
+        "docs_url": "https://developers.smartsheet.com/api/smartsheet/openapi/reports/listreportcolumns",
+        "columns": {
+            "reportId": "Identifier of the report this column belongs to.",
+            "virtualId": "The virtual ID of the report column, unique within its report.",
+            "title": "The column's title.",
+            "type": "The column type (e.g. TEXT_NUMBER, DATE, CONTACT_LIST, CHECKBOX).",
+            "systemColumnType": "The system column type, if any (e.g. CREATED_BY, MODIFIED_DATE, AUTO_NUMBER).",
+            "index": "Zero-based position of the column within the report.",
+            "primary": "Whether this is the report's primary column.",
+            "sheetNameColumn": "Whether this is the special sheet-name column identifying each row's source sheet.",
+            "hidden": "Whether the column is hidden.",
+            "width": "Display width of the column, in pixels.",
+        },
+    },
+    "report_scope": {
+        "description": "The scope of a report — its source sheets and source workspaces, fanned out across every report.",
+        "docs_url": "https://developers.smartsheet.com/api/smartsheet/openapi/reports/getreportscope",
+        "columns": {
+            "reportId": "Identifier of the report this scope entry belongs to.",
+            "assetType": "The kind of source asset, either 'sheet' or 'workspace'.",
+            "assetId": "Identifier of the source asset, according to its assetType.",
+        },
+    },
 }

@@ -4,6 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { parse as parseYaml } from 'yaml'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { compileRecipe, StoredRecipe } from '@posthog/llm-normalizer'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -15,7 +16,6 @@ import {
 } from '../generated/api'
 import { ParserRecipeApi } from '../generated/api.schemas'
 import { applyTeamParserRecipes } from '../messageNormalization'
-import { compileRecipe, StoredRecipe } from '../normalizer'
 
 export interface CustomRecipeItem {
     id: string

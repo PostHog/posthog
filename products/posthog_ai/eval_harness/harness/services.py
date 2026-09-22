@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import os
+import sys
 import json
 import shutil
+import hashlib
 import logging
+import zipfile
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -12,21 +15,31 @@ from django.conf import settings
 from django.db import connections
 
 from products.posthog_ai.eval_harness.long_lived_subprocess import LongLivedSubprocessManager, SubprocessStartupError
-from products.tasks.backend.facade.agents import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
+from products.tasks.backend.facade.agents import (
+    ENV_LOCAL_SKILLS_HOST_PATH,
+    MCP_EXEC_SKILLS_FEATURE_FLAG,
+    LocalSkillsCache,
+)
 
-from .ports import LLM_GATEWAY_PORT, MCP_PORT, PERSONHOG_REPLICA_PORT, PERSONHOG_ROUTER_PORT
+from .ports import LLM_GATEWAY_PORT, MCP_PORT, PERSONHOG_REPLICA_PORT, PERSONHOG_ROUTER_PORT, SKILL_ARCHIVE_PORT
 from .providers import PreflightError
 
 logger = logging.getLogger(__name__)
 
 LONG_LIVED_SUBPROCESSES = LongLivedSubprocessManager()
+_ZIP_FIXED_TIME = (2020, 1, 1, 0, 0, 0)
 
 
-def start_llm_gateway(live_server_url: str) -> Callable[[], None]:
+def start_llm_gateway(live_server_url: str, agent_model: str) -> Callable[[], None]:
     """Start the LLM gateway as a subprocess.
 
     Mirrors ``bin/start-llm-gateway``: runs uvicorn on a non-default port.
     The sandbox's agent-server uses this to proxy LLM calls to Anthropic.
+
+    ``agent_model`` is declared free-tier on this gateway, because the gate it would otherwise hit
+    cannot mean anything here: every case runs as a freshly minted team that has never been billed,
+    so ``check_free_tier_model_access`` sees ``code_usage_billed=False`` and rejects the run's model
+    with a 403 before the agent sends its first message.
     """
     gateway_dir = Path(settings.BASE_DIR) / "services" / "llm-gateway"
     venv_dir = gateway_dir / ".venv"
@@ -60,6 +73,9 @@ def start_llm_gateway(live_server_url: str) -> Callable[[], None]:
         "LLM_GATEWAY_DATABASE_URL": test_db_url,
         "LLM_GATEWAY_DEBUG": "true",
         "LLM_GATEWAY_POSTHOG_HOST": live_server_url,
+        # Only the model this run uses, so the gate still rejects a typo rather than waving through
+        # anything the agent-server happens to ask for.
+        "LLM_GATEWAY_POSTHOG_CODE_FREE_TIER_MODELS": json.dumps([agent_model]),
     }
 
     logger.info("Starting LLM gateway on port %d", LLM_GATEWAY_PORT)
@@ -83,7 +99,12 @@ def start_llm_gateway(live_server_url: str) -> Callable[[], None]:
     return stop
 
 
-def start_mcp_server(live_server_url: str) -> Callable[[], None]:
+def start_mcp_server(
+    live_server_url: str,
+    skill_archive_url: str | None,
+    *,
+    exec_skills_enabled: bool,
+) -> Callable[[], None]:
     """Start the MCP server as a subprocess for the eval session.
 
     Pointed at the in-process Django live server (which uses the test DB).
@@ -93,6 +114,9 @@ def start_mcp_server(live_server_url: str) -> Callable[[], None]:
     Cloudflare Worker is now a proxy that forwards to a regional Hono
     deployment, so Hono is what real users hit.
     """
+    if exec_skills_enabled and skill_archive_url is None:
+        raise ValueError("skill_archive_url is required when exec skills are enabled")
+
     mcp_dir = Path(settings.BASE_DIR) / "services" / "mcp"
     if not (mcp_dir / "node_modules").exists():
         logger.info("Installing MCP server dependencies")
@@ -113,14 +137,30 @@ def start_mcp_server(live_server_url: str) -> Callable[[], None]:
         "HOST": "0.0.0.0",
         # The MCP server evaluates feature flags via posthog-node, which is disabled
         # here (no POSTHOG_ANALYTICS_* config), so every flag would resolve false.
-        # Force flag-gated behavior on for evals via the dev/test-only override seam
+        # Force the selected behavior via the dev/test-only override seam
         # (honored only when NODE_ENV is explicitly development/test — set above).
-        # product-data-catalog gates the metric-discovery section of the execute-sql
-        # description; the governed-metrics evals exercise that path.
-        "FEATURE_FLAG_OVERRIDES": json.dumps({"product-data-catalog": True}),
+        # revamped-py-notebooks gates the markdown notebook tools (create-markdown,
+        # add-cell, update-cell, delete-cell, get, list-frames). It also *hides* the
+        # legacy notebooks-create / notebooks-retrieve pair, which the two surfaces
+        # being mutually exclusive makes unavoidable — an eval of the legacy tools
+        # needs its own lever, not this one. mcp-exec-skills follows the run's
+        # skill delivery mode.
+        "FEATURE_FLAG_OVERRIDES": json.dumps(
+            {"revamped-py-notebooks": True, MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled}
+        ),
     }
 
-    logger.info("Starting MCP server (Hono runtime) on port %d (API: %s)", MCP_PORT, api_url)
+    # Never let a shell-level archive URL contaminate the bundled-skills baseline.
+    env.pop("POSTHOG_MCP_SKILLS_URL", None)
+    if exec_skills_enabled and skill_archive_url is not None:
+        env["POSTHOG_MCP_SKILLS_URL"] = skill_archive_url
+
+    logger.info(
+        "Starting MCP server (Hono runtime) on port %d (API: %s, exec skills: %s)",
+        MCP_PORT,
+        api_url,
+        exec_skills_enabled,
+    )
     _, stop = LONG_LIVED_SUBPROCESSES.start(
         name="MCP server",
         port=MCP_PORT,
@@ -128,6 +168,8 @@ def start_mcp_server(live_server_url: str) -> Callable[[], None]:
         cwd=mcp_dir,
         env=env,
         log_prefix="mcp",
+        # Cover the 60-second skill warmup, an in-flight download, and the development build.
+        readiness_timeout=120 if exec_skills_enabled else 30,
     )
 
     logger.info("MCP server ready on port %d", MCP_PORT)
@@ -268,6 +310,50 @@ def build_local_skills(*, set_bind_mount_env: bool) -> Path:
         # there would be inert.
         os.environ[ENV_LOCAL_SKILLS_HOST_PATH] = str(dist_dir)
     return dist_dir
+
+
+def package_local_skills_archive(skills_dir: Path, archive_path: Path | None = None) -> Path:
+    """Create a deterministic MCP archive from the rendered working-tree skills."""
+    destination = archive_path or skills_dir.parent / "skills.zip"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
+    with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
+        for file_path in sorted(skills_dir.rglob("*")):
+            if not file_path.is_file():
+                continue
+            relative_path = file_path.relative_to(skills_dir)
+            if any(part.startswith(".") or part == "__pycache__" for part in relative_path.parts):
+                continue
+            info = zipfile.ZipInfo(relative_path.as_posix(), date_time=_ZIP_FIXED_TIME)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, file_path.read_bytes())
+
+    return destination
+
+
+def start_skill_archive_server(archive_path: Path) -> tuple[str, Callable[[], None]]:
+    """Serve the local skill archive to MCP under a content-addressed URL."""
+    archive_digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()[:16]
+    archive_url = f"http://127.0.0.1:{SKILL_ARCHIVE_PORT}/{archive_path.name}?v={archive_digest}"
+    logger.info("Starting skill archive server on port %d", SKILL_ARCHIVE_PORT)
+    _, stop = LONG_LIVED_SUBPROCESSES.start(
+        name="skill archive server",
+        port=SKILL_ARCHIVE_PORT,
+        cmd=[
+            sys.executable,
+            "-m",
+            "http.server",
+            str(SKILL_ARCHIVE_PORT),
+            "--bind",
+            "127.0.0.1",
+            "--directory",
+            str(archive_path.parent),
+        ],
+        cwd=archive_path.parent,
+        env={**os.environ},
+        log_prefix="skill-archive",
+    )
+    return archive_url, stop
 
 
 def stop_all_subprocesses() -> None:

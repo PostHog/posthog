@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock
 
 import requests
@@ -116,8 +116,12 @@ class TestToDate:
         assert _to_date(value) == expected
 
 
-@freeze_time("2024-06-15")
 class TestWindowParams:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2024-06-15", tick=False):
+            yield
+
     def test_non_windowed_endpoint_returns_empty(self) -> None:
         config = FINANCIAL_MODELLING_ENDPOINTS["company_profiles"]
         assert (

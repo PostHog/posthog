@@ -53,6 +53,19 @@ def convert_enabled_thinking_to_adaptive(request_data: dict[str, Any]) -> dict[s
     return normalized
 
 
+def force_stream_usage(kwargs: dict[str, Any], *, continuous_usage_stats: bool) -> None:
+    if not kwargs.get("stream"):
+        return
+    stream_options = dict(kwargs.get("stream_options") or {})
+    stream_options["include_usage"] = True
+    if continuous_usage_stats:
+        stream_options["continuous_usage_stats"] = True
+    kwargs["stream_options"] = stream_options
+    extra_body = dict(kwargs.get("extra_body") or {})
+    extra_body["stream_options"] = stream_options
+    kwargs["extra_body"] = extra_body
+
+
 def drop_orphaned_clear_thinking(request_data: dict[str, Any], *, product: str) -> dict[str, Any]:
     """Strip a `clear_thinking_20251015` edit the request can't legally carry.
 

@@ -24,9 +24,10 @@ const puppeteerCapture = require('puppeteer-capture')
 
 const ORIGINAL_ENV = process.env
 
-function mockBrowser(): jest.Mocked<Browser> {
+function mockBrowser(spawnfile = '/usr/local/bin/chrome-headless-shell'): jest.Mocked<Browser> {
     const handlers: Record<string, () => void> = {}
     return {
+        process: jest.fn(() => ({ spawnfile })),
         newPage: jest.fn(),
         close: jest.fn(),
         on: jest.fn((event: string, handler: () => void) => {
@@ -94,6 +95,55 @@ describe('BrowserPool', () => {
         await pool.releasePage(p1)
         await pool.releasePage(p2)
         expect(pool.stats.activePages).toBe(0)
+    })
+
+    it('rejects launch() and closes the browser when it is not chrome-headless-shell', async () => {
+        const browser = mockBrowser('/usr/bin/chromium')
+        puppeteerCapture.launch.mockResolvedValue(browser)
+
+        pool = new BrowserPool(100)
+        await expect(pool.launch()).rejects.toThrow('/usr/bin/chromium')
+        expect(browser.close).toHaveBeenCalled()
+
+        // The refused browser must not stay in the idle pool for getPage to hand out.
+        const good = mockBrowser()
+        good.newPage.mockResolvedValue(mockPage())
+        puppeteerCapture.launch.mockResolvedValue(good)
+        await pool.getPage()
+        expect(puppeteerCapture.launch).toHaveBeenCalledTimes(2)
+    })
+
+    it('closes the browser instead of orphaning it when newPage throws', async () => {
+        const browser = mockBrowser()
+        browser.newPage.mockRejectedValue(new Error('Target closed'))
+        puppeteerCapture.launch.mockResolvedValue(browser)
+
+        pool = new BrowserPool(100)
+        await expect(pool.getPage()).rejects.toThrow('Target closed')
+
+        // The slot was already popped from idle; without the close this Chrome process leaks.
+        expect(browser.close).toHaveBeenCalled()
+        expect(pool.stats.activePages).toBe(0)
+    })
+
+    it('closes released browsers beyond the idle cap instead of keeping them warm', async () => {
+        const browsers = [mockBrowser(), mockBrowser(), mockBrowser()]
+        for (const b of browsers) {
+            b.newPage.mockImplementation(() => Promise.resolve(mockPage()))
+        }
+        puppeteerCapture.launch
+            .mockResolvedValueOnce(browsers[0])
+            .mockResolvedValueOnce(browsers[1])
+            .mockResolvedValueOnce(browsers[2])
+
+        pool = new BrowserPool(100)
+        const pages = [await pool.getPage(), await pool.getPage(), await pool.getPage()]
+        for (const p of pages) {
+            await pool.releasePage(p)
+        }
+
+        // maxIdleBrowsers defaults to 2: the third release closes its browser.
+        expect(browsers.filter((b) => b.close.mock.calls.length > 0)).toHaveLength(1)
     })
 
     it('reuses idle browser for sequential getPage calls', async () => {

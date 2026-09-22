@@ -3,11 +3,12 @@ import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } fro
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
+import { getRelativeNextPath } from 'lib/utils/url'
 import { getPasskeyErrorMessage } from 'scenes/settings/user/passkeys/utils'
 import type { RegistrationBeginResponse } from 'scenes/settings/user/passkeySettingsLogic'
 
@@ -310,6 +311,11 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                     if (values.turnstileToken && values.challengeNonce) {
                         submitPayload.turnstile_token = values.turnstileToken
                         submitPayload.challenge_nonce = values.challengeNonce
+                    }
+
+                    const nextUrl = getRelativeNextPath(router.values.searchParams['next'], location)
+                    if (nextUrl) {
+                        submitPayload.next_url = nextUrl
                     }
 
                     const res = await api.create(`api/signup/${values.invite.id}/`, submitPayload)

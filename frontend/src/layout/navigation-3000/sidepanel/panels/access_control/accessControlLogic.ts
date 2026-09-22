@@ -91,6 +91,7 @@ export interface accessControlLogicValues {
         | 'dashboard_template'
         | 'data_catalog'
         | 'data_catalog_approval'
+        | 'data_deletion'
         | 'dataset'
         | 'early_access_feature'
         | 'element'
@@ -320,22 +321,27 @@ export interface accessControlLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
+                | 'billing'
                 | 'business_knowledge'
                 | 'canvas'
                 | 'clickhouse_test_cluster_perf'
                 | 'cohort'
                 | 'comment'
+                | 'context_layer_internal'
                 | 'conversation'
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
                 | 'data_catalog_approval'
+                | 'data_deletion'
                 | 'dataset'
                 | 'early_access_feature'
                 | 'element'
@@ -401,6 +407,7 @@ export interface accessControlLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -415,6 +422,7 @@ export interface accessControlLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -444,6 +452,7 @@ export interface accessControlLogicMeta {
             | 'dashboard_template'
             | 'data_catalog'
             | 'data_catalog_approval'
+            | 'data_deletion'
             | 'dataset'
             | 'early_access_feature'
             | 'element'
@@ -537,22 +546,27 @@ export interface accessControlLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
+                | 'billing'
                 | 'business_knowledge'
                 | 'canvas'
                 | 'clickhouse_test_cluster_perf'
                 | 'cohort'
                 | 'comment'
+                | 'context_layer_internal'
                 | 'conversation'
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
                 | 'data_catalog_approval'
+                | 'data_deletion'
                 | 'dataset'
                 | 'early_access_feature'
                 | 'element'
@@ -618,6 +632,7 @@ export interface accessControlLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -632,6 +647,7 @@ export interface accessControlLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -651,22 +667,27 @@ export interface accessControlLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
+                | 'billing'
                 | 'business_knowledge'
                 | 'canvas'
                 | 'clickhouse_test_cluster_perf'
                 | 'cohort'
                 | 'comment'
+                | 'context_layer_internal'
                 | 'conversation'
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
                 | 'data_catalog_approval'
+                | 'data_deletion'
                 | 'dataset'
                 | 'early_access_feature'
                 | 'element'
@@ -732,6 +753,7 @@ export interface accessControlLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -746,6 +768,7 @@ export interface accessControlLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -944,6 +967,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     | 'dashboard_template'
                     | 'data_catalog'
                     | 'data_catalog_approval'
+                    | 'data_deletion'
                     | 'dataset'
                     | 'early_access_feature'
                     | 'element'
@@ -1055,6 +1079,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     | 'dashboard_template'
                     | 'data_catalog'
                     | 'data_catalog_approval'
+                    | 'data_deletion'
                     | 'dataset'
                     | 'early_access_feature'
                     | 'element'
@@ -1172,6 +1197,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     | 'dashboard_template'
                     | 'data_catalog'
                     | 'data_catalog_approval'
+                    | 'data_deletion'
                     | 'dataset'
                     | 'early_access_feature'
                     | 'element'
@@ -1298,23 +1324,27 @@ export const accessControlLogic = kea<accessControlLogicType>([
             },
         ],
 
-        // What the object falls back to with no default of its own: the project's rule for
-        // everyone, or the resource's built-in level when the project sets no rule at all.
-        // A null inherited_resource means nothing sits above this object, so there is no
-        // "No override" to offer — a project's own default is the case that hits.
+        // What the object falls back to with no default of its own, resolved by the backend's
+        // access walker so it cannot disagree with enforcement. A null inherited_access means
+        // nothing sits above this object, so there is no "No override" to offer — a project's
+        // own default is the case that hits.
         inheritedAccess: [
             (s) => [s.accessControls],
             (accessControls: AccessControlResponseType | null): InheritedAccess | null => {
-                const inheritedResource = accessControls?.inherited_resource
-                const inheritedLevel = accessControls?.inherited_access_level
-                if (!inheritedResource || !inheritedLevel) {
+                const inherited = accessControls?.inherited_access
+                if (!inherited) {
                     return null
                 }
+                // A configured rule and the built-in fallback are both "the default for <x>", so
+                // one phrasing covers them without claiming someone set it. A level that comes
+                // through the object's parent (a table's source) names that parent.
+                const reason =
+                    inherited.source === 'parent_object' && inherited.source_display_name
+                        ? `Based on the default for the ${inherited.source_display_name} source`
+                        : `Based on the default for ${pluralizeResource(inherited.source_resource)}`
                 return {
-                    label: humanizeAccessControlLevel(inheritedLevel),
-                    // A configured project rule and the built-in fallback are both "the default
-                    // for <resource>", so one reason covers them without claiming someone set it
-                    reason: `Based on the default for ${pluralizeResource(inheritedResource)}`,
+                    label: humanizeAccessControlLevel(inherited.access_level),
+                    reason,
                 }
             },
         ],

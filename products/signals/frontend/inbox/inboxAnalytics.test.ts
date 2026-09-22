@@ -4,6 +4,7 @@ import {
     captureInboxQueryChanged,
     captureInboxReportAction,
     captureInboxReportClosed,
+    captureInboxReportScrolled,
     captureInboxReportsImpressed,
     captureInboxSettingsChanged,
     captureInboxViewed,
@@ -28,7 +29,6 @@ function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
         status: SignalReportStatus.READY,
         total_weight: 1,
         signal_count: 1,
-        relevant_user_count: null,
         created_at: '2026-06-20T00:00:00Z',
         updated_at: '2026-06-20T00:00:00Z',
         artefact_count: 0,
@@ -49,12 +49,34 @@ describe('inboxAnalytics', () => {
             tab: 'reports',
             reports: [],
             totalCount: 0,
+            pullsTabCount: 3,
+            reportsTabCount: 212,
             hasActiveFilters: false,
             sourceProductFilter: [],
             priorityFilter: [],
             scope: 'for-you',
         })
         expect(lastCapture(INBOX_EVENTS.VIEWED)?.inbox_client).toBe('cloud')
+    })
+
+    it('carries the tab badge counts regardless of the active tab', () => {
+        captureInboxViewed({
+            tab: 'pulls',
+            reports: [],
+            totalCount: 0,
+            pullsTabCount: 0,
+            reportsTabCount: 212,
+            hasActiveFilters: false,
+            sourceProductFilter: [],
+            priorityFilter: [],
+            scope: 'for-you',
+        })
+        expect(lastCapture(INBOX_EVENTS.VIEWED)).toMatchObject({
+            tab: 'pulls',
+            total_count: 0,
+            pulls_tab_count: 0,
+            reports_tab_count: 212,
+        })
     })
 
     it('breaks the visible reports down by priority and actionability', () => {
@@ -66,6 +88,8 @@ describe('inboxAnalytics', () => {
                 makeReport({ id: 'c', priority: null, actionability: null }),
             ],
             totalCount: 3,
+            pullsTabCount: 1,
+            reportsTabCount: 3,
             hasActiveFilters: true,
             sourceProductFilter: ['error_tracking'],
             priorityFilter: ['P0'],
@@ -158,6 +182,24 @@ describe('inboxAnalytics', () => {
         })
     })
 
+    it('carries the dwell before a detail-pane scroll, without the report title', () => {
+        captureInboxReportScrolled({
+            report: makeReport({ id: 'r9' }),
+            rank: 3,
+            listSize: 20,
+            timeSinceOpenMs: 6200,
+        })
+        const props = lastCapture(INBOX_EVENTS.REPORT_SCROLLED)
+        expect(props).toMatchObject({
+            report_id: 'r9',
+            rank: 3,
+            list_size: 20,
+            time_since_open_ms: 6200,
+        })
+        expect(props?.report_title).toBeUndefined()
+        expect(JSON.stringify(props)).not.toContain('Something broke')
+    })
+
     it('records how the query moved without shipping what was typed into the search box', () => {
         captureInboxQueryChanged({
             change: 'search',
@@ -168,6 +210,7 @@ describe('inboxAnalytics', () => {
             sourceProductFilter: ['error_tracking'],
             scoutFilter: [],
             priorityFilter: ['P0'],
+            stateFilter: ['monitoring'],
             searchQuery: '  acme checkout crash  ',
             hasActiveFilters: true,
         })

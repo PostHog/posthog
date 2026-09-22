@@ -6,7 +6,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.exceptions import SandboxExecutionError, TaskExecutionFailedError
-from products.tasks.backend.logic.services.sandbox import Sandbox
+from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 
@@ -53,7 +53,7 @@ def execute_task_in_sandbox(input: ExecuteTaskInput) -> ExecuteTaskOutput:
     ):
         emit_agent_log(ctx.run_id, "debug", "Initiating task execution in development environment")
 
-        sandbox = Sandbox.get_by_id(input.sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
 
         try:
             result = sandbox.execute_task(

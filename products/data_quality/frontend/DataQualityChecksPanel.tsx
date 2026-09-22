@@ -1,0 +1,205 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import type { ReactNode } from 'react'
+
+import { LemonBanner, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
+
+import { TZLabel } from 'lib/components/TZLabel'
+
+import { DatabaseSchemaField } from '~/queries/schema/schema-general'
+
+import { CheckEditorModal } from './CheckEditorModal'
+import { HEALTH_LABELS, HEALTH_TAG_TYPES } from './checksConstants'
+import { ChecksTable } from './ChecksTable'
+import { DataQualityCheckEditorLogicProps, dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
+import { DataQualityChecksLogicProps, dataQualityChecksLogic } from './dataQualityChecksLogic'
+import { SuiteRunsHistory } from './SuiteRunsHistory'
+
+interface DataQualityChecksPanelProps extends DataQualityChecksLogicProps {
+    columns: DatabaseSchemaField[]
+    dataLastSyncedAt?: string | null
+    /** Uses "Checks" where the surrounding surface already names Data quality. */
+    hideTitle?: boolean
+    newCheckDisabledReason?: string
+    notice?: ReactNode
+}
+
+export function DataQualityChecksPanel({
+    columns,
+    dataLastSyncedAt,
+    hideTitle,
+    newCheckDisabledReason,
+    notice,
+    ...logicProps
+}: DataQualityChecksPanelProps): JSX.Element | null {
+    const logic = dataQualityChecksLogic(logicProps)
+    const {
+        health,
+        checks,
+        checksLoading,
+        checksLoadError,
+        checksLoaded,
+        enabledChecksCount,
+        isSuiteRunning,
+        pollTimedOut,
+        runAllInFlight,
+        accessDenied,
+    } = useValues(logic)
+    const { runAll, loadChecks, loadHealth, upsertCheck, runCheck } = useActions(logic)
+
+    const editorProps: DataQualityCheckEditorLogicProps = {
+        surface: `subject:${logicProps.subjectType}:${logicProps.subjectId}`,
+        onSaved: (check) => {
+            upsertCheck(check)
+            loadHealth()
+        },
+        onRunNow: (check) => runCheck(check.id),
+    }
+    const { openEditor } = useActions(dataQualityCheckEditorLogic(editorProps))
+    const columnNames = columns.map((column) => column.name)
+    const outputSchema = columns.map((column) => ({ name: column.name, type: column.type }))
+    const addCheck = (): void => openEditor(null, logicProps, columnNames, outputSchema)
+
+    if (accessDenied) {
+        return logicProps.subjectType === 'metric' ? (
+            <p className="text-secondary">You don't have access to the tests for this metric.</p>
+        ) : null
+    }
+
+    if (checksLoadError && !checksLoaded) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Retry', onClick: loadChecks }}>
+                Could not load the checks. Try again.
+            </LemonBanner>
+        )
+    }
+
+    return (
+        <BindLogic logic={dataQualityCheckEditorLogic} props={editorProps}>
+            <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="mb-0 text-lg font-semibold">{hideTitle ? 'Checks' : 'Data quality'}</h3>
+                        {health && (
+                            <LemonTag type={HEALTH_TAG_TYPES[health.health] ?? 'default'}>
+                                {HEALTH_LABELS[health.health] ?? health.health}
+                            </LemonTag>
+                        )}
+                        {health && health.checks_total > 0 && (
+                            <span className="text-secondary text-sm">
+                                {health.checks_failing} of {health.checks_total} failing
+                            </span>
+                        )}
+                        {health?.health === 'unknown' && (
+                            <span className="text-secondary text-sm">Run checks to see health</span>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={runAll}
+                            loading={runAllInFlight || isSuiteRunning}
+                            disabledReason={
+                                checksLoading
+                                    ? 'Loading checks'
+                                    : enabledChecksCount === 0
+                                      ? 'No enabled checks to run'
+                                      : undefined
+                            }
+                            data-attr="data-quality-run-all"
+                        >
+                            Run all checks
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            onClick={addCheck}
+                            disabledReason={newCheckDisabledReason}
+                            data-attr="data-quality-new-check"
+                        >
+                            New check
+                        </LemonButton>
+                    </div>
+                </div>
+
+                {notice}
+
+                {dataLastSyncedAt && (
+                    <p className="mb-0 text-secondary text-sm">
+                        Checks test the data from the last sync (synced <TZLabel time={dataLastSyncedAt} />
+                        ). After you change this view, sync it to test the new query.
+                    </p>
+                )}
+
+                {checksLoadError && (
+                    <LemonBanner type="warning" action={{ children: 'Retry', onClick: loadChecks }}>
+                        Could not refresh the checks. Showing the latest available results.
+                    </LemonBanner>
+                )}
+                {isSuiteRunning && (
+                    <LemonBanner type="info" icon={<Spinner />}>
+                        Running checks...
+                    </LemonBanner>
+                )}
+                {pollTimedOut && (
+                    <LemonBanner
+                        type="warning"
+                        action={{
+                            children: 'Refresh',
+                            onClick: () => {
+                                loadChecks()
+                                loadHealth()
+                            },
+                        }}
+                    >
+                        Checks are still running. Check back in a few minutes.
+                    </LemonBanner>
+                )}
+
+                {!checksLoading && checks.length === 0 ? (
+                    <NoChecksYet
+                        onAddCheck={addCheck}
+                        isMetric={logicProps.subjectType === 'metric'}
+                        disabledReason={newCheckDisabledReason}
+                    />
+                ) : (
+                    <ChecksTable {...logicProps} columns={columnNames} outputSchema={outputSchema} />
+                )}
+
+                <SuiteRunsHistory {...logicProps} />
+
+                <CheckEditorModal />
+            </div>
+        </BindLogic>
+    )
+}
+
+function NoChecksYet({
+    onAddCheck,
+    isMetric,
+    disabledReason,
+}: {
+    onAddCheck: () => void
+    isMetric: boolean
+    disabledReason?: string
+}): JSX.Element {
+    return (
+        <div className="border rounded p-4 flex flex-col items-start gap-2">
+            <h4 className="mb-0">No checks yet</h4>
+            <p className="mb-0 text-secondary">
+                {isMetric
+                    ? 'Write a custom SQL check that queries {metric} and returns one row per failure. Checks run daily after you add the first check.'
+                    : 'Checks verify this data automatically after each sync or materialization.'}
+            </p>
+            <LemonButton
+                type="primary"
+                size="small"
+                onClick={onAddCheck}
+                disabledReason={disabledReason}
+                data-attr="data-quality-first-check"
+            >
+                Add your first check
+            </LemonButton>
+        </div>
+    )
+}

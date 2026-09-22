@@ -123,10 +123,10 @@ export function ThemePicker({ value, onChange }: ThemePickerProps) {
           <label
             key={option.value}
             className={cn(
-              "flex cursor-pointer flex-col overflow-hidden rounded-(--radius-3) border bg-(--color-panel-solid) transition-colors has-[:focus-visible]:ring-(--accent-8) has-[:focus-visible]:ring-2",
+              "flex cursor-pointer flex-col overflow-hidden rounded-(--radius-3) border bg-card transition-colors has-[:focus-visible]:ring-(--accent-8) has-[:focus-visible]:ring-2",
               selected
                 ? "border-(--accent-9)"
-                : "border-(--gray-5) hover:border-(--gray-8)",
+                : "border-border hover:border-(--gray-8)",
             )}
           >
             <input
@@ -140,7 +140,9 @@ export function ThemePicker({ value, onChange }: ThemePickerProps) {
             />
             <ThemeThumbnail theme={option.value} />
             <div className="flex w-full items-center justify-between border-(--gray-4) border-t px-2.5 py-1.5">
-              <span className="text-[12px] text-gray-12">{option.label}</span>
+              <span className="text-[12px] text-foreground">
+                {option.label}
+              </span>
               <span
                 className={cn(
                   "flex size-3.5 items-center justify-center rounded-full bg-(--primary) text-(--primary-foreground) transition-opacity",

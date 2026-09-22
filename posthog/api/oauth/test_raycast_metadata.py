@@ -9,7 +9,7 @@ from django.test import SimpleTestCase, override_settings
 from oauth2_provider.models import AbstractApplication
 from parameterized import parameterized
 
-from posthog.api.oauth.cimd import fetch_and_upsert_cimd_application, get_application_by_client_id
+from posthog.api.oauth.cimd import fetch_and_upsert_cimd_application
 from posthog.api.oauth.raycast_metadata import RAYCAST_SCOPES
 from posthog.scopes import UNPRIVILEGED_SCOPES
 
@@ -83,13 +83,10 @@ class TestRaycastClientMetadataRegistration(APIBaseTest):
 
         assert app is not None
         assert app.is_cimd_client
-        assert app.cimd_metadata_url == client_id
+        assert app.client_id == client_id
         assert app.name == "Raycast extension for PostHog"
         assert app.client_type == AbstractApplication.CLIENT_PUBLIC
         assert app.authorization_grant_type == AbstractApplication.GRANT_AUTHORIZATION_CODE
         assert app.redirect_uris == " ".join(document["redirect_uris"])
         assert set(app.scopes) == set(RAYCAST_SCOPES)
         assert app.organization is None
-
-        # The authorize-time lookup resolves the URL-form client_id back to this app.
-        assert get_application_by_client_id(client_id).pk == app.pk

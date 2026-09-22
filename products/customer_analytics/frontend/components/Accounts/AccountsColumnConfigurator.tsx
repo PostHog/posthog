@@ -5,7 +5,6 @@ import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifi
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconPencil, IconX } from '@posthog/icons'
 import {
@@ -15,11 +14,9 @@ import {
     LemonSearchableSelect,
     LemonSegmentedButton,
     LemonSelect,
-    LemonTextArea,
-    Link,
 } from '@posthog/lemon-ui'
 
-import { IconOpenInNew, IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
+import { IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
@@ -38,8 +35,6 @@ import {
     accountsColumnConfigLogic,
 } from './accountsColumnConfigLogic'
 import { accountsViewsLogic } from './accountsViewsLogic'
-
-const HOGQL_DOCS_URL = 'https://posthog.com/docs/hogql'
 
 export function AccountsColumnConfigurator(): JSX.Element {
     const { columnConfiguratorVisible } = useValues(accountsColumnConfigLogic)
@@ -123,7 +118,6 @@ function AccountsColumnConfiguratorModal({ isOpen, onClose }: { isOpen: boolean;
                         <ColumnEditSection
                             key={editingColumnIndex}
                             column={editingColumn}
-                            columnIndex={editingColumnIndex}
                             onClose={() => setEditingColumnIndex(null)}
                         />
                     ) : (
@@ -174,19 +168,11 @@ function SaveViewButton(): JSX.Element {
     )
 }
 
-function ColumnEditSection({
-    column,
-    columnIndex,
-    onClose,
-}: {
-    column: string
-    columnIndex: number
-    onClose: () => void
-}): JSX.Element | null {
-    const { aliasToDefinition, hogqlCleanupEnabled } = useValues(accountsColumnConfigLogic)
+function ColumnEditSection({ column, onClose }: { column: string; onClose: () => void }): JSX.Element | null {
+    const { aliasToDefinition } = useValues(accountsColumnConfigLogic)
     const definition = aliasToDefinition[extractDisplayLabel(column)]
 
-    if (!definition && hogqlCleanupEnabled) {
+    if (!definition) {
         return null
     }
 
@@ -200,11 +186,7 @@ function ColumnEditSection({
                     Back to available columns
                 </LemonButton>
             </div>
-            {definition ? (
-                <CustomPropertyDisplayEditor definition={definition} />
-            ) : (
-                <ExpressionEditor column={column} columnIndex={columnIndex} />
-            )}
+            <CustomPropertyDisplayEditor definition={definition} />
         </div>
     )
 }
@@ -278,33 +260,6 @@ function CustomPropertyDisplayEditor({ definition }: { definition: CustomPropert
     )
 }
 
-function ExpressionEditor({ column, columnIndex }: { column: string; columnIndex: number }): JSX.Element {
-    const { updateColumnExpression } = useActions(accountsColumnConfigLogic)
-    const [expression, setExpression] = useState(column)
-
-    return (
-        <div className="flex flex-col gap-2">
-            <LemonInput
-                value={expression}
-                onChange={setExpression}
-                fullWidth
-                data-attr="accounts-column-edit-expression"
-            />
-            <div className="flex justify-end">
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    onClick={() => updateColumnExpression(columnIndex, expression)}
-                    disabledReason={!expression.trim() ? 'Enter a column expression' : undefined}
-                    data-attr="accounts-column-edit-save"
-                >
-                    Save
-                </LemonButton>
-            </div>
-        </div>
-    )
-}
-
 function SelectedAccountColumn({
     column,
     dataIndex,
@@ -318,8 +273,7 @@ function SelectedAccountColumn({
     onEdit: (index: number) => void
     onRemove: (column: string) => void
 }): JSX.Element {
-    const { aliasToDefinition, aliasToRelationshipDefinition, hogqlCleanupEnabled } =
-        useValues(accountsColumnConfigLogic)
+    const { aliasToDefinition, aliasToRelationshipDefinition } = useValues(accountsColumnConfigLogic)
     const { setNodeRef, attributes, transform, transition, listeners } = useSortable({ id: column })
     const alias = extractDisplayLabel(column)
     // Custom-property and relationship columns are aliased to opaque `cp_<id>` / `rel_<id>`
@@ -328,7 +282,7 @@ function SelectedAccountColumn({
     // `name` carries the row identity (account id) and external_id for the
     // Account cell — removing it would break row expansion and role updates.
     const isMandatory = column === ACCOUNTS_NAME_COLUMN
-    const canEdit = !isMandatory && (!!aliasToDefinition[alias] || !hogqlCleanupEnabled)
+    const canEdit = !isMandatory && !!aliasToDefinition[alias]
 
     return (
         <div
@@ -368,16 +322,9 @@ function SelectedAccountColumn({
 }
 
 function AvailableColumnsPicker({ groups, loading }: { groups: AccountColumnGroup[]; loading: boolean }): JSX.Element {
-    const {
-        pickerGroupKey,
-        pickerSearch,
-        pickerSqlInput,
-        pickerSearchPlaceholder,
-        activePickerGroup,
-        filteredColumnOptions,
-    } = useValues(accountsColumnConfigLogic)
-    const { selectColumn, setPickerGroupKey, setPickerSearch, setPickerSqlInput, addSqlExpression } =
-        useActions(accountsColumnConfigLogic)
+    const { pickerGroupKey, pickerSearch, pickerSearchPlaceholder, filteredColumnOptions } =
+        useValues(accountsColumnConfigLogic)
+    const { selectColumn, setPickerGroupKey, setPickerSearch } = useActions(accountsColumnConfigLogic)
 
     return (
         <div className="flex flex-col gap-2">
@@ -386,51 +333,44 @@ function AvailableColumnsPicker({ groups, loading }: { groups: AccountColumnGrou
                 placeholder={pickerSearchPlaceholder}
                 value={pickerSearch}
                 onChange={setPickerSearch}
-                disabled={activePickerGroup?.isFreeform}
                 fullWidth
                 data-attr="accounts-columns-search"
                 suffix={<CategoryPicker groups={groups} activeKey={pickerGroupKey} onChange={setPickerGroupKey} />}
             />
-            {activePickerGroup?.isFreeform ? (
-                <SqlExpressionPanel value={pickerSqlInput} onChange={setPickerSqlInput} onAdd={addSqlExpression} />
-            ) : (
-                <div className="AvailableColumnsList border border-border rounded">
-                    {loading && filteredColumnOptions.length === 0 ? (
-                        <div className="p-3 text-secondary">Loading schema…</div>
-                    ) : filteredColumnOptions.length === 0 ? (
-                        <div className="p-3 text-secondary">
-                            {pickerSearch.trim() ? 'No matching columns' : 'No columns available'}
-                        </div>
-                    ) : (
-                        <ul className="m-0 p-0 list-none">
-                            {filteredColumnOptions.map((option) => {
-                                return (
-                                    <li
-                                        key={`${option.groupLabel}::${option.expression}`}
-                                        className="border-b border-border last:border-b-0"
-                                    >
-                                        <LemonButton
-                                            fullWidth
-                                            size="small"
-                                            onClick={() => !option.isSelected && selectColumn(option.expression)}
-                                            disabledReason={option.isSelected ? 'Already added' : undefined}
-                                            data-attr={`accounts-column-option-${option.name}`}
-                                        >
-                                            <span className="flex-1 font-mono">{option.name}</span>
-                                            {!activePickerGroup ? (
-                                                <span className="ml-2 text-xs text-secondary">{option.groupLabel}</span>
-                                            ) : null}
-                                            {option.type ? (
-                                                <span className="ml-2 text-xs text-secondary">{option.type}</span>
-                                            ) : null}
-                                        </LemonButton>
-                                    </li>
-                                )
-                            })}
-                        </ul>
-                    )}
-                </div>
-            )}
+            <div className="AvailableColumnsList border border-border rounded">
+                {loading && filteredColumnOptions.length === 0 ? (
+                    <div className="p-3 text-secondary">Loading schema…</div>
+                ) : filteredColumnOptions.length === 0 ? (
+                    <div className="p-3 text-secondary">
+                        {pickerSearch.trim() ? 'No matching columns' : 'No columns available'}
+                    </div>
+                ) : (
+                    <ul className="m-0 p-0 list-none">
+                        {filteredColumnOptions.map((option) => (
+                            <li
+                                key={`${option.groupLabel}::${option.expression}`}
+                                className="border-b border-border last:border-b-0"
+                            >
+                                <LemonButton
+                                    fullWidth
+                                    size="small"
+                                    onClick={() => !option.isSelected && selectColumn(option.expression)}
+                                    disabledReason={option.isSelected ? 'Already added' : undefined}
+                                    data-attr={`accounts-column-option-${option.name}`}
+                                >
+                                    <span className="flex-1 font-mono">{option.name}</span>
+                                    {pickerGroupKey === ALL_COLUMNS_KEY ? (
+                                        <span className="ml-2 text-xs text-secondary">{option.groupLabel}</span>
+                                    ) : null}
+                                    {option.type ? (
+                                        <span className="ml-2 text-xs text-secondary">{option.type}</span>
+                                    ) : null}
+                                </LemonButton>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </div>
         </div>
     )
 }
@@ -465,51 +405,5 @@ function CategoryPicker({
             dropdownPlacement="bottom-end"
             data-attr="accounts-columns-group"
         />
-    )
-}
-
-function SqlExpressionPanel({
-    value,
-    onChange,
-    onAdd,
-}: {
-    value: string
-    onChange: (next: string) => void
-    onAdd: () => void
-}): JSX.Element {
-    return (
-        <div className="flex flex-col gap-2 p-3 border border-border rounded">
-            <div>
-                <h4 className="secondary uppercase text-secondary mb-1">SQL expression</h4>
-                <LemonTextArea
-                    value={value}
-                    onChange={onChange}
-                    placeholder="JSONExtractString(properties, 'industry') AS industry"
-                    minRows={3}
-                    data-attr="accounts-columns-sql"
-                />
-            </div>
-            <div className="text-secondary text-xs whitespace-pre">
-                {`Enter SQL expression, such as:
-- properties.industry
-- toInt(properties.\`Long Field Name\`) * 10
-- concat(name, ' (', external_id, ')')`}
-            </div>
-            <LemonButton
-                type="primary"
-                fullWidth
-                center
-                disabledReason={!value.trim() ? 'Enter a HogQL expression' : undefined}
-                onClick={onAdd}
-                data-attr="accounts-columns-sql-add"
-            >
-                Add SQL expression
-            </LemonButton>
-            <div className="flex justify-end">
-                <Link to={HOGQL_DOCS_URL} target="_blank" className="text-xs flex items-center gap-1">
-                    Learn more about SQL <IconOpenInNew />
-                </Link>
-            </div>
-        </div>
     )
 }

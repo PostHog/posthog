@@ -1,4 +1,4 @@
-import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
+import { lemonToast } from '@posthog/lemon-ui'
 
 import {
     LOGS_ALERT_AUTO_DISABLED_EVENT_ID,
@@ -63,30 +63,11 @@ export type PreEnableFilters = {
     filterGroup: UniversalFiltersGroup
 }
 
-export type PreEnableCheckResult =
-    | { ok: true }
-    | { blocked: true; reason: string }
-    | {
-          warning: {
-              title: string
-              description: string
-              confirmLabel: string
-          }
-      }
+export type PreEnableCheckResult = { ok: true } | { blocked: true; reason: string }
 
-export function runPreEnableChecks(alert: LogsAlertConfigurationApi, filters: PreEnableFilters): PreEnableCheckResult {
+export function runPreEnableChecks(filters: PreEnableFilters): PreEnableCheckResult {
     if (!hasAnyFilter(filters.severityLevels, filters.serviceNames, filters.filterGroup)) {
         return { blocked: true, reason: 'Add at least one filter to enable' }
-    }
-    if ((alert.destination_types ?? []).length === 0) {
-        return {
-            warning: {
-                title: 'No notifications configured',
-                description:
-                    "This alert has no notification destinations. It will fire silently — you won't receive any alerts when conditions are met.",
-                confirmLabel: 'Enable anyway',
-            },
-        }
     }
     return { ok: true }
 }
@@ -101,32 +82,12 @@ export function alertFiltersForPreEnableCheck(alert: LogsAlertConfigurationApi):
     }
 }
 
-export function dispatchPreEnableCheck(
-    result: PreEnableCheckResult,
-    callbacks: { onConfirm: () => void; onConfigureNotifications: () => void }
-): void {
+export function dispatchPreEnableCheck(result: PreEnableCheckResult, onConfirm: () => void): void {
     if ('blocked' in result) {
         lemonToast.error(result.reason)
         return
     }
-    if ('warning' in result) {
-        LemonDialog.open({
-            title: result.warning.title,
-            description: result.warning.description,
-            primaryButton: {
-                children: 'Configure notifications',
-                onClick: callbacks.onConfigureNotifications,
-                'data-attr': 'logs-alert-warning-configure-notifications',
-            },
-            secondaryButton: {
-                children: result.warning.confirmLabel,
-                onClick: callbacks.onConfirm,
-                'data-attr': 'logs-alert-warning-enable-anyway',
-            },
-        })
-        return
-    }
-    callbacks.onConfirm()
+    onConfirm()
 }
 
 export const SNOOZE_DURATIONS = [

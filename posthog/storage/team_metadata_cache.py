@@ -65,7 +65,10 @@ from posthog.storage.hypercache_manager import (
     get_cache_stats as get_cache_stats_generic,
 )
 
-from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
+from products.feature_flags.backend.models.team_feature_flags_config import (
+    PropertyMatchingVersion,
+    TeamFeatureFlagsConfig,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -156,7 +159,11 @@ def _serialize_team_field(field: str, value: Any) -> Any:
     return value
 
 
-def _serialize_team_to_metadata(team: Team, minimal_flag_called_events: bool | None = None) -> dict[str, Any]:
+def _serialize_team_to_metadata(
+    team: Team,
+    minimal_flag_called_events: bool | None = None,
+    property_matching_version: int | None = None,
+) -> dict[str, Any]:
     """
     Serialize a Team object to metadata dictionary.
 
@@ -164,6 +171,8 @@ def _serialize_team_to_metadata(team: Team, minimal_flag_called_events: bool | N
         team: Team object with organization and project already loaded
         minimal_flag_called_events: Pre-fetched value from TeamFeatureFlagsConfig, to let
             batch callers avoid an N+1 query. If None, this looks it up itself.
+        property_matching_version: Pre-fetched property matching semantics version. If None,
+            this looks it up with the other feature flags config value.
 
     Returns:
         Dictionary containing full team metadata
@@ -176,19 +185,22 @@ def _serialize_team_to_metadata(team: Team, minimal_flag_called_events: bool | N
     metadata["organization_name"] = team.organization.name if team.organization else None
     metadata["project_name"] = team.project.name if team.project else None
 
-    if minimal_flag_called_events is None:
+    if minimal_flag_called_events is None or property_matching_version is None:
         # Deliberately not team.teamfeatureflagsconfig: the reverse O2O accessor gets
         # cache-populated as a side effect of register_team_extension_signal's
         # get_or_create(team=instance, ...) at team-creation time, so an already-loaded
         # Team object can carry a stale cached value if the config row changes after
         # the Team was loaded. An explicit query is always fresh.
-        minimal_flag_called_events = (
+        config_values = (
             TeamFeatureFlagsConfig.objects.filter(team_id=team.id)
-            .values_list("minimal_flag_called_events", flat=True)
+            .values_list("minimal_flag_called_events", "property_matching_version")
             .first()
-            or False
         )
-    metadata["minimal_flag_called_events"] = minimal_flag_called_events
+        if config_values is not None:
+            minimal_flag_called_events = config_values[0]
+            property_matching_version = config_values[1]
+    metadata["minimal_flag_called_events"] = minimal_flag_called_events or False
+    metadata["property_matching_version"] = property_matching_version or PropertyMatchingVersion.LEGACY
 
     return metadata
 
@@ -207,14 +219,17 @@ def _batch_load_team_metadata(teams: list[Team]) -> dict[int, dict[str, Any]]:
     Returns:
         Dict mapping team_id -> metadata dict
     """
-    minimal_flag_called_events_by_team = dict(
-        TeamFeatureFlagsConfig.objects.filter(team_id__in=[team.id for team in teams]).values_list(
-            "team_id", "minimal_flag_called_events"
-        )
-    )
+    config_by_team_id = {
+        team_id: (minimal_flag_called_events, property_matching_version)
+        for team_id, minimal_flag_called_events, property_matching_version in TeamFeatureFlagsConfig.objects.filter(
+            team_id__in=[team.id for team in teams]
+        ).values_list("team_id", "minimal_flag_called_events", "property_matching_version")
+    }
     return {
         team.id: _serialize_team_to_metadata(
-            team, minimal_flag_called_events=minimal_flag_called_events_by_team.get(team.id, False)
+            team,
+            minimal_flag_called_events=config_by_team_id.get(team.id, (False, PropertyMatchingVersion.LEGACY))[0],
+            property_matching_version=config_by_team_id.get(team.id, (False, PropertyMatchingVersion.LEGACY))[1],
         )
         for team in teams
     }
@@ -332,7 +347,12 @@ def verify_team_metadata(
 
     # Compare only fields we care about (defined in TEAM_METADATA_FIELDS + derived fields).
     # This allows removing fields from the cache without triggering unnecessary fixes.
-    fields_to_check = set(TEAM_METADATA_FIELDS) | {"organization_name", "project_name", "minimal_flag_called_events"}
+    fields_to_check = set(TEAM_METADATA_FIELDS) | {
+        "organization_name",
+        "project_name",
+        "minimal_flag_called_events",
+        "property_matching_version",
+    }
     diffs = []
     for key in fields_to_check:
         db_val = db_data.get(key)

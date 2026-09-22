@@ -127,10 +127,10 @@ describe('integration server end to end', () => {
             })
 
             // Start a rotation on the mount; the running server picks it up on reload.
-            await writeFile(join(dir, `${KEY}_FALLBACKS`), 'previous-value-0')
+            await writeFile(join(dir, `${KEY}_FALLBACKS`), 'staged-value-2')
             await server.reload()
             expect(await (await resolve(port, token)).json()).toMatchObject({
-                secrets: { [KEY]: { state: 'rotating', value: 'current-value-1', previous: 'previous-value-0' } },
+                secrets: { [KEY]: { state: 'rotating', value: 'current-value-1', previous: 'staged-value-2' } },
             })
 
             // Completing a rotation is deleting the sibling, and that has to end the

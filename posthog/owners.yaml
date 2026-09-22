@@ -9,6 +9,8 @@ rules:
       owners: clickhouse
     - match: '/data_freshness.py'
       owners: team-platform-features
+    - match: '/egress/'
+      owners: team-devex
     - match: '/email.py'
       owners: team-platform-features
     - match: '/heatmaps/'
@@ -24,7 +26,7 @@ rules:
     - match: '/taxonomy/'
       owners: team-product-analytics
     - match: '/templates/surveys/'
-      owners: team-surveys
+      owners: conversations
     - match: '/warehouse/'
       owners: team-data-stack
     - match: '*llm_prompt*.py'

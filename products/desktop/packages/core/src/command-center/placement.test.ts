@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BRAINROT_CELL, makeTerminalCellValue } from "./grid";
+import {
+  BRAINROT_CELL,
+  makeCanvasCellValue,
+  makeTerminalCellValue,
+} from "./grid";
 import { type PlacementInput, planCommandCenterPlacement } from "./placement";
 
 /**
@@ -74,6 +78,7 @@ describe("planCommandCenterPlacement", () => {
   it.each([
     { name: "brainrot", cell: BRAINROT_CELL },
     { name: "terminal", cell: makeTerminalCellValue("abc123") },
+    { name: "canvas", cell: makeCanvasCellValue("canvas-1") },
   ])("never overwrites the $name sentinel", ({ cell }) => {
     // Sentinels are not tasks, so they are absent from every live task list.
     const result = planCommandCenterPlacement({

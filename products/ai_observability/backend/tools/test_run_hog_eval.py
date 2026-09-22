@@ -78,9 +78,9 @@ class TestRunHogEvalTestTool(BaseTest):
 
         assert artifact is None
         if expected_verdict:
-            assert "PASS" in result
+            assert "Result: true" in result
         else:
-            assert "FAIL" in result
+            assert "Result: false" in result
 
     def test_compilation_error(self):
         tool = self._make_tool()
@@ -129,7 +129,7 @@ class TestRunHogEvalTestTool(BaseTest):
 
         assert "Input:" in result
         assert "Output:" in result
-        assert "Result: PASS" in result
+        assert "Result: true" in result
 
     @patch("products.ai_observability.backend.tools.run_hog_eval.query_ai_events")
     def test_null_return_shows_na(self, mock_query):
@@ -173,7 +173,7 @@ class TestRunHogEvalTestTool(BaseTest):
         tool = self._make_tool()
         result, artifact = _run_tool(tool, source="return true;", sample_count=1)
 
-        assert "PASS" in result
+        assert "Result: true" in result
         assert "$ai_metric" in result
 
     @patch("products.ai_observability.backend.tools.run_hog_eval.query_ai_events")
@@ -215,7 +215,7 @@ class TestRunHogEvalTestTool(BaseTest):
             sample_count=1,
         )
 
-        assert "Result: PASS" in result, f"expected PASS after heavy-merge, got: {result}"
+        assert "Result: true" in result, f"expected true after heavy-merge, got: {result}"
 
     @patch("posthog.temporal.ai_observability.run_trace_evaluation.run_hog_eval_over_recent_traces")
     def test_trace_target_evaluates_whole_traces(self, mock_run_over_traces):
@@ -244,7 +244,7 @@ class TestRunHogEvalTestTool(BaseTest):
         assert artifact is None
         assert mock_run_over_traces.call_args.kwargs["window_seconds"] == 120
         assert "Trace trace-1" in result
-        assert "Result: PASS" in result
+        assert "Result: true" in result
 
     @patch("products.ai_observability.backend.tools.run_hog_eval.query_ai_events")
     def test_query_targets_ai_events(self, mock_query):

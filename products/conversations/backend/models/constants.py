@@ -24,12 +24,17 @@ class ChannelDetail(models.TextChoices):
     GITHUB_ISSUE = "github_issue", "GitHub issue"
 
 
-class Status(models.TextChoices):
+class TicketStatus(models.TextChoices):
     NEW = "new", "New"
     OPEN = "open", "Open"
     PENDING = "pending", "Pending"
     ON_HOLD = "on_hold", "On hold"
     RESOLVED = "resolved", "Resolved"
+
+
+# The class name feeds the derived OpenAPI component name TicketStatusEnum.
+# Status is an alias for the many callers that import the short name.
+Status = TicketStatus
 
 
 class Priority(models.TextChoices):

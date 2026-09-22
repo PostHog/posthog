@@ -111,7 +111,7 @@ exporters:
         retry_on_failure:
             max_elapsed_time: 30s
     otlphttp/metrics:
-        endpoint: 'http://host.docker.internal:4320'
+        endpoint: 'http://host.docker.internal:4321'
         compression: none
         tls:
             insecure: true

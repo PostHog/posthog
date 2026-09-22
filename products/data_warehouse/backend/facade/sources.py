@@ -10,6 +10,11 @@ from products.data_warehouse.backend.direct_clickhouse import (
     DIRECT_CLICKHOUSE_DATABASE_OPTION,
     DIRECT_CLICKHOUSE_TABLE_OPTION,
 )
+from products.data_warehouse.backend.direct_motherduck import (
+    DIRECT_MOTHERDUCK_CATALOG_OPTION,
+    DIRECT_MOTHERDUCK_SCHEMA_OPTION,
+    DIRECT_MOTHERDUCK_TABLE_OPTION,
+)
 from products.data_warehouse.backend.direct_mysql import DIRECT_MYSQL_SCHEMA_OPTION, DIRECT_MYSQL_TABLE_OPTION
 from products.data_warehouse.backend.direct_postgres import (
     DIRECT_POSTGRES_CATALOG_OPTION,
@@ -26,10 +31,18 @@ from products.data_warehouse.backend.direct_snowflake import (
     DIRECT_SNOWFLAKE_SCHEMA_OPTION,
     DIRECT_SNOWFLAKE_TABLE_OPTION,
 )
+from products.data_warehouse.backend.direct_trino import (
+    DIRECT_TRINO_CATALOG_OPTION,
+    DIRECT_TRINO_SCHEMA_OPTION,
+    DIRECT_TRINO_TABLE_OPTION,
+)
 
 __all__ = [
     "DIRECT_CLICKHOUSE_DATABASE_OPTION",
     "DIRECT_CLICKHOUSE_TABLE_OPTION",
+    "DIRECT_MOTHERDUCK_CATALOG_OPTION",
+    "DIRECT_MOTHERDUCK_SCHEMA_OPTION",
+    "DIRECT_MOTHERDUCK_TABLE_OPTION",
     "DIRECT_MYSQL_SCHEMA_OPTION",
     "DIRECT_MYSQL_TABLE_OPTION",
     "DIRECT_POSTGRES_CATALOG_OPTION",
@@ -41,4 +54,7 @@ __all__ = [
     "DIRECT_SNOWFLAKE_CATALOG_OPTION",
     "DIRECT_SNOWFLAKE_SCHEMA_OPTION",
     "DIRECT_SNOWFLAKE_TABLE_OPTION",
+    "DIRECT_TRINO_CATALOG_OPTION",
+    "DIRECT_TRINO_SCHEMA_OPTION",
+    "DIRECT_TRINO_TABLE_OPTION",
 ]

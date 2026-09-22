@@ -37,3 +37,16 @@ export const finiteNumberOrUndefined = (value: unknown): number | undefined => {
     }
     return undefined
 }
+
+/**
+ * Read a string property from the event's properties bag, or `undefined` when the
+ * value is not a string. Optional chaining only guards null and undefined, so a
+ * `$ai_model` that arrives as a number, boolean, array or object makes a bare
+ * `.toLowerCase()` throw. That throw is caught upstream, which drops every AI
+ * enrichment for the event and leaves the user with a generation that has no cost
+ * and no error to explain it.
+ */
+export const stringProperty = (event: PluginEvent, key: string): string | undefined => {
+    const value = event.properties?.[key]
+    return typeof value === 'string' ? value : undefined
+}

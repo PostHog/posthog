@@ -67,10 +67,18 @@ class BoundedRetry(Retry):
         return min(retry_after, self.DEFAULT_BACKOFF_MAX)
 
 
+# Cloudflare returns the 52x family for a slow or unreachable origin: 520 (Unknown Error), 521 (Web
+# Server Down), 522 (Connection Timed Out), 523 (Origin Unreachable), 524 (A Timeout Occurred), plus
+# 530 (edge-side DNS hiccup). These are transient like the standard 502/503/504, so retry them the
+# same way. A source behind Cloudflare (Cal.com, Convex, DoiT) otherwise records a raw 52x as a
+# failure. Retries are safe because only GET/HEAD/OPTIONS are retried; a persistent 52x still
+# surfaces after the attempt budget because raise_on_status is False.
+CLOUDFLARE_TRANSIENT_STATUSES = (520, 521, 522, 523, 524, 530)
+
 DEFAULT_RETRY = BoundedRetry(
     total=3,
     backoff_factor=0.5,
-    status_forcelist=(429, 500, 502, 503, 504),
+    status_forcelist=(429, 500, 502, 503, 504, *CLOUDFLARE_TRANSIENT_STATUSES),
     allowed_methods=frozenset(["GET", "HEAD", "OPTIONS"]),
     raise_on_status=False,
 )

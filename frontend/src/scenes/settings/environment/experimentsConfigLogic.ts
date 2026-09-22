@@ -4,8 +4,9 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { DEFAULT_MDE } from '~/scenes/experiments/constants'
 import { teamLogic } from '~/scenes/teamLogic'
+
+import { DEFAULT_MDE } from 'products/experiments/frontend/constants'
 
 export interface ExperimentsConfig {
     experiment_recalculation_time: string | null

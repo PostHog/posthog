@@ -2,7 +2,7 @@
 
 Use the `posthog:execute-sql` MCP tool to execute HogQL queries. HogQL is PostHog's variant of SQL that supports most of ClickHouse SQL. We use terms "HogQL" and "SQL" interchangeably. More info is available in the `querying-posthog-data` skill.
 
-Do not assume that data exists. Use the SQL tool proactively to find the right data.
+Do not assume that data exists. Use `read-data-schema` to verify events and properties. For SQL tables, use `system.information_schema` as described below. Schema discovery does not determine which tool should run the analysis.
 
 #### Search types
 
@@ -88,18 +88,37 @@ Run separately for each model. Available models: `'text-embedding-3-small-1536'`
 
 Use `embedText(text, model_name)` and `cosineDistance()` for semantic search. See the `signals` skill for detailed query patterns around the signals product specifically, including required deduplication and metadata extraction.
 
-If higher-priority project guidance requires a semantic lookup before data discovery, follow it first. Otherwise use the schema workflow below.
+For a named business or operational measure, look it up in the data catalog (`system.information_schema.metrics`) before any schema discovery.
+Run an approved, non-drifted match with `data-catalog-metric-run` instead of deriving it.
+Every other outcome means there is no canonical definition to reuse — no match, a drifted match, or a match that is not approved: derive the measure with the schema workflow below and label the result noncanonical.
+A project without the data catalog has neither that table nor that tool, so an unknown-table error is that case too, and it holds for the rest of the session: stop checking.
+Everything else starts with that workflow.
 
 #### Schema discovery (information_schema)
 
-Don't guess table or column names — they differ per entity and drift over time. Discover the live schema for **every** data group above (system, captured, and data-warehouse tables) by querying `system.information_schema` via `execute-sql`. It exposes four self-describing virtual tables — every column below is selectable:
+Don't guess table or column names — they differ per entity and drift over time. Discover the live schema for **every** data group above (system, captured, and data-warehouse tables) by querying `system.information_schema` via `execute-sql`. Four virtual tables carry the schema itself, and each one holds a different set of fields — project a field on the surface that owns it, or the query fails:
 
-- `tables` — table_catalog, table_schema, table_name, table_type, description, row_count. table_type is one of system, data_warehouse, view, posthog (built-in analytics tables like events / persons), or information_schema.
-- `columns` — table_schema, table_name, column_name, ordinal_position, data_type, is_nullable, is_array, field_kind, description.
-- `relationships` — source_table, source_column, target_table, target_column, relationship_kind, via.
-- `data_types` — type_name, description.
+- `tables` — one row per table. Fields: table_catalog, table_schema, table_name, table_type, description, row_count, certification. table_type is one of system, data_warehouse, view, posthog (built-in analytics tables like events / persons), or information_schema. `certification` is the settled trust mark (`certified` / `deprecated`) and lives **only** here, not on `columns`.
+- `columns` — one row per column. Fields: table_schema, table_name, column_name, ordinal_position, data_type, is_nullable, is_array, field_kind, description, null_fraction, min_value, max_value. The last three are profiling statistics and are filled in for data-warehouse columns only.
+- `relationships` — one row per joinable relationship. Fields: source_table, source_column, target_table, target_column, relationship_kind, via, confidence, reasoning.
+- `data_types` — one row per HogQL type. Fields: type_name, description.
 
-It describes itself, so the full column set is always discoverable: `SELECT column_name, data_type FROM system.information_schema.columns WHERE table_name = 'system.information_schema.columns'`.
+`certification` on `tables` and `confidence` / `reasoning` on `relationships` come from the data catalog. The project catalog, which is what `execute-sql` reads by default, always carries all three. A caller without data catalog access still selects them, and every value reads NULL. A NULL there never means a wrong field name.
+
+The two surfaces differ in what else a NULL means. On `tables`, `certification` reads NULL for a table nobody marked. On `relationships`, `confidence` and `reasoning` hold the review evidence of an accepted relationship proposal. Only a data warehouse join that still matches its proposal carries that evidence. Every built-in join and every field traverser reads NULL for both fields, even on a project with full catalog access. A NULL there means no review evidence, not a broken join: read `source_column` and `target_column`, and use the join.
+
+The same namespace carries six more catalog surfaces, each about project state rather than schema: `metrics`, `certifications` (the full trust-mark review queue, as opposed to the settled `tables.certification` mark), `relationship_proposals`, `data_quality_checks`, `data_quality_check_runs`, and `data_quality_health`. The project serves the three data-quality surfaces only while data quality checks are on for it.
+
+A direct connection queried with `connectionId` is the runtime that drops surfaces. It serves `tables`, `columns`, and `data_types` only, and its `tables` has no `certification`. Leave `certification` out of a `connectionId` query. Do not read `relationships` there before a join, because the surface is absent and the query fails on an unknown table.
+
+Every surface describes itself, so its live field set is always discoverable — ask the catalog instead of trusting the lists above:
+
+```sql
+SELECT column_name, data_type
+FROM system.information_schema.columns
+WHERE table_name = 'system.information_schema.tables'
+ORDER BY ordinal_position
+```
 
 **List tables** — filter `table_type` to target a group (`system`, `data_warehouse`, `view`, `posthog`):
 
@@ -113,12 +132,12 @@ ORDER BY table_name
 **Find a table by what its docs say** — names are often opaque (especially data-warehouse tables), so search the `description` text instead of guessing names. The documentation lives in `system.information_schema.tables.description` (the catalog) — not on the `system.data_warehouse_tables` entity, which only holds connection metadata:
 
 ```sql
-SELECT table_name, description
+SELECT table_name, description, certification
 FROM system.information_schema.tables
 WHERE table_type = 'data_warehouse' AND description ILIKE '%canonical mrr%'
 ```
 
-Column docs are searchable the same way via `information_schema.columns.description`. Prefer an `ILIKE` filter over dumping the whole catalog and scanning it yourself.
+Column docs are searchable the same way via `system.information_schema.columns.description` (the `system.` prefix is required — a bare `information_schema.columns` is an unknown table). Prefer an `ILIKE` filter over dumping the whole catalog and scanning it yourself.
 
 **Inspect a table's columns:**
 

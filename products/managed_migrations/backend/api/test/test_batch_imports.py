@@ -12,6 +12,8 @@ from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.security.url_validation import UNREACHABLE_HOST_MESSAGE
+
 from products.managed_migrations.backend import trial_storage
 from products.managed_migrations.backend.admin.batch_imports import BatchImportAdmin
 from products.managed_migrations.backend.api.batch_imports import BatchImportS3SourceCreateSerializer
@@ -1124,6 +1126,30 @@ class TestBatchImportAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["attr"], "endpoint_url")
+        self.assertIn("starts with http:// or https://", response.json()["detail"])
+
+    @override_settings(FORCE_URL_VALIDATION=True)
+    def test_s3_import_with_blocked_endpoint_url_returns_400(self):
+        # FORCE_URL_VALIDATION defeats both bypasses, which is what this needs: a blocked URL
+        # is well formed, so it only reaches this branch with the real check running. It must
+        # not be told to fix its scheme or drop credentials when it has neither problem.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "s3_prefix": "data/",
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+                "endpoint_url": "http://10.0.0.1/",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["attr"], "endpoint_url")
+        self.assertEqual(response.json()["detail"], UNREACHABLE_HOST_MESSAGE)
 
     @override_settings(MANAGED_MIGRATIONS_IMPORT_ROLE_ARN="arn:aws:iam::999999999999:role/PostHogBatchImport")
     @patch("products.managed_migrations.backend.api.batch_imports.posthoganalytics.feature_enabled", return_value=True)

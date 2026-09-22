@@ -16,7 +16,7 @@ from posthog.models.utils import generate_random_token_secret
 
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, Status
-from products.conversations.backend.tasks import wake_snoozed_tickets
+from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
 
 
 def immediate_on_commit(func):
@@ -96,6 +96,18 @@ class TestTicketSnoozeAPI(APIBaseTest):
 
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.status, Status.RESOLVED)
+
+    def test_resnooze_keeps_status(self, _):
+        self.ticket.snoozed_until = timezone.now() + timedelta(hours=2)
+        self.ticket.status = Status.PENDING
+        self.ticket.save(update_fields=["snoozed_until", "status"])
+
+        new_snooze_time = (timezone.now() + timedelta(hours=5)).isoformat()
+        response = self.client.patch(self.url, {"snoozed_until": new_snooze_time})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, Status.PENDING)
 
     def test_snooze_logs_activity(self, _):
         snooze_time = (timezone.now() + timedelta(hours=2)).isoformat()
@@ -289,7 +301,7 @@ class TestWakeSnoozedTickets(BaseTest):
         return Ticket.objects.create_with_number(**defaults)
 
     @parameterized.expand([(Status.ON_HOLD,), (Status.PENDING,), (Status.RESOLVED,)])
-    @patch("products.conversations.backend.tasks.capture_ticket_status_changed")
+    @patch("products.conversations.backend.tasks.maintenance.capture_ticket_status_changed")
     def test_expired_snooze_reopens_inactive_ticket(self, start_status, mock_capture):
         ticket = self._make_ticket(
             status=start_status,
@@ -303,7 +315,7 @@ class TestWakeSnoozedTickets(BaseTest):
         self.assertIsNone(ticket.snoozed_until)
         mock_capture.assert_called_once_with(ticket, start_status, Status.OPEN, actor_type="system")
 
-    @patch("products.conversations.backend.tasks.capture_ticket_status_changed")
+    @patch("products.conversations.backend.tasks.maintenance.capture_ticket_status_changed")
     def test_ignores_future_snoozed_tickets(self, mock_capture):
         ticket = self._make_ticket(
             status=Status.ON_HOLD,
@@ -317,7 +329,7 @@ class TestWakeSnoozedTickets(BaseTest):
         self.assertIsNotNone(ticket.snoozed_until)
         mock_capture.assert_not_called()
 
-    @patch("products.conversations.backend.tasks.capture_ticket_status_changed")
+    @patch("products.conversations.backend.tasks.maintenance.capture_ticket_status_changed")
     def test_ignores_tickets_without_snooze(self, mock_capture):
         ticket = self._make_ticket(status=Status.ON_HOLD, snoozed_until=None)
 
@@ -327,7 +339,7 @@ class TestWakeSnoozedTickets(BaseTest):
         self.assertEqual(ticket.status, Status.ON_HOLD)
         mock_capture.assert_not_called()
 
-    @patch("products.conversations.backend.tasks.capture_ticket_status_changed")
+    @patch("products.conversations.backend.tasks.maintenance.capture_ticket_status_changed")
     def test_wakes_multiple_tickets_across_teams(self, mock_capture):
         other_team = self.organization.teams.create(name="Other Team")
         expired = timezone.now() - timedelta(minutes=5)
@@ -345,12 +357,12 @@ class TestWakeSnoozedTickets(BaseTest):
         self.assertIsNone(t2.snoozed_until)
         self.assertEqual(mock_capture.call_count, 2)
 
-    @patch("products.conversations.backend.tasks.capture_ticket_status_changed")
+    @patch("products.conversations.backend.tasks.maintenance.capture_ticket_status_changed")
     def test_noop_when_no_expired_tickets(self, mock_capture):
         wake_snoozed_tickets()
         mock_capture.assert_not_called()
 
-    @patch("products.conversations.backend.tasks.capture_ticket_status_changed")
+    @patch("products.conversations.backend.tasks.maintenance.capture_ticket_status_changed")
     def test_wake_logs_system_activity_for_reopen(self, _):
         ticket = self._make_ticket(
             status=Status.ON_HOLD,
@@ -379,7 +391,7 @@ class TestWakeSnoozedTickets(BaseTest):
         self.assertEqual(status_change["after"], Status.OPEN)
 
     @parameterized.expand([(Status.OPEN,), (Status.NEW,)])
-    @patch("products.conversations.backend.tasks.capture_ticket_status_changed")
+    @patch("products.conversations.backend.tasks.maintenance.capture_ticket_status_changed")
     def test_wake_clears_snooze_on_active_ticket_without_status_change(self, start_status, mock_capture):
         ticket = self._make_ticket(
             status=start_status,

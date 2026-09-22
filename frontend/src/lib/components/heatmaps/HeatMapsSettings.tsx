@@ -3,7 +3,7 @@ import React, { useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 
-import { HEATMAP_COLOR_PALETTE_OPTIONS } from 'lib/components/heatmaps/heatmapDataLogic'
+import { HEATMAP_COLOR_PALETTE_OPTIONS, HEATMAP_TYPE_OPTIONS } from 'lib/components/heatmaps/heatmapDataLogic'
 import { HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
@@ -106,28 +106,7 @@ export const HeatmapsSettings = ({
                     <LemonSelect
                         onChange={(e) => patchHeatmapFilters?.({ type: e })}
                         value={heatmapFilters?.type ?? undefined}
-                        options={[
-                            {
-                                value: 'click',
-                                label: 'Clicks',
-                            },
-                            {
-                                value: 'rageclick',
-                                label: 'Rageclicks',
-                            },
-                            {
-                                value: 'deadclick',
-                                label: 'Dead clicks',
-                            },
-                            {
-                                value: 'mousemove',
-                                label: 'Mouse moves',
-                            },
-                            {
-                                value: 'scrolldepth',
-                                label: 'Scroll depth',
-                            },
-                        ]}
+                        options={HEATMAP_TYPE_OPTIONS}
                         size="small"
                     />
 

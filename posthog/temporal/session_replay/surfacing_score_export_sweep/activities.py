@@ -195,7 +195,7 @@ async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportP
     key = score_export_object_key(spec.day, spec.chunk_id, spec.of_chunks)
     await sync_to_async(_upload, thread_sensitive=False)(key, body)
 
-    activity.logger.info(
+    logger.info(
         "surfacing_score_export_sweep.partition_done",
         day=spec.day,
         chunk_id=spec.chunk_id,

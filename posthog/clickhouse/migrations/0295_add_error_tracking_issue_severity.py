@@ -2,9 +2,9 @@
 Placement (node_roles) is derived from the node composition manifest; review before committing.
 """
 
-from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from posthog.run_mode import run_mode
 
 from products.error_tracking.backend.sql import (
     ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_KAFKA_TABLE,
@@ -16,8 +16,6 @@ from products.error_tracking.backend.sql import (
     KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL,
     KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS_TABLE_SQL,
 )
-
-_is_cloud = settings.CLOUD_DEPLOYMENT in ("US", "EU", "DEV")
 
 operations = [
     run_sql_with_exceptions(
@@ -67,7 +65,7 @@ operations = [
             node_roles=[NodeRole.INGESTION_SMALL],
         ),
     ]
-    if _is_cloud
+    if run_mode().is_deployed_cloud
     else [
         run_sql_with_exceptions(
             f"DROP TABLE IF EXISTS {ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_MV}",

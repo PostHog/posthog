@@ -30,6 +30,7 @@ const columns: ColumnDef<Person>[] = [
   stickyHeader                   // or "page" to stick to document scroll
   fullWidth
   size="sm"                      // tighten cell padding; pair with Card size="sm"
+  onRowClick={(row) => open(row)} // ignores links, buttons, and form controls inside the row
 />
 ```
 
@@ -40,6 +41,7 @@ Rules:
 - Sorting is client-side and on by default — click header toggles asc → desc → off. Opt out per column with `enableSorting: false`.
 - Pagination is opt-in via `pageSize`; the component owns page state and resets to page 0 when `pageSize` changes. The pager is suppressed when the table has no rows — an empty table shows only its empty state, never a "0–0 of 0" pager.
 - Custom empty state via the `empty` prop (ReactNode); default is a minimal "No results".
+- `onRowClick` makes non-interactive parts of each row clickable and keyboard accessible. Links, buttons, form controls, editable content, and custom controls keep their own behavior. Add `data-row-click-ignore` to a custom descendant that must not activate the row.
 - Don't rebuild tables from `Table` primitives when the data is row/column shaped and needs sorting or pagination — that's what DataTable is for. Drop to the `Table` primitive only for fully custom layouts.
 
 ## DateTimePicker
@@ -135,6 +137,7 @@ Rules:
 - `MetricSparkline` owns the bottom-edge alignment (a built-in 6px shift that pushes the canvas's hover-ring margin past the card edge so the line rests on it) — a custom `className` only manages margins (`-mx-*`/`-mb-*`/`mt-*`), never re-adds the offset.
 - Give the card a height (`className="h-40"`, or `h-full` in a sized box) when using `sparklineFill` or when you want a fixed-height sparkline pinned to the bottom; otherwise it sizes to content (`Metric` is `h-full` so it fills whatever card it's in).
 - The root owns the data/hover behavior and feeds the parts via context — a part used outside `<Metric>` throws. Pass `value` for a number-only tile; pass `data`+`labels`+`theme` for a sparkline.
+- `labels` doubles as the sparkline's x-scale keys, so entries must be **unique** — a duplicate collapses two points onto one position and draws the series backwards (see the charts guide's `labels` rule). Pass raw keys (ISO dates) and render them for display with `formatLabel`, instead of pre-formatting text like `'June 16'`, which repeats once a range spans a year. `formatLabel` covers the subtitle; a `sparklineTooltip` formats the same keys through the charts' own `labelFormatter`.
 - `MetricDelta` renders a `Badge`; `goodDirection` (default `up`) decides success vs destructive. It carries its own `TooltipProvider`, so `changeTooltip` needs no app-root setup. resize via `className` (the metric insight passes its own larger-pill classes and puts it inline next to the headline via `MetricHeader`; there is no `changeInline` or size prop, compose and style at the call site).
 - Reproduces `MetricCard`'s behavior (`restingSubtitle`, `hoverChangeFromPreviousPoint`, `changeTooltip`, `positiveColor`/`negativeColor` for user-configured pill colors); omit the color props to keep the semantic `Badge` variants.
 - `series` draws a multi-series sparkline (one line per series, the charts' `Series[]` shape) instead of the single `data` line. It's purely visual — the headline, hover and change pill still read `data`, so pass the numbers the tile should read (e.g. the per-index totals) as `data` alongside it; the types reject `series` without `data`. The single-line conveniences (`color`, `sparklineDashedFromIndex`) don't apply — set them per series.

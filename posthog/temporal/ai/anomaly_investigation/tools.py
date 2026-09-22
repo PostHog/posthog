@@ -116,6 +116,11 @@ def _run_detector_simulation(
             # is chosen by config.series_index. Without this the simulation defaults to series 0,
             # so the investigation analyzes a different series than the one that actually fired.
             series_index=(alert.config or {}).get("series_index", 0),
+            # Pass the full alert config too: HogQLDetectorExtractor.simulate reads config.column to
+            # pick which numeric column to score. Without it a SQL insight with several numeric
+            # columns fails with "more than one of them is numeric", so the investigation gets no
+            # series and no baseline.
+            config=alert.config,
             date_from=date_from,
             user=alert.created_by,
         )

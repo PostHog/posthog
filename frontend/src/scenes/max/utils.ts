@@ -185,6 +185,22 @@ export function getSlackThreadUrl(slackThreadKey: string, slackWorkspaceDomain?:
     return `https://${domain}.slack.com/archives/${channel}/${urlTs}`
 }
 
+function stripQueryResponses<Value>(value: Value): Value {
+    if (value === null || typeof value !== 'object') {
+        return value
+    }
+    if (Array.isArray(value)) {
+        return value.map(stripQueryResponses) as Value
+    }
+
+    const isQueryNode = 'kind' in value && Object.values(NodeKind).includes(value.kind as NodeKind)
+    return Object.fromEntries(
+        Object.entries(value)
+            .filter(([key]) => !(isQueryNode && key === 'response'))
+            .map(([key, child]) => [key, stripQueryResponses(child)])
+    ) as Value
+}
+
 // Utility functions for transforming data to max context
 export const insightToMaxContext = (
     insight: Partial<QueryBasedInsightModel>,
@@ -199,7 +215,7 @@ export const insightToMaxContext = (
         id: insight.short_id!,
         name: insight.name || insight.derived_name,
         description: insight.description,
-        query: source,
+        query: stripQueryResponses(source),
         filtersOverride,
         variablesOverride,
     }

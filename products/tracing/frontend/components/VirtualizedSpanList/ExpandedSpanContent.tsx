@@ -1,3 +1,5 @@
+import { PropertyFilterType } from '~/types'
+
 import { formatDuration } from '../../TraceWaterfallView'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from '../../types'
 import type { Span } from '../../types'
@@ -33,7 +35,12 @@ export function ExpandedSpanContent({ span, showDetails = true }: ExpandedSpanCo
 
     return (
         <div className="flex flex-col gap-2 p-2 bg-primary border-t border-border">
-            <SpanAttributes title="Attributes" attributes={attributes} emptyLabel="No attributes set on this span" />
+            <SpanAttributes
+                title="Attributes"
+                attributes={attributes}
+                emptyLabel="No attributes set on this span"
+                propertyType={PropertyFilterType.SpanAttribute}
+            />
             {/* Sibling section after the span attributes — same split the logs detail view uses.
                 Often absent (non-k8s / no resource attrs), so hidden when empty to avoid noise. */}
             {Object.keys(span.resource_attributes ?? {}).length > 0 && (
@@ -41,9 +48,10 @@ export function ExpandedSpanContent({ span, showDetails = true }: ExpandedSpanCo
                     title="Resource attributes"
                     attributes={span.resource_attributes}
                     emptyLabel="No resource attributes on this span"
+                    propertyType={PropertyFilterType.SpanResourceAttribute}
                 />
             )}
-            {showDetails && <SpanAttributes title="Span details" attributes={details} />}
+            {showDetails && <SpanAttributes title="Span details" attributes={details} showFilterActions={false} />}
         </div>
     )
 }

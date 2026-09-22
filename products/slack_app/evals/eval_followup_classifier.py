@@ -26,21 +26,55 @@ from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
+from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 from products.slack_app.evals.scorers import FOLLOWUP_KEY, FollowupRoutingMatch, NoUnaskedWake
 
 SUITE_KIND = SuiteKind.ONE_SHOT
 
 TASK_TITLE = "Fix the checkout button not firing autocapture events"
 
-# The thread every case continues: a human asked, the agent acknowledged.
+# The thread most cases continue: a human asked, the agent acknowledged.
 THREAD = [
-    {"user": "alice", "text": "@PostHog autocapture isn't picking up clicks on our checkout button", "ts": "1.0"},
-    {"user": "posthog", "text": "Looking into it — checking how the button is rendered.", "ts": "2.0"},
+    SlackThreadMessage(
+        user="alice", text="@PostHog autocapture isn't picking up clicks on our checkout button", ts="1.0"
+    ),
+    SlackThreadMessage(user="posthog", text="Looking into it — checking how the button is rendered.", ts="2.0"),
 ]
+
+# Threads where a second coding agent works alongside us. A reply that tags it never
+# reaches the classifier (``_bot_addressed_by_reply`` drops it), so these cases are the
+# replies that name nobody, and only what each agent said says who they answer.
+THREAD_OTHER_AGENT_ASKED = [
+    *THREAD,
+    SlackThreadMessage(
+        user="cursor",
+        text="I have the checkout page open for the layout refactor. Shall I move the click handler out of the wrapper while I am in there?",
+        ts="3.0",
+    ),
+]
+THREAD_POSTHOG_ASKED = [
+    *THREAD,
+    SlackThreadMessage(user="cursor", text="Heads up, that whole file moves in my refactor branch.", ts="3.0"),
+    SlackThreadMessage(
+        user="posthog",
+        text="Do you want the handler fixed where it is now, or should I wait for that refactor to land?",
+        ts="4.0",
+    ),
+]
+
+THREADS = {
+    "default": THREAD,
+    "other_agent_asked": THREAD_OTHER_AGENT_ASKED,
+    "posthog_asked": THREAD_POSTHOG_ASKED,
+}
 
 
 def _routes(agent_directed: bool) -> dict:
     return {FOLLOWUP_KEY: {"agent_directed": agent_directed}}
+
+
+def _in_thread(name: str) -> dict:
+    return {"thread": name}
 
 
 # Instructions. Only the first addresses the agent by name; the rest are what people
@@ -70,6 +104,13 @@ DIRECTED_CASES = [
         name="correction_of_the_agent",
         prompt="that's the wrong file — it's the one under components/, not lib/",
         expected=_routes(True),
+    ),
+    # A second agent in the thread must not make us deaf to an answer we asked for.
+    BaseEvalCase(
+        name="answer_to_our_own_question",
+        prompt="fix it where it is now, we can rebase later",
+        expected=_routes(True),
+        metadata=_in_thread("posthog_asked"),
     ),
     BaseEvalCase(
         name="follow_up_ask",
@@ -127,6 +168,48 @@ CHATTER_CASES = [
         prompt="yep, same conclusion I came to",
         expected=_routes(False),
     ),
+    # Orders aimed at a person. The @mention that would settle who is being asked is the
+    # first thing people drop once a thread is moving, which leaves the imperative — the
+    # shape the agent reads as its own instruction.
+    BaseEvalCase(
+        name="instruction_to_a_named_human",
+        prompt="sam go ahead and put yourself down as reviewer on that PR too",
+        expected=_routes(False),
+    ),
+    BaseEvalCase(
+        name="request_only_a_person_can_do",
+        prompt="if you could join the call with their eng team tomorrow that would be great too",
+        expected=_routes(False),
+    ),
+    # Someone picking the work up themselves. The agent read this as its own go-ahead and
+    # answered to say it was standing aside, which is itself the interruption.
+    BaseEvalCase(
+        name="colleague_claims_the_work",
+        prompt="ah I see what's going on, let me fix that",
+        expected=_routes(False),
+    ),
+    # A proposal put to colleagues mid-debate. Argued and task-relevant, so it reads far
+    # more like an instruction than the offhand opinions above do.
+    BaseEvalCase(
+        name="proposal_in_a_debate",
+        prompt="hmm, I'd be more inclined to drop the wrapper entirely and handle it at the call site",
+        expected=_routes(False),
+    ),
+    # Every word of it is about our task; the only thing that says it is not for us is
+    # which agent asked.
+    BaseEvalCase(
+        name="answer_to_another_agents_question",
+        prompt="that's fine, pull it out of the wrapper while you're in there",
+        expected=_routes(False),
+        metadata=_in_thread("other_agent_asked"),
+    ),
+    # A thread kept as a running list. The item carries an implicit work item, which is a
+    # sharper lure than a bare link.
+    BaseEvalCase(
+        name="bookkeeping_entry",
+        prompt="https://posthog.slack.com/archives/C123/p456 checkout-button@example.com",
+        expected=_routes(False),
+    ),
 ]
 
 
@@ -138,7 +221,10 @@ async def eval_followup_classifier(ctx: EvalContext) -> None:
             # Sync and blocking on the gateway — off the event loop so cases still run
             # concurrently under the harness's limiter.
             agent_directed = await asyncio.to_thread(
-                classifiers.classify_message_is_agent_directed, case.prompt, TASK_TITLE, THREAD
+                classifiers.classify_message_is_agent_directed,
+                case.prompt,
+                TASK_TITLE,
+                THREADS[case.metadata.get("thread", "default")],
             )
         except Exception as error:
             return {

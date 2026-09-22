@@ -16,9 +16,10 @@ from pydantic import BaseModel, ValidationError
 from posthog.schema import ApprovalResumePayload, AssistantTool, ClientToolResultPayload
 
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
+
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.core.context import get_node_path, set_node_path

@@ -1,9 +1,9 @@
 from django.db.models import QuerySet
 
 from posthog.models.team import Team
-from posthog.rbac.user_access_control import UserAccessControl
 
-from products.product_analytics.backend.models.insight import Insight
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.config import BriefSettings
 from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.base import SourceItem

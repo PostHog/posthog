@@ -9,13 +9,23 @@ from __future__ import annotations
 
 import base64
 import binascii
+from dataclasses import field
 from typing import Any
 from urllib.parse import unquote_plus
 
 from django.contrib.auth.hashers import check_password, identify_hasher
 from django.utils.crypto import constant_time_compare
 
+from posthog.dataclasses import frozen
+
 BASIC_PREFIX = "Basic "
+
+
+@frozen
+class ClientCredentials:
+    client_id: str
+    # repr=False keeps the secret out of logs and tracebacks.
+    client_secret: str = field(repr=False)
 
 
 def verify_client_secret(provided_secret: str, stored_secret: str) -> bool:
@@ -43,7 +53,7 @@ def verify_client_secret(provided_secret: str, stored_secret: str) -> bool:
     return check_password(provided_secret, stored_secret)
 
 
-def client_credentials_from_basic_auth(request: Any) -> tuple[str, str] | None:
+def client_credentials_from_basic_auth(request: Any) -> ClientCredentials | None:
     auth_header = request.headers.get("authorization", "")
     if not auth_header.startswith(BASIC_PREFIX):
         return None
@@ -59,11 +69,11 @@ def client_credentials_from_basic_auth(request: Any) -> tuple[str, str] | None:
 
     # RFC 6749 section 2.3.1 requires both halves to be form-urlencoded before they are
     # base64'd, so a secret containing ":" survives the split above.
-    return unquote_plus(client_id), unquote_plus(client_secret)
+    return ClientCredentials(client_id=unquote_plus(client_id), client_secret=unquote_plus(client_secret))
 
 
-def extract_client_credentials(request: Any) -> tuple[str, str] | None:
-    """Return the ``(client_id, client_secret)`` pair the request presents, or None.
+def extract_client_credentials(request: Any) -> ClientCredentials | None:
+    """Return the client_id and client_secret the request presents, or None.
 
     Both RFC 6749 transports are accepted. Basic auth is read first because the GitHub
     grant listing endpoint is a GET, which has no body to carry the pair.
@@ -75,6 +85,6 @@ def extract_client_credentials(request: Any) -> tuple[str, str] | None:
     client_id = request.data.get("client_id") or ""
     client_secret = request.data.get("client_secret") or ""
     if client_id and client_secret:
-        return client_id, client_secret
+        return ClientCredentials(client_id=client_id, client_secret=client_secret)
 
     return None

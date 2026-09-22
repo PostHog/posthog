@@ -250,7 +250,10 @@ fn leaf_service_only_affects_itself_and_dependents() {
         compute_affected(&["rust/capture/src/main.rs".into()], None, &graph, &images).unwrap();
     assert!(!result.rebuild_all);
     assert_eq!(result.directly_changed, vec!["capture"]);
-    assert_eq!(result.images, vec!["capture", "capture-logs"]);
+    assert_eq!(
+        result.images,
+        vec!["capture", "capture-apm-metrics", "capture-logs"]
+    );
 }
 
 #[test]

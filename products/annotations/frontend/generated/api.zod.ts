@@ -33,8 +33,14 @@ export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot\/deployment notes.\n\n\* `USR` - user\n\* `GIT` - GitHub'
         ),
-    dashboard_item: zod.number().nullish(),
-    dashboard_id: zod.number().nullish(),
+    dashboard_item: zod
+        .number()
+        .nullish()
+        .describe('Optional insight ID to attach this annotation to. Must belong to the current project.'),
+    dashboard_id: zod
+        .number()
+        .nullish()
+        .describe('Optional dashboard ID to attach this annotation to. Must belong to the current project.'),
     deleted: zod
         .boolean()
         .optional()
@@ -85,8 +91,14 @@ export const AnnotationsUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot\/deployment notes.\n\n\* `USR` - user\n\* `GIT` - GitHub'
         ),
-    dashboard_item: zod.number().nullish(),
-    dashboard_id: zod.number().nullish(),
+    dashboard_item: zod
+        .number()
+        .nullish()
+        .describe('Optional insight ID to attach this annotation to. Must belong to the current project.'),
+    dashboard_id: zod
+        .number()
+        .nullish()
+        .describe('Optional dashboard ID to attach this annotation to. Must belong to the current project.'),
     deleted: zod
         .boolean()
         .optional()
@@ -137,8 +149,14 @@ export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Who created this annotation. Use `USR` for user-created notes and `GIT` for bot\/deployment notes.\n\n\* `USR` - user\n\* `GIT` - GitHub'
         ),
-    dashboard_item: zod.number().nullish(),
-    dashboard_id: zod.number().nullish(),
+    dashboard_item: zod
+        .number()
+        .nullish()
+        .describe('Optional insight ID to attach this annotation to. Must belong to the current project.'),
+    dashboard_id: zod
+        .number()
+        .nullish()
+        .describe('Optional dashboard ID to attach this annotation to. Must belong to the current project.'),
     deleted: zod
         .boolean()
         .optional()

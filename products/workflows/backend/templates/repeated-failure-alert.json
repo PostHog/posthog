@@ -1,7 +1,7 @@
 {
     "id": "019cc330-b1cc-0000-85a3-4f18ffa9f2ee",
     "name": "Alert team in case of a repeated failure",
-    "description": "Alert your team when a user action fails so you can investigate potential issues quickly. This workflow waits briefly before notifying Slack to avoid triggering alerts for temporary errors.",
+    "description": "Alert your team in Slack when an action keeps failing, after a short wait that skips one-off errors.",
     "version": 1,
     "created_at": "2026-03-06T12:47:54.317218Z",
     "created_by": {

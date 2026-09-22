@@ -1,10 +1,11 @@
-from dataclasses import dataclass
 from typing import Generic, TypeVar
+
+from posthog.dataclasses import frozen
 
 T = TypeVar("T")
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class SyncWindow(Generic[T]):
     """Start/end bounds of one connector sync window; inclusivity of each bound is defined by the connector."""
 

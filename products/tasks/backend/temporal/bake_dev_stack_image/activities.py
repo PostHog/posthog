@@ -1,12 +1,11 @@
 import logging
-import threading
-import contextvars
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from asgiref.sync import sync_to_async
 from temporalio import activity
 
-from posthog.temporal.common.utils import asyncify
+from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.tasks.backend.logic.services.dev_stack_image import (
     DEV_STACK_IMAGE_NAME,
@@ -18,7 +17,9 @@ from products.tasks.backend.temporal.observability import log_activity_execution
 
 logger = logging.getLogger(__name__)
 
-BAKE_HEARTBEAT_INTERVAL_SECONDS = 30
+# `Heartbeater` divides the activity's heartbeat timeout by this factor, so 6 against the
+# workflow's 3-minute timeout gives a 30-second interval.
+BAKE_HEARTBEAT_FACTOR = 6
 
 
 @dataclass
@@ -31,31 +32,16 @@ class BakeDevStackImageInput:
 
 
 @activity.defn
-@asyncify
-def bake_and_publish_dev_stack_image(input: BakeDevStackImageInput) -> str:
+async def bake_and_publish_dev_stack_image(input: BakeDevStackImageInput) -> str:
     """Run the bake and publish the snapshot under the input's Modal image name.
 
-    Heartbeats from a side thread while the sync bake blocks (15-90 minutes), so a
-    worker crash or redeploy mid-bake is detected within the workflow's heartbeat
-    timeout and retried promptly, instead of burning the full 3-hour start_to_close
-    (mirrors send_followup_to_sandbox).
+    Heartbeats while the sync bake blocks so worker failures are detected within the
+    workflow's heartbeat timeout.
     """
-    stop_heartbeat = threading.Event()
-    heartbeat_ctx = contextvars.copy_context()
-
-    def _heartbeat_loop() -> None:
-        while not stop_heartbeat.wait(BAKE_HEARTBEAT_INTERVAL_SECONDS):
-            try:
-                activity.heartbeat()
-            except Exception:
-                return
-
-    heartbeat_thread = threading.Thread(target=lambda: heartbeat_ctx.run(_heartbeat_loop), daemon=True)
-    heartbeat_thread.start()
-    try:
+    async with Heartbeater(factor=BAKE_HEARTBEAT_FACTOR):
         with log_activity_execution("bake_and_publish_dev_stack_image", **input.to_log_context()):
             try:
-                image_id = bake_dev_stack_image(input.publish_name)
+                image_id = await sync_to_async(bake_dev_stack_image, thread_sensitive=False)(input.publish_name)
             except DevStackImageBakeError:
                 observe_dev_stack_image_bake("bake_failed", trigger=input.trigger)
                 raise
@@ -64,6 +50,3 @@ def bake_and_publish_dev_stack_image(input: BakeDevStackImageInput) -> str:
                 raise
             observe_dev_stack_image_bake("succeeded", trigger=input.trigger)
             return image_id
-    finally:
-        stop_heartbeat.set()
-        heartbeat_thread.join(timeout=2)

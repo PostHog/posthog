@@ -4,6 +4,9 @@ Management command to verify flag definitions cache consistency.
 Compares cached flag definitions data against database to detect discrepancies.
 When --fix is used, the cache is updated to match the database.
 
+IMPORTANT: This command requires FLAGS_REDIS_URL to be set. Without it, the command
+prints an error and stops without verifying anything, to prevent misleading results.
+
 Usage:
     # Verify all teams
     python manage.py verify_flag_definitions_cache
@@ -69,8 +72,10 @@ class Command(BaseHyperCacheCommand):
             self.stdout.write(f"  Flag '{flag_key}': {diff_type}")
 
     def handle(self, *args, **options):
-        # No check_dedicated_cache_configured() needed — flag definitions use the
-        # default cache (REDIS_URL), not the dedicated flags cache (FLAGS_REDIS_URL).
+        # Check if dedicated flags cache is configured (fail fast)
+        if not self.check_dedicated_cache_configured():
+            return
+
         team_ids = options.get("team_ids")
         sample_size = options.get("sample")
         verbose = options.get("verbose", False)

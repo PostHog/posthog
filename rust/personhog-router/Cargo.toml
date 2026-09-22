@@ -38,6 +38,11 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
+# Test-only: the store layer emits the etcd payload histogram from both
+# this binary and every binary on the shared recorder, so the two bucket
+# ladders have to match or the series cannot be aggregated across jobs.
+# A dev-dependency binds them without pulling the crate into the build.
+common-metrics = { path = "../common/metrics" }
 dashmap = { workspace = true }
 flate2 = { workspace = true }
 prost = { workspace = true }

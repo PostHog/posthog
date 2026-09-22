@@ -12,10 +12,11 @@ import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
 import { LiveEvent } from '~/types'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 export type LiveEventsFeedColumn = 'event' | 'person' | 'url' | 'recording' | 'timestamp' | 'more'
 
@@ -133,6 +134,12 @@ export function LiveEventsFeed({
             columns={tableColumns}
             data-attr="live-events-table"
             rowKey="uuid"
+            // Each incoming batch re-keys the whole feed, so React removes and reorders row text on
+            // almost every streaming update. On a translated page each of those text nodes is a
+            // `<font>` wrapper React does not own, and the commit throws (react#11538). Rows hold
+            // event names, distinct IDs, URLs, and timestamps, so nothing here needs translation.
+            // The column headers stay outside the opt-out and stay translatable.
+            onRow={() => ({ translate: 'no' })}
             dataSource={events}
             useURLForSorting={false}
             emptyState={emptyState ?? defaultEmptyState}

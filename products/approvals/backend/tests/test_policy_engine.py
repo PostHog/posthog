@@ -61,7 +61,7 @@ class TestPolicyEngineBypass(APIBaseTest):
         assert result is expected_bypass
 
     def test_bypass_rbac_role(self):
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         role = Role.objects.create(
             organization=self.organization,
@@ -79,7 +79,7 @@ class TestPolicyEngineBypass(APIBaseTest):
         assert result is True
 
     def test_bypass_rbac_role_user_not_in_role(self):
-        from ee.models.rbac.role import Role
+        from products.access_control.backend.models.role import Role
 
         role = Role.objects.create(
             organization=self.organization,
@@ -98,7 +98,7 @@ class TestPolicyEngineBypass(APIBaseTest):
     def test_bypass_rbac_role_user_has_other_org_role_but_not_bypass_role(self):
         from posthog.models.organization import Organization
 
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         other_org = Organization.objects.create(name="Other Org")
         other_role = Role.objects.create(
@@ -179,7 +179,7 @@ class TestPolicyEngineEvaluateBypass(APIBaseTest):
         assert "bypass" in decision.reason.lower()
 
     def test_evaluate_returns_allow_when_rbac_role_bypass(self):
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         role = Role.objects.create(
             organization=self.organization,
@@ -245,7 +245,7 @@ class TestPolicySnapshotBypassFields(APIBaseTest):
         assert decision.policy_snapshot["bypass_org_membership_levels"] == ["8", "15"]
 
     def test_policy_snapshot_includes_bypass_roles(self):
-        from ee.models.rbac.role import Role
+        from products.access_control.backend.models.role import Role
 
         role = Role.objects.create(
             organization=self.organization,
@@ -282,7 +282,7 @@ class TestPolicySnapshotBypassFields(APIBaseTest):
 
 class TestPolicyEngineActorIsApprover(APIBaseTest):
     def test_actor_is_approver_via_role(self):
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         role = Role.objects.create(organization=self.organization, name="Approvers")
         RoleMembership.objects.create(user=self.user, role=role)
@@ -297,7 +297,7 @@ class TestPolicyEngineActorIsApprover(APIBaseTest):
     def test_actor_is_not_approver_when_role_in_other_org(self):
         from posthog.models.organization import Organization
 
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         other_org = Organization.objects.create(name="Other Org")
         role = Role.objects.create(organization=other_org, name="Approvers")
@@ -314,7 +314,7 @@ class TestBypassRolesValidation(APIBaseTest):
     def test_set_bypass_roles_validates_organization(self):
         from posthog.models.organization import Organization
 
-        from ee.models.rbac.role import Role
+        from products.access_control.backend.models.role import Role
 
         other_org = Organization.objects.create(name="Other Org")
         role = Role.objects.create(
@@ -337,7 +337,7 @@ class TestBypassRolesValidation(APIBaseTest):
         assert "same organization" in str(context.exception)
 
     def test_set_bypass_roles_accepts_valid_roles(self):
-        from ee.models.rbac.role import Role
+        from products.access_control.backend.models.role import Role
 
         role = Role.objects.create(
             organization=self.organization,
@@ -358,7 +358,7 @@ class TestBypassRolesValidation(APIBaseTest):
         assert list(policy.bypass_roles.values_list("id", flat=True)) == [role.id]
 
     def test_set_bypass_roles_clears_when_empty(self):
-        from ee.models.rbac.role import Role
+        from products.access_control.backend.models.role import Role
 
         role = Role.objects.create(
             organization=self.organization,

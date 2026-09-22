@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 
 from asgiref.sync import sync_to_async
 from temporalio.testing import WorkflowEnvironment
@@ -18,10 +19,15 @@ from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.tasks.failure_handler import ExportFailureDetails
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
 EXPORT_FORMAT = ExportedAsset.ExportFormat.PNG
+
+
+class CustomQueryError(QueryError):
+    pass
 
 
 async def _run_export_workflow(env, asset, team, mock_exporter, fake_export):
@@ -149,7 +155,7 @@ async def test_transient_error_retries_and_succeeds(
 
 
 @pytest.mark.parametrize(
-    "error_factory,expected_exception_class,expected_error_msg,expected_call_count,expected_outcome",
+    "error_factory,expected_exception_class,expected_error_msg,expected_call_count,expected_outcome,expected_failure_details",
     [
         (
             lambda: QueryError("Invalid HogQL query"),
@@ -157,17 +163,73 @@ async def test_transient_error_retries_and_succeeds(
             "QueryError: Invalid HogQL query",
             1,
             SloOutcome.SUCCESS,
+            None,
         ),
-        (lambda: RuntimeError("Chrome crashed"), "RuntimeError", "RuntimeError: Chrome crashed", 1, SloOutcome.FAILURE),
+        (
+            lambda: CustomQueryError("Invalid custom query"),
+            "CustomQueryError",
+            "CustomQueryError: Invalid custom query",
+            1,
+            SloOutcome.SUCCESS,
+            None,
+        ),
+        (
+            lambda: RuntimeError("Chrome crashed"),
+            "RuntimeError",
+            "RuntimeError: Chrome crashed",
+            1,
+            SloOutcome.FAILURE,
+            {
+                "failure_category": "application",
+                "failure_component": "exporter",
+                "failure_retryable": False,
+            },
+        ),
         (
             lambda: CHQueryErrorS3Error("S3 error", code=499),
             "CHQueryErrorS3Error",
             "CHQueryErrorS3Error: Code: 499.\nS3 error",
             10,
             SloOutcome.FAILURE,
+            {
+                "failure_category": "storage",
+                "failure_component": "object_storage",
+                "failure_retryable": True,
+            },
+        ),
+        (
+            lambda: DjangoValidationError("not a query error"),
+            "ValidationError",
+            "ValidationError: ['not a query error']",
+            1,
+            SloOutcome.FAILURE,
+            {
+                "failure_category": "application",
+                "failure_component": "exporter",
+                "failure_retryable": False,
+            },
+        ),
+        (
+            lambda: SyntaxError("not a query error"),
+            "SyntaxError",
+            "SyntaxError: not a query error",
+            1,
+            SloOutcome.FAILURE,
+            {
+                "failure_category": "application",
+                "failure_component": "exporter",
+                "failure_retryable": False,
+            },
         ),
     ],
-    ids=["non_retryable_user_error", "generic_runtime_error", "retryable_system_error"],
+    ids=[
+        "non_retryable_user_error",
+        "query_error_subclass",
+        "generic_runtime_error",
+        "retryable_system_error",
+        "django_validation_error",
+        "builtin_syntax_error",
+    ],
 )
 @patch("posthog.slo.events.posthoganalytics")
 @patch("posthog.temporal.exports.activities.exporter")
@@ -180,6 +242,7 @@ async def test_export_failure_emits_slo_outcome(
     expected_error_msg: str,
     expected_call_count: int,
     expected_outcome: SloOutcome,
+    expected_failure_details: ExportFailureDetails | None,
 ):
     asset = await sync_to_async(ExportedAsset.objects.create)(team=team, export_format=EXPORT_FORMAT)
 
@@ -203,3 +266,11 @@ async def test_export_failure_emits_slo_outcome(
     assert props["error_type"] == expected_exception_class
     assert props["error_message"] == expected_error_msg
     assert "Traceback" in props["error_trace"]
+    if expected_failure_details is not None:
+        assert props["failure_stage"] == "asset_generation"
+        assert {key: props[key] for key in expected_failure_details} == expected_failure_details
+    else:
+        assert "failure_stage" not in props
+        assert "failure_category" not in props
+        assert "failure_component" not in props
+        assert "failure_retryable" not in props

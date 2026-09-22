@@ -20,6 +20,8 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 
 interface PanelLayoutPanelProps {
+    /** Names the panel in the DOM, so click maps and analytics can scope to one second-level nav. */
+    panelName: string
     searchPlaceholder?: string
     panelActionsNewSceneLayout?: (ButtonPrimitiveProps | null | undefined)[]
     children: React.ReactNode
@@ -57,6 +59,7 @@ const panelLayoutPanelVariants = cva({
 })
 
 export function PanelLayoutPanel({
+    panelName,
     searchField,
     panelActionsNewSceneLayout,
     children,
@@ -84,6 +87,7 @@ export function PanelLayoutPanel({
                 })
             )}
             ref={containerRef}
+            data-attr={`nav-panel-${panelName}`}
         >
             <div
                 className={cn(

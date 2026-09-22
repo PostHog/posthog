@@ -1,7 +1,7 @@
 import { GitMerge, GitPullRequest } from "phosphor-react-native";
 import { Pressable } from "react-native";
 import { openExternalUrl } from "@/lib/openExternalUrl";
-import { toRgba, useThemeColors } from "@/lib/theme";
+import { MERGED_COLOR, toRgba, useThemeColors } from "@/lib/theme";
 import { usePrStatus } from "../hooks/usePrStatus";
 
 interface PrStatusBadgeProps {
@@ -12,11 +12,6 @@ interface PrStatusBadgeProps {
   hideWhenUnresolved?: boolean;
   size?: "sm" | "md";
 }
-
-// Mirrors the desktop "merged" PR color (Radix purple-9 family). Theme tokens
-// don't include a purple, and merged-PR purple is recognisable enough that a
-// fixed value works in both light and dark.
-const MERGED_COLOR = "#8e4ec6";
 
 export function PrStatusBadge({
   prUrl,

@@ -10,6 +10,9 @@ export interface HotkeyInterface {
     disabled?: boolean
     // Indicates the "action" will handle the event and preventDefault should not be called
     willHandleEvent?: boolean
+    // Run the action again on each OS key-repeat event while the key is held. Off by default so a
+    // held key fires the action once; opt in for seek-style shortcuts that should repeat (arrow keys).
+    allowRepeat?: boolean
 }
 
 export type HotkeysInterface = Partial<Record<HotKey, HotkeyInterface>>
@@ -94,6 +97,12 @@ export function useKeyboardHotkeys(hotkeys: HotkeysInterface, deps?: DependencyL
                 if (normalizedKey === relevantKey) {
                     if (!hotkey.willHandleEvent) {
                         event.preventDefault()
+                    }
+                    // Skip the action on held-key repeats unless the hotkey opts in. This stops a
+                    // resting key from firing an action per OS repeat event (e.g. one server-side
+                    // screenshot export per repeat for the replay player's "s" shortcut).
+                    if (event.repeat && !hotkey.allowRepeat) {
+                        break
                     }
                     // don't capture: when posthog is uninitialized (the toolbar bundle on customer sites — capturing
                     // there only warns in the customer's console), on held-key repeats (seeking by holding an arrow

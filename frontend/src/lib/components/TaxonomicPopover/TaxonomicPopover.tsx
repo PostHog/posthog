@@ -49,6 +49,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     style?: React.CSSProperties
     closeOnChange?: boolean
     excludedProperties?: ExcludedProperties
+    includeHiddenEvents?: boolean
     selectedProperties?: SelectedProperties
     metadataSource?: AnyDataNode
     showNumericalPropsOnly?: boolean
@@ -60,6 +61,8 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     suggestedFiltersLabel?: string
     enableKeywordShortcuts?: boolean
     selectingKeyOnly?: boolean
+    /** Called when the popover is opened. */
+    onOpen?: () => void
 }
 
 /** Like TaxonomicPopover, but convenient when you know you will only use string values */
@@ -91,6 +94,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         allowClear = false,
         closeOnChange = true,
         excludedProperties,
+        includeHiddenEvents,
         selectedProperties,
         metadataSource,
         schemaColumns,
@@ -102,6 +106,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         suggestedFiltersLabel,
         enableKeywordShortcuts,
         selectingKeyOnly,
+        onOpen,
         width,
         placement,
         sideIcon,
@@ -126,7 +131,12 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     ) : placeholder || placeholderClass ? (
         <span className={placeholderClass}>{placeholder}</span>
     ) : null
-    buttonPropsFinal.onClick = () => setVisible(!visible)
+    buttonPropsFinal.onClick = () => {
+        if (!visible) {
+            onOpen?.()
+        }
+        setVisible(!visible)
+    }
     if (!buttonPropsFinal.type) {
         buttonPropsFinal.type = 'secondary'
     }
@@ -159,6 +169,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                     schemaColumns={schemaColumns}
                     metadataSource={metadataSource}
                     excludedProperties={excludedProperties}
+                    includeHiddenEvents={includeHiddenEvents}
                     selectedProperties={selectedProperties}
                     showNumericalPropsOnly={showNumericalPropsOnly}
                     dataWarehousePopoverFields={dataWarehousePopoverFields}
@@ -241,6 +252,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                 schemaColumns={schemaColumns}
                 metadataSource={metadataSource}
                 excludedProperties={excludedProperties}
+                includeHiddenEvents={includeHiddenEvents}
                 selectedProperties={selectedProperties}
                 showNumericalPropsOnly={showNumericalPropsOnly}
                 dataWarehousePopoverFields={dataWarehousePopoverFields}
@@ -248,6 +260,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                 allowNonCapturedEvents={allowNonCapturedEvents}
                 suggestedFiltersLabel={suggestedFiltersLabel}
                 enableKeywordShortcuts={enableKeywordShortcuts}
+                onOpen={onOpen}
                 triggerButtonProps={{
                     icon: buttonPropsRest.icon,
                     sideIcon: sideIcon,

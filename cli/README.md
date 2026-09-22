@@ -34,6 +34,7 @@ Commands:
   hermes       Upload hermes sourcemaps to PostHog
   proguard     Upload proguard mapping files to PostHog
   symbol-sets  Upload, download, and manage symbol sets
+  release      Look up the release a build belongs to
   api          Agent-first PostHog API tools
   help         Print this message or the help of the given subcommand(s)
 
@@ -43,7 +44,7 @@ Options:
       --skip-ssl-verification    Skip SSL certificate verification when talking to the PostHog API. Use only with self-signed certificates
       --rate-limit <RATE_LIMIT>  Set the number of requests per minute for the Posthog API Client [env: POSTHOG_CLIENT_RATE_LIMIT=]
       --dotenv-file <PATH>       Load PostHog credentials from this dotenv-style file when not present in the process environment. Prefer this over the `--env-file` alias: the npm package runs the binary through a `node` wrapper, and Node's own built-in `--env-file` flag intercepts that spelling. Also settable as `POSTHOG_CLI_DOTENV_FILE`, for callers that control the environment but not the command line (e.g. an Xcode build phase invoking the iOS SDK's upload-symbols.sh) [env: POSTHOG_CLI_DOTENV_FILE=]
-      --dry-run[=<DRY_RUN>]      Skip artifact processing and upload (sourcemap, dSYM, hermes, proguard) without contacting PostHog or requiring credentials. Intended for CI gates that bundle to catch regressions but must not (or cannot) upload. Not for release builds. Pass it before the subcommand (`posthog-cli --dry-run hermes upload ...`) or set `POSTHOG_CLI_DRY_RUN`. This is distinct from the `exp endpoints` `--dry-run`, which previews endpoint changes [env: POSTHOG_CLI_DRY_RUN=] [default: false] [possible values: true, false]
+      --dry-run[=<DRY_RUN>]      Skip artifact processing and upload (sourcemap, dSYM, hermes, proguard, release) without contacting PostHog or requiring credentials. Intended for CI gates that bundle to catch regressions but must not (or cannot) upload. Not for release builds. Pass it before the subcommand (`posthog-cli --dry-run hermes upload ...`) or set `POSTHOG_CLI_DRY_RUN`. This is distinct from the `exp endpoints` `--dry-run`, which previews endpoint changes [env: POSTHOG_CLI_DRY_RUN=] [default: false] [possible values: true, false]
   -h, --help                     Print help
   -V, --version                  Print version
 ```
@@ -89,10 +90,35 @@ POSTHOG_CLI_SOURCEMAP_UPLOAD_CONCURRENCY=32 npm run build
 
 The CLI flag takes precedence over the environment variable. Both require a value greater than zero. This setting applies only to plain sourcemap uploads; other CLI concurrency remains unchanged.
 
+## Resolving a release
+
+`posthog-cli release resolve` prints the id of the release the current build belongs to, creating the release if it doesn't exist yet.
+The upload commands do this for you, so reach for it when something else needs the id: a bundler plugin that injects the release into your chunks itself, or a deploy script that wants to record which release it shipped.
+
+```bash
+posthog-cli release resolve --release-name my-app --release-version 1.4.0
+01a0002e-93b5-0000-24cf-fc02638acd46
+```
+
+Only the id goes to stdout, so `RELEASE_ID=$(posthog-cli release resolve)` works.
+Pass `--json` to get the whole release, including its hash id and the version that git or CI metadata filled in.
+
+Both `--release-name` and `--release-version` are read from git or CI metadata when you leave them out.
+When neither the flags nor that metadata identify a release, the command prints nothing (or `null` with `--json`) and exits `0`, so a build can carry on without one.
+A failed lookup exits non-zero instead.
+
+Add `--build` to give a build number its own release: it is packed into the version, so `--release-version 1.4.0 --build 42` resolves to a different release than `--release-version 1.4.0` alone.
+
+Pass `--info-plist <path>` to read the release name, version, and build from `CFBundleIdentifier`, `CFBundleShortVersionString`, and `CFBundleVersion`.
+The CLI resolves exact Xcode build-setting references such as `$(APP_VERSION)` and `${BUILD_NUMBER}` from the environment.
+Missing, unresolved, or compound values fall back to `PRODUCT_BUNDLE_IDENTIFIER`, `MARKETING_VERSION`, and `CURRENT_PROJECT_VERSION`.
+Explicit `--release-name`, `--release-version`, and `--build` values take precedence.
+
 ## Skipping uploads (dry run)
 
 Pass `--dry-run` before the subcommand (`posthog-cli --dry-run hermes upload ...`), or set `POSTHOG_CLI_DRY_RUN=true`, to turn the upload commands — `sourcemap`, `dsym`, `hermes`, and `proguard` — into a no-op.
-The CLI logs that it skipped the upload and exits `0` without contacting PostHog or requiring credentials.
+`release resolve` is skipped too, since resolving a release can create one.
+The CLI logs what it skipped and exits `0` without contacting PostHog or requiring credentials.
 (This top-level flag is separate from the `exp endpoints` `--dry-run`, which previews endpoint changes.)
 
 This is meant for CI gates that still want to run the bundling step (to catch Metro/Hermes or sourcemap regressions) but must not — or cannot — upload artifacts, for example pull-request checks that don't have PostHog credentials.
@@ -110,6 +136,7 @@ Commands require different API scopes. Make sure to set these scopes on your per
 | `sourcemap`                   | `error_tracking:write`                     |
 | `symbol-sets`                 | `error_tracking:write`                     |
 | `dsym`                        | `error_tracking:write`                     |
+| `release`                     | `error_tracking:write`                     |
 | `exp endpoints list/get/pull` | `endpoint:read`                            |
 | `exp endpoints push`          | `endpoint:write`, `insight_variable:write` |
 | `exp endpoints run`           | `query:read`                               |

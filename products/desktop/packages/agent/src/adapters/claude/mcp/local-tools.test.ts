@@ -44,12 +44,28 @@ describe("createLocalToolsMcpServer", () => {
     await client.close();
   });
 
-  it("registers no server on a desktop run with narration off (no tools pass their gate)", () => {
+  it("still exposes show_actions on a desktop run with no gate meta at all", async () => {
     const server = createLocalToolsMcpServer(
       { cwd: "/repo", token: "ghs_x" },
       undefined,
     );
-    expect(server).toBeUndefined();
+    if (!server) {
+      throw new Error("expected the local-tools server to be registered");
+    }
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    await server.instance.connect(serverTransport);
+    const client = new Client({ name: "test", version: "1.0.0" });
+    await client.connect(clientTransport);
+
+    const { tools } = await client.listTools();
+    const names = tools.map((t) => t.name);
+    expect(names).toContain("show_actions");
+    expect(names).not.toContain("speak");
+    expect(names).not.toContain("git_signed_commit");
+
+    await client.close();
   });
 
   it("exposes git_signed_commit over MCP in a cloud run with a token", async () => {

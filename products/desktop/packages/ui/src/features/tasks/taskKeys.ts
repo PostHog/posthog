@@ -1,4 +1,4 @@
-export interface TaskListFilters {
+interface TaskListFilters {
   repository?: string;
   createdBy?: number;
   originProduct?: string;

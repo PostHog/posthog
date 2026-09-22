@@ -3,10 +3,8 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 import { StepDefinition } from '../steps'
 import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
-export const getTanStackSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
-
-    const JSEventCapture = snippets?.JSEventCapture
+export const getTanStackInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
 
     return [
         {
@@ -36,6 +34,13 @@ export const getTanStackSteps = (ctx: OnboardingComponentsContext): StepDefiniti
                                 file: 'pnpm',
                                 code: dedent`
                                     pnpm add posthog-js
+                                `,
+                            },
+                            {
+                                language: 'bash',
+                                file: 'bun',
+                                code: dedent`
+                                    bun add posthog-js
                                 `,
                             },
                         ]}
@@ -111,11 +116,23 @@ export const getTanStackSteps = (ctx: OnboardingComponentsContext): StepDefiniti
                 </>
             ),
         },
-        {
-            title: 'Send events',
-            content: <>{JSEventCapture && <JSEventCapture />}</>,
-        },
     ]
 }
+
+export const getTanStackEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { snippets } = ctx
+
+    const JSEventCapture = snippets?.JSEventCapture
+
+    return {
+        title: 'Send events',
+        content: <>{JSEventCapture && <JSEventCapture />}</>,
+    }
+}
+
+export const getTanStackSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getTanStackInstallSteps(ctx),
+    getTanStackEventStep(ctx),
+]
 
 export const TanStackInstallation = createInstallation(getTanStackSteps)

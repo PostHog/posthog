@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -11,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -51,7 +49,7 @@ class ResendSource(ResumableSource[ResendSourceConfig, ResendResumeConfig], OAut
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.RESEND,
+            name=ExternalDataSourceType.RESEND,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Resend",
             releaseStatus=ReleaseStatus.GA,
@@ -241,6 +239,16 @@ Either way, the connection needs **full access** so the following resources can 
                 "Resend rejected the request to sync your Domains. This usually means the connected Resend "
                 "account can't access the Domains API — grant the API key full access, or unselect the Domains "
                 "table to keep syncing your other Resend data."
+            ),
+            # Resend rejects the well-formed List Emails request with a 400 when the connected key can't
+            # list sent emails (a sending-only key rather than full access). limit=100 is Resend's
+            # documented maximum, so the request itself is valid and retrying the identical request can't
+            # fix a key-permission restriction. Scope the match to the emails path so a 400 from another
+            # endpoint (which could be our bug) stays retryable and visible.
+            "400 Client Error: Bad Request for url: https://api.resend.com/emails": (
+                "Resend rejected the request to sync your sent emails, which usually means the connected "
+                "API key can't list sent emails. Grant the API key full access in Resend, or unselect the "
+                "Emails table to keep syncing your other Resend data."
             ),
         }
 

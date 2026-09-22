@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -256,7 +256,7 @@ class TestQuarantinedTests:
 
 
 class TestFailingTests:
-    @freeze_time("2024-06-15T00:00:00Z")
+    @time_machine.travel("2024-06-15T00:00:00Z", tick=False)
     def test_fresh_run_defaults_to_lookback_window(self) -> None:
         # The 30-day default lookback is walked in 7-day windows, so a fresh run issues
         # several requests before reaching "now" — only the first row matters here.
@@ -287,7 +287,7 @@ class TestFailingTests:
         # Row gets a `synced_through` cursor stamped on it for incremental watermarking.
         assert pages[0][0]["synced_through"] == sent_bodies[0]["end_time"]
 
-    @freeze_time("2024-06-15T00:00:00Z")
+    @time_machine.travel("2024-06-15T00:00:00Z", tick=False)
     def test_incremental_run_starts_from_last_value(self) -> None:
         # 2024-06-01 -> 2024-06-15 is 14 days, walked in two 7-day windows.
         last_value = "2024-06-01T00:00:00Z"
@@ -312,7 +312,7 @@ class TestFailingTests:
 
         assert sent_bodies[0]["start_time"] == last_value
 
-    @freeze_time("2024-06-15T00:00:00Z")
+    @time_machine.travel("2024-06-15T00:00:00Z", tick=False)
     def test_window_capped_at_seven_days(self) -> None:
         last_value = "2024-01-01T00:00:00Z"
         patcher, sent_bodies = _drive_session(
@@ -339,7 +339,7 @@ class TestFailingTests:
         first_end = datetime.strptime(sent_bodies[0]["end_time"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
         assert (first_end - first_start).days == FAILING_TESTS_WINDOW_DAYS
 
-    @freeze_time("2024-06-15T00:00:00Z")
+    @time_machine.travel("2024-06-15T00:00:00Z", tick=False)
     def test_resume_seeds_window_and_page_token(self) -> None:
         patcher, sent_bodies = _drive_session([_make_http_response({"tests": [{"id": "f-2"}], "page": _page("")})])
         try:
@@ -365,7 +365,7 @@ class TestFailingTests:
         assert sent_bodies[0]["start_time"] == "2024-06-10T00:00:00Z"
         assert sent_bodies[0]["page_query"]["page_token"] == "cursor-mid"
 
-    @freeze_time("2024-06-15T00:00:00Z")
+    @time_machine.travel("2024-06-15T00:00:00Z", tick=False)
     def test_terminates_once_window_reaches_now(self) -> None:
         # Seed exactly at "now" so the walk loop must not fire a single request.
         patcher, sent_bodies = _drive_session([])
@@ -427,7 +427,7 @@ class TestTrunkCursorPaginator:
 
 
 class TestMergeQueuePullRequests:
-    @freeze_time("2024-06-15T00:00:00Z")
+    @time_machine.travel("2024-06-15T00:00:00Z", tick=False)
     def test_fresh_run_paginates_and_stamps_one_synced_through(self) -> None:
         patcher, sent_bodies = _drive_session(
             [
@@ -482,7 +482,7 @@ class TestMergeQueuePullRequests:
 
         assert sent_bodies[0]["since"] == "2024-06-01T00:00:00Z"
 
-    @freeze_time("2024-06-15T00:00:00Z")
+    @time_machine.travel("2024-06-15T00:00:00Z", tick=False)
     def test_resume_seeds_cursor_and_pins_synced_through(self) -> None:
         patcher, sent_bodies = _drive_session(
             [_make_http_response({"pullRequests": [{"id": "pr-3"}], "nextCursor": ""})]
@@ -511,7 +511,7 @@ class TestMergeQueuePullRequests:
         # The resumed half must not claim coverage the interrupted first half never had.
         assert pages[0][0]["synced_through"] == "2024-06-14T00:00:00Z"
 
-    @freeze_time("2024-06-15T00:00:00Z")
+    @time_machine.travel("2024-06-15T00:00:00Z", tick=False)
     def test_saves_cursor_with_stamp_after_each_non_terminal_page(self) -> None:
         patcher, _ = _drive_session(
             [

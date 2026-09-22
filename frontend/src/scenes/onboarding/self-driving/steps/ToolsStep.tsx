@@ -63,20 +63,21 @@ export function ToolsStep({ onContinue }: { onContinue: () => void }): JSX.Eleme
             <p className="text-secondary text-center m-0">
                 These tools will feed your agents after setup finishes. You can change them later in settings.
             </p>
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2">
                 {tools.map((tool) => {
                     const iconType = tool.iconType
                     const colorVar = `var(--color-product-${iconType.replace(/_/g, '-')}-light)`
+
                     return (
                         <div
                             key={tool.productKey}
-                            className="OnboardingProductCard flex items-start gap-4 p-4 rounded-lg border"
+                            className="OnboardingProductCard flex items-start gap-4 px-4 rounded-lg"
                         >
                             <div
-                                className="size-12 shrink-0 rounded-lg flex items-center justify-center"
+                                className="size-8 shrink-0 rounded-lg flex items-center justify-center"
                                 style={{ background: `color-mix(in srgb, ${colorVar} 12%, transparent)` }}
                             >
-                                <div className="flex *:text-2xl group/colorful-product-icons colorful-product-icons-true">
+                                <div className="flex *:text-xl group/colorful-product-icons colorful-product-icons-true">
                                     {iconForType(iconType)}
                                 </div>
                             </div>

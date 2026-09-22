@@ -1,6 +1,14 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "email_domain": {
+            "description": "Only return members whose email address is on this domain (case-insensitive).",
+            "type": "string"
+        },
+        "levels": {
+            "description": "Comma-separated membership levels to return, e.g. `1,8`. Levels are 1 member, 8 admin, 15 owner.",
+            "type": "string"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"
@@ -12,6 +20,10 @@
         "order": {
             "description": "Sort order. Defaults to `-joined_at`.",
             "type": "string"
+        },
+        "outside_verified_domains": {
+            "description": "When `true`, only return members whose email domain is not one of the organization's verified domains — the members who would lose access under verified-domain enforcement.",
+            "type": "boolean"
         },
         "search": {
             "description": "Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.",

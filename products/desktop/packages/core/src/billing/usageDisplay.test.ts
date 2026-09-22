@@ -32,7 +32,6 @@ function makeUsage(
       exceeded: overrides.burst ?? false,
     },
     is_rate_limited: overrides.isRateLimited ?? false,
-    is_pro: false,
   };
 }
 

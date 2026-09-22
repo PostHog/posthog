@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -12,6 +14,7 @@ from posthog.tasks.push_notifications import send_user_push
 
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.push_dispatcher import (
+    notify_task_handoff,
     notify_task_run_awaiting_input,
     notify_task_run_cancelled,
     notify_task_run_completed,
@@ -110,6 +113,16 @@ class TestPushDispatcher(TestCase):
             notify_task_run_awaiting_input(self.task_run)
             notify_task_run_turn_completed(self.task_run)
         self.assertEqual(mock_delay.call_count, 3)
+
+    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_handoff_cooldown_distinguishes_announcements(self, mock_delay, _flag):
+        announcement_id = uuid4()
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_task_handoff(self.task, recipient=self.user, actor=self.user, message_id=announcement_id)
+            notify_task_handoff(self.task, recipient=self.user, actor=self.user, message_id=announcement_id)
+            notify_task_handoff(self.task, recipient=self.user, actor=self.user, message_id=uuid4())
+        self.assertEqual(mock_delay.call_count, 2)
 
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")

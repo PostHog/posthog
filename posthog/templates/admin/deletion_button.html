@@ -11,24 +11,19 @@ notice in context, and pass request=request to render_to_string so {{ request.cs
 resolves.
 {% endcomment %}
 <div class="deletion-button-widget">
-    <button type="button" class="button deletion-trigger-button" style="background: #ba2121; color: #fff;">
-        {{ button_label }}
-    </button>
-    <dialog class="deletion-confirm-dialog" style="max-width: 32em; padding: 16px; border: 1px solid #ba2121; border-radius: 4px;">
-        <p>{{ confirm_message }}</p>
-        <p class="help" style="color: #ba2121;">{{ notice }}</p>
-        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px;">
-            <button type="button" class="deletion-cancel-button">Cancel</button>
-            <button type="submit"
-                    formaction="{{ action_url }}"
-                    formmethod="post"
-                    formnovalidate
-                    class="button"
-                    style="background: #ba2121; color: #fff;">
-                Confirm deletion
-            </button>
-        </div>
-    </dialog>
+<button type="button" class="button deletion-trigger-button" style="background: #ba2121; color: #fff;">
+{{ button_label }}
+</button>
+<dialog class="deletion-confirm-dialog" style="max-width: 32em; padding: 16px; border: 1px solid #ba2121; border-radius: 4px;">
+<p>{{ confirm_message }}</p>
+<p class="help" style="color: #ba2121;">{{ notice }}</p>
+<div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px;">
+<button type="button" class="deletion-cancel-button">Cancel</button>
+<button type="submit" formaction="{{ action_url }}" formmethod="post" formnovalidate class="button" style="background: #ba2121; color: #fff;">
+Confirm deletion
+</button>
+</div>
+</dialog>
 </div>
 <script nonce="{{ request.csp_nonce }}">
 (function () {

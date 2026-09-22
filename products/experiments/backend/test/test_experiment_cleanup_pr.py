@@ -51,33 +51,29 @@ class TestExperimentCleanupPr(APIBaseTest):
 
     @parameterized.expand(
         [
-            # (name, flag_enabled, open_cleanup_pr, conclusion, expect_task_created)
-            ("flag_on_and_opted_in", True, True, "won", True),
-            ("not_opted_in", True, False, "won", False),
-            ("flag_off", False, True, "won", False),
-            ("no_conclusion", True, True, None, False),
+            # (name, open_cleanup_pr, conclusion, expect_task_created, expected_skip_reason)
+            ("opted_in", True, "won", True, None),
+            ("not_opted_in", False, "won", False, None),
+            ("no_conclusion", True, None, False, "no_conclusion"),
         ]
     )
     @patch("products.experiments.backend.experiment_service.report_user_action")
-    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
     @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
-    def test_cleanup_pr_fires_only_when_flag_on_and_opted_in(
+    def test_cleanup_pr_fires_only_when_opted_in(
         self,
         _name,
-        flag_enabled,
         open_cleanup_pr,
         conclusion,
         expect_task_created,
+        expected_skip_reason,
         mock_resolve_github,
         mock_create_task,
-        mock_feature_enabled,
-        _mock_report,
+        mock_report,
     ):
         mock_resolve_github.return_value = SimpleNamespace(
             list_all_cached_repositories=lambda max_repos: [{"full_name": "posthog/posthog"}]
         )
-        mock_feature_enabled.return_value = flag_enabled
         task_id = uuid4()
         mock_create_task.return_value = SimpleNamespace(task_id=task_id)
         experiment = self._running_experiment(repository="posthog/posthog")
@@ -101,6 +97,26 @@ class TestExperimentCleanupPr(APIBaseTest):
         else:
             mock_create_task.assert_not_called()
             self.assertIsNone(experiment.flag_cleanup_task_id)
+
+        completed_calls = [call for call in mock_report.call_args_list if call.args[1] == "experiment completed"]
+        self.assertEqual(len(completed_calls), 1)
+        completed_metadata = completed_calls[0].args[2]
+        self.assertEqual(completed_metadata["open_cleanup_pr"], open_cleanup_pr)
+        self.assertEqual(completed_metadata["cleanup_task_attempted"], expect_task_created)
+        self.assertEqual(completed_metadata["cleanup_skip_reason"], expected_skip_reason)
+
+        requested_calls = [
+            call for call in mock_report.call_args_list if call.args[1] == "experiment cleanup pr requested"
+        ]
+        if expect_task_created:
+            self.assertEqual(len(requested_calls), 1)
+            requested_metadata = requested_calls[0].args[2]
+            self.assertEqual(requested_metadata["repository_source"], "explicit")
+            self.assertEqual(requested_metadata["conclusion"], "won")
+            self.assertTrue(requested_metadata["confident"])
+            self.assertEqual(completed_metadata["cleanup_repository_source"], "explicit")
+        else:
+            self.assertEqual(requested_calls, [])
 
     @parameterized.expand(
         [
@@ -156,7 +172,6 @@ class TestExperimentCleanupPr(APIBaseTest):
         ]
     )
     @patch("products.experiments.backend.experiment_service.report_user_action")
-    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
     @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
     def test_cleanup_repository_resolution(
@@ -168,7 +183,6 @@ class TestExperimentCleanupPr(APIBaseTest):
         expected_repository,
         mock_resolve_github,
         mock_create_task,
-        _mock_feature_enabled,
         _mock_report,
     ):
         if cached_repos is None:
@@ -201,14 +215,12 @@ class TestExperimentCleanupPr(APIBaseTest):
             self.assertIsNotNone(experiment.flag_cleanup_task_id)
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
-    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
     @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
     def test_repository_picked_at_end_time_targets_the_task(
         self,
         mock_resolve_github,
         mock_create_task,
-        _mock_feature_enabled,
         _mock_report,
     ):
         # Several cached repos would otherwise be ambiguous and skip the cleanup — the
@@ -233,14 +245,12 @@ class TestExperimentCleanupPr(APIBaseTest):
         self.assertEqual(experiment.repository, "acme/api")
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
-    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
     @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
     def test_repository_outside_the_installation_skips_and_is_not_persisted(
         self,
         mock_resolve_github,
         mock_create_task,
-        _mock_feature_enabled,
         _mock_report,
     ):
         mock_resolve_github.return_value = SimpleNamespace(
@@ -269,7 +279,6 @@ class TestExperimentCleanupPr(APIBaseTest):
         ]
     )
     @patch("products.experiments.backend.experiment_service.report_user_action")
-    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
     @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
     def test_set_repository_as_team_default(
@@ -279,7 +288,6 @@ class TestExperimentCleanupPr(APIBaseTest):
         expect_default_saved,
         mock_resolve_github,
         mock_create_task,
-        _mock_feature_enabled,
         _mock_report,
     ):
         mock_resolve_github.return_value = SimpleNamespace(
@@ -312,7 +320,6 @@ class TestExperimentCleanupPr(APIBaseTest):
             mock_create_task.assert_not_called()
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
-    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
     @patch(
         "products.experiments.backend.experiment_service.tasks_facade.create_and_run_task",
         side_effect=Exception("sandbox unavailable"),
@@ -322,7 +329,6 @@ class TestExperimentCleanupPr(APIBaseTest):
         self,
         mock_resolve_github,
         _mock_create_task,
-        _mock_feature_enabled,
         _mock_report,
     ):
         mock_resolve_github.return_value = SimpleNamespace(

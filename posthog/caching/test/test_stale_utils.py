@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 
 from posthog.caching.utils import is_stale
 
@@ -40,7 +40,7 @@ date_to = datetime(2021, 1, 1, 0, 0, 1, tzinfo=UTC)
         (team_a, date_to - timedelta(days=1), "day", timedelta(seconds=0), False),
     ],
 )
-@freeze_time("2021-01-01T00:00:00Z")
+@time_machine.travel("2021-01-01T00:00:00Z", tick=False)
 def test_is_stale(team, date_to, interval, last_refresh, expected):
     assert is_stale(team, date_to, interval, datetime.now(UTC) - last_refresh) == expected
 
@@ -77,7 +77,7 @@ def test_is_stale(team, date_to, interval, last_refresh, expected):
         ),
     ],
 )
-@freeze_time("2025-01-01T00:00:00Z")
+@time_machine.travel("2025-01-01T00:00:00Z", tick=False)
 def test_is_stale_with_target_age(team, date_to, interval, last_refresh, target_age, expected):
     """Test that target_age parameter overrides interval-based staleness calculation."""
     assert is_stale(team, date_to, interval, last_refresh, target_age=target_age) == expected

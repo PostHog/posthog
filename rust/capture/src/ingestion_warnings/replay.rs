@@ -181,6 +181,8 @@ pub fn warning_for_capture_error(err: &CaptureError) -> Option<WarningType> {
         CaptureError::InvalidCookielessMode
         | CaptureError::InvalidTimestamp
         | CaptureError::MissingWindowId
+        | CaptureError::NonAiEventOnAiLane(_)
+        | CaptureError::AiEventTooBig(_)
         | CaptureError::MissingEventName => None,
 
         // Quota, rate, and ops-imposed drops are surfaced through billing and
@@ -270,6 +272,7 @@ mod tests {
             historical_migration: false,
             chatty_debug_enabled: false,
             capture_mode: CaptureMode::Recordings,
+            ai_max_event_bytes: 0,
             sdk_attribution: attribution,
         }
     }

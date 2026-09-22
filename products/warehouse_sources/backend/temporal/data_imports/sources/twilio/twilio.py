@@ -28,7 +28,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.set
 # root-relative `next_page_uri` links, which are always served from this host.
 TWILIO_BASE_URL = TWILIO_API_HOST
 TWILIO_API_VERSION = "2010-04-01"
-DEFAULT_PAGE_SIZE = 1000
 
 TwilioAuth = tuple[str, str]
 
@@ -138,7 +137,9 @@ def _build_initial_params(
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {"PageSize": DEFAULT_PAGE_SIZE}
+    params: dict[str, Any] = {}
+    if config.page_size is not None:
+        params["PageSize"] = config.page_size
 
     if should_use_incremental_field and db_incremental_field_last_value is not None:
         # Honor the user's chosen cursor field; only filter when it maps to a server-side filter.

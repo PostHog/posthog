@@ -96,8 +96,8 @@ function MetricNameFilterInner({
 
     const onPick = useCallback(
         (name: string) => {
-            // Single-select: replace on pick. Multi-mode can be added later when
-            // metrics-alerts arrives, mirroring ServiceFilter's selectionMode prop.
+            // Single-select: replace on pick. Comparing several metrics is done with
+            // clause rows (MetricsClauseRow), each holding its own picker.
             onChange(value === name ? '' : name)
         },
         [value, onChange]

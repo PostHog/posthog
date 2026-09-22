@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
@@ -12,10 +14,13 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 #   - "sales_report":     `/v1/salesReports`, which is not a collection at all — one request per report date
 #                         returns a gzipped TSV file. Walked forward a day at a time from the watermark.
 #   - "analytics_report": Apple's Analytics Reports API, an asynchronous request/poll/download flow.
-#                         Per app: ensure an ONGOING report request exists (the one account mutation this
-#                         source makes), find the named report under it, list its DAILY instances, then
-#                         download and parse each instance's file segments. Walked forward by instance
-#                         processing date from the watermark.
+#                         Per app: ensure an ONGOING report request exists, find the named report under
+#                         it, list its DAILY instances, then download and parse each instance's file
+#                         segments. Walked forward by instance processing date from the watermark. On a
+#                         fresh table (first sync, resync, or full refresh) a ONE_TIME_SNAPSHOT request
+#                         is also ensured and, once Apple generates it, backfills history older than
+#                         the ongoing stream. Report request creation is the only account mutation this
+#                         source makes.
 EndpointKind = Literal["collection", "app_fanout", "sales_report", "analytics_report"]
 
 # Apple caps most collection pages at 200 resources.
@@ -45,7 +50,7 @@ ANALYTICS_GRANULARITY = "DAILY"
 ANALYTICS_MAX_INSTANCES_PER_RUN = 400
 
 
-@dataclass
+@frozen
 class AppStoreConnectEndpointConfig:
     name: str
     kind: EndpointKind
@@ -67,6 +72,9 @@ class AppStoreConnectEndpointConfig:
     # Column that carries the id of the `data` resource referencing each included row, so
     # the table joins back to its parent without a per-row request.
     included_parent_column: str = "parent_id"
+    # Column holding the app's id, so a "collection" endpoint can honor the source's app id
+    # filter. Unset on the account-wide collections whose rows carry no app dimension.
+    app_id_column: Optional[str] = None
     # Analytics Reports API selectors, only meaningful for the "analytics_report" kind.
     # Acceptable report names in preference order: Apple exposes most reports as separate
     # "<name> Standard" / "<name> Detailed" resources, but a few (App Crashes, App Clip
@@ -86,7 +94,11 @@ class AppStoreConnectEndpointConfig:
     # Apple 404s a SALES report request for a date with no data. Subscription-family report types
     # (SUBSCRIPTION, SUBSCRIPTION_EVENT) instead 400 with a misleading "Invalid vendor number
     # specified" error for that same condition — a longstanding, publicly reported Apple API quirk,
-    # not an actual credentials problem. Treat both as "no report for this day" for those types.
+    # usually not an actual credentials problem. A tolerated 400 is not swallowed blindly:
+    # `_fetch_report` reads the body, so a genuinely malformed request (wrong version or sub type)
+    # still fails loudly instead of reading as a quiet account. Apple words that same 400 for a
+    # vendor number it doesn't know, so a sales-report check separates the two before the misleading
+    # wording is tolerated across the whole lookback.
     missing_report_status_codes: tuple[int, ...] = (404,)
 
 
@@ -121,6 +133,7 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
         kind="collection",
         primary_keys=["id"],
         path="/v1/apps",
+        app_id_column="id",
     ),
     # Every version record per app — release type, review state, release dates.
     "app_store_versions": AppStoreConnectEndpointConfig(
@@ -239,12 +252,12 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
     ),
     "analytics_app_store_downloads": _analytics_endpoint(
         "analytics_app_store_downloads",
-        ("App Store Downloads Standard", "App Store Downloads"),
+        ("App Downloads Standard", "App Downloads"),
         "COMMERCE",
     ),
     "analytics_installations_deletions": _analytics_endpoint(
         "analytics_installations_deletions",
-        ("App Store Installations and Deletions Standard", "App Store Installations and Deletions"),
+        ("App Store Installation and Deletion Standard", "App Store Installation and Deletion"),
         "APP_USAGE",
     ),
     "analytics_discovery_engagement": _analytics_endpoint(
@@ -259,13 +272,39 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
     ),
     "analytics_app_store_preorders": _analytics_endpoint(
         "analytics_app_store_preorders",
-        ("App Store Pre-orders Standard", "App Store Pre-orders"),
+        ("App Store Pre-Orders Standard", "App Store Pre-Orders"),
         "COMMERCE",
     ),
     "analytics_app_clip_usage": _analytics_endpoint(
         "analytics_app_clip_usage",
         ("App Clip Usage", "App Clip Usage Standard"),
         "APP_USAGE",
+    ),
+    # Detailed siblings of the analytics streams that carry acquisition attribution. Apple
+    # publishes each as a separate "<name> Detailed" report — the Standard columns plus the
+    # attribution fields (campaign, page_title, source_info) that exist in no Standard
+    # report, covering only users who opted in to sharing data. No suffix-less fallback
+    # here: the plain name resolves the Standard variant, which would silently fill the
+    # table with rows missing the attribution columns.
+    "analytics_app_sessions_detailed": _analytics_endpoint(
+        "analytics_app_sessions_detailed",
+        ("App Sessions Detailed",),
+        "APP_USAGE",
+    ),
+    "analytics_app_store_downloads_detailed": _analytics_endpoint(
+        "analytics_app_store_downloads_detailed",
+        ("App Downloads Detailed",),
+        "COMMERCE",
+    ),
+    "analytics_installations_deletions_detailed": _analytics_endpoint(
+        "analytics_installations_deletions_detailed",
+        ("App Store Installation and Deletion Detailed",),
+        "APP_USAGE",
+    ),
+    "analytics_discovery_engagement_detailed": _analytics_endpoint(
+        "analytics_discovery_engagement_detailed",
+        ("App Store Discovery and Engagement Detailed",),
+        "APP_STORE_ENGAGEMENT",
     ),
 }
 

@@ -242,6 +242,11 @@ describe('the feature flags logic', () => {
     let logic: ReturnType<typeof featureFlagsLogic.build>
 
     beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/feature_flags/': () => [200, { results: [], count: 0 }],
+            },
+        })
         initKeaTests()
         logic = featureFlagsLogic()
         logic.mount()
@@ -283,6 +288,106 @@ describe('the feature flags logic', () => {
         }).toMatchValues({
             activeTab: FeatureFlagsTab.HISTORY,
         })
+    })
+
+    describe('hasActiveFilters', () => {
+        it('is false on a bare URL where page resolves to undefined', async () => {
+            // urlToAction spreads `page: undefined` over DEFAULT_FILTERS (page: 1), so a full-object
+            // comparison would wrongly flag the default view as filtered and offer "Clear filters".
+            await expectLogic(logic, () => {
+                router.actions.push(urls.featureFlags())
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.page).toBeUndefined()
+            expect(logic.values.hasActiveFilters).toBe(false)
+            expect(logic.values.shouldShowEmptyState).toBe(true)
+        })
+
+        it.each<[string, Partial<FeatureFlagsFilters>]>([
+            ['a sort order', { order: '-created_at' }],
+            ['whitespace-only search', { search: '   ' }],
+        ])('is false when only %s is set', async (_, filters) => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagsFilters(filters)
+            }).toFinishAllListeners()
+
+            expect(logic.values.hasActiveFilters).toBe(false)
+        })
+
+        it.each<[string, Partial<FeatureFlagsFilters>]>([
+            ['search', { search: 'checkout' }],
+            ['tags', { tags: ['checkout'] }],
+        ])('is true when %s is set', async (_, filters) => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagsFilters(filters)
+            }).toFinishAllListeners()
+
+            expect(logic.values.hasActiveFilters).toBe(true)
+        })
+
+        it('clears active filters without changing the sort order', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagsFilters({ search: 'checkout', order: '-created_at' })
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.resetFilters()
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.search).toBeUndefined()
+            expect(logic.values.filters.order).toBe('-created_at')
+            expect(logic.values.hasActiveFilters).toBe(false)
+        })
+    })
+
+    it('redirects a disabled usage deep link to overview after flags load', async () => {
+        enabledFeaturesLogic.actions.setFeatureFlags([], {})
+
+        await expectLogic(logic, () => {
+            router.actions.push(urls.featureFlags(), { tab: FeatureFlagsTab.USAGE })
+        }).toMatchValues({ activeTab: FeatureFlagsTab.OVERVIEW })
+        expect(router.values.searchParams['tab']).toEqual('overview')
+    })
+
+    it('redirects from usage when the rollout flag is disabled', async () => {
+        router.actions.push(urls.featureFlags())
+        enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE], {
+            [FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]: true,
+        })
+        logic.actions.setActiveTab(FeatureFlagsTab.USAGE)
+
+        await expectLogic(logic, () => {
+            enabledFeaturesLogic.actions.setFeatureFlags([], {})
+        }).toMatchValues({ activeTab: FeatureFlagsTab.OVERVIEW })
+        expect(router.values.searchParams['tab']).toEqual('overview')
+    })
+
+    it('stays on usage when the rollout flag is enabled', async () => {
+        const flags = {
+            [FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]: true,
+        }
+        enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE], flags)
+
+        await expectLogic(logic, () => {
+            router.actions.push(urls.featureFlags(), { tab: FeatureFlagsTab.USAGE })
+        }).toMatchValues({ activeTab: FeatureFlagsTab.USAGE })
+
+        await expectLogic(logic, () => {
+            enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE], flags)
+        }).toMatchValues({ activeTab: FeatureFlagsTab.USAGE })
+        expect(router.values.searchParams['tab']).toEqual('usage')
+    })
+
+    it('does not rewrite another scene URL when the rollout flag is disabled', async () => {
+        enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE], {
+            [FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]: true,
+        })
+        logic.actions.setActiveTab(FeatureFlagsTab.USAGE)
+        router.actions.push('/project/997/experiments/1')
+
+        enabledFeaturesLogic.actions.setFeatureFlags([], {})
+
+        expect(router.values.location.pathname).toEqual('/project/997/experiments/1')
     })
 
     describe('activity deep-link', () => {
@@ -431,16 +536,11 @@ describe('updateFeatureFlagArchived', () => {
         expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
     })
 
-    // The list arm of the disable-and-archive experiment: the row toggle has to reach
-    // updateFeatureFlagArchived with the list's own via, not the archive dialog's.
-    it('archives via the disable confirmation when the test variant picks it', async () => {
+    // The list arm of the disable-and-archive dialog: picking "Disable and archive" from the row
+    // toggle has to reach updateFeatureFlagArchived with the list's own via, not the archive dialog's.
+    it('archives via the disable confirmation when disable and archive is picked', async () => {
         const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
         jest.spyOn(api, 'update').mockResolvedValueOnce({ id: 1, key: 'test-flag', archived: true, active: false })
-        const flagsLogic = enabledFeaturesLogic()
-        flagsLogic.mount()
-        flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT], {
-            [FEATURE_FLAGS.FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT]: 'test',
-        })
 
         logic.actions.toggleFeatureFlagActive(1, false)
         expect(openDialog.mock.calls[0][0].secondaryButton?.children).toBe('Disable and archive')

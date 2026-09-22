@@ -252,7 +252,7 @@ impl FlagDefinitionsCache {
 
 /// Validates a `HypercacheFlagsWrapper` and compiles its regexes. Validation
 /// runs here, not on the cache-lookup path, so hits never re-validate.
-/// Malformed wrappers fail fast with `DataParsingErrorWithContext`.
+/// Malformed wrappers fail fast with the `flag_data_parsing_error` 500.
 pub(crate) fn compile_from_wrapper(
     team_id: TeamId,
     wrapper: Option<HypercacheFlagsWrapper>,
@@ -636,8 +636,8 @@ mod tests {
     }
 
     /// A malformed wrapper (flags present but `dependency_stages` empty) must
-    /// surface as `FlagError::DataParsingErrorWithContext`, not be collapsed
-    /// into `Internal` at the cache boundary.
+    /// surface under the `flag_data_parsing_error` code, not be collapsed into a
+    /// generic `internal_error` at the cache boundary.
     #[tokio::test]
     async fn test_validation_errors_preserve_variant() {
         let cache = FlagDefinitionsCache::new(None, None);
@@ -656,8 +656,14 @@ mod tests {
             .await
             .expect_err("malformed wrapper must error");
         assert!(
-            matches!(err, FlagError::DataParsingErrorWithContext(_)),
-            "expected DataParsingErrorWithContext, got {err:?}"
+            matches!(
+                err,
+                FlagError::InternalError {
+                    code: "flag_data_parsing_error",
+                    ..
+                }
+            ),
+            "expected flag_data_parsing_error, got {err:?}"
         );
     }
 
@@ -793,22 +799,26 @@ mod tests {
         );
     }
 
-    /// The weigher must include `#[serde(flatten)] extra` passthrough bytes on
-    /// `FlagFilters`, `FlagPropertyGroup`, and `PropertyFilter`. Without this,
-    /// a project member could store arbitrarily large unknown JSONB keys on flag
-    /// filters (the Django API does not validate unknown keys) and bypass the
-    /// cache's byte-budget eviction.
+    /// The weigher must include `#[serde(flatten)] extra` passthrough bytes on every
+    /// struct reachable from `FlagFilters`. Without this, a project member could store
+    /// arbitrarily large unknown JSONB keys on flag filters (the Django API does not
+    /// validate unknown keys) and bypass the cache's byte-budget eviction.
     #[test]
     fn test_weigher_accounts_for_extra_passthrough() {
-        use crate::flags::flag_models::{FlagFilters, FlagPropertyGroup};
+        use crate::flags::flag_models::{
+            FlagFilters, FlagPropertyGroup, Holdout, MultivariateFlagOptions,
+            MultivariateFlagVariant,
+        };
         use crate::properties::property_models::PropertyType;
         use serde_json::Map;
 
-        let big_str = "x".repeat(10_000);
+        fn big_map(key: &str) -> Map<String, serde_json::Value> {
+            let mut map = Map::new();
+            map.insert(key.to_string(), json!("x".repeat(10_000)));
+            map
+        }
 
-        let make_flag = |filters_extra: Map<String, serde_json::Value>,
-                         group_extra: Map<String, serde_json::Value>,
-                         prop_extra: Map<String, serde_json::Value>| {
+        fn weigh(mutate: &dyn Fn(&mut FeatureFlag)) -> usize {
             let mut flag = mock!(FeatureFlag, name: None, key: "k".mock_into());
             flag.filters = FlagFilters {
                 groups: vec![FlagPropertyGroup {
@@ -820,70 +830,81 @@ mod tests {
                         group_type_index: None,
                         negation: None,
                         compiled_regex: None,
-                        extra: prop_extra,
+                        extra: Map::new(),
                     }]),
                     rollout_percentage: Some(100.0),
-                    variant: None,
-                    aggregation_group_type_index: None,
-                    extra: group_extra,
+                    ..Default::default()
                 }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                feature_enrollment: None,
-                holdout: None,
-                early_exit: None,
-                extra: filters_extra,
+                ..Default::default()
             };
-            flag
-        };
+            mutate(&mut flag);
+            PreparedFlagDefinitions {
+                flags: PreparedFlags::seal(vec![flag]),
+                evaluation_metadata: Arc::new(EvaluationMetadata::default()),
+                cohorts: None,
+            }
+            .estimated_size_bytes()
+        }
 
-        let baseline = Arc::new(PreparedFlagDefinitions {
-            flags: PreparedFlags::seal(vec![make_flag(Map::new(), Map::new(), Map::new())]),
-            evaluation_metadata: Arc::new(EvaluationMetadata::default()),
-            cohorts: None,
-        });
+        let base_sz = weigh(&|_| {});
 
-        let mut filters_extra = Map::new();
-        filters_extra.insert("holdout_groups".to_string(), json!(big_str));
-        let with_filters_extra = Arc::new(PreparedFlagDefinitions {
-            flags: PreparedFlags::seal(vec![make_flag(filters_extra, Map::new(), Map::new())]),
-            evaluation_metadata: Arc::new(EvaluationMetadata::default()),
-            cohorts: None,
-        });
+        type Case<'a> = (&'a str, Box<dyn Fn(&mut FeatureFlag)>);
+        let cases: [Case; 6] = [
+            (
+                "FlagFilters",
+                Box::new(|f| f.filters.extra = big_map("holdout_groups")),
+            ),
+            (
+                "FlagPropertyGroup",
+                Box::new(|f| f.filters.groups[0].extra = big_map("description")),
+            ),
+            (
+                "PropertyFilter",
+                Box::new(|f| {
+                    f.filters.groups[0].properties.as_mut().unwrap()[0].extra =
+                        big_map("cohort_name")
+                }),
+            ),
+            (
+                "MultivariateFlagVariant",
+                Box::new(|f| {
+                    f.filters.multivariate = Some(MultivariateFlagOptions {
+                        variants: vec![MultivariateFlagVariant {
+                            key: "control".to_string(),
+                            extra: big_map("payload"),
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    })
+                }),
+            ),
+            (
+                "MultivariateFlagOptions",
+                Box::new(|f| {
+                    f.filters.multivariate = Some(MultivariateFlagOptions {
+                        extra: big_map("description"),
+                        ..Default::default()
+                    })
+                }),
+            ),
+            (
+                "Holdout",
+                Box::new(|f| {
+                    f.filters.holdout = Some(Holdout {
+                        id: 1,
+                        exclusion_percentage: 10.0,
+                        extra: big_map("description"),
+                    })
+                }),
+            ),
+        ];
 
-        let mut group_extra = Map::new();
-        group_extra.insert("description".to_string(), json!(big_str));
-        let with_group_extra = Arc::new(PreparedFlagDefinitions {
-            flags: PreparedFlags::seal(vec![make_flag(Map::new(), group_extra, Map::new())]),
-            evaluation_metadata: Arc::new(EvaluationMetadata::default()),
-            cohorts: None,
-        });
-
-        let mut prop_extra = Map::new();
-        prop_extra.insert("cohort_name".to_string(), json!(big_str));
-        let with_prop_extra = Arc::new(PreparedFlagDefinitions {
-            flags: PreparedFlags::seal(vec![make_flag(Map::new(), Map::new(), prop_extra)]),
-            evaluation_metadata: Arc::new(EvaluationMetadata::default()),
-            cohorts: None,
-        });
-
-        let base_sz = baseline.estimated_size_bytes();
-        let filters_sz = with_filters_extra.estimated_size_bytes();
-        let group_sz = with_group_extra.estimated_size_bytes();
-        let prop_sz = with_prop_extra.estimated_size_bytes();
-
-        assert!(
-            filters_sz > base_sz + 9_000,
-            "weigher must count FlagFilters.extra: base={base_sz}, with_filters_extra={filters_sz}"
-        );
-        assert!(
-            group_sz > base_sz + 9_000,
-            "weigher must count FlagPropertyGroup.extra: base={base_sz}, with_group_extra={group_sz}"
-        );
-        assert!(
-            prop_sz > base_sz + 9_000,
-            "weigher must count PropertyFilter.extra: base={base_sz}, with_prop_extra={prop_sz}"
-        );
+        for (label, mutate) in &cases {
+            let sz = weigh(mutate.as_ref());
+            assert!(
+                sz > base_sz + 9_000,
+                "weigher must count {label}.extra: base={base_sz}, with_extra={sz}"
+            );
+        }
     }
 }

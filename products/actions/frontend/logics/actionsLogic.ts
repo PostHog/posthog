@@ -196,7 +196,6 @@ export const actionsLogic = kea<actionsLogicType>([
                 },
                 pinAction: async (action: ActionType) => {
                     const updated = await api.actions.update(action.id, {
-                        name: action.name,
                         pinned_at: new Date().toISOString(),
                     })
                     // Patch the row for instant icon feedback, then reload so server-side
@@ -209,7 +208,6 @@ export const actionsLogic = kea<actionsLogicType>([
                 },
                 unpinAction: async (action: ActionType) => {
                     const updated = await api.actions.update(action.id, {
-                        name: action.name,
                         pinned_at: null,
                     })
                     actions.loadActions()

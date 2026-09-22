@@ -53,9 +53,11 @@ export type PlayerMessage =
     | { type: 'ended' }
     | { type: 'error'; code: string; message: string; retryable: boolean }
     | { type: 'inactivity_periods'; periods: InactivityPeriod[] }
+    | { type: 'frame_timeline'; frameSessionMs: number[] }
 
 export const PLAYER_EMIT_FN = '__posthog_player_emit__'
 export const PLAYER_CONFIG_KEY = '__posthog_player_config__'
+export const PLAYER_FRAME_TIMELINE_KEY = '__posthog_frame_timeline__'
 
 // --- Event names (rasterizer → player) ---
 

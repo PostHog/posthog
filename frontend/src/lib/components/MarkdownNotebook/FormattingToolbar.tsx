@@ -52,7 +52,7 @@ export function FormattingToolbar({
     setBlockStyle,
     copySelection,
     askAIAboutSelection,
-    isAskAIDisabled,
+    askAIDisabledReason,
     startInlineCommentAtSelection,
     lockPosition,
     returnFocusToEditor,
@@ -71,7 +71,7 @@ export function FormattingToolbar({
     setBlockStyle: (style: TextBlockStyle) => void
     copySelection: () => void
     askAIAboutSelection?: () => void
-    isAskAIDisabled?: boolean
+    askAIDisabledReason?: string
     startInlineCommentAtSelection?: () => void
     lockPosition: () => void
     /** Moves focus back into the editor (Escape while the toolbar holds focus). */
@@ -349,8 +349,7 @@ export function FormattingToolbar({
                     icon={<IconSparkles />}
                     tooltip="Ask AI"
                     aria-label="Ask AI"
-                    disabled={isAskAIDisabled}
-                    disabledReason={isAskAIDisabled ? 'Ask AI is already active' : undefined}
+                    disabledReason={askAIDisabledReason}
                     onClick={askAIAboutSelection}
                 />
             ) : null}

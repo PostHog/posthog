@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { userLogic } from 'scenes/userLogic'
 
@@ -9,6 +10,8 @@ import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
 import { welcomeDialogLogic } from './welcomeDialogLogic'
+
+jest.mock('posthog-js')
 
 const INVITED_USER: UserType = {
     ...MOCK_DEFAULT_USER,
@@ -65,6 +68,7 @@ describe('welcomeDialogLogic', () => {
         // clear both so a prior test doesn't carry over and suppress the dialog.
         window.localStorage.clear()
         window.sessionStorage.clear()
+        ;(posthog.capture as jest.Mock).mockClear()
         useMocks({
             get: {
                 '/api/organizations/@current/welcome/current/': mockPayload,
@@ -130,16 +134,22 @@ describe('welcomeDialogLogic', () => {
         expect(logic.values.shouldShowDialog).toBe(false)
     })
 
-    it('closes locally on closeDialog so it does not flash back', async () => {
-        userLogic.actions.loadUserSuccess(INVITED_USER)
-        logic = welcomeDialogLogic()
-        logic.mount()
+    it.each(['start_exploring', 'modal_close', 'ask_max_card'] as const)(
+        'closes locally on closeDialog from %s and reports which control was used',
+        async (source) => {
+            userLogic.actions.loadUserSuccess(INVITED_USER)
+            logic = welcomeDialogLogic()
+            logic.mount()
 
-        await expectLogic(logic).toDispatchActions(['loadWelcomeDataSuccess'])
-        expect(logic.values.shouldShowDialog).toBe(true)
-        logic.actions.closeDialog()
-        expect(logic.values.shouldShowDialog).toBe(false)
-    })
+            await expectLogic(logic).toDispatchActions(['loadWelcomeDataSuccess'])
+            expect(logic.values.shouldShowDialog).toBe(true)
+            logic.actions.closeDialog(source)
+            expect(logic.values.shouldShowDialog).toBe(false)
+            expect(
+                (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name === 'welcome_screen_closed')
+            ).toEqual([['welcome_screen_closed', expect.objectContaining({ source })]])
+        }
+    )
 
     it('tracks card interactions', async () => {
         userLogic.actions.loadUserSuccess(INVITED_USER)

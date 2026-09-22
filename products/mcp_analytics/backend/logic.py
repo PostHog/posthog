@@ -15,6 +15,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.hogql_queries.utils.caller_context import map_in_caller_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.person import Person
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
@@ -559,20 +560,58 @@ def get_activity_overview(team: Team) -> contracts.ActivityOverview:
 
     Always computed fresh: the view's whole point is watching data arrive, so callers
     poll this endpoint rather than a stale cache.
+
+    The four queries are independent, so they run concurrently. Served serially their
+    latency summed, which left the summary sentence landing long after the live feed
+    below it had rendered — the feed's own total is an index-only ``count()``, while
+    every query here reads properties across the whole window.
     """
     date_from = ast.Constant(value=timezone.now() - ACTIVITY_WINDOW)
     tool_call_event = ast.Constant(value=MCP_TOOL_CALL_EVENT)
 
-    stats_rows = _run_activity_query(
-        team,
-        _ACTIVITY_STATS_SQL,
-        "mcp_analytics_activity_stats",
-        {
-            "tool_call_event": tool_call_event,
-            "missing_capability_event": ast.Constant(value=MCP_MISSING_CAPABILITY_EVENT),
-            "date_from": date_from,
-        },
+    stats_rows, top_tools_rows, clients_rows, recent_calls_rows = map_in_caller_context(
+        lambda spec: _run_activity_query(team, *spec),
+        [
+            (
+                _ACTIVITY_STATS_SQL,
+                "mcp_analytics_activity_stats",
+                {
+                    "tool_call_event": tool_call_event,
+                    "missing_capability_event": ast.Constant(value=MCP_MISSING_CAPABILITY_EVENT),
+                    "date_from": date_from,
+                },
+            ),
+            (
+                _ACTIVITY_TOP_TOOLS_SQL,
+                "mcp_analytics_activity_top_tools",
+                {
+                    "tool_call_event": tool_call_event,
+                    "date_from": date_from,
+                    "limit": ast.Constant(value=ACTIVITY_TOP_TOOLS_LIMIT),
+                },
+            ),
+            (
+                _ACTIVITY_CLIENTS_SQL,
+                "mcp_analytics_activity_clients",
+                {
+                    "tool_call_event": tool_call_event,
+                    "date_from": date_from,
+                    "limit": ast.Constant(value=ACTIVITY_CLIENTS_LIMIT),
+                },
+            ),
+            (
+                _ACTIVITY_RECENT_CALLS_SQL,
+                "mcp_analytics_activity_recent_calls",
+                {
+                    "tool_call_event": tool_call_event,
+                    "date_from": date_from,
+                    "limit": ast.Constant(value=ACTIVITY_RECENT_CALLS_LIMIT),
+                },
+            ),
+        ],
+        thread_name_prefix="mcp_activity",
     )
+
     stats_row = stats_rows[0] if stats_rows else [0] * 7
     stats = contracts.ActivityStats(
         total_calls=_parse_int(stats_row[0]) or 0,
@@ -586,30 +625,12 @@ def get_activity_overview(team: Team) -> contracts.ActivityOverview:
 
     top_tools = [
         contracts.ActivityToolRow(tool=str(row[0] or ""), calls=_parse_int(row[1]) or 0, errors=_parse_int(row[2]) or 0)
-        for row in _run_activity_query(
-            team,
-            _ACTIVITY_TOP_TOOLS_SQL,
-            "mcp_analytics_activity_top_tools",
-            {
-                "tool_call_event": tool_call_event,
-                "date_from": date_from,
-                "limit": ast.Constant(value=ACTIVITY_TOP_TOOLS_LIMIT),
-            },
-        )
+        for row in top_tools_rows
     ]
 
     clients = [
         contracts.ActivityClientRow(client=str(row[0]) if row[0] else "", calls=_parse_int(row[1]) or 0)
-        for row in _run_activity_query(
-            team,
-            _ACTIVITY_CLIENTS_SQL,
-            "mcp_analytics_activity_clients",
-            {
-                "tool_call_event": tool_call_event,
-                "date_from": date_from,
-                "limit": ast.Constant(value=ACTIVITY_CLIENTS_LIMIT),
-            },
-        )
+        for row in clients_rows
     ]
 
     recent_calls = [
@@ -622,16 +643,7 @@ def get_activity_overview(team: Team) -> contracts.ActivityOverview:
             duration_ms=float(row[5]) if row[5] is not None else None,
             client_name=str(row[6]) if row[6] else None,
         )
-        for row in _run_activity_query(
-            team,
-            _ACTIVITY_RECENT_CALLS_SQL,
-            "mcp_analytics_activity_recent_calls",
-            {
-                "tool_call_event": tool_call_event,
-                "date_from": date_from,
-                "limit": ast.Constant(value=ACTIVITY_RECENT_CALLS_LIMIT),
-            },
-        )
+        for row in recent_calls_rows
     ]
 
     return contracts.ActivityOverview(stats=stats, top_tools=top_tools, clients=clients, recent_calls=recent_calls)

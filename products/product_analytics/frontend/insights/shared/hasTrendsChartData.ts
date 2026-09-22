@@ -1,4 +1,4 @@
-import type { IndexedTrendResult } from 'scenes/trends/types'
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 // Gate the empty state on the whole result set, not just the first series — trendsDataLogic
 // re-sorts and interleaves results for compare mode, breakdown ordering, and unstacked bars, so

@@ -73,8 +73,8 @@
     (literal (string-append (param "HOME") "/.gitconfig"))
     (literal (string-append (param "HOME") "/.config/git/config"))
     (literal (string-append (param "HOME") "/.gitconfig.local"))   ; common [include] target of ~/.gitconfig
-    ;; cargo registry/git cache — the cyclotron-node native module is built with
-    ;; cargo during the nodejs service prestart. (crates.io token re-denied below.)
+    ;; cargo registry/git cache — native modules and rust services are built with
+    ;; cargo during local dev. (crates.io token re-denied below.)
     (subpath (string-append (param "HOME") "/.cargo")))
 
 ;; Canonicalization (realpath) lstats every path component, so uv resolving its
@@ -110,9 +110,90 @@
     ;; Execute-later targets that run OUTSIDE the sandbox if poisoned. The repo
     ;; is otherwise writable (build output, caches); these specific paths are not.
     (subpath (string-append (param "PROJECT") "/bin"))            ; sandbox files + scripts (bin/wait-for-docker runs unsandboxed)
+    (subpath (string-append (param "MAINREPO") "/bin"))           ; worktree main-repo scripts — same execute-later route
+    ;; The flox activation scripts. They run unsandboxed on every `flox activate`,
+    ;; and on-activate.sh is what builds this sandbox — poisoning it is a shortcut
+    ;; past everything else here. Only .flox/env is denied: run/, cache/ and log/
+    ;; are generated and stay writable.
+    (subpath (string-append (param "PROJECT") "/.flox/env"))
+    (subpath (string-append (param "MAINREPO") "/.flox/env"))
+    ;; The husky hooks. core.hooksPath points git at .husky, so these are the hooks
+    ;; that actually run — .git/hooks above is the directory git never reads once
+    ;; that is set. Same unsandboxed execution, one step more direct.
+    (subpath (string-append (param "PROJECT") "/.husky"))
+    (subpath (string-append (param "MAINREPO") "/.husky"))
     (subpath (string-append (param "PROJECT") "/.git/hooks"))     ; git hooks run unsandboxed
     (subpath (string-append (param "MAINREPO") "/.git/hooks"))    ; worktree main-repo hooks
+    ;; Repo-local git config, which reaches the same escape as the hook denies above
+    ;; by another route: core.hooksPath relocates the hook directory they protect,
+    ;; and core.fsmonitor is a command git runs on ordinary read commands. Either one
+    ;; executes in the developer's own terminal, outside Seatbelt. config.worktree is
+    ;; the same file for a repo with extensions.worktreeConfig set.
+    ;; The repo seeds its own entries here (blame.ignoreRevsFile, and core.hooksPath
+    ;; for husky) from the flox activation, which runs unsandboxed. package.json's
+    ;; postinstall still attempts blame.ignoreRevsFile, for clones that never activate
+    ;; flox; sandboxed, that attempt no-ops against these denies and the activation is
+    ;; what lands. cargo's git-dependency writes go to ~/.cargo/git/db instead.
+    ;; husky's `prepare` still retries the core.hooksPath write on every sandboxed
+    ;; install and prints git's "Operation not permitted"; that is noise, because the
+    ;; activation already seeded the value. Do not relax these to silence it — husky
+    ;; ignores git's exit status, so the deny would fail silently rather than loudly.
+    ;; bin/dev-sandbox appends more of these at render time: a worktree's real gitdir
+    ;; lives under MAINREPO/.git/worktrees/<name>/, sibling worktrees have their own,
+    ;; and a symlinked .git resolves elsewhere — Seatbelt matches physical paths.
+    ;; Those runtime denies are not redundant with the literals below.
+    (literal (string-append (param "PROJECT") "/.git/config"))
+    (literal (string-append (param "PROJECT") "/.git/config.worktree"))
+    (literal (string-append (param "MAINREPO") "/.git/config"))
+    (literal (string-append (param "MAINREPO") "/.git/config.worktree"))
+    ;; The .git node itself. In a worktree it is a file holding `gitdir: <path>`, and
+    ;; rewriting it repoints git at a directory the attacker controls, which brings
+    ;; its own config and so the same escape. Denying the literal does not affect
+    ;; entries inside a real .git directory — those are their own paths, and the dev
+    ;; stack writes them freely.
+    (literal (string-append (param "PROJECT") "/.git"))
+    (literal (string-append (param "MAINREPO") "/.git"))
     (literal (string-append (param "HOME") "/.gitconfig"))        ; core.hooksPath / credential.helper = !cmd
     (literal (string-append (param "HOME") "/.gitconfig.local"))  ; included by ~/.gitconfig — same escape if writable
     (subpath (string-append (param "HOME") "/.config/git"))       ; XDG git config — same hooksPath/helper escape
+    ;; Homebrew's system-scope gitconfig, read by a brew-installed git on every
+    ;; invocation and owned by the developer's account — unlike the Xcode CLT one,
+    ;; which is root-owned and so already out of reach. Same hooksPath/fsmonitor
+    ;; escape. Both prefixes: Apple Silicon, then Intel.
+    (literal "/opt/homebrew/etc/gitconfig")
+    (literal "/usr/local/etc/gitconfig")
+    ;; …and the directories holding them. Seatbelt matches the resolved path, so
+    ;; renaming the parent and dropping a symlink in its place moves the file out
+    ;; from under the two literals above while everything in it keeps working.
+    ;; Denying the node blocks that swap; writes to files inside are unaffected,
+    ;; same as the .git node denies above.
+    (literal "/opt/homebrew/etc")
+    (literal "/usr/local/etc")
+    ;; The rest of the Homebrew prefix: developer-owned like the gitconfig above, and
+    ;; on PATH ahead of the system dirs — no git indirection needed, a planted
+    ;; git/node/rg here just runs on the developer's next shell command.
+    ;; lib/ is covered because Seatbelt matches resolved paths: bin/npm is a symlink
+    ;; chain into Cellar and out again to ../lib/node_modules/npm/bin/npm-cli.js,
+    ;; so the Cellar deny alone never matches the file npm actually executes.
+    (subpath "/opt/homebrew/bin")
+    (subpath "/opt/homebrew/sbin")
+    (subpath "/opt/homebrew/Cellar")
+    (subpath "/opt/homebrew/lib")
+    (subpath "/usr/local/bin")
+    (subpath "/usr/local/sbin")
+    (subpath "/usr/local/Cellar")
+    (subpath "/usr/local/lib")
     (subpath (string-append (param "HOME") "/.cargo/bin")))       ; binaries on PATH
+
+;; husky's installer writes .husky/_/ (a gitignored husky.sh plus a .gitignore) on
+;; every sandboxed `pnpm install`, and it throws when that write fails, which would
+;; fail the install. Re-allow just that directory: last match wins, so this reopens
+;; _/ and nothing else inside the .husky deny above.
+;; Known limit, deliberate: the checked-in hooks source _/husky.sh, so this leaves
+;; one path to the same unsandboxed execution. Closing it means moving husky's
+;; install out of the sandbox, and a fresh clone has no _/husky.sh until pnpm
+;; install creates it — the same restructuring #79300 tracks for the config chain.
+;; The three checked-in hooks are protected either way.
+(allow file-write*
+    (subpath (string-append (param "PROJECT") "/.husky/_"))
+    (subpath (string-append (param "MAINREPO") "/.husky/_")))

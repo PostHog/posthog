@@ -1,5 +1,6 @@
 import datetime as dt
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -22,22 +23,25 @@ from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupB
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.metric_query_runner import (
+    _INTERVAL_LADDER,
     MetricQueryRunner,
+    _active_since_expr,
+    _align_to_interval,
     _histogram_quantile,
     _pick_interval,
     attribute_field,
 )
-from products.metrics.backend.tests._seeder import seed_metric
+from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
 
 class TestPickInterval:
     @parameterized.expand(
         [
-            # 60 buckets at 1 min each
+            # 60 one-minute buckets.
             ("1h_range_picks_minute", dt.timedelta(hours=1), "minute"),
-            # 24 buckets, comfortably under the ~60 target
+            # 24 buckets are below the target.
             ("1d_range_picks_hour", dt.timedelta(days=1), "hour"),
-            # 30 buckets; finer intervals all exceed the target
+            # Finer intervals exceed the target.
             ("30d_range_picks_day", dt.timedelta(days=30), "day"),
         ]
     )
@@ -46,12 +50,52 @@ class TestPickInterval:
         assert _pick_interval(start, start + delta) == expected
 
 
+class TestActiveSinceExpr:
+    def test_keeps_series_within_the_last_seen_buffer(self) -> None:
+        date_from = dt.datetime(2026, 1, 1, 12, tzinfo=dt.UTC)
+
+        expr = _active_since_expr(date_from)
+
+        assert isinstance(expr, ast.CompareOperation)
+        assert isinstance(expr.right, ast.Constant)
+        assert expr.right.value == date_from - dt.timedelta(hours=1)
+
+
+class TestAlignToInterval(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            (project_timezone, interval)
+            for project_timezone in ("UTC", "Asia/Kolkata")
+            for interval, _, _ in _INTERVAL_LADDER
+        ]
+    )
+    def test_matches_clickhouse_bucket_boundaries(self, project_timezone: str, interval: str) -> None:
+        # The runner floors `date_from` on the project time grid.
+        # This must match `toStartOfInterval` to keep the first bucket complete.
+        awkward = dt.datetime(2026, 3, 11, 17, 47, 33, 123456, tzinfo=dt.UTC)
+        aligned = _align_to_interval(awkward, interval, tzinfo=ZoneInfo(project_timezone))
+
+        interval_call = next(expr for name, _, expr in _INTERVAL_LADDER if name == interval)
+        interval_arg = interval_call.args[0]
+        assert isinstance(interval_arg, ast.Constant)
+        interval_sql = f"{interval_call.name}({interval_arg.value})"
+        ((bucket_label,),) = sync_execute(
+            f"SELECT toString(toStartOfInterval(toTimeZone(toDateTime64(%(ts)s, 6, 'UTC'), %(tz)s), {interval_sql}))",
+            {"ts": awkward.strftime("%Y-%m-%d %H:%M:%S.%f"), "tz": project_timezone},
+        )
+        # Compare strings to avoid driver date conversion. This also covers weeks.
+        clickhouse_aligned = dt.datetime.fromisoformat(bucket_label).replace(tzinfo=ZoneInfo(project_timezone))
+
+        self.assertEqual(aligned, clickhouse_aligned)
+        self.assertLessEqual(aligned, awkward)
+
+
 class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
 
     def test_rejects_unsupported_aggregation(self):
         with self.assertRaises(ValueError):
@@ -146,11 +190,17 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
             metric_name="m1",
             points=[
                 (anchor - dt.timedelta(minutes=5), 2.0),
-                (anchor - dt.timedelta(minutes=5), 3.0),
                 (anchor - dt.timedelta(minutes=20), 4.0),
             ],
+            labels={"pod": "a"},
         )
-        # Different metric — should be filtered out.
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor - dt.timedelta(minutes=5), 3.0)],
+            labels={"pod": "b"},
+        )
+        # Exclude a different metric.
         seed_metric(
             team_id=self.team.id,
             metric_name="m2",
@@ -168,6 +218,117 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         values_by_bucket = {row["time"]: row["value"] for row in results}
         self.assertEqual(sum(values_by_bucket.values()), 9.0)
+
+    @parameterized.expand(
+        [
+            # Raw samples sum to 66 and vary with scrape count.
+            ("sum", 33.0),
+            # Sample-weighted average is 11.0.
+            ("avg", 16.5),
+            # Raw samples count as 6.
+            ("count", 2.0),
+            # Raw samples would select the stale value 1.0.
+            ("min", 3.0),
+            ("max", 30.0),
+        ]
+    )
+    def test_aggregations_run_across_series_not_samples(self, aggregation: str, expected: float):
+        anchor = timezone.now().replace(second=0, microsecond=0)
+        bucket = anchor - dt.timedelta(minutes=5)
+        for pod, values in (("a", (1.0, 2.0, 3.0)), ("b", (10.0, 20.0, 30.0))):
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="m_multi",
+                points=[(bucket + dt.timedelta(seconds=10 * i), value) for i, value in enumerate(values)],
+                labels={"pod": pod},
+            )
+
+        runner = MetricQueryRunner(
+            team=self.team,
+            metric_name="m_multi",
+            aggregation=aggregation,
+            date_from=anchor - dt.timedelta(hours=1),
+            date_to=anchor,
+        )
+
+        self.assertEqual([row["value"] for row in runner.run()], [expected])
+
+    def test_unaligned_date_from_reads_the_whole_first_bucket(self):
+        # Relative presets can start inside a bucket. The whole bucket must count.
+        anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor + dt.timedelta(seconds=5), 3.0)],
+            labels={"pod": "a"},
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor + dt.timedelta(seconds=40), 4.0)],
+            labels={"pod": "b"},
+        )
+
+        rows = MetricQueryRunner(
+            team=self.team,
+            metric_name="m1",
+            aggregation="sum",
+            date_from=anchor + dt.timedelta(seconds=20),
+            date_to=anchor + dt.timedelta(minutes=1),
+            interval="minute",
+        ).run()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["value"], 7.0)
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, anchor)
+
+    def test_first_bucket_is_whole_on_a_project_away_from_utc(self):
+        # In a half-hour time zone, a UTC floor can drop the first bucket.
+        self.team.timezone = "Asia/Kolkata"
+        self.team.save()
+        bucket_start = dt.datetime(2026, 3, 17, 7, 30, tzinfo=dt.UTC)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(bucket_start + dt.timedelta(minutes=15), 3.0)],
+        )
+
+        rows = MetricQueryRunner(
+            team=self.team,
+            metric_name="m1",
+            aggregation="sum",
+            date_from=bucket_start + dt.timedelta(minutes=45),
+            date_to=bucket_start + dt.timedelta(hours=1),
+            interval="hour",
+        ).run()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["value"], 3.0)
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, bucket_start)
+
+    def test_synthetic_original_timestamp_does_not_split_a_series(self):
+        anchor = timezone.now().replace(second=0, microsecond=0)
+        bucket = anchor - dt.timedelta(minutes=5)
+        # Ingestion excludes `$originalTimestamp` from series identity.
+        for index, value in enumerate((1.0, 2.0, 3.0)):
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="m_skewed",
+                points=[(bucket + dt.timedelta(seconds=10 * index), value)],
+                labels={"pod": "a", "$originalTimestamp": f"2020-01-0{index + 1}T00:00:00+00:00"},
+            )
+
+        runner = MetricQueryRunner(
+            team=self.team,
+            metric_name="m_skewed",
+            aggregation="sum",
+            date_from=anchor - dt.timedelta(hours=1),
+            date_to=anchor,
+        )
+
+        self.assertEqual([row["value"] for row in runner.run()], [3.0])
 
     def test_respects_team_isolation(self):
         anchor = timezone.now().replace(microsecond=0)
@@ -192,7 +353,7 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
 
     def test_query_requires_authentication(self):
         self.client.logout()
@@ -238,10 +399,14 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
         seed_metric(
             team_id=self.team.id,
             metric_name="m1",
-            points=[
-                (anchor - dt.timedelta(minutes=10), 1.0),
-                (anchor - dt.timedelta(minutes=10), 2.0),
-            ],
+            points=[(anchor - dt.timedelta(minutes=10), 1.0)],
+            labels={"pod": "a"},
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor - dt.timedelta(minutes=10), 2.0)],
+            labels={"pod": "b"},
         )
 
         response = self.client.post(
@@ -269,23 +434,18 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestAttributeField(ClickhouseTestMixin, APIBaseTest):
-    """End-to-end tests for the `attribute_field` helper.
-
-    The helper builds an AST node; correctness depends on what ClickHouse
-    actually returns, so we execute a real query against `posthog.metrics`
-    for each scope and assert the resolved value.
-    """
+    """Test `attribute_field` with real `metric_series` queries."""
 
     CLASS_DATA_LEVEL_SETUP = True
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
 
     def _select_attribute(self, expr: ast.Expr, metric_name: str) -> str | None:
         query = parse_select(
             """
-                SELECT {expr} AS value FROM posthog.metrics
+                SELECT {expr} AS value FROM posthog.metric_series
                 WHERE metric_name = {metric_name} LIMIT 1
             """,
             placeholders={"expr": expr, "metric_name": ast.Constant(value=metric_name)},
@@ -324,9 +484,7 @@ class TestAttributeField(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_service_name_resolves_to_first_class_column(self, _name: str, key: str, scope: str) -> None:
-        # Real ingestion extracts the service name into its own column (the
-        # maps carry the dotted `service.name` at best), so both spellings
-        # must read the column in every scope.
+        # Ingestion extracts service name to a column in every scope.
         anchor = timezone.now().replace(microsecond=0)
         seed_metric(
             team_id=self.team.id,
@@ -387,7 +545,7 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
 
     def _request(self, **overrides):
         anchor = timezone.now().replace(microsecond=0)
@@ -404,7 +562,14 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
         seed_metric(
             team_id=self.team.id,
             metric_name="m1",
-            points=[(anchor - dt.timedelta(minutes=10), 1.5), (anchor - dt.timedelta(minutes=10), 2.5)],
+            points=[(anchor - dt.timedelta(minutes=10), 1.5)],
+            service_name="svc-a",
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor - dt.timedelta(minutes=10), 2.5)],
+            service_name="svc-b",
         )
 
         series = run_metric_query(team=self.team, request=self._request())
@@ -414,6 +579,171 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(series[0].metric_name, "m1")
         self.assertEqual(series[0].clause, "a")
         self.assertEqual(sum(p.value for p in series[0].points), 4.0)
+
+    def test_attaches_ingested_unit_to_series(self):
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            unit="ms",
+            points=[(anchor - dt.timedelta(minutes=10), 1.5)],
+        )
+
+        series = run_metric_query(team=self.team, request=self._request())
+
+        self.assertEqual(len(series), 1)
+        self.assertEqual(series[0].unit, "ms")
+
+    def test_inconsistent_units_across_merged_series_leave_unit_unset(self):
+        """An ungrouped query merges series; if they disagree on the unit there
+        is no correct single unit, so the series carries none rather than an
+        arbitrary one."""
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            unit="ms",
+            points=[(anchor - dt.timedelta(minutes=10), 1.5)],
+            service_name="svc-a",
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            unit="s",
+            points=[(anchor - dt.timedelta(minutes=10), 2.5)],
+            service_name="svc-b",
+        )
+
+        series = run_metric_query(team=self.team, request=self._request())
+
+        self.assertEqual(len(series), 1)
+        self.assertIsNone(series[0].unit)
+
+    def test_mixed_unit_and_unitless_merge_leaves_unit_unset(self):
+        """A unitless series merged with a unit-carrying one is still a mixed
+        result: the unit only applies when every contributing series agrees."""
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            unit="ms",
+            points=[(anchor - dt.timedelta(minutes=10), 1.5)],
+            service_name="svc-a",
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor - dt.timedelta(minutes=10), 2.5)],
+            service_name="svc-b",
+        )
+
+        series = run_metric_query(team=self.team, request=self._request())
+
+        self.assertEqual(len(series), 1)
+        self.assertIsNone(series[0].unit)
+
+    def test_consistent_units_across_merged_series_attach(self):
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            unit="ms",
+            points=[(anchor - dt.timedelta(minutes=10), 1.5)],
+            service_name="svc-a",
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            unit="ms",
+            points=[(anchor - dt.timedelta(minutes=10), 2.5)],
+            service_name="svc-b",
+        )
+
+        series = run_metric_query(team=self.team, request=self._request())
+
+        self.assertEqual(len(series), 1)
+        self.assertEqual(series[0].unit, "ms")
+
+    def test_grouped_series_attach_their_own_unit(self):
+        """Grouped series each get the unit of their underlying series, so two
+        groups of one metric can carry different units."""
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            unit="ms",
+            points=[(anchor - dt.timedelta(minutes=10), 1.5)],
+            labels={"pod": "a"},
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            unit="s",
+            points=[(anchor - dt.timedelta(minutes=10), 2.5)],
+            labels={"pod": "b"},
+        )
+
+        series = run_metric_query(
+            team=self.team,
+            request=self._request(
+                clauses=(
+                    MetricQueryClause(
+                        name="a",
+                        metric_name="m1",
+                        aggregation=MetricAggregation.SUM,
+                        group_by=(MetricGroupBy(key="pod"),),
+                    ),
+                )
+            ),
+        )
+
+        self.assertEqual(len(series), 2)
+        by_pod = {s.labels["pod"]: s for s in series}
+        self.assertEqual(by_pod["a"].unit, "ms")
+        self.assertEqual(by_pod["b"].unit, "s")
+
+    def test_series_without_unit_has_none(self):
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor - dt.timedelta(minutes=10), 1.5)],
+        )
+
+        series = run_metric_query(team=self.team, request=self._request())
+
+        self.assertEqual(len(series), 1)
+        self.assertIsNone(series[0].unit)
+
+    def test_formula_series_carries_no_unit(self):
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            unit="ms",
+            points=[(anchor - dt.timedelta(minutes=10), 2.0)],
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m2",
+            unit="s",
+            points=[(anchor - dt.timedelta(minutes=10), 4.0)],
+        )
+
+        series = run_metric_query(
+            team=self.team,
+            request=self._request(
+                clauses=(
+                    MetricQueryClause(name="a", metric_name="m1", aggregation=MetricAggregation.SUM),
+                    MetricQueryClause(name="b", metric_name="m2", aggregation=MetricAggregation.SUM),
+                ),
+                formula="a / b",
+            ),
+        )
+
+        self.assertEqual(len(series), 1)
+        self.assertEqual(series[0].clause, "formula")
+        self.assertIsNone(series[0].unit)
 
     def test_quantile_095_maps_to_p95(self):
         anchor = timezone.now().replace(microsecond=0)
@@ -434,8 +764,14 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             (
-                "unsupported_aggregation",
-                {"clauses": (MetricQueryClause(name="a", metric_name="m1", aggregation=MetricAggregation.MIN),)},
+                "quantile_other_than_p95",
+                {
+                    "clauses": (
+                        MetricQueryClause(
+                            name="a", metric_name="m1", aggregation=MetricAggregation.QUANTILE, quantile=0.5
+                        ),
+                    )
+                },
             ),
         ]
     )
@@ -449,7 +785,7 @@ class TestMetricFilters(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         self.anchor = timezone.now().replace(microsecond=0)
         seed_metric(
             team_id=self.team.id,
@@ -524,6 +860,30 @@ class TestMetricFilters(ClickhouseTestMixin, APIBaseTest):
             0.0,
         )
 
+    def test_window_keeps_a_series_with_samples_outside_the_range(self):
+        # The filter subquery bounds `metric_series` by `last_seen`, the series'
+        # newest sample. Samples on either side of the chart window must not cost
+        # the series its in-window points.
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="req",
+            points=[
+                (self.anchor - dt.timedelta(hours=6), 3.0),
+                (self.anchor - dt.timedelta(hours=2, minutes=30), 4.0),
+                (self.anchor - dt.timedelta(minutes=5), 5.0),
+            ],
+            labels={"env": "staging", "path": "/api"},
+        )
+        runner = MetricQueryRunner(
+            team=self.team,
+            metric_name="req",
+            aggregation="sum",
+            date_from=self.anchor - dt.timedelta(hours=3),
+            date_to=self.anchor - dt.timedelta(hours=2),
+            filters=(MetricFilter(key="env", op=FilterOp.EQ, value="staging"),),
+        )
+        self.assertEqual(sum(row["value"] for row in runner.run()), 4.0)
+
     def test_filters_via_api(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/metrics/query",
@@ -566,10 +926,9 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         self.anchor = timezone.now().replace(microsecond=0, second=0)
-        # env=prod has points in two buckets, env=dev only in the second —
-        # exercises the shared-grid zero-fill.
+        # `env=dev` needs zero-fill in the shared grid.
         seed_metric(
             team_id=self.team.id,
             metric_name="req",
@@ -612,7 +971,7 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(sum(p.value for p in by_env["prod"].points), 3.0)
         self.assertEqual(sum(p.value for p in by_env["dev"].points), 10.0)
-        # dev has no data in prod's first bucket: zero-filled, not missing.
+        # Zero-fill `dev` in the first bucket.
         self.assertIn(0.0, [p.value for p in by_env["dev"].points])
 
     def test_series_ordered_largest_first(self):
@@ -621,7 +980,7 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
 
     def test_explicit_interval_respected(self):
         series = self._run(interval="minute_5")
-        # 10-minute spread at 5m buckets: both points land in distinct buckets
+        # Both points land in different five-minute buckets.
         by_env = {s.labels["env"]: s for s in series}
         self.assertEqual(len(by_env["prod"].points), len(by_env["dev"].points))
 
@@ -630,7 +989,7 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
             self._run(interval="fortnight")
 
     def test_group_by_resource_scope(self):
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         seed_metric(
             team_id=self.team.id,
             metric_name="req",
@@ -648,6 +1007,23 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
             )
         )
         self.assertEqual(series[0].labels, {"k8s.pod.name": "web-1"})
+
+    def test_group_labels_survive_a_series_with_samples_outside_the_range(self):
+        # The label join bounds `metric_series` by `last_seen` too. Dropping a
+        # series with data in the window would regroup it under an empty label.
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="req",
+            points=[
+                (self.anchor - dt.timedelta(hours=6), 5.0),
+                (self.anchor - dt.timedelta(hours=2, minutes=30), 6.0),
+                (self.anchor - dt.timedelta(minutes=5), 7.0),
+            ],
+            labels={"env": "staging"},
+        )
+        series = self._run(date_from=self.anchor - dt.timedelta(hours=3), date_to=self.anchor - dt.timedelta(hours=2))
+        self.assertEqual([s.labels["env"] for s in series], ["staging"])
+        self.assertEqual(sum(p.value for p in series[0].points), 6.0)
 
     def test_group_by_via_api(self):
         response = self.client.post(
@@ -680,8 +1056,8 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
-        # Anchor on a minute boundary so bucket membership is deterministic.
+        truncate_metrics_tables()
+        # Use a minute boundary for stable bucket membership.
         self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
 
     def _run(self, aggregation: str, **runner_overrides):
@@ -720,8 +1096,72 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
         rows = self._run("increase")
         by_time = {row["time"]: row["value"] for row in rows}
         values = list(by_time.values())
-        # bucket 1: first sample contributes 0, then 5+5+5; bucket 2: 5+5
+        # The first sample contributes zero.
         self.assertEqual(values, [15.0, 10.0])
+
+    @parameterized.expand(
+        [
+            ("increase", [10.0, 20.0]),
+            ("rate", [10.0 / 60.0, 20.0 / 60.0]),
+        ]
+    )
+    def test_first_bucket_diffs_against_the_sample_before_the_range(self, aggregation: str, expected: list[float]):
+        # The first point needs a predecessor before `date_from`.
+        self._seed_counter(
+            [
+                (self.anchor - dt.timedelta(seconds=90), 100.0),
+                (self.anchor - dt.timedelta(seconds=30), 110.0),
+                (self.anchor + dt.timedelta(seconds=30), 130.0),
+            ]
+        )
+        rows = self._run(aggregation)
+        for row, expected_value in zip(rows, expected):
+            self.assertAlmostEqual(row["value"], expected_value)
+        # The pre-range sample must not add a chart bucket.
+        self.assertEqual(len(rows), len(expected))
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, self.anchor - dt.timedelta(minutes=1))
+
+    @parameterized.expand(
+        [
+            ("increase", [20.0, 20.0, 20.0]),
+            ("rate", [20.0 / 60.0, 20.0 / 60.0, 20.0 / 60.0]),
+        ]
+    )
+    def test_unaligned_date_from_still_charts_a_complete_first_bucket(self, aggregation: str, expected: list[float]):
+        # The first bucket must cover its full interval.
+        self._seed_counter([(self.anchor + dt.timedelta(seconds=s), 100.0 + s / 3.0) for s in range(-60, 181, 15)])
+        rows = self._run(
+            aggregation,
+            date_from=self.anchor + dt.timedelta(seconds=20),
+            date_to=self.anchor + dt.timedelta(minutes=3),
+        )
+        for row, expected_value in zip(rows, expected):
+            self.assertAlmostEqual(row["value"], expected_value)
+        self.assertEqual(len(rows), len(expected))
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, self.anchor)
+
+    def test_bucket_with_no_computable_increase_is_dropped_not_zero(self):
+        # The predecessor is outside the lookback. Return a gap, not zero.
+        start = self.anchor - dt.timedelta(minutes=self.anchor.minute % 5)
+        self._seed_counter(
+            [
+                (start - dt.timedelta(minutes=10), 100.0),
+                (start, 200.0),
+                (start + dt.timedelta(minutes=10), 300.0),
+                (start + dt.timedelta(minutes=20), 400.0),
+            ]
+        )
+        rows = self._run(
+            "increase",
+            date_from=start,
+            date_to=start + dt.timedelta(minutes=30),
+            interval="minute_5",
+        )
+        self.assertEqual([row["value"] for row in rows], [100.0, 100.0])
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, start + dt.timedelta(minutes=10))
 
     def test_rate_divides_by_bucket_seconds(self):
         self._seed_counter(
@@ -743,7 +1183,7 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
             ]
         )
         rows = self._run("increase")
-        # 0 (first) + 10 + 5 (reset: post-reset absolute value) + 10
+        # The reset contributes its post-reset value.
         self.assertEqual([row["value"] for row in rows], [25.0])
 
     def test_delta_temporality_sums_samples_directly(self):
@@ -759,8 +1199,7 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([row["value"] for row in rows], [12.0])
 
     def test_deltas_are_computed_per_underlying_series(self):
-        # Two pods with interleaved timestamps; naive global diffing would
-        # produce garbage from the cross-series jumps.
+        # Diff each pod separately.
         self._seed_counter(
             [
                 (self.anchor + dt.timedelta(seconds=0), 1000.0),
@@ -843,12 +1282,11 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
 class TestHistogramQuantileInterpolation:
     @parameterized.expand(
         [
-            # bounds [0.1, 0.5, 1.0], counts [10, 10, 10, 0] (no overflow):
-            # p50 -> rank 15, second bucket [0.1, 0.5], 5/10 through -> 0.3
+            # p50 is 0.3 in the second bucket.
             ("p50_mid_bucket", 0.5, [0.1, 0.5, 1.0], [10.0, 10.0, 10.0, 0.0], 0.3),
-            # p25 -> rank 7.5, first bucket [0, 0.1], 7.5/10 through -> 0.075
+            # p25 is 0.075 in the first bucket.
             ("p25_first_bucket", 0.25, [0.1, 0.5, 1.0], [10.0, 10.0, 10.0, 0.0], 0.075),
-            # rank lands in the overflow bucket -> clamp to highest bound
+            # Clamp overflow ranks to the highest bound.
             ("overflow_clamps", 0.99, [0.1, 0.5, 1.0], [1.0, 1.0, 1.0, 10.0], 1.0),
             ("empty_counts", 0.5, [0.1, 0.5], [0.0, 0.0, 0.0], 0.0),
             ("no_bounds", 0.5, [], [10.0], 0.0),
@@ -865,7 +1303,7 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
 
     def _seed_histogram(self, points_with_counts, temporality="cumulative", bounds=None, **kwargs):
@@ -901,8 +1339,7 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
             self._run(quantile=1.5)
 
     def test_group_by_service_name_column(self):
-        # service_name resolves to the raw column, which the nested
-        # per-series subqueries must propagate to the outer group-by.
+        # Pass `service_name` to the outer group-by.
         self._seed_histogram([(self.anchor, [10, 0, 0, 0])], temporality="delta", service_name="svc-a")
         self._seed_histogram([(self.anchor, [0, 0, 10, 0])], temporality="delta", service_name="svc-b")
         rows = self._run(group_by=(MetricGroupBy(key="service_name"),))
@@ -917,12 +1354,12 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
             temporality="delta",
         )
         rows = self._run(0.5)
-        # combined counts [20, 20, 20, 0]: rank 30, mid of second bucket
+        # The combined p50 is the second-bucket midpoint.
         self.assertEqual(len(rows), 1)
         self.assertAlmostEqual(rows[0]["value"], 0.3)
 
     def test_cumulative_histogram_diffs_per_series(self):
-        # Cumulative counts grow; first sample contributes nothing.
+        # The first cumulative sample contributes nothing.
         self._seed_histogram(
             [
                 (self.anchor + dt.timedelta(seconds=0), [100, 100, 100, 0]),
@@ -931,17 +1368,51 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
             temporality="cumulative",
         )
         rows = self._run(0.5)
-        # window contribution [10, 10, 10, 0] -> p50 = 0.3
+        # The window p50 is 0.3.
         self.assertEqual(len(rows), 1)
         self.assertAlmostEqual(rows[0]["value"], 0.3)
 
     def test_cumulative_lone_sample_emits_no_point(self):
-        # A cumulative histogram's first (and only) sample has no predecessor
-        # to diff against — the window has no computable increase. That must
-        # be a gap, not a fabricated p95 of 0 (which reads as "p95 is 0s").
+        # The histogram has no predecessor. Return a gap, not zero.
         self._seed_histogram([(self.anchor, [1, 1, 1, 0])], temporality="cumulative")
         rows = self._run(0.95)
         self.assertEqual(rows, [])
+
+    def test_first_bucket_diffs_against_the_histogram_before_the_range(self):
+        # A missing predecessor drops the histogram point.
+        self._seed_histogram(
+            [
+                (self.anchor - dt.timedelta(seconds=90), [100, 100, 100, 0]),
+                (self.anchor - dt.timedelta(seconds=30), [110, 110, 110, 0]),
+            ],
+            temporality="cumulative",
+        )
+        rows = self._run(0.5)
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], 0.3)
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, self.anchor - dt.timedelta(minutes=1))
+
+    def test_unaligned_date_from_keeps_the_first_buckets_full_distribution(self):
+        # Include growth from the first partial bucket.
+        self._seed_histogram(
+            [
+                (self.anchor, [100, 100, 100, 0]),
+                (self.anchor + dt.timedelta(seconds=20), [110, 100, 100, 0]),
+                (self.anchor + dt.timedelta(seconds=40), [110, 110, 100, 0]),
+            ],
+            temporality="cumulative",
+        )
+        rows = self._run(
+            0.5,
+            date_from=self.anchor + dt.timedelta(seconds=30),
+            date_to=self.anchor + dt.timedelta(minutes=1),
+        )
+        self.assertEqual(len(rows), 1)
+        # The window p50 is in the first bucket.
+        self.assertAlmostEqual(rows[0]["value"], 0.1)
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, self.anchor)
 
     def test_mismatched_bounds_raise(self):
         self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0])], temporality="delta")
@@ -1029,9 +1500,9 @@ class TestMultiClauseAndFormulas(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
-        # errors: 2 then 4; requests: 10 then 20 (per-minute buckets)
+        # Use per-minute error and request buckets.
         seed_metric(
             team_id=self.team.id,
             metric_name="errors",
@@ -1075,7 +1546,7 @@ class TestMultiClauseAndFormulas(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([p.value for p in series[0].points], [0.2, 0.2])
 
     def test_formula_matches_grouped_series_by_label_set(self):
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         for env, errors, requests in [("prod", 1.0, 10.0), ("dev", 3.0, 6.0)]:
             seed_metric(
                 team_id=self.team.id,
@@ -1108,7 +1579,7 @@ class TestMultiClauseAndFormulas(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(by_env, {"prod": [0.1], "dev": [0.5]})
 
     def test_formula_broadcasts_ungrouped_clause(self):
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         for env, errors in [("prod", 2.0), ("dev", 6.0)]:
             seed_metric(
                 team_id=self.team.id,
@@ -1181,16 +1652,15 @@ class TestMultiClauseAndFormulas(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestMetricTypeIsolation(ClickhouseTestMixin, APIBaseTest):
-    """One metric name existing as several types (e.g. a counter and a gauge)
-    must not blend into one aggregate — series identity includes the type."""
+    """Test type isolation for metrics with the same name."""
 
     CLASS_DATA_LEVEL_SETUP = True
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
-        # The same name recorded as a delta counter (5) and as a gauge (42).
+        # Use one counter and one gauge with the same name.
         seed_metric(
             team_id=self.team.id,
             metric_name="m_collide",
@@ -1219,7 +1689,7 @@ class TestMetricTypeIsolation(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            # Without isolation these blended: avg was (5 + 42) / 2 = 23.5.
+            # Metric types must not blend.
             ("gauge_avg", "avg", "gauge", 42.0),
             ("counter_sum", "sum", "sum", 5.0),
             ("counter_increase", "increase", "sum", 5.0),
@@ -1230,7 +1700,7 @@ class TestMetricTypeIsolation(ClickhouseTestMixin, APIBaseTest):
         assert [row["value"] for row in rows] == [expected]
 
     def test_without_type_filter_all_rows_still_match(self):
-        # Back-compat: no metric_type keeps the pre-filter behavior.
+        # No metric type keeps the previous behavior.
         rows = self._run("count", None)
         assert [row["value"] for row in rows] == [2]
 
@@ -1248,10 +1718,10 @@ class TestMetricTypeIsolation(ClickhouseTestMixin, APIBaseTest):
             histogram_bounds=[10.0, 50.0, 100.0],
             histogram_counts=[0, 10, 0, 0],
         )
-        # No explicit type needed: the histogram path must constrain itself.
+        # Histogram queries constrain their metric type.
         rows = self._run("histogram_quantile", None, quantile=0.5)
         assert len(rows) == 1
-        # All 10 observations sit in the (10, 50] bucket; p50 interpolates to 30.
+        # p50 interpolates to 30 in the `(10, 50]` bucket.
         assert abs(rows[0]["value"] - 30.0) < 1e-9
 
     def test_api_accepts_metric_type(self):
@@ -1274,24 +1744,24 @@ class TestMetricTypeIsolation(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestNonFiniteAggregates(ClickhouseTestMixin, APIBaseTest):
-    """ClickHouse float aggregates can overflow to inf (two 1e308 samples in
-    one bucket). A Python `inf` leaking into the response is at best invalid
-    JSON ("Infinity") and at worst a silent null downstream — the API contract
-    is an explicit null gap instead."""
+    """Test null gaps for non-finite aggregates."""
 
     CLASS_DATA_LEVEL_SETUP = True
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
 
     def _seed_huge(self, count: int) -> None:
-        seed_metric(
-            team_id=self.team.id,
-            metric_name="m_huge",
-            points=[(self.anchor + dt.timedelta(seconds=i), 1e308) for i in range(count)],
-        )
+        # Use two series. Repeated samples collapse to one value.
+        for index in range(count):
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="m_huge",
+                points=[(self.anchor, 1e308)],
+                labels={"shard": str(index)},
+            )
 
     def _run(self, aggregation: str) -> list[dict[str, Any]]:
         return MetricQueryRunner(
@@ -1350,9 +1820,7 @@ class TestNonFiniteAggregates(ClickhouseTestMixin, APIBaseTest):
         assert values == [None]
 
     def test_formula_propagates_clause_null_gap(self):
-        # Two 1e308 points sum to inf, so the CLAUSE aggregate is already a
-        # null gap before the formula runs — exercising the input-None guard
-        # in _evaluate_formula_point, not the formula-overflow branch above.
+        # The clause sum overflows before formula evaluation.
         self._seed_huge(2)
         response = self.client.post(
             f"/api/projects/{self.team.id}/metrics/query",

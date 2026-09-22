@@ -330,6 +330,50 @@ describe('seriesBreakdownLogic', () => {
         })
     })
 
+    it.each([
+        { xColumn: 'event', breakdownColumn: 'browser' },
+        { xColumn: 'browser', breakdownColumn: 'event' },
+    ])(
+        'shows taxonomy display names when the event column is the $xColumn x-axis or $breakdownColumn breakdown',
+        async ({ xColumn, breakdownColumn }) => {
+            logic = seriesBreakdownLogic({ key: testUniqueKey })
+            logic.mount()
+
+            const builtDataNodeLogic = dataNodeLogic({
+                key: testUniqueKey,
+                query: globalQuery.source,
+            })
+            builtDataNodeLogic.mount()
+            builtDataNodeLogic.actions.setResponse({
+                results: [
+                    ['$pageview', 'Safari', 11],
+                    ['signed_up', 'Safari', 22],
+                ],
+                columns: ['event', 'browser', 'total_count'],
+                types: [
+                    ['event', 'String'],
+                    ['browser', 'Nullable(String)'],
+                    ['total_count', 'UInt64'],
+                ],
+            })
+
+            builtDataVizLogic.actions.clearAxis()
+            builtDataVizLogic.actions.updateXSeries(xColumn)
+            builtDataVizLogic.actions.addYSeries('total_count')
+            logic.actions.addSeriesBreakdown(breakdownColumn)
+
+            const { xData, seriesData } = logic.values.seriesBreakdownData
+            if (xColumn === 'event') {
+                expect(xData.data).toEqual(['Pageview', 'signed_up'])
+                expect(seriesData.map((series) => series.name)).toEqual(['Safari'])
+            } else {
+                expect(xData.data).toEqual(['Safari'])
+                expect(seriesData.map((series) => series.name)).toEqual(['Pageview', 'signed_up'])
+                expect(seriesData.map((series) => series.breakdownValue)).toEqual(['$pageview', 'signed_up'])
+            }
+        }
+    )
+
     it('preserves missing breakdown buckets as null when showNullsAsZero is disabled', async () => {
         logic = seriesBreakdownLogic({ key: testUniqueKey })
         logic.mount()

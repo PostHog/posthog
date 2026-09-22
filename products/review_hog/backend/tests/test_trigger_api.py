@@ -11,8 +11,13 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.review_hog.backend.models import ReviewReport
+
 TRIGGER_URL = "/api/review_hog/trigger/"
+RESOLVE_URL = "/api/review_hog/resolve/"
 _START = "products.review_hog.backend.api.trigger.start_review_pr_workflow"
+_START_RESOLUTION = "products.review_hog.backend.api.trigger.start_resolution_workflow"
+_BUSY = "products.review_hog.backend.api.trigger.workflow_running"
 
 
 @override_settings(REVIEWHOG_TRIGGER_TOKEN="secret-token")
@@ -25,10 +30,14 @@ class TestReviewHogTriggerApi(APIBaseTest):
         OrganizationMembership.objects.create(organization=self.organization, user=self.run_user)
         # Apply dynamic IDs via settings overrides
         self._settings_ctx = self.settings(
-            REVIEWHOG_TEAM_ID=self.trigger_team.id,
+            REVIEWHOG_TEAM_IDS=[self.trigger_team.id],
             REVIEWHOG_RUN_USER_ID=self.run_user.id,
         )
         self._settings_ctx.enable()
+        # The busy-guard probes Temporal on every trigger; tests must never open real connections.
+        busy_patcher = patch(_BUSY, return_value=False)
+        self.mock_busy = busy_patcher.start()
+        self.addCleanup(busy_patcher.stop)
 
     def tearDown(self):
         self._settings_ctx.disable()
@@ -103,7 +112,7 @@ class TestReviewHogTriggerApi(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
         mock_start.assert_called_once()
 
-    @override_settings(REVIEWHOG_TEAM_ID=None)
+    @override_settings(REVIEWHOG_TEAM_IDS=[])
     @patch(_START, return_value="wf-1")
     def test_unconfigured_team_returns_503(self, mock_start):
         resp = self.client.post(
@@ -138,7 +147,7 @@ class TestReviewHogTriggerApi(APIBaseTest):
             sensitive_config={},
             created_by=self.user,
         )
-        with override_settings(REVIEWHOG_TEAM_ID=self.team.id):
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
             resp = self.client.post(
                 TRIGGER_URL,
                 {"repo": "PostHog/posthog", "pr_number": 1},
@@ -168,7 +177,7 @@ class TestReviewHogTriggerApi(APIBaseTest):
             sensitive_config={},
             created_by=departed,
         )
-        with override_settings(REVIEWHOG_TEAM_ID=self.team.id):
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
             resp = self.client.post(
                 TRIGGER_URL,
                 {"repo": "PostHog/posthog", "pr_number": 1},
@@ -177,6 +186,68 @@ class TestReviewHogTriggerApi(APIBaseTest):
             )
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
         self.assertEqual(mock_start.call_args.kwargs["user_id"], self.user.id)
+
+    @patch(_START, return_value="wf-1")
+    def test_trigger_refused_while_resolution_is_running(self, mock_start):
+        # The busy-guard: a review started while the PR's resolve-pr workflow runs would race the
+        # resolution session's pushes and re-review threads it is mid-way through settling. Temporal
+        # can't dedupe across the two workflow ids, so a dropped (or wrong-id) probe here means
+        # double runs — the check must hit resolve-pr's exact deterministic id and refuse.
+        self.mock_busy.return_value = True
+        resp = self.client.post(
+            TRIGGER_URL,
+            {"repo": "PostHog/posthog", "pr_number": 123},
+            format="json",
+            HTTP_AUTHORIZATION="Bearer secret-token",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
+        self.assertIn("Still resolving comments", resp.json()["error"])
+        self.mock_busy.assert_called_once_with(f"resolve-pr:{self.trigger_team.id}:posthog/posthog:123")
+        mock_start.assert_not_called()
+
+    @patch(_START, return_value="wf-1")
+    def test_label_during_a_running_cheaper_review_lifts_the_tier_and_says_so(self, mock_start):
+        # A same-id start joins the in-flight turn, so the label's trigger source never reaches the
+        # fetch upsert: without this lift the cheap turn publishes, the full review the label asked
+        # for never runs, and the Action reports success.
+        report = ReviewReport.objects.for_team(self.trigger_team.id).create(
+            team=self.trigger_team,
+            repository="posthog/posthog",
+            pr_number=123,
+            pr_url="https://github.com/PostHog/posthog/pull/123",
+            head_branch="fix",
+            base_branch="master",
+            review_tier="agent_p3_p4",
+            review_reasoning_effort="low",
+        )
+        self.mock_busy.side_effect = lambda workflow_id: workflow_id.startswith("review-pr:")
+        resp = self.client.post(
+            TRIGGER_URL,
+            {"repo": "PostHog/posthog", "pr_number": 123},
+            format="json",
+            HTTP_AUTHORIZATION="Bearer secret-token",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+        self.assertEqual(resp.json(), {"workflow_id": "wf-1", "status": "joined_running_review"})
+        mock_start.assert_called_once()
+        report.refresh_from_db()
+        self.assertEqual((report.review_tier, report.review_reasoning_effort), ("human", "xhigh"))
+
+    @patch(_START_RESOLUTION, return_value="wf-r-1")
+    def test_resolve_refused_while_review_is_running(self, mock_start_resolution):
+        # The other direction: a standalone resolution during a live review would settle threads
+        # the finishing review is about to chain its own resolution for.
+        self.mock_busy.return_value = True
+        resp = self.client.post(
+            RESOLVE_URL,
+            {"repo": "PostHog/posthog", "pr_number": 123},
+            format="json",
+            HTTP_AUTHORIZATION="Bearer secret-token",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
+        self.assertIn("review is already running", resp.json()["error"])
+        self.mock_busy.assert_called_once_with(f"review-pr:{self.trigger_team.id}:posthog/posthog:123")
+        mock_start_resolution.assert_not_called()
 
     @parameterized.expand(
         [

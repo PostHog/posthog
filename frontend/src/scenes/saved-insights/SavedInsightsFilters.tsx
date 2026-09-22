@@ -1,20 +1,19 @@
 import posthog from 'posthog-js'
 
-import { IconFlag, IconHeart, IconHeartFilled } from '@posthog/icons'
+import { IconHeart, IconHeartFilled } from '@posthog/icons'
 
 import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
-import { TagSelect } from 'lib/components/TagSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 
-export type QuickFilterKind = 'insightType' | 'tags' | 'createdBy' | 'favorites' | 'featureFlags'
-const ALL_QUICK_FILTERS: QuickFilterKind[] = ['insightType', 'tags', 'createdBy', 'favorites', 'featureFlags']
+import { SavedInsightsTagSelect } from './SavedInsightsTagSelect'
+
+export type QuickFilterKind = 'insightType' | 'tags' | 'createdBy' | 'favorites'
+const ALL_QUICK_FILTERS: QuickFilterKind[] = ['insightType', 'tags', 'createdBy', 'favorites']
 
 export function SavedInsightsFilters({
     filters,
@@ -28,7 +27,7 @@ export function SavedInsightsFilters({
     /** When true, inactive filters appear borderless. */
     borderless?: boolean
 }): JSX.Element {
-    const { search, hideFeatureFlagInsights, favorited, tags, insightType, createdBy } = filters
+    const { search, favorited, tags, insightType, createdBy } = filters
     const quickFilterSet = new Set(quickFilters)
     const hasInsightTypeSelection = !!insightType && insightType !== 'All types'
 
@@ -59,24 +58,14 @@ export function SavedInsightsFilters({
                         />
                     )}
                     {quickFilterSet.has('tags') && (
-                        <TagSelect
+                        <SavedInsightsTagSelect
                             value={tags || []}
+                            borderless={borderless}
                             onChange={(tags) => {
                                 setFilters({ tags: tags.length > 0 ? tags : [] })
                                 posthog.capture('saved insights filtered', { filter_type: 'tags', value: tags })
                             }}
-                        >
-                            {(selectedTags) => (
-                                <LemonButton
-                                    size="small"
-                                    type="secondary"
-                                    active={selectedTags.length > 0}
-                                    status={borderless && selectedTags.length === 0 ? 'alt' : 'default'}
-                                >
-                                    {selectedTags.length > 0 ? `Tags (${selectedTags.length})` : 'Tags'}
-                                </LemonButton>
-                            )}
-                        </TagSelect>
+                        />
                     )}
                     {quickFilterSet.has('createdBy') && (
                         <MemberSelectMultiplePopover
@@ -110,48 +99,8 @@ export function SavedInsightsFilters({
                             Favorites
                         </LemonButton>
                     )}
-                    {quickFilterSet.has('featureFlags') && (
-                        <FeatureFlagInsightsToggle
-                            hideFeatureFlagInsights={hideFeatureFlagInsights ?? undefined}
-                            onToggle={(checked) => setFilters({ hideFeatureFlagInsights: checked })}
-                        />
-                    )}
                 </div>
             )}
         </div>
-    )
-}
-
-const FeatureFlagInsightsToggle = ({
-    hideFeatureFlagInsights,
-    onToggle,
-}: {
-    hideFeatureFlagInsights?: boolean
-    onToggle: (checked: boolean) => void
-}): JSX.Element => {
-    return (
-        <Tooltip
-            title={
-                <div>
-                    <p>
-                        PostHog automatically creates insights by default for feature flags to help you understand their
-                        performance.
-                    </p>
-                    <p className="mb-0">
-                        Use this toggle to hide these auto-generated insights from your insights list.
-                    </p>
-                </div>
-            }
-            placement="top"
-        >
-            <LemonButton
-                icon={<IconFlag />}
-                onClick={() => onToggle(!hideFeatureFlagInsights)}
-                type="tertiary"
-                size="small"
-            >
-                Hide feature flag insights: <LemonSwitch checked={hideFeatureFlagInsights || false} className="ml-1" />
-            </LemonButton>
-        </Tooltip>
     )
 }

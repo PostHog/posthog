@@ -19,7 +19,6 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-  Spinner,
 } from "@posthog/quill";
 import type {
   Task,
@@ -67,6 +66,7 @@ import {
   useSetCommentResolved,
 } from "@posthog/ui/features/sessions/components/useComments";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const EMPTY_COMMENTS: ResourceComment[] = [];
@@ -297,6 +297,7 @@ function PrThreadRow({
  * it there, which is why no surface carries a thread list of its own.
  */
 export function TaskCommentsList({
+  taskId,
   task,
   timeline,
   onlySource,
@@ -304,8 +305,9 @@ export function TaskCommentsList({
   commentVersionLabel,
   onCanvasCommentOpen,
 }: {
-  task: Task;
-  timeline: ThreadTimelineRow<TaskThreadMessage>[];
+  taskId: string;
+  task?: Task;
+  timeline?: ThreadTimelineRow<TaskThreadMessage>[];
   /** Restricts the pane to one resource known by its host, without relying on
    * the task timeline to rediscover it. */
   onlySource?: CommentSource;
@@ -313,16 +315,14 @@ export function TaskCommentsList({
   commentVersionLabel?: (versionId: string) => string | null;
   onCanvasCommentOpen?: (versionId: string | null) => void;
 }) {
-  const { runs } = useTaskRuns(onlySource ? undefined : task.id);
+  const { runs } = useTaskRuns(onlySource ? undefined : taskId);
   const { members } = useOrgMembers();
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
-  const activeArtifactId = useActiveArtifactId(task.id);
+  const activeArtifactId = useActiveArtifactId(taskId);
   const requestCommentFocus = useCommentNavigationStore(
     (state) => state.requestCommentFocus,
   );
-  const focus = useCommentNavigationStore(
-    (state) => state.focusByTask[task.id],
-  );
+  const focus = useCommentNavigationStore((state) => state.focusByTask[taskId]);
   const resolutionsByTarget = useCommentNavigationStore(
     (state) => state.resolutionsByTarget,
   );
@@ -332,23 +332,23 @@ export function TaskCommentsList({
   const [draft, setDraft] = useState("");
   const threadListRef = useRef<HTMLDivElement>(null);
   const sourceFilterTouched = useRef(false);
-  const previousTaskId = useRef(task.id);
+  const previousTaskId = useRef(taskId);
 
   useEffect(() => {
-    if (previousTaskId.current === task.id) return;
-    previousTaskId.current = task.id;
+    if (previousTaskId.current === taskId) return;
+    previousTaskId.current = taskId;
     sourceFilterTouched.current = false;
     setSourceFilter(ALL_SOURCES);
     setDraft("");
-  }, [task.id]);
+  }, [taskId]);
 
   const rows = useMemo(
-    () => buildRows(task, timeline, runs),
+    () => (task ? buildRows(task, timeline ?? [], runs) : []),
     [task, timeline, runs],
   );
   const sources = useMemo(
-    () => (onlySource ? [onlySource] : commentSources(task.id, rows)),
-    [task.id, rows, onlySource],
+    () => (onlySource ? [onlySource] : commentSources(taskId, rows)),
+    [taskId, rows, onlySource],
   );
   const targets = useMemo(
     () =>
@@ -362,11 +362,11 @@ export function TaskCommentsList({
   );
   const singleSourceComments = useCommentsQuery(
     onlySource?.target ?? null,
-    task.id,
+    taskId,
   );
   const taskComments = useCommentsForTargetsQuery(
     onlySource ? [] : targets,
-    task.id,
+    taskId,
     {
       live: true,
       intervalMs: POLL_INTERVAL_MS,
@@ -418,9 +418,9 @@ export function TaskCommentsList({
     prUrls.length,
   ]);
 
-  const taskTarget = useMemo(() => taskCommentTarget(task.id), [task.id]);
+  const taskTarget = useMemo(() => taskCommentTarget(taskId), [taskId]);
   const composerTarget = onlySource?.target ?? taskTarget;
-  const createComment = useCreateComment(composerTarget, task.id);
+  const createComment = useCreateComment(composerTarget, taskId);
 
   const threads = useMemo(() => {
     const reviewByUrl = new Map(prReviews.byUrl);
@@ -514,20 +514,20 @@ export function TaskCommentsList({
     (thread: TaskCommentThread, requestThreadFocus = true) => {
       const origin = thread.origin;
       if (origin.kind === "pr-review" || origin.kind === "pr-conversation") {
-        openPrInReview(task.id, origin.prUrl);
+        openPrInReview(taskId, origin.prUrl);
         if (origin.kind === "pr-review") {
           // The review pane scrolls by file; a specific comment is as close as it
           // gets until it grows a per-thread target.
           useReviewNavigationStore
             .getState()
-            .requestScrollToFile(task.id, origin.filePath);
+            .requestScrollToFile(taskId, origin.filePath);
         }
         return;
       }
       const { source, root } = origin;
       if (source.kind === "canvas") {
         if (requestThreadFocus) {
-          requestCommentFocus(task.id, source.target, root.id);
+          requestCommentFocus(taskId, source.target, root.id);
         }
         if (onCanvasCommentOpen) {
           onCanvasCommentOpen(
@@ -540,16 +540,16 @@ export function TaskCommentsList({
       }
       // A thread on the task itself has nowhere else to open because it lives here.
       if (source.kind === "task" || !source.runId) return;
-      openArtifactTab(task.id, {
+      openArtifactTab(taskId, {
         runId: source.runId,
         artifactId: source.target.itemId,
         name: source.name,
       });
       if (requestThreadFocus) {
-        requestCommentFocus(task.id, source.target, root.id);
+        requestCommentFocus(taskId, source.target, root.id);
       }
     },
-    [onCanvasCommentOpen, openArtifactTab, requestCommentFocus, task.id],
+    [onCanvasCommentOpen, openArtifactTab, requestCommentFocus, taskId],
   );
 
   // A thread picked on the artifact itself has to surface here, even when a
@@ -558,7 +558,7 @@ export function TaskCommentsList({
   const focusedThreadId = focus?.threadId ?? null;
   const handledFocusRef = useRef<string | null>(null);
   useEffect(() => {
-    const focusKey = focus ? `${task.id}:${focus.nonce}` : null;
+    const focusKey = focus ? `${taskId}:${focus.nonce}` : null;
     if (!focus || handledFocusRef.current === focusKey) return;
     const focused = threads.find((thread) => thread.id === focus.threadId);
     // The thread may still be loading, so wait rather than guess its filters.
@@ -580,7 +580,7 @@ export function TaskCommentsList({
       );
       if (pane && thread) scrollThreadInPane(pane, thread);
     });
-  }, [focus, openThread, threads, task.id]);
+  }, [focus, openThread, threads, taskId]);
   // The pulse fades on its own; owning the timer in its own effect keeps it
   // cleaned up on the next pulse or on unmount, without a stray ref.
   useEffect(() => {
@@ -693,11 +693,9 @@ export function TaskCommentsList({
             </EmptyHeader>
           </Empty>
         ) : loading && threads.length === 0 ? (
-          <div className="flex justify-center py-8">
-            <Spinner />
-          </div>
+          <LoadingState className="py-8" />
         ) : visibleThreads.length === 0 ? (
-          <Empty className="py-8">
+          <Empty className="h-full border-0">
             <EmptyHeader>
               <EmptyMedia variant="icon">
                 <ChatCircleIcon />
@@ -722,7 +720,7 @@ export function TaskCommentsList({
                 thread={thread}
                 source={thread.origin.source}
                 root={thread.origin.root}
-                taskId={task.id}
+                taskId={taskId}
                 members={members}
                 selected={thread.id === focusedThreadId}
                 pulsing={thread.id === pulseThreadId}
@@ -759,7 +757,7 @@ export function TaskCommentsList({
               mentions,
             });
             setDraft("");
-            requestCommentFocus(task.id, composerTarget, created.id, {
+            requestCommentFocus(taskId, composerTarget, created.id, {
               intent: "focus-only",
             });
           }}

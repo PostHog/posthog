@@ -1,182 +1,136 @@
-import { useCallback, useRef } from 'react'
+import { useMemo } from 'react'
 
-import { Chart, ChartConfiguration } from 'lib/Chart'
+import {
+    DefaultTooltip,
+    type Series,
+    TimeSeriesBarChart,
+    type TimeSeriesBarChartConfig,
+    type TooltipContext,
+} from '@posthog/quill-charts'
+
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { dayjs } from 'lib/dayjs'
 
 import { ChartDataPoint } from './LiveWebAnalyticsMetricsTypes'
-import { TOOLTIP_STYLE, useLiveChart } from './useLiveChart'
+
+// Tailwind green-500 / blue-500 / red-500 — new visitors, returning visitors, bots.
+const NEW_USERS_COLOR = '#22c55e'
+const RETURNING_USERS_COLOR = '#3b82f6'
+const BOT_COLOR = '#ef4444'
 
 const EmptyState = ({ message }: { message: string }): JSX.Element => (
     <div className="h-full flex items-center justify-center text-muted text-sm">{message}</div>
 )
 
-export const UsersPerMinuteChart = ({ data }: { data: ChartDataPoint[] }): JSX.Element => {
+// Buckets are minute-aligned absolute timestamps; labels stay ISO so the time axis formats them
+// rather than printing baked display strings verbatim.
+const useMinuteLabels = (data: ChartDataPoint[]): string[] =>
+    useMemo(() => data.map((d) => dayjs(d.timestamp).toISOString()), [data])
+
+export const UsersPerMinuteChart = ({ data, timezone }: { data: ChartDataPoint[]; timezone: string }): JSX.Element => {
     const hasData = data.some((d) => d.users > 0)
-    const dataRef = useRef<ChartDataPoint[]>(data)
-    dataRef.current = data
+    const theme = useChartTheme()
+    const labels = useMinuteLabels(data)
 
-    const createConfig = useCallback((): ChartConfiguration<'bar'> => {
-        return {
-            type: 'bar',
-            data: {
-                labels: data.map((d) => d.minute),
-                datasets: [
-                    {
-                        label: 'New visitors',
-                        data: data.map((d) => d.newUsers),
-                        backgroundColor: 'rgb(34, 197, 94)',
-                        borderWidth: 0,
-                        borderRadius: { topLeft: 0, topRight: 0, bottomLeft: 2, bottomRight: 2 },
-                        barPercentage: 0.8,
-                        categoryPercentage: 0.9,
-                    },
-                    {
-                        label: 'Returning visitors',
-                        data: data.map((d) => d.returningUsers),
-                        backgroundColor: 'rgb(59, 130, 246)',
-                        borderWidth: 0,
-                        borderRadius: { topLeft: 2, topRight: 2, bottomLeft: 0, bottomRight: 0 },
-                        barPercentage: 0.8,
-                        categoryPercentage: 0.9,
-                    },
-                ],
+    const series = useMemo<Series[]>(
+        () => [
+            { key: 'newUsers', label: 'New visitors', data: data.map((d) => d.newUsers), color: NEW_USERS_COLOR },
+            {
+                key: 'returningUsers',
+                label: 'Returning visitors',
+                data: data.map((d) => d.returningUsers),
+                color: RETURNING_USERS_COLOR,
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: {
-                    duration: 300,
-                    easing: 'easeOutQuart',
-                },
-                plugins: {
-                    legend: {
-                        display: true,
-                        position: 'top',
-                        align: 'end',
-                        labels: {
-                            boxWidth: 12,
-                            boxHeight: 12,
-                            useBorderRadius: true,
-                            borderRadius: 2,
-                            padding: 16,
-                            font: { size: 11 },
-                        },
-                    },
-                    tooltip: {
-                        ...TOOLTIP_STYLE,
-                        mode: 'index',
-                        callbacks: {
-                            title: (items) => {
-                                const dataPoint = dataRef.current[items[0]?.dataIndex]
-                                return dataPoint
-                                    ? `${items[0].label} · ${dataPoint.users} visitors · ${dataPoint.pageviews} pageviews`
-                                    : ''
-                            },
-                            label: (item) => ` ${item.dataset.label}: ${item.raw as number}`,
-                        },
-                    },
-                },
-                scales: {
-                    x: {
-                        stacked: true,
-                        grid: { display: false },
-                        ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 10, font: { size: 10 } },
-                    },
-                    y: {
-                        stacked: true,
-                        beginAtZero: true,
-                        grid: { color: 'rgba(0, 0, 0, 0.05)' },
-                        ticks: { precision: 0, font: { size: 10 } },
-                    },
-                },
-            },
-        }
-    }, [data])
+        ],
+        [data]
+    )
 
-    const updateData = useCallback((chart: Chart<'bar'>, newData: ChartDataPoint[]) => {
-        chart.data.labels = newData.map((d) => d.minute)
-        chart.data.datasets[0].data = newData.map((d) => d.newUsers)
-        chart.data.datasets[1].data = newData.map((d) => d.returningUsers)
-    }, [])
-
-    const { canvasRef } = useLiveChart({ hasData, createConfig, updateData, data })
+    const config = useChartConfig<TimeSeriesBarChartConfig>(
+        () => ({
+            barLayout: 'stacked',
+            xAxis: { timezone, interval: 'minute' },
+            yAxis: { format: 'short' },
+            legend: { show: true },
+        }),
+        [timezone]
+    )
 
     if (!hasData) {
         return <EmptyState message="No activity in the last 30 minutes" />
     }
 
-    return <canvas ref={canvasRef} />
+    return (
+        <div className="h-full flex flex-col">
+            <TimeSeriesBarChart
+                series={series}
+                labels={labels}
+                theme={theme}
+                config={config}
+                tooltip={(ctx: TooltipContext) => {
+                    const point = data[ctx.dataIndex]
+                    return (
+                        <DefaultTooltip
+                            {...ctx}
+                            labelFormatter={(label) =>
+                                point
+                                    ? `${point.minute} · ${point.users} visitors · ${point.pageviews} pageviews`
+                                    : label
+                            }
+                        />
+                    )
+                }}
+            />
+        </div>
+    )
 }
 
-export const BotEventsPerMinuteChart = ({ data }: { data: ChartDataPoint[] }): JSX.Element => {
+export const BotEventsPerMinuteChart = ({
+    data,
+    timezone,
+}: {
+    data: ChartDataPoint[]
+    timezone: string
+}): JSX.Element => {
     const hasData = data.some((d) => d.botEvents > 0)
-    const dataRef = useRef<ChartDataPoint[]>(data)
-    dataRef.current = data
+    const theme = useChartTheme()
+    const labels = useMinuteLabels(data)
 
-    const createConfig = useCallback((): ChartConfiguration<'bar'> => {
-        return {
-            type: 'bar',
-            data: {
-                labels: data.map((d) => d.minute),
-                datasets: [
-                    {
-                        label: 'Bot requests',
-                        data: data.map((d) => d.botEvents),
-                        backgroundColor: 'rgb(239, 68, 68)',
-                        borderWidth: 0,
-                        borderRadius: 2,
-                        barPercentage: 0.8,
-                        categoryPercentage: 0.9,
-                    },
-                ],
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: {
-                    duration: 300,
-                    easing: 'easeOutQuart',
-                },
-                plugins: {
-                    legend: {
-                        display: false,
-                    },
-                    tooltip: {
-                        ...TOOLTIP_STYLE,
-                        mode: 'index',
-                        callbacks: {
-                            title: (items) => {
-                                const dataPoint = dataRef.current[items[0]?.dataIndex]
-                                return dataPoint ? `${items[0].label} · ${dataPoint.botEvents} bot requests` : ''
-                            },
-                            label: (item) => ` ${item.raw as number} requests`,
-                        },
-                    },
-                },
-                scales: {
-                    x: {
-                        grid: { display: false },
-                        ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 10, font: { size: 10 } },
-                    },
-                    y: {
-                        beginAtZero: true,
-                        grid: { color: 'rgba(0, 0, 0, 0.05)' },
-                        ticks: { precision: 0, font: { size: 10 } },
-                    },
-                },
-            },
-        }
-    }, [data])
+    const series = useMemo<Series[]>(
+        () => [{ key: 'botEvents', label: 'Bot requests', data: data.map((d) => d.botEvents), color: BOT_COLOR }],
+        [data]
+    )
 
-    const updateData = useCallback((chart: Chart<'bar'>, newData: ChartDataPoint[]) => {
-        chart.data.labels = newData.map((d) => d.minute)
-        chart.data.datasets[0].data = newData.map((d) => d.botEvents)
-    }, [])
-
-    const { canvasRef } = useLiveChart({ hasData, createConfig, updateData, data })
+    const config = useChartConfig<TimeSeriesBarChartConfig>(
+        () => ({
+            xAxis: { timezone, interval: 'minute' },
+            yAxis: { format: 'short' },
+        }),
+        [timezone]
+    )
 
     if (!hasData) {
         return <EmptyState message="No bots detected in the last 30 minutes" />
     }
 
-    return <canvas ref={canvasRef} />
+    return (
+        <div className="h-full flex flex-col">
+            <TimeSeriesBarChart
+                series={series}
+                labels={labels}
+                theme={theme}
+                config={config}
+                tooltip={(ctx: TooltipContext) => {
+                    const point = data[ctx.dataIndex]
+                    return (
+                        <DefaultTooltip
+                            {...ctx}
+                            labelFormatter={(label) =>
+                                point ? `${point.minute} · ${point.botEvents} bot requests` : label
+                            }
+                        />
+                    )
+                }}
+            />
+        </div>
+    )
 }

@@ -274,15 +274,15 @@ def score_facade(backend_dir: Path) -> DimensionScore:
             parts.append("contracts (empty)")
             next_steps.append(
                 "backend/facade/contracts.py exists but defines no frozen dataclasses. Add "
-                "`@dataclass(frozen=True)` types describing every value the facade returns "
-                "(see products/visual_review/backend/facade/contracts.py)."
+                "`@frozen` (from posthog.dataclasses) types describing every value the facade "
+                "returns (see products/visual_review/backend/facade/contracts.py)."
             )
     else:
         parts.append("no contracts")
         next_steps.append(
-            "Create backend/facade/contracts.py with frozen dataclasses that describe each "
-            "facade return value. No Django, no DRF — just stdlib types. This is the public "
-            "contract other products read against."
+            "Create backend/facade/contracts.py with `@frozen` (from posthog.dataclasses) "
+            "dataclasses that describe each facade return value. No Django, no DRF. This is "
+            "the public contract other products read against."
         )
 
     # Facade — must have actual function definitions, not just re-exports
@@ -392,6 +392,14 @@ def _format_bypass(entry: str) -> str:
         m = re.match(r"products\.[^.]+\.backend\.(.+)", side.strip())
         return m.group(1) if m else side.strip()
 
+    def product(side: str) -> str:
+        m = re.match(r"products\.([^.]+)\.", side.strip())
+        return m.group(1) if m else ""
+
+    # a cross-product edge (routes registering another product's view) keeps its full path,
+    # otherwise the product name would be the one detail the line loses
+    if product(sides[0]) != product(sides[1]):
+        return f"{strip(sides[0])} → {sides[1].strip()}"
     return f"{strip(sides[0])} → backend.{strip(sides[1])}"
 
 

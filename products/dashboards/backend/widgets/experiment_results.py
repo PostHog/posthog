@@ -17,12 +17,12 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.widget_specs.configs import EXPERIMENT_RESULTS_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, metric_display_rank
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +53,8 @@ def _serialize_experiment_summary(experiment: Experiment) -> dict[str, Any]:
 def _sort_by_ordered_uuids(metric_dicts: list[dict[str, Any]], ordered_uuids: list[str] | None) -> None:
     if not ordered_uuids:
         return
-    order = {uuid: index for index, uuid in enumerate(ordered_uuids)}
-    metric_dicts.sort(key=lambda metric: order.get(metric.get("uuid", ""), len(order)))
+    rank = metric_display_rank(ordered_uuids)
+    metric_dicts.sort(key=lambda metric: rank(metric.get("uuid", "")))
 
 
 def _collect_metric_dicts(experiment: Experiment) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:

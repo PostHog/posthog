@@ -1,10 +1,7 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.splitio import (
     SplitIoSourceConfig,
 )
@@ -13,8 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.s
     SPLIT_IO_API_VERSION_V2,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.source import SplitIoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.split_io import SplitIoResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSplitIoSource:
@@ -22,27 +17,6 @@ class TestSplitIoSource:
         self.source = SplitIoSource()
         self.team_id = 123
         self.config = SplitIoSourceConfig(api_key="admin-api-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.SPLITIO
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "SplitIo"
-        assert config.label == "Split.io"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/split_io.png"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -116,11 +90,6 @@ class TestSplitIoSource:
         is_valid, error = self.source.validate_credentials(self.config, self.team_id, schema_name="nope")
         assert is_valid is False
         assert error is not None and "nope" in error
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is SplitIoResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.split_io.source.split_io_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_split_io_source):

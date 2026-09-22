@@ -11,6 +11,7 @@ from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFin
 from products.review_hog.backend.reviewer.constants import published_priorities_for
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
+from products.review_hog.backend.reviewer.tools.github_threads import REVIEW_HOG_FINDING_MARKER
 from products.review_hog.backend.reviewer.tools.publish_review import (
     ReviewComment,
     _build_inline_comments,
@@ -93,6 +94,63 @@ class TestPostGithubReview:
         (payload,) = _review_posts(mock_request)
         assert payload["commit_id"] == "deadbeef"
         assert payload["comments"] == comments
+
+    def test_message_prefix_opens_the_promo_the_body_and_every_inline_comment(
+        self, mock_request: MagicMock, mock_paginated: MagicMock
+    ) -> None:
+        # A flash review is labeled on every message it writes. A prefix applied to the body alone
+        # would leave inline comments indistinguishable from a full review's, and one applied after
+        # redaction would bypass the credential scrub on the prefixed text.
+        _wire_readbacks(mock_paginated)
+        comments: list[ReviewComment] = [
+            {"path": "a.py", "body": "first", "side": "RIGHT", "line": 1},
+            {"path": "b.py", "body": "second", "side": "RIGHT", "line": 2},
+        ]
+
+        _post_github_review(
+            "o",
+            "r",
+            1,
+            "body",
+            comments,
+            token="t",
+            head_sha="",
+            post_promo=True,
+            marker="m",
+            promo_marker="pm",
+            message_prefix="FLASH MODE\n",
+        )
+
+        (promo,) = _promo_posts(mock_request)
+        assert promo["body"].startswith("FLASH MODE\nPostHog Review alpha")
+        (payload,) = _review_posts(mock_request)
+        assert payload["body"] == "FLASH MODE\nbody"
+        assert [c["body"] for c in payload["comments"]] == ["FLASH MODE\nfirst", "FLASH MODE\nsecond"]
+
+    def test_credential_shapes_are_scrubbed_before_posting(
+        self, mock_request: MagicMock, mock_paginated: MagicMock
+    ) -> None:
+        _wire_readbacks(mock_paginated)
+        comments: list[ReviewComment] = [
+            {"path": "a.py", "body": "ran with GH_TOKEN=ghs_abcdefghijklmnopqrstuvwxyz0123", "side": "RIGHT", "line": 1}
+        ]
+
+        _post_github_review(
+            "o",
+            "r",
+            1,
+            "key phx_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789 seen",
+            comments,
+            token="install-token",
+            head_sha="",
+            post_promo=False,
+            marker="m",
+            promo_marker="pm",
+        )
+
+        (payload,) = _review_posts(mock_request)
+        assert payload["body"] == "key [redacted] seen"
+        assert payload["comments"][0]["body"] == "ran with GH_TOKEN=[redacted]"
 
     def test_no_head_sha_posts_without_commit_pin(self, mock_request: MagicMock, mock_paginated: MagicMock) -> None:
         _wire_readbacks(mock_paginated)
@@ -241,7 +299,7 @@ def _verdict(adjusted_priority: IssuePriority | None = None) -> ValidationVerdic
 class TestPublishReviewGate:
     def _wire_report(self, mock_report_cls: MagicMock) -> None:
         mock_report = MagicMock()
-        mock_report.report_markdown = "# ReviewHog Report"
+        mock_report.report_markdown = "# PostHog Review"
         mock_report_cls.objects.for_team.return_value.get.return_value = mock_report
 
     @patch(_POST)
@@ -381,11 +439,11 @@ class TestFormatIssueComment:
         # Alt text is the raw enum value, so the priority still reads when the badge image can't load.
         assert f"![{alt}]" in body
 
-    def test_layout_is_title_then_badges_then_collapsed_sections_validation_first(self) -> None:
+    def test_layout_is_title_then_badges_then_collapsed_sections_description_first(self) -> None:
         # Title leads, badges tag it just beneath, and all four sections stay folded — with the
-        # validator's verdict first (the deliberate reading order: claim → why it's real → detail).
+        # issue description first (the deliberate reading order: claim → what it is → why it's real).
         # Catches a badge/title reorder, a re-added `Priority | Lines` meta, a section surfaced inline
-        # instead of collapsed, or a template refactor flipping the order back to description-first.
+        # instead of collapsed, or a template refactor flipping the order back to validation-first.
         finding = _finding()
         body = _format_issue_comment(finding, _verdict())
 
@@ -393,8 +451,8 @@ class TestFormatIssueComment:
         positions = [
             body.index(f"<summary><strong>{label}</strong></summary>")
             for label in (
-                "Why we think it's a valid issue",
                 "Issue description",
+                "Why we think it's a valid issue",
                 "Suggested fix",
                 "Prompt to fix with AI (copy-paste)",
             )
@@ -403,3 +461,9 @@ class TestFormatIssueComment:
         # Problem and fix stay inside <details>, not surfaced above the first one.
         assert finding.body not in body[: body.index("<details>")]
         assert "**Priority:**" not in body and "**Lines:**" not in body
+
+    def test_carries_the_self_detection_marker_for_the_resolution_stage(self) -> None:
+        # The resolution stage's `_source_rank` recognizes ReviewHog's own threads by this hidden marker
+        # in the opening comment. Drop it here and every ReviewHog thread misfiles under the other-bot
+        # triage tier — the exact dead-code gap this guards against, now that both sides share the constant.
+        assert REVIEW_HOG_FINDING_MARKER in _format_issue_comment(_finding(), _verdict())

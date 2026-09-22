@@ -9,7 +9,40 @@
 </head>
 
 <body class="bg-(--color-background) text-(--gray-12)">
-  <div id="root"></div>
+  <div id="root">
+    <output aria-label="PostHog is starting" class="flex min-h-screen w-full bg-(--color-background)" data-testid="app-loading-shell">
+      <aside class="flex w-64 shrink-0 flex-col border-(--gray-5) border-r bg-(--gray-2) px-3 pb-3 pt-12">
+        <div class="mb-5 h-7 w-28 rounded bg-(--gray-a4)"></div>
+        <div class="flex flex-col gap-2">
+          <div class="h-7 w-full rounded bg-(--gray-a4)"></div>
+          <div class="h-7 w-[88%] rounded bg-(--gray-a4)"></div>
+          <div class="h-7 w-[72%] rounded bg-(--gray-a4)"></div>
+        </div>
+        <div class="mt-7 flex flex-col gap-2">
+          <div class="h-3 w-20 rounded bg-(--gray-a4)"></div>
+          <div class="h-7 w-full rounded bg-(--gray-a4)"></div>
+          <div class="h-7 w-[92%] rounded bg-(--gray-a4)"></div>
+          <div class="h-7 w-[84%] rounded bg-(--gray-a4)"></div>
+          <div class="h-7 w-[96%] rounded bg-(--gray-a4)"></div>
+        </div>
+      </aside>
+      <main class="flex min-w-0 flex-1 flex-col">
+        <div class="flex h-12 shrink-0 items-center border-(--gray-5) border-b px-4">
+          <div class="h-6 w-36 rounded bg-(--gray-a4)"></div>
+        </div>
+        <div class="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 px-8 py-10">
+          <div class="h-8 w-56 rounded bg-(--gray-a4)"></div>
+          <div class="h-4 w-[62%] rounded bg-(--gray-a4)"></div>
+          <div class="mt-3 flex flex-col gap-3">
+            <div class="h-14 w-full rounded bg-(--gray-a4)"></div>
+            <div class="h-14 w-full rounded bg-(--gray-a4)"></div>
+            <div class="h-14 w-full rounded bg-(--gray-a4)"></div>
+            <div class="h-14 w-full rounded bg-(--gray-a4)"></div>
+          </div>
+        </div>
+      </main>
+    </output>
+  </div>
   <script type="module" src="/src/renderer/main.tsx"></script>
 </body>
 

@@ -45,6 +45,7 @@ function server(overrides: Partial<MCPGatewayServerApi> = {}): MCPGatewayServerA
         description: '',
         category: 'dev',
         template_auth_type: null,
+        auth_type: null,
         is_team_enabled: true,
         icon_key: '',
         icon_domain: '',

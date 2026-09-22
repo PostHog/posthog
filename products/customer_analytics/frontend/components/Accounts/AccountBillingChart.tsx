@@ -38,7 +38,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { AccountBillingLogicProps, accountBillingLogic } from './accountBillingLogic'
+import { AccountBillingLogicProps, accountBillingLogic, getBillingDataVisualizationKey } from './accountBillingLogic'
 import { AccountBillingSeriesToggle } from './AccountBillingSeriesToggle'
 
 const RENDERABLE_DISPLAY_TYPES = new Set<ChartDisplayType>([
@@ -223,7 +223,7 @@ export function AccountBillingChart({
     const { toggleHiddenSeriesKey, setAllSeriesHidden } = useActions(billingLogic)
 
     const vizLogic = dataVisualizationLogic({
-        key: queryKey,
+        key: getBillingDataVisualizationKey(queryKey),
         query,
         dataNodeCollectionId: queryKey,
         variablesOverride,

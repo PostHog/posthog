@@ -337,6 +337,12 @@ If the user wants near-real-time replication from Postgres:
   — row counts and relevance matter for billing. Let the user opt in explicitly.
 - **Don't invent schemas.** Every entry in the `schemas` array must correspond to a real table from the db-schema
   response. You can't "also add an orders table" unless db-schema found one.
+- **A new source syncs to the PostHog warehouse.** That is the default and it needs no setup: a source nobody
+  configured destinations for writes here and nowhere else. Some projects can also send a source's tables to their
+  own database (`external-data-sources-destinations-retrieve` shows where a source writes, when the feature is on for
+  the project). Setting that up is a separate step and never something to do as part of creating a source — adding a
+  destination to a source that has already synced leaves it holding none of the history until the tables are resynced,
+  and a resync bills every destination the source writes to.
 - **Prefix is load-bearing.** It's part of every HogQL query the user will ever write against these tables. Pick
   something short, descriptive, and not already taken.
 - **Prefer the secure connect-link for any credentials.** Use `data-warehouse-source-connect-link` so the user

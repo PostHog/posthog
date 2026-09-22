@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from '~/common/outputs'
 import { isOkResult } from '~/ingestion/framework/results'
 import { ISOTimestamp, ProcessedEvent, ProjectId } from '~/types'
@@ -15,7 +17,7 @@ function createProcessedEvent(
         project_id: 1 as ProjectId,
         distinct_id: 'user-1',
         timestamp: '2023-01-01T00:00:00.000Z' as ISOTimestamp,
-        created_at: null,
+        created_at: DateTime.fromISO('2023-01-01T00:01:00.000Z'),
         captured_at: null,
         elements_chain: '',
         person_id: 'person-uuid',

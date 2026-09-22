@@ -7,14 +7,16 @@ class SignalsConfig(AppConfig):
     label = "signals"
 
     def ready(self) -> None:
-        # activity_logging: consumes model_activity_signal to persist SignalScoutConfig audit-log
-        #   entries (ModelActivityMixin only emits the signal; this is the consumer).
+        # activity_logging: consumes model_activity_signal to persist SignalScoutConfig and
+        #   SignalTeamConfig audit-log entries (ModelActivityMixin only emits the signal; this
+        #   is the consumer).
         # receivers: post_save receiver that closes a report's implementation PR on suppression/snooze.
         from . import (
             activity_logging,  # noqa: F401
             receivers,  # noqa: F401
         )
 
+        receivers.connect_task_run_assignment_sync()
         self._register_signal_emission_gate()
 
     def _register_signal_emission_gate(self) -> None:

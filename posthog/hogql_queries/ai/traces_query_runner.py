@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import cached_property
 from typing import Any, cast
@@ -24,6 +23,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.sentiment_evaluations import (
     EMPTY_SENTIMENT_EVALUATION_LOOKUP,
     SentimentEvaluationLookup,
@@ -31,8 +31,8 @@ from posthog.hogql_queries.ai.sentiment_evaluations import (
     get_sentiment_for_generation,
     load_trace_sentiment_evaluations,
 )
-from posthog.hogql_queries.ai.utils import parse_ai_properties, parse_ai_property_value
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.ai.utils import filled_property_filters, parse_ai_properties, parse_ai_property_value
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
@@ -84,7 +84,7 @@ class TracesQueryDateRange(QueryDateRange):
         return super().date_to() + timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class TraceIdsResult:
     trace_ids: list[str]
     min_timestamp: datetime | None
@@ -217,9 +217,9 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
 
         columns: list[str] = query_result.columns or []
         sentiment_lookup = EMPTY_SENTIMENT_EVALUATION_LOOKUP
-        if self.query.includeSentiment and query_result.results and columns:
+        if self.query.includeSentiment and self.paginator.results and columns:
             id_index = columns.index("id") if "id" in columns else -1
-            result_trace_ids = [str(row[id_index]) for row in query_result.results if id_index >= 0 and row[id_index]]
+            result_trace_ids = [str(row[id_index]) for row in self.paginator.results if id_index >= 0 and row[id_index]]
             sentiment_lookup = SentimentEvaluationLookup(
                 by_trace_id=load_trace_sentiment_evaluations(
                     team=self.team,
@@ -232,7 +232,9 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 by_generation_id={},
             )
 
-        results = self._map_results(columns, query_result.results, sentiment_lookup)
+        # `paginator.results` drops the extra row the paginator fetches to compute `hasMore`,
+        # so the response never carries more traces than the caller asked for.
+        results = self._map_results(columns, self.paginator.results, sentiment_lookup)
 
         return TracesQueryResponse(
             columns=columns,
@@ -270,19 +272,27 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                     argMin(distinct_id, timestamp)
                 ) AS first_distinct_id,
                 round(
-                    CASE
-                        -- If all events with latency are generations, sum them all
-                        WHEN countIf(toFloat(properties.$ai_latency) > 0 AND event != '$ai_generation') = 0
-                             AND countIf(toFloat(properties.$ai_latency) > 0 AND event = '$ai_generation') > 0
-                        THEN sumIf(toFloat(properties.$ai_latency),
-                                   event = '$ai_generation' AND toFloat(properties.$ai_latency) > 0
-                             )
-                        -- Otherwise sum the direct children of the trace
-                        ELSE sumIf(toFloat(properties.$ai_latency),
-                                   properties.$ai_parent_id IS NULL
-                                   OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
-                             )
-                    END, 2
+                    coalesce(
+                        -- The root $ai_trace event reports the wall-clock latency of the whole
+                        -- trace, so its children are already inside that number. Same rule as
+                        -- products/ai_observability/backend/queries/sessions.sql.
+                        nullIf(maxIf(toFloat(properties.$ai_latency),
+                                     event = '$ai_trace' AND toFloat(properties.$ai_latency) > 0
+                               ), 0),
+                        CASE
+                            -- If all events with latency are generations, sum them all
+                            WHEN countIf(toFloat(properties.$ai_latency) > 0 AND event != '$ai_generation') = 0
+                                 AND countIf(toFloat(properties.$ai_latency) > 0 AND event = '$ai_generation') > 0
+                            THEN sumIf(toFloat(properties.$ai_latency),
+                                       event = '$ai_generation' AND toFloat(properties.$ai_latency) > 0
+                                 )
+                            -- Otherwise sum the direct children of the trace
+                            ELSE sumIf(toFloat(properties.$ai_latency),
+                                       properties.$ai_parent_id IS NULL
+                                       OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
+                                 )
+                        END
+                    ), 2
                 ) AS total_latency,
                 sumIf(toFloat(properties.$ai_input_tokens),
                       event IN ('$ai_generation', '$ai_embedding')
@@ -390,7 +400,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 10,
+            "schema_version": 11,
         }
 
     @cached_property
@@ -627,9 +637,10 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
 
     def _get_properties_filter(self) -> ast.Expr | None:
         property_filters: list[ast.Expr] = []
-        if self.query.properties:
+        properties = filled_property_filters(self.query.properties)
+        if properties:
             with self.timings.measure("property_filters"):
-                for prop in self.query.properties:
+                for prop in properties:
                     property_filters.append(property_to_expr(prop, self.team))
 
         if not property_filters:

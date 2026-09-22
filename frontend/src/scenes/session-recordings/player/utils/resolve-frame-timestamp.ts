@@ -1,8 +1,11 @@
-export const STUCK_FRAME_THRESHOLD = 10
+// How long the rrweb clock can fail to progress before we nudge the playhead forward.
+// Time-based, not frame-based: an rrweb clock that jitters around a fixed point changes
+// value every frame without advancing, so a "same value N times" counter never trips.
+export const STUCK_TIME_THRESHOLD_MS = 1000
 
 export interface FrameState {
-    stuckFrames: number
-    lastAnimTimestamp: number | undefined
+    lastProgressTimestamp: number | undefined
+    lastProgressAt: number | undefined
 }
 
 export interface FrameResult {
@@ -16,22 +19,26 @@ export function resolveFrameTimestamp(
     currentTimestamp: number | undefined,
     segmentKind: 'window' | 'gap' | 'buffer' | undefined,
     roughAnimationFPS: number,
-    previousState: FrameState
+    previousState: FrameState,
+    now: number
 ): FrameResult {
-    // An undefined rrweb time (replayer constructed but not yet started) counts as stuck too, or the manual-advance recovery below could never engage for it.
-    let stuckFrames: number
-    if (rrwebTimestamp === previousState.lastAnimTimestamp) {
-        stuckFrames = previousState.stuckFrames + 1
+    // A frame counts as progress only when the rrweb clock moves past the highest point we saw.
+    // Jitter below that point is not progress, so the stuck timer keeps running.
+    const hasProgressed =
+        rrwebTimestamp !== undefined &&
+        (previousState.lastProgressTimestamp === undefined || rrwebTimestamp > previousState.lastProgressTimestamp)
+
+    let newState: FrameState
+    if (hasProgressed) {
+        newState = { lastProgressTimestamp: rrwebTimestamp, lastProgressAt: now }
+    } else if (previousState.lastProgressAt === undefined) {
+        // Start the stuck timer on the first frame that does not progress (e.g. an undefined rrweb time).
+        newState = { lastProgressTimestamp: previousState.lastProgressTimestamp, lastProgressAt: now }
     } else {
-        stuckFrames = 0
+        newState = previousState
     }
 
-    const newState: FrameState = {
-        stuckFrames,
-        lastAnimTimestamp: rrwebTimestamp,
-    }
-
-    const isStuck = stuckFrames >= STUCK_FRAME_THRESHOLD
+    const isStuck = now - (newState.lastProgressAt ?? now) >= STUCK_TIME_THRESHOLD_MS
     const shouldManuallyAdvance = (rrwebTimestamp === undefined && segmentKind === 'gap') || isStuck
 
     let resolvedTimestamp = rrwebTimestamp
@@ -43,5 +50,5 @@ export function resolveFrameTimestamp(
 }
 
 export function initialFrameState(): FrameState {
-    return { stuckFrames: 0, lastAnimTimestamp: undefined }
+    return { lastProgressTimestamp: undefined, lastProgressAt: undefined }
 }

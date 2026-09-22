@@ -1,3 +1,4 @@
+import { sparkPaths } from 'lib/components/ProductEmptyState/previewSparkline'
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -25,21 +26,7 @@ const SESSIONS: PreviewSession[] = [
 // A hand-authored series for the sparkline - flat baseline with a spike at the end,
 // matching the "negative sentiment spiked" alert below it.
 const SPARK = [3, 4, 3, 3, 4, 3, 4, 3, 4, 6, 10, 15]
-
-function sparkPaths(): { line: string; area: string } {
-    const width = 100
-    const height = 40
-    const pad = 3
-    const min = Math.min(...SPARK)
-    const max = Math.max(...SPARK)
-    const points = SPARK.map((value, i) => {
-        const x = (i / (SPARK.length - 1)) * width
-        const y = height - pad - ((value - min) / (max - min || 1)) * (height - 2 * pad)
-        return `${x.toFixed(1)} ${y.toFixed(1)}`
-    })
-    const line = 'M ' + points.join(' L ')
-    return { line, area: `${line} L ${width} ${height} L 0 ${height} Z` }
-}
+const { line, area } = sparkPaths(SPARK)
 
 /**
  * Example-data preview for the AI observability empty state: a sessions list plus
@@ -47,8 +34,6 @@ function sparkPaths(): { line: string; area: string } {
  * preview rules in the `building-product-empty-states` skill.
  */
 export function AIObservabilityTracePreview({ mode }: { mode: ProductEmptyStateMode }): JSX.Element {
-    const { line, area } = sparkPaths()
-
     return (
         <div className="flex flex-col gap-3">
             <div className="rounded-md border border-primary bg-surface-primary p-3">

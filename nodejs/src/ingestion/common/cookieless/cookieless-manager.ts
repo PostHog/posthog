@@ -84,7 +84,6 @@ type SaltResult = { success: true; salt: Buffer } | { success: false; reason: 'd
 
 interface CookielessConfig {
     disabled: boolean
-    forceStatelessMode: boolean
     deleteExpiredLocalSaltsIntervalMs: number
     identifiesTtlSeconds: number
     sessionTtlSeconds: number
@@ -98,7 +97,6 @@ interface CookielessConfig {
 export type CookielessManagerConfig = Pick<
     IngestionConsumerConfig,
     | 'COOKIELESS_DISABLED'
-    | 'COOKIELESS_FORCE_STATELESS_MODE'
     | 'COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS'
     | 'COOKIELESS_SESSION_TTL_SECONDS'
     | 'COOKIELESS_SALT_TTL_SECONDS'
@@ -126,7 +124,6 @@ export class CookielessManager {
     constructor(config: CookielessManagerConfig, redis: GenericPool<Redis.Redis>) {
         this.config = {
             disabled: config.COOKIELESS_DISABLED,
-            forceStatelessMode: config.COOKIELESS_FORCE_STATELESS_MODE,
             deleteExpiredLocalSaltsIntervalMs: config.COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS,
             sessionTtlSeconds: config.COOKIELESS_SESSION_TTL_SECONDS,
             saltTtlSeconds: config.COOKIELESS_SALT_TTL_SECONDS,
@@ -351,23 +348,29 @@ export class CookielessManager {
                 results[i] = drop('cookieless_unsupported_event')
                 continue
             }
-            if (
-                event.event === '$identify' &&
-                team.cookieless_server_hash_mode === CookielessServerHashMode.Stateless
-            ) {
-                // $identify events are not supported in stateless cookieless mode, drop them
-                results[i] = drop('cookieless_stateless_no_identify')
-                continue
-            }
 
             if (
                 team.cookieless_server_hash_mode == null ||
                 team.cookieless_server_hash_mode === CookielessServerHashMode.Disabled
             ) {
                 // if the specific team doesn't have cookieless enabled, drop the event
-                results[i] = drop('cookieless_team_disabled')
+                results[i] = drop(
+                    'cookieless_team_disabled',
+                    [],
+                    [
+                        {
+                            type: 'cookieless_team_disabled',
+                            details: {
+                                eventUuid: event.uuid,
+                                event: event.event,
+                                distinctId: event.distinct_id,
+                            },
+                        },
+                    ]
+                )
                 continue
             }
+
             const timestamp = event.timestamp ?? event.sent_at ?? event.now
 
             if (!timestamp) {
@@ -486,8 +489,8 @@ export class CookielessManager {
             return results
         }
 
-        // Do a second pass to see what `identifiesRedisKey`s we need to load from redis for stateful events.
-        // Fully process stateless events.
+        // Do a second pass to see what `identifiesRedisKey`s we need to load from redis.
+        // All events are processed as stateful.
         const identifiesKeys = new Set<string>()
         for (const eventWithProcessing of eventsWithStatus) {
             const { team, firstPass } = eventWithProcessing
@@ -495,28 +498,9 @@ export class CookielessManager {
                 continue
             }
 
-            if (team.cookieless_server_hash_mode === CookielessServerHashMode.Stateful) {
-                const identifiesRedisKey = getRedisIdentifiesKey(firstPass.baseHash, team.id)
-                identifiesKeys.add(identifiesRedisKey)
-                firstPass.secondPass = { identifiesRedisKey }
-            } else {
-                const { baseHash, timestampMs, eventTimeZone } = firstPass
-                const distinctId = hashToDistinctId(baseHash)
-                const deviceId = baseHashToDeviceId(baseHash)
-                const sessionId = createStatelessSessionId(timestampMs, eventTimeZone, team.timezone, baseHash)
-                const newProperties: Properties = {
-                    ...eventWithProcessing.event.properties,
-                    $distinct_id: distinctId,
-                    $device_id: deviceId,
-                    $session_id: sessionId,
-                }
-                eventWithProcessing.event = stripPIIProperties({
-                    ...eventWithProcessing.event,
-                    distinct_id: distinctId,
-                    properties: newProperties,
-                })
-                // the event is fully processed, no need to add create secondPass object
-            }
+            const identifiesRedisKey = getRedisIdentifiesKey(firstPass.baseHash, team.id)
+            identifiesKeys.add(identifiesRedisKey)
+            firstPass.secondPass = { identifiesRedisKey }
         }
 
         // Fetch the identifies from redis and populate our in-memory cache

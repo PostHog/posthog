@@ -1,0 +1,39 @@
+# Flags function return annotations that are tuples where callers can silently
+# swap same-typed elements (e.g. `tuple[int, int]` for `(start, end)`) or must
+# read 3+ elements positionally. Partial enforcement of the frozen-dataclass
+# convention in the Code Style section of AGENTS.md.
+#
+# See: https://github.com/PostHog/posthog/pull/75818 for context
+rules:
+    - id: tuple-return-prefer-dataclass
+      patterns:
+          - pattern-either:
+                - pattern: |
+                      def $F(...) -> $RET:
+                          ...
+                - pattern: |
+                      async def $F(...) -> $RET:
+                          ...
+          - metavariable-pattern:
+                metavariable: $RET
+                patterns:
+                    - pattern-either:
+                          - pattern: tuple[$T, $T]
+                          - pattern: Tuple[$T, $T]
+                          - pattern: tuple[$A, $B, $C, ...]
+                          - pattern: Tuple[$A, $B, $C, ...]
+          - focus-metavariable: $RET
+      message: |
+          This returns a tuple whose elements can be silently swapped at the
+          call site (two share a type) or must be read positionally (3+
+          elements). Prefer a frozen dataclass with named fields: `@frozen`
+          from `posthog.dataclasses` (frozen, kw_only, slots by default). See
+          the Python bullets in the Code Style section of AGENTS.md.
+          Pre-existing findings are grandfathered; only newly-introduced ones
+          block CI.
+      languages: [python]
+      severity: WARNING
+      metadata:
+          category: maintainability
+          subcategory: audit
+          confidence: HIGH

@@ -1,17 +1,20 @@
 import io
 import uuid
+import base64
 import zipfile
 from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
 from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
+from products.streamlit_apps.backend.presentation.serializers import CreateVersionFromSourceInputSerializer
 
 
 def _make_zip(files: dict[str, str]) -> bytes:
@@ -718,6 +721,76 @@ class TestCreateVersionFromSource(_StreamlitAppsFlagMixin, APIBaseTest):
         app = self._create_app()
         response = self.client.post(self._url(app.short_id, "create_version_from_source/"), data=payload, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("posthog.storage.object_storage.write")
+    def test_create_version_from_source_packs_files_and_assets(self, mock_storage_write):
+        app = self._create_app()
+        parquet_bytes = b"PAR1\x00\x01\x02\xff"
+        response = self.client.post(
+            self._url(app.short_id, "create_version_from_source/"),
+            data={
+                "source": "import streamlit as st",
+                "files": {"utils.py": "def helper():\n    return 1\n", "data/empty.txt": ""},
+                "assets": {"data/events.parquet": base64.b64encode(parquet_bytes).decode()},
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        stored_bytes = mock_storage_write.call_args[0][1]
+        with zipfile.ZipFile(io.BytesIO(stored_bytes)) as zf:
+            assert sorted(zf.namelist()) == ["app.py", "data/empty.txt", "data/events.parquet", "utils.py"]
+            assert zf.read("utils.py").decode() == "def helper():\n    return 1\n"
+            assert zf.read("data/events.parquet") == parquet_bytes
+
+    @patch("posthog.storage.object_storage.write")
+    @patch("products.streamlit_apps.backend.facade.api.MAX_ZIP_SIZE", 64)
+    def test_create_version_from_source_oversized_archive_413(self, mock_storage_write):
+        # The serializer's budget counts raw bytes, so an archive that only goes over once
+        # zip overhead is added reaches the facade and must not surface as a 500.
+        app = self._create_app()
+        response = self.client.post(
+            self._url(app.short_id, "create_version_from_source/"),
+            data={"source": "import streamlit as st\n" * 20},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+        mock_storage_write.assert_not_called()
+
+
+class TestCreateVersionFromSourceInputSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("traversal", {"files": {"../x.py": ""}}, "files"),
+            ("absolute", {"files": {"/etc/x": ""}}, "files"),
+            ("dot_segment", {"files": {"./x.py": ""}}, "files"),
+            ("trailing_slash", {"files": {"data/": ""}}, "files"),
+            ("backslash", {"files": {"data\\x.csv": ""}}, "files"),
+            ("root_app_file", {"files": {"app.py": "print(1)"}}, "files"),
+            ("asset_traversal", {"assets": {"../x.bin": "AAAA"}}, "assets"),
+            ("asset_not_base64", {"assets": {"x.bin": "not base64!"}}, "assets"),
+            ("same_path_in_both", {"files": {"x.txt": "a"}, "assets": {"x.txt": "AAAA"}}, "assets"),
+            ("nul_in_path", {"files": {"bad\x00.txt": "a"}}, "files"),
+            ("file_and_directory", {"files": {"data": "a"}, "assets": {"data/events.csv": "AAAA"}}, "non_field_errors"),
+            ("under_app_py", {"files": {"app.py/helper.py": "a"}}, "non_field_errors"),
+            ("too_many_entries", {"files": {f"f{i}.txt": "a" for i in range(500)}}, "non_field_errors"),
+            ("overlong_segment", {"files": {"data/" + "a" * 256: "a"}}, "files"),
+            ("overlong_path", {"files": {"/".join(["d"] * 600) + "/x.txt": "a"}}, "files"),
+        ]
+    )
+    def test_rejects_bad_attachments(self, _name, extra, error_field):
+        serializer = CreateVersionFromSourceInputSerializer(data={"source": "import streamlit as st", **extra})
+        assert not serializer.is_valid()
+        assert error_field in serializer.errors
+
+    @parameterized.expand([("fits", 40, True), ("over_budget", 48, False)])
+    def test_raw_size_budget_counts_decoded_assets(self, _name, asset_bytes, expected_valid):
+        asset = base64.b64encode(b"x" * asset_bytes).decode()
+        with patch("products.streamlit_apps.backend.presentation.serializers.MAX_ZIP_SIZE", 64):
+            serializer = CreateVersionFromSourceInputSerializer(
+                data={"source": "import streamlit as st", "assets": {"d.bin": asset}}
+            )
+            assert serializer.is_valid() is expected_valid, serializer.errors
 
 
 class TestStreamlitAppPersonalAPIKeyAccess(_StreamlitAppsFlagMixin, APIBaseTest):

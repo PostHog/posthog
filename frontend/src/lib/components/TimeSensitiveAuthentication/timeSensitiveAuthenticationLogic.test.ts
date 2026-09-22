@@ -66,6 +66,21 @@ describe('timeSensitiveAuthenticationLogic', () => {
             })
         })
 
+        it('should clear the gate even when the sensitive action throws', async () => {
+            userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+            const onSuccess = jest.fn(() => {
+                throw new Error('sensitive action failed')
+            })
+            apiStatusLogic.actions.setTimeSensitiveAuthenticationRequired([onSuccess, jest.fn()])
+
+            logic.actions.setReauthenticationValues({ password: 'test', token: undefined })
+            logic.actions.submitReauthentication()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(onSuccess).toHaveBeenCalledTimes(1)
+            await expectLogic(logic).toMatchValues({ showAuthenticationModal: false })
+        })
+
         it('should handle successful reauthentication', async () => {
             userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
 

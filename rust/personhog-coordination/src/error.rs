@@ -34,6 +34,16 @@ impl Error {
     pub fn leadership_lost() -> Self {
         Self::Store(assignment_coordination::error::Error::LeadershipLost)
     }
+
+    /// Whether losing the election lease is what ended this term. An
+    /// abdication is the protocol working — a successor takes over and
+    /// reconciles — so it is not evidence that this process is unhealthy.
+    pub fn is_leadership_lost(&self) -> bool {
+        matches!(
+            self,
+            Self::Store(assignment_coordination::error::Error::LeadershipLost)
+        )
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

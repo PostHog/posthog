@@ -18,7 +18,6 @@ class SimpleColumn(Column):
 
 
 def test_table_get_item():
-    """Test `Table.__getitem__` with `int` and `str` keys."""
     column_name = "some_column"
     column = SimpleColumn(column_name)
     table = Table(name="test", columns=[column])
@@ -37,7 +36,6 @@ def test_table_get_item():
 
 
 def test_table_contains():
-    """Test `Table.__contains__` returns `True` with existing column."""
     column_name = "some_column"
     column = SimpleColumn(column_name)
     table = Table(name="test", columns=[column])
@@ -47,7 +45,6 @@ def test_table_contains():
 
 
 def test_table_len():
-    """Test `Table.__len__` returns number of columns."""
     column_name = "some_column"
     column = SimpleColumn(column_name)
     table = Table(name="test", columns=[column])
@@ -60,7 +57,6 @@ def test_table_len():
 
 
 def test_table_to_arrow_schema():
-    """Test `to_arrow_schema` method returns fields based on columns."""
     column_name = "some_column"
     column_0 = SimpleColumn(column_name)
     column_1 = SimpleColumn(column_name)
@@ -81,7 +77,6 @@ def test_table_to_arrow_schema():
 
 
 def test_table_fully_qualified_name():
-    """Test `Table` generates correct fully qualified names."""
     column_name = "some_column"
     column = SimpleColumn(column_name)
     table = Table(name="test", columns=[column])
@@ -94,8 +89,6 @@ def test_table_fully_qualified_name():
 
 
 def test_table_reference_from_fully_qualified_name():
-    """Test initializing a `TableReference` from a fully qualified name."""
-
     table_ref = TableReference.from_fully_qualified_name("database.schema.test")
     assert table_ref.fully_qualified_name == "database.schema.test"
     assert table_ref.name == "test"

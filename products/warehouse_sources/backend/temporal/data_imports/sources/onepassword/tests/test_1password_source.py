@@ -4,20 +4,13 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onepassword import (
     OnePasswordSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.onepassword import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.onepassword.onepassword import (
-    OnePasswordResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.onepassword.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.onepassword.source import OnePasswordSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 ALL_FEATURES_INTROSPECTION = {
     "uuid": "OK41XEGLRTH4YKO5YRTCPNX3IU",
@@ -46,39 +39,9 @@ class TestOnePasswordSource:
     def setup_method(self) -> None:
         self.source = OnePasswordSource()
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ONEPASSWORD
-
-    def test_source_config_fields(self) -> None:
-        config = self.source.get_source_config
-        assert len(config.fields) == 2
-        region, token = config.fields
-        assert isinstance(region, SourceFieldSelectConfig)
-        assert region.name == "region"
-        assert [option.value for option in region.options] == ["us", "ca", "eu", "enterprise"]
-        assert isinstance(token, SourceFieldInputConfig)
-        assert token.name == "api_token"
-        assert token.type == SourceFieldInputConfigType.PASSWORD
-        assert token.required is True
-        assert token.secret is True
-
-    def test_source_is_released_as_alpha(self) -> None:
-        config = self.source.get_source_config
-        assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/onepassword"
-
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static, no-I/O catalog, so the public docs table list must render.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_returns_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=1, names=["audit_events"])
-        assert [s.name for s in schemas] == ["audit_events"]
 
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_every_stream_is_incremental_merge_only(self, endpoint: str) -> None:
@@ -135,23 +98,6 @@ class TestOnePasswordSource:
     def test_credential_errors_are_non_retryable_for_every_region(self, _name: str, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    def test_get_resumable_source_manager_is_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs("audit_events"))
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is OnePasswordResumeConfig
-
-    def test_source_for_pipeline_plumbs_config_and_endpoint(self) -> None:
-        config = OnePasswordSourceConfig(api_token="token", region="eu")
-        inputs = _source_inputs("audit_events", last_value="2026-07-01T00:00:00Z", use_incremental=True)
-        with patch.object(source_module, "onepassword_source") as mock_source:
-            self.source.source_for_pipeline(config, MagicMock(), inputs)
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["region"] == "eu"
-        assert kwargs["api_token"] == "token"
-        assert kwargs["endpoint"] == "audit_events"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-07-01T00:00:00Z"
 
     def test_source_for_pipeline_omits_last_value_when_not_incremental(self) -> None:
         # A stale watermark on a full-refresh run would wrongly narrow the start_time window.

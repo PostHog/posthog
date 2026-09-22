@@ -15,22 +15,18 @@ const ws = (container: ServiceResolver) =>
 export const connectivityRouter = router({
   getStatus: publicProcedure
     .output(connectivityStatusOutput)
-    .query(({ ctx }) => ws(ctx.container).connectivity.getStatus.query()),
+    .query(({ ctx }) => ws(ctx.container).getStatus()),
 
   checkNow: publicProcedure
     .output(connectivityStatusOutput)
-    .mutation(({ ctx }) => ws(ctx.container).connectivity.checkNow.mutate()),
+    .mutation(({ ctx }) => ws(ctx.container).checkNow()),
 
   onStatusChange: publicProcedure.subscription(async function* (opts) {
     const queue: ConnectivityStatusOutput[] = [];
     let resolve: (() => void) | null = null;
-    const subscription = ws(
-      opts.ctx.container,
-    ).connectivity.onStatusChange.subscribe(undefined, {
-      onData: (status) => {
-        queue.push(status);
-        resolve?.();
-      },
+    const unsubscribe = ws(opts.ctx.container).onStatusChange((status) => {
+      queue.push(status);
+      resolve?.();
     });
     try {
       while (!opts.signal?.aborted) {
@@ -45,7 +41,7 @@ export const connectivityRouter = router({
         }
       }
     } finally {
-      subscription.unsubscribe();
+      unsubscribe();
     }
   }),
 });

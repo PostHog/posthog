@@ -82,3 +82,4 @@ class MessagingRecord(UUIDTModel):
             "email_hash",
             "campaign_key",
         )  # can only send campaign once to each email
+        indexes = [models.Index(fields=["campaign_key"], name="messagingrecord_campaign_idx")]

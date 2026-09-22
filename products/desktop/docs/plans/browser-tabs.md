@@ -1,7 +1,10 @@
 # PRD: Browser Tabs for the Channels Canvas Surface
 
-Status: ready-for-agent
-Surface: Channels space (`/website/*`) — the canvas surface with the `< >` nav and "Go back to Code" / "Leave feedback" chrome.
+Status: shipped. The decisions below record the strip as it was built into the pre-rail layout.
+Superseded in part by [tabs-in-spaces.md](./tabs-in-spaces.md), which brings the strip into the
+spaces layout, removes content deduplication, and changes the tab record, launch authority, and
+per-tab state.
+Surface: Channels space (`/spaces/*`) — the canvas surface with the `< >` nav and "Go back to Code" / "Leave feedback" chrome.
 
 ## Problem Statement
 

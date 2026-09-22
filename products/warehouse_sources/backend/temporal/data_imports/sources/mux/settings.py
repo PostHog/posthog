@@ -8,11 +8,12 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # retention than aggregates and the list endpoint isn't a bulk export, so we start modest; subsequent
 # syncs track the `view_end` watermark forward from here.
 VIDEO_VIEWS_INITIAL_LOOKBACK = timedelta(days=30)
-# Window for the full-refresh aggregate endpoints (errors, metric comparison). Mux Data retains
-# engagement/QoE metrics for ~13 months, so this pulls essentially everything Mux keeps; Mux clamps
-# the window to what's actually retained rather than erroring. The responses are small and replaced
-# each sync, so a wide window is cheap.
-AGGREGATE_LOOKBACK = timedelta(days=395)
+# Window for the full-refresh aggregate endpoints (errors, metric comparison). Mux Data's standard
+# retention for these metrics is 100 days; 13-month retention is a paid add-on not every account has.
+# A window past the account's retention is rejected with `400 invalid_timeframe` rather than clamped,
+# so stay within the 100-day floor every plan supports. The responses are small and replaced each
+# sync, so a wide window is cheap.
+AGGREGATE_LOOKBACK = timedelta(days=90)
 
 
 @dataclass

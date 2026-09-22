@@ -8,6 +8,7 @@ Coverage:
 - Sparkline buckets (clean / tolerated / changed / quarantined).
 - Totals computed across the universe (not the truncated slice).
 - Browser metadata flows through for Playwright runs.
+- The query count stays flat as the universe grows.
 """
 
 from datetime import timedelta
@@ -16,8 +17,13 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connections
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from parameterized import parameterized
+
+from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade import api as vr_api
 from products.visual_review.backend.facade.contracts import BASELINE_OVERVIEW_MAX_ENTRIES
 from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult, ToleratedReason
@@ -75,6 +81,7 @@ def _mk_snapshot(
     identifier: str,
     result: str = SnapshotResult.UNCHANGED,
     artifact: Artifact | None = None,
+    baseline_hash: str = "",
     is_quarantined: bool = False,
     tolerated_match: ToleratedHash | None = None,
     metadata: dict | None = None,
@@ -87,6 +94,7 @@ def _mk_snapshot(
         identifier=identifier,
         current_hash=artifact.content_hash if artifact else "",
         current_artifact=artifact,
+        baseline_hash=baseline_hash,
         result=result,
         is_quarantined=is_quarantined,
         tolerated_hash_match=tolerated_match,
@@ -226,7 +234,7 @@ class TestBaselinesOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
     def test_tolerate_counts_respect_30d_and_90d_windows(self):
         run = _mk_run(self.repo)
-        _mk_snapshot(run, identifier="flake")
+        _mk_snapshot(run, identifier="flake", baseline_hash="b")
 
         # 1 tolerate within 30d, 4 within 90d (so 3 are 30-90d old).
         for offset_days in (5, 40, 60, 80):
@@ -256,6 +264,10 @@ class TestBaselinesOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         assert entry.tolerate_count_90d == 4
         assert result.totals.recently_tolerated == 1  # ≥1 in last 30d
         assert result.totals.frequently_tolerated == 1  # ≥3 in last 90d
+        # No window on the variants: every live row recorded against the hash the baseline holds
+        # now still matches, however old it is.
+        assert entry.active_variants_current_baseline == 4
+        assert result.totals.variant_pileups == 1
 
     def test_tolerate_counts_exclude_auto_threshold(self):
         """AUTO_THRESHOLD rows are auto-minted by the diff pipeline for
@@ -456,7 +468,7 @@ class TestBaselinesOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         assert entry.baseline_change_count == 0
 
     def test_truncation_at_cap(self):
-        # Use a tiny cap for speed. logic.get_baselines_overview imports the
+        # Use a tiny cap for speed. baseline_overview.get_baselines_overview imports the
         # constant lazily, so patching contracts is enough.
         run = _mk_run(self.repo)
         for i in range(7):
@@ -469,6 +481,51 @@ class TestBaselinesOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         assert result.truncated is True
         # all_snapshots total reflects the full universe even when truncated
         assert result.totals.all_snapshots == 7
+
+    @parameterized.expand([("full_universe", None), ("truncated_universe", 5)])
+    def test_query_count_does_not_grow_with_the_universe(self, _name: str, cap: int | None):
+        # The per-request query budget that `baseline_overview` documents has to
+        # hold as the universe grows. A field the facade reads outside
+        # `_universe_queryset`'s `only(...)`, a dropped `select_related`, or a
+        # lookup inside the facade's per-entry loop reloads once per entry, up to
+        # the cap, and still returns every value the tests above assert.
+        def seed(count: int, run_type: str, offset_hours: int) -> None:
+            run = _mk_run(self.repo, run_type=run_type, completed_offset=timedelta(hours=offset_hours))
+            for i in range(count):
+                identifier = f"id-{i:03d}"
+                artifact = _mk_artifact(self.repo, f"c-{run_type}-{i}", with_thumbnail=f"t-{run_type}-{i}")
+                _mk_snapshot(run, identifier=identifier, artifact=artifact, baseline_hash="b")
+                # Quarantine every entry so the `source_run` and `created_by`
+                # preloads the summary depends on are on the measured path.
+                QuarantinedIdentifier.objects.create(
+                    repo=self.repo,
+                    team_id=self.team.id,
+                    identifier=identifier,
+                    run_type=run_type,
+                    reason="flaky",
+                    created_by_id=self.user.id,
+                    source_run=run,
+                )
+
+        def measure() -> tuple[int, int]:
+            with CaptureQueriesContext(connections[WRITER_DB]) as captured:
+                result = vr_api.get_baselines_overview(self.repo.id)
+            return len(captured.captured_queries), len(result.entries)
+
+        with patch(
+            "products.visual_review.backend.facade.contracts.BASELINE_OVERVIEW_MAX_ENTRIES",
+            BASELINE_OVERVIEW_MAX_ENTRIES if cap is None else cap,
+        ):
+            # Both measurements sit on the same side of the cap, so the fixed
+            # cost of the truncated path does not read as growth.
+            seed(8, RunType.STORYBOOK, offset_hours=1)
+            small_queries, small_entries = measure()
+
+            seed(30, RunType.PLAYWRIGHT, offset_hours=2)
+            large_queries, large_entries = measure()
+
+        assert small_entries and large_entries
+        assert large_queries <= small_queries
 
     def test_endpoint_returns_serialized_overview(self):
         run = _mk_run(self.repo)

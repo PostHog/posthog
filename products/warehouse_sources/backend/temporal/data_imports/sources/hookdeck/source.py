@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -48,7 +46,7 @@ class HookdeckSource(ResumableSource[HookdeckSourceConfig, HookdeckResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.HOOKDECK,
+            name=ExternalDataSourceType.HOOKDECK,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Hookdeck",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -128,15 +126,24 @@ API keys are scoped to a single Hookdeck project, so connect one PostHog source 
         if is_valid:
             return True, None
         if status == 401:
-            return False, "Invalid Hookdeck API key"
+            return False, (
+                "Your Hookdeck API key is invalid or has been rotated. Copy the current key from "
+                "Settings → Project → Secrets in Hookdeck, then enter it again."
+            )
         if status == 403:
             # A project API key reaches every resource in its own project, so a 403 at source-create
             # is more likely a plan restriction on one resource than a bad key. Only fail when a
             # specific table was asked for.
             if schema_name is not None:
-                return False, "Your Hookdeck API key can't access this resource"
+                return False, (
+                    "Your Hookdeck API key can't access this resource. Check that the key belongs to the "
+                    "project you want to sync."
+                )
             return True, None
-        return False, "Could not connect to the Hookdeck API"
+        return False, (
+            "PostHog could not reach Hookdeck to check your API key. Wait a moment and try again, or "
+            "check Hookdeck's status page."
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[HookdeckResumeConfig]:
         return ResumableSourceManager[HookdeckResumeConfig](inputs, HookdeckResumeConfig)

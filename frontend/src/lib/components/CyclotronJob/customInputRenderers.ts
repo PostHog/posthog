@@ -35,4 +35,19 @@ export const CUSTOM_INPUT_RENDERERS: Record<
         () =>
             import('products/customer_analytics/frontend/components/AccountRelationshipsInput/CyclotronJobInputAccountRelationships')
     ),
+    task_model: lazyWithRetry(
+        () => import('products/tasks/frontend/components/TaskModelPicker/CyclotronJobInputTaskModel')
+    ),
+    task_repository: lazyWithRetry(
+        () => import('products/tasks/frontend/components/TaskRepositoryPicker/CyclotronJobInputTaskRepository')
+    ),
+    task_mcp_installations: lazyWithRetry(
+        () => import('products/tasks/frontend/components/TaskConnectorsPicker/CyclotronJobInputTaskConnectors')
+    ),
+    signals_scout: lazyWithRetry(
+        () => import('products/signals/frontend/components/ScoutPicker/CyclotronJobInputScoutPicker')
+    ),
+    task_skills: lazyWithRetry(
+        () => import('products/tasks/frontend/components/TaskSkillsPicker/CyclotronJobInputTaskSkills')
+    ),
 }

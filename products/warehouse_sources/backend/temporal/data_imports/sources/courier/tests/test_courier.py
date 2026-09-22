@@ -2,6 +2,7 @@ import json
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
+from urllib.parse import urlparse
 
 from unittest.mock import MagicMock, patch
 
@@ -16,7 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.courier.co
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.courier.settings import ENDPOINTS_CONFIG
+from products.warehouse_sources.backend.temporal.data_imports.sources.courier.settings import (
+    ENDPOINTS_CONFIG,
+    FANOUT_ENDPOINT_CONFIGS,
+)
 
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 COURIER_SESSION_PATCH = (
@@ -38,7 +42,7 @@ def _page(endpoint: str, rows: list[dict[str, Any]], cursor: str | None) -> Resp
     Every endpoint but Tenants nests the cursor under `paging`; Tenants returns it at the
     response's top level.
     """
-    config = ENDPOINTS_CONFIG[endpoint]
+    config = FANOUT_ENDPOINT_CONFIGS[endpoint]
     body: dict[str, Any] = {config.data_selector: rows}
     if config.cursor_path == "cursor":
         body["cursor"] = cursor
@@ -56,14 +60,16 @@ class TestGetResource:
         assert params["enqueued_after"]["cursor_path"] == "enqueued"
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
 
-    @parameterized.expand([("Messages",), ("AuditEvents",), ("Audiences",), ("Brands",), ("Tenants",)])
+    @parameterized.expand(
+        [("Messages",), ("AuditEvents",), ("Audiences",), ("Brands",), ("NotificationTemplates",), ("Tenants",)]
+    )
     def test_full_refresh_sends_no_timestamp_filter(self, endpoint: str) -> None:
         resource = get_resource(endpoint, should_use_incremental_field=False)
         params = cast(dict[str, Any], cast(dict[str, Any], resource["endpoint"])["params"])
         assert set(params) == {"limit"}
         assert resource["write_disposition"] == "replace"
 
-    @parameterized.expand([("AuditEvents",), ("Audiences",), ("Brands",), ("Tenants",)])
+    @parameterized.expand([("AuditEvents",), ("Audiences",), ("Brands",), ("NotificationTemplates",), ("Tenants",)])
     def test_endpoints_without_a_server_filter_ignore_incremental_flag(self, endpoint: str) -> None:
         # These endpoints have no documented server-side timestamp filter, so even if asked for
         # an incremental run there is no filter param to add.
@@ -112,6 +118,7 @@ class TestCourierSourceTransport:
             ("AuditEvents",),
             ("Audiences",),
             ("Brands",),
+            ("NotificationTemplates",),
             ("Tenants",),
         ]
     )
@@ -237,6 +244,7 @@ class TestCourierSourceTransport:
             ("AuditEvents", ["timestamp"], "asc"),
             ("Audiences", ["created_at"], "asc"),
             ("Brands", None, "asc"),
+            ("NotificationTemplates", None, "asc"),
             ("Tenants", None, "asc"),
         ]
     )
@@ -252,6 +260,118 @@ class TestCourierSourceTransport:
         assert source_response.sort_mode == sort_mode
         assert source_response.partition_keys == partition_keys
         assert source_response.partition_mode == ("datetime" if partition_keys else None)
+
+
+class TestCourierFanout:
+    """Endpoints reachable only per parent record: the parent listing is walked first."""
+
+    def _drive(
+        self,
+        endpoint: str,
+        responses: list[Response],
+        should_use_incremental_field: bool = False,
+        db_incremental_field_last_value: Optional[Any] = None,
+    ) -> tuple[list[str], list[dict[str, Any]], list[dict[str, Any]]]:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        sent_paths: list[str] = []
+        sent_params: list[dict[str, Any]] = []
+        response_iter = iter(responses)
+
+        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
+            sent_paths.append(urlparse(request.url).path)
+            sent_params.append(dict(request.params or {}))
+            return next(response_iter)
+
+        with patch(CLIENT_SESSION_PATCH) as mock_session_factory:
+            mock_session = mock_session_factory.return_value
+            mock_session.headers = {}
+            mock_session.prepare_request.side_effect = lambda req: req
+            mock_session.send.side_effect = fake_send
+
+            source_response = courier_source(
+                api_key="sk_test",
+                endpoint=endpoint,
+                team_id=123,
+                job_id="test_job",
+                resumable_source_manager=manager,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+                should_use_incremental_field=should_use_incremental_field,
+            )
+            rows = [row for chunk in cast(Iterable[Any], source_response.items()) for row in chunk]
+            return sent_paths, sent_params, rows
+
+    def test_audience_members_are_fetched_per_audience(self) -> None:
+        paths, _, rows = self._drive(
+            "AudienceMembers",
+            [
+                _page("Audiences", [{"id": "aud-1"}, {"id": "aud-2"}], cursor=None),
+                _page("AudienceMembers", [{"audience_id": "aud-1", "member_id": "u1"}], cursor=None),
+                _page("AudienceMembers", [{"audience_id": "aud-2", "member_id": "u2"}], cursor=None),
+            ],
+        )
+
+        assert paths == ["/audiences", "/audiences/aud-1/members", "/audiences/aud-2/members"]
+        assert [(row["audience_id"], row["member_id"]) for row in rows] == [("aud-1", "u1"), ("aud-2", "u2")]
+
+    def test_list_subscriptions_carry_their_list_id(self) -> None:
+        # The subscription object has no reference back to its list, so without the projected
+        # parent id the primary key collapses to the recipient and rows collide across lists.
+        paths, _, rows = self._drive(
+            "ListSubscriptions",
+            [
+                _page("Lists", [{"id": "list-a"}], cursor=None),
+                _page("ListSubscriptions", [{"recipientId": "u1", "created": "2026-01-15T10:30:00Z"}], cursor=None),
+            ],
+        )
+
+        assert paths == ["/lists", "/lists/list-a/subscriptions"]
+        assert rows[0]["list_id"] == "list-a"
+        assert rows[0]["created"] == datetime(2026, 1, 15, 10, 30, 0, tzinfo=UTC)
+
+    def test_message_history_projects_and_normalizes_the_parent_message(self) -> None:
+        paths, _, rows = self._drive(
+            "MessageHistory",
+            [
+                _page("Messages", [{"id": "msg-1", "enqueued": 1_700_000_000_000}], cursor=None),
+                _page("MessageHistory", [{"type": "SENT", "ts": 1_700_000_001_000}], cursor=None),
+            ],
+        )
+
+        assert paths == ["/messages", "/messages/msg-1/history"]
+        assert rows[0]["message_id"] == "msg-1"
+        # The projected parent timestamp is what the table partitions on and keys its watermark
+        # from, so it has to arrive as a datetime rather than raw epoch millis.
+        assert rows[0]["enqueued"] == datetime.fromtimestamp(1_700_000_000_000 / 1000, tz=UTC)
+        assert rows[0]["ts"] == datetime.fromtimestamp(1_700_000_001_000 / 1000, tz=UTC)
+
+    def test_message_history_incremental_bounds_the_parent_listing(self) -> None:
+        # The history endpoint takes no timestamp filter, so an incremental run can only avoid
+        # re-fetching every message's history by windowing the parent listing.
+        _, params, _ = self._drive(
+            "MessageHistory",
+            [
+                _page("Messages", [{"id": "msg-1", "enqueued": 1_700_000_000_000}], cursor=None),
+                _page("MessageHistory", [{"type": "SENT", "ts": 1_700_000_001_000}], cursor=None),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 5, 1, 12, 30),
+        )
+
+        assert params[0]["enqueued_after"] == "2026-05-01T12:30:00"
+        assert "enqueued_after" not in params[1]
+
+    def test_message_history_full_refresh_sends_no_watermark(self) -> None:
+        _, params, _ = self._drive(
+            "MessageHistory",
+            [
+                _page("Messages", [{"id": "msg-1", "enqueued": 1_700_000_000_000}], cursor=None),
+                _page("MessageHistory", [], cursor=None),
+            ],
+        )
+
+        assert all("enqueued_after" not in p for p in params)
 
 
 class TestValidateCredentials:

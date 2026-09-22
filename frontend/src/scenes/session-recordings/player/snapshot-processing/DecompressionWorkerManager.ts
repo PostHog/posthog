@@ -161,13 +161,18 @@ export class DecompressionWorkerManager {
                 },
             })
 
+            // Callers hand us views into one shared snapshot buffer, and the fallback below needs
+            // the bytes again if the worker fails. Transfer a copy this request owns, so neither
+            // the other views nor the fallback see a detached buffer.
+            const owned = new Uint8Array(compressedData)
+
             const message: DecompressionRequest = {
                 id,
-                compressedData,
+                compressedData: owned,
             }
 
             try {
-                this.worker!.postMessage(message, { transfer: [compressedData.buffer] })
+                this.worker!.postMessage(message, { transfer: [owned.buffer] })
             } catch (error) {
                 clearTimeout(timeout)
                 this.pendingRequests.delete(id)
@@ -177,6 +182,10 @@ export class DecompressionWorkerManager {
     }
 
     private async decompressMainThread(compressedData: Uint8Array): Promise<Uint8Array> {
+        // The worker path leaves the main-thread WASM uninitialized, so a worker that reports
+        // ready and then fails still has to init here before it can fall back.
+        await this.initSnappy()
+
         try {
             return decompress_raw(compressedData)
         } catch (error) {

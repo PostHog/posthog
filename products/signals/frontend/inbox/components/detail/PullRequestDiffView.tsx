@@ -28,6 +28,24 @@ const CHANGE_META: Record<ChangeTypes, { label: string; icon: ReactNode; classNa
     'rename-changed': { label: 'Renamed', icon: <IconArrowRight />, className: 'text-secondary' },
 }
 
+/** Data attribute on each file card, so the file tree can find the cards it follows and scrolls to. */
+export const DIFF_FILE_ATTR = 'data-diff-file'
+
+/** DOM id of a file's card, for `scrollIntoView` from the file tree. Percent-encoded so any path is a valid id. */
+export function diffFileElementId(path: string): string {
+    return `pr-diff-file-${encodeURIComponent(path)}`
+}
+
+/** Color-coded, tooltipped status icon for a changed file, shared by the file headers and the file tree. */
+export function FileChangeIcon({ changeType }: { changeType: ChangeTypes }): JSX.Element {
+    const meta = CHANGE_META[changeType] ?? { label: 'Changed', icon: <IconPencil />, className: 'text-secondary' }
+    return (
+        <Tooltip title={meta.label}>
+            <span className={`flex shrink-0 items-center ${meta.className}`}>{meta.icon}</span>
+        </Tooltip>
+    )
+}
+
 // Rough per-row / header heights (px) of Pierre's rendered diff, used only to size the loading
 // placeholder so the card doesn't collapse to a bare header while highlighting runs.
 const DIFF_ROW_HEIGHT = 20
@@ -116,6 +134,8 @@ function DiffFileCard({ file, children }: { file: FileDiffMetadata; children: Re
 
     return (
         <div
+            id={diffFileElementId(file.name)}
+            {...{ [DIFF_FILE_ATTR]: file.name }}
             className="relative overflow-hidden rounded-lg border border-primary bg-surface-primary"
             style={rendered ? undefined : { minHeight: DIFF_HEADER_HEIGHT + rows * DIFF_ROW_HEIGHT }}
         >
@@ -152,7 +172,6 @@ export function summarizeDiff(diff: string, cacheKey?: string): DiffSummary | nu
 
 /** Our own file header (rendered into Pierre's light-DOM header slot): status icon + monospace path + counts. */
 function FileDiffHeader({ file }: { file: FileDiffMetadata }): JSX.Element {
-    const meta = CHANGE_META[file.type] ?? { label: 'Changed', icon: <IconPencil />, className: 'text-secondary' }
     let additions = 0
     let deletions = 0
     for (const hunk of file.hunks) {
@@ -163,9 +182,7 @@ function FileDiffHeader({ file }: { file: FileDiffMetadata }): JSX.Element {
 
     return (
         <div className="flex items-center gap-2 min-w-0 border-b border-primary px-3 py-2">
-            <Tooltip title={meta.label}>
-                <span className={`flex shrink-0 items-center ${meta.className}`}>{meta.icon}</span>
-            </Tooltip>
+            <FileChangeIcon changeType={file.type} />
             <span className="truncate font-mono text-xs text-secondary" title={path}>
                 {path}
             </span>

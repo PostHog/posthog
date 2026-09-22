@@ -1,18 +1,14 @@
-export const PUBLIC_EMAIL_DOMAINS = [
-    'gmail.com',
-    'yahoo.com',
-    'hotmail.com',
-    'outlook.com',
-    'aol.com',
-    'protonmail.com',
-    'icloud.com',
-    'mail.com',
-    'zoho.com',
-    'yandex.com',
-    'gmx.com',
-    'live.com',
-    'mail.ru',
-]
+import freeEmailDomains from 'free-email-domains'
+
+// Free and disposable email provider domains from the free-email-domains npm package
+// (https://github.com/Kikobeats/free-email-domains). Keep the pinned package version in sync
+// with the vendored list in the billing repo at billing/utils/data/free_email_domains.txt,
+// which enforces the same block server-side.
+export const PUBLIC_EMAIL_DOMAINS: ReadonlySet<string> = new Set(freeEmailDomains.map((d) => d.toLowerCase()))
+
+// Matches YC founder verification links, e.g. https://www.ycombinator.com/verify/db9imrf5u1kaxib5
+// Keep in sync with the billing repo at billing/utils/startups.py, which enforces the same check server-side
+export const YC_VERIFICATION_URL_REGEX = /^(?:https?:\/\/)?(?:www\.)?ycombinator\.com\/verify\/([A-Za-z0-9]+)\/?$/
 
 export const RAISED_OPTIONS = [
     { label: 'Bootstrapped', value: '0' },

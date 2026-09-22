@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from posthog.test.base import ClickhouseDestroyTablesMixin
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models import OrganizationMembership
 
 from products.demo.backend.logic.matrix.manager import MatrixManager
 from products.demo.backend.logic.matrix.matrix import Cluster, Matrix
@@ -79,6 +80,14 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
         assert demo_team.ingested_event
         assert demo_team.is_demo
 
+    def test_ensure_account_creates_organization_owner(self):
+        manager = MatrixManager(self.matrix)
+
+        organization, _, user = manager.ensure_account_and_save("demo@example.com", "Demo", "Demo organization")
+
+        membership = OrganizationMembership.objects.get(organization=organization, user=user)
+        assert membership.level == OrganizationMembership.Level.OWNER
+
     def test_run_on_team(self):
         manager = MatrixManager(self.matrix)
 
@@ -93,6 +102,19 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
             >= 3
         )
         assert self.team.name == DummyMatrix.PRODUCT_NAME
+
+    def test_run_on_team_marks_persons_that_identified(self):
+        manager = MatrixManager(self.matrix)
+
+        manager.run_on_team(self.team, self.user)
+
+        assert (
+            sync_execute(
+                "SELECT countIf(is_identified = 1) FROM person WHERE team_id = %(team_id)s",
+                {"team_id": self.team.pk},
+            )[0][0]
+            >= 3
+        )
 
     def test_run_on_team_using_pre_save(self):
         manager = MatrixManager(self.matrix, use_pre_save=True)

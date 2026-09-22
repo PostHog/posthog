@@ -4,6 +4,7 @@ from typing import Any
 import structlog
 
 from posthog.hogql import ast
+from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -12,6 +13,17 @@ from posthog.models import Team
 from products.signals.backend.emission.registry import SignalSourceTableConfig
 
 logger = structlog.get_logger(__name__)
+
+
+def escape_table_name(table_name: str) -> str:
+    """Quote each segment of a warehouse table name for use in a HogQL FROM clause.
+
+    Some sources put customer text in the table key. A GitHub source keys its table on the
+    repository name, so a hyphen or another character that is not valid in a bare identifier
+    reaches HogQL and breaks the parse. The HogQL database registers the table under the same
+    dot-split chain, so keep the dots and escape only the segments between them.
+    """
+    return ".".join(escape_hogql_identifier(part) for part in table_name.split("."))
 
 
 def data_warehouse_record_fetcher(
@@ -40,12 +52,11 @@ def data_warehouse_record_fetcher(
     if config.where_clause:
         where_parts.append(config.where_clause)
     where_sql = " AND ".join(where_parts)
-    # None of the data comes externally (neither limits of table name), so it's safe to use f-string interpolation
     fields_sql = ", ".join(config.fields)
     # Limiting can cause a data loss, as the missed records won't be picked in the next sync, but it's acceptable for the current use case
     query = f"""
         SELECT {fields_sql}
-        FROM {table_name}
+        FROM {escape_table_name(table_name)}
         WHERE {where_sql}
         LIMIT {config.max_records}
     """
@@ -60,8 +71,10 @@ def data_warehouse_record_fetcher(
         signals_type="data-import-signals",
         **extra,
     )
-    parsed = parse_select(query, placeholders=placeholders) if placeholders else parse_select(query)
     try:
+        # Parsing is inside the try so a query we cannot even parse is logged and re-raised like a
+        # query that fails at execution, instead of dying before the first log line.
+        parsed = parse_select(query, placeholders=placeholders) if placeholders else parse_select(query)
         # Internal data-import signal fetcher (no user); bypass warehouse HogQL access control so it
         # can read the source warehouse table.
         result = execute_hogql_query(

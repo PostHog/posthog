@@ -378,7 +378,10 @@ export function Members(): JSX.Element | null {
                 }
             />
             <h3 className="mt-4">Two-factor authentication</h3>
-            <PayGateMini feature={AvailableFeature.TWOFA_ENFORCEMENT}>
+            <PayGateMini
+                feature={AvailableFeature.TWOFA_ENFORCEMENT}
+                featureDetail="organization-members-two-factor-authentication"
+            >
                 <p>Require all organization members to use two-factor authentication.</p>
                 <LemonSwitch
                     label="Enforce 2FA"
@@ -390,7 +393,10 @@ export function Members(): JSX.Element | null {
             </PayGateMini>
 
             <h3 className="mt-4">Invite settings</h3>
-            <PayGateMini feature={AvailableFeature.ORGANIZATION_INVITE_SETTINGS}>
+            <PayGateMini
+                feature={AvailableFeature.ORGANIZATION_INVITE_SETTINGS}
+                featureDetail="organization-member-and-project-invites"
+            >
                 <p>Control who can send organization invites.</p>
                 <LemonSwitch
                     label={
@@ -424,7 +430,10 @@ export function Members(): JSX.Element | null {
             {posthog.isFeatureEnabled(FEATURE_FLAGS.MEMBERS_CAN_USE_PERSONAL_API_KEYS) && (
                 <>
                     <h3 className="mt-4">Security settings</h3>
-                    <PayGateMini feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}>
+                    <PayGateMini
+                        feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}
+                        featureDetail="organization-members-personal-api-key-access"
+                    >
                         <p>Configure security permissions for organization members.</p>
                         <LemonSwitch
                             label={

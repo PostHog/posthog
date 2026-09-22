@@ -9,6 +9,11 @@ import {
   cancelPermissionInput,
   cancelPromptInput,
   cancelSessionInput,
+  claudeAuthTerminalInput,
+  claudeAuthTerminalOutput,
+  claudeSubscriptionStatusOutput,
+  codexSubscriptionLoginOutput,
+  codexSubscriptionStatusOutput,
   getPiModelCatalogInput,
   getPiModelCatalogOutput,
   getPreviewConfigOptionsInput,
@@ -24,6 +29,8 @@ import {
   rtkStatusOutput,
   sessionResponseSchema,
   setConfigOptionInput,
+  sideQuestionInput,
+  sideQuestionOutput,
   startSessionInput,
   subscribeSessionInput,
 } from "@posthog/workspace-server/services/agent/schemas";
@@ -51,6 +58,15 @@ export const agentRouter = router({
         }),
     ),
 
+  sideQuestion: publicProcedure
+    .input(sideQuestionInput)
+    .output(sideQuestionOutput)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .sideQuestion(input.sessionId, input.question),
+    ),
+
   cancel: publicProcedure
     .input(cancelSessionInput)
     .mutation(({ ctx, input }) =>
@@ -73,6 +89,43 @@ export const agentRouter = router({
       ctx.container.get<AgentService>(AGENT_SERVICE).getRtkStatus(),
     ),
 
+  codexSubscriptionStatus: publicProcedure
+    .output(codexSubscriptionStatusOutput)
+    .query(({ ctx }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .getCodexSubscriptionStatus(),
+    ),
+
+  claudeSubscriptionStatus: publicProcedure
+    .output(claudeSubscriptionStatusOutput)
+    .query(({ ctx }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .getClaudeSubscriptionStatus(),
+    ),
+
+  claudeAuthTerminal: publicProcedure
+    .input(claudeAuthTerminalInput)
+    .output(claudeAuthTerminalOutput)
+    .query(({ ctx, input }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .getClaudeAuthTerminal(input.action),
+    ),
+
+  codexSubscriptionLoginStart: publicProcedure
+    .output(codexSubscriptionLoginOutput)
+    .mutation(({ ctx }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .startCodexSubscriptionLogin(),
+    ),
+
+  codexSubscriptionSignOut: publicProcedure.mutation(({ ctx }) =>
+    ctx.container.get<AgentService>(AGENT_SERVICE).signOutCodexSubscription(),
+  ),
+
   reconnect: publicProcedure
     .input(reconnectSessionInput)
     .output(sessionResponseSchema.nullable())
@@ -90,19 +143,11 @@ export const agentRouter = router({
 
   onSessionEvent: publicProcedure
     .input(subscribeSessionInput)
-    .subscription(async function* (opts) {
-      const service = opts.ctx.container.get<AgentService>(AGENT_SERVICE);
-      const targetTaskRunId = opts.input.taskRunId;
-      const iterable = service.toIterable(AgentServiceEvent.SessionEvent, {
-        signal: opts.signal,
-      });
-
-      for await (const event of iterable) {
-        if (event.taskRunId === targetTaskRunId) {
-          yield event.payload;
-        }
-      }
-    }),
+    .subscription((opts) =>
+      opts.ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .subscribeSessionEvents(opts.input.taskRunId, opts.signal),
+    ),
 
   onPermissionRequest: publicProcedure
     .input(subscribeSessionInput)
@@ -232,6 +277,10 @@ export const agentRouter = router({
     .query(({ ctx, input }) =>
       ctx.container
         .get<AgentService>(AGENT_SERVICE)
-        .getPreviewConfigOptions(input.apiHost, input.adapter),
+        .getPreviewConfigOptions(
+          input.apiHost,
+          input.adapter,
+          input.allHarnessModels,
+        ),
     ),
 });

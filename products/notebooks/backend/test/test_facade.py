@@ -4,12 +4,13 @@ from unittest.mock import patch
 
 from django.apps import apps
 
-from posthog.rbac.user_access_control import UserAccessControl
-
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.notebooks.backend import logic
 from products.notebooks.backend.analytics import NotebookCreationSource
 from products.notebooks.backend.facade import api, content
+from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded
 from products.notebooks.backend.models import Notebook, ResourceNotebook
+from products.notebooks.backend.sql_v2_state import MAX_NOTEBOOK_CELLS
 
 
 def _create_account(team):
@@ -192,6 +193,46 @@ class TestNotebooksFacadeAsync(BaseTest):
         self.assertEqual(data.title, "t2")
         self.assertEqual(data.text_content, "updated")
         self.assertEqual(data.version, notebook.version + 1)
+
+    def _cells_doc(self, count: int) -> dict:
+        markdown = "\n\n".join(
+            f'<SQLV2 nodeId="s{index}" code="select {index}" returnVariable="df{index}" />' for index in range(count)
+        )
+        return {
+            "type": "doc",
+            "content": [{"type": "ph-markdown-notebook", "attrs": {"nodeId": "md", "markdown": markdown}}],
+        }
+
+    @pytest.mark.asyncio
+    async def test_aupdate_notebook_content_refuses_growth_past_the_cell_ceiling(self):
+        # This writer is a queryset update, so it fires no serializer, no save() hook, and no
+        # signal. Max saves notebooks through it, so a ceiling enforced only at the API layer
+        # would not apply to anything Max writes.
+        await Notebook.objects.acreate(team=self.team, short_id="cap001", title="t", content=self._cells_doc(0))
+        with self.assertRaises(NotebookCellLimitExceeded):
+            await api.aupdate_notebook_content(
+                self.team.id,
+                "cap001",
+                content=self._cells_doc(MAX_NOTEBOOK_CELLS + 1),
+                title="t",
+                text_content="",
+                last_modified_by_id=self.user.id,
+            )
+
+    @pytest.mark.asyncio
+    async def test_aupsert_notebook_refuses_the_ceiling_without_writing_a_partial_row(self):
+        # The check has to run before aget_or_create: after it, the over-limit notebook is
+        # already stored by the time the ceiling rejects it.
+        with self.assertRaises(NotebookCellLimitExceeded):
+            await api.aupsert_notebook(
+                self.team.id,
+                "cap002",
+                created_by_id=self.user.id,
+                last_modified_by_id=self.user.id,
+                title="t",
+                content=self._cells_doc(MAX_NOTEBOOK_CELLS + 1),
+            )
+        self.assertFalse(await Notebook.objects.filter(team=self.team, short_id="cap002").aexists())
 
     @pytest.mark.asyncio
     async def test_acan_user_edit_notebook_creator(self):

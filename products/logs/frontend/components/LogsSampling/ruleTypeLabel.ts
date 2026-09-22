@@ -1,13 +1,13 @@
-import { RuleTypeEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import { LogsExclusionRuleRuleTypeEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
-/** User-visible rule type label — keep in sync anywhere `RuleTypeEnumApi` is shown. */
-export function ruleTypeLabel(ruleType: RuleTypeEnumApi): string {
+/** User-visible rule type label — keep in sync anywhere `LogsExclusionRuleRuleTypeEnumApi` is shown. */
+export function ruleTypeLabel(ruleType: LogsExclusionRuleRuleTypeEnumApi): string {
     switch (ruleType) {
-        case RuleTypeEnumApi.PathDrop:
+        case LogsExclusionRuleRuleTypeEnumApi.PathDrop:
             return 'Drop'
-        case RuleTypeEnumApi.SeveritySampling:
+        case LogsExclusionRuleRuleTypeEnumApi.SeveritySampling:
             return 'Drop by severity'
-        case RuleTypeEnumApi.RateLimit:
+        case LogsExclusionRuleRuleTypeEnumApi.RateLimit:
             return 'Rate limit'
         default: {
             return String(ruleType)

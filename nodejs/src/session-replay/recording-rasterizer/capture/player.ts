@@ -1,6 +1,11 @@
 import type { Page } from 'puppeteer'
 
-import { PLAYER_CONFIG_KEY, PLAYER_EMIT_FN, PLAYER_START_EVENT } from '@posthog/replay-headless/protocol'
+import {
+    PLAYER_CONFIG_KEY,
+    PLAYER_EMIT_FN,
+    PLAYER_FRAME_TIMELINE_KEY,
+    PLAYER_START_EVENT,
+} from '@posthog/replay-headless/protocol'
 import type { InactivityPeriod, PlayerConfig, PlayerMessage } from '@posthog/replay-headless/protocol'
 
 import { RasterizationError, toRasterizationErrorCode } from '~/session-replay/recording-rasterizer/errors'
@@ -26,6 +31,7 @@ export class PlayerController {
     private state = {
         ended: false,
         inactivityPeriods: [] as InactivityPeriod[],
+        frameSessionMs: [] as number[],
     }
 
     private startedResolve: (() => void) | null = null
@@ -89,6 +95,9 @@ export class PlayerController {
             case 'inactivity_periods':
                 this.state.inactivityPeriods = msg.periods
                 break
+            case 'frame_timeline':
+                this.state.frameSessionMs = msg.frameSessionMs
+                break
         }
     }
 
@@ -104,6 +113,13 @@ export class PlayerController {
         timeoutMsg: string,
         resetOnProgress = false
     ): Promise<void> {
+        // An error emitted before this registers errorReject (e.g. NO_SNAPSHOTS arriving between
+        // load() and waitForStart()) was shelved in playbackError; without this check it would sit
+        // there while we idle out and misreport a retryable TIMEOUT over the real, possibly
+        // terminal, code.
+        if (this.playbackError) {
+            return Promise.reject(this.playbackError)
+        }
         return new Promise<void>((resolve, reject) => {
             const onTimeout = (): void => {
                 this.startedResolve = null
@@ -182,7 +198,16 @@ export class PlayerController {
             playerConfig
         )
 
-        await page.goto(this.capturePage.playerUrl, { waitUntil: 'load', timeout: 30000 })
+        try {
+            await page.goto(this.capturePage.playerUrl, { waitUntil: 'load', timeout: 30000 })
+        } catch (err) {
+            // Puppeteer's TimeoutError would classify as UNKNOWN downstream; it is the same failure
+            // mode as every other load stall, so give it the same retryable TIMEOUT code.
+            if ((err as Error)?.name === 'TimeoutError') {
+                throw new RasterizationError('player page load timed out', true, 'TIMEOUT', err)
+            }
+            throw err
+        }
         this.log.info({ origin: this.capturePage.playerUrl }, 'player loaded')
     }
 
@@ -221,6 +246,27 @@ export class PlayerController {
 
     getInactivityPeriods(): InactivityPeriod[] {
         return this.state.inactivityPeriods
+    }
+
+    getFrameSessionMs(): number[] {
+        return this.state.frameSessionMs
+    }
+
+    /** Read the frame timeline off the page. Works for a capture that was trimmed or timed out, where
+     * the replayer never finished and so never pushed it. Falls back to whatever was pushed. */
+    async readFrameTimeline(): Promise<number[]> {
+        try {
+            const samples = await this.capturePage.page.evaluate(
+                (key: string) => (window as unknown as Record<string, number[]>)[key] ?? [],
+                PLAYER_FRAME_TIMELINE_KEY
+            )
+            if (samples.length > 0) {
+                return samples
+            }
+        } catch {
+            // Page already gone: use whatever the player managed to push before teardown.
+        }
+        return this.state.frameSessionMs
     }
 
     dispose(): void {

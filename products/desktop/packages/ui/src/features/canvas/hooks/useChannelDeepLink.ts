@@ -1,6 +1,12 @@
+import { useService } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import {
+  BROWSER_TABS_CLIENT,
+  type BrowserTabsClient,
+} from "@posthog/ui/features/browser-tabs/browserTabsClient";
+import { focusOrOpenBrowserTab } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import {
   navigateToChannel,
   navigateToChannelTask,
@@ -32,6 +38,7 @@ const log = logger.scope("channel-deep-link");
  */
 export function useChannelDeepLink() {
   const trpcReact = useHostTRPC();
+  const tabsClient = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
   const isAuthenticated = useAuthStateValue(
     (s) => s.status === "authenticated",
   );
@@ -46,20 +53,35 @@ export function useChannelDeepLink() {
     }),
   );
 
-  const openChannel = useCallback((channelId: string, taskId?: string) => {
-    log.info(
-      `Opening channel from deep link: channelId=${channelId} taskId=${taskId ?? "-"}`,
-    );
-    track(ANALYTICS_EVENTS.DEEP_LINK_CHANNEL, {
-      channel_id: channelId,
-      task_id: taskId,
-    });
-    if (taskId) {
-      navigateToChannelTask(channelId, taskId);
-    } else {
-      navigateToChannel(channelId);
-    }
-  }, []);
+  const openChannel = useCallback(
+    (channelId: string, taskId?: string) => {
+      log.info(
+        `Opening channel from deep link: channelId=${channelId} taskId=${taskId ?? "-"}`,
+      );
+      track(ANALYTICS_EVENTS.DEEP_LINK_CHANNEL, {
+        channel_id: channelId,
+        task_id: taskId,
+      });
+      void focusOrOpenBrowserTab(
+        tabsClient,
+        taskId
+          ? {
+              href: `/spaces/${channelId}/tasks/${taskId}`,
+              channelId,
+              taskId,
+            }
+          : { href: `/spaces/${channelId}`, channelId },
+      ).then((handled) => {
+        if (handled) return;
+        if (taskId) {
+          navigateToChannelTask(channelId, taskId);
+        } else {
+          navigateToChannel(channelId);
+        }
+      });
+    },
+    [tabsClient],
+  );
 
   useEffect(() => {
     const pending = pendingDeepLink.data;

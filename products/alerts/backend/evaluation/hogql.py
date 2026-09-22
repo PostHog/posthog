@@ -21,7 +21,7 @@ from products.alerts.backend.evaluation.contract import (
     zero_sentinel_series,
 )
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 _HOGQL_SUBJECT = "The SQL insight value"
 # Any-row alerts fail loud past this many rows: silently truncating could skip the breaching row

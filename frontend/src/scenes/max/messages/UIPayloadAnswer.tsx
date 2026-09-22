@@ -1,19 +1,11 @@
 import { useValues } from 'kea'
 
-import { IconNotebook } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-
-import { urls } from 'scenes/urls'
-
 import { MaxErrorTrackingSearchResponse } from '~/queries/schema/schema-assistant-error-tracking'
 import { AssistantTool } from '~/queries/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
-import {
-    ErrorTrackingFiltersWidget,
-    MessageTemplate,
-    RecordingsWidget,
-} from 'products/posthog_ai/frontend/api/primitives'
+import { ErrorTrackingFiltersWidget } from 'products/error_tracking/frontend/posthogAi/ErrorTrackingFiltersWidget'
+import { MessageTemplate, RecordingsWidget } from 'products/posthog_ai/frontend/api/primitives'
 
 import { isDangerousOperationResponse, normalizeDangerousOperationResponse } from '../approvalOperationUtils'
 import { DangerousOperationApprovalCard } from '../DangerousOperationApprovalCard'
@@ -23,7 +15,6 @@ import { AnnotatedScreenshotView, parseAnnotatedScreenshot } from './AnnotatedSc
 export const RENDERABLE_UI_PAYLOAD_TOOLS: AssistantTool[] = [
     'search_session_recordings',
     'search_error_tracking_issues',
-    'summarize_sessions',
     'create_form',
 ]
 
@@ -92,29 +83,4 @@ export function UIPayloadAnswer({
     // It's not expected to hit the null branch below, because such a case SHOULD have already been filtered out
     // in maxThreadLogic.selectors.threadGrouped, but better safe than sorry - there can be deployments mismatches etc.
     return null
-}
-
-export function SummarizeSessionsWidget({
-    payload,
-    title,
-}: {
-    payload: { title?: string; session_group_summary_id?: string } | null | undefined
-    title?: string
-}): JSX.Element | null {
-    if (!payload?.session_group_summary_id) {
-        return null
-    }
-
-    return (
-        <LemonButton
-            to={urls.sessionSummary(payload.session_group_summary_id)}
-            icon={<IconNotebook />}
-            size="small"
-            targetBlank
-            type="primary"
-            className="bg-surface-primary w-fit mx-1"
-        >
-            Open analysis of sessions{title && `: ${title}`}
-        </LemonButton>
-    )
 }

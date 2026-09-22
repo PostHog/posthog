@@ -13,7 +13,7 @@ import { logsSamplingRulesCreate, logsSamplingRulesPartialUpdate } from 'product
 import {
     LogsSamplingRuleApi,
     PatchedLogsSamplingRuleApi,
-    RuleTypeEnumApi,
+    LogsExclusionRuleRuleTypeEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 import { logsDropRulesSettingsUrl } from 'products/logs/frontend/logsDropRulesSettingsUrl'
 
@@ -41,7 +41,7 @@ export const MAX_RATE_LIMIT_KB_PER_S = 1_000_000
 export interface LogsSamplingFormType {
     name: string
     enabled: boolean
-    rule_type: RuleTypeEnumApi
+    rule_type: LogsExclusionRuleRuleTypeEnumApi
     filter_group: UniversalFiltersGroup
     /** User-entered amount in the chosen unit. Fractional values are allowed. */
     rate_limit_amount: string
@@ -51,7 +51,7 @@ export interface LogsSamplingFormType {
 const DEFAULT_FORM: LogsSamplingFormType = {
     name: '',
     enabled: true,
-    rule_type: RuleTypeEnumApi.PathDrop,
+    rule_type: LogsExclusionRuleRuleTypeEnumApi.PathDrop,
     filter_group: EMPTY_FILTER_GROUP,
     rate_limit_amount: '',
     rate_limit_unit: 'MB/s',
@@ -112,7 +112,10 @@ export function buildSamplingFormDefaults(rule: LogsSamplingRuleApi | null): Log
     }
     // Legacy SEVERITY_SAMPLING rules collapse into PathDrop — the new form unifies
     // severity into the filter group, so the dedicated severity rule type is no longer surfaced.
-    const rule_type = rule.rule_type === RuleTypeEnumApi.SeveritySampling ? RuleTypeEnumApi.PathDrop : rule.rule_type
+    const rule_type =
+        rule.rule_type === LogsExclusionRuleRuleTypeEnumApi.SeveritySampling
+            ? LogsExclusionRuleRuleTypeEnumApi.PathDrop
+            : rule.rule_type
     const cfg = (rule.config ?? {}) as Record<string, unknown>
     const form: LogsSamplingFormType = {
         ...DEFAULT_FORM,
@@ -121,7 +124,7 @@ export function buildSamplingFormDefaults(rule: LogsSamplingRuleApi | null): Log
         rule_type,
     }
     form.filter_group = extractFilterGroup(cfg.filter_group)
-    if (rule_type === RuleTypeEnumApi.RateLimit) {
+    if (rule_type === LogsExclusionRuleRuleTypeEnumApi.RateLimit) {
         // Read the byte-rate field the ingestion worker enforces on (`kb_per_second`).
         // Fall back to the legacy `logs_per_second` field for rules saved before this
         // fix so they still populate the form — the stored number was always derived as
@@ -137,7 +140,7 @@ export function buildSamplingFormDefaults(rule: LogsSamplingRuleApi | null): Log
 }
 
 export function buildSamplingConfigPayload(form: LogsSamplingFormType): Record<string, unknown> {
-    if (form.rule_type === RuleTypeEnumApi.RateLimit) {
+    if (form.rule_type === LogsExclusionRuleRuleTypeEnumApi.RateLimit) {
         // The form expresses a byte rate (KB/s · MB/s · GB/s) and the preview plots the
         // threshold in bytes — so the rule must be stored in byte mode (`kb_per_second`),
         // which charges each log its own uncompressed size. Writing `logs_per_second`
@@ -240,7 +243,7 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
             defaults: buildSamplingFormDefaults(props.rule),
             errors: (form: LogsSamplingFormType) => {
                 let rateAmountError: string | undefined
-                if (form.rule_type === RuleTypeEnumApi.RateLimit) {
+                if (form.rule_type === LogsExclusionRuleRuleTypeEnumApi.RateLimit) {
                     if (form.rate_limit_amount.trim() === '') {
                         rateAmountError = 'Enter a rate limit'
                     } else {

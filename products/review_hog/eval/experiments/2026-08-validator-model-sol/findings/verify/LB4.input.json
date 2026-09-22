@@ -1,0 +1,12 @@
+{
+    "id": "LB4",
+    "file": "products/review_hog/backend/api/settings.py",
+    "lines": "77-81",
+    "priority": "should_fix",
+    "title": "The fail-soft check can delay requests and flood error logs",
+    "problem": "Every GET and PATCH response queries the separate Stamphog database. An outage can delay requests by the connection timeout before the circuit breaker opens. Once open, this handler logs a full exception for every settings request. This duplicates error traffic during a known degraded state.",
+    "suggestion": "Cache this informational status briefly or load it through a separate request. Handle database availability errors as an expected unavailable state. Emit a sampled warning or metric. Keep unexpected exceptions visible.",
+    "cluster": 7,
+    "cluster_issue": "stamphog_connected SerializerMethodField does an uncached cross-product-DB read on every settings serialization (GET and PATCH)",
+    "cluster_verified": "0/2"
+}

@@ -121,6 +121,7 @@ export const POSTHOG_EVENT_PROMOTED_PROPERTIES = {
         '$mcp_error_type',
         '$mcp_duration_ms',
         '$mcp_client_name',
+        '$mcp_llm_model',
         '$mcp_intent',
     ],
 }

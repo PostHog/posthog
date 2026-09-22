@@ -18,6 +18,9 @@ ZONKA_FEEDBACK_ENDPOINTS: dict[str, ZonkaFeedbackEndpointConfig] = {
     "responses": ZonkaFeedbackEndpointConfig(name="responses", path="/responses"),
     "surveys": ZonkaFeedbackEndpointConfig(name="surveys", path="/surveys"),
     "contacts": ZonkaFeedbackEndpointConfig(name="contacts", path="/contacts"),
+    # Snake_case schema name, hyphenated vendor path — the shareable link objects returned by the
+    # Survey Links API. Zonka object IDs live in the `id` field, so the default primary key applies.
+    "survey_links": ZonkaFeedbackEndpointConfig(name="survey_links", path="/survey-links"),
 }
 
 ENDPOINTS = tuple(ZONKA_FEEDBACK_ENDPOINTS.keys())

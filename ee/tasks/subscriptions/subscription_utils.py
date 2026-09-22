@@ -7,13 +7,14 @@ import structlog
 from celery import chain
 from prometheus_client import Histogram
 
+from posthog.dataclasses import frozen
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.tasks import exporter
 from posthog.utils import wait_for_parallel_celery_group
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -21,6 +22,17 @@ UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
 # Keep in sync with MAX_INSIGHTS in products/subscriptions/frontend/components/Subscriptions/insightSelectorLogic.ts.
 MAX_INSIGHTS = 10
 ASSET_GENERATION_FAILED_MESSAGE = "Failed to generate content"
+# Marks text every channel had to cut short. Shared so email, Slack and Teams read the same.
+TRUNCATION_MARKER = "... (truncated)"
+# Bounds one failed asset's error text so a run where several fail cannot push a message past the
+# destination's payload limit on its own.
+_MAX_ASSET_ERROR_LENGTH = 2000
+# Locally rendered assets live on a localhost URL that Slack and Microsoft cannot fetch, so the
+# message links a public placeholder instead of an image that would render broken. Keep this on a
+# domain we control, because a third-party placeholder can be retired without warning.
+DEBUG_PLACEHOLDER_IMAGE_URL = (
+    "https://raw.githubusercontent.com/PostHog/posthog/master/frontend/public/icons/android-chrome-512x512.png"
+)
 # Prometheus metrics for Temporal workers (web/worker pods)
 SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
     "subscription_asset_generation_duration_seconds",
@@ -32,6 +44,11 @@ SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
 
 def _has_asset_failed(asset: ExportedAsset) -> bool:
     return (not asset.content and not asset.content_location) or asset.exception is not None
+
+
+def next_delivery_date_display(subscription: Subscription) -> str:
+    next_delivery_date = subscription.next_delivery_date
+    return next_delivery_date.strftime("%A %B %d, %Y") if next_delivery_date is not None else "an upcoming date"
 
 
 _OOM_MESSAGE_MARKER = "ran out of memory"
@@ -49,6 +66,37 @@ def subscription_asset_error_message(asset: ExportedAsset) -> str:
     if asset.exception and not is_oom_exception:
         return asset.exception
     return ASSET_GENERATION_FAILED_MESSAGE
+
+
+@frozen
+class FailedAssetDetails:
+    insight_name: str
+    error_text: str
+
+
+def failed_asset_details(asset: ExportedAsset) -> FailedAssetDetails:
+    """The two pieces every channel renders for an asset that failed to generate. Callers own the
+    markup, since Slack mrkdwn, Adaptive Card markdown and the email template all differ."""
+    insight = asset.insight
+    insight_name = (insight.name or insight.derived_name or "Unknown insight") if insight else "Unknown insight"
+    if asset.exception:
+        error_text = subscription_asset_error_message(asset)
+        if len(error_text) > _MAX_ASSET_ERROR_LENGTH:
+            error_text = error_text[:_MAX_ASSET_ERROR_LENGTH] + TRUNCATION_MARKER
+    else:
+        error_text = ASSET_GENERATION_FAILED_MESSAGE
+    return FailedAssetDetails(insight_name=insight_name, error_text=error_text)
+
+
+def subscription_support_url(resource_url: str) -> str:
+    return f"{resource_url}#panel=support:bug:analytics_platform:high:true"
+
+
+def summary_skipped_over_budget_message(billing_settings_link: str) -> str:
+    return (
+        "AI summary skipped. Your organization has reached its AI credit usage limit. "
+        f"Increase the limit in {billing_settings_link} to resume summaries."
+    )
 
 
 def generate_assets(

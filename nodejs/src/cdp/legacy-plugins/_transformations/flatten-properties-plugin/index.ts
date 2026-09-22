@@ -31,20 +31,18 @@ const propertyDenyList = [
 ]
 
 const flattenProperties = (props: Record<string, any>, sep: string, nestedChain: string[] = []) => {
-    let newProps: Record<string, any> = {}
+    // Accumulate with Object.assign: spreading the accumulator per key is O(N^2) in the
+    // number of properties, and this runs synchronously on the ingestion consumer.
+    const newProps: Record<string, any> = {}
     for (const [key, value] of Object.entries(props)) {
         if (propertyDenyList.includes(key)) {
             // Hide 'internal' properties used in event processing
-        } else if (key === '$set') {
-            newProps = { ...newProps, $set: { ...props[key], ...flattenProperties(props[key], sep) } }
-        } else if (key === '$set_once') {
-            newProps = { ...newProps, $set_once: { ...props[key], ...flattenProperties(props[key], sep) } }
-        } else if (key === '$group_set') {
-            newProps = { ...newProps, $group_set: { ...props[key], ...flattenProperties(props[key], sep) } }
+        } else if (key === '$set' || key === '$set_once' || key === '$group_set') {
+            newProps[key] = { ...props[key], ...flattenProperties(props[key], sep) }
         } else if (Array.isArray(value)) {
-            newProps = { ...newProps, ...flattenProperties(props[key], sep, [...nestedChain, key]) }
+            Object.assign(newProps, flattenProperties(props[key], sep, [...nestedChain, key]))
         } else if (value !== null && typeof value === 'object' && Object.keys(value).length > 0) {
-            newProps = { ...newProps, ...flattenProperties(props[key], sep, [...nestedChain, key]) }
+            Object.assign(newProps, flattenProperties(props[key], sep, [...nestedChain, key]))
         } else {
             if (nestedChain.length > 0) {
                 newProps[nestedChain.join(sep) + `${sep}${key}`] = value
@@ -52,7 +50,7 @@ const flattenProperties = (props: Record<string, any>, sep: string, nestedChain:
         }
     }
     if (nestedChain.length > 0) {
-        return { ...newProps }
+        return newProps
     }
     return { ...props, ...newProps }
 }

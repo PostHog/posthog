@@ -8,6 +8,8 @@ from clickhouse_driver import Client
 
 from posthog import settings
 from posthog.clickhouse.cluster import AlterTableMutationRunner, LightweightDeleteMutationRunner
+from posthog.dags.common.staged_dictionary import StagedDictionary
+from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     pass
@@ -60,7 +62,7 @@ class OverridesSnapshotTable(ABC):
 TOverridesSnapshotTable = TypeVar("TOverridesSnapshotTable", bound=OverridesSnapshotTable)
 
 
-@dataclass
+@frozen
 class OverridesSnapshotDictionary(ABC, Generic[TOverridesSnapshotTable]):
     source: TOverridesSnapshotTable
 
@@ -73,8 +75,37 @@ class OverridesSnapshotDictionary(ABC, Generic[TOverridesSnapshotTable]):
         return f"{settings.CLICKHOUSE_DATABASE}.{self.name}"
 
     @abstractmethod
-    def create(self, client: Client, shards: int, max_execution_time: int, max_memory_usage: int) -> None:
+    def create(
+        self,
+        client: Client,
+        shards: int,
+        max_execution_time: int,
+        max_memory_usage: int,
+        query: str | None = None,
+    ) -> None:
+        """``query`` overrides the SOURCE, for a host that cannot see the snapshot table."""
         raise NotImplementedError()
+
+    @abstractmethod
+    def staged(self) -> StagedDictionary:
+        """Where this dictionary's rows go so another cluster can load them.
+
+        Keyed by the dictionary's own name, never by anything per-run, because CREATE ... IF NOT
+        EXISTS keys on that same name and a dictionary outlives the run that created it.
+        """
+        raise NotImplementedError()
+
+    def recreate(
+        self,
+        client: Client,
+        shards: int,
+        max_execution_time: int,
+        max_memory_usage: int,
+        query: str | None = None,
+    ) -> None:
+        """Replace the dictionary, so no definition an earlier run left behind can survive."""
+        self.drop(client)
+        self.create(client, shards, max_execution_time, max_memory_usage, query)
 
     def exists(self, client: Client) -> bool:
         results = client.execute(
@@ -122,18 +153,17 @@ class OverridesSnapshotDictionary(ABC, Generic[TOverridesSnapshotTable]):
 
     @property
     @abstractmethod
-    def update_table(self):
-        raise NotImplementedError()
-
-    @property
-    @abstractmethod
     def update_commands(self):
         raise NotImplementedError()
 
-    @property
-    def update_mutation_runner(self) -> AlterTableMutationRunner:
+    def update_mutation_runner_for(self, table: str) -> AlterTableMutationRunner:
+        """The rewrite this snapshot applies, aimed at one target's storage table.
+
+        A squash rewrites every table that stamps the overridden column, so the table is an
+        argument rather than a property of the snapshot.
+        """
         return AlterTableMutationRunner(
-            table=self.update_table,
+            table=table,
             commands=self.update_commands,
             parameters={"name": self.qualified_name},
         )

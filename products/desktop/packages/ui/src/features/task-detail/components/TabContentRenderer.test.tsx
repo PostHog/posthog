@@ -19,7 +19,7 @@ vi.mock("../../sessions/components/ArtifactPreview", () => ({
   ArtifactPreview: (): null => null,
 }));
 vi.mock("../../workspace/useWorkspace", () => ({
-  useIsWorkspaceCloudRun: () => false,
+  useIsCloudTask: () => false,
 }));
 vi.mock("./ActionPanel", () => ({ ActionPanel: (): null => null }));
 vi.mock("./CanvasInstructionsTab", () => ({

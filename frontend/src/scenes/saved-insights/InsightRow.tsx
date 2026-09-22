@@ -35,8 +35,17 @@ export function InsightRow({ insight, isExpanded, onToggle, dataAttr }: InsightR
                 placement="left"
             >
                 <div
-                    className="flex items-center gap-3 p-3 cursor-pointer hover:bg-surface-secondary rounded-t"
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={isExpanded}
+                    className="flex items-center gap-3 p-3 cursor-pointer hover:bg-surface-secondary rounded-t focus-visible:bg-surface-secondary focus-visible:outline-none"
                     onClick={onToggle}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            onToggle()
+                        }
+                    }}
                 >
                     <div className={`transform transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
                         <IconChevronRight className="text-xl" />

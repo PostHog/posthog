@@ -2,7 +2,6 @@ import {
   isNotAuthenticatedError,
   NotAuthenticatedError,
 } from "@posthog/shared";
-import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -38,15 +37,13 @@ function Boundary(props: {
   fallback?: ReactNode;
 }) {
   return (
-    <Theme>
-      <ErrorBoundary
-        resetKey={props.resetKey}
-        shouldSuppress={props.shouldSuppress}
-        fallback={props.fallback}
-      >
-        {props.children}
-      </ErrorBoundary>
-    </Theme>
+    <ErrorBoundary
+      resetKey={props.resetKey}
+      shouldSuppress={props.shouldSuppress}
+      fallback={props.fallback}
+    >
+      {props.children}
+    </ErrorBoundary>
   );
 }
 
@@ -55,6 +52,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
   vi.mocked(captureException).mockClear();
 });
@@ -69,15 +67,45 @@ describe("ErrorBoundary", () => {
     expect(screen.getByText("ok")).toBeInTheDocument();
   });
 
-  it("renders the default fallback UI on error and reports telemetry", () => {
+  it("hides the stack until requested and reports telemetry", async () => {
+    const user = userEvent.setup();
+    const error = new Error("boom");
+    error.stack = "Error: boom\n    at Thrower (test.tsx:1:1)";
     render(
       <Boundary>
-        <Thrower error={new Error("boom")} />
+        <Thrower error={error} />
       </Boundary>,
     );
     expect(screen.getByText("Something went wrong")).toBeInTheDocument();
-    expect(screen.getByText("boom")).toBeInTheDocument();
+    expect(screen.getByText("Error: boom")).toBeInTheDocument();
+    expect(screen.queryByText(/at Thrower/)).not.toBeInTheDocument();
     expect(captureException).toHaveBeenCalledTimes(1);
+
+    await user.click(
+      screen.getByRole("button", { name: /show technical details/i }),
+    );
+    expect(screen.getByText(/at Thrower/)).toBeInTheDocument();
+  });
+
+  it("copies a report with the boundary name, stack and component stack", async () => {
+    const user = userEvent.setup();
+    const error = new Error("boom");
+    error.stack = "Error: boom\n    at Thrower (test.tsx:1:1)";
+    render(
+      <ErrorBoundary name="SessionView">
+        <Thrower error={error} />
+      </ErrorBoundary>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /copy error details/i }),
+    );
+
+    const report = await navigator.clipboard.readText();
+    expect(report).toContain("Boundary: SessionView");
+    expect(report).toContain("at Thrower (test.tsx:1:1)");
+    expect(report).toMatch(/Component stack:\n\s*at Thrower/);
+    expect(screen.getByRole("button", { name: /copied/i })).toBeInTheDocument();
   });
 
   it("renders custom fallback when provided", () => {
@@ -127,22 +155,19 @@ describe("ErrorBoundary", () => {
     expect(screen.getByText("ok")).toBeInTheDocument();
   });
 
-  it("recovers via retry button", async () => {
+  it("refreshes the app from the error screen", async () => {
     const user = userEvent.setup();
-    const { rerender } = render(
+    const reload = vi.fn();
+    vi.stubGlobal("location", { reload });
+
+    render(
       <Boundary>
         <Thrower error={new Error("boom")} />
       </Boundary>,
     );
-    expect(screen.getByText("Something went wrong")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^refresh app$/i }));
 
-    rerender(
-      <Boundary>
-        <Thrower error={null} />
-      </Boundary>,
-    );
-    await user.click(screen.getByRole("button", { name: /try again/i }));
-    expect(screen.getByText("ok")).toBeInTheDocument();
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 });
 

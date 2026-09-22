@@ -11,7 +11,6 @@ const renderCanvas = () => {
   render(
     <FreeformCanvas
       code="export default function Canvas() { return null }"
-      mode="edit"
       onDataRequest={vi.fn()}
     />,
   );
@@ -42,7 +41,6 @@ describe("FreeformCanvas", () => {
     render(
       <FreeformCanvas
         code="export default function Canvas() { return null }"
-        mode="edit"
         onDataRequest={vi.fn()}
         onTextSelection={onTextSelection}
       />,
@@ -112,7 +110,6 @@ describe("FreeformCanvas", () => {
     const { rerender } = render(
       <FreeformCanvas
         code="export default function Canvas() { return null }"
-        mode="edit"
         onDataRequest={vi.fn()}
         commentHighlights={[]}
       />,
@@ -125,7 +122,6 @@ describe("FreeformCanvas", () => {
     rerender(
       <FreeformCanvas
         code="export default function Canvas() { return null }"
-        mode="edit"
         onDataRequest={vi.fn()}
         commentHighlights={[highlight]}
       />,
@@ -145,7 +141,6 @@ describe("FreeformCanvas", () => {
     const { rerender } = render(
       <FreeformCanvas
         code="export default function Canvas() { return null }"
-        mode="edit"
         onDataRequest={vi.fn()}
         clearTextSelectionKey={0}
       />,
@@ -158,7 +153,6 @@ describe("FreeformCanvas", () => {
     rerender(
       <FreeformCanvas
         code="export default function Canvas() { return null }"
-        mode="edit"
         onDataRequest={vi.fn()}
         clearTextSelectionKey={1}
       />,
@@ -175,7 +169,6 @@ describe("FreeformCanvas", () => {
     render(
       <FreeformCanvas
         code="export default function Canvas() { return null }"
-        mode="edit"
         onDataRequest={vi.fn()}
         onCommentActivate={onCommentActivate}
       />,

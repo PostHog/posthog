@@ -3,6 +3,7 @@ import { describe, it } from 'node:test'
 
 import { buildDocsPreviewSection } from './post-docs-preview-section.mjs'
 import { buildHobbySection } from './post-hobby-section.mjs'
+import { buildTrunkLaneSection, postTrunkLaneSection } from './post-trunk-lane-section.mjs'
 
 const commonHobby = {
     previewMode: true,
@@ -12,6 +13,94 @@ const commonHobby = {
 }
 
 describe('CI report section builders', () => {
+    for (const testCase of [
+        {
+            name: 'does not post a stale lane assignment',
+            expectedHeadSha: 'old-sha',
+            currentHeadSha: 'new-sha',
+            expectedPosts: 0,
+        },
+        {
+            name: 'posts the current lane assignment',
+            expectedHeadSha: 'current-sha',
+            currentHeadSha: 'current-sha',
+            expectedPosts: 1,
+        },
+    ]) {
+        it(testCase.name, async () => {
+            const postedSections = []
+            await postTrunkLaneSection({
+                impactedTargets: ['fe:core'],
+                isUniversal: false,
+                expectedHeadSha: testCase.expectedHeadSha,
+                getCurrentHeadSha: async () => testCase.currentHeadSha,
+                post: async (section) => postedSections.push(section),
+            })
+            assert.equal(postedSections.length, testCase.expectedPosts)
+        })
+    }
+
+    for (const testCase of [
+        {
+            name: 'describes the universal lane',
+            input: { impactedTargets: ['py:core', 'fe:core'], isUniversal: true },
+            expected: {
+                status: 'alert',
+                summary: 'universal lane',
+                body: 'This PR is assigned to the universal lane. It cannot merge in parallel with other PRs, so it can take longer to merge. Ask dev-ex if you think this is wrong.',
+            },
+        },
+        {
+            name: 'describes the backend Python lane',
+            input: { impactedTargets: ['py:product:surveys', 'fe:product:<script>'], isUniversal: false },
+            expected: {
+                status: 'warn',
+                summary: 'backend Python lane',
+                body: 'This PR is assigned to the backend Python lane. It runs backend Python tests and may merge in parallel with PRs in other lanes.',
+            },
+        },
+        {
+            name: 'describes a non-backend lane',
+            input: { impactedTargets: ['fe:core', 'node:ingestion'], isUniversal: false },
+            expected: {
+                status: 'ok',
+                summary: 'non-backend lane',
+                body: 'This PR is assigned to the non-backend lane. It does not run backend Python tests and may merge in parallel with PRs in other lanes.',
+            },
+        },
+        {
+            name: 'names the single non-backend target',
+            input: { impactedTargets: ['fe:product:desktop'], isUniversal: false },
+            expected: {
+                status: 'ok',
+                summary: 'non-backend lane (<code>fe:product:desktop</code>)',
+                body: 'This PR is assigned to the non-backend lane (<code>fe:product:desktop</code>). It does not run backend Python tests and may merge in parallel with PRs in other lanes.',
+            },
+        },
+        {
+            name: 'names the single backend Python target',
+            input: { impactedTargets: ['py:product:surveys'], isUniversal: false },
+            expected: {
+                status: 'warn',
+                summary: 'backend Python lane (<code>py:product:surveys</code>)',
+                body: 'This PR is assigned to the backend Python lane (<code>py:product:surveys</code>). It runs backend Python tests and may merge in parallel with PRs in other lanes.',
+            },
+        },
+        {
+            name: 'escapes a target before rendering it',
+            input: { impactedTargets: ['</summary><img src="x">'], isUniversal: false },
+            expected: {
+                status: 'ok',
+                summary: 'non-backend lane (<code>&lt;/summary&gt;&lt;img src=&quot;x&quot;&gt;</code>)',
+                body: 'This PR is assigned to the non-backend lane (<code>&lt;/summary&gt;&lt;img src=&quot;x&quot;&gt;</code>). It does not run backend Python tests and may merge in parallel with PRs in other lanes.',
+            },
+        },
+    ]) {
+        it(testCase.name, () => {
+            assert.deepEqual(buildTrunkLaneSection(testCase.input), testCase.expected)
+        })
+    }
+
     it('renders a docs preview link after a successful trigger', () => {
         const section = buildDocsPreviewSection({
             triggerStatus: 'success',

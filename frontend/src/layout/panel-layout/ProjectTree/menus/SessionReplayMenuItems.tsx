@@ -1,7 +1,8 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
 import { IconChevronRight } from '@posthog/icons'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -31,6 +32,7 @@ export function SessionReplayMenuItems({
     onLinkClick,
 }: CustomMenuProps): JSX.Element {
     const { savedFilters, savedFiltersLoading } = useValues(sessionRecordingSavedFiltersLogic)
+    const { loadSavedFiltersIfNeeded } = useActions(sessionRecordingSavedFiltersLogic)
     const { playlists, playlistsLoading } = useValues(sessionRecordingCollectionsLogic)
 
     function handleKeyDown(e: React.KeyboardEvent<HTMLElement>): void {
@@ -43,22 +45,29 @@ export function SessionReplayMenuItems({
     }
     return (
         <>
-            {savedFiltersLoading ? (
-                <MenuItem disabled>
-                    <ButtonPrimitive menuItem>Loading...</ButtonPrimitive>
-                </MenuItem>
-            ) : savedFilters.count > 0 ? (
-                <MenuSub>
-                    <MenuSubTrigger asChild>
-                        <ButtonPrimitive menuItem>
-                            Saved filters
-                            <IconChevronRight className="ml-auto size-3" />
-                        </ButtonPrimitive>
-                    </MenuSubTrigger>
+            <MenuSub
+                onOpenChange={(open) => {
+                    if (open) {
+                        loadSavedFiltersIfNeeded()
+                    }
+                }}
+            >
+                <MenuSubTrigger asChild>
+                    <ButtonPrimitive menuItem>
+                        Saved filters
+                        <IconChevronRight className="ml-auto size-3" />
+                    </ButtonPrimitive>
+                </MenuSubTrigger>
 
-                    <MenuSubContent>
-                        <MenuGroup>
-                            {savedFilters.results.map((savedFilter) => (
+                <MenuSubContent>
+                    <MenuGroup>
+                        {savedFiltersLoading ? (
+                            <MenuItem disabled>
+                                <LemonSkeleton className="h-4 w-32" repeat={3} />
+                            </MenuItem>
+                        ) : null}
+                        {!savedFiltersLoading &&
+                            savedFilters.results.map((savedFilter) => (
                                 <MenuItem asChild key={savedFilter.short_id}>
                                     <Link
                                         buttonProps={{
@@ -80,27 +89,26 @@ export function SessionReplayMenuItems({
                                     </Link>
                                 </MenuItem>
                             ))}
-                            {savedFilters.next ? (
-                                <>
-                                    <MenuSeparator />
-                                    <MenuItem asChild key="all-saved-filters">
-                                        <Link
-                                            buttonProps={{
-                                                menuItem: true,
-                                            }}
-                                            to={`${urls.replay(ReplayTabs.Home)}?showFilters=true&filtersTab=saved`}
-                                            onKeyDown={handleKeyDown}
-                                            onClick={() => onLinkClick?.(false)}
-                                        >
-                                            <span className="truncate">All saved filters</span>
-                                        </Link>
-                                    </MenuItem>
-                                </>
-                            ) : null}
-                        </MenuGroup>
-                    </MenuSubContent>
-                </MenuSub>
-            ) : null}
+                        {!savedFiltersLoading && savedFilters.next ? (
+                            <>
+                                <MenuSeparator />
+                                <MenuItem asChild key="all-saved-filters">
+                                    <Link
+                                        buttonProps={{
+                                            menuItem: true,
+                                        }}
+                                        to={`${urls.replay(ReplayTabs.Home)}?showFilters=true&filtersTab=saved`}
+                                        onKeyDown={handleKeyDown}
+                                        onClick={() => onLinkClick?.(false)}
+                                    >
+                                        <span className="truncate">All saved filters</span>
+                                    </Link>
+                                </MenuItem>
+                            </>
+                        ) : null}
+                    </MenuGroup>
+                </MenuSubContent>
+            </MenuSub>
 
             {playlistsLoading ? (
                 <MenuItem disabled>

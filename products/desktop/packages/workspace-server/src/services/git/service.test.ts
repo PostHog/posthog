@@ -21,6 +21,26 @@ describe("GitService", () => {
     execGhMock.mockReset();
   });
 
+  it("returns lifecycle and creator details for a pull request", async () => {
+    const details = {
+      state: "open",
+      merged: false,
+      draft: false,
+      headRefName: "posthog/status-chip",
+      title: "Show pull request status in sessions",
+      author: "octocat",
+    };
+    execGhMock.mockResolvedValueOnce(
+      ghResult({ stdout: JSON.stringify(details) }),
+    );
+
+    await expect(
+      new GitService().getPrDetailsByUrl(
+        "https://github.com/PostHog/posthog/pull/23985",
+      ),
+    ).resolves.toEqual(details);
+  });
+
   it("returns no changed files when the remote branch does not exist yet", async () => {
     execGhMock
       .mockResolvedValueOnce(ghResult({ stdout: "main\n" }))
@@ -68,6 +88,72 @@ describe("GitService", () => {
         patch: undefined,
       },
     ]);
+  });
+
+  it("maps a commit's files, including removals and renames", async () => {
+    execGhMock.mockResolvedValueOnce(
+      ghResult({
+        stdout: JSON.stringify({
+          files: [
+            {
+              filename: "docs/old.md",
+              status: "removed",
+              additions: 0,
+              deletions: 7,
+            },
+            {
+              filename: "src/new-name.ts",
+              status: "renamed",
+              previous_filename: "src/old-name.ts",
+              additions: 1,
+              deletions: 1,
+            },
+          ],
+        }),
+      }),
+    );
+
+    await expect(
+      new GitService().getCommitChangedFiles("posthog/code", "a".repeat(40)),
+    ).resolves.toEqual([
+      {
+        path: "docs/old.md",
+        status: "deleted",
+        originalPath: undefined,
+        linesAdded: 0,
+        linesRemoved: 7,
+        sha: undefined,
+        patch: undefined,
+      },
+      {
+        path: "src/new-name.ts",
+        status: "renamed",
+        originalPath: "src/old-name.ts",
+        linesAdded: 1,
+        linesRemoved: 1,
+        sha: undefined,
+        patch: undefined,
+      },
+    ]);
+    expect(execGhMock).toHaveBeenCalledWith(
+      ["api", `repos/posthog/code/commits/${"a".repeat(40)}`],
+      { timeoutMs: 10_000 },
+    );
+  });
+
+  it("returns no commit files for an unknown sha, and never queries with a malformed one", async () => {
+    execGhMock.mockResolvedValueOnce(
+      ghResult({ stderr: "gh: Not Found (HTTP 404)\n", exitCode: 1 }),
+    );
+    await expect(
+      new GitService().getCommitChangedFiles("posthog/code", "b".repeat(40)),
+    ).resolves.toEqual([]);
+
+    execGhMock.mockClear();
+    await expect(
+      new GitService().getCommitChangedFiles("posthog/code", "main..evil"),
+    ).resolves.toEqual([]);
+    expect(execGhMock).not.toHaveBeenCalled();
   });
 
   it("preserves non-404 comparison failures", async () => {

@@ -6,8 +6,8 @@ import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { clearFilterButtonProps } from 'products/conversations/frontend/clearFilterButtonProps'
 import { AssigneeMultiSelect, type AssigneeFilterEntry } from 'products/conversations/frontend/components/Assignee'
-import { clearFilterButtonProps } from 'products/conversations/frontend/components/clearFilterButtonProps'
 import { priorityMultiselectOptions, statusOptions } from 'products/conversations/frontend/types'
 
 import type { DashboardWidgetTileFiltersProps } from '../registry'

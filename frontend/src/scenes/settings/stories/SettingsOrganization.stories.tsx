@@ -35,6 +35,72 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                 },
                 '/api/projects/:id/integrations': { results: [] },
                 '/api/organizations/:id/integrations': { results: [] },
+                '/api/organizations/:id/domains': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 'verified-domain',
+                            domain: 'example.com',
+                            is_verified: true,
+                            verified_at: '2023-05-01T00:00:00Z',
+                            verification_challenge: 'challenge',
+                            jit_provisioning_enabled: true,
+                            sso_enforcement: 'saml',
+                            scim_base_url: 'https://app.posthog.com/scim/v2/idp-config',
+                        },
+                    ],
+                },
+                '/api/organizations/:id/identity_provider_configs': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 'idp-config',
+                            config_scope: null,
+                            domain_scope: 'selected',
+                            organization_domain_ids: ['verified-domain'],
+                            has_saml: true,
+                            has_scim: true,
+                            has_id_jag: true,
+                        },
+                    ],
+                },
+                // One member with a rule already saved and one without, so the member
+                // notifications section renders both states of the control.
+                '/api/organizations/:id/notification_locks/': [
+                    {
+                        user_id: 1,
+                        uuid: '0198aaaa-0000-4000-8000-000000000001',
+                        first_name: 'Ada',
+                        last_name: 'Kowalski',
+                        email: 'ada@example.com',
+                        organization_membership_level: 1,
+                        editable: true,
+                        locks: [
+                            {
+                                setting: 'pipeline_notifications_disabled',
+                                scope_id: String(MOCK_DEFAULT_TEAM.id),
+                                locked_value: false,
+                            },
+                        ],
+                    },
+                    {
+                        user_id: 2,
+                        uuid: '0198aaaa-0000-4000-8000-000000000002',
+                        first_name: 'Grace',
+                        last_name: 'Osei',
+                        email: 'grace@example.com',
+                        organization_membership_level: 15,
+                        editable: false,
+                        locks: [],
+                    },
+                ],
+                '/api/organizations/:organization_id/desktop_beta_terms/': {
+                    is_desktop_beta_terms_accepted: false,
+                },
                 '/api/environments/:team_id/conversations/': { results: [] },
                 '/api/user_home_settings/@me/': {},
                 '/api/organizations/:organization_id/proxy_records': {
@@ -82,6 +148,11 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                     // bounce the setting back as is
                     const newTeamSettings = { ...MOCK_DEFAULT_TEAM, ...((await request.json()) as object) }
                     return [200, newTeamSettings]
+                },
+            },
+            post: {
+                '/api/organizations/:organization_id/desktop_beta_terms/': {
+                    is_desktop_beta_terms_accepted: true,
                 },
             },
         }),

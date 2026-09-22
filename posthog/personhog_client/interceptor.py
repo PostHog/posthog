@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 import random
 from collections import namedtuple
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from typing import Any
 
 import grpc
@@ -157,6 +157,22 @@ _RETRYABLE_CODES = frozenset(
         grpc.StatusCode.UNKNOWN,
     }
 )
+
+
+def is_transient_rpc_error(exc: BaseException, codes: Collection[grpc.StatusCode] = _RETRYABLE_CODES) -> bool:
+    """Whether ``exc``, or the error it was raised from, is a gRPC failure with a status in ``codes``.
+
+    Follows ``__cause__`` so a caller that wrapped the RpcError (``personhog_call(reraise_as=...)``)
+    still classifies the underlying transport failure. ``codes`` defaults to the in-process
+    RetryInterceptor policy; a caller that retries at a slower tier passes its own set.
+    """
+    current: BaseException | None = exc
+    while current is not None:
+        if isinstance(current, grpc.RpcError):
+            code = getattr(current, "code", None)
+            return callable(code) and code() in codes
+        current = current.__cause__
+    return False
 
 
 class RetryInterceptor(grpc.UnaryUnaryClientInterceptor):

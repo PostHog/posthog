@@ -1,9 +1,12 @@
 """Deterministic scorers for the retrieval evals.
 
-Four binary scorers grade the retrieval flow:
+Five binary scorers grade the retrieval flow:
 
 * ``SkillLoaded`` — did the agent load the named skill (e.g.
   ``querying-posthog-data``) before producing its answer?
+* ``SkillTriggered`` — the same detection, but graded against the
+  direction the case expects, for suites that pair positive and negative
+  trigger cases.
 * ``LookupIdInOutput`` — does the agent's final assistant message contain
   the seeded lookup insight's ID, proving it actually queried PostHog
   rather than hallucinating?
@@ -22,10 +25,12 @@ Four binary scorers grade the retrieval flow:
   (skipped) outside CLI mode, where tool schemas come bundled with the
   tool registration.
 
-The first two scorers walk ``output["messages"]`` (Anthropic-format) and
-``output["seed"]`` (set by the seeder hook in ``base.py:task()``), so
-nothing has to be threaded through ``expected``. The third opts in via
-``expected = {"information_schema_before_sql": {}}``.
+``SkillLoaded`` and ``LookupIdInOutput`` walk ``output["messages"]``
+(Anthropic-format) and ``output["seed"]`` (set by the seeder hook in
+``base.py:task()``), so nothing has to be threaded through ``expected``.
+``InformationSchemaBeforeSql`` opts in via
+``expected = {"information_schema_before_sql": {}}``, and ``SkillTriggered``
+requires ``expected = {<scorer name>: {"should_load": <bool>}}`` on every case.
 """
 
 from __future__ import annotations
@@ -37,11 +42,27 @@ from typing import Any
 from products.posthog_ai.eval_harness.log_parser import INFO_SYNTHETIC_PREFIX, LogParser
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
-__all__ = ["InfoCalledBeforeTool", "InformationSchemaBeforeSql", "LookupIdInOutput", "SkillLoaded"]
+__all__ = [
+    "InfoCalledBeforeTool",
+    "InformationSchemaBeforeSql",
+    "LookupIdInOutput",
+    "SkillLoaded",
+    "SkillTriggered",
+]
 
 
-class SkillLoaded(Scorer):
-    """Binary: did the agent load a specific skill?
+def _matches_skill_file(skill_name: str, file_path: str) -> bool:
+    """Heuristic match: a Read of `<...>/<skill_name>/SKILL.md` counts as load.
+
+    The sandbox bind-mounts the local skills directory, so the exact path
+    depends on how skills are laid out in the cache — guard with a
+    substring check on both the skill name and the SKILL.md filename.
+    """
+    return skill_name in file_path and file_path.endswith("SKILL.md")
+
+
+def _find_skill_load(parser: LogParser, skill_name: str) -> dict[str, Any] | None:
+    """Return metadata for the first evidence that ``skill_name`` was loaded, else None.
 
     Recognized as any of:
     * a successful ``Skill`` tool call (``input.skill == skill_name``),
@@ -52,6 +73,29 @@ class SkillLoaded(Scorer):
       path in its name or input — the codex runtime has no ``Skill``/``Read``
       tools and reads skills through shell commands instead.
     """
+    for skill_call in parser.get_skill_calls(skill_name):
+        if not skill_call.is_error:
+            return {"matched_via": "skill_tool", "skill": skill_name}
+
+    for read_call in parser.get_tool_calls("Read"):
+        if read_call.is_error:
+            continue
+        file_path = read_call.input.get("file_path", "")
+        if isinstance(file_path, str) and _matches_skill_file(skill_name, file_path):
+            return {"matched_via": "read_skill_md", "file_path": file_path}
+
+    skill_file_ref = f"{skill_name}/SKILL.md"
+    for call in parser.get_tool_calls():
+        if call.is_error:
+            continue
+        if skill_file_ref in call.name or skill_file_ref in json.dumps(call.input, default=str):
+            return {"matched_via": "tool_reference", "tool": call.name[:120]}
+
+    return None
+
+
+class SkillLoaded(Scorer):
+    """Binary: did the agent load a specific skill? See ``_find_skill_load`` for what counts."""
 
     def __init__(self, skill_name: str, *, name: str | None = None):
         self.skill_name = skill_name
@@ -60,7 +104,7 @@ class SkillLoaded(Scorer):
     def _name(self) -> str:
         return self._label
 
-    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
         raw_log = output.get("raw_log")
@@ -68,36 +112,9 @@ class SkillLoaded(Scorer):
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
 
         parser = LogParser.cached(raw_log, initial_prompt=output.get("prompt", "") or "")
-
-        for skill_call in parser.get_skill_calls(self.skill_name):
-            if not skill_call.is_error:
-                return Score(
-                    name=self._name(),
-                    score=1.0,
-                    metadata={"matched_via": "skill_tool", "skill": self.skill_name},
-                )
-
-        for read_call in parser.get_tool_calls("Read"):
-            if read_call.is_error:
-                continue
-            file_path = read_call.input.get("file_path", "")
-            if isinstance(file_path, str) and self._matches_skill_file(file_path):
-                return Score(
-                    name=self._name(),
-                    score=1.0,
-                    metadata={"matched_via": "read_skill_md", "file_path": file_path},
-                )
-
-        skill_file_ref = f"{self.skill_name}/SKILL.md"
-        for call in parser.get_tool_calls():
-            if call.is_error:
-                continue
-            if skill_file_ref in call.name or skill_file_ref in json.dumps(call.input, default=str):
-                return Score(
-                    name=self._name(),
-                    score=1.0,
-                    metadata={"matched_via": "tool_reference", "tool": call.name[:120]},
-                )
+        match = _find_skill_load(parser, self.skill_name)
+        if match is not None:
+            return Score(name=self._name(), score=1.0, metadata=match)
 
         return Score(
             name=self._name(),
@@ -105,14 +122,54 @@ class SkillLoaded(Scorer):
             metadata={"reason": f"Skill '{self.skill_name}' was never loaded"},
         )
 
-    def _matches_skill_file(self, file_path: str) -> bool:
-        """Heuristic match: a Read of `<...>/<skill_name>/SKILL.md` counts as load.
 
-        The sandbox bind-mounts the local skills directory, so the exact path
-        depends on how skills are laid out in the cache — guard with a
-        substring check on both the skill name and the SKILL.md filename.
-        """
-        return self.skill_name in file_path and file_path.endswith("SKILL.md")
+class SkillTriggered(Scorer):
+    """Binary: did a skill's trigger fire when it should, and stay quiet when it shouldn't?
+
+    Shares ``SkillLoaded``'s detection, so the two can never disagree about what
+    counts as a load, but takes the expected direction from the case:
+    ``expected[<scorer name>] = {"should_load": <bool>}``. Every case must declare
+    it; an undeclared direction skips (``score=None``) rather than assuming a
+    positive, so a case that forgets the key reads as unconfigured instead of as
+    the agent over-triggering.
+
+    Use this instead of ``SkillLoaded`` in a suite that pairs positive and
+    negative trigger cases. ``SkillLoaded`` scores a correct non-load as 0, which
+    reads as a regression on the scorecard; here one row spans both directions
+    and the mean is trigger accuracy.
+    """
+
+    def __init__(self, skill_name: str, *, name: str | None = None):
+        self.skill_name = skill_name
+        self._label = name or "skill_triggered"
+
+    def _name(self) -> str:
+        return self._label
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        if not output:
+            return Score(name=self._name(), score=None, metadata={"reason": "No output"})
+        raw_log = output.get("raw_log")
+        if not raw_log:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        direction = (expected or {}).get(self._name())
+        if not isinstance(direction, dict) or "should_load" not in direction:
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={"reason": f"Case declared no should_load for '{self._name()}'"},
+            )
+        should_load = bool(direction["should_load"])
+
+        parser = LogParser.cached(raw_log, initial_prompt=output.get("prompt", "") or "")
+        match = _find_skill_load(parser, self.skill_name)
+        loaded = match is not None
+
+        metadata: dict[str, Any] = {"skill": self.skill_name, "should_load": should_load, "loaded": loaded}
+        if match is not None:
+            metadata |= match
+        return Score(name=self._name(), score=1.0 if loaded == should_load else 0.0, metadata=metadata)
 
 
 _NORMALIZE_RE = re.compile(r"[^a-z0-9 ]+")

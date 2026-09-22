@@ -41,7 +41,6 @@ export const FreeformGenerateBar = forwardRef<
     channelName,
     name,
     templateId,
-    isEdit = false,
     sessionId,
     onStarted,
   },
@@ -64,8 +63,6 @@ export const FreeformGenerateBar = forwardRef<
       name,
       templateId,
       instruction,
-      isEdit,
-      useStarter: !isEdit,
       workspaceMode,
     });
     if (taskId) onStarted?.(taskId);

@@ -83,6 +83,9 @@ class TestEndpointPath:
             ("playbooks", "/v3/organizations/org-abc/playbooks"),
             ("knowledge_notes", "/v3/organizations/org-abc/knowledge/notes"),
             ("secrets", "/v3/organizations/org-abc/secrets"),
+            # Members must stay on the org-scoped users listing: the v2 members endpoint only accepts
+            # enterprise-admin personal API keys, which this source never stores.
+            ("members", "/v3beta1/organizations/org-abc/members/users"),
         ]
     )
     def test_org_id_is_interpolated_into_path(self, endpoint: str, expected: str) -> None:
@@ -211,7 +214,7 @@ class TestGetStatusCode:
 
 
 class TestDevinAISource:
-    @parameterized.expand(list(DEVIN_AI_ENDPOINTS.keys()))
+    @parameterized.expand(["sessions", "playbooks", "knowledge_notes", "secrets"])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_source_response_uses_endpoint_primary_keys_and_stable_partition(self, endpoint: str, MockSession) -> None:
         response = _source(endpoint, _make_manager())
@@ -221,3 +224,82 @@ class TestDevinAISource:
         # created_at is a stable field — never updated_at — so partitions don't rewrite each sync.
         assert response.partition_keys == ["created_at"]
         assert response.partition_mode == "datetime"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_members_source_response_dedupes_on_user_id_and_has_no_partition(self, MockSession) -> None:
+        response = _source("members", _make_manager())
+        assert response.name == "members"
+        assert response.primary_keys == ["user_id"]
+        # Member records carry no created_at, so the table must not declare a datetime partition.
+        assert response.partition_keys is None
+        assert response.partition_mode is None
+
+
+class TestMembersJoin:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_member_user_id_and_email_pass_through_for_sessions_join(self, MockSession) -> None:
+        session = MockSession.return_value
+        # Devin identifies people by Auth0-style subjects (`email|<id>`, `google-oauth2|<id>`), and the
+        # sessions table's user_id lands as that same opaque string. The members table must surface
+        # user_id byte-identical to the API value so sessions.user_id = members.user_id resolves an email.
+        _wire(
+            session,
+            [
+                _response(
+                    [
+                        {
+                            "user_id": "email|1a2b3c4d5e6f",
+                            "email": "casey@example.com",
+                            "name": "Casey Doe",
+                            "role_assignments": [
+                                {
+                                    "org_id": "org-abc",
+                                    "role": {"role_id": "r1", "role_name": "Member", "role_type": "org"},
+                                }
+                            ],
+                        },
+                        {
+                            "user_id": "google-oauth2|110000000000000000001",
+                            "email": "riley@example.com",
+                            "name": "Riley Roe",
+                            "role_assignments": [],
+                        },
+                    ]
+                )
+            ],
+        )
+
+        rows = _rows(_source("members", _make_manager()))
+
+        email_by_user_id = {row["user_id"]: row["email"] for row in rows}
+        # user_id exactly as it lands in the synced sessions table.
+        assert email_by_user_id["email|1a2b3c4d5e6f"] == "casey@example.com"
+        assert email_by_user_id["google-oauth2|110000000000000000001"] == "riley@example.com"
+        assert rows[0]["name"] == "Casey Doe"
+        assert rows[0]["role_assignments"][0]["role"]["role_name"] == "Member"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_members_pagination_follows_cursor_so_later_pages_join(self, MockSession) -> None:
+        session = MockSession.return_value
+        # A member past the first page must still be synced, or their sessions stop resolving to an email.
+        params = _wire(
+            session,
+            [
+                _response(
+                    [{"user_id": "email|aaa111", "email": "casey@example.com", "name": None, "role_assignments": []}],
+                    has_next_page=True,
+                    end_cursor="cur1",
+                ),
+                _response(
+                    [{"user_id": "email|bbb222", "email": "riley@example.com", "name": None, "role_assignments": []}],
+                    has_next_page=False,
+                    end_cursor=None,
+                ),
+            ],
+        )
+
+        rows = _rows(_source("members", _make_manager()))
+
+        assert params[1] == {"first": PAGE_SIZE, "after": "cur1"}
+        email_by_user_id = {row["user_id"]: row["email"] for row in rows}
+        assert email_by_user_id["email|bbb222"] == "riley@example.com"

@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-// Keep in sync with FEATURE_FLAG_SUPPORTED_OPERATORS in
-// products/feature_flags/backend/api/feature_flag.py (mirrored by the filters serializer in
-// products/feature_flags/backend/api/filters_schema.py — issue #50084). This enum is
+// Keep in sync with FEATURE_FLAG_SUPPORTED_OPERATORS, defined in
+// products/feature_flags/backend/api/filters_schema.py (used there by the filters serializer
+// and by the write-path serde guard in feature_flag.py — issue #50084). This enum is
 // deliberately a superset: cohort filters don't go through flag-level operator validation,
 // so operators the cohort UI allows (between/not_between, and the min/max aliases mirroring
 // FEATURE_FLAG_OPERATOR_ALIASES) must deserialize here even though the flag API rejects them.

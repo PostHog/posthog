@@ -1,3 +1,5 @@
+import { contentHash } from "@posthog/core/code-review/contentHash";
+import type { InjectedBlock } from "@posthog/core/editor/injectedBlocks";
 import {
   addRecentFile,
   addActionTab as coreAddActionTab,
@@ -47,7 +49,7 @@ export type SplitDirection = "left" | "right" | "top" | "bottom";
 
 type TaskLayouts = Record<string, TaskLayout>;
 
-export interface PanelLayoutStore {
+interface PanelLayoutStore {
   taskLayouts: TaskLayouts;
 
   getLayout: (taskId: string) => TaskLayout | null;
@@ -58,18 +60,23 @@ export interface PanelLayoutStore {
     filePath: string,
     asPreview?: boolean,
   ) => void;
-  openChannelContextInSplit: (
+  openInjectedBlockTab: (
     taskId: string,
-    context: { channelName: string | null; body: string },
-  ) => void;
-  openCanvasInstructionsInSplit: (
-    taskId: string,
-    instructions: { body: string },
+    tab: { block: InjectedBlock; label: string },
   ) => void;
   openAutoresearchTab: (taskId: string) => void;
   openArtifactTab: (
     taskId: string,
-    artifact: { runId: string; artifactId: string; name: string },
+    artifact: {
+      runId: string;
+      artifactId: string;
+      name: string;
+      objectKind?: string;
+    },
+  ) => void;
+  openPostHogObjectTab: (
+    taskId: string,
+    object: { kind: string; id: string; name: string },
   ) => void;
   keepTab: (taskId: string, panelId: string, tabId: string) => void;
   closeTab: (taskId: string, panelId: string, tabId: string) => void;
@@ -247,35 +254,17 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
         });
       },
 
-      openChannelContextInSplit: (taskId, context) => {
-        const tabId = `context-${context.channelName ?? "channel"}`;
-        const label = `${context.channelName ? `#${context.channelName} ` : ""}CONTEXT.md`;
+      openInjectedBlockTab: (taskId, { block, label }) => {
+        const tabId = `injected-block:${block.kind}:${contentHash(block.body)}`;
         set((state) =>
           updateTaskLayout(
             state,
             taskId,
             (layout) =>
               coreOpenReadonlyTab(layout, tabId, label, {
-                type: "context",
-                channelName: context.channelName,
-                body: context.body,
+                type: "injected-block",
+                block,
               }) as Partial<TaskLayout>,
-          ),
-        );
-      },
-
-      openCanvasInstructionsInSplit: (taskId, instructions) => {
-        set((state) =>
-          updateTaskLayout(
-            state,
-            taskId,
-            (layout) =>
-              coreOpenReadonlyTab(
-                layout,
-                "canvas-instructions",
-                "Canvas instructions",
-                { type: "canvas-instructions", body: instructions.body },
-              ) as Partial<TaskLayout>,
           ),
         );
       },
@@ -308,6 +297,32 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
                   type: "artifact",
                   runId: artifact.runId,
                   artifactId: artifact.artifactId,
+                  objectKind: artifact.objectKind,
+                },
+                "main",
+              ) as Partial<TaskLayout>,
+          ),
+        );
+      },
+
+      openPostHogObjectTab: (taskId, object) => {
+        // Ids can be long (a hogql reference's id is the SQL itself); the tab
+        // id only has to be stable per object, not carry the whole value. Hash
+        // the full id so two ids sharing a long prefix can't collide onto one tab.
+        const tabId = `posthog-object:${object.kind}:${contentHash(object.id)}`;
+        set((state) =>
+          updateTaskLayout(
+            state,
+            taskId,
+            (layout) =>
+              coreOpenReadonlyTab(
+                layout,
+                tabId,
+                object.name,
+                {
+                  type: "posthog-object",
+                  objectKind: object.kind,
+                  objectId: object.id,
                 },
                 "main",
               ) as Partial<TaskLayout>,
@@ -525,7 +540,7 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
     }),
     {
       name: "panel-layout-store",
-      version: 10,
+      version: 11,
       migrate: () => ({ taskLayouts: {} }),
       storage: createJSONStorage(() => panelLayoutStorage),
     },

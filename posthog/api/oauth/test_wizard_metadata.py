@@ -14,6 +14,7 @@ class TestWizardClientMetadataView(SimpleTestCase):
         assert data["grant_types"] == ["authorization_code"]
         assert data["response_types"] == ["code"]
         assert data["token_endpoint_auth_method"] == "none"
+        assert data["com.posthog"] == {"provisioning": True}
 
     def test_client_id_matches_hosted_path(self):
         res = self.client.get("/api/oauth/wizard/client-metadata")

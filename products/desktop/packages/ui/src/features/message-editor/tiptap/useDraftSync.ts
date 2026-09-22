@@ -4,105 +4,12 @@ import {
   isContentEmpty,
 } from "@posthog/core/message-editor/content";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
-import type { Editor, JSONContent } from "@tiptap/core";
+import type { Editor } from "@tiptap/core";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-
-function tiptapJsonToEditorContent(json: JSONContent): EditorContent {
-  const segments: EditorContent["segments"] = [];
-
-  const traverse = (node: JSONContent) => {
-    if (node.type === "text" && node.text) {
-      segments.push({ type: "text", text: node.text });
-    } else if (node.type === "hardBreak") {
-      // Shift+Enter creates a hard break within a paragraph
-      // Use two trailing spaces + newline for markdown line break (<br>)
-      segments.push({ type: "text", text: "  \n" });
-    } else if (node.type === "mentionChip" && node.attrs) {
-      segments.push({
-        type: "chip",
-        chip: {
-          type: node.attrs.type,
-          id: node.attrs.id,
-          label: node.attrs.label,
-          pastedText: node.attrs.pastedText,
-          skillPath: node.attrs.skillPath,
-          skillSource: node.attrs.skillSource,
-          skillName: node.attrs.skillName,
-        },
-      });
-    } else if (node.type === "doc" && node.content) {
-      // Add double newlines between paragraphs for markdown rendering
-      // (single newlines in markdown become spaces, double newlines create paragraph breaks)
-      for (let i = 0; i < node.content.length; i++) {
-        if (i > 0) {
-          segments.push({ type: "text", text: "\n\n" });
-        }
-        traverse(node.content[i]);
-      }
-    } else if (node.content) {
-      for (const child of node.content) {
-        traverse(child);
-      }
-    }
-  };
-
-  traverse(json);
-  return { segments };
-}
-
-export function editorContentToTiptapJson(content: EditorContent): JSONContent {
-  const paragraphs: JSONContent[] = [];
-  let currentParagraphContent: JSONContent[] = [];
-
-  const flushParagraph = () => {
-    paragraphs.push({ type: "paragraph", content: currentParagraphContent });
-    currentParagraphContent = [];
-  };
-
-  for (const seg of content.segments) {
-    if (seg.type === "text") {
-      const paragraphParts = seg.text.split("\n\n");
-      for (let i = 0; i < paragraphParts.length; i++) {
-        if (i > 0) {
-          flushParagraph();
-        }
-        const lineParts = paragraphParts[i].split(/ {2}\n|\n/);
-        for (let j = 0; j < lineParts.length; j++) {
-          if (j > 0) {
-            currentParagraphContent.push({ type: "hardBreak" });
-          }
-          if (lineParts[j]) {
-            currentParagraphContent.push({ type: "text", text: lineParts[j] });
-          }
-        }
-      }
-    } else {
-      currentParagraphContent.push({
-        type: "mentionChip",
-        attrs: {
-          type: seg.chip.type,
-          id: seg.chip.id,
-          label: seg.chip.label,
-          pastedText: seg.chip.pastedText ?? false,
-          skillPath: seg.chip.skillPath,
-          skillSource: seg.chip.skillSource,
-          skillName: seg.chip.skillName,
-        },
-      });
-    }
-  }
-
-  flushParagraph();
-
-  if (paragraphs.length === 0) {
-    paragraphs.push({ type: "paragraph", content: [] });
-  }
-
-  return {
-    type: "doc",
-    content: paragraphs,
-  };
-}
+import {
+  editorContentToTiptapJson,
+  tiptapJsonToEditorContent,
+} from "./markdownDoc";
 
 export interface DraftContext {
   taskId?: string;
@@ -113,6 +20,8 @@ export function useDraftSync(
   editor: Editor | null,
   sessionId: string,
   context?: DraftContext,
+  /** What the composer starts from when this session has no draft yet. */
+  initialContent?: string,
 ) {
   const hasRestoredRef = useRef(false);
   const lastSessionIdRef = useRef(sessionId);
@@ -156,7 +65,16 @@ export function useDraftSync(
   // Restore draft on mount or when sessionId/editor changes
   useLayoutEffect(() => {
     if (!hasHydrated || !editor || hasRestoredRef.current) return;
-    if (!draft || isContentEmpty(draft)) return;
+    if (!draft || isContentEmpty(draft)) {
+      // A caller's starting point fills the box only when nothing was left in
+      // it. It waits for hydration like the draft does, so the two can't race
+      // and flash one over the other.
+      if (initialContent) {
+        hasRestoredRef.current = true;
+        editor.commands.setContent(initialContent);
+      }
+      return;
+    }
 
     hasRestoredRef.current = true;
 
@@ -165,7 +83,7 @@ export function useDraftSync(
     } else {
       editor.commands.setContent(editorContentToTiptapJson(draft));
     }
-  }, [hasHydrated, draft, editor]);
+  }, [hasHydrated, draft, editor, initialContent]);
 
   // Handle pending content (e.g., restoring queued messages after cancel)
   useLayoutEffect(() => {

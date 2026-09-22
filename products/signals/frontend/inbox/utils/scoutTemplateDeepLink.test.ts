@@ -23,9 +23,9 @@ describe('scoutTemplateDeepLink', () => {
         expect(decodeScoutCreateTemplate(encoded)).toEqual({ description: 'Watches naïve 🦔 flows – en dashes too' })
     })
 
-    it('prefixes an unprefixed name', () => {
+    it('keeps a bare name as it is', () => {
         const encoded = encodeScoutCreateTemplate({ name: 'silent-failure', description: 'd' })
-        expect(decodeScoutCreateTemplate(encoded)?.name).toBe('signals-scout-silent-failure')
+        expect(decodeScoutCreateTemplate(encoded)?.name).toBe('silent-failure')
     })
 
     it('drops an invalid name but keeps the rest', () => {

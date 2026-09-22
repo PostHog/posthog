@@ -12,7 +12,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.chargebee.
     ChargebeeResumeConfig,
     chargebee_source,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.chargebee.source import ChargebeeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargebee import (
+    ChargebeeSourceConfig,
+)
 
 
 class TestChargebeePaginator:
@@ -216,3 +220,46 @@ class TestChargebeeSourceResumeBehavior:
         self._drive("Customers", manager, responses)
 
         manager.load_state.assert_not_called()
+
+
+class TestChargebeeSiteNameValidation:
+    _VALIDATE = (
+        "products.warehouse_sources.backend.temporal.data_imports.sources.chargebee.source"
+        ".validate_chargebee_credentials"
+    )
+
+    @pytest.mark.parametrize(
+        "site_name",
+        [
+            # Digits are valid in a Chargebee subdomain; the site name is a DNS label. A prior
+            # letters-only check rejected these before any request was made.
+            "acme2024",
+            "shop24",
+            "acme-test",
+            "acme",
+        ],
+    )
+    def test_accepts_valid_subdomain_site_names(self, site_name: str) -> None:
+        config = ChargebeeSourceConfig(api_key="key", site_name=site_name)
+        with patch(self._VALIDATE, return_value=True) as mock_validate:
+            is_valid, message = ChargebeeSource().validate_credentials(config, team_id=1)
+        assert (is_valid, message) == (True, None)
+        mock_validate.assert_called_once_with("key", site_name)
+
+    @pytest.mark.parametrize(
+        "site_name",
+        [
+            "acme.chargebee.com",
+            "https://acme.chargebee.com",
+            "-acme",
+            "acme/live",
+            "",
+        ],
+    )
+    def test_rejects_non_subdomain_without_calling_the_api(self, site_name: str) -> None:
+        config = ChargebeeSourceConfig(api_key="key", site_name=site_name)
+        with patch(self._VALIDATE) as mock_validate:
+            is_valid, message = ChargebeeSource().validate_credentials(config, team_id=1)
+        assert is_valid is False
+        assert message is not None and "chargebee.com" in message
+        mock_validate.assert_not_called()

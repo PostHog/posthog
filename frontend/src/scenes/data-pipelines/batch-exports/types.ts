@@ -9,7 +9,6 @@ import {
     BatchExportServiceHTTP,
     BatchExportServicePostgres,
     BatchExportServiceRedshift,
-    BatchExportServiceS3,
     BatchExportServiceS3Compatible,
     BatchExportServiceSnowflake,
 } from '~/types'
@@ -23,7 +22,6 @@ export type BatchExportConfigurationForm = Omit<
     Partial<BatchExportServicePostgres['config']> &
     Partial<BatchExportServiceRedshift['config']> &
     Partial<BatchExportServiceBigQuery['config']> &
-    Partial<BatchExportServiceS3['config']> &
     Partial<BatchExportServiceAwsS3['config']> &
     Partial<BatchExportServiceS3Compatible['config']> &
     Partial<BatchExportServiceSnowflake['config']> &
@@ -31,7 +29,6 @@ export type BatchExportConfigurationForm = Omit<
     Partial<BatchExportServiceHTTP['config']> &
     Partial<BatchExportServiceAzureBlob['config']> & {
         destination:
-            | 'S3'
             | 'AwsS3'
             | 'S3Compatible'
             | 'Snowflake'

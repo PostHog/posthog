@@ -24,6 +24,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 from posthog.models.scoping import team_scope
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.summarization.llm.schema import (
     InterestingNote,
     SummarizationResponse,
@@ -37,7 +38,7 @@ from products.data_modeling.backend.facade.models import (
 )
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
@@ -52,7 +53,6 @@ from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, Ma
 from ee.hogai.tools.read_data.tool import ReadDataTool
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, NodePath
-from ee.models.rbac.access_control import AccessControl
 
 if TYPE_CHECKING:
     from products.customer_analytics.backend.models import Account

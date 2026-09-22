@@ -1,9 +1,14 @@
-import { STARTUP_PROGRAM_BILLING_LIMIT_MAX } from 'scenes/billing/billingLimitConfig'
+import {
+    REPLAY_VISION_PRODUCT_KEY,
+    STARTUP_PROGRAM_BILLING_LIMIT_MAX_BY_PRODUCT,
+} from 'scenes/billing/billingLimitConfig'
 
 import type { BillingType } from '~/types'
 
 import type { VisionQuotaApi } from '../generated/api.schemas'
 import { CREDITS_PER_DOLLAR } from './credits'
+
+const STARTUP_PROGRAM_BILLING_LIMIT_MAX = STARTUP_PROGRAM_BILLING_LIMIT_MAX_BY_PRODUCT[REPLAY_VISION_PRODUCT_KEY]
 
 /** Billing enforces this same ceiling server-side, in dollars. */
 export const STARTUP_CAP_CREDITS: number = STARTUP_PROGRAM_BILLING_LIMIT_MAX * CREDITS_PER_DOLLAR

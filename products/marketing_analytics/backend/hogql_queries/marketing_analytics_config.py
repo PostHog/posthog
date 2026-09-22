@@ -51,7 +51,9 @@ MULTI_TOUCH_MODES: frozenset[AttributionMode] = frozenset(
 )
 
 
-@dataclass
+# Mutable by design: `from_team` builds a default instance and then overwrites the
+# team-derived fields on it, rather than threading them all through the constructor.
+@dataclass(frozen=False)
 class MarketingAnalyticsConfig:
     """
     Configuration object that centralizes all constants and naming conventions
@@ -259,6 +261,10 @@ class MarketingAnalyticsConfig:
     def get_conversion_goal_column_name(self, index: int) -> str:
         """Get standardized conversion goal column name"""
         return f"{self.conversion_goal_prefix}{index}"
+
+    def get_conversion_goal_count_column_name(self, index: int) -> str:
+        """Conversions counted, for goals whose own column holds a summed amount instead."""
+        return f"{self.conversion_goal_prefix}{index}_count"
 
     def get_conversion_goal_alias(self, index: int) -> str:
         """Get conversion goal CTE alias"""

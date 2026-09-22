@@ -5,7 +5,11 @@ import {
 } from "@posthog/core/settings/worktreeGrouping";
 import { deleteWorktree as runDeleteWorktree } from "@posthog/core/settings/worktreeMaintenanceService";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
-import { Flex, Switch, Text, TextField } from "@radix-ui/themes";
+import {
+  SettingsCard,
+  SettingsCardRow,
+} from "@posthog/ui/features/settings/components/SettingsCard";
+import { Switch, Text, TextField } from "@radix-ui/themes";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "../../../../primitives/toast";
@@ -15,7 +19,6 @@ import { useSuspensionSettings } from "../../../suspension/useSuspensionSettings
 import { useDeleteTask } from "../../../tasks/useTaskCrudMutations";
 import { useTasks } from "../../../tasks/useTasks";
 import { WORKSPACE_QUERY_KEY } from "../../../workspace/identifiers";
-import { SettingRow } from "../../SettingRow";
 import { useSettingsStore } from "../../settingsStore";
 import { WorktreeGroupSection } from "./WorktreeGroupSection";
 
@@ -138,9 +141,9 @@ export function WorktreesSettings() {
   const isLoading = worktreeQueries.some((q) => q.isLoading);
 
   return (
-    <Flex direction="column" gap="5">
-      <Flex direction="column">
-        <SettingRow
+    <div className="flex flex-col gap-7">
+      <SettingsCard>
+        <SettingsCardRow
           label="Show worktrees in sidebar"
           description="List worktrees that have no task under each repo in the sidebar, so you can start a task in one with a click"
         >
@@ -149,10 +152,10 @@ export function WorktreesSettings() {
             onCheckedChange={setShowSidebarWorktrees}
             size="1"
           />
-        </SettingRow>
-        <SettingRow
+        </SettingsCardRow>
+        <SettingsCardRow
           label="Automatically suspend stale worktrees"
-          description="Suspend stale worktrees to save disk space. Suspended worktrees can be restored at any time. Only disable if you prefer to manage worktrees manually."
+          description="Suspend stale worktrees to save disk space; suspended worktrees can be restored at any time; only disable if you prefer to manage worktrees manually"
         >
           <Switch
             checked={settings.autoSuspendEnabled}
@@ -161,8 +164,8 @@ export function WorktreesSettings() {
             }
             size="1"
           />
-        </SettingRow>
-        <SettingRow
+        </SettingsCardRow>
+        <SettingsCardRow
           label="Max active worktrees"
           description="When this limit is reached, the least recently active worktree will be automatically suspended"
         >
@@ -180,11 +183,10 @@ export function WorktreesSettings() {
             }}
             className="w-[64px]"
           />
-        </SettingRow>
-        <SettingRow
+        </SettingsCardRow>
+        <SettingsCardRow
           label="Auto-suspend after inactivity"
           description="Suspend worktrees with no activity for this many days"
-          noBorder
         >
           <TextField.Root
             key={`days-${settings.autoSuspendAfterDays}`}
@@ -200,8 +202,8 @@ export function WorktreesSettings() {
             }}
             className="w-[64px]"
           />
-        </SettingRow>
-      </Flex>
+        </SettingsCardRow>
+      </SettingsCard>
 
       {isLoading ? (
         <Text color="gray" className="text-sm">
@@ -222,6 +224,6 @@ export function WorktreesSettings() {
           />
         ))
       )}
-    </Flex>
+    </div>
   );
 }

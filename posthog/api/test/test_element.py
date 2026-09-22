@@ -1,7 +1,7 @@
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -242,7 +242,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         event_start = "2012-01-14T03:21:34.000Z"
         query_time = "2012-01-14T08:21:34.000Z"
 
-        with freeze_time(event_start) as frozen_time:
+        with time_machine.travel(event_start, tick=False) as frozen_time:
             elements = [
                 Element(
                     tag_name="a",
@@ -259,7 +259,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ]
 
             _create_event(  # 3 am but included because date_from is set to start of day
-                timestamp=frozen_time(),
+                timestamp=datetime.now(),
                 team=self.team,
                 elements=elements,
                 event="$autocapture",
@@ -267,10 +267,10 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 properties={"$current_url": "http://example.com/demo"},
             )
 
-            frozen_time.tick(delta=timedelta(hours=10))
+            frozen_time.shift(timedelta(hours=10))
 
             _create_event(  # included
-                timestamp=frozen_time(),
+                timestamp=datetime.now(),
                 team=self.team,
                 elements=elements,
                 event="$autocapture",
@@ -278,7 +278,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 properties={"$current_url": "http://example.com/demo"},
             )
 
-        with freeze_time(query_time):
+        with time_machine.travel(query_time, tick=False):
             # the UI doesn't allow you to choose time, so query should always be from start of day
             response = self.client.get(f"/api/element/stats/?paginate_response=true&date_from={query_time}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -392,6 +392,79 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         filtered = self.client.get("/api/element/stats/?paginate_response=true&data_attributes=data-attr").json()
         assert filtered["results"][0]["elements"][0]["attributes"] == {"attr__data-attr": "signup-cta"}
         assert filtered["results"][0]["elements"][0]["text"] == "sign up"
+
+    STATS_URL = "/api/element/stats/?paginate_response=true&data_attributes=data-attr"
+    NONCES = ("a1b2c3", "d4e5f6", "0a9b8c")
+
+    def _create_autocapture(self, text: str, attributes: dict) -> None:
+        _create_event(
+            team=self.team,
+            elements=[Element(tag_name="button", text=text, order=0, attributes=attributes)],
+            event="$autocapture",
+            distinct_id="one",
+            properties={"$current_url": "http://example.com/demo"},
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "collapses_attributes_the_response_discards",
+                True,
+                [("sign up", {"attr__data-attr": "signup-cta", "attr__ngcspnonce": nonce}) for nonce in NONCES]
+                + [("log in", {"attr__data-attr": "login-cta"})],
+                [3, 1],
+            ),
+            (
+                "collapses_attribute_values_holding_escaped_quotes",
+                True,
+                [
+                    (
+                        "sign up",
+                        {
+                            "attr__data-attr": "signup-cta",
+                            "attr__style": '--icon: url("/assets/icon.svg")',
+                            "attr__ngcspnonce": nonce,
+                        },
+                    )
+                    for nonce in NONCES[:2]
+                ],
+                [2],
+            ),
+            (
+                "leaves_grouping_untouched_while_the_flag_is_off",
+                False,
+                [("sign up", {"attr__data-attr": "signup-cta", "attr__ngcspnonce": nonce}) for nonce in NONCES],
+                [1, 1, 1],
+            ),
+        ]
+    )
+    def test_element_stats_chain_normalization(
+        self, _name: str, flag_enabled: bool, events: list[tuple[str, dict]], expected_counts: list[int]
+    ) -> None:
+        _create_person(distinct_ids=["one"], team=self.team, properties={"email": "one@mail.com"})
+        for text, attributes in events:
+            self._create_autocapture(text, attributes)
+
+        with mock.patch("posthog.api.element.posthog_feature_flag_enabled", return_value=flag_enabled):
+            results = self.client.get(self.STATS_URL).json()["results"]
+
+        assert [row["count"] for row in results] == expected_counts
+        assert results[0]["elements"][0]["text"] == "sign up"
+        assert results[0]["elements"][0]["attributes"] == {"attr__data-attr": "signup-cta"}
+
+    @mock.patch("posthog.api.element.posthog_feature_flag_enabled", return_value=True)
+    def test_element_stats_keeps_requested_data_attributes_distinct(self, _flag: mock.MagicMock) -> None:
+        _create_person(distinct_ids=["one"], team=self.team, properties={"email": "one@mail.com"})
+        self._create_autocapture("sign up", {"attr__data-attr": "signup-cta"})
+        self._create_autocapture("sign up", {"attr__data-attr": "signup-secondary"})
+
+        results = self.client.get(self.STATS_URL).json()["results"]
+
+        assert len(results) == 2
+        assert sorted(row["elements"][0]["attributes"]["attr__data-attr"] for row in results) == [
+            "signup-cta",
+            "signup-secondary",
+        ]
 
     def test_element_stats_returns_stable_chain_hashes(self) -> None:
         self._setup_events()

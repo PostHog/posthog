@@ -30,7 +30,7 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-from django.db.models import Count, F, Max, OuterRef, Q, Subquery
+from django.db.models import Count, F, Max, Q
 from django.utils import timezone
 
 from posthog.hogql import ast
@@ -44,6 +44,7 @@ from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action
+from products.alerts.backend.facade.destinations import redact_urls_in_name
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.business_knowledge.backend.models.constants import SourceStatus
 from products.business_knowledge.backend.models.knowledge_source import KnowledgeSource
@@ -64,7 +65,7 @@ from products.signals.backend.scout_harness.config_registry import live_scout_sk
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade import api as warehouse_sources
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = logging.getLogger(__name__)
@@ -72,8 +73,9 @@ logger = logging.getLogger(__name__)
 # Bumps when the inventory schema changes meaningfully — `get_project_profile` invalidates
 # rows whose `source_version` doesn't match the current build, so adding a new key here
 # (or restructuring an existing one) without bumping the version would silently mix old
-# and new shapes in the cache.
-INVENTORY_SOURCE_VERSION = "v12"
+# and new shapes in the cache. A redaction change bumps it too, so rows built before the
+# redaction stop being served.
+INVENTORY_SOURCE_VERSION = "v14"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -236,32 +238,16 @@ def _external_data_sources(team: Team) -> list[dict[str, Any]]:
     semantics of the `external-data-sources-list` API so a scout can spot a dead source from
     the profile alone without a follow-up list call.
     """
-    # Newest schema-level error across the source's non-deleted schemas. Ordered by most
-    # recently updated so a scout sees the freshest failure, matching the list API's intent.
-    latest_error = Subquery(
-        ExternalDataSchema.objects.filter(source_id=OuterRef("pk"), deleted=False, latest_error__isnull=False)
-        .order_by("-updated_at")
-        .values("latest_error")[:1]
-    )
-    rows = (
-        ExternalDataSource.objects.filter(team=team, deleted=False)
-        .annotate(
-            last_run_at=Max("jobs__created_at", filter=Q(jobs__status=ExternalDataJob.Status.COMPLETED)),
-            latest_error=latest_error,
-        )
-        .order_by("source_type", "id")
-        .values("source_type", "status", "prefix", "created_at", "last_run_at", "latest_error")
-    )
     return [
         {
-            "source_type": row["source_type"],
-            "status": row["status"],
-            "prefix": row["prefix"] or "",
-            "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
-            "last_run_at": row["last_run_at"].isoformat() if row.get("last_run_at") else None,
-            "latest_error": row.get("latest_error"),
+            "source_type": source.source_type,
+            "status": source.status,
+            "prefix": source.prefix or "",
+            "created_at": source.created_at.isoformat(),
+            "last_run_at": source.last_run_at.isoformat() if source.last_run_at else None,
+            "latest_error": source.latest_error,
         }
-        for row in rows
+        for source in warehouse_sources.list_source_health(team.pk)
     ]
 
 
@@ -283,35 +269,20 @@ def _signal_source_configs(team: Team) -> dict[str, list[dict[str, str]]]:
 def _emit_eligibility(team: Team) -> dict[str, Any]:
     """Whether scout findings can actually reach the inbox for this team.
 
-    Mirrors the team/org-level half of the shared emit preflight (`_preflight_emit_gates`) so a
-    scout can read it at cold start and quick-close before doing throwaway work whose output would
-    be silently dropped. Both the signal and report channels gate on the same two conditions: the
-    org must have approved AI data processing, and the `signals_scout` source must be enabled.
-    `remediation` reuses the emit path's authoritative pointers so the profile and the skip
-    response never drift.
+    The profile row is shared by every scout on the team, so this stores the team-wide floor: the
+    two gates that hold for all of them (org AI-processing consent, `signals_scout` source
+    enablement). `emit_eligibility(run=None)` is where those are evaluated, and the profile
+    endpoint re-derives the block for whichever scout is reading. Delegating rather than
+    re-deriving is the point: the value a scout reads while orienting and the gate applied when it
+    writes come out of the same function, so the profile can't promise an emit the write path
+    refuses.
     """
     # Deferred to break the profile↔tools import cycle: `tools/__init__` eagerly imports
     # `tools.profile`, which imports this `profile` package, so a module-level import here would
     # re-enter a half-initialized `profile` package during `tools` package init.
-    from products.signals.backend.scout_harness.tools.emit import (  # noqa: PLC0415
-        SOURCE_PRODUCT,
-        SOURCE_TYPE,
-        remediation_for_skip,
-    )
+    from products.signals.backend.scout_harness.tools.emit import emit_eligibility  # noqa: PLC0415
 
-    ai_processing_approved = bool(team.organization.is_ai_data_processing_approved)
-    source_enabled = SignalSourceConfig.is_source_enabled(team.id, SOURCE_PRODUCT, SOURCE_TYPE)
-    can_emit = ai_processing_approved and source_enabled
-    # Point at the first failing gate, matching the preflight's check order.
-    blocking_reason = (
-        None if can_emit else ("ai_processing_not_approved" if not ai_processing_approved else "source_disabled")
-    )
-    return {
-        "ai_processing_approved": ai_processing_approved,
-        "source_enabled": source_enabled,
-        "can_emit": can_emit,
-        "remediation": remediation_for_skip(blocking_reason),
-    }
+    return emit_eligibility(team=team, run=None)
 
 
 def _scout_fleet(team: Team) -> dict[str, Any]:
@@ -580,7 +551,7 @@ def _recent_alerts(team: Team) -> dict[str, Any]:
         "recent": [
             {
                 "id": str(row["id"]),
-                "name": row["name"] or "",
+                "name": redact_urls_in_name(row["name"] or ""),
                 "enabled": row["enabled"],
                 "state": row["state"],
                 "calculation_interval": row["calculation_interval"],
@@ -598,6 +569,10 @@ def _recent_hog_functions(team: Team) -> dict[str, Any]:
     `type` discriminates destinations vs transformations vs site apps — the agent
     pattern-matches on it to decide whether activity is "data plumbing" or "user
     surface" work.
+
+    An alert destination is a hog function whose name embeds the full webhook URL, so a
+    name can carry a live channel credential in its path or query. The profile goes into
+    an agent context, so each name keeps only its host.
     """
     qs = HogFunction.objects.filter(team=team, deleted=False)
     total = qs.count()
@@ -611,7 +586,7 @@ def _recent_hog_functions(team: Team) -> dict[str, Any]:
         "recent": [
             {
                 "id": str(row["id"]),
-                "name": row["name"] or "",
+                "name": redact_urls_in_name(row["name"] or ""),
                 "type": row["type"],
                 "kind": row["kind"],
                 "enabled": row["enabled"],
@@ -725,11 +700,11 @@ def _business_knowledge(team: Team) -> dict[str, Any]:
     """Business knowledge orientation — total + ready count, aggregate doc/chunk volume,
     plus the 5 most recently updated sources.
 
-    Tells the scout whether the team has a curated knowledge base worth searching via
-    `business-knowledge-documents-search`. The profile does NOT evaluate the
-    `product-business-knowledge` feature flag — it reads only authoritative tables so
-    cached profiles stay valid across flag flips; the base prompt conditions on "tool
-    present AND ready_count > 0" instead.
+    Inventory for a scout that already knows the knowledge base exists: which sources are there,
+    how much is searchable, what changed recently. The profile does NOT evaluate the
+    `product-business-knowledge` feature flag — it reads only authoritative tables so cached
+    profiles stay valid across flag flips. Whether the run is told about the base at all is the
+    prompt's call, gated per run on flag + a maintained base (`prompt._BUSINESS_KNOWLEDGE`).
     """
     qs = KnowledgeSource.objects.for_team(team.id)
     total = qs.count()

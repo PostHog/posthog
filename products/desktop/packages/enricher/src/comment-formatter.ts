@@ -7,8 +7,15 @@ function commentPrefix(languageId: string): string {
   return "//";
 }
 
+function sanitizeCommentValue(value: string): string {
+  return value
+    .replace(/[\r\n\u2028\u2029]+/g, " ")
+    .replaceAll("*/", "* /")
+    .trim();
+}
+
 function formatFlagComment(flag: EnrichedFlag): string {
-  const parts: string[] = [`Flag: "${flag.flagKey}"`];
+  const parts: string[] = [`Flag: "${sanitizeCommentValue(flag.flagKey)}"`];
 
   if (!flag.flag) {
     parts.push("not in PostHog");
@@ -30,20 +37,21 @@ function formatFlagComment(flag: EnrichedFlag): string {
   }
   if (flag.experiment) {
     const status = flag.experiment.end_date ? "complete" : "running";
-    parts.push(`Experiment: "${flag.experiment.name}" (${status})`);
+    const experimentName = sanitizeCommentValue(flag.experiment.name);
+    parts.push(`Experiment: "${experimentName}" (${status})`);
   }
   if (flag.staleness) {
     parts.push(`STALE (${flag.staleness})`);
   }
   if (flag.url) {
-    parts.push(flag.url);
+    parts.push(sanitizeCommentValue(flag.url));
   }
 
   return parts.join(" \u2014 ");
 }
 
 function formatEventComment(event: EnrichedEvent): string {
-  const parts: string[] = [`Event: "${event.eventName}"`];
+  const parts: string[] = [`Event: "${sanitizeCommentValue(event.eventName)}"`];
   if (event.verified) {
     parts.push("(verified)");
   }
@@ -54,9 +62,16 @@ function formatEventComment(event: EnrichedEvent): string {
     parts.push(`${event.stats.uniqueUsers.toLocaleString()} users`);
   }
   if (event.definition?.description) {
-    parts.push(event.definition.description);
+    parts.push(sanitizeCommentValue(event.definition.description));
   }
   return parts.join(" \u2014 ");
+}
+
+function stripExistingInlineAnnotation(line: string, isJsx: boolean): string {
+  const pattern = isJsx
+    ? /\s+\{\/\* \[PostHog\].* \*\/\}\s*$/
+    : /\s+(?:\/\/|#) \[PostHog\].*$/;
+  return line.replace(pattern, "");
 }
 
 function buildCommentBody(
@@ -73,15 +88,15 @@ function buildCommentBody(
     if (event) {
       body = formatEventComment(event);
     } else if (item.detail) {
-      body = `Event: ${item.detail}`;
+      body = `Event: ${sanitizeCommentValue(item.detail)}`;
     }
   } else if (item.type === "init") {
-    body = `Init: token "${item.name}"`;
+    body = `Init: token "${sanitizeCommentValue(item.name)}"`;
   }
 
   if (!body) return null;
   if (item.viaWrapper) {
-    body = `${body} (via ${item.viaWrapper})`;
+    body = `${body} (via ${sanitizeCommentValue(item.viaWrapper)})`;
   }
   return body;
 }
@@ -165,12 +180,24 @@ export function formatInlineComments(
     const suffix = isJsx
       ? ` {/* [PostHog] ${joined} */}`
       : ` ${prefix} [PostHog] ${joined}`;
-    lines[lineIdx] = `${lines[lineIdx]}${suffix}`;
+    const sourceLine = stripExistingInlineAnnotation(
+      lines[lineIdx] ?? "",
+      isJsx,
+    );
+    lines[lineIdx] = `${sourceLine}${suffix}`;
   }
 
   leadingInserts.sort((a, b) => b.atLine - a.atLine);
   for (const { atLine, text } of leadingInserts) {
-    lines.splice(atLine, 0, text);
+    const previousLine = lines[atLine - 1]?.trim() ?? "";
+    const hasExistingAnnotation = /^\{\/\* \[PostHog\].* \*\/\}$/.test(
+      previousLine,
+    );
+    if (hasExistingAnnotation) {
+      lines[atLine - 1] = text;
+    } else {
+      lines.splice(atLine, 0, text);
+    }
   }
 
   return lines.join("\n");

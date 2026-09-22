@@ -3,6 +3,10 @@ import type { InactivityPeriod as BaseInactivityPeriod } from '@posthog/replay-h
 export interface RasterizeRecordingInput {
     session_id: string
     team_id: number
+    // Team-scoped read token minted by the Python build_rasterization_input activity and relayed to
+    // recording-api (the rasterizer cannot mint its own). Optional only during migration, before the
+    // minting side has shipped.
+    recording_api_token?: string
     max_virtual_time?: number // max virtual-time seconds before stopping capture (default: unlimited)
     playback_speed?: number // 1-360, defaults to 4
     start_offset_s?: number // seconds from session start to begin playback
@@ -20,6 +24,25 @@ export interface RasterizeRecordingInput {
     screenshot_quality?: number // JPEG quality 0-100 (default: 80, ignored for png)
     s3_bucket: string
     s3_key_prefix: string // e.g. "exports/mp4/team-123/task-456"
+}
+
+export interface ExtractThumbnailInput {
+    /** The rendered analysis MP4 to cut the frame from. */
+    source_s3_uri: string
+    /** Seconds into the analysis video, which is the time base the model's citations use. */
+    video_time_s: number
+    /** Pixels of burned-in metadata footer to crop off the bottom before scaling. */
+    footer_crop_px?: number
+    /** Output width; height follows the source aspect ratio. Defaults to 1280. */
+    width?: number
+    s3_bucket: string
+    s3_key_prefix: string
+    id: string
+}
+
+export interface ExtractThumbnailOutput {
+    s3_uri: string
+    file_size_bytes: number
 }
 
 /**
@@ -77,12 +100,13 @@ export interface CaptureConfig {
 
 /** Internal result from the recorder before S3 upload */
 export interface RecordingResult {
-    video_path: string
     playback_speed: number
     capture_duration_s: number // wall-clock seconds of useful capture (up to RECORDING_ENDED)
     frame_count: number // total frames captured
     truncated: boolean // true when max_virtual_time stopped the recording early
     inactivity_periods: InactivityPeriod[]
-    custom_fps: number
+    frame_session_ms: number[] // session time at each captured frame, measured during capture
+    pre_roll_frames: number // frames captured before playback started, which carry no sample
+    output_fps: number // frames per second of the rendered file, so a frame index is a video position
     timings: Pick<ActivityTimings, 'setup_s' | 'capture_s'>
 }

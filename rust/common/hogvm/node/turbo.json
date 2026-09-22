@@ -1,0 +1,28 @@
+{
+    "$schema": "https://turbo.build/schema.json",
+    "extends": ["//"],
+    "tasks": {
+        "build": {
+            "inputs": [
+                "src",
+                "build.rs",
+                "Cargo.toml",
+                "Cargo.lock",
+                "$TURBO_ROOT$/rust/common/hogvm/src/**",
+                "$TURBO_ROOT$/rust/common/hogvm/Cargo.toml",
+                "$TURBO_ROOT$/rust/Cargo.toml"
+            ]
+        },
+        "test": {
+            "inputs": [
+                "src",
+                "build.rs",
+                "Cargo.toml",
+                "Cargo.lock",
+                "$TURBO_ROOT$/rust/common/hogvm/src/**",
+                "$TURBO_ROOT$/rust/common/hogvm/Cargo.toml",
+                "$TURBO_ROOT$/rust/Cargo.toml"
+            ]
+        }
+    }
+}

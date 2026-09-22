@@ -503,10 +503,10 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
             // Seed the field with the current limit (or the free allowance when uncapped).
             actions.setLimitFormValue('prs', values.limitPrs ?? values.freePrs)
         },
-        // Refunds broadcast `reportArchived` after archiving server-side; reload the summary so
+        // Refunds broadcast `reportStateChanged` after dismissing server-side; reload the summary so
         // the widget's netted PR count updates in-session (mirrors the reportListLogic reconcile
-        // listener — a plain archive just makes this a cheap no-op reload).
-        [inboxBulkActionsLogic.actionTypes.reportArchived]: () => actions.loadRefundSummary(),
+        // listener — a plain dismiss or resolve just makes this a cheap no-op reload).
+        [inboxBulkActionsLogic.actionTypes.reportStateChanged]: () => actions.loadRefundSummary(),
     })),
     // Fires on mount and again when the org-group-keyed flag arrives after mount — a mount-time
     // load alone silently skips the summary on pageloads where flags resolve late, leaving the

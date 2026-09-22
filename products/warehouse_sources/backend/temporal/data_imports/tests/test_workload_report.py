@@ -65,7 +65,12 @@ class TestWorkloadReporting:
         # Clean completion: dropped from the running set (it is no longer a live co-tenant), but the
         # final sample survives for a death that happens moments later on the same pod.
         assert not redis.sismember(host_key("pod-rt"), "run-rt")
-        assert json.loads(redis.get(run_key("run-rt")))["phase"] == "finished"
+        final = json.loads(redis.get(run_key("run-rt")))
+        assert final["phase"] == "finished"
+        # A stale current buffer here inflates `co_tenant_sum_buffer_bytes` for a neighbour that
+        # dies afterwards; the peak stays because that is what blame is judged on.
+        assert final["buffer_bytes"] == 0
+        assert final["peak_buffer_bytes"] == 500
 
     def test_enrichment_attaches_own_report_and_aggregates_co_tenants_without_identifiers(self):
         # A pod is multi-tenant, so co-tenant reports belong to other teams: the event may carry only

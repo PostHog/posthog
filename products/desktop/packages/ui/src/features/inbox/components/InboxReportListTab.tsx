@@ -1,10 +1,12 @@
-import type { IconProps } from "@phosphor-icons/react";
+import { FunnelIcon, type IconProps } from "@phosphor-icons/react";
 import {
   INBOX_SCOPE_ENTIRE_PROJECT,
   INBOX_SCOPE_FOR_YOU,
 } from "@posthog/core/inbox/reportMembership";
 import {
+  Button,
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -28,6 +30,10 @@ import {
 import { useInboxReportListSelection } from "@posthog/ui/features/inbox/hooks/useInboxReportListSelection";
 import { useInboxReviewerScopeStore } from "@posthog/ui/features/inbox/stores/inboxReviewerScopeStore";
 import {
+  hasActiveInboxFilters,
+  useInboxSignalsFilterStore,
+} from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
+import {
   type ComponentType,
   Fragment,
   type MouseEvent,
@@ -46,7 +52,7 @@ interface DismissibleCardProps {
   isDismissPending: boolean;
 }
 
-export interface InboxReportListTabEmptyState {
+interface InboxReportListTabEmptyState {
   Icon: ComponentType<IconProps>;
   /** Title shown when the scope is "For you". */
   forYouTitle: string;
@@ -55,6 +61,8 @@ export interface InboxReportListTabEmptyState {
   /** Title shown when the scope is a specific teammate. */
   teammateTitle: string;
   description: string;
+  /** Plural noun for this tab's items, used in the filtered-empty message. */
+  noun: string;
 }
 
 interface InboxReportListTabProps {
@@ -150,7 +158,7 @@ export function InboxReportListTab({
       if (dismissTargetId == null) return;
       const isSnooze = isDismissalReasonSnooze(result.reason);
       const ok = isSnooze
-        ? await dismissBulkActions.snoozeSelected()
+        ? await dismissBulkActions.snoozeSelected(result)
         : await dismissBulkActions.suppressSelected(result);
       if (ok) {
         setDismissReport(null);
@@ -162,6 +170,13 @@ export function InboxReportListTab({
   const dismissMutationPending =
     dismissReport != null &&
     (dismissBulkActions.isSuppressing || dismissBulkActions.isSnoozing);
+
+  // This shell never applies or shows the PR filter, so a stored PR filter must
+  // not make its empty state claim filters are hiding results.
+  const hasActiveFilters = useInboxSignalsFilterStore((state) =>
+    hasActiveInboxFilters(state, { includePrFilter: false }),
+  );
+  const resetFilters = useInboxSignalsFilterStore((s) => s.resetFilters);
 
   const emptyTitle = resolveEmptyTitle(scope, emptyState);
   const EmptyIcon = emptyState.Icon;
@@ -197,11 +212,34 @@ export function InboxReportListTab({
           <Empty className="mx-auto max-w-md py-16">
             <EmptyHeader>
               <EmptyMedia variant="icon">
-                <EmptyIcon size={24} />
+                {hasActiveFilters ? (
+                  <FunnelIcon size={24} />
+                ) : (
+                  <EmptyIcon size={24} />
+                )}
               </EmptyMedia>
-              <EmptyTitle>{emptyTitle}</EmptyTitle>
-              <EmptyDescription>{emptyState.description}</EmptyDescription>
+              <EmptyTitle>
+                {hasActiveFilters
+                  ? `No ${emptyState.noun} match your filters`
+                  : emptyTitle}
+              </EmptyTitle>
+              <EmptyDescription>
+                {hasActiveFilters
+                  ? `Clear the filters to check for hidden ${emptyState.noun}.`
+                  : emptyState.description}
+              </EmptyDescription>
             </EmptyHeader>
+            {hasActiveFilters && (
+              <EmptyContent>
+                <Button
+                  variant="outline"
+                  size="default"
+                  onClick={() => resetFilters()}
+                >
+                  Clear filters
+                </Button>
+              </EmptyContent>
+            )}
           </Empty>
         ) : (
           <>

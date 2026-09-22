@@ -8,6 +8,7 @@ import type {
 import {
   type CloudRegion,
   getCloudUrlFromRegion,
+  getCustomCloud,
   getOauthClientIdFromRegion,
   OAUTH_SCOPES,
 } from "@posthog/shared";
@@ -67,24 +68,52 @@ function toCredentials(
   response: OAuthTokenResponse,
   region: CloudRegion,
 ): OAuthCredentials {
+  const custom = region === "custom" ? getCustomCloud() : null;
   return {
     access: response.access_token,
     refresh: response.refresh_token,
     expires: Date.now() + response.expires_in * 1000 - TOKEN_EXPIRY_SKEW_MS,
     region,
+    ...(custom
+      ? {
+          customCloudUrl: custom.url,
+          customOauthClientId: custom.oauthClientId,
+        }
+      : {}),
   };
+}
+
+// A refresh token only works on the instance that issued it, so a stored
+// custom credential whose instance changed can never refresh successfully.
+function assertCredentialsMatchCustomCloud(
+  credentials: OAuthCredentials,
+): void {
+  if ((credentials.region as CloudRegion | undefined) !== "custom") return;
+  const target = getCustomCloud();
+  if (
+    !target ||
+    credentials.customCloudUrl !== target.url ||
+    credentials.customOauthClientId !== target.oauthClientId
+  ) {
+    throw new Error(
+      "The custom PostHog instance changed since sign-in. Sign in again to continue.",
+    );
+  }
 }
 
 async function postToken(
   region: CloudRegion,
   body: Record<string, string>,
+  signal?: AbortSignal,
 ): Promise<OAuthTokenResponse> {
   const cloudUrl = getCloudUrlFromRegion(region);
   const response = await fetch(`${cloudUrl}/oauth/token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(TOKEN_FETCH_TIMEOUT_MS),
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(TOKEN_FETCH_TIMEOUT_MS)])
+      : AbortSignal.timeout(TOKEN_FETCH_TIMEOUT_MS),
   });
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
@@ -184,8 +213,8 @@ const REGION_LOGIN_OPTIONS: { id: CloudRegion; label: string }[] = [
 
 /**
  * Prompts the user to pick their PostHog region via the login callbacks'
- * selector. `dev` is intentionally not offered here; it stays reachable only
- * through an explicit `POSTHOG_REGION=dev`.
+ * selector. Development regions are intentionally not offered here; they stay
+ * reachable only through an explicit `POSTHOG_REGION`.
  */
 async function selectRegion(
   callbacks: OAuthLoginCallbacks,
@@ -248,13 +277,21 @@ export async function loginPosthog(
 export async function refreshPosthog(
   region: CloudRegion,
   credentials: OAuthCredentials,
+  signal?: AbortSignal,
 ): Promise<OAuthCredentials> {
   const effectiveRegion =
     (credentials.region as CloudRegion | undefined) ?? region;
-  const tokens = await postToken(effectiveRegion, {
-    grant_type: "refresh_token",
-    refresh_token: credentials.refresh,
-    client_id: getOauthClientIdFromRegion(effectiveRegion),
-  });
+  assertCredentialsMatchCustomCloud(credentials);
+  // The credential bag is an open record, so the custom fields read as unknown.
+  const storedClientId = credentials.customOauthClientId as string | undefined;
+  const tokens = await postToken(
+    effectiveRegion,
+    {
+      grant_type: "refresh_token",
+      refresh_token: credentials.refresh,
+      client_id: storedClientId ?? getOauthClientIdFromRegion(effectiveRegion),
+    },
+    signal,
+  );
   return toCredentials(tokens, effectiveRegion);
 }

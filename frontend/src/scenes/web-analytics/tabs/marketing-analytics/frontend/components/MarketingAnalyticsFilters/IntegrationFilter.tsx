@@ -20,12 +20,14 @@ export function IntegrationFilter(): JSX.Element {
     const allSourceIds = allAvailableSourcesWithStatus.map((s) => s.id)
     const isAllSelected = selectedIds.length === allSourceIds.length && allSourceIds.length > 0
     const isSomeSelected = selectedIds.length > 0 && selectedIds.length < allSourceIds.length
+    // Absent means included, so only an explicit false hides these rows.
+    const includeNonIntegrated = integrationFilter.includeNonIntegrated !== false
 
     const handleToggleAll = (): void => {
         if (isAllSelected || isSomeSelected) {
-            setIntegrationFilter({ integrationSourceIds: [] })
+            setIntegrationFilter({ integrationSourceIds: [], includeNonIntegrated })
         } else {
-            setIntegrationFilter({ integrationSourceIds: allSourceIds })
+            setIntegrationFilter({ integrationSourceIds: allSourceIds, includeNonIntegrated })
         }
     }
 
@@ -34,7 +36,11 @@ export function IntegrationFilter(): JSX.Element {
             ? selectedIds.filter((id) => id !== sourceId)
             : [...selectedIds, sourceId]
 
-        setIntegrationFilter({ integrationSourceIds: newIds })
+        setIntegrationFilter({ integrationSourceIds: newIds, includeNonIntegrated })
+    }
+
+    const handleToggleNonIntegrated = (): void => {
+        setIntegrationFilter({ integrationSourceIds: selectedIds, includeNonIntegrated: !includeNonIntegrated })
     }
 
     const formatSourceLabel = (source: { name: string; type: string; prefix?: string }): string => {
@@ -43,14 +49,17 @@ export function IntegrationFilter(): JSX.Element {
     }
 
     const displayValue = (): string => {
+        // Hiding the non-integrated rows changes what the table reports, so the button says so at
+        // every selection, not only when the sources are all in or all out.
+        const suffix = includeNonIntegrated ? '' : ', integrated only'
         if (selectedIds.length === 0 || isAllSelected) {
-            return 'All integrations'
+            return includeNonIntegrated ? 'All integrations' : 'Integrated only'
         }
         if (selectedIds.length === 1) {
             const source = allAvailableSourcesWithStatus.find((s) => s.id === selectedIds[0])
-            return source ? formatSourceLabel(source) : '1 integration'
+            return `${source ? formatSourceLabel(source) : '1 integration'}${suffix}`
         }
-        return `${selectedIds.length} integrations`
+        return `${selectedIds.length} integrations${suffix}`
     }
 
     // Don't show the filter if there are no available sources
@@ -101,6 +110,19 @@ export function IntegrationFilter(): JSX.Element {
                             </span>
                         </LemonButton>
                     ))}
+                    <div className="border-t border-border my-1" />
+                    <LemonButton
+                        fullWidth
+                        size="small"
+                        onClick={handleToggleNonIntegrated}
+                        className="justify-start"
+                        tooltip="Traffic no integration reports cost for, like organic, email, or a source you haven't mapped yet."
+                    >
+                        <span className="flex items-center gap-2">
+                            <LemonCheckbox checked={includeNonIntegrated} className="pointer-events-none" />
+                            <span className="flex-1">No integration</span>
+                        </span>
+                    </LemonButton>
                 </div>
             }
         >

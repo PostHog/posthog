@@ -9,4 +9,9 @@ class DataQualityConfig(AppConfig):
     verbose_name = "Data quality"
 
     def ready(self) -> None:
+        from products.warehouse_sources.backend.facade.hooks import register_data_quality_checks_gate  # noqa: PLC0415
+
         from . import activity_logging  # noqa: F401, PLC0415
+        from .logic.triggers import source_sync_checks_needed  # noqa: PLC0415
+
+        register_data_quality_checks_gate(source_sync_checks_needed)

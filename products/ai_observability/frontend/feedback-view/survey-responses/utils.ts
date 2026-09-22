@@ -1,3 +1,4 @@
+import { isString } from 'lib/utils/guards'
 import { getSurveyResponseValue } from 'scenes/surveys/utils'
 
 import { LLMTraceEvent } from '~/queries/schema/schema-general'
@@ -10,15 +11,27 @@ export interface GroupedResponse {
     isComplete: boolean
 }
 
+/**
+ * Reads the survey ID off a survey event, lowercased.
+ *
+ * `$survey_id` is captured by the instrumented app, so its case is whatever that app sent, while
+ * survey IDs from the API are canonical lowercase. Match on the normalized form or an uppercase
+ * ID looks like a survey that isn't in the project.
+ */
+export function getSurveyIdFromEvent(event: LLMTraceEvent): string | null {
+    const surveyId = event.properties?.[SurveyEventProperties.SURVEY_ID]
+    return isString(surveyId) ? surveyId.toLowerCase() : null
+}
+
 export function groupEventsBySubmission(events: LLMTraceEvent[], surveys: Record<string, Survey>): GroupedResponse[] {
     const submissionMap = new Map<string, GroupedResponse>()
 
     for (const event of events) {
         const props = event.properties || {}
-        const surveyId = props[SurveyEventProperties.SURVEY_ID]
+        const surveyId = getSurveyIdFromEvent(event)
         const survey = surveyId ? surveys[surveyId] : null
 
-        if (!survey) {
+        if (!surveyId || !survey) {
             continue
         }
 

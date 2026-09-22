@@ -1,7 +1,6 @@
 import time
-import dataclasses
-from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from collections.abc import Callable, Iterator
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import quote, urlencode
 
@@ -9,7 +8,13 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.clari.settings import CLARI_BASE_URL
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.clari.settings import (
+    ACTIVITY_INITIAL_LOOKBACK_DAYS,
+    ACTIVITY_TYPES,
+    CLARI_BASE_URL,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -28,11 +33,11 @@ class ClariRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class ClariResumeConfig:
-    # Forecast: the in-flight export job to re-poll instead of creating a new
-    # one (exports are quota-limited to ~1000 per rolling 30 days). Audit
-    # events: the nextLink URL of the next unfetched page.
+    # Forecast and activity: the in-flight export job to re-poll instead of
+    # creating a new one (exports are quota-limited). Audit events: the
+    # nextLink URL of the next unfetched page.
     job_id: Optional[str] = None
     next_link: Optional[str] = None
 
@@ -48,6 +53,23 @@ def _format_timestamp(value: Any) -> str:
     if isinstance(value, date):
         return value.strftime("%Y-%m-%dT00:00:00Z")
     return str(value)
+
+
+def _to_datetime(value: Any) -> Optional[datetime]:
+    """Coerce an incremental watermark to UTC. Activity `date` values are epoch milliseconds."""
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day, tzinfo=UTC)
+    if isinstance(value, int | float):
+        return datetime.fromtimestamp(value / 1000, tz=UTC)
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    return None
 
 
 def validate_credentials(api_key: str) -> bool:
@@ -121,7 +143,7 @@ def _extract_result_rows(data: Any) -> list[dict[str, Any]]:
     if isinstance(data, list):
         return [row for row in data if isinstance(row, dict)]
     if isinstance(data, dict):
-        for key in ("data", "rows", "records", "results"):
+        for key in ("data", "rows", "records", "results", "activities"):
             value = data.get(key)
             if isinstance(value, list):
                 return [row for row in value if isinstance(row, dict)]
@@ -129,29 +151,23 @@ def _extract_result_rows(data: Any) -> list[dict[str, Any]]:
     return []
 
 
-def get_forecast(
-    api_key: str,
-    forecast_id: str,
+def _run_export_job(
+    fetch: Callable[..., requests.Response],
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[ClariResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    session = _get_session(api_key)
-    fetch = _make_fetcher(session, logger)
-
+    create_url: str,
+    create_body: dict[str, Any],
+) -> Any:
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     job_id = resume_config.job_id if resume_config is not None else None
     if job_id:
-        logger.debug(f"Clari: re-polling existing forecast export job {job_id}")
+        logger.debug(f"Clari: re-polling existing export job {job_id}")
 
     if not job_id:
-        create_body = fetch(
-            "POST",
-            f"{CLARI_BASE_URL}/export/forecast/{quote(forecast_id)}",
-            json_body={"exportFormat": "JSON"},
-        ).json()
-        job_id = create_body.get("jobId") or (create_body.get("job") or {}).get("id")
+        created = fetch("POST", create_url, json_body=create_body).json()
+        job_id = created.get("jobId") or (created.get("job") or {}).get("id")
         if not job_id:
-            raise ValueError(f"Clari export job creation returned no jobId: {create_body}")
+            raise ValueError(f"Clari export job creation returned no jobId: {created}")
         # Persist immediately — exports are quota-limited, so a retried
         # activity must re-poll this job rather than create another.
         resumable_source_manager.save_state(ClariResumeConfig(job_id=job_id))
@@ -167,13 +183,65 @@ def get_forecast(
         if status in ("FAILED", "CANCELLED", "ABORTED"):
             # Don't re-poll a dead job on retry.
             resumable_source_manager.save_state(ClariResumeConfig(job_id=None))
-            raise ValueError(f"Clari forecast export job {job_id} ended with status {status}")
+            raise ValueError(f"Clari export job {job_id} ended with status {status}")
 
         time.sleep(EXPORT_POLL_INTERVAL_SECONDS)
     else:
-        raise ClariRetryableError(f"Clari forecast export job {job_id} still {status} after polling budget")
+        raise ClariRetryableError(f"Clari export job {job_id} still {status} after polling budget")
 
-    results = fetch("GET", f"{CLARI_BASE_URL}/export/jobs/{quote(job_id)}/results").json()
+    return fetch("GET", f"{CLARI_BASE_URL}/export/jobs/{quote(job_id)}/results").json()
+
+
+def get_forecast(
+    api_key: str,
+    forecast_id: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[ClariResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    session = _get_session(api_key)
+    fetch = _make_fetcher(session, logger)
+
+    results = _run_export_job(
+        fetch,
+        logger,
+        resumable_source_manager,
+        create_url=f"{CLARI_BASE_URL}/export/forecast/{quote(forecast_id)}",
+        create_body={"exportFormat": "JSON"},
+    )
+    rows = _extract_result_rows(results)
+    if rows:
+        yield rows
+
+
+def get_activity(
+    api_key: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[ClariResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> Iterator[list[dict[str, Any]]]:
+    session = _get_session(api_key)
+    fetch = _make_fetcher(session, logger)
+
+    end_date = datetime.now(tz=UTC)
+    start_date = _to_datetime(db_incremental_field_last_value) if should_use_incremental_field else None
+    if start_date is None:
+        start_date = end_date - timedelta(days=ACTIVITY_INITIAL_LOOKBACK_DAYS)
+
+    results = _run_export_job(
+        fetch,
+        logger,
+        resumable_source_manager,
+        create_url=f"{CLARI_BASE_URL}/export/activity",
+        create_body={
+            "activityTypes": list(ACTIVITY_TYPES),
+            # The export reads the date and ignores the time, so the window is day-granular
+            # and an incremental run re-exports the watermark's own day. Merge dedupes it.
+            "startDate": _format_timestamp(start_date),
+            "endDate": _format_timestamp(end_date),
+            "exportFormat": "JSON",
+        },
+    )
     rows = _extract_result_rows(results)
     if rows:
         yield rows
@@ -188,6 +256,24 @@ def clari_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
+    if endpoint == "activity":
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: get_activity(
+                api_key=api_key,
+                logger=logger,
+                resumable_source_manager=resumable_source_manager,
+                should_use_incremental_field=should_use_incremental_field,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+            ),
+            primary_keys=["activityId"],
+            partition_count=1,
+            partition_size=1,
+            # Export ordering is undocumented, so only commit the watermark
+            # once a sync completes.
+            sort_mode="desc",
+        )
+
     if endpoint == "audit_events":
         return SourceResponse(
             name=endpoint,

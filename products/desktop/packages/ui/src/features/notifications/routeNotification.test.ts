@@ -2,6 +2,7 @@ import type { NotificationTarget } from "@posthog/platform/notifications";
 import { describe, expect, it } from "vitest";
 import {
   type NotificationChannel,
+  resolveActiveNotificationTarget,
   routeNotification,
   targetsEqual,
 } from "./routeNotification";
@@ -11,6 +12,88 @@ const canvas = (id: string): NotificationTarget => ({
   kind: "canvas",
   channelId: "chan",
   dashboardId: id,
+});
+
+describe("resolveActiveNotificationTarget", () => {
+  it.each<
+    [
+      string,
+      Parameters<typeof resolveActiveNotificationTarget>,
+      NotificationTarget | undefined,
+    ]
+  >([
+    [
+      "task route",
+      [
+        { fullPath: "/tasks/$taskId", params: { taskId: "t1" } },
+        undefined,
+        false,
+      ],
+      task("t1"),
+    ],
+    [
+      "channel task route",
+      [
+        {
+          fullPath: "/spaces/$channelId/tasks/$taskId",
+          params: { channelId: "chan", taskId: "t1" },
+        },
+        undefined,
+        false,
+      ],
+      task("t1"),
+    ],
+    [
+      "canvas route",
+      [
+        {
+          fullPath: "/spaces/$channelId/dashboards/$dashboardId",
+          params: { channelId: "chan", dashboardId: "d1" },
+        },
+        undefined,
+        false,
+      ],
+      canvas("d1"),
+    ],
+    [
+      "expanded thread panel",
+      [
+        {
+          fullPath: "/spaces/$channelId/",
+          params: { channelId: "chan" },
+        },
+        "t1",
+        false,
+      ],
+      task("t1"),
+    ],
+    [
+      "collapsed thread panel",
+      [
+        {
+          fullPath: "/spaces/$channelId/",
+          params: { channelId: "chan" },
+        },
+        "t1",
+        true,
+      ],
+      undefined,
+    ],
+    [
+      "thread state on another channel page",
+      [
+        {
+          fullPath: "/spaces/$channelId/history",
+          params: { channelId: "chan" },
+        },
+        "t1",
+        false,
+      ],
+      undefined,
+    ],
+  ])("%s", (_label, args, expected) => {
+    expect(resolveActiveNotificationTarget(...args)).toEqual(expected);
+  });
 });
 
 describe("targetsEqual", () => {

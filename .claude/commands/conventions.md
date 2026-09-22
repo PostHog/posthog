@@ -96,7 +96,7 @@ Hence the explicit separation between the data and view layers.
 - Consume results with dot notation (`result.field`), never by unpacking into positional locals
 - Name dataclasses after the domain concept (`BillingPeriod`), never `*Info`/`*Data`/`*Tuple`
 - Mark secret fields with `field(repr=False)`
-- A bare `@dataclass` without an explicit `frozen=` choice fails the `posthog/test/test_dataclass_defaults.py` ratchet and is flagged by the `prefer-frozen-dataclasses` semgrep rule
+- A bare `@dataclass` without an explicit `frozen=` choice fails the `posthog/test/repo_invariants/test_dataclass_defaults.py` ratchet and is flagged by the `prefer-frozen-dataclasses` semgrep rule
 
 ### Logging
 
@@ -188,7 +188,7 @@ Escalating to the next rung is the last resort, not the default.
 - **Use `TestCase`, not `TransactionTestCase`, unless you truly need it.** `TransactionTestCase` flushes the DB between tests instead of rolling back a transaction — dramatically slower, and a common source of cross-test interference. For `transaction.on_commit` side effects use `self.captureOnCommitCallbacks(execute=True)`; reaching ClickHouse is not a reason to switch (`ClickhouseTestMixin` runs on a plain `TestCase`).
 - Mock only true boundaries — network, external APIs, the clock, queues. Don't mock your own internal helpers; that's how change-detector tests are born.
 - Frontend: prefer a kea logic test (`logic.actions` / `logic.values`) over a full component render whenever the behavior lives in the logic, and don't snapshot large rendered trees — assert specific fields instead.
-- Keep tests deterministic and isolated: no `time.sleep` or arbitrary waits (use `freeze_time` or wait on a real condition), no real network or live external services, and they must pass in any order. Don't leave a `@skip`/`xfail`/`.only` without a one-line reason and a linked issue.
+- Keep tests deterministic and isolated: no `time.sleep` or arbitrary waits (use `time_machine.travel(..., tick=False)` or wait on a real condition), no real network or live external services, and they must pass in any order. Don't leave a `@skip`/`xfail`/`.only` without a one-line reason and a linked issue.
 
 #### Fast developer ("unit") tests
 
