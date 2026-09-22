@@ -1207,8 +1207,12 @@ def _producer_with_known_table_name(producer: CDPProducer) -> CDPProducer:
     return producer
 
 
-async def _produce_staged_rows(producer: CDPProducer, rows: list[dict]) -> list[dict]:
-    """Stage `rows` as one chunk, run a whole produce cycle, and return the rows it produced."""
+async def _produce_staged_rows(producer: CDPProducer, rows: list[dict], *, produce_raises: bool = False) -> list[dict]:
+    """Stage `rows` as one chunk, run a whole produce cycle, and return the rows it produced.
+
+    With `produce_raises`, the Kafka produce raises on every call, mirroring a run whose delivery
+    fails after the row is read.
+    """
     parquet_buffer = BytesIO()
     pq.write_table(pa.Table.from_pylist(rows), parquet_buffer, compression="zstd")
     parquet_buffer.seek(0)
@@ -1217,7 +1221,9 @@ async def _produce_staged_rows(producer: CDPProducer, rows: list[dict]) -> list[
     mock_s3_client._ls = mock.AsyncMock(return_value=[{"Key": "chunk_0.parquet", "type": "file"}])
 
     mock_kafka_producer = MagicMock()
-    mock_kafka_producer.produce = mock.AsyncMock()
+    mock_kafka_producer.produce = mock.AsyncMock(
+        side_effect=Exception("Kafka connection failed") if produce_raises else None
+    )
     mock_kafka_producer.flush = mock.AsyncMock()
     mock_kafka_producer.close = mock.AsyncMock()
 
@@ -1278,6 +1284,18 @@ async def test_what_a_later_view_run_produces(runs, produced_by_the_last_run):
 
 
 @pytest.mark.asyncio
+async def test_a_view_row_whose_produce_failed_is_produced_on_the_next_run():
+    # A produce that raises is caught and the file dropped, so the row never reached a subscriber.
+    # Recording it as produced would suppress it next run, silently losing the trigger for good.
+    view_id = str(uuid.uuid4())
+    rows = [{"id": 1, "total": 5}]
+
+    await _produce_staged_rows(_view_producer_for_id(view_id), rows, produce_raises=True)
+
+    assert await _produce_staged_rows(_view_producer_for_id(view_id, "job_2"), rows) == rows
+
+
+@pytest.mark.asyncio
 async def test_a_source_row_is_produced_on_every_sync():
     # A source's event id already mixes in the job id, so the same row in a later sync is a new
     # delivery rather than a repeat. Suppression must not reach this path.
@@ -1320,7 +1338,7 @@ async def test_the_record_never_holds_more_than_the_tracked_row_limit():
     ):
         await store.load()
         for event_id in ["a", "b", "c", "d"]:
-            store.is_repeat(event_id)
+            store.record_produced(event_id)
         await store.commit()
 
     assert await get_async_client().scard(key) == 2

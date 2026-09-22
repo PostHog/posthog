@@ -359,6 +359,10 @@ class CDPProducer:
                                     data=row_as_props,
                                     value_serializer=self._serialize_json,
                                 )
+                                # Recorded only after produce succeeds. A produce that raises is
+                                # caught below and the file is dropped, so a row not delivered must
+                                # not be remembered as produced, or the next run would suppress it.
+                                emitted_rows.record_produced(event_id)
                                 row_index += 1
 
                     await kafka_producer.flush()

@@ -72,18 +72,32 @@ class EmittedRowStore:
     def is_repeat(self, event_id: str) -> bool:
         """Whether a previous run already produced this exact row.
 
-        Records the id either way, so a row still on the boundary several runs later stays
-        suppressed rather than returning once the previous run's record is replaced.
+        A repeat is recorded now: an earlier run delivered it, and keeping it in the record is what
+        holds a row on the boundary suppressed across many runs. A row that is not a repeat is
+        recorded only once it is produced, through record_produced, so a row whose produce fails is
+        not remembered as delivered.
         """
         if not self._enabled:
             return False
 
+        if event_id in self._previous:
+            self._track(event_id)
+            return True
+
+        return False
+
+    def record_produced(self, event_id: str) -> None:
+        """Remember a row this run produced, called only after its produce succeeds."""
+        if not self._enabled:
+            return
+
+        self._track(event_id)
+
+    def _track(self, event_id: str) -> None:
         if len(self._current) < MAX_TRACKED_ROWS:
             self._current.add(event_id)
         else:
             self._at_limit = True
-
-        return event_id in self._previous
 
     async def commit(self) -> None:
         """Replace the record with what this run saw.
