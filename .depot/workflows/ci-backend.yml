@@ -177,6 +177,8 @@ env:
     CLICKHOUSE_TEST_CLUSTER_SECURE: 'False'
     CLICKHOUSE_TEST_CLUSTER_VERIFY: 'False'
     TEST: 1
+    # Read by the root conftest: skip interpreter teardown once pytest has written its reports.
+    POSTHOG_PYTEST_HARD_EXIT: '1'
     # Depot CI runners expose OTEL_SERVICE_NAME=ci-worker ambient; GitHub Actions test steps do not.
     # Left set, it leaks into settings.OTEL_SERVICE_NAME (personhog metric client_name label) and
     # diverges from test assertions. Blank it to match the GHA environment. Depot also injects
