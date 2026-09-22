@@ -236,6 +236,9 @@ class RetentionSweep:
             if self._out_of_time():
                 break
             with transaction.atomic(using=WRITER_DB):
+                # A quarantine can name the run after the candidate query read it.
+                if self._runs().filter(self._source_of_active_quarantine(), id=run_id).exists():
+                    continue
                 self._splice_out_of_chain(run_id)
                 _total, per_model = self._runs().filter(id=run_id).delete()
             run_deleted = per_model.get(Run._meta.label, 0)
