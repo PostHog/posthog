@@ -124,6 +124,9 @@ export interface insightLogicValues {
     insightDuplicating: boolean
     insightFeedback: 'disliked' | 'liked' | null
     insightId: number | null
+    insightLoadError: {
+        status: number | null
+    } | null
     insightLoading: boolean
     insightMissing: boolean
     insightName: string
@@ -341,6 +344,9 @@ export interface insightLogicActions {
     }
     setInsightFeedback: (feedback: 'disliked' | 'liked') => {
         feedback: 'disliked' | 'liked'
+    }
+    setInsightLoadError: (status: number | null) => {
+        status: number | null
     }
     setInsightMetadata: (
         metadataUpdate: Partial<Pick<QueryBasedInsightModel, 'description' | 'favorited' | 'name' | 'tags'>>
@@ -630,6 +636,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         highlightSeries: (series: IndexedTrendResult | null) => ({ series }),
         setAccessDeniedToInsight: true,
         setInsightMissing: true,
+        setInsightLoadError: (status: number | null) => ({ status }),
         handleInsightSuggested: (suggestedInsight: Node | null) => ({ suggestedInsight }),
         onRejectSuggestedInsight: true,
         onReapplySuggestedInsight: true,
@@ -655,6 +662,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     breakpoint
                 ) => {
                     await breakpoint(100)
+                    let missing = false
                     try {
                         // Overrides are merged into the query before caching, giving the overridden
                         // variant a cache key of its own that no scheduled refresh warms. A plain
@@ -677,6 +685,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         )
 
                         if (!insight) {
+                            missing = true
                             actions.setInsightMissing()
                             throw new Error(`Insight with shortId ${shortId} not found`)
                         }
@@ -690,6 +699,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     } catch (error: any) {
                         if (error.status === 403 && error.code === 'permission_denied') {
                             actions.setAccessDeniedToInsight()
+                        } else if (!missing) {
+                            actions.setInsightLoadError(typeof error.status === 'number' ? error.status : null)
                         }
                         throw error
                     }
@@ -880,6 +891,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         },
         accessDeniedToInsight: [false, { setAccessDeniedToInsight: () => true }],
         insightMissing: [false, { setInsightMissing: () => true, loadInsight: () => false }],
+        insightLoadError: [
+            null as { status: number | null } | null,
+            {
+                setInsightLoadError: (_, { status }) => ({ status }),
+                loadInsight: () => null,
+            },
+        ],
         /** The insight's state as it is in the database. */
         savedInsight: [
             () => props.cachedInsight || ({} as Partial<QueryBasedInsightModel>),
