@@ -301,6 +301,8 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     ],
     "ExternalDataSource": [
         "job_inputs",
+        # The source's whole job history; describing a change would load every row of it.
+        "jobs",
     ],
     "HogFlow": [
         # Full content snapshot including action inputs (auth headers, API keys) — record that a
