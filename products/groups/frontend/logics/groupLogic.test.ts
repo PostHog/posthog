@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 
+import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
@@ -52,7 +53,8 @@ describe('groupLogic', () => {
         beforeEach(() => {
             initKeaTests()
             window.POSTHOG_APP_CONTEXT = { current_team: { id: 123 } } as AppContext
-            querySpy = jest.spyOn(api, 'query').mockResolvedValue({ results: [] } as any)
+            const emptyResponse: HogQLQueryResponse = { results: [] }
+            querySpy = jest.spyOn(api, 'query').mockResolvedValue(emptyResponse)
         })
 
         afterEach(() => {

@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api, { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -306,8 +307,9 @@ export const groupLogic = kea<groupLogicType>([
                             mrr: row[0] ?? null,
                             lifetimeValue: row[1] ?? null,
                         }
-                    } catch {
+                    } catch (error) {
                         // Silently fall back to group properties
+                        posthog.captureException(error, { tag: 'group_revenue_analytics_data_query_failed' })
                         return null
                     }
                 },
