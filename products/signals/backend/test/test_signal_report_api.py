@@ -154,22 +154,23 @@ class TestSignalReportDeleteAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("from_ready", SignalReport.Status.READY, status.HTTP_204_NO_CONTENT),
-            ("from_potential", SignalReport.Status.POTENTIAL, status.HTTP_204_NO_CONTENT),
-            ("from_candidate", SignalReport.Status.CANDIDATE, status.HTTP_204_NO_CONTENT),
+            ("from_ready", SignalReport.Status.READY, status.HTTP_202_ACCEPTED),
+            ("from_potential", SignalReport.Status.POTENTIAL, status.HTTP_202_ACCEPTED),
+            ("from_candidate", SignalReport.Status.CANDIDATE, status.HTTP_202_ACCEPTED),
             # Suppressed reports are excluded from the base queryset when no status
             # filter is supplied, so detail delete returns 404.
             ("from_suppressed", SignalReport.Status.SUPPRESSED, status.HTTP_404_NOT_FOUND),
-            ("from_failed", SignalReport.Status.FAILED, status.HTTP_204_NO_CONTENT),
+            ("from_failed", SignalReport.Status.FAILED, status.HTTP_202_ACCEPTED),
         ]
     )
     def test_delete_report_starts_deletion_workflow(self, _name, initial_status, expected_status):
         report = self._create_report(report_status=initial_status)
         response = self.client.delete(self._url(str(report.id)))
         assert response.status_code == expected_status
+        if expected_status == status.HTTP_202_ACCEPTED:
+            assert response.json() == {"status": "deletion_started", "report_id": str(report.id)}
         report.refresh_from_db()
-        if expected_status == status.HTTP_204_NO_CONTENT:
-            assert not response.content
+        if expected_status == status.HTTP_202_ACCEPTED:
             assert report.status == SignalReport.Status.DELETED
         else:
             assert report.status == initial_status

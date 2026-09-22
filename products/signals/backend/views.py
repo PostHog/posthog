@@ -914,21 +914,41 @@ def _is_person_at_the_ui(request: Request) -> bool:
     )
 
 
-class SignalReportWorkflowStatusSerializer(serializers.Serializer):
-    """Envelope returned by the report actions that only kick off a Temporal workflow."""
+# Each action reports only its own outcomes, so the two sets stay separate rather than becoming one
+# union that would admit a deletion status on the reingest response.
+SIGNAL_REPORT_DELETION_STATUSES = ["deletion_started", "already_running"]
+SIGNAL_REPORT_REINGESTION_STATUSES = ["reingestion_started", "already_running"]
 
-    status = serializers.CharField(
-        help_text="Outcome of the request: the workflow was started, or one was already running."
+
+class SignalReportDeletionStatusSerializer(serializers.Serializer):
+    """Envelope the report delete returns once it has kicked off the deletion workflow."""
+
+    status = serializers.ChoiceField(
+        choices=SIGNAL_REPORT_DELETION_STATUSES,
+        help_text="Whether this request started the deletion or found one already running.",
     )
-    report_id = serializers.UUIDField(help_text="Report the workflow runs against.")
+    report_id = serializers.UUIDField(help_text="Report being deleted.")
+
+
+class SignalReportReingestionStatusSerializer(serializers.Serializer):
+    """Envelope the reingest action returns once it has kicked off the re-ingestion workflow."""
+
+    status = serializers.ChoiceField(
+        choices=SIGNAL_REPORT_REINGESTION_STATUSES,
+        help_text="Whether this request started the re-ingestion or found one already running.",
+    )
+    report_id = serializers.UUIDField(help_text="Report being re-ingested.")
 
 
 @extend_schema_view(
     destroy=extend_schema(
         summary="Delete a signal report",
-        # No body: a generated client routes DELETE through the mutator's api.delete, which hands back
-        # the raw Response, so a declared body would be a contract no caller can read.
-        responses={204: None},
+        responses={
+            200: OpenApiResponse(
+                response=SignalReportDeletionStatusSerializer, description="A deletion is already running."
+            ),
+            202: OpenApiResponse(response=SignalReportDeletionStatusSerializer, description="Deletion started."),
+        },
     ),
 )
 class SignalReportViewSet(
@@ -2355,7 +2375,7 @@ class SignalReportViewSet(
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
         except WorkflowAlreadyStartedError:
-            return Response(status=status.HTTP_204_NO_CONTENT)
+            return Response({"status": "already_running", "report_id": report_id}, status=status.HTTP_200_OK)
         except Exception:
             logger.exception("Failed to start deletion workflow for report %s", report_id)
             return Response(
@@ -2368,7 +2388,7 @@ class SignalReportViewSet(
         report._transition_actor_user_id = self._request_attribution().user_id  # type: ignore[attr-defined]
         report.save(update_fields=updated_fields)
 
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response({"status": "deletion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(
         summary="List a report's signals",
@@ -3223,9 +3243,9 @@ class SignalReportViewSet(
         request=None,
         responses={
             200: OpenApiResponse(
-                response=SignalReportWorkflowStatusSerializer, description="A re-ingestion is already running."
+                response=SignalReportReingestionStatusSerializer, description="A re-ingestion is already running."
             ),
-            202: OpenApiResponse(response=SignalReportWorkflowStatusSerializer, description="Re-ingestion started."),
+            202: OpenApiResponse(response=SignalReportReingestionStatusSerializer, description="Re-ingestion started."),
         },
     )
     @action(detail=True, methods=["post"], url_path="reingest", required_scopes=["task:write"])
