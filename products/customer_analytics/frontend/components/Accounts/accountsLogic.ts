@@ -397,6 +397,7 @@ export interface accountsLogicActions {
             | import('~/queries/schema').TraceSpansAggregationQueryResponse
             | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
             | import('~/queries/schema').TraceSpansQueryResponse
+            | import('~/queries/schema').TraceSpansTreeQueryResponse
             | undefined,
         payload?:
             | {
@@ -428,6 +429,7 @@ export interface accountsLogicActions {
             | import('~/queries/schema').TraceSpansAggregationQueryResponse
             | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
             | import('~/queries/schema').TraceSpansQueryResponse
+            | import('~/queries/schema').TraceSpansTreeQueryResponse
             | undefined
     } // dataNodeLogic
     listLoadNextData: () => any // dataNodeLogic
