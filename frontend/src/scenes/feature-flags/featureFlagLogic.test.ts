@@ -12,6 +12,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { NetworkError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -458,6 +459,113 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('load failure handling', () => {
+        const FLAG_URL = `/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`
+
+        async function remount(): Promise<void> {
+            logic.unmount()
+            logic = featureFlagLogic({ id: MOCK_FEATURE_FLAG.id })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        }
+
+        beforeEach(() => {
+            silenceKeaLoadersErrors()
+        })
+
+        afterEach(() => {
+            resumeKeaLoadersErrors()
+        })
+
+        it('reads a 404 as a missing flag', async () => {
+            useMocks({ get: { [FLAG_URL]: () => [404, { detail: 'Not found.' }] } })
+            await remount()
+
+            expect(logic.values.featureFlagMissing).toBe(true)
+            expect(logic.values.featureFlagLoadFailed).toBe(false)
+        })
+
+        it('does not read a server failure as a missing flag', async () => {
+            useMocks({ get: { [FLAG_URL]: () => [500, { detail: 'boom' }] } })
+            await remount()
+
+            expect(logic.values.featureFlagMissing).toBe(false)
+            expect(logic.values.featureFlagLoadFailed).toBe(true)
+        })
+
+        it('does not read a dropped connection as a missing flag', async () => {
+            logic.unmount()
+            const get = jest.spyOn(api, 'get').mockRejectedValue(new NetworkError('network'))
+            try {
+                logic = featureFlagLogic({ id: MOCK_FEATURE_FLAG.id })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadFeatureFlagFailure'])
+
+                expect(logic.values.featureFlagMissing).toBe(false)
+                expect(logic.values.featureFlagLoadFailed).toBe(true)
+            } finally {
+                get.mockRestore()
+            }
+        })
+
+        it('clears the failure when a retry loads the flag', async () => {
+            useMocks({ get: { [FLAG_URL]: () => [500, { detail: 'boom' }] } })
+            await remount()
+            expect(logic.values.featureFlagLoadFailed).toBe(true)
+
+            useMocks({ get: { [FLAG_URL]: () => [200, MOCK_FEATURE_FLAG] } })
+            await expectLogic(logic, () => logic.actions.loadFeatureFlag()).toDispatchActions([
+                'loadFeatureFlagSuccess',
+            ])
+
+            expect(logic.values.featureFlagLoadFailed).toBe(false)
+            expect(logic.values.featureFlagMissing).toBe(false)
+        })
+
+        it('keeps a loaded flag on screen when a later reload fails', async () => {
+            useMocks({ get: { [FLAG_URL]: () => [500, { detail: 'boom' }] } })
+
+            await expectLogic(logic, () => logic.actions.loadFeatureFlag()).toDispatchActions([
+                'loadFeatureFlagFailure',
+            ])
+
+            expect(logic.values.featureFlagLoadFailed).toBe(false)
+            expect(logic.values.featureFlagMissing).toBe(false)
+            expect(logic.values.featureFlag.key).toBe(MOCK_FEATURE_FLAG.key)
+        })
+
+        it('separates a missing flag from a failed load in what it captures', async () => {
+            const capture = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            try {
+                useMocks({ get: { [FLAG_URL]: () => [404, { detail: 'Not found.' }] } })
+                await remount()
+                expect(capture).toHaveBeenCalledWith('feature flag not found')
+
+                capture.mockClear()
+                useMocks({ get: { [FLAG_URL]: () => [500, { detail: 'boom' }] } })
+                await remount()
+                expect(capture).toHaveBeenCalledWith('feature flag load failed', { status: 500 })
+            } finally {
+                capture.mockRestore()
+            }
+        })
+
+        it('counts a failed load once per mount, however many retries fail', async () => {
+            const capture = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            try {
+                useMocks({ get: { [FLAG_URL]: () => [500, { detail: 'boom' }] } })
+                await remount()
+                await expectLogic(logic, () => logic.actions.loadFeatureFlag()).toDispatchActions([
+                    'loadFeatureFlagFailure',
+                ])
+
+                expect(capture.mock.calls.filter(([event]) => event === 'feature flag load failed')).toHaveLength(1)
+            } finally {
+                capture.mockRestore()
+            }
+        })
+    })
+
     describe('saveFeatureFlag error handling', () => {
         it('shows the friendly permission toast on a save-time 403', async () => {
             useMocks({
@@ -499,6 +607,36 @@ describe('featureFlagLogic', () => {
                 expect(toastSpy).not.toHaveBeenCalledWith('Nope')
             } finally {
                 toastSpy.mockRestore()
+            }
+        })
+
+        it('offers a retry when a save never reaches the server', async () => {
+            silenceKeaLoadersErrors()
+            const update = jest.spyOn(api, 'update').mockRejectedValue(new NetworkError('network'))
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            try {
+                logic.actions.setFeatureFlag({ ...logic.values.featureFlag, name: 'edited' })
+                await expectLogic(logic, () => {
+                    logic.actions.saveFeatureFlag(logic.values.featureFlag)
+                }).toDispatchActions(['saveFeatureFlagFailure'])
+
+                expect(toastSpy).toHaveBeenCalledWith(
+                    "We couldn't save this feature flag. Your changes are still here.",
+                    expect.objectContaining({ button: expect.objectContaining({ label: 'Try again' }) })
+                )
+                // The edits have to survive, because the retry resubmits them.
+                expect(logic.values.featureFlag.name).toBe('edited')
+
+                update.mockResolvedValue({ ...MOCK_FEATURE_FLAG, name: 'edited' })
+                await expectLogic(logic, () => {
+                    toastSpy.mock.calls[0][1]?.button?.action?.()
+                }).toDispatchActions(['saveFeatureFlagSuccess'])
+
+                expect(update).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ name: 'edited' }))
+            } finally {
+                update.mockRestore()
+                toastSpy.mockRestore()
+                resumeKeaLoadersErrors()
             }
         })
 
