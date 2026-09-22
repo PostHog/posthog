@@ -49,21 +49,29 @@ jobs:
             KEV_VLLM_BASE_MODELS_BUCKET: ${{ vars.ML_BASE_MODELS_BUCKET }}
 
         steps:
-            - name: Assert the publish target is configured
+            # Checkout comes first because the job's working directory is inside the package it creates.
+            - name: Check out the package
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # Nothing after this step needs Git credentials, and the export installs a third-party Git dependency.
+                  persist-credentials: false
+                  sparse-checkout: products/ml_inference/packages/kev-vllm
+                  sparse-checkout-cone-mode: false
+
+            - name: Assert the inputs and the publish target
               env:
                   BUCKET: ${{ vars.ML_BASE_MODELS_BUCKET }}
                   ROLE: ${{ vars.AWS_ML_BASE_MODELS_PUBLISH_IAM_ROLE }}
+                  PARITY_RECORDS: ${{ inputs.parity_records }}
               run: |
                   if [[ -z "$BUCKET" || -z "$ROLE" ]]; then
                     echo "::error::ML_BASE_MODELS_BUCKET and AWS_ML_BASE_MODELS_PUBLISH_IAM_ROLE must both be set as repository variables."
                     exit 1
                   fi
-
-            - name: Check out the package
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  sparse-checkout: products/ml_inference/packages/kev-vllm
-                  sparse-checkout-cone-mode: false
+                  if ! [[ "$PARITY_RECORDS" =~ ^[1-9][0-9]*$ ]]; then
+                    echo "::error::parity_records must be a positive integer, got '$PARITY_RECORDS'."
+                    exit 1
+                  fi
 
             - name: Set up uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
