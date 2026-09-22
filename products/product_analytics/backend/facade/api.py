@@ -19,7 +19,6 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import QuerySet
 
-from posthog.api.sharing_publish_gate import blocked_access_for_user, is_publicly_shared
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 
@@ -171,6 +170,8 @@ def saved_insight_for_update(*, team: Team, user: User, short_id: str) -> SavedI
 def save_saved_insight_query(
     *, team: Team, user: User, insight_id: int, expected_query: dict[str, Any], query: dict[str, Any]
 ) -> str | None:
+    from posthog.api.sharing_publish_gate import blocked_access_for_user, is_publicly_shared  # noqa: PLC0415, I001 — avoids HogQL import cycle
+
     with transaction.atomic():
         insight = Insight.objects.select_for_update().filter(team=team, pk=insight_id, deleted=False).first()
         if insight is None:
