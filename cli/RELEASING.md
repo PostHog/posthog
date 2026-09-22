@@ -45,11 +45,11 @@ A prerelease publishes its versioned artifacts and leaves the rolling keys alone
 The step is skipped when `AWS_CLI_RELEASES_ROLE_ARN` is unset, so a branch that predates the bucket still releases.
 It needs three repository variables:
 
-| Variable                         | Value                                                     |
-| -------------------------------- | --------------------------------------------------------- |
-| `AWS_CLI_RELEASES_ROLE_ARN`      | the `github-posthog-cli-releases` role in shared-services |
-| `AWS_CLI_RELEASES_BUCKET`        | the shared releases bucket name                           |
-| `AWS_CLI_RELEASES_CLOUDFRONT_ID` | the distribution fronting it                              |
+| Variable                         | Value                                                                  |
+| -------------------------------- | ---------------------------------------------------------------------- |
+| `AWS_CLI_RELEASES_ROLE_ARN`      | the `github-posthog-cli-releases-publish-role` role in shared-services |
+| `AWS_CLI_RELEASES_BUCKET`        | the shared releases bucket name                                        |
+| `AWS_CLI_RELEASES_CLOUDFRONT_ID` | the distribution fronting it                                           |
 
 The role is scoped to the `posthog-cli/` prefix and to invalidations on that one distribution, so the workflow cannot touch another project's artifacts.
 
