@@ -403,7 +403,10 @@ suppressed → resolved (resolve an archived report straight out of the archive;
 # Transitions enforced by SignalReport.transition_to():
 # - deleted is terminal (no transitions out; excluded from API via queryset)
 # - suppressed transitions back to potential, or straight to the researched status it held before
-#   being archived (ready | pending_input | resolved | failed) — see restore_target_status()
+#   being archived (ready | pending_input | resolved | failed) — see restore_target_status().
+#   A report born suppressed (scout authorship) held no prior status but is fully authored, so it
+#   restores to ready when its actionability judgment says immediately_actionable and to
+#   pending_input otherwise, instead of dropping into potential where nothing re-promotes it.
 # - any non-deleted status can transition to deleted or suppressed
 # - reset/snooze = transition in_progress | pending_input | ready | resolved | failed → potential;
 #   snooze_for=N sets signals_at_run = signal_count + N
