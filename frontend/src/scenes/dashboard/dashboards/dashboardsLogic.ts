@@ -364,7 +364,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                         params.append('folder', folder)
                     }
                     const response: PaginatedResponse<DashboardBasicType> = await api.get(
-                        `api/environments/${teamId}/dashboards/?${params.toString()}`
+                        `api/projects/${teamId}/dashboards/?${params.toString()}`
                     )
                     breakpoint()
                     return response.results ?? []
