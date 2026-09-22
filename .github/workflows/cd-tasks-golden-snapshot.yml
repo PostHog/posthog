@@ -603,7 +603,7 @@ jobs:
             # sampler + the rendered-skills tarball + install-skills.sh +
             # setup-golden.sh) in over the box's SSH, runs setup-golden.sh, then
             # snapshots and points the candidate alias at it. Golden shape is the
-            # task sandbox shape: 4 CPU / 16 GiB / 64 GiB.
+            # task sandbox shape: 4 CPU / 20 GiB / 64 GiB.
             - name: Bake candidate snapshot (box primitives)
               if: env.skip != 'true'
               env:
@@ -613,7 +613,7 @@ jobs:
                   SKILLS_TARBALL: ${{ env.SKILLS_TARBALL }}
                   AGENT_VERSION: ${{ steps.agent-version.outputs.version }}
                   BOX_CPUS: '4'
-                  BOX_MEM_MIB: '16384'
+                  BOX_MEM_MIB: '20480'
                   BOX_DISK_GIB: '64'
               run: |
                   set -euo pipefail
