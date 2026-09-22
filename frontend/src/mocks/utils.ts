@@ -62,41 +62,41 @@ const matchKey = (path: string): string =>
 // frontend moves to the canonical projects path.
 // The alias is one-way on purpose. A projects registration never answers an environments request,
 // so a hand-written environments URL left in source still fails its test.
-const pathsForRegistration = (path: string, registeredPaths: Set<string>): string[] => {
+const projectsTwinFor = (path: string, registeredPaths: Set<string>): string | null => {
     if (!ENVIRONMENTS_PATH.test(path)) {
-        return [path]
+        return null
     }
-    const projectsTwin = path.replace(ENVIRONMENTS_PATH, '$1api/projects/')
-    // An explicit projects registration wins, because MSW answers with the first matching handler.
-    if (registeredPaths.has(matchKey(projectsTwin))) {
-        return [path]
-    }
-    return [path, projectsTwin]
+    const twin = path.replace(ENVIRONMENTS_PATH, '$1api/projects/')
+    // The same route registered on both paths needs no twin.
+    return registeredPaths.has(matchKey(twin)) ? null : twin
 }
 
 export const mocksToHandlers = (mocks: Mocks): HttpHandler[] => {
-    const handlers: HttpHandler[] = []
+    const explicit: HttpHandler[] = []
+    // Every twin goes after every explicit handler. MSW answers with the first match, and a twin
+    // carries whatever mask its environments path had, so a broad twin placed earlier would cover a
+    // more specific projects route that a test registered on purpose.
+    const twins: HttpHandler[] = []
     Object.entries(mocks)
         .filter((entry): entry is [HttpMethod, Record<string, MockSignature>] => !!entry[1])
         .forEach(([method, mockHandlers]) => {
             const registeredPaths = new Set(Object.keys(mockHandlers).map(matchKey))
             Object.entries(mockHandlers).forEach(([path, handler]) => {
-                pathsForRegistration(path, registeredPaths).forEach((registeredPath) => {
-                    const pathWithoutTrailingSlash = withoutTrailingSlash(registeredPath)
-                    handlers.push(
-                        (http[method] as (typeof http)['get'])(pathWithoutTrailingSlash, async (info) => {
-                            // Function handlers and static values support the same MockResult forms:
-                            // a `[status, body]` tuple, a Response, or a plain JSON body. Static
-                            // `[status, body]` tuples used to be serialized as a literal array body,
-                            // which silently broke every mock relying on the status.
-                            if (typeof handler === 'function') {
-                                return toResponse(await handler(info))
-                            }
-                            return toResponse(handler as MockResult)
-                        })
-                    )
-                })
+                // Function handlers and static values support the same MockResult forms: a
+                // `[status, body]` tuple, a Response, or a plain JSON body. Static `[status, body]`
+                // tuples used to be serialized as a literal array body, which silently broke every
+                // mock relying on the status.
+                const resolve = async (info: MockResolverInfo): Promise<Response> =>
+                    typeof handler === 'function' ? toResponse(await handler(info)) : toResponse(handler as MockResult)
+
+                const register = http[method] as (typeof http)['get']
+                explicit.push(register(withoutTrailingSlash(path), resolve))
+
+                const twin = projectsTwinFor(path, registeredPaths)
+                if (twin) {
+                    twins.push(register(withoutTrailingSlash(twin), resolve))
+                }
             })
         })
-    return handlers
+    return [...explicit, ...twins]
 }

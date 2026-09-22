@@ -33,4 +33,17 @@ describe('mocksToHandlers', () => {
 
         expect(await response.json()).toEqual({ hit: 'projects' })
     })
+
+    it('keeps a specific projects route ahead of a broader twin registered before it', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:id/alias_probe/:probeId': { hit: 'environments' },
+                '/api/projects/:id/alias_probe/summary': { hit: 'projects' },
+            },
+        })
+
+        const response = await fetch('/api/projects/1/alias_probe/summary')
+
+        expect(await response.json()).toEqual({ hit: 'projects' })
+    })
 })
