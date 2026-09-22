@@ -36,8 +36,8 @@ logger = get_write_only_logger()
 # "trace_not_settled" and "session_not_settled" are the aggregate-evaluation settle probes, whose
 # retry schedule is the poll loop. Each settle target keeps its own type, so a new target must
 # list its type here too; `_NOT_SETTLED_ERROR_TYPES` is tested against this set.
-# "CopyConflict" is the conversation-mirror race: the copy that loses it raises so the retry
-# re-reads the run and appends what is still missing, so the copy always completes.
+# "CopyConflict" is the conversation-mirror race. The copy that loses the race raises, and the
+# retry re-reads the run and appends what is still missing, so no conversation stays uncopied.
 EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
     {
         "trace_not_settled",
