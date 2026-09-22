@@ -62999,6 +62999,9 @@ export namespace Schemas {
      * * `work_release` - Work Release
      * * `pull_request` - Pull Request
      * * `check_result` - Check Result
+     * * `check_scheduled` - Check Scheduled
+     * * `check_expired` - Check Expired
+     * * `check_cancelled` - Check Cancelled
      * * `implementation_decision` - Implementation Decision
      * * `implementation_dispatch` - Implementation Dispatch
      * * `implementation_replacement` - Implementation Replacement
@@ -63030,6 +63033,9 @@ export namespace Schemas {
       WorkRelease: 'work_release',
       PullRequest: 'pull_request',
       CheckResult: 'check_result',
+      CheckScheduled: 'check_scheduled',
+      CheckExpired: 'check_expired',
+      CheckCancelled: 'check_cancelled',
       ImplementationDecision: 'implementation_decision',
       ImplementationDispatch: 'implementation_dispatch',
       ImplementationReplacement: 'implementation_replacement',
