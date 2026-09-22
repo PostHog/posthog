@@ -95,7 +95,8 @@ Offset the minute from any other routine that sweeps the same repo so their GitH
 
 The routine config carries no overlap setting, so a slow sweep can still be running when the next hour fires.
 Two sweeps that reach the same requeue-eligible PR before either posts can both post `/trunk merge`, because the marker only dedupes once a comment exists.
-Hourly firing makes that race unlikely rather than impossible, so treat a doubled requeue as the schedule's doing, not a bug in the chart.
+The fresh `state` read in step 6 shrinks that window to the seconds between the read and the post, and Trunk refuses a `/trunk merge` on a PR it already holds, so the second command comes back as `submit_rejected=yes` rather than a second attempt on the head.
+Treat a doubled requeue comment as the schedule's doing, not a bug in the chart.
 
 ## The requeue switch is the approval boundary
 
