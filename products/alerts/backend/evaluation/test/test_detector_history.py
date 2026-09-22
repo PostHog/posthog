@@ -6,6 +6,8 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.schema import HogQLAlertConfig
 
 from products.alerts.backend.evaluation.detector_history import detector_rows_from_history
@@ -163,17 +165,29 @@ class TestDetectorHistory(BaseTest):
         # Cached buckets were computed before the property was restricted, so they must go.
         assert warehouse.overrides[-1] is None
 
-    def test_a_bucket_that_loses_its_events_loses_its_cached_value(self) -> None:
+    @parameterized.expand([("inside_the_margin", 2), ("at_the_scan_boundary", 3)])
+    def test_a_bucket_that_loses_its_events_loses_its_cached_value(self, _name: str, hours_ago: int) -> None:
         warehouse = _Warehouse(self._dense(10))
         with time_machine.travel(NOW, tick=False):
             self._check(warehouse)
-            emptied = CURRENT_HOUR - timedelta(hours=2)
+            emptied = CURRENT_HOUR - timedelta(hours=hours_ago)
             del warehouse.series[emptied]
             rows = self._check(warehouse)
 
         assert rows is not None
         assert emptied not in self._cached_buckets()
         assert emptied not in [bucket for bucket, _ in rows[0]]
+
+    def test_the_oldest_bucket_of_the_window_survives_a_mid_hour_check(self) -> None:
+        warehouse = _Warehouse(self._dense(48))
+        with time_machine.travel(NOW, tick=False):
+            self._check(warehouse)
+            rows = self._check(warehouse)
+
+        assert rows is not None
+        assert warehouse.last_scan_hours < 48
+        assert next(bucket for bucket, _ in rows[0]) == CURRENT_HOUR - timedelta(hours=48)
+        assert len(rows[0]) == 48
 
     def test_too_few_cached_points_for_the_detector_fall_back_to_a_full_scan(self) -> None:
         warehouse = _Warehouse(self._dense(MIN_SAMPLES - 1))
