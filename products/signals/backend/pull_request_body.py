@@ -18,9 +18,10 @@ logger = structlog.get_logger(__name__)
 
 class BodyEditOutcome(StrEnum):
     WRITTEN = "written"
-    # Nothing to write, or nowhere to write it. A retry cannot change that.
+    # Nothing to write, or the URL is not a GitHub pull request. A retry cannot change that.
     SKIPPED = "skipped"
-    # GitHub refused, or the body changed after the read. A retry can succeed.
+    # GitHub refused, the repository access check failed, or the body changed after the read.
+    # A retry can succeed.
     FAILED = "failed"
 
 
@@ -37,8 +38,9 @@ def edit_pull_request_body(
         return BodyEditOutcome.SKIPPED
     github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
     if github is None:
+        # The lookup also returns None when the access check hits a transient GitHub error.
         logger.info(f"{log_event}_no_integration", report_id=report_id, pr_url=pr_url)
-        return BodyEditOutcome.SKIPPED
+        return BodyEditOutcome.FAILED
 
     pull_request = github.get_pull_request(parsed.repository, parsed.number)
     if not pull_request.get("success"):

@@ -331,6 +331,9 @@ def fetch_source_references_for_report(team: Team, report_id: str) -> list[Signa
         WHERE NOT is_deleted
           AND report_id = {report_id}
           AND source_product IN ('linear', 'github')
+        ORDER BY source_product, url, html_url
+        LIMIT 1 BY source_product, url, html_url
+        LIMIT {row_cap}
     """
 
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
@@ -341,6 +344,8 @@ def fetch_source_references_for_report(team: Team, report_id: str) -> list[Signa
         placeholders={
             "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
             "report_id": ast.Constant(value=report_id),
+            # Headroom over the reference cap for rows the URL checks below drop.
+            "row_cap": ast.Constant(value=_SOURCE_REFERENCE_CAP * 10),
         },
     )
 
@@ -375,7 +380,8 @@ class OriginSource:
     # The authoring scout's skill slug, or "" for pipeline signals.
     scout_name: str
     first_seen: datetime
-    # At most ORIGIN_ENTITY_ID_CAP entity ids, sorted. A ticket number replaces a ticket uuid.
+    # At most ORIGIN_ENTITY_ID_CAP entity ids, sorted. A support ticket keeps its uuid, because its
+    # sequential ticket number would reveal the team's ticket volume.
     entity_ids: tuple[str, ...]
 
 
@@ -396,11 +402,7 @@ def fetch_origin_sources_for_report(team: Team, report_id: str) -> list[OriginSo
             SELECT
                 JSONExtractString(metadata, 'source_product') as source_product,
                 JSONExtractString(metadata, 'extra', 'skill_name') as scout_name,
-                if(
-                    JSONExtractInt(metadata, 'extra', 'ticket_number') > 0,
-                    toString(JSONExtractInt(metadata, 'extra', 'ticket_number')),
-                    JSONExtractString(metadata, 'source_id')
-                ) as entity_id,
+                JSONExtractString(metadata, 'source_id') as entity_id,
                 timestamp
             FROM ({_deduped_signals_subquery(include_content=False, candidate_document_filter="JSONExtractString(metadata, 'report_id') = {report_id}")})
             WHERE JSONExtractString(metadata, 'report_id') = {{report_id}}
