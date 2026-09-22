@@ -124,6 +124,34 @@ def _setex_many(r: redis.Redis, ttl: int, items: Sequence[tuple[str, str]]) -> N
             pipe.execute()
 
 
+def _delete_many(r: redis.Redis, keys: Sequence[str]) -> None:
+    for chunk in _chunked(keys, REDIS_COMMAND_CHUNK_SIZE):
+        r.delete(*chunk)
+
+
+def _store_team_data(
+    r: redis.Redis,
+    input: GenerateDigestDataBatchInput,
+    key_kind: TeamDataKey,
+    payload_by_team: dict[int, str],
+    eligible_team_ids: set[int],
+) -> None:
+    """Write one key per team with data and drop the key of every other eligible team.
+
+    A retry of the same digest may find that a team's rows disappeared since the first attempt,
+    so a key left over from that attempt would otherwise survive for the whole TTL.
+    """
+    _setex_many(
+        r,
+        input.common.redis_ttl,
+        [(team_data_key(input.digest.key, key_kind, team_id), payload) for team_id, payload in payload_by_team.items()],
+    )
+    _delete_many(
+        r,
+        [team_data_key(input.digest.key, key_kind, team_id) for team_id in eligible_team_ids - payload_by_team.keys()],
+    )
+
+
 def _bind_batch_logger(input: GenerateDigestDataBatchInput) -> FilteringBoundLogger:
     bind_contextvars(
         digest_key=input.digest.key,
@@ -165,9 +193,14 @@ def _rows_in_range(input: GenerateDigestDataBatchInput, rows: QuerySet) -> Query
     return rows.filter(team_id__gte=input.team_id_range.start, team_id__lt=input.team_id_range.end)
 
 
-def _rows_by_eligible_team(input: GenerateDigestDataBatchInput, rows: QuerySet) -> dict[int, list[dict[str, Any]]]:
+def _eligible_team_ids(input: GenerateDigestDataBatchInput) -> set[int]:
+    return set(_teams_in_range(input).values_list("id", flat=True))
+
+
+def _rows_by_team(
+    input: GenerateDigestDataBatchInput, rows: QuerySet, eligible_team_ids: set[int]
+) -> dict[int, list[dict[str, Any]]]:
     """Group one range-wide query by team, dropping teams the digest does not cover (demo, internal)."""
-    eligible_team_ids = set(_teams_in_range(input).values_list("id", flat=True))
     rows_by_team: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for row in _rows_in_range(input, rows):
         if row["team_id"] in eligible_team_ids:
@@ -197,9 +230,10 @@ def generate_digest_data_lookup(
         rows = _limit_per_team(rows, per_team_limit)
 
     resource_count = 0
-    items: list[tuple[str, str]] = []
+    eligible_team_ids = _eligible_team_ids(input)
+    payload_by_team: dict[int, str] = {}
     # Teams with nothing new get no key. Aggregation substitutes an empty default for a missing key.
-    for team_id, team_rows in _rows_by_eligible_team(input, rows).items():
+    for team_id, team_rows in _rows_by_team(input, rows, eligible_team_ids).items():
         try:
             digest_data = resource_type.model_validate(team_rows)
         except ValidationError as e:
@@ -207,17 +241,17 @@ def generate_digest_data_lookup(
                 f"Failed to generate digest data for team {team_id}, skipping...", error=str(e), team_id=team_id
             )
             continue
-        items.append((team_data_key(input.digest.key, key_kind, team_id), digest_data.model_dump_json()))
+        payload_by_team[team_id] = digest_data.model_dump_json()
         resource_count += len(digest_data.root)
 
     with _digest_redis(input.common) as r:
-        _setex_many(r, input.common.redis_ttl, items)
+        _store_team_data(r, input, key_kind, payload_by_team, eligible_team_ids)
 
     logger.info(
         "Finished generating digest data batch",
         key_kind=key_kind,
         resource_count=resource_count,
-        team_count=len(items),
+        team_count=len(payload_by_team),
     )
 
 
@@ -316,15 +350,16 @@ def _generate_filter_lookup(input: GenerateDigestDataBatchInput) -> None:
         logger.error("Unable to generate Replay filter batch, missing URL for Django Redis...")
         return
 
-    rows_by_team = _rows_by_eligible_team(
-        input, query_saved_filters(input.digest.period_start, input.digest.period_end)
+    eligible_team_ids = _eligible_team_ids(input)
+    rows_by_team = _rows_by_team(
+        input, query_saved_filters(input.digest.period_start, input.digest.period_end), eligible_team_ids
     )
     with redis.Redis.from_url(input.common.django_redis_url) as django_cache:
         playlist_counts = _load_playlist_counts_from_django_cache(
             django_cache, [row["short_id"] for rows in rows_by_team.values() for row in rows]
         )
 
-    items: list[tuple[str, str]] = []
+    payload_by_team: dict[int, str] = {}
     for team_id, rows in rows_by_team.items():
         try:
             filters = FilterList.model_validate(rows)
@@ -341,14 +376,13 @@ def _generate_filter_lookup(input: GenerateDigestDataBatchInput) -> None:
                 filter.more_available = playlist_count.has_more
 
         ordered_filters = filters.order_by_recording_count()
-        key = team_data_key(input.digest.key, TeamDataKey.SAVED_FILTERS, team_id)
-        items.append((key, ordered_filters.model_dump_json()))
+        payload_by_team[team_id] = ordered_filters.model_dump_json()
 
         team_count += 1
         filter_count += len(ordered_filters.root)
 
     with _digest_redis(input.common) as r:
-        _setex_many(r, input.common.redis_ttl, items)
+        _store_team_data(r, input, TeamDataKey.SAVED_FILTERS, payload_by_team, eligible_team_ids)
 
     logger.info(
         "Finished generating Replay filter batch",
@@ -737,23 +771,22 @@ TEAM_DATA_DEFAULTS: list[tuple[TeamDataKey, Any]] = [
 ]
 
 
-def _load_team_data(r: redis.Redis, digest_key: str, teams: Sequence[Team]) -> dict[int, list[Any]]:
-    """One Redis read for every team-level key in the batch; absent keys fall back to the defaults."""
+def _load_team_values(r: redis.Redis, digest_key: str, teams: Sequence[Team]) -> dict[int, list[str | None]]:
+    """One Redis read for every team-level key in the batch, in TEAM_DATA_DEFAULTS order per team."""
     keys = [team_data_key(digest_key, kind, team.id) for team in teams for kind, _ in TEAM_DATA_DEFAULTS]
     values = _mget_chunked(r, keys)
 
-    team_data: dict[int, list[Any]] = {}
     kinds_per_team = len(TEAM_DATA_DEFAULTS)
-    for index, team in enumerate(teams):
-        team_values = values[index * kinds_per_team : (index + 1) * kinds_per_team]
-        team_data[team.id] = [
-            default if value is None else default.__class__.model_validate_json(value)
-            for (_, default), value in zip(TEAM_DATA_DEFAULTS, team_values)
-        ]
-    return team_data
+    return {team.id: values[index * kinds_per_team : (index + 1) * kinds_per_team] for index, team in enumerate(teams)}
 
 
-def _team_digest(team: Team, digest_data: list[Any]) -> TeamDigest:
+def _team_digest(team: Team, raw_values: list[str | None]) -> TeamDigest:
+    # Parsing happens per organization, inside its exception boundary, so one malformed value
+    # skips that organization instead of the whole batch. Absent keys fall back to the defaults.
+    digest_data = [
+        default if value is None else default.__class__.model_validate_json(value)
+        for (_, default), value in zip(TEAM_DATA_DEFAULTS, raw_values)
+    ]
     return TeamDigest(
         id=team.id,
         name=team.name,
@@ -787,12 +820,14 @@ def _generate_organization_digest_batch(input: GenerateOrganizationDigestInput) 
 
     items: list[tuple[str, str]] = []
     with _digest_redis(input.common) as r:
-        team_data = _load_team_data(r, input.digest.key, [team for teams in teams_by_org.values() for team in teams])
+        team_values = _load_team_values(
+            r, input.digest.key, [team for teams in teams_by_org.values() for team in teams]
+        )
 
         for organization in organizations:
             try:
                 team_digests = [
-                    _team_digest(team, team_data[team.id]) for team in teams_by_org.get(organization.id, [])
+                    _team_digest(team, team_values[team.id]) for team in teams_by_org.get(organization.id, [])
                 ]
                 org_digest = OrganizationDigest(
                     id=organization.id,

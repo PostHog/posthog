@@ -282,6 +282,8 @@ def test_generic_lookup_stores_only_this_teams_rows_from_the_window(
     quiet_team = _make_team(organization, "quiet team")
     other_team = _make_team(organization, "other team")
     expected = make_rows(team, other_team, digest)
+    # Left over from an earlier attempt of the same digest; the quiet team has no rows anymore.
+    redis_servers.digest.set(team_data_key(digest.key, key_kind, quiet_team.id), "[]")
 
     run_sync(
         activity_fn,
@@ -294,7 +296,7 @@ def test_generic_lookup_stores_only_this_teams_rows_from_the_window(
     stored = json.loads(redis_servers.digest.get(key))
     assert sorted(row[payload_field] for row in stored) == sorted(expected)
     assert 0 < redis_servers.digest.ttl(key) <= common_input.redis_ttl
-    # The quiet team is in range with nothing new, so it gets no key; the other team is out of range.
+    # The quiet team is in range with nothing new, so its stale key goes; the other team is out of range.
     assert team.id < quiet_team.id < other_team.id
     assert redis_servers.digest.keys(f"{digest.key}-{key_kind}-*") == [key]
 
@@ -480,21 +482,22 @@ def test_generate_organization_digest_batch_defaults_missing_team_data(
 ):
     silent_team = _make_team(organization, "silent team")
     Team.objects.create(organization=organization, name="demo team", is_demo=True)
+    broken_organization = Organization.objects.create(name="broken org")
+    broken_team = _make_team(broken_organization, "broken team")
+    redis_servers.digest.set(team_data_key(digest.key, TeamDataKey.DASHBOARDS, broken_team.id), "not json")
     redis_servers.digest.set(
         team_data_key(digest.key, TeamDataKey.DASHBOARDS, team.id), json.dumps([{"name": "Dashboard", "id": 1}])
     )
     redis_servers.digest.set(
         team_data_key(digest.key, TeamDataKey.EXPIRING_RECORDINGS, team.id), json.dumps({"recording_count": 7})
     )
-    organization_index = list(Organization.objects.order_by("id").values_list("id", flat=True)).index(organization.id)
-
     run_sync(
         generate_organization_digest_batch,
-        GenerateOrganizationDigestInput(
-            batch=(organization_index, organization_index + 1), digest=digest, common=common_input
-        ),
+        GenerateOrganizationDigestInput(batch=(0, Organization.objects.count()), digest=digest, common=common_input),
     )
 
+    # One organization's malformed value skips that organization only.
+    assert redis_servers.digest.get(org_digest_key(digest.key, broken_organization.id)) is None
     stored = json.loads(redis_servers.digest.get(org_digest_key(digest.key, organization.id)))
     assert stored["name"] == organization.name
     assert [td["id"] for td in stored["team_digests"]] == sorted([team.id, silent_team.id])
