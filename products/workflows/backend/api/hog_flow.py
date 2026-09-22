@@ -108,6 +108,7 @@ from products.access_control.backend.presentation.access_control import (
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
+from products.feature_flags.backend.person_sampling import bounded_memory_settings
 from products.feature_flags.backend.user_blast_radius import BlastRadiusResult, get_user_blast_radius
 from products.messaging.backend.api.design_operations import apply_design_operations
 from products.messaging.backend.api.design_validation import validate_design
@@ -161,7 +162,6 @@ from products.workflows.backend.services.account_audience import (
     parse_account_audience_filters,
 )
 from products.workflows.backend.services.audience_v2 import (
-    bounded_memory_settings,
     get_dedupe_audience_count_v2,
     get_person_audience_count_v2,
     use_audience_query_v2,
@@ -1996,8 +1996,9 @@ class HogFlowConversionSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "How long after entering the workflow a conversion still counts, as a duration string: "
-            "'7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. "
-            "Omit it to use the default window. Set this or 'window_minutes', not both."
+            "'7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, "
+            "and at most '365d'. Omit it to use the default of 90 days. "
+            "Set this or 'window_minutes', not both."
         ),
     )
     window_minutes = serializers.IntegerField(
@@ -2005,7 +2006,7 @@ class HogFlowConversionSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a "
-            "person enters the workflow. Maximum 129600 (90 days). null = use the default window. "
+            "person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. "
             "Set this or 'window', not both."
         ),
     )

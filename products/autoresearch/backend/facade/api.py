@@ -9,8 +9,14 @@ Scope is set at the entry boundary, so every read and write here takes ``team_id
 filters on it. Business rules live in the modules behind this facade, not in the views.
 """
 
+import json
+import hashlib
 from typing import Any
 from uuid import UUID
+
+from django.db import transaction
+from django.db.models import F, Q
+from django.utils import timezone as django_timezone
 
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -32,11 +38,14 @@ from ..models import (
     AutoresearchModel,
     AutoresearchPipeline,
     AutoresearchRun,
+    AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
+from ..training.recipe_validation import RecipeValidationError, validate_recipe
 from .contracts import (
     AutoresearchConflict,
     InvalidTarget,
+    Iteration,
     IterationTrailEntry,
     Model,
     Pipeline,
@@ -47,6 +56,8 @@ from .contracts import (
     Run,
     TemplateInfo,
     TrainingRun,
+    TrainingRunHistory,
+    TrainingRunHistoryEntry,
     TrainingRunNotFound,
     ValidationWarning,
 )
@@ -57,6 +68,9 @@ AUTORESEARCH_FLAG = "autoresearch"
 def flag_key() -> str:
     """The feature flag that gates every autoresearch surface."""
     return AUTORESEARCH_FLAG
+
+
+HISTORY_LIMIT_MAX = 20
 
 
 def _as_uuid(value: str | UUID | None) -> UUID | None:
@@ -153,6 +167,7 @@ def _iteration_trail_entry(row: AutoresearchIteration) -> IterationTrailEntry:
         train_score=row.train_score,
         agent_description=row.agent_description,
         model_spec=row.model_spec or {},
+        recipe_snapshot=row.recipe_snapshot or {},
     )
 
 
@@ -172,6 +187,25 @@ def _training_run_to_contract(row: AutoresearchTrainingRun) -> TrainingRun:
         error=row.error,
         started_at=row.started_at,
         completed_at=row.completed_at,
+        created_at=row.created_at,
+    )
+
+
+def _iteration_to_contract(row: AutoresearchIteration) -> Iteration:
+    return Iteration(
+        id=row.id,
+        pipeline=row.pipeline_id,
+        training_run=row.training_run_id,
+        iteration_number=row.iteration_number,
+        recipe_hash=row.recipe_hash,
+        recipe_snapshot=row.recipe_snapshot or {},
+        model_spec=row.model_spec or {},
+        train_score=row.train_score,
+        holdout_score=row.holdout_score,
+        status=row.status,
+        agent_description=row.agent_description,
+        agent_confidence=row.agent_confidence,
+        parent_suggestion=row.parent_suggestion_id,
         created_at=row.created_at,
     )
 
@@ -216,12 +250,25 @@ def _pipeline_row(team_id: int, pipeline_id: str | UUID, *, live_only: bool = Fa
 
 
 def _training_run_row(
-    team_id: int, training_run_id: str | UUID, *, pipeline_id: str | UUID | None = None
+    team_id: int,
+    training_run_id: str | UUID,
+    *,
+    pipeline_id: str | UUID | None = None,
+    with_iterations: bool = True,
+    for_update: bool = False,
 ) -> AutoresearchTrainingRun:
+    """One training run in this team, and under ``pipeline_id`` when the route names one.
+
+    ``for_update`` locks the run row only, not the joined pipeline row, which other claims lock.
+    """
     training_run_uuid = _as_uuid(training_run_id)
     if training_run_uuid is None:
         raise TrainingRunNotFound("Training run not found.")
-    qs = AutoresearchTrainingRun.objects.for_team(team_id).select_related("pipeline").prefetch_related("iterations")
+    qs = AutoresearchTrainingRun.objects.for_team(team_id).select_related("pipeline")
+    if with_iterations:
+        qs = qs.prefetch_related("iterations")
+    if for_update:
+        qs = qs.select_for_update(of=("self",))
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
     try:
@@ -493,6 +540,205 @@ def get_training_run(
         return None
 
 
+def open_training_run(team_id: int, pipeline_id: str | UUID, *, iteration_budget: int | None) -> TrainingRun:
+    """Open a run an external agent will record iterations against."""
+    pipeline = _pipeline_row(team_id, pipeline_id)
+    if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
+        raise AutoresearchConflict("Cannot open a training run on an archived pipeline.")
+    row = AutoresearchTrainingRun.objects.create(
+        pipeline=pipeline,
+        status=AutoresearchTrainingRun.Status.RUNNING,
+        iteration_budget=iteration_budget or pipeline.iteration_budget,
+        started_at=django_timezone.now(),
+    )
+    return _training_run_to_contract(row)
+
+
+def record_iteration(
+    team_id: int, training_run_id: str | UUID, *, pipeline_id: str | UUID | None = None, fields: dict[str, Any]
+) -> Iteration:
+    """Record one iteration of an open run. Idempotent on ``iteration_number``."""
+    recipe_snapshot = fields["recipe_snapshot"]
+    model_spec = fields["model_spec"]
+    recipe_hash = hashlib.sha256(
+        json.dumps({"recipe": recipe_snapshot, "spec": model_spec}, sort_keys=True).encode()
+    ).hexdigest()
+    iteration_number = fields["iteration_number"]
+
+    # Completion locks the run row and freezes it. Recording takes the same lock so the status
+    # check and the upsert see one state: an iteration can no longer land on a run that
+    # completed in between and go missing from its champion selection and summary.
+    with transaction.atomic():
+        training_run = _training_run_row(
+            team_id, training_run_id, pipeline_id=pipeline_id, with_iterations=False, for_update=True
+        )
+        if training_run.status != AutoresearchTrainingRun.Status.RUNNING:
+            raise AutoresearchConflict("Can only record iterations on a running training run.")
+
+        recorded = AutoresearchIteration.objects.filter(training_run=training_run)
+        is_new_number = not recorded.filter(iteration_number=iteration_number).exists()
+        if is_new_number and recorded.count() >= training_run.iteration_budget:
+            raise AutoresearchConflict(
+                f"Training run has used its iteration budget of {training_run.iteration_budget}. "
+                "Re-sending a recorded iteration_number still updates that iteration."
+            )
+
+        defaults: dict[str, Any] = {
+            "pipeline": training_run.pipeline,
+            "recipe_hash": recipe_hash,
+            "recipe_snapshot": recipe_snapshot,
+            "model_spec": model_spec,
+            "train_score": fields.get("train_score"),
+            "holdout_score": fields.get("holdout_score"),
+            "status": fields["status"],
+            "agent_description": fields.get("agent_description", ""),
+            "agent_confidence": fields.get("agent_confidence"),
+        }
+        # A re-send that omits parent_suggestion keeps the attribution it recorded the first
+        # time; only an explicit null clears it.
+        parent_suggestion = None
+        if "parent_suggestion" in fields:
+            parent_suggestion = _parent_suggestion_row(team_id, training_run, fields["parent_suggestion"])
+            defaults["parent_suggestion"] = parent_suggestion
+
+        iteration, _ = AutoresearchIteration.objects.update_or_create(
+            team_id=team_id,
+            training_run=training_run,
+            iteration_number=iteration_number,
+            defaults=defaults,
+        )
+
+        # Spawning an iteration from a suggestion is itself acting on it, so the suggestion
+        # advances even if the agent never calls the respond endpoint.
+        if parent_suggestion and parent_suggestion.status in (
+            AutoresearchSuggestion.Status.QUEUED,
+            AutoresearchSuggestion.Status.PICKED_UP,
+        ):
+            parent_suggestion.status = AutoresearchSuggestion.Status.ACTED_ON
+            parent_suggestion.save(update_fields=["status", "updated_at"])
+
+    return _iteration_to_contract(iteration)
+
+
+def _parent_suggestion_row(
+    team_id: int, training_run: AutoresearchTrainingRun, suggestion_id: Any
+) -> AutoresearchSuggestion | None:
+    """The suggestion an iteration acts on, scoped to the run's pipeline so a foreign id cannot attach."""
+    if not suggestion_id:
+        return None
+    suggestion_uuid = _as_uuid(suggestion_id)
+    suggestion = None
+    if suggestion_uuid is not None:
+        suggestion = (
+            AutoresearchSuggestion.objects.for_team(team_id)
+            .filter(id=suggestion_uuid, pipeline=training_run.pipeline)
+            .first()
+        )
+    if suggestion is None:
+        raise AutoresearchConflict("parent_suggestion not found on this pipeline.")
+    return suggestion
+
+
+def complete_run(
+    team_id: int,
+    training_run_id: str | UUID,
+    *,
+    pipeline_id: str | UUID | None = None,
+    best_iteration_id: Any = None,
+    model_explanation: dict[str, Any] | None = None,
+    recommended_next: str = "",
+    distillation: str = "",
+) -> TrainingRun:
+    """Finalize a run. Promotion is server-side, so an agent cannot set the champion."""
+    # Promotion imports the inference sandbox, and with it pandas and pyarrow; the router imports
+    # this facade on the first request, so the heavy chain loads only when a run completes.
+    from ..training.promotion import PromotionError, complete_training_run  # noqa: PLC0415
+
+    training_run = _training_run_row(team_id, training_run_id, pipeline_id=pipeline_id, with_iterations=False)
+    if training_run.status not in (
+        AutoresearchTrainingRun.Status.RUNNING,
+        AutoresearchTrainingRun.Status.PENDING,
+    ):
+        raise AutoresearchConflict("Training run is already completed or failed.")
+    try:
+        complete_training_run(
+            training_run,
+            best_iteration_id=best_iteration_id,
+            model_explanation=model_explanation or {},
+            recommended_next=recommended_next or "",
+            distillation=distillation or "",
+        )
+    except PromotionError as exc:
+        raise AutoresearchConflict(str(exc)) from exc
+    training_run.refresh_from_db()
+    if training_run.status != AutoresearchTrainingRun.Status.COMPLETED:
+        # The TaskRun failure handler won the race for the row lock, so promotion answered with
+        # its no-op and the run is failed, not completed.
+        raise AutoresearchConflict("Training run failed before it could be completed.")
+    return _training_run_to_contract(training_run)
+
+
+def training_run_history(team_id: int, pipeline_id: str | UUID, *, limit: int = 5) -> TrainingRunHistory:
+    """Prior completed runs a new run reads to orient.
+
+    This pipeline's own history first, backfilled with same-target sibling pipelines on the
+    team, so a fresh pipeline still inherits what the team already learned about the target.
+    """
+    pipeline = _pipeline_row(team_id, pipeline_id)
+    limit = max(1, min(limit, HISTORY_LIMIT_MAX))
+
+    completed = (
+        AutoresearchTrainingRun.objects.for_team(team_id)
+        .filter(status=AutoresearchTrainingRun.Status.COMPLETED)
+        .select_related("pipeline")
+        .prefetch_related("iterations")
+    )
+    # Postgres puts NULLs first on a bare DESC, so an undated completed run would outrank every
+    # dated one; the id breaks ties so a page is the same on every read.
+    newest_first = (F("completed_at").desc(nulls_last=True), "-id")
+    runs = list(completed.filter(pipeline=pipeline).order_by(*newest_first)[:limit])
+    remaining = limit - len(runs)
+    if remaining > 0:
+        runs += list(
+            completed.filter(_same_target_as(pipeline)).exclude(pipeline=pipeline).order_by(*newest_first)[:remaining]
+        )
+
+    return TrainingRunHistory(
+        runs=[
+            TrainingRunHistoryEntry(
+                run_id=run.id,
+                pipeline_id=run.pipeline_id,
+                is_current_pipeline=run.pipeline_id == pipeline.id,
+                target_event=run.pipeline.target_event,
+                horizon_days=run.pipeline.horizon_days,
+                best_holdout_score=run.best_holdout_score,
+                iteration_count=run.iteration_count,
+                completed_at=run.completed_at,
+                summary=run.summary or None,
+                iterations=[_iteration_trail_entry(i) for i in run.iterations.all()],
+            )
+            for run in runs
+        ]
+    )
+
+
+def _same_target_as(pipeline: AutoresearchPipeline) -> Q:
+    """Sibling pipelines that predict the same outcome, not merely the same display name.
+
+    An action and an event can share a name, so an action target matches on its id, and an
+    event target also accepts the empty definition creation stored before it was normalized.
+    """
+    definition = pipeline.target_definition or {}
+    if definition.get("type") == "action":
+        return Q(
+            pipeline__target_definition__type="action",
+            pipeline__target_definition__action_id=definition.get("action_id"),
+        )
+    return Q(pipeline__target_event=pipeline.target_event) & (
+        Q(pipeline__target_definition__type="event") | ~Q(pipeline__target_definition__has_key="type")
+    )
+
+
 # ── Recipe validation surface for the presentation layer ───────────────────
 
 # The semantic population kinds the labeler can compile. Presentation validates a submitted
@@ -502,6 +748,14 @@ POPULATION_KINDS = _POPULATION_KINDS
 # The event this product emits. It is excluded from every labeler and validation scan, so it
 # can never be a target.
 PREDICTION_EVENT_NAME = _PREDICTION_EVENT_NAME
+
+
+def validate_iteration_recipe(*, model_spec: dict[str, Any], recipe_snapshot: dict[str, Any]) -> None:
+    """Raise ``AutoresearchConflict`` if an agent-submitted recipe is outside the allowlist."""
+    try:
+        validate_recipe(model_spec=model_spec, recipe_snapshot=recipe_snapshot)
+    except RecipeValidationError as exc:
+        raise AutoresearchConflict(str(exc)) from exc
 
 
 # ── Choice vocabularies for the presentation layer ─────────────────────────
