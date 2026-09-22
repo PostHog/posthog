@@ -110,6 +110,46 @@ def _read_call_argument(text: str, open_paren: int) -> str:
     return text[open_paren + 1 :]
 
 
+def _split_top_level_args(text: str) -> list[str]:
+    """Split a call's argument text on its top-level commas."""
+    if not text.strip():
+        return []
+    args: list[str] = []
+    depth = 0
+    quote = ""
+    start = 0
+    for index, char in enumerate(text):
+        if quote:
+            quote = "" if char == quote else quote
+            continue
+        if char in "\"'`":
+            quote = char
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        elif char == "," and depth == 0:
+            args.append(text[start:index])
+            start = index + 1
+    args.append(text[start:])
+    return args
+
+
+def _signature_params(signature: str) -> list[tuple[str, bool]]:
+    """A method signature's parameters, in order, each with whether it is optional."""
+    match = re.search(r"\((.*)\)\s*:\s*ApiRequest\s*\{", signature, re.S)
+    if match is None:
+        return []
+    params = []
+    for arg in _split_top_level_args(match.group(1)):
+        name = arg.strip().split(":", 1)[0].strip()
+        if not name:
+            continue
+        optional = name.endswith("?")
+        params.append((name.rstrip("?").strip(), optional))
+    return params
+
+
 def _argument_segments(argument: str) -> tuple[str, ...]:
     """Path segments an argument contributes.
 
@@ -140,26 +180,77 @@ class RedundantMethod:
 
 @dataclass(frozen=True)
 class ReturnStatement:
-    """One ``return`` of a path method, with the statements that run before it."""
+    """One ``return`` of a path method, with the statements that run before it.
+
+    ``guard`` is the single-variable ``if`` this return sits inside, or falls through
+    from - ``(param, True)`` when the branch runs while ``param`` is truthy, ``(param,
+    False)`` while it is falsy. ``None`` covers everything else: an unconditional
+    return, an ``else``, a compound condition - anywhere a delegating call can't prove
+    which branch runs, so every branch stays reachable.
+    """
 
     setup: str
     statement: str
+    guard: tuple[str, bool] | None = None
 
 
-def _block_paths(lines: list[str]) -> list[tuple[int, ...]]:
-    """For each line, the ids of the brace blocks open at it, outermost first."""
+# A plain `if (x) {` or `if (!x) {` on its own line - anything more, an `else` or a
+# compound condition, is left unrecognized and leaves the branch's guard as None.
+_IF_GUARD: Final = re.compile(r"^\s*if \((!?)(\w+)\)\s*\{\s*$")
+
+
+def _block_paths(lines: list[str]) -> tuple[list[tuple[int, ...]], dict[int, int]]:
+    """For each line, the ids of the brace blocks open at it, outermost first,
+    plus the line that opened each block id."""
     paths: list[tuple[int, ...]] = []
+    opened_at: dict[int, int] = {}
     stack: list[int] = []
     opened = 0
-    for line in lines:
+    for line_index, line in enumerate(lines):
         paths.append(tuple(stack))
         for char in line:
             if char == "{":
                 opened += 1
                 stack.append(opened)
+                opened_at[opened] = line_index
             elif char == "}" and stack:
                 stack.pop()
-    return paths
+    return paths, opened_at
+
+
+def _fallthrough_guard(lines: list[str], paths: list[tuple[int, ...]], index: int) -> tuple[str, bool] | None:
+    """The guard on the nearest same-level statement before ``index``, if it is an ``if``.
+
+    A return after a closed if-block, at the same depth as the block's own header, is
+    reachable only when that if's condition was false - the opposite of the guard its
+    own returns carry.
+    """
+    level = paths[index]
+    for position in range(index - 1, -1, -1):
+        if paths[position] != level:
+            continue
+        if not lines[position].strip():
+            continue  # a blank line between the closed block and here proves nothing
+        match = _IF_GUARD.match(lines[position])
+        if match is None:
+            return None
+        negated, name = match.groups()
+        return (name, bool(negated))
+    return None
+
+
+def _return_guard(
+    lines: list[str], paths: list[tuple[int, ...]], opened_at: dict[int, int], index: int
+) -> tuple[str, bool] | None:
+    """The single-variable ``if`` this return runs inside, or falls through from."""
+    if paths[index]:
+        header = lines[opened_at[paths[index][-1]]]
+        match = _IF_GUARD.match(header)
+        if match is None:
+            return None
+        negated, name = match.groups()
+        return (name, not bool(negated))
+    return _fallthrough_guard(lines, paths, index)
 
 
 def _split_returns(body: str) -> list[ReturnStatement]:
@@ -171,7 +262,7 @@ def _split_returns(body: str) -> list[ReturnStatement]:
     the return below the block, or the method resolves to the conditional route only.
     """
     lines = body.splitlines()
-    paths = _block_paths(lines)
+    paths, opened_at = _block_paths(lines)
     returns: list[ReturnStatement] = []
     for index, line in enumerate(lines):
         if not _RETURN_LINE.match(line):
@@ -182,7 +273,8 @@ def _split_returns(body: str) -> list[ReturnStatement]:
             if paths[position] == paths[index][: len(paths[position])] and not _RETURN_LINE.match(earlier)
         ]
         statement = _return_expression("\n".join(lines[index:]))
-        returns.append(ReturnStatement(setup="\n".join(setup), statement=statement))
+        guard = _return_guard(lines, paths, opened_at, index)
+        returns.append(ReturnStatement(setup="\n".join(setup), statement=statement, guard=guard))
     return returns or [ReturnStatement(setup="", statement=body)]
 
 
@@ -261,6 +353,7 @@ class ApiRequestResolver:
 
     def __init__(self, source: str) -> None:
         self._returns: dict[str, list[ReturnStatement]] = {}
+        self._signatures: dict[str, str] = {}
         self._cache: dict[str, tuple[tuple[str, ...], ...]] = {}
         self._parse(source)
 
@@ -284,10 +377,12 @@ class ApiRequestResolver:
             while index < len(lines) and lines[index] != "    }":
                 body.append(lines[index])
                 index += 1
-            if "): ApiRequest {" not in " ".join(signature):
+            signature_text = " ".join(signature)
+            if "): ApiRequest {" not in signature_text:
                 continue  # a verb (get/create/...), not a path method
             text = "\n".join(body)
             self._returns[match.group(1)] = _split_returns(text)
+            self._signatures[match.group(1)] = signature_text
 
     def method_names(self) -> frozenset[str]:
         return frozenset(self._returns)
@@ -299,24 +394,25 @@ class ApiRequestResolver:
         self._cache[name] = ()  # cycle guard for the recursive resolve below
         resolved: list[tuple[str, ...]] = []
         for statement in self._returns.get(name, []):
-            resolved.extend(self._resolve_return(statement))
+            resolved.extend(self._resolve_return(statement, name))
         self._cache[name] = tuple(dict.fromkeys(resolved))
         return self._cache[name]
 
-    def _resolve_return(self, statement: ReturnStatement) -> list[tuple[str, ...]]:
+    def _resolve_return(self, statement: ReturnStatement, owner: str) -> list[tuple[str, ...]]:
         """Every template one return can build, across its ternary and base branches."""
         branches = _ternary_branches(statement.statement)
         if len(branches) > 1:
             resolved: list[tuple[str, ...]] = []
             for branch in branches:
-                resolved.extend(self._resolve_return(ReturnStatement(setup=statement.setup, statement=branch)))
+                resolved.extend(self._resolve_return(ReturnStatement(setup=statement.setup, statement=branch), owner))
             return resolved
-        return self._resolve_chain(statement)
+        return self._resolve_chain(statement, owner)
 
-    def _resolve_chain(self, statement: ReturnStatement) -> list[tuple[str, ...]]:
+    def _resolve_chain(self, statement: ReturnStatement, owner: str) -> list[tuple[str, ...]]:
         base = _CHAIN_BASE.search(statement.statement)
         if base is not None:
-            prefixes = self._base_prefixes(base.group(1))
+            args = _split_top_level_args(_read_call_argument(statement.statement, base.end() - 1))
+            prefixes = self._base_prefixes(base.group(1), args, owner)
             tail = self._appended_segments(_after_base(statement.statement, base))
             return [(*prefix, *tail) for prefix in prefixes]
         # The return continues a chain the setup built into a local, so the root and
@@ -324,21 +420,64 @@ class ApiRequestResolver:
         base = _CHAIN_BASE.search(statement.setup)
         if base is None:
             return []
-        prefixes = self._base_prefixes(base.group(1))
+        args = _split_top_level_args(_read_call_argument(statement.setup, base.end() - 1))
+        prefixes = self._base_prefixes(base.group(1), args, owner)
         tail = self._appended_segments(_after_base(statement.setup, base)) + self._appended_segments(
             statement.statement
         )
         return [(*prefix, *tail) for prefix in prefixes]
 
-    def _base_prefixes(self, name: str) -> list[tuple[str, ...]]:
-        """Every prefix the chain root can stand for. A branching root has several."""
+    def _base_prefixes(self, name: str, args: list[str], owner: str) -> list[tuple[str, ...]]:
+        """Every prefix the chain root can stand for. A branching root has several.
+
+        ``args`` are the arguments this particular call site passed to ``name``, and
+        ``owner`` is the method making the call. Together they can rule out a branch
+        the caller's own arguments can never reach - see ``_reachable_returns``.
+        """
         if name in _COMPONENT_CALLS:
             return [()]  # the chain starts on `this` itself, e.g. this.addPathComponent('projects')
         if name in _ROOT_PREFIXES:
             return [_ROOT_PREFIXES[name]]
-        if name not in self._returns:
+        statements = self._returns.get(name)
+        if not statements:
             return []
-        return list(self.templates(name))
+        reachable = self._reachable_returns(name, statements, args, owner)
+        if reachable == statements:
+            return list(self.templates(name))  # no filtering applies - reuse the cached, cycle-safe result
+        resolved: list[tuple[str, ...]] = []
+        for statement in reachable:
+            resolved.extend(self._resolve_return(statement, name))
+        return list(dict.fromkeys(resolved))
+
+    def _reachable_returns(
+        self, name: str, statements: list[ReturnStatement], args: list[str], owner: str
+    ) -> list[ReturnStatement]:
+        """Which of ``name``'s branches this call site can reach, given its arguments.
+
+        A branch guarded by ``if (<param>)`` is unreachable when the call passes
+        nothing for that parameter, and unreachable in reverse when the call passes a
+        value the caller's own signature proves is always there - one of its own
+        required parameters, forwarded as-is. Anything else - an optional parameter
+        forwarded, a computed expression - can't be proven either way, so every
+        branch stays reachable.
+        """
+        guards = [statement.guard for statement in statements if statement.guard is not None]
+        if not guards:
+            return statements
+        param_name = guards[0][0]  # every guard on one method names the same parameter
+        params = _signature_params(self._signatures.get(name, ""))
+        index = next((i for i, (pname, _optional) in enumerate(params) if pname == param_name), None)
+        if index is None:
+            return statements
+        if index >= len(args) or not args[index].strip():
+            return [statement for statement in statements if statement.guard != (param_name, True)]
+        passed = args[index].strip()
+        if not passed.isidentifier():
+            return statements
+        owner_optional = dict(_signature_params(self._signatures.get(owner, ""))).get(passed)
+        if owner_optional is False:
+            return [statement for statement in statements if statement.guard != (param_name, False)]
+        return statements
 
     def _appended_segments(self, text: str, seen: frozenset[str] = frozenset()) -> tuple[str, ...]:
         """The segments a chain appends, expanding the path helpers it calls.
@@ -430,13 +569,19 @@ class Ratchet:
         return products
 
     def namespaces(self) -> dict[str, frozenset[str]]:
-        """Namespaces on the ``api`` singleton that call a redundant path method."""
+        """Namespaces on the ``api`` singleton that call a redundant path method.
+
+        CORE_OWNER stays in ``redundant`` and ``products_by_method()`` - it is real
+        route coverage - but it names no product directory, so it is dropped here.
+        Callers of this method (the ``--namespaces`` output, and the per-product
+        semgrep rules generated from it) need real product owners only.
+        """
         owned: dict[str, frozenset[str]] = {}
+        by_method = self.products_by_method()
         for namespace, block in self._namespace_blocks().items():
             products: set[str] = set()
-            by_method = self.products_by_method()
             for call in _MEMBER_CALL.finditer(block):
-                products |= by_method.get(call.group(1), frozenset())
+                products |= by_method.get(call.group(1), frozenset()) - {CORE_OWNER}
             if products:
                 owned[namespace] = frozenset(products)
         return owned

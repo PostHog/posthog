@@ -95,6 +95,14 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('alerts')
     }
 
+    public alert(alertId: AlertType['id']): ApiRequest {
+        return this.alerts(alertId)
+    }
+
+    public alertsCollection(): ApiRequest {
+        return this.alerts()
+    }
+
     public query(teamId?: TeamType['id'], queryKind?: string): ApiRequest {
         const apiRequest = this.environmentsDetail(teamId).addPathComponent('query')
         if (queryKind) {
@@ -122,6 +130,11 @@ const api = {
     comments: {
         async list(): Promise<any> {
             return await new ApiRequest().comments().get()
+        },
+    },
+    propertyDefinitions: {
+        async list(): Promise<any> {
+            return await new ApiRequest().propertyDefinitions().get()
         },
     },
 }
@@ -230,6 +243,18 @@ class TestApiRequestResolver:
                 "alerts",
                 ["environments/{}/alerts/{}", "environments/{}/alerts"],
             ),
+            # `alert` always forwards a required id, so the no-id branch is unreachable.
+            (
+                "a required argument rules out the branch that doesn't consume it",
+                "alert",
+                ["environments/{}/alerts/{}"],
+            ),
+            # `alertsCollection` forwards nothing, so the id branch is unreachable.
+            (
+                "no argument rules out the branch that needs one",
+                "alertsCollection",
+                ["environments/{}/alerts"],
+            ),
             # The chain root lives in the body, not in the return statement. Resolving
             # the return alone drops environments/{} and the URL looks like /api/query.
             (
@@ -267,6 +292,12 @@ class TestRatchet:
             "signalReports": ["signals"],
             "hogFlows": ["workflows"],
         }
+
+    def test_namespaces_drops_the_core_sentinel(self, tmp_path: Path) -> None:
+        # `propertyDefinitions` is redundant only against the core client, and CORE_OWNER
+        # names no product directory - a namespace covered by it alone must not appear.
+        _write_repo(tmp_path)
+        assert "propertyDefinitions" not in Ratchet(tmp_path).namespaces()
 
 
 class TestEveryBranch:
