@@ -47,27 +47,28 @@ jobs:
                   }
 
                   deadline=$((SECONDS + 3300))
+                  handed_off=false
                   while [ "$SECONDS" -lt "$deadline" ]; do
-                      handoff=$(check_state "Hand off backend tests to Depot CI")
-                      case "$handoff" in
-                          success) ;;
-                          ""|queued|in_progress|pending|waiting|requested)
-                              sleep 15
-                              continue
-                              ;;
-                          *)
-                              echo "Backend CI stayed on GitHub Actions (handoff: $handoff)."
-                              exit 0
-                              ;;
-                      esac
+                      if [ "$handed_off" = false ]; then
+                          handoff=$(check_state "Hand off backend tests to Depot CI")
+                          case "$handoff" in
+                              success) handed_off=true ;;
+                              ""|queued|in_progress|pending|waiting|requested)
+                                  sleep 15
+                                  continue
+                                  ;;
+                              *)
+                                  echo "Backend CI stayed on GitHub Actions (handoff: $handoff)."
+                                  exit 0
+                                  ;;
+                          esac
+                      fi
 
-                      repo_signal=$(check_state "Backend CI on Depot / Request Backend CI cancellation after repo check failure" "$DEPOT_APP_ID")
-                      openapi_signal=$(check_state "Backend CI on Depot / Request Backend CI cancellation after OpenAPI check failure" "$DEPOT_APP_ID")
-                      if [ "$repo_signal" = success ]; then
+                      if [ "$(check_state "Backend CI on Depot / Request Backend CI cancellation after repo check failure" "$DEPOT_APP_ID")" = success ]; then
                           echo "reason=repo" >> "$GITHUB_OUTPUT"
                           exit 0
                       fi
-                      if [ "$openapi_signal" = success ]; then
+                      if [ "$(check_state "Backend CI on Depot / Request Backend CI cancellation after OpenAPI check failure" "$DEPOT_APP_ID")" = success ]; then
                           echo "reason=openapi" >> "$GITHUB_OUTPUT"
                           exit 0
                       fi
