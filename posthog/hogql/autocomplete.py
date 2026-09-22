@@ -1,9 +1,8 @@
 import json
 from collections.abc import Callable
 from copy import deepcopy
-from functools import lru_cache
-from dataclasses import dataclass
 from enum import Enum, auto
+from functools import lru_cache
 from typing import Optional, cast
 
 from django.db import models
@@ -55,6 +54,7 @@ from posthog.hogql.type_system import (
 )
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.team.team import Team
@@ -592,7 +592,7 @@ _PARSE_VARIANTS: list[tuple[str, int]] = [
 ]
 
 
-@dataclass(frozen=True, kw_only=True)
+@frozen
 class _ParsedVariant:
     root_node: AST
     select_ast: Optional[ast.AST]
@@ -691,11 +691,7 @@ def _suggest_from_globals_chain(
     if isinstance(loop_globals, dict):
         # The sample event backing these globals is a real captured event, so its
         # property bag can still carry properties we no longer offer for querying.
-        excluded_keys = (
-            QUERY_DEPRECATED_EVENT_PROPERTIES
-            if entered_chain == EVENT_PROPERTIES_GLOBALS_CHAIN
-            else None
-        )
+        excluded_keys = QUERY_DEPRECATED_EVENT_PROPERTIES if entered_chain == EVENT_PROPERTIES_GLOBALS_CHAIN else None
         add_globals_to_suggestions(loop_globals, response, excluded_keys=excluded_keys)
         # looking at a nested global object, no need for other suggestions
         if loop_globals != query_globals:
@@ -773,7 +769,10 @@ def _suggest_property_names(
     if property_type == PropertyDefinition.Type.EVENT:
         property_query = property_query.exclude(name__in=QUERY_DEPRECATED_EVENT_PROPERTIES)
 
-    # Fetch one extra row to detect truncation without counting the entire taxonomy.
+    # One row past the limit sets `incomplete_list` without an unbounded COUNT(*):
+    # an empty match_term makes the filter `LIKE '%%'`, so that count walked the
+    # project's whole taxonomy. `posthog_propdef_proj_uniq` is keyed on (project,
+    # name, ...), so ordering by name reads it in index order and stops at the limit.
     with timings.measure("property_get_values"):
         properties = list(
             property_query.order_by("name")[: PROPERTY_DEFINITION_LIMIT + 1].values("name", "property_type")
@@ -1067,6 +1066,12 @@ def get_hogql_autocomplete(
                 # string literal elsewhere. Neither takes suggestions.
                 continue
 
+            if isinstance(query.globals, dict) and isinstance(node, ast.Field):
+                globals_flow = _suggest_from_globals_chain(
+                    node=node, parsed=parsed, node_offset=extra, query_globals=query.globals, response=response
+                )
+                if globals_flow is _VariantFlow.STOP:
+                    break
 
             if query.language in (HogLanguage.HOG, HogLanguage.HOG_TEMPLATE, HogLanguage.LIQUID):
                 _suggest_hog_variables_and_functions(
