@@ -49,9 +49,11 @@ class Migration(migrations.Migration):
                     models.CharField(
                         blank=True,
                         help_text=(
-                            "The workflow step this is about, when it is about one. The evidence and the "
-                            "outcome both read metrics for this step, so a change to one email in a sequence "
-                            "is not measured against every other email in it."
+                            "The workflow step this is about. Set for a change to one step: the evidence and "
+                            "the outcome then read that step's metrics, so a change to one email in a sequence "
+                            "is not measured against the rest. Null only for a change that spans the workflow, "
+                            "such as its exit condition or a step being taken out, which is measured on the "
+                            "workflow's own numbers."
                         ),
                         max_length=200,
                         null=True,
