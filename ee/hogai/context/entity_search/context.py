@@ -38,7 +38,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.facade.api import search_workflows
 
 from ee.hogai.artifacts.handlers.base import get_handler_for_content_type
 from ee.hogai.context.context import AssistantContextManager
@@ -123,13 +123,6 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "extra_fields": ["title", "text_content"],
         "filters": {"deleted": False},
     },
-    "hog_flow": {
-        "klass": HogFlow,
-        "search_fields": {"name": "A", "description": "C"},
-        "extra_fields": ["name", "description", "status"],
-        # Archived is the workflow equivalent of deleted; drafts stay visible so the agent can tell them apart
-        "filters": {"status__in": [HogFlow.State.DRAFT, HogFlow.State.ACTIVE]},
-    },
 }
 """
 Map of entity names to their class, search_fields and extra_fields.
@@ -179,10 +172,12 @@ class EntitySearchContext:
             Tuple of (results list, counts dict)
         """
         if entity_types == "all":
-            entity_types = set(ENTITY_MAP.keys())
+            entity_types = {*ENTITY_MAP, "hog_flow"}
 
         results: list[dict] = []
         counts: dict[str, int | None] = {}
+        workflow_requested = "hog_flow" in entity_types
+        workflow_results: list[dict[str, Any]] = []
 
         if "account" in entity_types:
             # Account uses a fail-closed manager and is not in ENTITY_MAP, so it can't go through the shared FTS path
@@ -191,6 +186,17 @@ class EntitySearchContext:
             results.extend(account_results)
             counts["account"] = account_count
 
+        if workflow_requested:
+            entity_types = entity_types - {"hog_flow"}
+            workflow_results, workflow_count = await database_sync_to_async(search_workflows, thread_sensitive=False)(
+                project_id=self._team.project_id,
+                query=query,
+                access_control=self.user_access_control,
+                limit=SEARCH_LIMIT,
+            )
+            counts["hog_flow"] = workflow_count
+
+        fts_results: list[dict[str, Any]] = []
         if entity_types:
             fts_results, fts_counts, _ = await database_sync_to_async(search_entities_fts, thread_sensitive=False)(
                 entity_types,
@@ -200,8 +206,22 @@ class EntitySearchContext:
                 ENTITY_MAP,
             )
             assert fts_counts is not None
-            results.extend(fts_results)
             counts.update(fts_counts)
+
+        if workflow_requested:
+            database_results = [*workflow_results, *fts_results]
+            if query:
+                database_results.sort(key=lambda result: result.get("rank", 0), reverse=True)
+            else:
+                database_results.sort(
+                    key=lambda result: (
+                        result["type"],
+                        result.get("extra_fields", {}).get("name") or result.get("extra_fields", {}).get("title") or "",
+                    )
+                )
+            results.extend(database_results[:SEARCH_LIMIT])
+        else:
+            results.extend(fts_results)
 
         return results, counts
 
@@ -253,6 +273,14 @@ class EntitySearchContext:
         elif entity_type == "account":
             # Account uses a fail-closed manager, so it can't go through the shared FTS path
             return await self._list_accounts(limit, offset)
+        elif entity_type == "hog_flow":
+            return await database_sync_to_async(search_workflows, thread_sensitive=False)(
+                project_id=self._team.project_id,
+                query=None,
+                access_control=self.user_access_control,
+                limit=limit,
+                offset=offset,
+            )
         elif entity_type == "feature_flag":
             # Specialized queryset so we can surface each flag's status
             return await self.list_feature_flags(limit, offset)

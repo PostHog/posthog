@@ -24,10 +24,10 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.api import record_insight_views
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.context.entity_search import EntitySearchContext
+from ee.hogai.context.entity_search.context import SEARCH_LIMIT, EntitySearchContext
 
 if TYPE_CHECKING:
     from products.customer_analytics.backend.models import Account
@@ -334,8 +334,8 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             created_by=self.user,
             type=Survey.SurveyType.POPOVER,
         )
-        await HogFlow.objects.acreate(
-            team=self.team, name="deleted workflow", status=HogFlow.State.ARCHIVED, created_by=self.user
+        await create_workflow_for_test(
+            team_id=self.team.id, created_by_id=self.user.id, name="deleted workflow", status="archived"
         )
 
         results, _ = await self.context.search_entities("all", "deleted")
@@ -410,14 +410,14 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert entities[0]["extra_fields"]["name"] == "List Dashboard"
 
     async def test_list_entities_workflow_surfaces_status_and_hides_archived(self):
-        await HogFlow.objects.acreate(
-            team=self.team, name="welcome email", status=HogFlow.State.ACTIVE, created_by=self.user
+        await create_workflow_for_test(
+            team_id=self.team.id, created_by_id=self.user.id, name="welcome email", status="active"
         )
-        await HogFlow.objects.acreate(
-            team=self.team, name="win-back draft", status=HogFlow.State.DRAFT, created_by=self.user
+        await create_workflow_for_test(
+            team_id=self.team.id, created_by_id=self.user.id, name="win-back draft", status="draft"
         )
-        await HogFlow.objects.acreate(
-            team=self.team, name="old campaign", status=HogFlow.State.ARCHIVED, created_by=self.user
+        await create_workflow_for_test(
+            team_id=self.team.id, created_by_id=self.user.id, name="old campaign", status="archived"
         )
 
         results, total_count = await self.context.list_entities("hog_flow")
@@ -427,6 +427,30 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             ("welcome email", "active"),
             ("win-back draft", "draft"),
         }
+
+    async def test_search_entities_merges_workflows_into_the_shared_ranked_limit(self):
+        await Dashboard.objects.abulk_create(
+            [
+                Dashboard(
+                    team=self.team,
+                    name=f"Dashboard {index}",
+                    description="priority workflow",
+                    created_by=self.user,
+                )
+                for index in range(SEARCH_LIMIT)
+            ]
+        )
+        await create_workflow_for_test(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            name="Priority workflow",
+            status="active",
+        )
+
+        results, _ = await self.context.search_entities({"dashboard", "hog_flow"}, "priority workflow")
+
+        assert len(results) == SEARCH_LIMIT
+        assert results[0]["type"] == "hog_flow"
 
     async def test_list_entities_account(self):
         account = await Account.objects.unscoped().acreate(team=self.team, name="Acme Corp", external_id="acme-1")
