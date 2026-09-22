@@ -30,7 +30,7 @@ Done when: the key is final and the trigger matches how the workflow starts.
 Every step is a value with a `name`. `path(...)` places values in order and takes at least one. The action id is the slug of the name, so keep names distinct, and pass `id` to pin an id through a rename.
 
 - `delay('1d', { name: 'Wait a day' })`. Write the largest unit that fits: `1.5h`, not `90m`. Caps are 60s, 60m, 24h and 30d.
-- `branch({ name, branches: [{ name, when: [person('plan', 'exact', ['pro'])], then: path(...) }] })`. Arms are tried in order and the first match wins. No match falls through to the step after the branch, and every arm rejoins there. `when` takes `person` and `group` conditions; `eventProperty` belongs in the trigger.
+- `branch({ name, branches: [{ name, when: [person('plan', 'exact', ['pro'])], then: path(...) }] })`. Arms are tried in order and the first match wins. No match falls through to the step after the branch, and every arm rejoins there. `when` takes `person`, `group` and `eventProperty` conditions; an `eventProperty` condition reads the event that started the run.
 - `email({ name, from: { integrationIds: [12] }, to: '{person.properties.email}', subject, text, html })`. The ids are the project's verified senders, listed in PostHog under Workflows, Channels. Content is inline; there is no reference to a library template.
 - `webhook({ name, url, body: { distinct_id: '{event.distinct_id}' }, signingSecret: secret('CRM_WEBHOOK_SECRET') })`. Method defaults to `POST`.
 - `fn({ name, templateId: 'template-slack', inputs: { text: '...' } })` runs any other destination template. Find the id and its inputs with `cdp-function-templates-list` and `cdp-function-templates-retrieve`; PostHog validates the inputs at push.
