@@ -124,10 +124,17 @@ export function HogFlowTreeBranch({
                             >
                                 <span className="flex min-w-0 flex-wrap items-center gap-2">
                                     <LemonTag
-                                        size="small"
-                                        className="shrink-0"
+                                        size={node.action.type === 'conditional_branch' ? 'medium' : 'small'}
+                                        className={cn(
+                                            'shrink-0',
+                                            node.action.type === 'conditional_branch' &&
+                                                '!px-1.5 !text-sm !font-semibold uppercase'
+                                        )}
                                         style={{
-                                            color: pathColor,
+                                            color:
+                                                node.action.type === 'conditional_branch'
+                                                    ? `color-mix(in srgb, ${pathColor} 60%, var(--text-3000))`
+                                                    : pathColor,
                                             borderColor: pathColor,
                                         }}
                                     >
