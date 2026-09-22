@@ -1326,23 +1326,18 @@ def is_embeddable_document(path: str) -> bool:
 CSP_ENFORCE_APP_POLICY_FLAG = "csp-enforce-app-policy"
 CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG = "csp-enforce-signed-out-pages"
 
-# The pages that take a password or a one-time code. Other signed-out documents, such as the
-# email preference pages, render their own templates and keep the report-only header until their
-# reports show the app policy fits them.
+# The pages that take a password or a one-time code. Other signed-out pages keep the report-only header.
 SIGNED_OUT_ENFORCEABLE_PATH_PREFIXES = ("/login", "/signup", "/reset", "/reset_2fa", "/verify_email")
 
 
 def is_signed_out_enforceable_path(path: str) -> bool:
-    # The separator check keeps a longer path such as /loginfoo out of the list.
     return any(path == prefix or path.startswith(prefix + "/") for prefix in SIGNED_OUT_ENFORCEABLE_PATH_PREFIXES)
 
 
 def signed_out_csp_enforcement_enabled() -> bool:
     try:
         # A signed-out visitor has no person to bucket, so each document draws a random id. The
-        # flag's rollout percentage then applies per document, and turning the flag off returns
-        # those pages to report-only. A reload can land in the other bucket, so the
-        # violation reports, not complaints, show that a page breaks.
+        # flag's rollout percentage then applies per document.
         #
         # A condition on a person property cannot resolve for a random id, so it evaluates to None
         # and enforces nothing. Flag events stay off, because each document would add a new

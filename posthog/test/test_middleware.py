@@ -2936,7 +2936,6 @@ class TestAppCspHeaderName(SimpleTestCase):
             ("login", "/login", None, CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG, "Content-Security-Policy"),
             ("reset_link", "/reset/abc/def", None, CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG, "Content-Security-Policy"),
             ("login_without_a_flag", "/login", None, None, "Content-Security-Policy-Report-Only"),
-            # The app flag buckets people, and a signed-out visitor is nobody.
             (
                 "login_with_the_app_flag",
                 "/login",
@@ -2944,9 +2943,7 @@ class TestAppCspHeaderName(SimpleTestCase):
                 CSP_ENFORCE_APP_POLICY_FLAG,
                 "Content-Security-Policy-Report-Only",
             ),
-            # A signed-in visitor outside the app rollout must stay report-only.
             ("signed_in", "/login", "abc", CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG, "Content-Security-Policy-Report-Only"),
-            # These render templates the flag is not meant to cover.
             (
                 "other_signed_out_page",
                 "/messaging-preferences/abc",
@@ -2979,7 +2976,6 @@ class TestAppCspHeaderName(SimpleTestCase):
         first, second = (call.args[1] for call in mock_flag.call_args_list)
         assert first != second
         assert mock_flag.call_args.kwargs["only_evaluate_locally"] is True
-        # Each random id would otherwise add a person-less distinct id to the project.
         assert mock_flag.call_args.kwargs["send_feature_flag_events"] is False
 
     @parameterized.expand([("signed_in", "abc"), ("signed_out", None)])
