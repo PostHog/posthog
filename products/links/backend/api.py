@@ -51,14 +51,15 @@ class LinkSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at"]
         extra_kwargs = {
             "redirect_url": {"help_text": "Destination the short link redirects to."},
-            # The model's help text still names hog.gg, but create() accepts only phog.gg.
-            # Overriding here keeps the published schema honest without a migration.
+            # The model's help text names hog.gg, which this serializer rejects. Overriding here keeps
+            # the published schema honest without the migration a model change would need.
             "short_link_domain": {"help_text": "Domain the short link is hosted on. Only phog.gg is accepted."},
             "description": {"help_text": "Free-form note about what the link is for."},
         }
 
     def validate_short_link_domain(self, value: str) -> str:
-        # Field-level, so PUT and PATCH reject a bad domain too. It used to run in create() only.
+        # Field-level so that create, PUT and PATCH all reject a bad domain. A check inside create()
+        # covers only the create path.
         if value != "phog.gg":
             raise serializers.ValidationError("Only phog.gg is allowed as a short link domain")
         return value
