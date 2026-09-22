@@ -327,6 +327,7 @@ class TestLearningAnalyzer:
                 ),
             ),
             patch(f"{_MODULE}._build_model", return_value=model),
+            patch(f"{_MODULE}.posthoganalytics.default_client", MagicMock()),
             patch(f"{_MODULE}.generate_embedding") as embed,
             patch(f"{_MODULE}.logic.search_knowledge") as search,
             patch(f"{_MODULE}.logic.create_generated_knowledge_document") as publish,
@@ -338,6 +339,10 @@ class TestLearningAnalyzer:
         assert run.result == LearningRunResult.NO_KNOWLEDGE
         model.with_structured_output.assert_called_once_with(PiiVerdict, method="json_schema", include_raw=False)
         structured_model.invoke.assert_called_once()
+        callback = structured_model.invoke.call_args.kwargs["config"]["callbacks"][0]
+        assert callback._trace_id == str(run.id)
+        assert callback._privacy_mode is True
+        assert callback._distinct_id == f"team-{team.id}"
         embed.assert_not_called()
         search.assert_not_called()
         publish.assert_not_called()
