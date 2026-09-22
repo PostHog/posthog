@@ -45,6 +45,10 @@ if (not empty(inputs.channel)) {
   payload.channel := inputs.channel
 }
 
+if (not empty(inputs.canvas)) {
+  payload.canvas := inputs.canvas
+}
+
 if (not empty(inputs.skills)) {
   payload.skills := inputs.skills
 }
@@ -171,6 +175,21 @@ return task
             templating: false,
             description:
                 'Space the created task is filed into, as its id, optionally followed by "|" and the space name. Leave empty to file the task in no space.',
+        },
+        {
+            // Like the space above: a canvas is a Tasks/Canvas concept the workflow editor has no
+            // picker for, so the field is hidden and set by the clients that do. Naming one grants
+            // the run canvas read and write access on top of the PostHog access chosen above,
+            // instead of needing full access to publish.
+            key: 'canvas',
+            type: 'string',
+            label: 'Canvas',
+            secret: false,
+            required: false,
+            hidden: true,
+            templating: false,
+            description:
+                'Canvas the created task keeps up to date, as its id. Leave empty for a run that maintains no canvas.',
         },
         {
             // Only meaningful on a Slack-triggered workflow; the builder hides it for other

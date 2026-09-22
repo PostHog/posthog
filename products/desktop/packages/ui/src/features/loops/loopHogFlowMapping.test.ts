@@ -205,6 +205,21 @@ describe("loopHogFlowMapping", () => {
     },
   );
 
+  it("keeps the canvas the loop maintains across a write and a read", () => {
+    // The canvas target is what buys the run canvas write access; dropping it on the
+    // round trip silently leaves a canvas-publishing loop read-only.
+    const outputs = { ...defaultLoopContextOutputs(), canvas_id: "canvas-7" };
+    const contextTarget = { folderId: "folder-1", name: "general", outputs };
+    const flow = flowFromWrite(scheduleValues({ contextTarget }));
+
+    expect(taskAction(flow).config).toMatchObject({
+      inputs: { canvas: { value: "canvas-7" } },
+    });
+    expect(
+      hogFlowToLoop(flow, { projectId: PROJECT_ID }).context_target,
+    ).toEqual({ folder_id: "folder-1", name: "general", outputs });
+  });
+
   it("only writes the task inputs the form filled in", () => {
     const { flow } = formValuesToHogFlowWrite(
       scheduleValues({

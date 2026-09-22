@@ -108,6 +108,16 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
             "rather than failing the create."
         ),
     )
+    canvas = serializers.CharField(
+        max_length=64,
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Canvas the run keeps current, as its id. The run gets canvas read and write access and the "
+            "publish contract in its prompt. A canvas the workflow owner cannot see, or one that no longer "
+            "exists, leaves the run with no canvas rather than failing the create."
+        ),
+    )
     model = serializers.CharField(
         max_length=128, required=False, allow_blank=True, help_text="Model ID from the task model catalogue."
     )
@@ -236,6 +246,7 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 prompt=data["prompt"].strip(),
                 title=data.get("title"),
                 channel_ref=data.get("channel") or None,
+                canvas_id=data.get("canvas") or None,
                 repository=data.get("repository") or None,
                 model=data.get("model") or None,
                 reasoning_effort=data.get("reasoning_effort") or None,

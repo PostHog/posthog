@@ -20,6 +20,7 @@ describe('posthog create task template', () => {
         posthog_mcp_scopes: 'full',
         max_parallel_tasks: 3,
         channel: '0198c9f1-bbbb-0000-0000-000000000001|growth',
+        canvas: '0198c9f1-cccc-0000-0000-000000000001',
     }
     // Mirrors the default event in createGlobals; the request must always carry the trigger event.
     const defaultEventBody = {
@@ -83,6 +84,7 @@ describe('posthog create task template', () => {
             posthog_mcp_scopes: 'full',
             max_parallel_tasks: 3,
             channel: '0198c9f1-bbbb-0000-0000-000000000001|growth',
+            canvas: '0198c9f1-cccc-0000-0000-000000000001',
             event: defaultEventBody,
             idempotency_key: `${invocation.id}:action_1:0`,
         })

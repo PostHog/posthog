@@ -73,6 +73,7 @@ const MANAGED_TASK_INPUTS: ReadonlySet<string> = new Set([
   "model",
   "skills",
   "channel",
+  "canvas",
 ]);
 
 type Json = Record<string, unknown>;
@@ -168,6 +169,9 @@ function taskInputs(values: LoopFormValues): Json {
   }
   if (values.contextTarget) {
     inputs.channel = { value: spaceInputValue(values.contextTarget) };
+    if (values.contextTarget.outputs.canvas_id) {
+      inputs.canvas = { value: values.contextTarget.outputs.canvas_id };
+    }
   }
   return inputs;
 }
@@ -190,10 +194,11 @@ function spaceFromTaskInputs(
     "|",
   );
   if (!folderId) return null;
+  const canvasId = readString(inputValue(inputs, "canvas"));
   return {
     folder_id: folderId,
     name: rest.join("|"),
-    outputs: defaultLoopContextOutputs(),
+    outputs: { ...defaultLoopContextOutputs(), canvas_id: canvasId || null },
   };
 }
 
