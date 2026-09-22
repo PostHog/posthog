@@ -8,6 +8,14 @@ The shared PR-linking service applies this rule to task outputs and agent attach
 An existing attachment retry does not reopen a report, and importing legacy assignments preserves its status.
 Suppressed reports remain suppressed when another PR is attached.
 
+## Quota release
+
+Before removing an existing Self-driving quota block, the quota checker verifies any below-limit usage estimate against the organization's billable PRs for the full billing period.
+This keeps a reset of today's usage at midnight from reopening the pipeline before billing includes the previous day's PRs.
+The check preserves billing's stored counters and applies credited refunds once.
+If the period usage query fails, the existing block remains in place until a later check succeeds or the period ends.
+Removing the limit, raising it above the verified usage, or starting a new billing period can still release the block.
+
 ## Reviewer notifications
 
 Slack notifications for a ready report include only reviewers who have access to the report's project when delivery starts.
