@@ -112,6 +112,21 @@ export class ApiRequest {
         return apiRequest
     }
 
+    // A mutation that falls through - no return of its own inside the `if` - leaves
+    // the shared return below reachable whether or not the block ran.
+    public signalReportArchive(archived?: boolean, teamId?: TeamType['id']): ApiRequest {
+        const request = this.signalReports(teamId).addPathComponent('archive')
+        if (archived) {
+            request.addPathComponent('archived')
+        }
+        return request
+    }
+
+    // No `public` keyword - TypeScript makes this callable from `api` regardless.
+    signalReportPin(id: SignalReport['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.signalReport(id, teamId).addPathComponent('pin')
+    }
+
     public async get(): Promise<any> {
         return await api.get(this.assembleFullUrl())
     }
@@ -268,6 +283,18 @@ class TestApiRequestResolver:
                 ["environments/{}/query/{}", "environments/{}/query"],
             ),
             ("the root path method resolves to its own segment", "projects", ["projects"]),
+            # `archived` only mutates and falls through - no return of its own inside
+            # the `if` - so the shared return below is reachable either way.
+            (
+                "a mutation that falls through resolves both ways",
+                "signalReportArchive",
+                ["projects/{}/signals/reports/archive", "projects/{}/signals/reports/archive/archived"],
+            ),
+            (
+                "a method without the `public` keyword still resolves",
+                "signalReportPin",
+                ["projects/{}/signals/reports/{}/pin"],
+            ),
         ]
     )
     def test_resolves(self, _name: str, method: str, expected: list[str]) -> None:
@@ -278,6 +305,9 @@ class TestApiRequestResolver:
         # `get` returns a Promise, so counting it would give every namespace a bare
         # /api/projects/{} template and match half the generated output.
         assert "get" not in ApiRequestResolver(API_TS_FIXTURE).method_names()
+
+    def test_method_names_include_methods_without_public_keyword(self) -> None:
+        assert "signalReportPin" in ApiRequestResolver(API_TS_FIXTURE).method_names()
 
 
 class TestRatchet:
