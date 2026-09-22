@@ -36,6 +36,7 @@ from posthog.session_recordings.queries.utils import (
     UnexpectedQueryProperties,
     _strip_person_and_event_and_cohort_properties,
     expand_test_account_filters,
+    is_hogql_property,
     is_session_property,
     test_account_scoped_query,
 )
@@ -607,7 +608,12 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         remaining_properties = _strip_person_and_event_and_cohort_properties(self._query.properties)
         if remaining_properties:
-            capture_exception(UnexpectedQueryProperties(remaining_properties))
+            # A hogql filter that names no event, person or session property belongs on the outer
+            # query, the same way the test account filters below are handled, so report only the
+            # other types as unexpected.
+            unexpected_properties = [p for p in remaining_properties if not is_hogql_property(p)]
+            if unexpected_properties:
+                capture_exception(UnexpectedQueryProperties(unexpected_properties))
             optional_exprs.append(property_to_expr(remaining_properties, team=self._team, scope="replay"))
 
         if self._query.console_log_filters:
