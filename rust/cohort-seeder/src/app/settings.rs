@@ -6,7 +6,7 @@ use std::num::{NonZeroU16, NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::time::Duration;
 
 use crate::config::Config;
-use crate::domain::{BackoffPolicyError, PlanCaps, RetryBackoffPolicy};
+use crate::domain::{BackoffPolicyError, PersonEmissionPolicy, PlanCaps, RetryBackoffPolicy};
 use crate::store::runs::RunKind;
 use crate::store::{LeaseDuration, LeaseDurationError, MaxAttempts, MaxAttemptsError};
 
@@ -22,7 +22,8 @@ pub struct PersonSettings {
     /// The person path's own slot budget: a person chunk never occupies a behavioral slot, so a
     /// long person scan cannot stall live behavioral seeding.
     pub max_concurrent_chunks: NonZeroUsize,
-    pub emit_nonmatchers: bool,
+    /// Which scanned persons a chunk emits. `SEEDER_PERSON_EMIT_NONMATCHERS` names the choice.
+    pub emission: PersonEmissionPolicy,
     /// Whether completion discovery may surface person runs. Separate from the seed gate so the
     /// reconcile half can be staged after the processor fleet decodes `reconcile_person` tiles —
     /// seeding a person run is inert, dispatching its tiles to an old processor is not.
@@ -160,7 +161,9 @@ impl TryFrom<&Config> for OrchestratorSettings {
                         config.seeder_person_max_concurrent_chunks,
                     )
                     .ok_or(OrchestratorSettingsError::ZeroPersonConcurrency)?,
-                    emit_nonmatchers: config.seeder_person_emit_nonmatchers,
+                    emission: PersonEmissionPolicy::from_emit_nonmatchers(
+                        config.seeder_person_emit_nonmatchers,
+                    ),
                     reconcile_dispatch: config.seeder_person_reconcile_dispatch_enabled,
                 };
                 person.validate_scan_budget(config.seeder_ch_max_execution_time_secs)?;

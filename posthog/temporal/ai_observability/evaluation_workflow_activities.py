@@ -24,7 +24,7 @@ from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE
 from posthog.temporal.ai_observability.evaluation_sentiment import run_sentiment_eval
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
-from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
+from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team
 
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
@@ -277,7 +277,9 @@ def build_evaluation_event_properties(
         properties["$ai_evaluation_skipped"] = True
         properties["$ai_evaluation_skip_reason"] = result.get("skip_reason")
 
-    if evaluation_type == "llm_judge" and not result.get("skipped"):
+    # Keyed on a model rather than on the skip flag: a skip that reached the provider was billed,
+    # and a skip that never called one carries no model, so it still gets no attribution.
+    if evaluation_type == "llm_judge" and result.get("model"):
         properties["$ai_model"] = result.get("model", DEFAULT_JUDGE_MODEL)
         properties["$ai_provider"] = result.get("provider", "openai")
         properties["$ai_input_tokens"] = result.get("input_tokens", 0)
@@ -354,7 +356,7 @@ async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) ->
             if source_props.get(property_name) is not None:
                 properties[property_name] = source_props[property_name]
 
-        capture_internal_for_team(
+        capture_ai_internal_for_team(
             team_id=event_data["team_id"],
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",

@@ -38,6 +38,7 @@ pub enum Value {
     Text(String),
     Timestamp(DateTime<Utc>),
     Json(serde_json::Value),
+    IntArray(Vec<i32>),
 }
 
 impl Value {
@@ -61,6 +62,7 @@ impl Value {
             Value::Text(_) => "text",
             Value::Timestamp(_) => "timestamptz",
             Value::Json(_) => "jsonb",
+            Value::IntArray(_) => "integer[]",
         }
     }
 }

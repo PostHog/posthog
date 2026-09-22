@@ -47,7 +47,7 @@ export const ReviewHogResolutionPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Start a ReviewHog review of any pull request the project's GitHub App installation can access, and publish it back to the PR. The requesting user is the review's acting user: their enabled perspectives, blind-spot check, validator, urgency threshold, and resolution criteria drive the run, and it appears under their recent reviews. `run_mode` picks the variant: a review (which chains the resolution stage per the user's resolve_comments setting), a review without resolving, or resolution only. Nonexistent, closed, and fork PRs are rejected synchronously; a PR whose current commit already has a published review returns 'already_reviewed' without starting a run (resolve_only skips that check — settling threads on a reviewed head is its whole point), and triggering a PR whose run is currently in flight joins that run. Otherwise non-blocking: returns the Temporal workflow id immediately while the run executes in the worker.
+ * Start a ReviewHog review of any pull request the project's GitHub App installation can access, and publish it back to the PR. The requesting user is the review's acting user: their enabled perspectives, blind-spot check, validator, urgency threshold, and resolution criteria drive the run, and it appears under their recent reviews. `run_mode` picks the variant: a review (which chains the resolution stage per the user's resolve_comments setting), a review without resolving, resolution only, or a lower-cost Flash review that never resolves comments. Nonexistent, closed, and fork PRs are rejected synchronously; a PR whose current commit already has a published review returns 'already_reviewed' without starting a run (resolve_only skips that check — settling threads on a reviewed head is its whole point), and triggering a PR whose run is currently in flight joins that run. Otherwise non-blocking: returns the Temporal workflow id immediately while the run executes in the worker.
  * @summary Start a review of a pull request
  */
 export const reviewHogReviewsTriggerCreateBodyRunModeDefault = `review`
@@ -59,11 +59,13 @@ export const ReviewHogReviewsTriggerCreateBody = /* @__PURE__ */ zod.object({
             "GitHub pull request URL to review, e.g. 'https:\/\/github.com\/PostHog\/posthog.com\/pull\/123'. The repository must be accessible to the project's GitHub App installation."
         ),
     run_mode: zod
-        .enum(['review', 'review_only', 'resolve_only'])
-        .describe('\* `review` - review\n\* `review_only` - review_only\n\* `resolve_only` - resolve_only')
+        .enum(['review', 'review_only', 'resolve_only', 'flash'])
+        .describe(
+            '\* `review` - review\n\* `review_only` - review_only\n\* `resolve_only` - resolve_only\n\* `flash` - flash'
+        )
         .default(reviewHogReviewsTriggerCreateBodyRunModeDefault)
         .describe(
-            "What to run on the pull request. 'review' (default) reviews it and, when the requesting user's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads.\n\n\* `review` - review\n\* `review_only` - review_only\n\* `resolve_only` - resolve_only"
+            "What to run on the pull request. 'review' (default) reviews it and, when the requesting user's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads; 'flash' uses a lower-cost model for the review passes and validation, and never resolves comments.\n\n\* `review` - review\n\* `review_only` - review_only\n\* `resolve_only` - resolve_only\n\* `flash` - flash"
         ),
 })
 
@@ -95,6 +97,19 @@ export const ReviewHogSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "After a review of the user's pull requests is published, run the resolution stage: triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. On by default; turning it off makes reviews stop at publishing."
+        ),
+    review_authored_prs: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Automatically review pull requests authored by this user in PostHog\/posthog in Flash mode. Off by default. Flash reviews post findings without resolving comments.'
+        ),
+    flash_reasoning_effort: zod
+        .enum(['medium', 'xhigh'])
+        .describe('\* `medium` - Medium\n\* `xhigh` - Extra high')
+        .optional()
+        .describe(
+            "Reasoning effort for this user's automatic and manually requested Flash reviews: 'medium' (default) or 'xhigh'. Applies to both review and validation. Saved independently of the automatic-review toggle.\n\n\* `medium` - Medium\n\* `xhigh` - Extra high"
         ),
     urgency_threshold: zod
         .enum(['consider', 'should_fix', 'must_fix'])

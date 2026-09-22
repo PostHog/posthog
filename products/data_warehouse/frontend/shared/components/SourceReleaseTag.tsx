@@ -2,10 +2,10 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { SourceConfig } from '~/queries/schema/schema-general'
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 export interface SourceReleaseTagProps {
-    releaseStatus?: SourceConfig['releaseStatus']
+    releaseStatus?: SourceConfigResponseApi['releaseStatus']
 }
 
 export function SourceReleaseTag({ releaseStatus }: SourceReleaseTagProps): JSX.Element | null {

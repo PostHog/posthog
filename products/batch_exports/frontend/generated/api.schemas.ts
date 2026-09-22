@@ -155,6 +155,8 @@ export interface AzureBlobDestinationConfigApi {
      * @nullable
      */
     max_file_size_mb?: number | null
+    /** Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension. */
+    legacy_parquet_extension?: boolean
     type: AzureBlobDestinationConfigApiType
 }
 
@@ -246,6 +248,8 @@ export interface AwsS3DestinationConfigApi {
      * @nullable
      */
     max_file_size_mb?: number | null
+    /** Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension. */
+    legacy_parquet_extension?: boolean
     /**
      * Optional S3 server-side encryption algorithm (e.g. 'AES256' or 'aws:kms').
      * @nullable
@@ -299,6 +303,8 @@ export interface S3CompatibleDestinationConfigApi {
      * @nullable
      */
     max_file_size_mb?: number | null
+    /** Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension. */
+    legacy_parquet_extension?: boolean
     /** Use virtual-hosted-style addressing rather than path-style. */
     use_virtual_style_addressing?: boolean
     type: S3CompatibleDestinationConfigApiType
@@ -314,9 +320,9 @@ export const SnowflakeDestinationConfigApiType = {
 /**
  * Typed configuration for a Snowflake batch-export destination.
  *
- * Account, user, authentication type and credentials may live in a linked Integration (when one is
- * provided) or inline in this config (legacy). Mirrors the non-credential fields of
- * `SnowflakeBatchExportInputs` in `products/batch_exports/backend/service.py`.
+ * Account, user, authentication type and credentials live in the linked Integration, never here.
+ * Mirrors the non-credential fields of `SnowflakeBatchExportInputs` in
+ * `products/batch_exports/backend/service.py`.
  */
 export interface SnowflakeDestinationConfigApi {
     /** Snowflake database to write to. */
@@ -1408,7 +1414,7 @@ export const SnowflakeDestinationRequestApiType = {
  */
 export interface SnowflakeDestinationRequestApi {
     type: SnowflakeDestinationRequestApiType
-    /** ID of a snowflake-kind Integration providing the account, user and credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+    /** ID of a snowflake-kind Integration providing the account, user and credentials. Use the integrations-list MCP tool to find one. */
     integration_id: number
     config: SnowflakeDestinationConfigApi
 }

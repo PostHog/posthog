@@ -35,7 +35,7 @@ export function ModelsScene(): JSX.Element {
         useValues(modelsSceneLogic)
 
     const getViewUrl = useCallback(
-        (view: DataWarehouseSavedQuery): string => {
+        (view: Pick<DataWarehouseSavedQuery, 'id'>): string => {
             const nodeId = savedQueryIdToNodeId[view.id]
             return nodeId ? urls.nodeDetail(nodeId) : urls.sqlEditor({ view_id: view.id })
         },

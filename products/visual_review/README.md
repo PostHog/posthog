@@ -29,7 +29,7 @@ No sync problems, no "baseline service went down", no mystery diffs from someone
 
 ### Retention
 
-A daily Celery task, `sweep visual review retention`, deletes data that can no longer be used.
+Two daily Celery tasks delete data that can no longer be used: `sweep visual review runs`, and an hour later `sweep visual review artifacts`.
 The windows and the reasons behind them are constants in `backend/logic/retention.py`.
 
 - Superseded runs on PR branches go after 30 days, on the default branch after 180 days.
@@ -41,6 +41,8 @@ The windows and the reasons behind them are constants in `backend/logic/retentio
   An artifact row is what makes the CLI skip an upload, so a row without its object is the one state to avoid; a leaked object only costs storage.
 - A story-to-file map goes when the sweep deletes the last run that names it.
 - Each invocation is capped by rows and by a time budget, so a backlog drains over days.
+  The budget stays below the time a deploy gives a busy worker to finish, so a deploy cannot kill a sweep.
+  Artifacts have their own task and budget, so a backlog of runs cannot use up the time the artifact sweep needs.
 
 ### Weekly debt digest
 
@@ -226,6 +228,7 @@ Working end to end: CI upload → async diff → GitHub Check → web review →
 **Tolerated hashes** — when the diff classifies a snapshot as below-threshold noise, it caches the `(identifier, baseline_hash, alternate_hash)` tuple.
 Future runs skip diffing entirely for cached pairs.
 Developers can also manually tolerate a snapshot from the UI.
+When a snapshot already has 3 manual or agent tolerations, or 10 automatic ones, in the last 30 days, the Tolerate button offers a quarantine first, because another toleration covers only that one rendering.
 
 **Row alignment** — a panel that grows by a pixel moves everything below it down, which a top-aligned pixel diff reads as a page-wide change.
 Before thresholding, the diff pairs the rows that exist in both images, so the classifier sees only what actually changed.
@@ -235,14 +238,20 @@ The cap is measured against the committed baseline on every run, so absorbed shi
 
 **Quarantine** — known-flaky identifiers can be quarantined per repo and run type.
 Quarantined snapshots are still captured and diffed but excluded from gating.
-A quarantined snapshot is not committed to the baseline, with one exception: a quarantined `new` snapshot that a person approved by identifier.
-This is the way to give a story a baseline entry when it has none and the quarantine must stay, because every run without the entry classifies the story `new`, and lifting the quarantine first fails every run until the entry lands.
-The procedure is: open a PR that renders the story, approve the `new` snapshot on that run by identifier (the API or the `visual-review-runs-approve-create` MCP tool; "Approve all" skips quarantined snapshots), finalize the run so the entry is committed to the PR branch, then merge the PR.
+A quarantined snapshot reaches the baseline only when a person approves it by identifier, because "Approve all" skips quarantined snapshots.
+This is how a quarantined story's entry keeps up with the story.
+The story still renders on every run, so a code change to it makes the entry stale while the quarantine hides the drift, and every run fails on the day the quarantine is lifted or expires.
+It is also how a story gets an entry when it has none and the quarantine must stay, because every run without the entry classifies the story `new`, and lifting the quarantine first fails every run until the entry lands.
+The procedure is: open a PR that renders the story, approve the `changed` or `new` snapshot on that run by identifier (the API or the `visual-review-runs-approve-create` MCP tool), finalize the run so the entry is committed to the PR branch, then merge the PR.
+A PR renders only the stories its diff affects, so a story the PR does not touch needs the full matrix: add the `run-ci-frontend` label before the push that should render it.
+The label only widens a Storybook run that happens anyway, so the PR must also change a path the Storybook workflow watches.
 
-Keep the quarantine on after the merge.
-An entry on the default branch does not reach a branch that forked before it, and healing cannot supply it either: healing reads the merge-base, which for such a branch also predates the entry.
-So every open branch still renders the story with no entry for it, and lifting the quarantine turns those runs `new` and reds their gate.
-Lift it once the open branches that render the story carry the entry, which they do after they merge the default branch.
+Lift the quarantine after the merge.
+A lift records the default branch's head commit, and a run whose commit does not contain that commit still treats the story as quarantined.
+That matters because an entry on the default branch does not reach a branch that forked before it, and healing cannot supply it either: healing reads the merge-base, which for such a branch also predates the entry.
+So an older branch keeps the quarantine until it merges the default branch, and the lift cannot red its gate.
+The scope lasts `LIFT_SCOPE_DAYS` from the lift, and after that the lift applies to every branch.
+A quarantine that expires on its own date records no commit, so its end applies to every branch at once.
 
 **Flakiness tab** — scores each snapshot identity on the share of the last 7 days of default-branch runs that rendered it differently from its baseline.
 The share is split in two, because the two cost different things: a `hard` run failed the gate and blocked whoever was merging, and a `soft` run was absorbed by a toleration and blocked nobody.

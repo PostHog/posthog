@@ -13,24 +13,47 @@ from dataclasses import fields
 from typing import Any, cast
 
 import structlog
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import viewsets
-from rest_framework.exceptions import NotFound
+from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.fields import empty
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
 from posthog.api.documentation import PostHogAutoSchema
+from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
 from products.autoresearch.backend.facade import api
 from products.autoresearch.backend.facade.access import has_autoresearch_access
-from products.autoresearch.backend.facade.contracts import PipelineNotFound
+from products.autoresearch.backend.facade.contracts import AutoresearchConflict, PipelineNotFound, TrainingRunNotFound
 
-from .serializers import AutoresearchPipelineCreateSerializer, AutoresearchPipelineSerializer
+from .serializers import (
+    AutoresearchIterationSerializer,
+    AutoresearchModelSerializer,
+    AutoresearchPipelineCreateSerializer,
+    AutoresearchPipelineSerializer,
+    AutoresearchRunSerializer,
+    AutoresearchTrainingRunSerializer,
+    CompleteTrainingRunSerializer,
+    OpenTrainingRunSerializer,
+    RecordIterationSerializer,
+    ResolvedTemplateSerializer,
+    ResolveTemplateRequestSerializer,
+    TemplateInfoSerializer,
+    TrainingRunHistoryQuerySerializer,
+    TrainingRunHistorySerializer,
+    ValidatePipelineRequestSerializer,
+    ValidatePipelineResponseSerializer,
+    resolve_target,
+    validate_event_target,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -96,6 +119,20 @@ class _FacadePaginationMixin:
         return paginator.get_paginated_response(serializer.data)
 
 
+def _parent_pipeline_id(view: Any) -> str | None:
+    """The pipeline this nested route is scoped to, or None on the unscoped collection route."""
+    pipeline_id = view.kwargs.get("parent_lookup_pipeline_id")
+    return str(pipeline_id) if pipeline_id else None
+
+
+def _require_parent_pipeline_id(view: Any) -> str:
+    """The pipeline id for a route that cannot act without one."""
+    pipeline_id = _parent_pipeline_id(view)
+    if pipeline_id is None:
+        raise ValidationError("Pipeline not found.")
+    return pipeline_id
+
+
 def _pipeline_write_fields(validated: Any) -> dict[str, Any]:
     """The fields to persist.
 
@@ -121,11 +158,18 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     schema = FacadePathParamSchema()
     uuid_path_parameters = {"id": "A UUID string identifying this autoresearch pipeline."}
     scope_object = "autoresearch"
-    scope_object_read_actions = ["list", "retrieve"]
+    # Both HogQL actions also carry their own `required_scopes`, so a scoped token needs `query:read` too.
+    scope_object_read_actions = ["list", "retrieve", "validate_definition", "list_templates", "resolve_template"]
     scope_object_write_actions = ["create", "update", "partial_update", "destroy"]
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchPipelineSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        # Several unsampled ClickHouse scans per call, so a personal API key gets the ClickHouse budget.
+        if self.action in ("resolve_template", "validate_definition"):
+            return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
+        return super().get_throttles()
 
     def get_serializer_class(self) -> type[AutoresearchPipelineSerializer | AutoresearchPipelineCreateSerializer]:
         if self.action in ("create", "partial_update", "update"):
@@ -192,3 +236,344 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         except PipelineNotFound:
             raise NotFound("Pipeline not found.")
         return Response(status=204)
+
+    @extend_schema(
+        responses={200: TemplateInfoSerializer(many=True)},
+        summary="List available templates",
+        description=(
+            "Return all built-in autoresearch prediction templates. "
+            "Each entry describes what the template predicts, its default horizon and prediction mode, "
+            "and whether it requires you to supply a target_event. "
+            "After choosing a template, call autoresearch-resolve-template-create to get a fully "
+            "resolved pipeline config ready to pass to autoresearch-create."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="templates", pagination_class=None)
+    def list_templates(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return Response(TemplateInfoSerializer(instance=api.list_templates(), many=True).data)
+
+    @validated_request(
+        request_serializer=ResolveTemplateRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ResolvedTemplateSerializer,
+                description=(
+                    "Resolved pipeline config. Pass target_event, horizon_days, training_lookback_days, "
+                    "training_population, inference_population, and output_person_property directly "
+                    "to autoresearch-create. Always run autoresearch-validate-create on the resolved "
+                    "config before creating."
+                ),
+            ),
+            400: OpenApiResponse(description="Unknown template key or missing required target_event override."),
+        },
+        summary="Resolve a template",
+        description=(
+            "Resolve a template key and optional overrides into a concrete pipeline config. "
+            "For activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', "
+            "'return_after_first_use'), the target event is auto-resolved from your event schema — "
+            "check resolved_activity_event and activity_event_alternatives, then override if needed. "
+            "For 'feature_adoption' and 'repeat_key_behavior', supply target_event. "
+            "After resolving, call autoresearch-validate-create to check volume and warnings, "
+            "then autoresearch-create to create the pipeline."
+        ),
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="resolve-template",
+        required_scopes=["autoresearch:read", "query:read"],
+    )
+    def resolve_template(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        data = request.validated_data
+        try:
+            resolved = api.resolve_template(
+                self.team_id,
+                template_key=data["template_key"],
+                target_event_override=data.get("target_event"),
+                horizon_days_override=data.get("horizon_days"),
+                user=cast(User, request.user),
+            )
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        # The auto-resolved event is the team's own data, so it gets the same check as an override.
+        validate_event_target(resolved.target_event, error_key="target_event")
+        return Response(ResolvedTemplateSerializer(instance=resolved).data)
+
+    @validated_request(
+        request_serializer=ValidatePipelineRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ValidatePipelineResponseSerializer,
+                description="Validation result with volume estimates, base rate, and warnings.",
+            ),
+        },
+        summary="Validate a pipeline definition",
+        description=(
+            "Validate a proposed pipeline's target event and population before creating it. "
+            "Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: "
+            "'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail, and the other "
+            "'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create."
+        ),
+    )
+    @action(detail=False, methods=["post"], url_path="validate", required_scopes=["autoresearch:read", "query:read"])
+    def validate_definition(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        data = request.validated_data
+        target_event, target_definition = resolve_target(
+            team=self.team,
+            target_event=data.get("target_event", ""),
+            target_definition=data.get("target_definition"),
+            request=request,
+        )
+        result = api.validate_definition(
+            self.team_id,
+            target_event=target_event,
+            target_definition=target_definition,
+            horizon_days=data.get("horizon_days", 7),
+            training_lookback_days=data.get("training_lookback_days", 180),
+            training_population=data["training_population"],
+            # Creation stores the training population when this is omitted or empty, so count the same one.
+            inference_population=data.get("inference_population") or data["training_population"],
+            user=cast(User, request.user),
+        )
+        return Response(ValidatePipelineResponseSerializer(instance=result).data)
+
+
+@extend_schema(tags=["autoresearch"])
+class AutoresearchModelViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.ReadOnlyModelViewSet):
+    """
+    List and retrieve champion/challenger models for a pipeline.
+
+    Models are the persisted artifacts produced by training runs. Each model
+    holds a portable recipe (feature SQL, transforms, model class, params) that
+    the daily inference workflow compiles to score users.
+    """
+
+    schema = FacadePathParamSchema()
+    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch model.", "pipeline_id": None}
+    scope_object = "autoresearch"
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions: list[str] = []
+    permission_classes = [AutoresearchAccessPermission]
+    serializer_class = AutoresearchModelSerializer
+    queryset = None  # data is reached through the facade; declared for router/schema only
+
+    def _should_skip_parents_filter(self) -> bool:
+        return True
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_models(
+                self.team_id, pipeline_id=_parent_pipeline_id(self), offset=offset, limit=limit
+            ),
+            AutoresearchModelSerializer,
+        )
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        model = api.get_model(self.team_id, self.kwargs["pk"], pipeline_id=_parent_pipeline_id(self))
+        if model is None:
+            raise NotFound("Model not found.")
+        return Response(AutoresearchModelSerializer(instance=model).data)
+
+
+@extend_schema(tags=["autoresearch"])
+class AutoresearchRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.ReadOnlyModelViewSet):
+    """
+    List and retrieve inference and validation runs for a pipeline.
+    """
+
+    schema = FacadePathParamSchema()
+    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch run.", "pipeline_id": None}
+    scope_object = "autoresearch"
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions: list[str] = []
+    permission_classes = [AutoresearchAccessPermission]
+    serializer_class = AutoresearchRunSerializer
+    queryset = None  # data is reached through the facade; declared for router/schema only
+
+    def _should_skip_parents_filter(self) -> bool:
+        return True
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_runs(
+                self.team_id, pipeline_id=_parent_pipeline_id(self), offset=offset, limit=limit
+            ),
+            AutoresearchRunSerializer,
+        )
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        run = api.get_run(self.team_id, self.kwargs["pk"], pipeline_id=_parent_pipeline_id(self))
+        if run is None:
+            raise NotFound("Run not found.")
+        return Response(AutoresearchRunSerializer(instance=run).data)
+
+
+@extend_schema(tags=["autoresearch"])
+class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.ModelViewSet):
+    """
+    List and retrieve training runs for a pipeline.
+
+    A training run records the agent's search for a model: each iteration's recipe and holdout
+    score, and the summary of the run once it completes.
+    """
+
+    schema = FacadePathParamSchema()
+    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch training run.", "pipeline_id": None}
+    scope_object = "autoresearch"
+    scope_object_read_actions = ["list", "retrieve", "history"]
+    scope_object_write_actions = ["create", "record_iteration", "complete"]
+    permission_classes = [AutoresearchAccessPermission]
+    serializer_class = AutoresearchTrainingRunSerializer
+    queryset = None  # data is reached through the facade; declared for router/schema only
+    # A training run is opened and appended to, never edited or deleted.
+    http_method_names = ["get", "post", "head", "options"]
+
+    def _should_skip_parents_filter(self) -> bool:
+        return True
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_training_runs(
+                self.team_id, pipeline_id=_parent_pipeline_id(self), offset=offset, limit=limit
+            ),
+            AutoresearchTrainingRunSerializer,
+        )
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        training_run = api.get_training_run(self.team_id, self.kwargs["pk"], pipeline_id=_parent_pipeline_id(self))
+        if training_run is None:
+            raise NotFound("Training run not found.")
+        return Response(AutoresearchTrainingRunSerializer(instance=training_run).data)
+
+    @validated_request(
+        request_serializer=OpenTrainingRunSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=AutoresearchTrainingRunSerializer,
+                description="The opened training run. Record iterations against its id, then call complete.",
+            ),
+            400: OpenApiResponse(description="Pipeline is archived."),
+        },
+        summary="Open a training run",
+        description=(
+            "Open a new training run for a pipeline and return its id. An agent — the in-house sandbox, an "
+            "external bring-your-own agent, or a scheduled job — then records iterations against this run "
+            "and finalizes it with the complete endpoint. The run starts in 'running'."
+        ),
+    )
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            training_run = api.open_training_run(
+                self.team_id,
+                _require_parent_pipeline_id(self),
+                iteration_budget=request.validated_data.get("iteration_budget"),
+            )
+        except PipelineNotFound as exc:
+            raise NotFound(str(exc)) from exc
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchTrainingRunSerializer(instance=training_run).data, status=201)
+
+    @validated_request(
+        request_serializer=RecordIterationSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=AutoresearchIterationSerializer,
+                description="The recorded iteration.",
+            ),
+            400: OpenApiResponse(
+                description=(
+                    "Recipe failed validation (feature_sql does not read from {anchors}, model_class missing, "
+                    "a non-object model_params), the run is not running, or its iteration budget is used."
+                )
+            ),
+        },
+        summary="Record a training iteration",
+        description=(
+            "Record one iteration of an open training run. Idempotent on iteration_number: re-sending the "
+            "same number updates that iteration. A new iteration_number is refused once the run's "
+            "iteration_budget is used. The recipe is validated server-side: feature_sql must be a read-only "
+            "SELECT from {anchors} keyed on person_id, and model_class must be set. The class allowlist "
+            "applies only at completion, to a run that uploaded no bundle."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="iterations")
+    def record_iteration(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            iteration = api.record_iteration(
+                self.team_id,
+                self.kwargs["pk"],
+                pipeline_id=_parent_pipeline_id(self),
+                fields=dict(request.validated_data),
+            )
+        except TrainingRunNotFound:
+            raise NotFound("Training run not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchIterationSerializer(instance=iteration).data, status=201)
+
+    @validated_request(
+        request_serializer=CompleteTrainingRunSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=AutoresearchTrainingRunSerializer,
+                description="The completed training run. Call autoresearch-models-list to see the resulting champion/challenger.",
+            ),
+            400: OpenApiResponse(
+                description="Run is already completed or failed, has no recorded iterations, or has no usable model artifact (no bundle and no feature SQL)."
+            ),
+        },
+        summary="Complete a training run",
+        description=(
+            "Finalize a training run. The backend selects the kept iteration with the highest holdout score, "
+            "decides champion vs challenger via the promotion ladder, and persists the model. "
+            "best_iteration_id is advisory: it breaks a tie at the top score and is otherwise logged and "
+            "ignored. Agents cannot set the champion directly, because promotion is server-side."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="complete")
+    def complete(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        data = request.validated_data
+        try:
+            training_run = api.complete_run(
+                self.team_id,
+                self.kwargs["pk"],
+                pipeline_id=_parent_pipeline_id(self),
+                best_iteration_id=data.get("best_iteration_id"),
+                model_explanation=data.get("model_explanation") or {},
+                recommended_next=data.get("recommended_next") or "",
+                distillation=data.get("distillation") or "",
+            )
+        except TrainingRunNotFound:
+            raise NotFound("Training run not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchTrainingRunSerializer(instance=training_run).data)
+
+    @validated_request(
+        query_serializer=TrainingRunHistoryQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TrainingRunHistorySerializer,
+                description="Prior completed training runs with their iteration trails, for orienting a new run.",
+            )
+        },
+        summary="Read prior training-run history",
+        description=(
+            "Return recent completed training runs and their iteration trails so a new run can learn "
+            "from what was already tried. Scoped to this pipeline first, then same-target sibling "
+            "pipelines on the team. Read this before iterating to reuse winning features and avoid "
+            "repeating discarded approaches."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="history", pagination_class=None)
+    def history(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        limit = request.validated_query_data["limit"]
+        try:
+            history = api.training_run_history(self.team_id, _require_parent_pipeline_id(self), limit=limit)
+        except PipelineNotFound as exc:
+            raise NotFound(str(exc)) from exc
+        return Response(TrainingRunHistorySerializer(instance=history).data)

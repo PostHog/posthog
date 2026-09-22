@@ -794,9 +794,12 @@ class TestMSSQLSourceRetryableErrors:
                 "SQL Server message 20017, severity 9, state 0, procedure b'\\x00', line 0:\n"
                 "b'DB-Lib error message 20017, severity 9:\\nUnexpected EOF from the server\\n'"
             ),
+            # pymssql's own InterfaceError, raised when a query runs on a connection that died
+            # between opening and use (see `MSSQLSource.get_retryable_errors`).
+            pymssql.InterfaceError("Not connected to any MS SQL server"),
         ],
     )
-    def test_unexpected_eof_is_retryable(self, error):
+    def test_transient_connection_errors_are_retryable(self, error):
         retryable = MSSQLSource().get_retryable_errors()
         assert any(pattern.lower() in str(error).lower() for pattern in retryable), str(error)
 

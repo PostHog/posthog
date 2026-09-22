@@ -7,14 +7,14 @@
 
 import type { McpServerStdio } from "@agentclientprotocol/sdk";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
-import { resolveGithubToken } from "../../utils/github-token";
-import { resolveBundledMcpScript } from "../../utils/resolve-bundled-script";
 import {
   enabledLocalTools,
   LOCAL_TOOLS_MCP_NAME,
   type LocalToolCtx,
   type LocalToolGateMeta,
-} from "../local-tools";
+  resolveGithubToken,
+} from "@posthog/harness/extensions/local-tools";
+import { resolveBundledMcpScript } from "../../utils/resolve-bundled-script";
 import { resolveTaskId } from "../session-meta";
 
 /**

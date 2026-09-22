@@ -673,6 +673,7 @@ fn to_sql(v: &Value) -> Box<dyn ToSql + Sync + Send> {
         Value::Text(s) => Box::new(s.clone()),
         Value::Timestamp(t) => Box::new(*t),
         Value::Json(j) => Box::new(j.clone()),
+        Value::IntArray(v) => Box::new(v.clone()),
     }
 }
 

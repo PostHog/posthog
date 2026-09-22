@@ -595,8 +595,8 @@ async fn a_tombstone_under_a_live_lifecycle_mark_does_not_revive() {
     .await
     .expect("insert op");
     sqlx::query(
-        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
-         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed')",
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'sealed', true)",
     )
     .bind(op)
     .bind(ctx.team_id as i32)
@@ -622,11 +622,13 @@ async fn a_tombstone_under_a_live_lifecycle_mark_does_not_revive() {
     assert!(resolved.is_empty(), "the tombstone stays tombstoned");
 
     // The saga finished; the mark is no longer live.
-    sqlx::query("UPDATE lifecycle_op_person SET status = 'deleted' WHERE op_id = $1")
-        .bind(op)
-        .execute(&ctx.pool)
-        .await
-        .expect("finish mark");
+    sqlx::query(
+        "UPDATE lifecycle_op_person SET status = 'deleted', mark_active = false WHERE op_id = $1",
+    )
+    .bind(op)
+    .execute(&ctx.pool)
+    .await
+    .expect("finish mark");
     let second = ctx
         .storage
         .create_person_stubs(&[stub(&ctx, "marked-dead", &[])])
@@ -882,8 +884,8 @@ async fn attach_refuses_a_person_held_by_a_live_lifecycle_op() {
     .await
     .expect("seed op row");
     sqlx::query(
-        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
-         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'marked')",
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'marked', true)",
     )
     .bind(op_id)
     .bind(ctx.team_id as i32)

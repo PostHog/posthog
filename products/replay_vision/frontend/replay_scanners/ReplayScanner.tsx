@@ -30,9 +30,6 @@ import { ReplayScannerTab, replayScannerSceneLogic } from './replayScannerSceneL
 import { scanDrought } from './scanDrought'
 import { LIMIT_REACHED_TOOLTIP } from './scannerCopy'
 
-const ObservationSearchTab = lazyWithRetry(() =>
-    import('../search/ObservationSearchTab').then((module) => ({ default: module.ObservationSearchTab }))
-)
 const ScannerAlertsTab = lazyWithRetry(() =>
     import('./components/ScannerAlertsTab').then((module) => ({ default: module.ScannerAlertsTab }))
 )
@@ -164,11 +161,6 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         key: ReplayScannerTab.Observations,
                         label: 'Observations',
                         content: <ScannerObservationsTable scannerId={scannerId} />,
-                    },
-                    {
-                        key: ReplayScannerTab.Search,
-                        label: 'Search',
-                        content: <ObservationSearchTab scanner={scanner} />,
                     },
                     {
                         key: ReplayScannerTab.OnDemand,

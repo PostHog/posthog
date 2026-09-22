@@ -26,3 +26,8 @@ databases = ["posthog"]
 [servers.overrides]
 activity = { interval = "5s" }
 sizes = { enabled = false }
+
+# [servers.logs]
+# source = "cloudwatch"
+# log_group = "/aws/rds/cluster/<cluster-id>/postgresql"
+# sample_rows_over_ms = 100   # slower statements keep a row of their own; all go in the histogram

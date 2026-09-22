@@ -1,5 +1,6 @@
 ---
 name: signals-scout-data-pipelines
+scout-display-name: Data pipelines
 description: >
   Signals scout for PostHog data pipelines — CDP destinations and transformations, batch
   exports, and hog flows. Watches for delivery failures, degraded functions, and stalled exports

@@ -8,7 +8,13 @@ products must keep going through the facade.
 
 import re
 import uuid
-from uuid import UUID
+from collections.abc import Mapping
+from typing import Any
+from uuid import UUID, uuid4
+
+from posthog.dataclasses import frozen
+from posthog.ingress.dispatch.database import bounded_statement_timeout
+from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.user_interviews.backend.facade.contracts import IntervieweeIdentity
 from products.user_interviews.backend.models import (
@@ -84,6 +90,126 @@ SHARED_INTERVIEWEE_IDENTIFIER = "__posthog_shared_link__"
 def is_shared_interviewee_context(interviewee_identifier: str) -> bool:
     """Whether an IntervieweeContext identifier marks the topic's shared (anonymous) link."""
     return interviewee_identifier == SHARED_INTERVIEWEE_IDENTIFIER
+
+
+# Max lengths for the self-reported fields a shared-link respondent sends to start_call. These
+# are echoed into Vapi metadata and persisted on the UserInterview, so cap them defensively.
+RESPONDENT_NAME_MAX_CHARS = 200
+RESPONDENT_KEY_MAX_CHARS = 64
+
+# Every shared-link response is stored under an identifier carrying this prefix. It can NEVER equal a
+# personalised interviewee's identifier (an email or distinct_id), so an anonymous respondent can
+# neither be attributed to nor lock out a targeted invitee.
+SHARED_RESPONDENT_IDENTIFIER_PREFIX = "shared:"
+
+
+def clean_field(value: Any, max_chars: int) -> str:
+    return str(value).strip()[:max_chars] if value else ""
+
+
+def shared_interviewee_identifier(respondent_key: str) -> str:
+    """Namespaced, non-authoritative identity for a shared-link respondent.
+
+    Keyed on the stable per-browser ``respondent_key`` so a refreshed respondent keeps one identity;
+    falls back to a random id when no key was supplied so rows stay distinct. Deliberately independent
+    of any self-reported name or untrusted ``distinct_id`` — those never determine attribution."""
+    return f"{SHARED_RESPONDENT_IDENTIFIER_PREFIX}{respondent_key or uuid4().hex}"
+
+
+def resolve_share(access_token: str) -> SharingConfiguration | None:
+    """Resolve a share token to its `SharingConfiguration`, with the rows the public interview
+    page reads off it already joined.
+
+    Uses the same enabled/expiry predicate as `SharingViewerPageViewSet.get_object()`, so a
+    rotated token past its grace period is dead here exactly when it is dead on the public viewer.
+    """
+    try:
+        return (
+            SharingConfiguration.objects.select_related(
+                "team",
+                "team__organization",
+                "interviewee_context",
+                "interviewee_context__topic",
+            )
+            .filter(SharingConfiguration.tokens_active_q())
+            .get(access_token=access_token)
+        )
+    except SharingConfiguration.DoesNotExist:
+        return None
+
+
+def vapi_access_token(payload: Mapping[str, Any]) -> str:
+    """The share token Vapi echoes back from the metadata `start_call` set on the call.
+
+    Vapi surfaces that metadata in two places on the Call object: `call.metadata` for some
+    message types, and nested under `call.assistantOverrides.metadata` on others. Empirically
+    the end-of-call report comes through with the nested form, so both are read.
+    """
+    message: dict[str, Any] = payload.get("message") or {}
+    call: dict[str, Any] = message.get("call") or {}
+    overrides_metadata: dict[str, Any] = (call.get("assistantOverrides") or {}).get("metadata") or {}
+    top_metadata: dict[str, Any] = call.get("metadata") or {}
+    token = (
+        top_metadata.get("sharing_access_token")
+        or top_metadata.get("access_token")
+        or overrides_metadata.get("sharing_access_token")
+        or overrides_metadata.get("access_token")
+    )
+    return str(token) if token else ""
+
+
+# The token lookup runs inside the ingress request budget, so it is capped rather than left to
+# stall the delivery on a slow shared connection pool. See posthog/ingress/README.md, "The
+# delivery budget".
+SHARE_LOOKUP_TIMEOUT_MS = 1_000
+
+
+@frozen
+class VapiShareIdentity:
+    """What a queued Vapi report needs from the share the delivery arrived on.
+
+    The share row is not durable. `cleanup_expired_sharing_configs` deletes every configuration
+    that is past its `expires_at`, so a token rotated during a call can lose its row while the
+    report still waits in the queue or between retries. Nothing deletes the team, the topic or
+    the interviewee context with it, so these ids still say where the report belongs.
+
+    The ids are strings because the broker carries JSON, which has no UUID.
+    """
+
+    team_id: int
+    topic_id: str
+    interviewee_context_id: str
+    interviewee_identifier: str
+
+
+def vapi_share_identity(access_token: str) -> VapiShareIdentity | None:
+    """The identity behind a Vapi delivery's token, or None when no interview share answers it.
+
+    Asks the same enabled/expiry question as `resolve_share`, and reads only the ids and the
+    identifier a worker needs, because the caller hands the answer to a queue rather than to a
+    page.
+    """
+    with bounded_statement_timeout(SHARE_LOOKUP_TIMEOUT_MS, models=[SharingConfiguration]):
+        identity = (
+            SharingConfiguration.objects.filter(SharingConfiguration.tokens_active_q())
+            .filter(access_token=access_token, interviewee_context__isnull=False)
+            .values_list(
+                "team_id",
+                "interviewee_context__topic_id",
+                "interviewee_context_id",
+                "interviewee_context__interviewee_identifier",
+            )
+            .first()
+        )
+    if identity is None:
+        return None
+    team_id, topic_id, interviewee_context_id, interviewee_identifier = identity
+    return VapiShareIdentity(
+        team_id=team_id,
+        topic_id=str(topic_id),
+        interviewee_context_id=str(interviewee_context_id),
+        interviewee_identifier=interviewee_identifier,
+    )
 
 
 def parse_interviewee_identifier(identifier: str) -> IntervieweeIdentity:
