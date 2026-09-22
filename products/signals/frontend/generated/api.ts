@@ -320,12 +320,8 @@ export const getSignalsReportsDestroyUrl = (projectId: string, id: string) => {
  * Soft-delete a report and its signals via the deletion workflow.
  * @summary Delete a signal report
  */
-export const signalsReportsDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<SignalReportWorkflowStatusApi> => {
-    return apiMutator<SignalReportWorkflowStatusApi>(getSignalsReportsDestroyUrl(projectId, id), {
+export const signalsReportsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getSignalsReportsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })

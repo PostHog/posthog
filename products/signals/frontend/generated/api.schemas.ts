@@ -808,16 +808,6 @@ export interface PatchedSignalReportContentUpdateApi {
     summary?: string
 }
 
-/**
- * Envelope returned by the report actions that only kick off a Temporal workflow.
- */
-export interface SignalReportWorkflowStatusApi {
-    /** Outcome of the request: the workflow was started, or one was already running. */
-    status: string
-    /** Report the workflow runs against. */
-    report_id: string
-}
-
 export interface SignalReportClaimApi {
     /** Active claim ID returned by an earlier call. Stale claims are rejected. */
     claim_id?: string
@@ -1173,6 +1163,16 @@ export interface SignalReportRefundResponseApi {
     readonly created_at: string
     /** True when the report already had a refund and that existing refund is returned unchanged — refunds are one-per-report and repeat calls are idempotent. */
     readonly already_refunded: boolean
+}
+
+/**
+ * Envelope returned by the report actions that only kick off a Temporal workflow.
+ */
+export interface SignalReportWorkflowStatusApi {
+    /** Outcome of the request: the workflow was started, or one was already running. */
+    status: string
+    /** Report the workflow runs against. */
+    report_id: string
 }
 
 /**
