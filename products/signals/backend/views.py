@@ -74,6 +74,7 @@ from products.data_warehouse.backend.facade.api import trigger_external_data_wor
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_NOTE_MAX_LENGTH,
     DISMISSAL_REASON_WRONG_REPO,
+    FIXED_DISMISSAL_REASONS,
     NON_WRITABLE_ARTEFACT_TYPES,
     ArtefactContentValidationError,
     ChannelAssignment,
@@ -558,9 +559,14 @@ _DISMISSAL_REASON_HELP_TEXT = (
     "labelled chip rather than a raw code. When the work this report asked for is done, the honest "
     "transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), "
     "'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), "
-    "or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, "
-    "analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed'. Use 'wrong_repo' when the agent "
-    "picked the wrong repository for this report, ideally with corrected_repository naming the right one. "
+    "or 'already_fixed' (it was fixed before the report was filed). A report that failed in processing "
+    "resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three "
+    "codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked "
+    "to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. "
+    "The dismissal codes (report_unclear, analysis_wrong, "
+    "wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use "
+    "'wrong_repo' when the agent picked the wrong repository for this report, ideally with "
+    "corrected_repository naming the right one. "
     "Use 'other' together with a dismissal_note for anything that doesn't fit a code."
 )
 
@@ -580,15 +586,17 @@ class SignalReportBulkStateOutcome(models.TextChoices):
 
 
 # Statuses a report may have held before being archived and still resolve straight out of the
-# archive. Mirrors the model's direct resolve edge (pending_input | ready -> resolved) plus RESOLVED
-# itself, which makes archive-then-resolve idempotent. FAILED is deliberately absent: the model
-# refuses FAILED -> RESOLVED directly, and suppression must not launder a failed report into looking
-# successfully resolved.
+# archive. Mirrors the model's direct resolve edge (pending_input | ready | failed -> resolved) plus
+# RESOLVED itself, which makes archive-then-resolve idempotent. FAILED is included because the model
+# resolves it directly, so the archive grants it nothing it could not do on its own — and a report
+# that failed in processing can only be reached through the archive, because a dismissal is the only
+# verdict the inbox offered it.
 _RESOLVABLE_STATUSES_BEFORE_SUPPRESSION = frozenset(
     {
         SignalReport.Status.READY,
         SignalReport.Status.PENDING_INPUT,
         SignalReport.Status.RESOLVED,
+        SignalReport.Status.FAILED,
     }
 )
 
@@ -605,8 +613,9 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         help_text=(
             "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, "
             "'potential' to snooze/reopen it for later review, or 'resolved' when the work this report "
-            "asked for has been done. Resolving is only allowed from a researched status (ready or "
-            "pending_input) or a suppressed report; other statuses return 409 (skipped in bulk). "
+            "asked for has been done. Resolving is allowed from ready, pending_input, or failed, "
+            "or from a suppressed report that previously held one of those statuses or resolved. "
+            "Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). "
             "Dismissing or resolving closes the report's open implementation PR, if it has one."
         ),
     )
@@ -656,6 +665,13 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs: dict) -> dict:
+        if (
+            attrs.get("state") == SignalReportState.POTENTIAL
+            and attrs.get("dismissal_reason") in FIXED_DISMISSAL_REASONS
+        ):
+            raise serializers.ValidationError(
+                {"dismissal_reason": "A fixed reason requires state 'suppressed' or 'resolved'."}
+            )
         if attrs.get("corrected_repository") and attrs.get("dismissal_reason") != DISMISSAL_REASON_WRONG_REPO:
             raise serializers.ValidationError(
                 {"corrected_repository": "Only allowed when dismissal_reason is 'wrong_repo'."}
@@ -917,7 +933,7 @@ class SignalReportViewSet(
         "oldest": "created_at,status,-updated_at",
     }
     _INBOX_VIEWS = frozenset(
-        {"actionable", "needs_input", "monitoring", "resolved", "dismissed", "not_actionable", "all"}
+        {"actionable", "needs_input", "needs_decision", "monitoring", "resolved", "dismissed", "not_actionable", "all"}
     )
     _SIGNAL_REPORT_ORDERING_FIELDS: dict[str, str] = {
         "status": "pipeline_status_rank",
@@ -1466,6 +1482,20 @@ class SignalReportViewSet(
                 status=SignalReport.Status.PENDING_INPUT,
                 latest_actionability_value=ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
             )
+        if inbox_view == "needs_decision":
+            return queryset.filter(
+                Q(status=SignalReport.Status.FAILED)
+                | (
+                    Q(
+                        status__in=[SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT],
+                        latest_actionability_value__in=[
+                            ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
+                            ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
+                        ],
+                    )
+                    & ~self._implementation_pr_report_filter()
+                )
+            )
         if inbox_view == "monitoring":
             return queryset.filter(status=SignalReport.Status.READY).filter(self._implementation_pr_report_filter())
         if inbox_view == "resolved":
@@ -1965,9 +1995,9 @@ class SignalReportViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=(
-                    "Apply an inbox view: actionable, needs_input, monitoring, resolved, dismissed, "
+                    "Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, "
                     "not_actionable, or all. Each view applies the corresponding status, actionability, and "
-                    "implementation-PR filters."
+                    "implementation-PR filters. needs_decision also includes failed reports without a judgment."
                 ),
             ),
             OpenApiParameter(
@@ -2676,9 +2706,8 @@ class SignalReportViewSet(
 
             # Archiving must not grant a transition the report couldn't make directly. "Any
             # non-deleted status can be suppressed", so without this a report could be laundered
-            # through the archive into RESOLVED from a status the model refuses to resolve from —
-            # candidate/in_progress (landing in RESOLVED with no title or summary), or failed
-            # (a failed pipeline run presented as successfully resolved). So a suppressed report may
+            # through the archive into RESOLVED from candidate/in_progress with no title or summary.
+            # A suppressed report may
             # only resolve when it was in a directly-resolvable status before being archived.
             # Deliberately narrower than restore_target_status()'s researched set, which exists to
             # answer "where does restore put this report back", not "may it resolve".
@@ -2689,7 +2718,7 @@ class SignalReportViewSet(
             ):
                 return (
                     SignalReportBulkStateOutcome.SKIPPED,
-                    "Only a report that was ready, awaiting input, or already resolved when it was "
+                    "Only a report that was ready, awaiting input, failed, or already resolved when it was "
                     "archived can be resolved from the archive.",
                 )
 
@@ -2750,7 +2779,9 @@ class SignalReportViewSet(
             # and so multiple dismissals (with different rationales) can stack over time.
             # Captured for suppress, snooze (transition to potential), and resolve flows — on a
             # resolve it records why the report was resolved with user attribution.
-            if writes_dismissal_feedback:
+            if writes_dismissal_feedback or (
+                target_status == SignalReport.Status.SUPPRESSED and not already_holds_verdict
+            ):
                 user = self.request.user
                 is_authenticated = getattr(user, "is_authenticated", False)
                 user_uuid = getattr(user, "uuid", None) if is_authenticated else None
