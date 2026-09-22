@@ -2,7 +2,7 @@ from posthog.temporal.common.clickhouse import ClickHouseClient
 
 from products.batch_exports.backend.temporal.sql.events import native_events_export_query
 
-QUERY_PARAMETERS = {
+QUERY_PARAMETERS: dict[str, object] = {
     "team_id": 1,
     "interval_start": None,
     "interval_end": "2026-01-01 00:00:00",
