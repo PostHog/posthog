@@ -1,12 +1,11 @@
 {
-    "$comment": "What the CDP filter runtime can resolve. roots are the data globals, mirroring HogFunctionFilterGlobals in nodejs/src/cdp/types.ts. callables are the standard-library names the VM returns as values, which is the synchronous STL: the filter path allows no async steps. A test in the nodejs package pins both to the runtime. It lives here because Django reads it at runtime and this is the package that ships with it.",
+    "$comment": "What the CDP filter runtime can resolve. roots are the data globals every caller of compile_filters_bytecode is evaluated with. caller_specific_roots are in the type but built by only some callers, so Django refuses them: cohort_ids exists solely on the hogflow conditional-branch path, which compiles through compile_filters_expr instead. callables are the standard-library names the VM hands back as values, which is the synchronous STL because the filter path allows no async steps. A test in the nodejs package pins all three to the runtime. It lives here because Django reads it at runtime and this is the package that ships with it.",
     "roots": [
         "$group_0",
         "$group_1",
         "$group_2",
         "$group_3",
         "$group_4",
-        "cohort_ids",
         "distinct_id",
         "elements_chain",
         "elements_chain_elements",
@@ -26,6 +25,7 @@
         "uuid",
         "variables"
     ],
+    "caller_specific_roots": ["cohort_ids"],
     "callables": [
         "Error",
         "HogError",

@@ -162,6 +162,15 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
         assert "bytecode_error" not in evaluation
 
+    def test_filters_reject_a_global_only_some_callers_supply(self):
+        # cohort_ids is built only by hogflow_conditional_branch, and only when the condition
+        # references cohorts. Nothing this function compiles is ever evaluated with it present.
+        response = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "has(cohort_ids, 1)"}]},
+            team=self.team,
+        )
+        assert "cohort_ids" in response["bytecode_error"]
+
     def test_filters_allow_a_named_stl_callback(self):
         # The VM resolves a bare standard-library name through GET_GLOBAL and returns the callable,
         # so this filter runs. Only the async one cannot, because the filter path allows no async steps.

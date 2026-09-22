@@ -283,8 +283,11 @@ describe('hog-function-filtering', () => {
         const shared = (): any =>
             parseJSON(readFileSync(join(__dirname, '../../../../posthog/cdp/filter_globals.json'), 'utf8'))
 
-        it('matches the set Django validates against', () => {
-            expect(Object.keys(EVERY_GLOBAL).sort()).toEqual([...shared().roots].sort())
+        it('accounts for every global the type declares', () => {
+            // Split rather than merged: Django allows roots, and refuses the caller-specific ones
+            // because nothing it compiles for is evaluated with them.
+            const accounted = [...shared().roots, ...shared().caller_specific_roots]
+            expect(Object.keys(EVERY_GLOBAL).sort()).toEqual(accounted.sort())
         })
 
         // Ask the VM itself rather than mirroring its tables: this is the property Django relies on,
