@@ -4385,6 +4385,8 @@ export type ErrorTrackingExternalReferenceIntegration = Pick<IntegrationType, 'i
 export interface ErrorTrackingExternalReference {
     id: string
     external_url: string
+    external_id: string
+    title: string
     integration: ErrorTrackingExternalReferenceIntegration
 }
 
@@ -5584,6 +5586,14 @@ export interface ExperimentApiEventSource {
     properties?: EventPropertyFilter[]
 }
 
+/** Slim start source for retention metrics in API payloads. kind stays required so a
+ *  payload without it fails validation instead of silently becoming an exposure start. */
+export interface ExperimentApiRetentionStart extends Omit<ExperimentApiEventSource, 'kind'> {
+    /** Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure
+     *  event; the other fields then stay unset. */
+    kind: 'EventsNode' | 'ActionsNode' | 'ExperimentExposureNode'
+}
+
 /** Experiment metric for API create/update. All metric-type-specific
  *  fields are optional; discriminated by metric_type at runtime. */
 export interface ExperimentApiMetric {
@@ -5636,8 +5646,9 @@ export interface ExperimentApiMetric {
     /** For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a
      *  binomial-style denominator, which is never clamped. */
     denominator_outlier_handling?: ExperimentMetricOutlierHandling
-    /** For retention metrics: start event. */
-    start_event?: ExperimentApiEventSource
+    /** For retention metrics: start event. Pass {"kind": "ExperimentExposureNode"} to start retention
+     *  from the experiment's exposure event; start_handling and conversion window are ignored then. */
+    start_event?: ExperimentApiRetentionStart
     /** For retention metrics: completion event. */
     completion_event?: ExperimentApiEventSource
     retention_window_start?: integer

@@ -3271,6 +3271,10 @@ export interface CredentialApi {
  * * `HeyReach` - HeyReach
  * * `MoEngage` - MoEngage
  * * `Monaco` - Monaco
+ * * `Oneleet` - Oneleet
+ * * `Expo` - Expo
+ * * `PostNord` - PostNord
+ * * `Commslayer` - Commslayer
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4620,6 +4624,10 @@ export const ExternalDataSourceTypeEnumApi = {
     HeyReach: 'HeyReach',
     MoEngage: 'MoEngage',
     Monaco: 'Monaco',
+    Oneleet: 'Oneleet',
+    Expo: 'Expo',
+    PostNord: 'PostNord',
+    Commslayer: 'Commslayer',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

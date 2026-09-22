@@ -249,11 +249,20 @@ export type { ToolCallMessage } from 'products/posthog_ai/frontend/api/types'
  * types are untouched.
  */
 export interface AttachedContext {
-    type: 'dashboard' | 'insight' | 'event' | 'action' | 'error_tracking_issue' | 'evaluation' | 'notebook' | 'text'
+    type:
+        | 'dashboard'
+        | 'insight'
+        | 'event'
+        | 'action'
+        | 'error_tracking_issue'
+        | 'evaluation'
+        | 'notebook'
+        | 'text'
+        | 'instructions'
     /** Entity id — int for dashboards/actions, short_id for insights/notebooks, UUID for error tracking issues. */
     id?: string | number
     /** Optional human-readable label for entity types. */
     name?: string
-    /** Free-text value — only set when `type === 'text'`. */
+    /** Free-text value — only set when `type === 'text'` or `type === 'instructions'`. */
     value?: string
 }
