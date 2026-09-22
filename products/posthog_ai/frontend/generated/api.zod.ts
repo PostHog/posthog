@@ -158,6 +158,61 @@ export const ConversationsQueuePartialUpdateBody = /* @__PURE__ */ zod.looseObje
 
 export const ConversationsQueueClearCreateBody = /* @__PURE__ */ zod.looseObject({})
 
+export const coreMemoryCreateBodyTextMax = 10000
+
+export const CoreMemoryCreateBody = /* @__PURE__ */ zod.object({
+    text: zod
+        .string()
+        .max(coreMemoryCreateBodyTextMax)
+        .describe('What Max remembers about the project, as free-form text.'),
+    scraping_status: zod
+        .union([
+            zod
+                .enum(['pending', 'completed', 'skipped'])
+                .describe('\* `pending` - Pending\n\* `completed` - Completed\n\* `skipped` - Skipped'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional(),
+})
+
+export const coreMemoryUpdateBodyTextMax = 10000
+
+export const CoreMemoryUpdateBody = /* @__PURE__ */ zod.object({
+    text: zod
+        .string()
+        .max(coreMemoryUpdateBodyTextMax)
+        .describe('What Max remembers about the project, as free-form text.'),
+    scraping_status: zod
+        .union([
+            zod
+                .enum(['pending', 'completed', 'skipped'])
+                .describe('\* `pending` - Pending\n\* `completed` - Completed\n\* `skipped` - Skipped'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional(),
+})
+
+export const coreMemoryPartialUpdateBodyTextMax = 10000
+
+export const CoreMemoryPartialUpdateBody = /* @__PURE__ */ zod.object({
+    text: zod
+        .string()
+        .max(coreMemoryPartialUpdateBodyTextMax)
+        .optional()
+        .describe('What Max remembers about the project, as free-form text.'),
+    scraping_status: zod
+        .union([
+            zod
+                .enum(['pending', 'completed', 'skipped'])
+                .describe('\* `pending` - Pending\n\* `completed` - Completed\n\* `skipped` - Skipped'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional(),
+})
+
 /**
  * Invoke an MCP tool by name.
  *

@@ -11,14 +11,19 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ConversationApi,
     ConversationsListParams,
+    CoreMemoryListParams,
     DocsSearchRequestApi,
     DocsSearchResponseApi,
+    HandsFreeTokenApi,
     MCPToolRequestApi,
     MCPToolResponseApi,
+    MaxCoreMemoryApi,
     MessageApi,
     MessageMinimalApi,
     PaginatedConversationMinimalListApi,
+    PaginatedMaxCoreMemoryListApi,
     PatchedConversationApi,
+    PatchedMaxCoreMemoryApi,
     SandboxMessageResponseApi,
     SandboxOpenApi,
 } from './api.schemas'
@@ -271,6 +276,122 @@ export const conversationsQueueClearCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(conversationApi),
+    })
+}
+
+export const getCoreMemoryListUrl = (projectId: string, params?: CoreMemoryListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/core_memory/?${stringifiedParams}`
+        : `/api/projects/${projectId}/core_memory/`
+}
+
+export const coreMemoryList = async (
+    projectId: string,
+    params?: CoreMemoryListParams,
+    options?: RequestInit
+): Promise<PaginatedMaxCoreMemoryListApi> => {
+    return apiMutator<PaginatedMaxCoreMemoryListApi>(getCoreMemoryListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCoreMemoryCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/core_memory/`
+}
+
+export const coreMemoryCreate = async (
+    projectId: string,
+    maxCoreMemoryApi: NonReadonly<MaxCoreMemoryApi>,
+    options?: RequestInit
+): Promise<MaxCoreMemoryApi> => {
+    return apiMutator<MaxCoreMemoryApi>(getCoreMemoryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(maxCoreMemoryApi),
+    })
+}
+
+export const getCoreMemoryRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/core_memory/${id}/`
+}
+
+export const coreMemoryRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MaxCoreMemoryApi> => {
+    return apiMutator<MaxCoreMemoryApi>(getCoreMemoryRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCoreMemoryUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/core_memory/${id}/`
+}
+
+export const coreMemoryUpdate = async (
+    projectId: string,
+    id: string,
+    maxCoreMemoryApi: NonReadonly<MaxCoreMemoryApi>,
+    options?: RequestInit
+): Promise<MaxCoreMemoryApi> => {
+    return apiMutator<MaxCoreMemoryApi>(getCoreMemoryUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(maxCoreMemoryApi),
+    })
+}
+
+export const getCoreMemoryPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/core_memory/${id}/`
+}
+
+export const coreMemoryPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedMaxCoreMemoryApi?: NonReadonly<PatchedMaxCoreMemoryApi>,
+    options?: RequestInit
+): Promise<MaxCoreMemoryApi> => {
+    return apiMutator<MaxCoreMemoryApi>(getCoreMemoryPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedMaxCoreMemoryApi),
+    })
+}
+
+export const getMaxHandsFreeTokenCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/max_hands_free/token/`
+}
+
+/**
+ * Mint a single-use ElevenLabs Scribe realtime token.
+ *
+ * The browser uses the token to open a WebSocket directly to ElevenLabs — audio never
+ * transits PostHog infrastructure. Tokens are time-bound (15 min) and single-use; the
+ * per-team rate limit on this endpoint caps how often a user can mint new ones.
+ *
+ * Never logs the upstream response body — provider error responses can echo PII back and
+ * we don't want any of that landing in structured logs.
+ */
+export const maxHandsFreeTokenCreate = async (projectId: string, options?: RequestInit): Promise<HandsFreeTokenApi> => {
+    return apiMutator<HandsFreeTokenApi>(getMaxHandsFreeTokenCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 

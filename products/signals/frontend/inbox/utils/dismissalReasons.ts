@@ -16,7 +16,9 @@ export const DISMISSAL_REASON_OPTIONS = [
 /**
  * Reasons offered when a person resolves a report. `already_fixed` is also a dismiss reason on
  * purpose: as a dismissal it tells the agent the report was stale when filed, and as a resolve it
- * records the report as done. The person picks by which of those they want.
+ * records the report as done. The person picks by which of those they want. Recurrence works the
+ * same on both paths — a later signal about the same issue starts a fresh report rather than
+ * joining this one — so the choice no longer decides whether the issue can come back.
  */
 export const RESOLVE_REASON_OPTIONS = [
     { value: 'fixed_outside_posthog', label: 'Fixed outside PostHog' },

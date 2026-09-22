@@ -106,7 +106,10 @@ describe("FeedbackModal", () => {
     expect(screen.getByLabelText("Feedback type")).toBe(selector);
     expect(selector).toHaveTextContent("General");
     await user.click(selector);
-    await user.click(screen.getByRole("option", { name: label }));
+    // The select mounts its popup in a portal, so the option arrives a frame
+    // after the click. `getByRole` does not retry, and a loaded CI runner loses
+    // that race.
+    await user.click(await screen.findByRole("option", { name: label }));
     await user.type(
       screen.getByPlaceholderText("What happened, and what did you expect?"),
       "Example feedback",
