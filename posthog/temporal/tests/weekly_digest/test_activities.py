@@ -1,6 +1,6 @@
 import json
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -101,7 +101,7 @@ def common_input() -> CommonInput:
 
 
 @pytest.fixture
-def redis_servers(common_input: CommonInput):
+def redis_servers(common_input: CommonInput) -> Iterator[FakeRedisServers]:
     servers = FakeRedisServers(common_input)
     with patch("posthog.temporal.weekly_digest.activities.redis.Redis.from_url", side_effect=servers.from_url):
         yield servers
@@ -115,7 +115,7 @@ def digest() -> Digest:
 
 
 @pytest.fixture(autouse=True)
-def mock_heartbeater():
+def mock_heartbeater() -> Iterator[None]:
     # HeartbeaterSync reads the activity context, which the sync bodies do not have under test.
     with patch("posthog.temporal.weekly_digest.activities.HeartbeaterSync"):
         yield

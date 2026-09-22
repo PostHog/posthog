@@ -9,6 +9,7 @@ import redis
 from posthoganalytics import Posthog
 from pydantic import ValidationError
 from structlog.contextvars import bind_contextvars
+from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.schema import HogQLFilters
@@ -18,6 +19,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.messaging import MessagingRecord
 from posthog.models.organization_notification_lock import notification_locks_for_users
 from posthog.models.team import Team
@@ -91,7 +93,7 @@ def _digest_redis(common: CommonInput) -> redis.Redis:
     return redis.Redis.from_url(_redis_url(common))
 
 
-def _bind_batch_logger(input: GenerateDigestDataBatchInput):
+def _bind_batch_logger(input: GenerateDigestDataBatchInput) -> FilteringBoundLogger:
     bind_contextvars(
         digest_key=input.digest.key,
         period_start=input.digest.period_start,
@@ -326,6 +328,7 @@ def _generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None:
     with _digest_redis(input.common) as r:
         for team in _teams_in_range(input):
             try:
+                tag_queries(product=Product.INTERNAL, feature=Feature.DIGEST, team_id=team.id)
                 rows = sync_execute(
                     ch_query,
                     {
