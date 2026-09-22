@@ -187,6 +187,7 @@ from products.workflows.backend.services.code_ownership import (
     check_write,
     is_mcp_transport_request,
 )
+from products.workflows.backend.services.code_renderer import render_workflow_code
 from products.workflows.backend.services.email_sending_attribution import (
     EMAIL_HEALTH_METRIC_NAMES,
     fold_email_totals_by_flow,
@@ -2846,6 +2847,36 @@ class TeamEmailReputationResponseSerializer(serializers.Serializer):
     )
 
 
+class HogFlowCodeWarningSerializer(serializers.Serializer):
+    action_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="The id of the step the warning is about, or null when it is about the workflow as a whole.",
+    )
+    message = serializers.CharField(
+        read_only=True,
+        help_text="What the source does not carry, and what to do about it before a push.",
+    )
+
+
+class HogFlowCodeSerializer(serializers.Serializer):
+    language = serializers.CharField(read_only=True, help_text="The language of `code`. Always `typescript`.")
+    code = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "The workflow as @posthog/workflows source: one file that exports the workflow, ready to load "
+            "with the CLI. It opens with the warnings as a comment."
+        ),
+    )
+    warnings = HogFlowCodeWarningSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Everything the SDK cannot express, one entry per loss. Empty when the source carries the whole workflow."
+        ),
+    )
+
+
 class EmailSendingSuspensionStatusSerializer(serializers.Serializer):
     """Cheap suspension-only read for the persistent scene-wide banner — no reputation computation."""
 
@@ -4269,6 +4300,7 @@ class HogFlowViewSet(
         "asset_content",
         "revisions",
         "revision_detail",
+        "code",
     ]
     scope_object_write_actions = [
         "create",
@@ -5388,6 +5420,23 @@ class HogFlowViewSet(
         queryset = HogFlowRevision.objects.filter(hog_flow=instance).order_by("-version").select_related("created_by")
         page = self.paginate_queryset(queryset)
         return self.get_paginated_response(HogFlowRevisionBasicSerializer(page, many=True).data)
+
+    @extend_schema(operation_id="hog_flows_code_retrieve", responses={200: HogFlowCodeSerializer})
+    @action(detail=True, methods=["GET"], filter_backends=[], url_path="code")
+    def code(self, request: Request, *args, **kwargs) -> Response:
+        # Renders what the editor shows: the staged draft when one exists, else the live definition.
+        # The serializer output is the input on purpose, so secrets arrive already masked.
+        data = self.get_serializer(self.get_object()).data
+        rendered = render_workflow_code({**data, **(data.get("draft") or {})})
+        return Response(
+            HogFlowCodeSerializer(
+                {
+                    "language": "typescript",
+                    "code": rendered.code,
+                    "warnings": [dataclasses.asdict(warning) for warning in rendered.warnings],
+                }
+            ).data
+        )
 
     @extend_schema(
         parameters=[OpenApiParameter("version", int, OpenApiParameter.PATH, description="Workflow version to fetch.")],
