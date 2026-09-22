@@ -27,6 +27,7 @@ from products.alerts.backend.evaluation.contract import (
     execution_mode_for_alert,
     zero_sentinel_series,
 )
+from products.alerts.backend.evaluation.detector_history import detector_rows_from_history
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
@@ -90,12 +91,16 @@ def _calculate_rows_and_columns(
     user: Any,
     execution_mode: ExecutionMode,
     evaluation: HogQLAlertEvaluation,
+    query_override: dict | None = None,
 ) -> _FetchedRows:
     """Run a SQL insight — the fetch-and-validate prologue shared by the threshold and detector
     extractors. A ``None`` result means the query layer swallowed an error (raise to avoid a
     misfire, matching trends); a non-list result is a malformed shape. Every evaluation except
     first_row needs the complete result, so those get the completeness check; first_row reads
     the head, which truncation can't touch.
+
+    ``query_override`` runs a narrowed rewrite of the saved query instead of the saved query
+    itself. The insight is never mutated, so the saved query is what the user still sees.
     """
     calculation_result = calculate_for_query_based_insight(
         insight,
@@ -104,6 +109,7 @@ def _calculate_rows_and_columns(
         user=user,
         analytics_props={"source": EventSource.ALERT},
         limit_context=LimitContext.SQL_ALERT,
+        query_override=query_override,
     )
     truncated = calculation_result.has_more is True
     rows = calculation_result.result
@@ -271,6 +277,43 @@ class HogQLExtractor:
         )
 
 
+def _detector_rows(
+    insight: Insight,
+    team: Any,
+    config: HogQLAlertConfig,
+    min_samples: int,
+    *,
+    execution_mode: ExecutionMode,
+    user: Any,
+    alert: AlertConfiguration | None,
+) -> _FetchedRows:
+    """Fetch the detector's rows, from the per-alert bucket cache when that alert qualifies."""
+
+    def run_query(query_override: dict | None = None) -> tuple[list, list[str] | None]:
+        fetched = _calculate_rows_and_columns(
+            insight,
+            team,
+            user=user,
+            execution_mode=execution_mode,
+            evaluation=config.evaluation,
+            query_override=query_override,
+        )
+        return fetched.rows, fetched.column_names
+
+    if alert is not None:
+        from_history = detector_rows_from_history(
+            alert=alert, insight=insight, config=config, min_samples=min_samples, run_query=run_query
+        )
+        if from_history is not None:
+            rows, column_names = from_history
+            # Assembled from cached buckets and tail scans that passed the completeness guard,
+            # so a limit never cut it.
+            return _FetchedRows(rows=rows, column_names=column_names, truncated=False)
+    return _calculate_rows_and_columns(
+        insight, team, user=user, execution_mode=execution_mode, evaluation=config.evaluation
+    )
+
+
 def extract_hogql_detector_series(
     insight: Insight,
     team: Any,
@@ -279,9 +322,13 @@ def extract_hogql_detector_series(
     *,
     execution_mode: ExecutionMode,
     user: Any = None,
+    alert: AlertConfiguration | None = None,
 ) -> ExtractionResult:
     """Extract SQL history for checks and simulation. Invalid limits disable checks; short uncapped
     histories remain retryable. Empty results retain the zero-result semantics.
+
+    ``alert`` lets a recognized query take its older buckets from the per-alert cache instead of
+    re-reading them. A simulation passes none, so it always reads everything.
     """
     if config.evaluation == HogQLAlertEvaluation.ANY_ROW:
         raise AlertExtractionError(
@@ -298,12 +345,8 @@ def extract_hogql_detector_series(
             f"needs. Raise the LIMIT to at least {required_samples}, or reduce the detector window."
         )
 
-    fetched = _calculate_rows_and_columns(
-        insight,
-        team,
-        user=user,
-        execution_mode=execution_mode,
-        evaluation=config.evaluation,
+    fetched = _detector_rows(
+        insight, team, config, required_samples, execution_mode=execution_mode, user=user, alert=alert
     )
     rows = fetched.rows
     column_names = fetched.column_names
@@ -327,7 +370,9 @@ def extract_hogql_detector_series(
         for i, row in enumerate(ordered)
     ]
 
-    # SQL rows are the series verbatim, so the detector's minimum is the exact cutoff.
+    # SQL rows are the series verbatim — unlike trends, there's no incomplete-interval drop to
+    # offset — so the detector's own minimum is the exact cutoff. (Trends adds +1 for the dropped
+    # interval; SQL must not, or a query returning exactly the minimum would be wrongly rejected.)
     # A short series cannot establish that the alert is not firing.
     if len(values) < required_samples:
         if fetched.truncated:
@@ -380,7 +425,13 @@ class HogQLDetectorExtractor:
             raise ValueError("HogQLDetectorExtractor requires detector_config — dispatcher invariant violated")
         config = hogql_config_or_default(alert.config)
         return extract_hogql_detector_series(
-            insight, alert.team, config, detector_config, execution_mode=execution_mode, user=alert.created_by
+            insight,
+            alert.team,
+            config,
+            detector_config,
+            execution_mode=execution_mode,
+            user=alert.created_by,
+            alert=alert,
         )
 
     def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:
