@@ -54,10 +54,12 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.person.bulk_delete import (
+    PERSON_DELETION_UNMATCHED_DISTINCT_IDS_COUNTER,
     delete_persons_profile,
     queue_person_event_deletion,
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
+    unmatched_distinct_ids,
 )
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
@@ -295,6 +297,12 @@ class PersonBulkDeleteResponseSerializer(serializers.Serializer):
         help_text="Whether recording deletion was requested for the matched persons. "
         "If a deletion was already queued for a person, it will not be duplicated."
     )
+    unmatched_distinct_ids = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Requested distinct IDs that matched no person. Their events are not deleted, because event "
+        "deletion is keyed by person. Always empty when the request used 'ids'.",
+    )
     deletion_errors = serializers.ListField(
         child=serializers.DictField(),
         required=False,
@@ -312,6 +320,43 @@ class PersonDeletionFailed(APIException):
     status_code = 503
     default_code = "person_deletion_failed"
     default_detail = "Couldn't delete this person. Try again, and if it keeps happening contact support."
+
+
+# An error that lists every rejected ID is unreadable at the 1000-ID limit the endpoint allows.
+_MAX_UNMATCHED_DISTINCT_IDS_IN_ERROR = 10
+
+
+def _resolve_unmatched_distinct_ids(
+    distinct_ids: builtins.list[str] | None,
+    persons: builtins.list[Person],
+    *,
+    delete_events: bool,
+) -> builtins.list[str]:
+    """Report the distinct IDs that resolved to no person, and refuse to fake an event deletion.
+
+    Event deletion is keyed by person UUID, so an unmatched distinct ID deletes nothing. Answering
+    202 there tells the caller an erasure ran when it did not.
+    """
+    unmatched = unmatched_distinct_ids(distinct_ids, persons)
+    if not unmatched:
+        return []
+
+    PERSON_DELETION_UNMATCHED_DISTINCT_IDS_COUNTER.labels(delete_events=str(delete_events).lower()).inc(len(unmatched))
+    if not delete_events:
+        return unmatched
+
+    listed = ", ".join(unmatched[:_MAX_UNMATCHED_DISTINCT_IDS_IN_ERROR])
+    if len(unmatched) > _MAX_UNMATCHED_DISTINCT_IDS_IN_ERROR:
+        listed += f" and {len(unmatched) - _MAX_UNMATCHED_DISTINCT_IDS_IN_ERROR} more"
+    raise ValidationError(
+        {
+            "distinct_ids": [
+                f"No person matches these distinct IDs, so we can't delete their events: {listed}. "
+                "This is expected when person profiles are off for the project. "
+                "Retry without these distinct IDs, or contact support to delete the events."
+            ]
+        }
+    )
 
 
 def _no_person_deleted(summary: dict[str, Any]) -> bool:
@@ -907,6 +952,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.
 
         Person records are removed in the background shortly after the request returns, so a successful response reports them in `persons_queued_for_deletion` and `persons_deleted` is 0.
+
+        Event deletion is keyed by person. If `delete_events` is true and any `distinct_ids` match no person, the whole request fails with a 400 that names them, because their events cannot be deleted this way. Projects with person profiles disabled capture personless events, so every distinct ID there matches no person. Without `delete_events`, unmatched distinct IDs are reported in `unmatched_distinct_ids` instead.
         """
 
         delete_events = bool(request.data.get("delete_events"))
@@ -954,6 +1001,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids)
+        unmatched = _resolve_unmatched_distinct_ids(distinct_ids, persons, delete_events=delete_events)
         if not keep_person or delete_recordings:
             queue_person_training_deletion(
                 self.team_id,
@@ -991,6 +1039,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "persons_queued_for_deletion": 0,
             "events_queued_for_deletion": delete_events and len(persons) > 0,
             "recordings_queued_for_deletion": delete_recordings and len(persons) > 0,
+            "unmatched_distinct_ids": unmatched,
             "deletion_errors": errors,
         }
 
@@ -1009,8 +1058,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids, with_distinct_ids=False)
         # A requested distinct ID with no person row can still own replay sessions. The task covers
         # every distinct ID of each resolved person, so only those unmatched IDs are handed over.
-        matched = {distinct_id for person in persons for distinct_id in person.distinct_ids}
-        unmatched = [distinct_id for distinct_id in distinct_ids or [] if distinct_id not in matched]
+        unmatched = _resolve_unmatched_distinct_ids(distinct_ids, persons, delete_events=delete_events)
         if delete_events:
             queue_person_event_deletion(self.team_id, persons, actor=actor)
         persons_queued = queue_person_deletion(
@@ -1029,6 +1077,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "persons_queued_for_deletion": persons_queued if not keep_person else 0,
             "events_queued_for_deletion": delete_events and len(persons) > 0,
             "recordings_queued_for_deletion": delete_recordings and len(persons) > 0,
+            "unmatched_distinct_ids": unmatched,
             "deletion_errors": [],
         }
 

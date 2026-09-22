@@ -62,6 +62,12 @@ PERSON_DELETION_PERSONS_COUNTER = Counter(
     labelnames=["path", "outcome"],
 )
 
+PERSON_DELETION_UNMATCHED_DISTINCT_IDS_COUNTER = Counter(
+    "posthog_person_deletion_unmatched_distinct_ids_total",
+    "Requested distinct IDs that resolved to no person, labelled by whether event deletion was asked for.",
+    labelnames=["delete_events"],
+)
+
 PERSON_DELETION_DISTINCT_IDS_PER_PERSON = Histogram(
     "posthog_person_deletion_distinct_ids_per_person",
     "Distinct IDs fetched per person by the queued deletion, which shows how wide deleted persons are.",
@@ -149,6 +155,19 @@ def resolve_persons_for_deletion(
         )
 
     return personhog_call("resolve_persons_for_deletion", _fetch, caller_tag="persons/deletion-resolve")
+
+
+def unmatched_distinct_ids(
+    requested: builtins.list[str] | None,
+    persons: builtins.list[Person],
+) -> builtins.list[str]:
+    """Requested distinct IDs that none of the resolved persons owns.
+
+    A project with person profiles disabled captures personless events, so every requested
+    distinct ID comes back unmatched and no person-keyed deletion can reach those events.
+    """
+    matched = {distinct_id for person in persons for distinct_id in person.distinct_ids}
+    return [distinct_id for distinct_id in requested or [] if distinct_id not in matched]
 
 
 def delete_persons_profile(

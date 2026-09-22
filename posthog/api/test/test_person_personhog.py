@@ -14,6 +14,7 @@ from rest_framework import status
 
 from posthog.models import Organization, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.async_deletion import AsyncDeletion
 from posthog.models.person.util import get_person_by_uuid
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
@@ -512,6 +513,35 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         if calls:
             assert calls[0].request.team_id == self.team.pk
             assert set(calls[0].request.person_uuids) == {str(p1.uuid), str(p2.uuid)}
+
+    @parameterized.expand([("sync", False), ("queued", True)])
+    def test_bulk_delete_refuses_event_deletion_for_unmatched_distinct_ids(self, _name, queued):
+        p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
+
+        with override_settings(PERSON_BULK_DELETE_ASYNC=queued):
+            resp = self.client.post(
+                "/api/person/bulk_delete/",
+                {"distinct_ids": ["did-1", "ghost"], "delete_events": True},
+            )
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        body = resp.json()
+        assert body["attr"] == "distinct_ids"
+        assert "ghost" in body["detail"]
+        # The request is refused before anything runs, so the matched person survives too.
+        assert get_person_by_uuid(self.team.pk, str(p1.uuid)) is not None
+        assert AsyncDeletion.objects.filter(team_id=self.team.pk).count() == 0
+
+    @parameterized.expand([("sync", False), ("queued", True)])
+    def test_bulk_delete_reports_unmatched_distinct_ids_without_event_deletion(self, _name, queued):
+        p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
+
+        with override_settings(PERSON_BULK_DELETE_ASYNC=queued):
+            resp = self.client.post("/api/person/bulk_delete/", {"distinct_ids": ["did-1", "ghost"]})
+
+        assert resp.status_code == status.HTTP_202_ACCEPTED
+        assert resp.json()["unmatched_distinct_ids"] == ["ghost"]
+        assert get_person_by_uuid(self.team.pk, str(p1.uuid)) is None
 
     def test_bulk_delete_with_keep_person(self):
         p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
