@@ -84,7 +84,7 @@ from posthog.cdp.validation import (
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.filters import Filter
 from posthog.models.integration import Integration
 from posthog.permissions import posthog_feature_flag_enabled
@@ -4334,7 +4334,11 @@ class HogFlowViewSet(
                 "Create as draft, test with workflows-test-run, then enable with workflows-enable."
             )
 
-        serializer.save()
+        with transaction.atomic():
+            serializer.save()
+            # A new workflow is already version 1, so its history starts here. Without this snapshot
+            # the history stays empty until the first content edit.
+            self._append_revision(serializer.instance, created_by=self._revision_author())
         log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, detail_type="standard")
         self._emit_resource_edited(serializer.instance)
 
@@ -4541,24 +4545,27 @@ class HogFlowViewSet(
         return True
 
     def _append_revisions(self, instance: HogFlow, before: HogFlow) -> None:
-        # Must run inside the same transaction as the content write it snapshots. On the first
-        # tracked write, also snapshot the outgoing live content so the state before any tracked
-        # change is always available to roll back to (there's no backfill).
+        # Must run inside the same transaction as the content write it snapshots. A workflow created
+        # before creates wrote revisions has no rows yet: on its first tracked write, also snapshot
+        # the outgoing live content so the state before any tracked change is always available to
+        # roll back to (there's no backfill).
         if not HogFlowRevision.objects.filter(hog_flow=instance).exists():
-            HogFlowRevision.objects.create(
-                team_id=self.team_id,
-                hog_flow=instance,
-                version=before.version,
-                content=snapshot_flow_content(before),
-                created_by=None,
-            )
+            self._append_revision(before, created_by=None)
+        self._append_revision(instance, created_by=self._revision_author())
+
+    def _append_revision(self, flow: HogFlow, *, created_by: User | None) -> None:
         HogFlowRevision.objects.create(
             team_id=self.team_id,
-            hog_flow=instance,
-            version=instance.version,
-            content=snapshot_flow_content(instance),
-            created_by=self.request.user if self.request.user.is_authenticated else None,
+            hog_flow=flow,
+            version=flow.version,
+            content=snapshot_flow_content(flow),
+            created_by=created_by,
         )
+
+    def _revision_author(self) -> User | None:
+        # Anonymous and synthetic (project secret API key) principals have no user row to point at.
+        user = self.request.user
+        return user if isinstance(user, User) else None
 
     def _write_draft(self, instance: HogFlow, locked: HogFlow, validated_data: dict) -> None:
         # The draft is always a full content snapshot (live config as the base, staged draft on top,
@@ -5462,7 +5469,9 @@ class HogFlowViewSet(
                 .filter(id__in=[flow.id for flow in deletable])
                 .values_list("id", flat=True)
             )
-            deleted_count, _ = self.get_queryset().filter(id__in=deleted_ids).delete()
+            # delete() also counts the cascaded rows (revisions, schedules); report workflows only.
+            _, deleted_by_model = self.get_queryset().filter(id__in=deleted_ids).delete()
+            deleted_count = deleted_by_model.get(HogFlow._meta.label, 0)
             deleted_flows = [flow for flow in deletable if flow.id in deleted_ids]
             for flow in deleted_flows:
                 log_activity_from_viewset(self, flow, activity="deleted", name=flow.name)
