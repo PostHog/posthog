@@ -7917,21 +7917,25 @@ snapshots:
     scenes-app-engineering-analytics-delivery-pipeline--without-deploys--light:
         hash: v1.k794b7964.5eaee687a224ef9cd7d3707391948732cacb11769bdd619f315a101abcb85de1.ymQC-4XF77SeJ0AN5SrtlyYKs8Ve29MBfz4J8FGLWtg
     scenes-app-engineering-analytics-health--health--dark:
-        hash: v1.k794b7964.b44984309f95ae7f109b15a9fae848c4b4946590788e71a8e4387710dfb936d6.OoB3EM50krQphJ342Rw0f3OstTYHV2NjyjS7JCFrzuk
+        hash: v1.k794b7964.80df7e2e37430d0fe93982dcfa4c9b185910ecf4fc3f75674ac70b82bb450de8.Vq6Dgdy6guncYwFVFE3iorIwjJEs5hii1Tmf9yEwOhs
     scenes-app-engineering-analytics-health--health--light:
-        hash: v1.k794b7964.35c7ca733e40d8700368971cab0385c5c0e9299b7e2bdcdc959c4021d1e5dd9a.JY2t4yraYrMoI7dKNjGbOrOZoTLFYIrNqoyj9HTnxWs
+        hash: v1.k794b7964.be303ddc64c078325a87d57896ecee9b8b467e90e1f335d6a850ba5f4d903d6e.6-21IJhdAuY5h6iWzKTEARMFgwjRSjIebhXIpiCg2_k
+    scenes-app-engineering-analytics-health--health-narrow--dark:
+        hash: v1.k794b7964.a7a942a915d4e87308d54e8f8008ba9b7f5aee84be5a9d8d0b2b5031752d6761.lL961wqs_VyMW1cSyfTQAITrAog-VtlhVZPGYkmZq9I
+    scenes-app-engineering-analytics-health--health-narrow--light:
+        hash: v1.k794b7964.139aa696e702191baf401e842b50594954fcc56e4db65462c94968f5529adb17.DUxJjaQI5Tivd6Fzw1yid4iw_NUumF7Q_6NRbidJfcY
     scenes-app-engineering-analytics-health--health-with-limited-deployment-coverage--dark:
-        hash: v1.k794b7964.91d4d18da5f4bf6784bed887fd0a7e2ff10c278fd1c6ae2330911541aaeb9f1e.t7zP7abNW6GN2rtotpz5VGWkzKBbmaSqSqwLuoKbJ1I
+        hash: v1.k794b7964.ed19891c342e5f6081ceca2d1a4c7b5f004af7cc647565f680a56a0484c94310.MLb9W9NyoF5ohAscgY28E42Fu_pAeP7eJemYQTY80RY
     scenes-app-engineering-analytics-health--health-with-limited-deployment-coverage--light:
-        hash: v1.k794b7964.cea50b9a0c73e0868c0b4b59dbc0e0c8301fb8c08fb33bab1d2bfdfaa6c58143.4KlzrYv4MgqmhfXlrKavy5FXTDxsFa1A_T275D4jDIU
+        hash: v1.k794b7964.65b2ddfa6835b15f89994785798c3a3bd1402c7f9afb7eba98ed3d2c79f7ff04.LHR6eYOurd3bEQSJwfNOkoOfgm5KPNNu-oGZQlJPKIA
     scenes-app-engineering-analytics-health--health-without-attributed-pull-requests--dark:
-        hash: v1.k794b7964.712465012bc894bfbf77066f2b3287bbb28c684d8992bfb6e6824e04a4ff3d0f.AIi4PIwjarrVtkm9Rn9pSyAWRL7IITCCaAywR7a3p9A
+        hash: v1.k794b7964.21bfbd0040c9326720c50d2619d4fcae2cd366999aa1213c07042a66ecf32b68.Hg36NNstflQIefwLm1_mGVhQAme2ZOZOT6RnxASj6is
     scenes-app-engineering-analytics-health--health-without-attributed-pull-requests--light:
-        hash: v1.k794b7964.916a98ec25fe104a20e7364b41baad00b75c67456d07a457c96cf31cbefcd330.vm_ef_S4gyq4TggAyQQOsNQ2BUqZyNK1nYiDkdWF8UU
+        hash: v1.k794b7964.2f9fa7d06310b7a1552ef8a12a54e3f32b5f1a40d4bcf2e13cb808b3304ced07.PAL09veE49hCar6Ps8Qa26qWy60hXi3AvTvaLxw2esQ
     scenes-app-engineering-analytics-health--health-without-deploy-data--dark:
-        hash: v1.k794b7964.19d11f17e9a84ed24f41001e49e34211992af3fd06e22d3d8e4956ea54451692.bHLFcWqNX7duZvoYdWlAWdK6Hbf3hNcKuEofZN8Jeg4
+        hash: v1.k794b7964.6019225e8e81a65e07e21417be065c6ef1b36245720fb46c09292bd998eeda31.uqLvtsA8KMnTtyJSZtIx_nGTbGJ31TSqgZnr4oqQUl0
     scenes-app-engineering-analytics-health--health-without-deploy-data--light:
-        hash: v1.k794b7964.f61c143e7770fda3b369c4e5cb914147af2686af80214ae600d721540600da5d.1wwIy897x1GM2iIWDtAKgsh_c5DIB99fgGGjCxMmri0
+        hash: v1.k794b7964.f9d116280d2fc69f3ba391975df7f91f9a1dd0098b31a9c23cd0f0a6d7e5f71a.8jj1Mq450IL9dXTX5SalsjNY40agsfS1sELpJTOGNKg
     scenes-app-engineering-analytics-lead-time-box-plot--default--dark:
         hash: v1.k794b7964.a88a986e975778b0ad232c7e8f75211b0d66acb126082b2f781fd9d5641ff28d.P4_7HWOcC-Z8pGr_2GTGkAc_fzupx_TRaZdlauEmVQE
     scenes-app-engineering-analytics-lead-time-box-plot--default--light:
