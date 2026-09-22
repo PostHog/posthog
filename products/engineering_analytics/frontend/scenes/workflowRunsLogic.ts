@@ -70,6 +70,7 @@ export interface workflowRunsLogicValues {
     expandedRunKeys: string[]
     healthSummary: HealthSummary
     jobAggregates: WorkflowJobAggregateApi[]
+    jobAggregatesFailed: boolean
     jobAggregatesLoading: boolean
     loadFailed: boolean
     masterConclusion: string | null
@@ -77,11 +78,13 @@ export interface workflowRunsLogicValues {
     repoName: string
     repoOwner: string
     runActivity: WorkflowRunActivityApi
+    runActivityFailed: boolean
     runActivityLoading: boolean
     runJobs: Record<string, WorkflowJobApi[]>
     runJobsLoading: boolean
     runRows: WorkflowRunRow[]
     runnerCosts: WorkflowRunnerCostApi[]
+    runnerCostsFailed: boolean
     runnerCostsLoading: boolean
     runs: WorkflowRunDetailApi[]
     runsLoading: boolean
@@ -369,12 +372,45 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
         workflowHealth: {
             loadWorkflowHealthFailure: () => null,
         },
+        runActivity: {
+            loadRunActivityFailure: () => ({ points: [], truncated: false, limit: 0 }),
+        },
+        runnerCosts: {
+            loadRunnerCostsFailure: () => [],
+        },
+        jobAggregates: {
+            loadJobAggregatesFailure: () => [],
+        },
         workflowHealthFailed: [
             false,
             {
                 loadWorkflowHealth: () => false,
                 loadWorkflowHealthSuccess: () => false,
                 loadWorkflowHealthFailure: () => true,
+            },
+        ],
+        runActivityFailed: [
+            false,
+            {
+                loadRunActivity: () => false,
+                loadRunActivitySuccess: () => false,
+                loadRunActivityFailure: () => true,
+            },
+        ],
+        runnerCostsFailed: [
+            false,
+            {
+                loadRunnerCosts: () => false,
+                loadRunnerCostsSuccess: () => false,
+                loadRunnerCostsFailure: () => true,
+            },
+        ],
+        jobAggregatesFailed: [
+            false,
+            {
+                loadJobAggregates: () => false,
+                loadJobAggregatesSuccess: () => false,
+                loadJobAggregatesFailure: () => true,
             },
         ],
         expandedRunKeys: [
@@ -481,7 +517,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                 if (runnerCosts.length === 0) {
                     return null
                 }
-                // Free runners report null — a bare sum would turn "no cost data" into a misleading $0.00.
+                // Free runners report null, so a bare sum would turn "no cost data" into a misleading $0.00.
                 const hasBillable = runnerCosts.some((cost) => cost.billable_minutes != null)
                 const hasEstimatedCost = runnerCosts.some((cost) => cost.estimated_cost_usd != null)
                 return {
