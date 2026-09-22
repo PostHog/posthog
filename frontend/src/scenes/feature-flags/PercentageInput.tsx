@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 
+function clampPercentage(value: number): number {
+    return Math.round(Math.min(100, Math.max(0, value)) * 100) / 100
+}
+
 /** A percentage input (0–100) that allows clearing the field while typing.
  *  Uses a native text input with local string state to avoid React's
  *  controlled <input type="number"> limitation where empty fields snap back. */
@@ -38,11 +42,18 @@ export function PercentageInput({
                     if (raw !== '' && !/^\d*\.?\d*$/.test(raw)) {
                         return
                     }
-                    setLocalValue(raw)
                     const parsed = parseFloat(raw)
-                    if (!isNaN(parsed)) {
-                        onChange(Math.round(Math.min(100, Math.max(0, parsed)) * 100) / 100)
+                    if (isNaN(parsed)) {
+                        // An empty or partial entry keeps the text, but stores 0 straight away,
+                        // so validation and save never run on the value the field dropped.
+                        setLocalValue(raw)
+                        onChange(0)
+                        return
                     }
+                    const clamped = clampPercentage(parsed)
+                    // Show the stored number as soon as clamping or rounding changes it.
+                    setLocalValue(clamped === parsed ? raw : String(clamped))
+                    onChange(clamped)
                 }}
                 onFocus={() => {
                     isFocusedRef.current = true
@@ -54,7 +65,7 @@ export function PercentageInput({
                         onChange(0)
                         setLocalValue('0')
                     } else {
-                        const clamped = Math.round(Math.min(100, Math.max(0, parsed)) * 100) / 100
+                        const clamped = clampPercentage(parsed)
                         onChange(clamped)
                         setLocalValue(String(clamped))
                     }
