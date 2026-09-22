@@ -604,13 +604,16 @@ class _SpanSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Span name, which is the operation it represents.")
     kind = serializers.IntegerField(help_text="OpenTelemetry span kind.")
     service_name = serializers.CharField(help_text="Service that emitted the span.")
-    status_code = serializers.IntegerField(help_text="OpenTelemetry status code. Non-zero means an error.")
+    status_code = serializers.IntegerField(help_text="OpenTelemetry status code: 0 unset, 1 ok, 2 error.")
     timestamp = serializers.DateTimeField(help_text="When the span started.")
     end_time = serializers.DateTimeField(help_text="When the span ended.")
     duration_nano = serializers.FloatField(help_text="Span duration in nanoseconds.")
     is_root_span = serializers.BooleanField(help_text="Whether the span has no parent in the trace.")
-    matched_filter = serializers.BooleanField(
-        help_text="Whether this span matched the request's filters, rather than being included as context."
+    matched_filter = serializers.IntegerField(
+        help_text=(
+            "1 when this span matched the request's filters, 0 when it is included as context. The query "
+            "selects it as an expression, so it arrives as a number rather than a boolean."
+        )
     )
     trace_start = serializers.DateTimeField(help_text="Start of the whole trace, for ordering traces by recency.")
     trace_duration = serializers.FloatField(
@@ -639,7 +642,10 @@ class _TracingQueryResponseSerializer(serializers.Serializer):
     hasMore = serializers.BooleanField(help_text="Whether a further page exists.")
     nextCursor = serializers.CharField(
         allow_null=True,
-        help_text="Cursor for the next page, or null on the last page. Pass it back as the query's `after`.",
+        help_text=(
+            "Cursor for the next page, or null on the last page. Pass it back as the query's `after`. "
+            "Always null when ordering by duration, which pages by offset instead."
+        ),
     )
 
 
