@@ -140,10 +140,20 @@ RESOURCE_FALLBACK_MAP: dict[APIScopeObject, APIScopeObject] = {
     "warehouse_table": "external_data_source",
 }
 
+_WAREHOUSE_OBJECT_SCOPES: frozenset[str] = frozenset(
+    child for child, parent in RESOURCE_INHERITANCE_MAP.items() if parent == "warehouse_objects"
+)
+
+# Scopes that a principal without an RBAC identity (service tokens, shared-link viewers) reads
+# without access control, so the query cache must not partition on them. The source a synced table
+# falls back to is included: a principal that never reaches the table's rules never reaches the
+# source's rules either, and leaving it out gives every shared-link view of a warehouse table its
+# own cache entry.
 WAREHOUSE_ACCESS_SCOPES: frozenset[str] = frozenset(
     {
         "warehouse_objects",
-        *(child for child, parent in RESOURCE_INHERITANCE_MAP.items() if parent == "warehouse_objects"),
+        *_WAREHOUSE_OBJECT_SCOPES,
+        *(RESOURCE_FALLBACK_MAP[scope] for scope in _WAREHOUSE_OBJECT_SCOPES if scope in RESOURCE_FALLBACK_MAP),
     }
 )
 
