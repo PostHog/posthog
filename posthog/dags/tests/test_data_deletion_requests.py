@@ -1,6 +1,6 @@
 import json
 from concurrent.futures import Future
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -15,6 +15,7 @@ from django.utils import timezone
 import dagster
 from clickhouse_driver import Client
 from dagster import build_op_context
+from prometheus_client import CollectorRegistry
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.client import sync_execute
@@ -2850,10 +2851,17 @@ def test_delete_person_profiles_op_fails_when_tombstones_stay_unpublished():
         drop_recordings=False,
     )
     op_context = build_op_context()
+    pushed = CollectorRegistry()
+
+    @contextmanager
+    def push_registry(_job_name):
+        yield pushed
+
     with (
         patch("posthog.dags.data_deletion_requests.TOMBSTONE_REPUBLISH_BACKOFF_SECONDS", (0, 0)),
         patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter,
         patch("posthog.dags.data_deletion_requests.republish_tombstones", return_value=[UUID(p_uuid)]) as republish,
+        patch("posthog.dags.data_deletion_requests.pushed_metrics_registry", push_registry),
         patch.object(op_context.log, "error") as log_error,
     ):
         deleter.return_value = _profile_result_with_unpublished_tombstone(UUID(p_uuid))
@@ -2862,6 +2870,8 @@ def test_delete_person_profiles_op_fails_when_tombstones_stay_unpublished():
 
     assert republish.call_count == 2
     assert p_uuid in log_error.call_args.args[0]
+    # Dagster runs are not scraped, so the pushed gauge is the only signal the alert can see.
+    assert pushed.get_sample_value("posthog_person_deletion_unpublished_tombstones_last_seen_timestamp_seconds")
 
 
 @pytest.mark.parametrize(

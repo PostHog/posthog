@@ -9,6 +9,7 @@ from django.conf import settings as django_settings
 import dagster
 import pydantic
 from clickhouse_driver import Client
+from prometheus_client import Gauge
 
 from posthog.schema import HogQLVariable
 
@@ -34,6 +35,7 @@ from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
 from posthog.clickhouse.workload import Workload
 from posthog.dags.common import JobOwners
 from posthog.dags.deletes import deletes_job
+from posthog.metrics import pushed_metrics_registry
 from posthog.models.data_deletion_request import (
     AUTO_APPROVE_INTERVAL_MINUTES,
     DataDeletionRequest,
@@ -70,6 +72,7 @@ from posthog.models.person.bulk_delete import (
     PersonDeletionStep,
     delete_persons_profile,
     queue_person_recording_deletion,
+    report_unpublished_tombstones,
     republish_tombstones,
     resolve_persons_for_deletion,
     unpublished_tombstone_uuids,
@@ -1532,6 +1535,7 @@ def delete_person_recordings_op(
 
 
 TOMBSTONE_REPUBLISH_BACKOFF_SECONDS = (2, 4, 8, 16, 32)
+UNPUBLISHED_TOMBSTONES_METRICS_JOB = "person_deletion_unpublished_tombstones"
 
 
 @dagster.op(tags=OWNER_TAG)
@@ -1597,6 +1601,14 @@ def delete_person_profiles_op(
             f"be published; they stay visible in analytics until republished: {uuids}"
         )
         metadata["unpublished_clickhouse_uuids"] = dagster.MetadataValue.text(uuids)
+        report_unpublished_tombstones(person_removal.team_id, unpublished, path="dagster")
+        # Dagster runs are not scraped, so the counter above never reaches Prometheus from here.
+        with pushed_metrics_registry(UNPUBLISHED_TOMBSTONES_METRICS_JOB) as registry:
+            Gauge(
+                "posthog_person_deletion_unpublished_tombstones_last_seen_timestamp_seconds",
+                "Unix time when the data deletion job last gave up on publishing ClickHouse person tombstones",
+                registry=registry,
+            ).set(time.time())
         raise dagster.Failure(
             description=(
                 f"Deletion request {person_removal.request_id}: ClickHouse tombstones for "

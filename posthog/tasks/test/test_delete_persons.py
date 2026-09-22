@@ -6,6 +6,7 @@ from django.test import SimpleTestCase
 
 from celery.exceptions import Retry
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.models.person import Person
 from posthog.models.person.bulk_delete import PersonDeletionFailure, PersonDeletionStep, PersonProfileDeletionResult
@@ -19,6 +20,10 @@ from posthog.tasks.delete_persons import (
 
 def _person() -> Person:
     return Person(uuid=uuid4(), team_id=1)
+
+
+def _unpublished_reported(path: str) -> float:
+    return REGISTRY.get_sample_value("posthog_person_deletion_unpublished_tombstones_total", {"path": path}) or 0.0
 
 
 class TestQueuePersonDeletion(SimpleTestCase):
@@ -87,22 +92,42 @@ class TestQueuePersonDeletion(SimpleTestCase):
 
 
 class TestDeletePersonsAsync(SimpleTestCase):
-    def _run(self, result: PersonProfileDeletionResult | Exception) -> None:
+    def _run(self, result: PersonProfileDeletionResult | Exception, retries: int = 0) -> None:
         with patch(
             "posthog.tasks.delete_persons.process_queued_person_deletion",
             side_effect=result if isinstance(result, Exception) else None,
             return_value=None if isinstance(result, Exception) else result,
         ):
-            delete_persons_async.run(
-                team_id=1,
-                person_uuids=["a", "b"],
-                delete_profile=False,
-                delete_recordings=True,
-                actor_id=None,
-                organization_id="00000000-0000-0000-0000-00000000000a",
-                was_impersonated=True,
-                unmatched_distinct_ids=["ghost"],
-            )
+            delete_persons_async.push_request(retries=retries)
+            try:
+                delete_persons_async.run(
+                    team_id=1,
+                    person_uuids=["a", "b"],
+                    delete_profile=False,
+                    delete_recordings=True,
+                    actor_id=None,
+                    organization_id="00000000-0000-0000-0000-00000000000a",
+                    was_impersonated=True,
+                    unmatched_distinct_ids=["ghost"],
+                )
+            finally:
+                delete_persons_async.pop_request()
+
+    @parameterized.expand([("last_attempt", 3, 1), ("earlier_attempt", 2, 0)])
+    def test_reports_unpublished_tombstones_only_when_it_gives_up(self, _name, retries, reported) -> None:
+        result = PersonProfileDeletionResult(
+            deleted_count=1,
+            failures=[
+                PersonDeletionFailure(
+                    step=PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE, person_uuid=uuid4(), error="kafka"
+                )
+            ],
+        )
+        before = _unpublished_reported("queued")
+        with patch.object(delete_persons_async, "retry", side_effect=Retry("retry")):
+            with self.assertRaises(Retry):
+                self._run(result, retries=retries)
+        assert _unpublished_reported("queued") - before == reported
 
     def test_retries_only_the_failed_persons(self) -> None:
         failed = uuid4()
@@ -188,8 +213,8 @@ class TestRepublishPersonTombstones(SimpleTestCase):
         assert retry.call_args.kwargs["countdown"] == 60
 
     def test_gives_up_after_the_last_retry(self) -> None:
-        with patch("posthog.tasks.delete_persons.logger") as logger:
-            _, retry, raised = self._run([uuid4()], retries=3)
+        before = _unpublished_reported("sync")
+        _, retry, raised = self._run([uuid4()], retries=3)
         assert not raised
         retry.assert_not_called()
-        logger.error.assert_called_once()
+        assert _unpublished_reported("sync") - before == 1

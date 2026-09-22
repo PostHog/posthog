@@ -71,6 +71,19 @@ PERSON_DELETION_PERSONS_COUNTER = Counter(
     labelnames=["path", "outcome"],
 )
 
+# path: "sync" for the republish task behind the request-time delete, "queued" for the Celery
+# task, "dagster" for the data deletion job. Dagster runs are not scraped, so that path also
+# pushes a last-seen gauge; see data_deletion_requests.py.
+PERSON_DELETION_UNPUBLISHED_TOMBSTONES_COUNTER = Counter(
+    "posthog_person_deletion_unpublished_tombstones_total",
+    "Persons that every automatic retry left tombstoned in Postgres with no ClickHouse tombstone. "
+    "Each one needs a manual republish.",
+    labelnames=["path"],
+)
+
+# UUIDs per log line, so a large give-up is split across lines instead of truncated.
+UNPUBLISHED_TOMBSTONES_LOG_CHUNK = 500
+
 PERSON_DELETION_DISTINCT_IDS_PER_PERSON = Histogram(
     "posthog_person_deletion_distinct_ids_per_person",
     "Distinct IDs fetched per person by the queued deletion, which shows how wide deleted persons are.",
@@ -683,6 +696,26 @@ def republish_tombstones(team_id: int, person_uuids: builtins.list[uuid_lib.UUID
     failures: builtins.list[PersonDeletionFailure] = []
     _republish_tombstones(team_id, person_uuids, failures)
     return unpublished_tombstone_uuids(failures)
+
+
+def report_unpublished_tombstones(team_id: int, person_uuids: Iterable[uuid_lib.UUID | str], *, path: str) -> None:
+    """Record persons that the automatic retries gave up on, so that an operator can repair them.
+
+    Each person can be tombstoned in Postgres while ClickHouse still shows it as live. The counter
+    drives the alert, and the log lines carry every UUID that needs a manual republish.
+    """
+    uuids = [str(u) for u in person_uuids]
+    if not uuids:
+        return
+    PERSON_DELETION_UNPUBLISHED_TOMBSTONES_COUNTER.labels(path=path).inc(len(uuids))
+    for start in range(0, len(uuids), UNPUBLISHED_TOMBSTONES_LOG_CHUNK):
+        logger.error(
+            "person_deletion.tombstones_unpublished",
+            team_id=team_id,
+            path=path,
+            person_count=len(uuids),
+            person_uuids=uuids[start : start + UNPUBLISHED_TOMBSTONES_LOG_CHUNK],
+        )
 
 
 def queue_person_event_deletion(

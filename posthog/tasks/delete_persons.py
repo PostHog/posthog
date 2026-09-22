@@ -13,7 +13,9 @@ from posthog.models.person.bulk_delete import (
     PERSON_DELETION_PERSONS_COUNTER,
     PersonDeletionStep,
     process_queued_person_deletion,
+    report_unpublished_tombstones,
     republish_tombstones,
+    unpublished_tombstone_uuids,
 )
 from posthog.models.user import User
 from posthog.scoping_audit import skip_team_scope_audit
@@ -162,6 +164,8 @@ def delete_persons_async(
         failures_by_step=dict(failures_by_step),
         failed_person_uuids=failed_uuids[:20],
     )
+    if retries >= MAX_DELETION_RETRIES:
+        report_unpublished_tombstones(team_id, unpublished_tombstone_uuids(result.failures), path="queued")
     # Past max_retries this raises the exception given here instead of scheduling another run.
     raise self.retry(
         kwargs={
@@ -198,10 +202,6 @@ def republish_person_tombstones(self: Task, team_id: int, person_uuids: list[str
     retries = self.request.retries
     remaining = [str(u) for u in unpublished]
     if retries >= MAX_DELETION_RETRIES:
-        logger.error(
-            "republish_person_tombstones gave up; persons stay visible in analytics",
-            team_id=team_id,
-            person_uuids=remaining,
-        )
+        report_unpublished_tombstones(team_id, remaining, path="sync")
         return
     raise self.retry(kwargs={"team_id": team_id, "person_uuids": remaining}, countdown=_retry_countdown(retries))
