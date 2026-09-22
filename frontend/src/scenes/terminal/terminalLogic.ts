@@ -109,8 +109,12 @@ export const terminalLogic = kea<terminalLogicType>([
         pasting: [false, { setPasting: (_, { pasting }) => pasting }],
         clipboardError: [null as string | null, { setClipboardError: (_, { error }) => error }],
         status: ['idle' as TerminalStatus, { setStatus: (_, { status }) => status, stop: () => 'idle' }],
-        error: [null as string | null, { setError: (_, { error }) => error, start: () => null }],
-        saveError: [null as string | null, { setSaveError: (_, { error }) => error, start: () => null }],
+        // Stop destroys the session, including the recovery copies a save error points at.
+        error: [null as string | null, { setError: (_, { error }) => error, start: () => null, stop: () => null }],
+        saveError: [
+            null as string | null,
+            { setSaveError: (_, { error }) => error, start: () => null, stop: () => null },
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         attach: ({ container }) => {
