@@ -9,6 +9,7 @@ import { isSlackMemberTarget } from 'lib/integrations/slackChannel'
 import { usersSignalAutonomyCreate, usersSignalAutonomyRetrieve } from 'products/signals/frontend/generated/api'
 import type { SignalUserAutonomyConfigCreateApi } from 'products/signals/frontend/generated/api.schemas'
 
+import type { SignalUserAutonomyConfigApi } from '../../generated/api.schemas'
 import { captureInboxSettingsChanged } from '../inboxAnalytics'
 import type { SignalReportPriority, SignalUserAutonomyConfigDraft } from '../types'
 
@@ -109,10 +110,10 @@ export interface userAutonomyLogicActions {
         errorObject?: any
     }
     loadAutonomyConfigSuccess: (
-        autonomyConfig: SignalUserAutonomyConfigDraft | null,
+        autonomyConfig: SignalUserAutonomyConfigApi | null,
         payload?: any
     ) => {
-        autonomyConfig: SignalUserAutonomyConfigDraft | null
+        autonomyConfig: SignalUserAutonomyConfigApi | null
         payload?: any
     }
     openPullRequestReadySettled: () => {

@@ -10,6 +10,7 @@ import {
     signalsScoutRunsEmissionsBatch,
 } from 'products/signals/frontend/generated/api'
 
+import type { SignalScoutEmissionApi } from '../../generated/api.schemas'
 import {
     LinkedSignalReport,
     SignalScoutEmission,
@@ -133,10 +134,10 @@ export interface findingsLogicActions {
         errorObject?: any
     }
     loadEmissionsSuccess: (
-        emissions: SignalScoutEmission[],
+        emissions: SignalScoutEmissionApi[],
         payload?: any
     ) => {
-        emissions: SignalScoutEmission[]
+        emissions: SignalScoutEmissionApi[]
         payload?: any
     }
     loadScoutReports: (ids?: string[]) => {

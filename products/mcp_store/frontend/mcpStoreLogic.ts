@@ -62,7 +62,9 @@ const CUSTOM_SERVER_FORM_DEFAULTS: CustomServerFormValues = {
     template_id: '',
 }
 
-const projectId = (): string => String(ApiConfig.getCurrentProjectId())
+// The route accepts a team id too (see ApiConfig.teamProjectDetail), and MCPServerInstallationViewSet
+// filters on the exact team id, so this must resolve the active environment, not its parent project.
+const projectId = (): string => String(ApiConfig.getCurrentTeamId())
 
 function setToolApproval(
     installationId: string,
@@ -359,9 +361,9 @@ export interface mcpStoreLogicActions {
             id: string
         }
     }
-    updateInstallation: ({ id, data }: { data: Record<string, any>; id: string }) => {
+    updateInstallation: ({ id, data }: { data: PatchedMCPServerInstallationUpdateApi; id: string }) => {
         id: string
-        data: Record<string, any>
+        data: PatchedMCPServerInstallationUpdateApi
     }
     updateInstallationFailure: (
         error: string,
@@ -374,13 +376,13 @@ export interface mcpStoreLogicActions {
         installations: MCPServerInstallationApi[],
         payload?: {
             id: string
-            data: Record<string, any>
+            data: PatchedMCPServerInstallationUpdateApi
         }
     ) => {
         installations: MCPServerInstallationApi[]
         payload?: {
             id: string
-            data: Record<string, any>
+            data: PatchedMCPServerInstallationUpdateApi
         }
     }
 }

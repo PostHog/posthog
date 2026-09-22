@@ -15,10 +15,9 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectsEqual } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -906,10 +905,15 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         bulkUpdateStatus: async ({ ids, status }) => {
             actions.setBulkUpdating(true)
             try {
-                const result = await conversationsTicketsBulkUpdateStatusCreate(String(getCurrentTeamId()), {
-                    ids,
-                    status,
-                })
+                // Match the scope api.conversationsTickets reads use below, so a bulk update actually
+                // touches the tickets the user selected instead of a same-named row in another environment.
+                const result = await conversationsTicketsBulkUpdateStatusCreate(
+                    String(ApiConfig.getCurrentProjectId()),
+                    {
+                        ids,
+                        status,
+                    }
+                )
                 lemonToast.success(`Updated ${result.updated} ticket${result.updated === 1 ? '' : 's'}`)
                 actions.clearSelectedTickets()
                 actions.loadTickets()
