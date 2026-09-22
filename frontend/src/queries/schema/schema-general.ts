@@ -7626,6 +7626,11 @@ export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResp
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a
+     * "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+    precomputeNotReady?: boolean
+    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    dataComputedAt?: string
 }
 
 export type CachedMarketingAnalyticsTableQueryResponse = CachedQueryResponse<MarketingAnalyticsTableQueryResponse>
@@ -7634,6 +7639,11 @@ export interface MarketingAnalyticsAggregatedQueryResponse extends AnalyticsQuer
     results: Record<string, MarketingAnalyticsItem>
     hogql?: string
     samplingRate?: SamplingRate
+    /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a
+     * "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+    precomputeNotReady?: boolean
+    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    dataComputedAt?: string
 }
 
 export type CachedMarketingAnalyticsAggregatedQueryResponse =
