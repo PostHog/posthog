@@ -4,7 +4,7 @@ import os
 import asyncio
 import itertools
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
@@ -27,14 +27,17 @@ from posthog.temporal.weekly_digest.activities import (
     generate_survey_lookup,
     generate_usage_trends_lookup,
     generate_user_notification_lookup,
+    list_organization_id_ranges,
     list_team_id_ranges,
     send_weekly_digest_batch,
 )
 from posthog.temporal.weekly_digest.types import (
+    CommonInput,
     Digest,
     GenerateDigestDataBatchInput,
     GenerateDigestDataInput,
     GenerateOrganizationDigestInput,
+    OrganizationIdRange,
     SendWeeklyDigestBatchInput,
     SendWeeklyDigestInput,
     TeamIdRange,
@@ -47,6 +50,32 @@ if TYPE_CHECKING:
 
 MAX_CONCURRENT_GENERATION_ACTIVITIES = 100
 _PATCH_BOUNDED_GENERATION_ACTIVITIES = "weekly-digest-bounded-generation-activities"
+_PATCH_ORGANIZATION_ID_RANGES = "weekly-digest-organization-id-ranges"
+
+_LIST_ACTIVITY_OPTIONS: dict[str, Any] = {
+    "start_to_close_timeout": timedelta(minutes=5),
+    "retry_policy": common.RetryPolicy(maximum_attempts=2, initial_interval=timedelta(minutes=1)),
+    "heartbeat_timeout": timedelta(minutes=1),
+}
+
+
+async def _organization_batches(
+    common_input: CommonInput,
+) -> list[tuple[OrganizationIdRange | None, tuple[int, int] | None]]:
+    """One (organization_id_range, offset_batch) pair per batch; exactly one of the two is set.
+
+    Histories recorded before the patch page organizations by offset, so replaying them must
+    still schedule count-organizations and pass offsets.
+    """
+    if workflow.patched(_PATCH_ORGANIZATION_ID_RANGES):
+        organization_id_ranges = await workflow.execute_activity(
+            list_organization_id_ranges, common_input, **_LIST_ACTIVITY_OPTIONS
+        )
+        return [(organization_id_range, None) for organization_id_range in organization_id_ranges]
+
+    organization_count = await workflow.execute_activity(count_organizations, **_LIST_ACTIVITY_OPTIONS)
+    batch_size = common_input.batch_size
+    return [(None, (start, start + batch_size)) for start in range(0, organization_count, batch_size)]
 
 
 @workflow.defn(name="weekly-digest")
@@ -85,8 +114,8 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
                     common=input.common,
                 ),
                 parent_close_policy=workflow.ParentClosePolicy.REQUEST_CANCEL,
-                execution_timeout=timedelta(hours=15),
-                run_timeout=timedelta(hours=15),
+                execution_timeout=timedelta(hours=8),
+                run_timeout=timedelta(hours=4),
                 retry_policy=common.RetryPolicy(
                     maximum_attempts=2,
                     initial_interval=timedelta(minutes=10),
@@ -102,8 +131,8 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
                 common=input.common,
             ),
             parent_close_policy=workflow.ParentClosePolicy.REQUEST_CANCEL,
-            execution_timeout=timedelta(hours=15),
-            run_timeout=timedelta(hours=6),
+            execution_timeout=timedelta(hours=4),
+            run_timeout=timedelta(hours=2),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
                 initial_interval=timedelta(minutes=10),
@@ -179,24 +208,12 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
             )
         )
 
-        organization_count = await workflow.execute_activity(
-            count_organizations,
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=common.RetryPolicy(
-                maximum_attempts=2,
-                initial_interval=timedelta(minutes=1),
-            ),
-            heartbeat_timeout=timedelta(minutes=1),
-        )
-
-        batch_size = input.common.batch_size
-        org_batches = [(i, i + batch_size) for i in range(0, organization_count, batch_size)]
-
         await asyncio.gather(
             *[
                 workflow.execute_activity(
                     generate_organization_digest_batch,
                     GenerateOrganizationDigestInput(
+                        organization_id_range=organization_id_range,
                         batch=batch,
                         digest=input.digest,
                         common=input.common,
@@ -208,7 +225,7 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
                     ),
                     heartbeat_timeout=timedelta(minutes=2),
                 )
-                for batch in org_batches
+                for organization_id_range, batch in await _organization_batches(input.common)
             ]
         )
 
@@ -222,24 +239,12 @@ class SendWeeklyDigestWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, input: SendWeeklyDigestInput) -> None:
-        organization_count = await workflow.execute_activity(
-            count_organizations,
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=common.RetryPolicy(
-                maximum_attempts=2,
-                initial_interval=timedelta(minutes=1),
-            ),
-            heartbeat_timeout=timedelta(minutes=1),
-        )
-
-        batch_size = input.common.batch_size
-        batches = [(i, i + batch_size) for i in range(0, organization_count, batch_size)]
-
         await asyncio.gather(
             *[
                 workflow.execute_activity(
                     send_weekly_digest_batch,
                     SendWeeklyDigestBatchInput(
+                        organization_id_range=organization_id_range,
                         batch=batch,
                         dry_run=input.dry_run,
                         allow_already_sent=input.allow_already_sent,
@@ -253,6 +258,6 @@ class SendWeeklyDigestWorkflow(PostHogWorkflow):
                     ),
                     heartbeat_timeout=timedelta(minutes=2),
                 )
-                for batch in batches
+                for organization_id_range, batch in await _organization_batches(input.common)
             ]
         )

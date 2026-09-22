@@ -73,6 +73,7 @@ from posthog.temporal.weekly_digest.types import (
     GenerateDigestDataBatchInput,
     GenerateOrganizationDigestInput,
     OrganizationDigest,
+    OrganizationIdRange,
     PlaylistCount,
     RecordingCount,
     SendWeeklyDigestBatchInput,
@@ -829,16 +830,58 @@ def _team_digest(team: Team, raw_values: list[str | None]) -> TeamDigest:
     )
 
 
+def _cut_organization_id_ranges(organization_ids: list[UUID], batch_size: int) -> list[OrganizationIdRange]:
+    """Cut ordered organization ids into [start, end) ranges of at most `batch_size` organizations each."""
+    return [
+        OrganizationIdRange(
+            start=organization_ids[start],
+            end=organization_ids[start + batch_size] if start + batch_size < len(organization_ids) else None,
+        )
+        for start in range(0, len(organization_ids), batch_size)
+    ]
+
+
+@activity.defn(name="list-organization-id-ranges")
+@asyncify
+def list_organization_id_ranges(input: CommonInput) -> list[OrganizationIdRange]:
+    """One index scan of the organization ids replaces a LIMIT/OFFSET scan per batch."""
+    with HeartbeaterSync(logger=LOGGER):
+        return _cut_organization_id_ranges(list(query_orgs_for_digest().values_list("id", flat=True)), input.batch_size)
+
+
+def _organizations_for_batch(input: GenerateOrganizationDigestInput | SendWeeklyDigestBatchInput) -> QuerySet:
+    organizations = query_orgs_for_digest()
+    if input.organization_id_range is not None:
+        organizations = organizations.filter(id__gte=input.organization_id_range.start)
+        if input.organization_id_range.end is not None:
+            organizations = organizations.filter(id__lt=input.organization_id_range.end)
+        return organizations
+    if input.batch is None:
+        raise ValueError("Batch input needs an organization_id_range or an offset batch")
+    batch_start, batch_end = input.batch
+    return organizations[batch_start:batch_end]
+
+
+def _batch_context(input: GenerateOrganizationDigestInput | SendWeeklyDigestBatchInput) -> dict[str, Any]:
+    if input.organization_id_range is not None:
+        return {
+            "organization_id_start": str(input.organization_id_range.start),
+            "organization_id_end": str(input.organization_id_range.end),
+        }
+    if input.batch is not None:
+        return {"batch_start": input.batch[0], "batch_end": input.batch[1]}
+    return {}
+
+
 def _generate_organization_digest_batch(input: GenerateOrganizationDigestInput) -> None:
-    bind_contextvars(digest_key=input.digest.key, batch_start=input.batch[0], batch_end=input.batch[1])
+    bind_contextvars(digest_key=input.digest.key, **_batch_context(input))
     logger = LOGGER.bind()
     logger.info("Generating organization-level digest batch")
 
     organization_count = 0
     team_count = 0
 
-    batch_start, batch_end = input.batch
-    organizations = list(query_orgs_for_digest()[batch_start:batch_end])
+    organizations = list(_organizations_for_batch(input))
     teams_by_org: dict[UUID, list[Team]] = defaultdict(list)
     for team in query_teams_for_organizations([organization.id for organization in organizations]):
         teams_by_org[team.organization_id].append(team)
@@ -939,7 +982,7 @@ def _drain(ph_client: Posthog, deadline: float) -> bool:
 
 
 def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
-    bind_contextvars(digest_key=input.digest.key, batch_start=input.batch[0], batch_end=input.batch[1])
+    bind_contextvars(digest_key=input.digest.key, **_batch_context(input))
     logger = LOGGER.bind()
     logger.info("Sending weekly digest batch")
 
@@ -984,8 +1027,7 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
 
     try:
         with _digest_redis(input.common) as r:
-            batch_start, batch_end = input.batch
-            for organization in query_orgs_for_digest()[batch_start:batch_end]:
+            for organization in _organizations_for_batch(input):
                 _raise_if_cancelled()
                 partial = False
                 try:
