@@ -178,7 +178,6 @@ export function DashboardsTable({
                         staticOnly
                         maxVisibleTags={2}
                         showOverflowLabel
-                        truncateTags
                         data-attr="dashboard-tags"
                         onTagClick={(tag) => setFilters({ tags: [tag] })}
                     />
