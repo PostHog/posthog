@@ -227,6 +227,7 @@ export const MaterializationSettings: StoryObj = {
 
 export const LazySchema: Story = {
     parameters: {
+        pageUrl: urls.sqlEditor({ query: 'SELECT * FROM events LIMIT 100' }),
         msw: {
             mocks: {
                 get: {
@@ -254,6 +255,26 @@ export const LazySchema: Story = {
                             query: { kind: string; includeFields?: boolean; tables?: string[] }
                         }
                         const tables = {
+                            ...Object.fromEntries(
+                                [
+                                    'groups',
+                                    'sessions',
+                                    'logs',
+                                    'cohort_people',
+                                    'session_replay_events',
+                                    'posthog.flag_evaluations',
+                                ].map((name) => [
+                                    name,
+                                    {
+                                        id: name,
+                                        name,
+                                        type: 'posthog',
+                                        fields: {
+                                            id: { name: 'id', hogql_value: 'id', type: 'string', schema_valid: true },
+                                        },
+                                    },
+                                ])
+                            ),
                             events: {
                                 id: 'events',
                                 name: 'events',
@@ -292,6 +313,21 @@ export const LazySchema: Story = {
                                     },
                                 },
                             },
+                            saved_events: {
+                                id: 'saved-view',
+                                name: 'saved_events',
+                                type: 'view',
+                                fields: {
+                                    event: { name: 'event', hogql_value: 'event', type: 'string', schema_valid: true },
+                                    person: {
+                                        name: 'person',
+                                        hogql_value: 'person',
+                                        type: 'lazy_table',
+                                        schema_valid: true,
+                                        table: 'persons',
+                                    },
+                                },
+                            },
                             persons: {
                                 id: 'persons',
                                 name: 'persons',
@@ -306,6 +342,7 @@ export const LazySchema: Story = {
                             {
                                 tables: Object.fromEntries(
                                     Object.entries(tables)
+                                        .sort(([a], [b]) => a.localeCompare(b))
                                         .filter(([name]) => !query.tables || query.tables.includes(name))
                                         .map(([name, table]) => [
                                             name,
