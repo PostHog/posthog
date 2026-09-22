@@ -7,6 +7,8 @@ mod distinct_ids;
 mod resolve;
 mod stub_create;
 
+pub use resolve::resolve_sql;
+
 use std::collections::HashMap;
 
 use async_trait::async_trait;

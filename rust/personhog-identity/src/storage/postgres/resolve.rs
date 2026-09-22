@@ -9,27 +9,12 @@ use crate::storage::postgres::{person_columns, person_from_row};
 use crate::storage::types::Person;
 use personhog_common::query_tag;
 
-/// Batch-resolve (team_id, distinct_id) keys to their live persons on the
-/// primary. Tombstoned mappings and persons are invisible; unresolved keys
-/// are absent from the result.
-pub(super) async fn resolve_distinct_ids(
-    pools: &IdentityPools,
-    tables: &IdentityTables,
-    keys: &[(i64, String)],
-) -> StorageResult<HashMap<(i64, String), Person>> {
-    if keys.is_empty() {
-        return Ok(HashMap::new());
-    }
-
-    let team_ids: Vec<i32> = keys.iter().map(|(t, _)| *t as i32).collect();
-    let distinct_ids: Vec<String> = keys.iter().map(|(_, d)| d.clone()).collect();
-
-    // The person table is hash-partitioned on team_id. The join alone hands the
-    // planner no team_id it can evaluate before execution, so without the ANY
-    // predicate every call opens and locks every partition and its indexes,
-    // which exhausts the 16 fast-path lock slots and pushes each lock through
-    // the shared lock manager (LWLock:LockManager under load).
-    let sql = format!(
+/// The resolve statement, binding `$1` team ids and `$2` distinct ids as
+/// parallel arrays. The person join repeats `$1` so the planner can prune the
+/// hash-partitioned person table to the batch's partitions instead of locking
+/// every partition on each call.
+pub fn resolve_sql(tables: &IdentityTables) -> String {
+    format!(
         r#"
         SELECT k.team_id AS key_team_id, k.distinct_id AS key_distinct_id,
                {person_cols}
@@ -45,7 +30,25 @@ pub(super) async fn resolve_distinct_ids(
         person_cols = person_columns("p"),
         pdi_table = tables.person_distinct_id,
         person_table = tables.person,
-    );
+    )
+}
+
+/// Batch-resolve (team_id, distinct_id) keys to their live persons on the
+/// primary. Tombstoned mappings and persons are invisible; unresolved keys
+/// are absent from the result.
+pub(super) async fn resolve_distinct_ids(
+    pools: &IdentityPools,
+    tables: &IdentityTables,
+    keys: &[(i64, String)],
+) -> StorageResult<HashMap<(i64, String), Person>> {
+    if keys.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let team_ids: Vec<i32> = keys.iter().map(|(t, _)| *t as i32).collect();
+    let distinct_ids: Vec<String> = keys.iter().map(|(_, d)| d.clone()).collect();
+
+    let sql = resolve_sql(tables);
     let mut conn = pools.acquire(Lane::Fast).await?;
     let rows = sqlx::query(&query_tag!("resolve_persons", sql))
         .bind(&team_ids)

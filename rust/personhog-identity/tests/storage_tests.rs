@@ -1,11 +1,13 @@
 mod common;
 
+use std::collections::HashSet;
 use std::time::Duration;
 
 use chrono::{TimeZone, Utc};
 use common::TestContext;
 
 use personhog_common::persons::person_uuid;
+use personhog_identity::storage::postgres::resolve_sql;
 use personhog_identity::storage::{AttachOutcome, IdentityStorage, PersonStub, StubOutcome};
 
 /// Storage-assertion helpers used only by this test binary.
@@ -757,6 +759,41 @@ async fn resolve_returns_only_existing_keys() {
     assert_eq!(resolved[&(ctx.team_id, "known".to_string())].id, person_id);
 
     ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn resolve_plan_touches_only_the_batch_teams_partitions() {
+    let ctx = TestContext::new().await;
+    let other_team = ctx.team_id + 1;
+
+    let plan: Vec<String> =
+        sqlx::query_scalar(&format!("EXPLAIN (COSTS OFF) {}", resolve_sql(&ctx.tables)))
+            .bind(vec![ctx.team_id as i32, other_team as i32])
+            .bind(vec!["a".to_string(), "b".to_string()])
+            .fetch_all(&ctx.pool)
+            .await
+            .expect("explain should succeed");
+
+    let partition_marker = format!(" on {}_p", ctx.tables.person);
+    let partitions: HashSet<&str> = plan
+        .iter()
+        .filter_map(|line| {
+            let rest = &line[line.find(&partition_marker)? + " on ".len()..];
+            rest.split_whitespace().next()
+        })
+        .collect();
+
+    assert!(
+        !partitions.is_empty(),
+        "plan should scan the person table:\n{}",
+        plan.join("\n")
+    );
+    assert!(
+        partitions.len() <= 2,
+        "plan should scan at most one partition per team in the batch, got {}:\n{}",
+        partitions.len(),
+        plan.join("\n")
+    );
 }
 
 #[tokio::test]
