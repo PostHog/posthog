@@ -9,7 +9,7 @@ from rest_framework.pagination import PageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_modeling.backend.facade.models import Edge, NodeType
-from products.data_modeling.backend.presentation.views.metric_visibility import MetricNodeVisibilityMixin
+from products.data_modeling.backend.presentation.views.node_visibility_mixin import NodeVisibilityMixin
 
 _METRIC_EDGE_REFUSAL = "Edges that connect a metric are maintained by the data catalog."
 
@@ -76,7 +76,7 @@ class EdgePagination(PageNumberPagination):
         ]
     )
 )
-class EdgeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class EdgeViewSet(NodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = Edge.objects.select_related("dag").all()
     serializer_class = EdgeSerializer
@@ -96,7 +96,7 @@ class EdgeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
         instance.delete()
 
     def safely_get_queryset(self, queryset):
-        qs = self._exclude_hidden_edges(queryset.filter(team_id=self.team_id))
+        qs = self.node_visibility.exclude_edges(queryset.filter(team_id=self.team_id))
         dag_id = self.request.query_params.get("dag")
         if dag_id:
             try:
