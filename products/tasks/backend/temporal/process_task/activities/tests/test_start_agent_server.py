@@ -1,3 +1,4 @@
+import threading
 from typing import Literal
 
 import pytest
@@ -562,6 +563,60 @@ def test_resolve_protected_base_skips_lookup_without_repository(mocker) -> None:
     context = _context(github_integration_id=42, repository=None, branch="some-branch")
     assert _resolve_protected_base_branch(context) is None
     get.assert_not_called()
+
+
+def _mock_prepare_launch_dependencies(mocker) -> None:
+    prefix = "products.tasks.backend.temporal.process_task.activities.start_agent_server"
+    task = mocker.Mock(
+        internal=True,
+        runtime="claude",
+        origin_product=None,
+        mcp_builtin_agent_key=None,
+        mcp_credential_owner_id=None,
+        mcp_gateway_server_allowlist=None,
+    )
+    mocker.patch(f"{prefix}.Task.objects.select_related").return_value.get.return_value = task
+    mocker.patch(f"{prefix}.get_task_run_credential_user", return_value=None)
+    mocker.patch(f"{prefix}.create_oauth_access_token_for_run", return_value="access-token")
+    mocker.patch(f"{prefix}.TaskRun.objects.filter").return_value.first.return_value = mocker.Mock()
+    mocker.patch(f"{prefix}.get_sandbox_ph_mcp_configs", return_value=[])
+    mocker.patch(f"{prefix}.get_user_mcp_server_configs", return_value=[])
+    mocker.patch(f"{prefix}.get_imported_mcp_server_configs", return_value=[])
+    mocker.patch(f"{prefix}.get_relayed_mcp_server_names", return_value=[])
+    mocker.patch(f"{prefix}.emit_agent_log")
+
+
+@pytest.mark.parametrize(
+    "pr_base,lookup_error,lookup_hangs,expected",
+    [
+        ("master", None, False, "master"),
+        (None, None, False, "posthog-code/fix"),
+        (None, RuntimeError("boom"), False, "posthog-code/fix"),
+        ("master", None, True, "posthog-code/fix"),
+    ],
+)
+def test_prepare_launch_resolves_protected_base_branch_alongside_preparation(
+    mocker, pr_base, lookup_error, lookup_hangs, expected
+) -> None:
+    prefix = "products.tasks.backend.temporal.process_task.activities.start_agent_server"
+    _mock_prepare_launch_dependencies(mocker)
+    if lookup_error is not None:
+        mocker.patch(f"{prefix}.Integration.objects.get", side_effect=lookup_error)
+    else:
+        integration = _mock_github_integration(mocker, pr_base=pr_base)
+    if lookup_hangs:
+        release = threading.Event()
+        integration.get_open_pr_base_for_head.side_effect = lambda *_: release.wait(5) and pr_base
+        mocker.patch(f"{prefix}.PROTECTED_BASE_BRANCH_JOIN_TIMEOUT_SECONDS", 0.01)
+        threading.Timer(1.0, release.set).start()
+    context = _context(github_integration_id=42, repository="PostHog/posthog", branch="posthog-code/fix")
+
+    params = _prepare_launch(context, "read_only", "sandbox-id")
+    for thread in threading.enumerate():
+        if thread.name.startswith("protected-base-branch-"):
+            thread.join(5)
+
+    assert params.protected_base_branch == expected
 
 
 def test_resolve_protected_base_falls_back_to_branch_on_error(mocker) -> None:
