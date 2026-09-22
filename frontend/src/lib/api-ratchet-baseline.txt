@@ -182,9 +182,6 @@ logsExport projects/{}/logs/export
 logsHasLogs projects/{}/logs/has_logs
 logsQuery projects/{}/logs/query
 logsSparkline projects/{}/logs/sparkline
-mcpServerInstallation projects/{}/mcp_server_installations/{}
-mcpServerInstallations projects/{}/mcp_server_installations
-mcpServers projects/{}/mcp_servers
 media projects/{}/uploaded_media
 messagingCategories projects/{}/messaging_categories
 messagingCategoriesImportFromCustomerIO projects/{}/messaging_categories/import_from_customerio
@@ -238,13 +235,9 @@ roleMembershipsDetail organizations/{}/roles/{}/role_memberships/{}
 roles organizations/{}/roles
 rolesDetail organizations/{}/roles/{}
 signalReport projects/{}/signals/reports/{}
-signalReportArtefact projects/{}/signals/reports/{}/artefacts/{}
 signalReports projects/{}/signals/reports
-signalScoutRun projects/{}/signals/scout/runs/{}
-signalScoutRuns projects/{}/signals/scout/runs
 signalSourceConfig projects/{}/signals/source_configs/{}
 signalSourceConfigs projects/{}/signals/source_configs
-signalUserAutonomy users/{}/signal_autonomy
 subscription projects/{}/subscriptions/{}
 subscriptions projects/{}/subscriptions
 survey projects/{}/surveys/{}
