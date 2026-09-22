@@ -625,8 +625,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // that run is the desired state, not a warm.
             // Consent gates warming as it gates submitting (see `submitNewTask`): a warm boots a cloud
             // sandbox and clones the selected repository, so it must not run before the organization
-            // accepts AI data processing.
-            if (!values.activeCreation && values.dataProcessingAccepted) {
+            // accepts AI data processing. A refused organization is gated the same way, because the
+            // warm endpoint answers it with the same 403 the submit gets.
+            if (!values.activeCreation && values.dataProcessingAccepted && !values.taskCreationBlockedReason) {
                 const request = buildWarmRequest(
                     { ...values.newTaskData, repositoryConfig: values.effectiveRepositoryConfig },
                     values.catalogue,
@@ -675,6 +676,14 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         },
         submitNewTask: async () => {
             if (cache.submittingTask && !cache.submittingTask.isDisposed) {
+                return
+            }
+            // The composer's own send button is already disabled, so this catches the programmatic
+            // senders: an auto-submitting suggestion and a `?ask=` seed. Without it they open the
+            // optimistic thread and tear it down again on the gate's 403.
+            if (values.taskCreationBlockedReason) {
+                lemonToast.error(values.taskCreationBlockedReason)
+                actions.submitNewTaskFailure(values.taskCreationBlockedReason)
                 return
             }
             if (!values.dataProcessingAccepted) {

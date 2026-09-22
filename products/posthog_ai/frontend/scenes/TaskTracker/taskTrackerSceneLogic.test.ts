@@ -246,6 +246,24 @@ describe('taskTrackerSceneLogic', () => {
         expect(logic.values.taskCreationBlockedReason).toBeNull()
     })
 
+    // A suggestion that needs no user input submits on click, and a `?ask=` seed submits on arrival.
+    // Neither goes through the composer's disabled send button, so both would open the optimistic
+    // thread and tear it down again on the 403.
+    it('does not submit or warm a blocked organization from a programmatic send', async () => {
+        useMocks({ get: { '/api/projects/:team/desktop/access/': { allowed: false, reason: 'startup_plan' } } })
+        const toastError = jest.spyOn(lemonToast, 'error')
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.applySuggestion({ content: 'Explain the example chart' })
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createBody).toBeNull()
+        expect(logic.values.activeCreation).toBeNull()
+        expect(toastError).toHaveBeenCalledWith(expect.stringContaining('Startup or YC program'))
+    })
+
     // The gate refuses Startup and YC program organizations on the create call. Without this the thread
     // opens optimistically, tears itself down, and nothing tells the person what happened.
     it('explains the refusal when the cloud compute gate blocks task creation', async () => {
