@@ -15,7 +15,8 @@ on a redundant method that is not in the baseline, which is the case that would
 add new debt. A shrinking baseline is the migration's progress metric.
 
     hogli lint:api-ratchet                    # check against the baseline
-    hogli lint:api-ratchet --update-baseline  # rewrite the baseline
+    hogli lint:api-ratchet --prune-baseline   # drop stale entries, never add one
+    hogli lint:api-ratchet --update-baseline  # rewrite the baseline, new debt included
     hogli lint:api-ratchet --namespaces       # product-owned namespaces, for codegen
     hogli lint:api-ratchet --json             # full report as JSON
 
@@ -39,6 +40,12 @@ from hogli.manifest import REPO_ROOT
 API_TS: Final = Path("frontend/src/lib/api.ts")
 CORE_GENERATED: Final = Path("frontend/src/generated/core/api.ts")
 PRODUCT_GENERATED_GLOB: Final = "products/*/frontend/generated/api.ts"
+
+# Stands in for a product in the owner set of a template only the core client emits.
+# A core twin is coverage: frontend/src/generated/core/api.ts exists for the endpoints
+# no single product owns, so a hand-rolled path method beside one is still redundant.
+# It never matches a product directory name, so no product owns such a namespace.
+CORE_OWNER: Final = "core"
 
 # Sits next to the file it ratchets, so the person adding a path method sees it.
 BASELINE: Final = Path("frontend/src/lib/api-ratchet-baseline.txt")
@@ -238,19 +245,18 @@ class GeneratedTemplates:
             self._collect(path, path.relative_to(repo_root).parts[1])
         core = repo_root / CORE_GENERATED
         if core.exists():
-            self._collect(core, None)
+            self._collect(core, CORE_OWNER)
 
-    def _collect(self, path: Path, product: str | None) -> None:
+    def _collect(self, path: Path, owner: str) -> None:
         for url in _GENERATED_URL.findall(path.read_text()):
             raw = tuple(_TEMPLATE_HOLE.sub("{}", url).strip("/").split("/")[1:])
             template = normalize_template(raw)
             if not template:
                 continue
-            owners = self.owners.get(template, frozenset())
-            self.owners[template] = owners | ({product} if product else frozenset())
+            self.owners[template] = self.owners.get(template, frozenset()) | {owner}
 
     def products_covering(self, template: tuple[str, ...]) -> frozenset[str]:
-        """Products whose generated client emits exactly ``template``.
+        """Owners whose generated client emits exactly ``template``, CORE_OWNER included.
 
         Prefix matching would also fire on a shorter URL that merely sits above a
         generated route (``file_system`` above ``file_system/{}/link``), and those
@@ -349,10 +355,11 @@ def _report_json(ratchet: Ratchet, new: set[str], stale: set[str]) -> str:
     name="lint:api-ratchet",
     help="Block new frontend/src/lib/api.ts path methods that a generated client already covers.",
 )
-@click.option("--update-baseline", is_flag=True, help="Rewrite the baseline from the current state.")
+@click.option("--update-baseline", is_flag=True, help="Rewrite the baseline from the current state (it can grow).")
+@click.option("--prune-baseline", is_flag=True, help="Drop stale baseline entries. Never adds one.")
 @click.option("--namespaces", is_flag=True, help="Print the product-owned api namespaces and their products.")
 @click.option("--json", "as_json", is_flag=True, help="Print the full report as JSON.")
-def cmd_lint_api_ratchet(update_baseline: bool, namespaces: bool, as_json: bool) -> None:
+def cmd_lint_api_ratchet(update_baseline: bool, prune_baseline: bool, namespaces: bool, as_json: bool) -> None:
     """Fail on a new ApiRequest path method that a generated client already covers."""
     repo_root = Path(REPO_ROOT)
     ratchet = Ratchet(repo_root)
@@ -363,14 +370,26 @@ def cmd_lint_api_ratchet(update_baseline: bool, namespaces: bool, as_json: bool)
             click.echo(f"{namespace} {','.join(sorted(products))}")
         return
 
-    if update_baseline:
-        write_baseline(repo_root, redundant)
-        click.echo(f"Baseline rewritten: {len(redundant)} redundant path method(s).")
-        return
-
     baseline = read_baseline(repo_root)
     new = redundant - baseline
     stale = baseline - redundant
+
+    if prune_baseline:
+        write_baseline(repo_root, baseline - stale)
+        click.echo(f"Baseline pruned: {len(stale)} stale entry/entries dropped, {len(baseline - stale)} left.")
+        if new:
+            click.echo(f"{len(new)} new duplicate(s) stay unlisted, so the check still fails on them.")
+        return
+
+    if update_baseline:
+        write_baseline(repo_root, redundant)
+        click.echo(f"Baseline rewritten: {len(redundant)} redundant path method(s).")
+        if new:
+            click.echo(
+                f"⚠️  This grew the baseline by {len(new)} entry/entries, which grandfathers new debt.\n"
+                "    Migrate the call sites instead, or say in the pull request why the entry has to stay."
+            )
+        return
 
     if as_json:
         click.echo(_report_json(ratchet, new, stale))

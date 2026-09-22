@@ -238,7 +238,9 @@ DIFF_CHECKS: list[DiffCheck] = [
             "products/*/frontend/generated/api.ts",
         ],
         verify=["hogli", "lint:api-ratchet"],
-        fix=["hogli", "lint:api-ratchet", "--update-baseline"],
+        # Prune, never update: --update-baseline would grandfather the duplicate the
+        # branch just added, which is the one thing the check exists to stop.
+        fix=["hogli", "lint:api-ratchet", "--prune-baseline"],
         requires=("python-env",),
     ),
     DiffCheck(

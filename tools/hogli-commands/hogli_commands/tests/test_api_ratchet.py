@@ -38,6 +38,10 @@ export class ApiRequest {
         return this.signalReports(teamId).addPathComponent(id)
     }
 
+    public propertyDefinitions(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('property_definitions')
+    }
+
     public hogFlows(): ApiRequest {
         return this.environmentsDetail().addPathComponent('hog_flows')
     }
@@ -104,6 +108,12 @@ export const hogFlowsList = (projectId: string) => {
 }
 """
 
+GENERATED_CORE = """\
+export const propertyDefinitionsList = (projectId: string) => {
+    return apiMutator({ url: `/api/projects/${projectId}/property_definitions/`, method: 'GET' })
+}
+"""
+
 
 def _write_repo(root: Path, api_ts: str = API_TS_FIXTURE, baseline: str | None = None) -> None:
     (root / "frontend/src/lib").mkdir(parents=True, exist_ok=True)
@@ -112,6 +122,8 @@ def _write_repo(root: Path, api_ts: str = API_TS_FIXTURE, baseline: str | None =
     (root / "products/signals/frontend/generated/api.ts").write_text(GENERATED_SIGNALS)
     (root / "products/workflows/frontend/generated").mkdir(parents=True, exist_ok=True)
     (root / "products/workflows/frontend/generated/api.ts").write_text(GENERATED_WORKFLOWS)
+    (root / api_ratchet.CORE_GENERATED).parent.mkdir(parents=True, exist_ok=True)
+    (root / api_ratchet.CORE_GENERATED).write_text(GENERATED_CORE)
     if baseline is not None:
         (root / api_ratchet.BASELINE).write_text(baseline)
 
@@ -160,6 +172,7 @@ class TestRatchet:
             "signalReports": ["signals"],
             "signalReport": ["signals"],
             "hogFlows": ["workflows"],
+            "propertyDefinitions": ["core"],
         }
 
     def test_namespaces_lists_only_those_calling_a_redundant_method(self, tmp_path: Path) -> None:
@@ -168,6 +181,26 @@ class TestRatchet:
             "signalReports": ["signals"],
             "hogFlows": ["workflows"],
         }
+
+
+class TestBaselineFixModes:
+    # Guards the fix path: --update-baseline here would grandfather the new duplicate.
+    def test_prune_drops_stale_entries_and_leaves_new_debt_failing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write_repo(tmp_path, baseline="hogFlows\nlongGoneMethod\n")
+        monkeypatch.setattr(api_ratchet, "REPO_ROOT", tmp_path)
+        assert runner.invoke(cmd_lint_api_ratchet, ["--prune-baseline"]).exit_code == 0
+        assert read_baseline(tmp_path) == {"hogFlows"}
+        assert runner.invoke(cmd_lint_api_ratchet, []).exit_code == 1
+
+    def test_update_warns_that_it_grandfathers_new_debt(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _write_repo(tmp_path, baseline="hogFlows\n")
+        monkeypatch.setattr(api_ratchet, "REPO_ROOT", tmp_path)
+        result = runner.invoke(cmd_lint_api_ratchet, ["--update-baseline"])
+        assert result.exit_code == 0
+        assert "grandfathers new debt" in result.output
+        assert runner.invoke(cmd_lint_api_ratchet, []).exit_code == 0
 
 
 class TestCommand:
@@ -184,11 +217,11 @@ class TestCommand:
     def test_passes_when_every_redundant_method_is_grandfathered(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _write_repo(tmp_path, baseline="hogFlows\nsignalReport\nsignalReports\n")
+        _write_repo(tmp_path, baseline="hogFlows\npropertyDefinitions\nsignalReport\nsignalReports\n")
         assert self._run(monkeypatch, tmp_path).exit_code == 0
 
     def test_reports_a_stale_entry_without_failing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        _write_repo(tmp_path, baseline="hogFlows\nsignalReport\nsignalReports\nlongGoneMethod\n")
+        _write_repo(tmp_path, baseline="hogFlows\npropertyDefinitions\nsignalReport\nsignalReports\nlongGoneMethod\n")
         result = self._run(monkeypatch, tmp_path)
         assert result.exit_code == 0
         assert "longGoneMethod" in result.output
@@ -196,4 +229,4 @@ class TestCommand:
     def test_update_baseline_drops_stale_and_adds_new(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _write_repo(tmp_path, baseline="longGoneMethod\n")
         assert self._run(monkeypatch, tmp_path, "--update-baseline").exit_code == 0
-        assert read_baseline(tmp_path) == {"signalReports", "signalReport", "hogFlows"}
+        assert read_baseline(tmp_path) == {"signalReports", "signalReport", "hogFlows", "propertyDefinitions"}
