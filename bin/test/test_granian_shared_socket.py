@@ -3,6 +3,7 @@
 import os
 import sys
 import time
+import signal
 import socket
 import threading
 import subprocess
@@ -15,11 +16,13 @@ import unittest
 LAUNCHER = Path(__file__).resolve().parents[1] / "granian_shared_socket.py"
 
 APP = """
+import os
 import time
 
 
 def app(environ, start_response):
     if environ["PATH_INFO"] == "/slow":
+        open(os.environ["SLOW_MARKER"], "w").close()
         time.sleep(10)
     start_response("200 OK", [("Content-Type", "text/plain")])
     return [b"ok"]
@@ -63,6 +66,7 @@ class TestGranianSharedSocket(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.tmp = TemporaryDirectory()
         Path(cls.tmp.name, "app.py").write_text(APP)
+        cls.slow_marker = Path(cls.tmp.name, "slow.started")
         cls.port = free_port()
         env = {key: value for key, value in os.environ.items() if not key.startswith("GRANIAN_")}
         env.update(
@@ -75,8 +79,14 @@ class TestGranianSharedSocket(unittest.TestCase):
             GRANIAN_HTTP1_KEEP_ALIVE="false",
             GRANIAN_WORKERS_KILL_TIMEOUT="1",
             GRANIAN_LOG_LEVEL="error",
+            SLOW_MARKER=str(cls.slow_marker),
         )
-        cls.server = subprocess.Popen([sys.executable, str(LAUNCHER), "app:app"], cwd=cls.tmp.name, env=env)
+        cls.server = subprocess.Popen(
+            [sys.executable, str(LAUNCHER), "app:app"],
+            cwd=cls.tmp.name,
+            env=env,
+            start_new_session=True,
+        )
         deadline = time.monotonic() + 30
         while get(cls.port, "/", timeout=1) != "200":
             if cls.server.poll() is not None or time.monotonic() > deadline:
@@ -90,16 +100,19 @@ class TestGranianSharedSocket(unittest.TestCase):
         try:
             cls.server.wait(timeout=20)
         except subprocess.TimeoutExpired:
-            cls.server.kill()
+            os.killpg(cls.server.pid, signal.SIGKILL)
+            cls.server.wait()
         cls.tmp.cleanup()
 
     def test_workers_share_one_listen_socket(self) -> None:
-        # Stock granian 2.8+ shows one LISTEN socket per worker here.
         self.assertEqual(count_listen_sockets(self.port), 1)
 
     def test_busy_worker_does_not_hold_new_connections(self) -> None:
         threading.Thread(target=get, args=(self.port, "/slow", 30), daemon=True).start()
-        time.sleep(1)
+        deadline = time.monotonic() + 10
+        while not self.slow_marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(self.slow_marker.exists(), "the /slow request never reached a worker")
         # With per-worker sockets about a quarter of these land on the busy worker and time out.
         statuses = [get(self.port, "/", timeout=2) for _ in range(20)]
         self.assertEqual(statuses, ["200"] * 20)

@@ -26,11 +26,13 @@ from granian.server import MPServer
 
 class SharedSocketServer(MPServer):
     def _init_shared_socket(self) -> None:
+        """
+        The non-Linux TCP branch of AbstractServer._init_shared_socket, plus the
+        inheritable socket that MPServer hands to its workers.
+        """
         if self.bind_uds:
             super()._init_shared_socket()
             return
-        # The non-Linux TCP branch of AbstractServer._init_shared_socket, plus the
-        # inheritable socket that MPServer hands to its workers.
         self._ssp = SocketSpec(self.bind_addr, self.bind_port, self.backlog)
         self._shd = self._ssp.build()
         self._sfd = self._shd.get_fd()
