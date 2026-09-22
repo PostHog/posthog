@@ -45,7 +45,6 @@ export interface ChatViewProps {
     channel?: TicketChannel
     /** Whether to show the "Send as private" option in the message input */
     showPrivateOption?: boolean
-    /** Delivery status for team messages, keyed by message ID. */
     deliveryStatusByMessageId?: Map<string, MessageDeliveryStatus>
     /** Draft content to restore (for tab persistence) */
     draftContent?: JSONContent | string | null

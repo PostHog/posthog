@@ -19,11 +19,9 @@ export interface MessageListProps {
     maxHeight?: string
     /** When true, flips alignment so customer messages appear on the right (for customer-facing views) */
     isCustomerView?: boolean
-    /** Delivery status for team messages, keyed by message ID. */
     deliveryStatusByMessageId?: Map<string, MessageDeliveryStatus>
     /** ID of the latest AI message eligible for reviewer feedback */
     latestAiMessageId?: string | null
-    /** ID of the latest AI draft the ticket logic selected for applying. */
     latestAiDraftId?: string | null
     /** Recorded reviewer feedback keyed by message id */
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
