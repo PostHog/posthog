@@ -6604,6 +6604,10 @@ def create_task(
                 )
                 warm_run = None
         if warm_run is not None:
+            if Team.objects.filter(id=team_id, organization__is_pending_deletion=True).exists():
+                raise PermissionDenied(
+                    "This organization is scheduled for deletion. Select another organization to run tasks."
+                )
             _warm_retry_message_id(warm_retry_token, warm_run)
             warm_task = warm_run.task
             should_set_client_provenance = warm_task.client_provenance is None and client_provenance is not None
