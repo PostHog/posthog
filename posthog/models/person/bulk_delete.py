@@ -537,7 +537,7 @@ def queue_person_event_deletion(
             for person in persons
         ],
         ignore_conflicts=True,
-        # One call can carry 20,000 persons, which is one very large conflict-checked statement.
+        # One call can carry 20,000 persons.
         batch_size=ASYNC_DELETION_INSERT_BATCH_SIZE,
     )
 

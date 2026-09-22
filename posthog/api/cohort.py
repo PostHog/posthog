@@ -1582,7 +1582,6 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                         for team_id in relevant_team_ids
                     ],
                     ignore_conflicts=True,
-                    # One deleted cohort queues a row per team in the project.
                     batch_size=ASYNC_DELETION_INSERT_BATCH_SIZE,
                 )
             else:

@@ -1132,11 +1132,9 @@ def cleanup_delete_assets(
     return True
 
 
-# A verified request is history, not work: every consumer of the queue filters it out. Nothing
-# removed one until now, so both unique indexes on the table grew forever, and each queued
-# deletion probes both of them. The queueing insert therefore got slower for as long as the table
-# only grew. The window keeps a completed erasure reportable through the person deletion_status
-# API for a while after the sweep confirmed it.
+# A verified request is history, not work: every consumer of the queue filters it out, while both
+# unique indexes on the table keep it, and every queued deletion probes those indexes. The window
+# is what the person deletion_status API can still report a completed erasure from.
 ASYNC_DELETION_RETENTION_DAYS = 90
 
 
