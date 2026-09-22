@@ -53,12 +53,17 @@ _PR_BEARING_LEGACY_TASK_RELATIONSHIPS = (TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_
 
 
 def implementation_pr_report_filter(*, team_id: int, active_only: bool = False) -> Q:
-    assignment_pr = Q(assignment__team_id=team_id, assignment__pr_url__regex=_PULL_REQUEST_URL_PATTERN)
+    # Both rows below are written from a parsed pull request URL and keep the repository and
+    # number they parsed into, so those columns answer "is this a GitHub pull request URL" without
+    # the regex, which no index can serve and which the inbox count runs over every report in the
+    # team. The task output below keeps the regex: its URL lives in JSON with no parsed twin.
+    assignment_pr = Q(
+        assignment__team_id=team_id, assignment__pr_url__isnull=False, assignment__pr_number__isnull=False
+    )
     pull_request_links = SignalReportArtefact.objects.filter(
         team_id=team_id,
         type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
         pull_request__team_id=team_id,
-        pull_request__url__regex=_PULL_REQUEST_URL_PATTERN,
     )
     task_ids = tasks_facade.task_ids_with_pr_url_subquery(
         team_id,

@@ -331,6 +331,14 @@ class SignalReport(UUIDModel):
     # entries.
     corroboration_count = models.IntegerField(null=True, blank=True)
 
+    # The `actionability` and `already_addressed` values of the report's newest
+    # `actionability_judgment` artefact, mirrored here when that artefact is written. The log stays
+    # the source of truth and renders the report; these two columns exist so the inbox's view
+    # filters can read the current judgment without a per-report subquery over the log. Null means
+    # no judgment has been made yet.
+    latest_actionability = models.CharField(max_length=40, null=True, blank=True)
+    latest_already_addressed = models.BooleanField(null=True, blank=True)
+
     # LLM-generated during signal matching
     title = models.TextField(null=True, blank=True)
     summary = models.TextField(null=True, blank=True)

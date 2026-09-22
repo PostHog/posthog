@@ -40,7 +40,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from products.signals.backend.artefact_schemas import ChannelAssignment
+from products.signals.backend.artefact_schemas import ActionabilityAssessment, ChannelAssignment
 from products.signals.backend.implementation_pr import (
     ImplementationPr,
     fetch_implementation_pr_state_for_reports,
@@ -1031,7 +1031,7 @@ class TestSignalReportListAPI(APIBaseTest):
             extra_data={"login": "suggestedgh"},
         )
         report = self._create_report()
-        # No actionability artefact — latest_actionability_value is NULL
+        # No actionability artefact — latest_actionability is NULL
         SignalReportArtefact.objects.create(
             team=self.team,
             report=report,
@@ -1486,6 +1486,14 @@ class TestSignalReportListAPI(APIBaseTest):
         assert body["count"] == 3
         assert len(body["results"]) == 1
 
+    def test_filter_has_implementation_pr_ignores_an_unparsed_pr_url(self):
+        report = self._create_report(title="Unparsed PR url")
+        SignalReportAssignment.all_teams.create(team=self.team, report=report, pr_url="https://example.com/nope")
+
+        response = self.client.get(self._list_url(has_implementation_pr="true"))
+        assert response.status_code == status.HTTP_200_OK
+        assert {r["id"] for r in response.json()["results"]} == set()
+
     def test_filter_has_implementation_pr_count_only_skips_report_enrichment(self):
         for i in range(3):
             report = self._create_report(title=f"PR report {i}")
@@ -1543,6 +1551,25 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         ids = {r["id"] for r in response.json()["results"]}
         assert ids == {str(immediate.id), str(needs_input.id)}
+
+    def test_filter_actionability_follows_a_rejudgement(self):
+        report = self._create_report(title="Rejudged")
+        self._actionability_artefact(report, actionability="not_actionable")
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=ActionabilityAssessment(
+                explanation="A later pass found a fix worth making.",
+                actionability="immediately_actionable",
+                already_addressed=False,
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+
+        stale = self.client.get(self._list_url(actionability="not_actionable"))
+        current = self.client.get(self._list_url(actionability="immediately_actionable"))
+        assert {r["id"] for r in stale.json()["results"]} == set()
+        assert {r["id"] for r in current.json()["results"]} == {str(report.id)}
 
     def test_filter_actionability_excludes_reports_without_judgment(self):
         # A report with no actionability_judgment artefact (annotation is NULL) is excluded.
