@@ -1438,7 +1438,10 @@ class CSPMiddleware:
             )
             return response
 
-        is_admin_view = request.path.startswith("/admin/")
+        # With the admin portal off, Django admin is not mounted and `/admin/` reaches the app catch-all.
+        # Choosing the admin policy by path alone would then enforce it on the app, and it has no
+        # connect-src, so the app's own analytics and feature flag requests are refused.
+        is_admin_view = getattr(settings, "ADMIN_PORTAL_ENABLED", False) and request.path.startswith("/admin/")
         if is_admin_view:
             django_loginas_inline_script_hash = "sha256-2bSkJXtgXFhxZUhgXzWsEsKImxJEQsqjns0vi3KiSrI="
             csp_parts = [
