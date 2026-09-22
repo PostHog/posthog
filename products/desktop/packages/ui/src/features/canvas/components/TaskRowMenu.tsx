@@ -38,6 +38,7 @@ import {
   TaskArchiveMenuItem,
   type TaskArchiveMenuParts,
 } from "@posthog/ui/features/archive/TaskArchiveMenuItem";
+import { useArchiveShortcut } from "@posthog/ui/features/archive/useArchiveShortcut";
 import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useFileTaskToChannel } from "@posthog/ui/features/canvas/hooks/useFileTaskToChannel";
@@ -362,6 +363,15 @@ function TaskRowBulkMenuItems({
  */
 export function TaskRowDropdownMenu({ menu }: { menu: TaskRowMenuProps }) {
   const [open, setOpen] = useState(false);
+  const archiveFromMenu = useCallback(() => {
+    setOpen(false);
+    menu.onArchive?.();
+  }, [menu]);
+  useArchiveShortcut({
+    onArchive: archiveFromMenu,
+    enabled: open && menu.onArchive !== undefined,
+    priority: "active-menu",
+  });
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -388,11 +398,22 @@ export function TaskRowMenuList({
   menu,
   onAction,
   onSubmenuOpenChange,
+  shortcutActive = true,
 }: {
   menu: TaskRowMenuProps;
   onAction: () => void;
   onSubmenuOpenChange: (open: boolean) => void;
+  shortcutActive?: boolean;
 }) {
+  const archiveFromMenu = useCallback(() => {
+    menu.onArchive?.();
+    onAction();
+  }, [menu, onAction]);
+  useArchiveShortcut({
+    onArchive: archiveFromMenu,
+    enabled: shortcutActive && menu.onArchive !== undefined,
+    priority: "active-menu",
+  });
   const parts: MenuParts = useMemo(
     () => ({
       Item: ({ children, disabled, variant, onClick }) => (
@@ -460,9 +481,21 @@ export function TaskRowContextMenu({
   onOpenChange?: (open: boolean) => void;
   children: ReactNode;
 }) {
+  const [open, setOpen] = useState(false);
   const holdSidebarPeek = useHoldSidebarPeek();
+  const archiveFromMenu = bulk?.onArchive ?? menu.onArchive;
+  const handleArchiveShortcut = useCallback(() => {
+    setOpen(false);
+    archiveFromMenu?.();
+  }, [archiveFromMenu]);
+  useArchiveShortcut({
+    onArchive: handleArchiveShortcut,
+    enabled: open && archiveFromMenu !== undefined,
+    priority: "active-menu",
+  });
   const handleOpenChange = useCallback(
     (open: boolean): void => {
+      setOpen(open);
       if (!open || useSidebarPeekStore.getState().peek) {
         holdSidebarPeek(open);
       }
@@ -472,7 +505,7 @@ export function TaskRowContextMenu({
   );
 
   return (
-    <ContextMenu onOpenChange={handleOpenChange}>
+    <ContextMenu open={open} onOpenChange={handleOpenChange}>
       <ContextMenuTrigger render={<div className="min-w-0" />}>
         {children}
       </ContextMenuTrigger>
