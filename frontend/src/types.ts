@@ -475,6 +475,7 @@ export interface NotificationSettings {
     discussions_mentioned: boolean
     data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean
+    ai_evaluation_disabled?: boolean
     materialized_view_sync_failed?: boolean
     materialized_view_sync_failed_daily?: boolean
     materialized_view_sync_failed_immediate?: boolean

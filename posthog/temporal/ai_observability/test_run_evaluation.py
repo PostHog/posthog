@@ -2767,6 +2767,39 @@ class TestSendEvaluationDisabledEmailActivity:
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
+    async def test_does_not_email_a_member_who_turned_the_notification_off(self, setup_data):
+        team = setup_data["team"]
+        user = await sync_to_async(lambda: setup_data["organization"].members.get())()
+
+        def _opt_out() -> None:
+            user.partial_notification_settings = {"ai_evaluation_disabled": False}
+            user.save(update_fields=["partial_notification_settings"])
+
+        await sync_to_async(_opt_out)()
+
+        with (
+            patch("posthog.email.is_email_available", return_value=True),
+            patch("posthog.email.EmailMessage") as mock_email_class,
+        ):
+            mock_message = MagicMock()
+            mock_message.to = []
+            mock_email_class.return_value = mock_message
+
+            await send_evaluation_disabled_email_activity(
+                SendEvaluationDisabledEmailInputs(
+                    team_id=team.id,
+                    evaluation_id="eval-123",
+                    evaluation_name="My Eval",
+                    status_reason="provider_key_required",
+                    human_readable_reason="reason",
+                )
+            )
+
+            mock_message.add_user_recipient.assert_not_called()
+            mock_message.send.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
     async def test_skips_when_email_not_available(self, setup_data):
         team = setup_data["team"]
 
