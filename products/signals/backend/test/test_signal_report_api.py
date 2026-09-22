@@ -1606,6 +1606,36 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [row["id"] for row in response.json()["results"]] == [str(dismissed.id)]
 
+    def test_needs_decision_includes_failures_without_an_actionability_judgment(self):
+        failed = self._create_report(title="Failed research", status=SignalReport.Status.FAILED)
+        actionable = self._create_report(title="Ready for a decision")
+        self._actionability_artefact(actionable, actionability="immediately_actionable")
+        needs_input = self._create_report(title="Needs input", status=SignalReport.Status.PENDING_INPUT)
+        self._actionability_artefact(needs_input, actionability="requires_human_input")
+        not_actionable = self._create_report(title="Not actionable")
+        self._actionability_artefact(not_actionable, actionability="not_actionable")
+        self._create_report(title="No judgment")
+        self._create_report(title="Dismissed", status=SignalReport.Status.SUPPRESSED)
+        self._create_report(title="Resolved", status=SignalReport.Status.RESOLVED)
+        with_pr = self._create_report(title="Has an implementation PR")
+        self._actionability_artefact(with_pr, actionability="immediately_actionable")
+        self._create_assignment(with_pr, pr_url="https://github.com/org/repo/pull/42")
+        failed_with_pr = self._create_report(title="Failed with a PR", status=SignalReport.Status.FAILED)
+        self._create_assignment(failed_with_pr, pr_url="https://github.com/org/repo/pull/43")
+
+        response = self.client.get(self._list_url(view="needs_decision", scope="entire_project"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["id"] for row in response.json()["results"]} == {
+            str(failed.id),
+            str(actionable.id),
+            str(needs_input.id),
+            str(failed_with_pr.id),
+        }
+        response = self.client.get(self._list_url(view="needs_decision", scope="entire_project", count_only="true"))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 4
+
     def test_priority_preference_uses_personal_threshold_then_project_threshold(self):
         reports_by_priority: dict[str, SignalReport] = {}
         for priority in ("P0", "P1", "P2"):
@@ -2056,6 +2086,18 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
     def _state_url(self, report_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/{report_id}/state/"
 
+    @parameterized.expand([("already_fixed",), ("fixed_outside_posthog",), ("pr_merged",)])
+    def test_fixed_reason_cannot_snooze_a_report(self, reason):
+        report = self._create_report()
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "potential", "dismissal_reason": reason}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+
     def _create_report(self, report_status=SignalReport.Status.READY) -> SignalReport:
         return SignalReport.objects.create(
             team=self.team,
@@ -2066,9 +2108,8 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # name, body, expected_final_status, expected_reason, expected_note (None = no artefact)
             (
-                "suppress_without_dismissal_creates_no_artefact",
+                "suppress_without_feedback_records_empty_dismissal",
                 {"state": "suppressed"},
                 SignalReport.Status.SUPPRESSED,
                 None,
@@ -2149,10 +2190,6 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         artefacts = list(
             SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
         )
-        if expected_reason is None and expected_note is None:
-            assert artefacts == []
-            return
-
         assert len(artefacts) == 1
         content = json.loads(artefacts[0].content)
         assert content["reason"] == expected_reason
@@ -2442,12 +2479,16 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("snooze", {"snooze_for": 1}),
-            ("dismissal", {"snooze_for": 1, "dismissal_reason": "already_fixed", "dismissal_note": "Fixed"}),
-            ("feedback", {"dismissal_reason": "already_fixed"}),
+            ("snooze", {"snooze_for": 1}, status.HTTP_409_CONFLICT),
+            (
+                "dismissal",
+                {"snooze_for": 1, "dismissal_reason": "already_fixed", "dismissal_note": "Fixed"},
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            ("feedback", {"dismissal_reason": "already_fixed"}, status.HTTP_400_BAD_REQUEST),
         ]
     )
-    def test_pause_does_not_restore_an_archived_report(self, _name, pause_input):
+    def test_pause_does_not_restore_an_archived_report(self, _name, pause_input, expected_status):
         report = self._create_report()
         response = self.client.post(
             self._state_url(str(report.id)), data=json.dumps({"state": "suppressed"}), content_type="application/json"
@@ -2460,11 +2501,13 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             content_type="application/json",
         )
 
-        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.status_code == expected_status
         report.refresh_from_db()
         assert report.status == SignalReport.Status.SUPPRESSED
         assert report.status_before_suppression == SignalReport.Status.READY
-        assert not report.artefacts.filter(type=SignalReportArtefact.ArtefactType.DISMISSAL).exists()
+        dismissal = report.artefacts.get(type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        assert json.loads(dismissal.content)["reason"] is None
+        assert json.loads(dismissal.content)["note"] is None
 
     @parameterized.expand([("zero", 0), ("negative", -1), ("too_large", 100_001)])
     def test_snooze_for_out_of_bounds_rejected(self, _name, snooze_for):
@@ -2571,6 +2614,25 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
         ).exists()
 
+    def test_suppression_without_feedback_replaces_the_previous_fixed_reason(self):
+        from products.signals.backend.recurrence import fixed_dismissal_at
+
+        report = self._create_report(report_status=SignalReport.Status.READY)
+        for payload in (
+            {"state": "suppressed", "dismissal_reason": "already_fixed"},
+            {"state": "potential"},
+            {"state": "suppressed"},
+        ):
+            response = self.client.post(
+                self._state_url(str(report.id)), data=json.dumps(payload), content_type="application/json"
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+        assert fixed_dismissal_at(report) is None
+        assert response.json()["dismissal_reason"] is None
+
     def test_restoring_a_report_already_in_the_inbox_is_still_refused(self):
         report = self._create_report(report_status=SignalReport.Status.POTENTIAL)
         response = self.client.post(
@@ -2594,6 +2656,9 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 status.HTTP_200_OK,
                 SignalReport.Status.RESOLVED,
             ),
+            # A run that died in processing still describes real work, so whoever fixed it records a
+            # resolve instead of a dismissal (which used to make the report a recurrence sink).
+            ("failed", SignalReport.Status.FAILED, None, status.HTTP_200_OK, SignalReport.Status.RESOLVED),
             (
                 "suppressed_from_ready",
                 SignalReport.Status.SUPPRESSED,
@@ -2617,14 +2682,14 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 status.HTTP_409_CONFLICT,
                 SignalReport.Status.SUPPRESSED,
             ),
-            # The model refuses failed -> resolved directly, so archiving must not launder a failed
-            # pipeline run into looking successfully resolved.
+            # A failed report resolves directly, so the archive grants it nothing new — and the
+            # archive is the only place a report dismissed as fixed can be reached from.
             (
                 "suppressed_from_failed",
                 SignalReport.Status.SUPPRESSED,
                 SignalReport.Status.FAILED,
-                status.HTTP_409_CONFLICT,
-                SignalReport.Status.SUPPRESSED,
+                status.HTTP_200_OK,
+                SignalReport.Status.RESOLVED,
             ),
             (
                 "suppressed_from_pending_input",
