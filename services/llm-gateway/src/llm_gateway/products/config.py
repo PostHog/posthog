@@ -103,6 +103,8 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "gpt-5.2",
         "gpt-5-mini",
         "gpt-6-astra",
+        "gpt-6-sol",
+        "gpt-6-luna",
         "@cf/zai-org/glm-5.2",
         "zai-org/glm-5.3",
         "zai-org/glm-5.3-flash",
@@ -173,6 +175,8 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 # agent's gateway.ts), so its reviewer-experiment arms must be allowed.
                 "gpt-5.6-sol",
                 "gpt-6-astra",
+                "gpt-6-sol",
+                "gpt-6-luna",
             }
             | BEDROCK_MODELS
         ),

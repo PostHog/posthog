@@ -35,7 +35,8 @@ function groupedModelOption(currentValue: string): SessionConfigOption {
         group: "openai",
         name: "OpenAI",
         options: [
-          option("codex", "gpt-5.6-sol", "GPT-5.6 Sol"),
+          option("codex", "gpt-6-sol", "GPT-6 Sol"),
+          option("codex", "gpt-6-luna", "GPT-6 Luna"),
           option("codex", "gpt-5.6-terra", "GPT-5.6 Terra"),
           option("codex", "gpt-5.5", "GPT-5.5"),
         ],
@@ -97,6 +98,6 @@ export const FullCatalogSubmenu: Story = {
       canvas.getByRole("button", { name: /Model and reasoning/ }),
     );
     await userEvent.hover(await body.findByText("Model"));
-    await body.findByText("GPT-5.6 Sol");
+    await body.findByText("GPT-6 Sol");
   },
 };

@@ -116,12 +116,12 @@ export function RepoOverviewScene(): JSX.Element {
                             formatValue={formatAxisMinutes}
                             goodWhenDown
                             loading={overviewPending}
-                            tooltip="Median time from a push until every workflow on it is green. Only fully green pushes count."
+                            tooltip="Median time from a push to a pull request until every workflow on it is green. Only pushes that went fully green count."
                             emptyText="No fully green PR pushes in the window yet."
                         />
 
                         <WindowComparisonCard
-                            title="CI cost per merged PR"
+                            title="CI spend per merged PR"
                             value={overview?.cost_per_merge_usd}
                             previousValue={overview?.cost_per_merge_usd_prev}
                             formatValue={compactUsd}
@@ -134,7 +134,7 @@ export function RepoOverviewScene(): JSX.Element {
                                       ? 'Nothing merged in the window.'
                                       : 'No costable jobs in the window.'
                             }
-                            tooltip="Estimated Depot CI cost per merged PR. Per-workflow spend is in Workflows below."
+                            tooltip="Estimated CI cost of every run in the window, divided by the pull requests merged in it. Includes runs on the default branch and on pull requests that never merged. Per-workflow spend is in Workflows below."
                         />
                     </div>
                 </Section>

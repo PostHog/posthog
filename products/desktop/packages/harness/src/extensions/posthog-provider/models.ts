@@ -189,6 +189,18 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     supports_vision: true,
   },
   {
+    id: "gpt-6-sol",
+    owned_by: "openai",
+    context_window: 1050000,
+    supports_vision: true,
+  },
+  {
+    id: "gpt-6-luna",
+    owned_by: "openai",
+    context_window: 1050000,
+    supports_vision: true,
+  },
+  {
     id: "gpt-5.6-sol",
     owned_by: "openai",
     context_window: 1050000,

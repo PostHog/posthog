@@ -53,7 +53,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                 ),
         },
         {
-            title: 'Tests',
+            title: 'Test files',
             key: 'testFileCount',
             width: 120,
             align: 'right',

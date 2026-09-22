@@ -138,10 +138,10 @@ describe("modelNotchSuggestion", () => {
   });
 
   it("suggests a cheaper model on the codex ladder", () => {
-    // Sol matches gpt-5.5 per token, so the notch down is the cheaper Terra.
+    // GPT-6 Sol is the first rung below gpt-5.5 that costs strictly less.
     expect(modelNotchSuggestion("gpt-5.5")).toEqual({
       fromModelId: "gpt-5.5",
-      toModelId: "gpt-5.6-terra",
+      toModelId: "gpt-6-sol",
     });
   });
 });
