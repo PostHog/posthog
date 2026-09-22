@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
@@ -54,6 +54,10 @@ export interface TimelineExtra {
     element: JSX.Element
 }
 
+const EMPTY_EXTRAS: TimelineExtra[] = []
+const EMPTY_FEEDBACK_BY_MESSAGE_ID: Record<string, AiReplyFeedbackRating> = {}
+const EMPTY_AI_SOURCES: AITriageSource[] = []
+
 export function MessageList({
     messages,
     messagesLoading,
@@ -68,18 +72,18 @@ export function MessageList({
     unreadCustomerCount = 0,
     showDeliveryStatus = false,
     latestAiMessageId = null,
-    feedbackByMessageId = {},
+    feedbackByMessageId = EMPTY_FEEDBACK_BY_MESSAGE_ID,
     showAiReplyFeedback = false,
     aiReplyFeedbackDisabledReason,
     onSubmitAiReplyFeedback,
-    extras = [],
+    extras = EMPTY_EXTRAS,
     currentUserId = null,
     canEditTicket = false,
     onEditMessage,
     onDeleteMessage,
     fullEmailLoadingMessageId = null,
     onViewFullEmail,
-    aiSources = [],
+    aiSources = EMPTY_AI_SOURCES,
     aiDraftApplying = false,
     onApplyAiDraft,
 }: MessageListProps): JSX.Element {
@@ -185,7 +189,7 @@ export function MessageList({
 
     // Compute delivery status for team messages (non-customer, non-private messages)
     // The last unreadCustomerCount team messages are "sent", the rest are "read"
-    const getDeliveryStatusMap = (): Map<string, MessageDeliveryStatus> => {
+    const deliveryStatusMap = useMemo((): Map<string, MessageDeliveryStatus> => {
         if (!showDeliveryStatus) {
             return new Map()
         }
@@ -205,74 +209,102 @@ export function MessageList({
         }
 
         return statusMap
-    }
-
-    const deliveryStatusMap = getDeliveryStatusMap()
+    }, [messages, showDeliveryStatus, unreadCustomerCount])
 
     // Applying a draft records the outcome against the ticket's current AI run, so only the
     // newest draft offers it. An older one would mark the wrong run as used.
-    const latestAiDraftId =
-        messages
-            .filter((message) => aiDraftAction(message) !== null)
-            .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-            .at(-1)?.id ?? null
+    const latestAiDraftId = useMemo(
+        () =>
+            messages
+                .filter((message) => aiDraftAction(message) !== null)
+                .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+                .at(-1)?.id ?? null,
+        [messages]
+    )
 
     // Messages and extras share one chronological stream, so an agent's findings sit at the point in
     // the conversation they arrived rather than always at the bottom. Ties keep messages first, and
     // the original order within each kind, so a same-second reply never reshuffles.
-    const timeline: JSX.Element[] = [
-        ...messages.map((message) => {
-            const isCustomer = message.authorType === 'customer'
-            const canModify =
-                canEditTicket &&
-                !!message.isPrivate &&
-                message.authorType === 'human' &&
-                !!currentUserId &&
-                message.createdBy?.id === currentUserId
-            return {
-                at: message.createdAt,
-                rank: 0,
-                element: (
-                    <Message
-                        key={`${message.id}-${message.version ?? 0}`}
-                        message={message}
-                        isCustomer={isCustomerView ? !isCustomer : isCustomer}
-                        deliveryStatus={deliveryStatusMap.get(message.id)}
-                        showAiReplyFeedback={
-                            showAiReplyFeedback && message.id === latestAiMessageId && message.authorType === 'AI'
-                        }
-                        aiReplyFeedbackRating={feedbackByMessageId[message.id] ?? null}
-                        aiReplyFeedbackDisabledReason={aiReplyFeedbackDisabledReason}
-                        onSubmitAiReplyFeedback={
-                            onSubmitAiReplyFeedback
-                                ? (rating, feedbackText) => onSubmitAiReplyFeedback(message.id, rating, feedbackText)
-                                : undefined
-                        }
-                        onEdit={canModify && onEditMessage ? () => onEditMessage(message) : undefined}
-                        onDelete={canModify && onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
-                        fullEmailLoading={fullEmailLoadingMessageId === message.id}
-                        onViewFullEmail={
-                            onViewFullEmail && message.hasFullEmailContent
-                                ? () => onViewFullEmail(message.id)
-                                : undefined
-                        }
-                        aiSources={aiSources}
-                        aiDraftApplying={aiDraftApplying}
-                        onApplyAiDraft={
-                            canEditTicket && onApplyAiDraft && message.id === latestAiDraftId
-                                ? () => onApplyAiDraft(message)
-                                : undefined
-                        }
-                    />
-                ),
-            }
-        }),
-        ...extras.map((extra) => ({ at: extra.at, rank: 1, element: extra.element })),
-    ]
-        // Array.prototype.sort is stable, so equal (time, rank) pairs keep the order they were
-        // concatenated in; only the message-before-extra tiebreak needs stating.
-        .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime() || a.rank - b.rank)
-        .map(({ element }) => element)
+    const timeline = useMemo(
+        () =>
+            [
+                ...messages.map((message) => {
+                    const isCustomer = message.authorType === 'customer'
+                    const canModify =
+                        canEditTicket &&
+                        !!message.isPrivate &&
+                        message.authorType === 'human' &&
+                        !!currentUserId &&
+                        message.createdBy?.id === currentUserId
+                    return {
+                        at: message.createdAt,
+                        rank: 0,
+                        element: (
+                            <Message
+                                key={`${message.id}-${message.version ?? 0}`}
+                                message={message}
+                                isCustomer={isCustomerView ? !isCustomer : isCustomer}
+                                deliveryStatus={deliveryStatusMap.get(message.id)}
+                                showAiReplyFeedback={
+                                    showAiReplyFeedback &&
+                                    message.id === latestAiMessageId &&
+                                    message.authorType === 'AI'
+                                }
+                                aiReplyFeedbackRating={feedbackByMessageId[message.id] ?? null}
+                                aiReplyFeedbackDisabledReason={aiReplyFeedbackDisabledReason}
+                                onSubmitAiReplyFeedback={
+                                    onSubmitAiReplyFeedback
+                                        ? (rating, feedbackText) =>
+                                              onSubmitAiReplyFeedback(message.id, rating, feedbackText)
+                                        : undefined
+                                }
+                                onEdit={canModify && onEditMessage ? () => onEditMessage(message) : undefined}
+                                onDelete={canModify && onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
+                                fullEmailLoading={fullEmailLoadingMessageId === message.id}
+                                onViewFullEmail={
+                                    onViewFullEmail && message.hasFullEmailContent
+                                        ? () => onViewFullEmail(message.id)
+                                        : undefined
+                                }
+                                aiSources={aiSources}
+                                aiDraftApplying={aiDraftApplying}
+                                onApplyAiDraft={
+                                    canEditTicket && onApplyAiDraft && message.id === latestAiDraftId
+                                        ? () => onApplyAiDraft(message)
+                                        : undefined
+                                }
+                            />
+                        ),
+                    }
+                }),
+                ...extras.map((extra) => ({ at: extra.at, rank: 1, element: extra.element })),
+            ]
+                // Array.prototype.sort is stable, so equal (time, rank) pairs keep the order they were
+                // concatenated in; only the message-before-extra tiebreak needs stating.
+                .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime() || a.rank - b.rank)
+                .map(({ element }) => element),
+        [
+            aiDraftApplying,
+            aiReplyFeedbackDisabledReason,
+            aiSources,
+            canEditTicket,
+            currentUserId,
+            deliveryStatusMap,
+            extras,
+            feedbackByMessageId,
+            fullEmailLoadingMessageId,
+            isCustomerView,
+            latestAiDraftId,
+            latestAiMessageId,
+            messages,
+            onApplyAiDraft,
+            onDeleteMessage,
+            onEditMessage,
+            onSubmitAiReplyFeedback,
+            onViewFullEmail,
+            showAiReplyFeedback,
+        ]
+    )
 
     return (
         // The wrapper is the component root, so it keeps the contract the scroll container used to

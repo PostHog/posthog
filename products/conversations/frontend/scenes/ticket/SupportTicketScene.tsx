@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useRef } from 'react'
+import { useMemo, useRef } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonModal, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
@@ -196,6 +196,10 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     // Above the early returns below: this scene renders a spinner and a not-found state before the
     // thread, and a hook can't be called on only some of those paths.
     const discussionExtras = useDiscussionTimelineExtras(ticket?.id, discussionsEnabled)
+    const threadExtras = useMemo(
+        () => [...reportTimelineExtras(linkedReports), ...discussionExtras],
+        [discussionExtras, linkedReports]
+    )
 
     if (ticketLoading) {
         return (
@@ -262,7 +266,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         fillParent
                         collapseUntilActive
                         threadId={ticketId}
-                        threadExtras={[...reportTimelineExtras(linkedReports), ...discussionExtras]}
+                        threadExtras={threadExtras}
                         messages={chatMessages}
                         messagesLoading={messagesLoading}
                         messageSending={messageSending}
