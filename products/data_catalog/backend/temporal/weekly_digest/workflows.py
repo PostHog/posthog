@@ -135,6 +135,11 @@ class DataCatalogWeeklyDigestTestWorkflow(PostHogWorkflow):
 
         Usage:
           manage.py start_temporal_workflow data-catalog-weekly-digest-test '{"email": "you@example.com"}'
+
+        Outside local development, add `--task-queue weekly-digest-task-queue`. The command
+        defaults to the general-purpose queue, which no worker polls for this workflow, so the run
+        waits instead of failing. Local runs need no flag, because every queue resolves to the
+        development queue there.
         """
         data = json.loads(inputs[0])
         return SendTestDigestInput(email=data["email"])
