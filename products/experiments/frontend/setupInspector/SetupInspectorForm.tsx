@@ -15,8 +15,10 @@ import { setupInspectorLogic } from './setupInspectorLogic'
 
 const PROPERTY_GROUP_TYPES = [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties]
 
+// A cleared number input reports NaN, which would reach the request as null and fail with a 400.
 function clampLimit(value: number | undefined): number {
-    return Math.min(25, Math.max(1, Math.round(value ?? 10)))
+    const limit = value !== undefined && Number.isFinite(value) ? value : 10
+    return Math.min(25, Math.max(1, Math.round(limit)))
 }
 
 function InputStep({
