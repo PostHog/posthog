@@ -73,6 +73,10 @@ from posthog.temporal.ai_observability.team_capture import capture_ai_internal_f
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
 from products.ai_observability.backend.models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
@@ -118,6 +122,10 @@ HAVING event_count > 0
 """
 
 _SKIP_REASONING = {
+    "property_access_restricted": (
+        "Default project permissions hide event properties, so this trace was not evaluated. "
+        "Review the project's property access rules before running this evaluation."
+    ),
     "trace_not_found": "No trace events were found within the evaluation window; evaluation skipped.",
     "trace_too_large": (
         f"Trace exceeds {MAX_TRACE_EVAL_EVENTS} events — likely a shared or runaway trace id; evaluation skipped."
@@ -285,6 +293,11 @@ def fetch_trace_for_evaluation(
 ) -> TraceFetchOutcome:
     """Fetch the full trace for an online evaluation run, looking back from the workflow start."""
     team = Team.objects.get(id=team_id)
+    # Hog evaluations can read any event property, so masking can change the verdict even outside input/output.
+    if split_restricted_property_names(
+        get_restricted_properties_with_group_type_index_for_team(user=None, team_id=team_id)
+    ).event:
+        return TraceFetchOutcome(trace=None, skip_reason="property_access_restricted", event_count=0)
     date_from = window_start - TRACE_EVENTS_LOOKBACK
     date_to = window_end or datetime.now(UTC)
     return _fetch_trace(team, trace_id, date_from, date_to, bound_to_date_to=window_end is not None)

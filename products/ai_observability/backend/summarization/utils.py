@@ -1,7 +1,5 @@
 """Utility functions for summarization."""
 
-import json
-import hashlib
 from collections.abc import Collection
 from datetime import timedelta
 from pathlib import Path
@@ -11,6 +9,8 @@ from django.template import Context, Engine
 from django.utils.dateparse import parse_datetime
 
 from posthog.schema import DateRange
+
+from products.access_control.backend.facade.property_access import restriction_fingerprint
 
 if TYPE_CHECKING:
     from posthog.hogql.property_access_types import RestrictedProperty
@@ -50,18 +50,7 @@ def get_summary_cache_key(
     if not restricted_properties:
         return cache_key
 
-    restrictions = [
-        (restriction.name, restriction.property_type, restriction.group_type_index)
-        for restriction in sorted(
-            restricted_properties,
-            key=lambda restriction: (
-                restriction.name,
-                restriction.property_type,
-                restriction.group_type_index if restriction.group_type_index is not None else -1,
-            ),
-        )
-    ]
-    fingerprint = hashlib.sha256(json.dumps(restrictions).encode()).hexdigest()
+    fingerprint = restriction_fingerprint(restricted_properties)
     return f"{cache_key}:properties:{fingerprint}"
 
 

@@ -45,6 +45,10 @@ from posthog.temporal.ai_observability.message_utils import extract_text_from_me
 from posthog.temporal.ai_observability.run_trace_evaluation import TRACE_EVENTS_LOOKBACK
 from posthog.temporal.common.utils import close_db_connections
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
 from products.ai_observability.backend.models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
     MAX_SESSION_EVAL_EVENTS,
@@ -69,6 +73,10 @@ if TYPE_CHECKING:
 
 
 _SESSION_SKIP_REASONING = {
+    "property_access_restricted": (
+        "Default project permissions hide event properties, so this session was not evaluated. "
+        "Review the project's property access rules before running this evaluation."
+    ),
     "session_not_found": "No session events were found within the evaluation window; evaluation skipped.",
     "session_has_no_traces": (
         "This session's events have no trace id, so there was nothing to evaluate. Set $ai_trace_id "
@@ -249,6 +257,14 @@ def fetch_session_for_evaluation(
     window is chosen.
     """
     team = Team.objects.get(id=team_id)
+    # Hog evaluations can read any event property, so masking can change the verdict even outside input/output.
+    if (
+        user is None
+        and split_restricted_property_names(
+            get_restricted_properties_with_group_type_index_for_team(user=None, team_id=team_id)
+        ).event
+    ):
+        return SessionFetchOutcome(traces=None, skip_reason="property_access_restricted", event_count=0)
     retention_floor = window_start - timedelta(days=AI_EVENTS_RETENTION_DAYS)
     date_to = window_end or datetime.now(UTC)
 

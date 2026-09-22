@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -262,6 +263,14 @@ class TestRunHogEvalOverRecentSessions:
 
 
 class TestFetchSessionForEvaluation:
+    @pytest.fixture(autouse=True)
+    def unrestricted_project_defaults(self) -> Iterator[None]:
+        with patch(
+            "posthog.temporal.ai_observability.run_session_evaluation.get_restricted_properties_with_group_type_index_for_team",
+            return_value=set(),
+        ):
+            yield
+
     def test_queries_in_evaluation_mode_with_both_date_bounds(self):
         user = Mock()
         with (
@@ -454,7 +463,13 @@ class TestFetchSessionForEvaluation:
 class TestExecuteSessionActivities:
     @pytest.mark.parametrize(
         "skip_reason",
-        ["session_not_found", "session_too_large", "session_payload_too_large", "session_truncated"],
+        [
+            "session_not_found",
+            "session_too_large",
+            "session_payload_too_large",
+            "session_truncated",
+            "property_access_restricted",
+        ],
     )
     def test_hog_skips_carry_a_session_specific_reason(self, skip_reason):
         with patch(
@@ -488,11 +503,12 @@ class TestExecuteSessionActivities:
                 )
             )
 
-    def test_judge_skips_without_judging_when_the_session_is_truncated(self):
+    @pytest.mark.parametrize("skip_reason", ["session_truncated", "property_access_restricted"])
+    def test_judge_skips_without_judging(self, skip_reason: str) -> None:
         with (
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation.fetch_session_for_evaluation",
-                return_value=SessionFetchOutcome(traces=None, skip_reason="session_truncated", event_count=0),
+                return_value=SessionFetchOutcome(traces=None, skip_reason=skip_reason, event_count=0),
             ),
             patch("posthog.temporal.ai_observability.run_session_evaluation.call_llm_judge") as mock_call_llm_judge,
         ):
@@ -510,7 +526,9 @@ class TestExecuteSessionActivities:
                 )
             )
         assert result["skipped"] is True
-        assert result["skip_reason"] == "session_truncated"
+        assert result["skip_reason"] == skip_reason
+        if skip_reason == "property_access_restricted":
+            assert "property access rules" in result["reasoning"]
         # The whole point of the truncation-as-skip choice: never grade a partial transcript.
         mock_call_llm_judge.assert_not_called()
 

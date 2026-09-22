@@ -234,6 +234,11 @@ There is the asymmetry with the warehouse access control, which bypasses entirel
 ### AI previews and summaries
 
 AI evaluation and tagger previews read event properties with the requesting user's permissions, including properties available to Hog scripts.
+Background trace and session evaluations skip with `property_access_restricted` when project-default rules deny any event property.
+They skip before reading content or running a Hog or LLM judge, because grading masked data can change the verdict.
+Hog scripts can read arbitrary event properties, so this check covers all event-property denials, not only input and output.
+Person/group restrictions and member-only rules do not trigger this skip.
+Generation evaluations keep using the original Kafka event payload.
 
 Summary caches use the caller's current property restrictions, including cached titles and summaries read by PostHog AI.
 When the caller has event-property restrictions, summaries generated from client-supplied data refetch the source with the caller's permissions.
@@ -242,6 +247,9 @@ Explicit `date_from` and `date_to` values take precedence; events without a vali
 A refetch that finds no matching event or trace returns 404 without generating a summary from the supplied data.
 
 ## Query cache partitioning
+
+`products.access_control.backend.facade.property_access` defines the shared restriction ordering and fingerprint.
+Query, experiment-session, and summary caches use that ordering while preserving their existing serialized keys.
 
 **The critical invariant:** if a query reads access-controlled tables, its cache key must include the user's restrictions.
 Otherwise a denied user gets served an allowed user's cached rows.

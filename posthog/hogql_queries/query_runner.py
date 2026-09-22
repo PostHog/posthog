@@ -192,6 +192,7 @@ from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
+from products.access_control.backend.facade.property_access import sort_restricted_properties
 from products.access_control.backend.facade.user_access_control import (
     WAREHOUSE_ACCESS_SCOPES,
     UserAccessControl,
@@ -3059,14 +3060,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "property_type": restriction.property_type,
                 "group_type_index": restriction.group_type_index,
             }
-            for restriction in sorted(
-                restricted,
-                key=lambda restriction: (
-                    restriction.name,
-                    restriction.property_type,
-                    restriction.group_type_index if restriction.group_type_index is not None else -1,
-                ),
-            )
+            for restriction in sort_restricted_properties(restricted)
         ]
 
     def get_cache_key(self) -> str:
