@@ -32,7 +32,7 @@ import { SupportMarkdown } from '../../components/Editor'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
-import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
+import { type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
 import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
@@ -490,7 +490,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     size="small"
                                     value={priority}
                                     options={priorityOptions}
-                                    onChange={(value: TicketPriority | null) => setPriority(value)}
+                                    onChange={setPriority}
                                     dropdownMatchSelectWidth={false}
                                     disabledReason={sendDisabledReason}
                                 />

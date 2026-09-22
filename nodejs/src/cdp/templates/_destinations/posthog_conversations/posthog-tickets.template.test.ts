@@ -1,3 +1,5 @@
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { TemplateTester } from '../../test/test-helpers'
 import { template as getTicketTemplate } from './posthog-get-ticket.template'
 import { template as updateTicketTemplate } from './posthog-update-ticket.template'
@@ -60,7 +62,7 @@ describe('posthog conversations ticket templates', () => {
         })
 
         const updates = (): Record<string, unknown> =>
-            JSON.parse((tester.mockInternalFetch.mock.calls[0][1] as { body: string }).body)
+            parseJSON((tester.mockInternalFetch.mock.calls[0][1] as { body: string }).body)
 
         // 'clear' is the sentinel that removes a priority set by mistake. Without the branch the
         // hog code treats it as an ordinary choice and the API rejects it.
@@ -73,7 +75,7 @@ describe('posthog conversations ticket templates', () => {
         })
 
         it('omits the field when no priority is chosen', async () => {
-            await tester.invoke({ ticket_id: TICKET_UUID, status: 'open' })
+            await tester.invoke({ ticket_id: TICKET_UUID })
             expect(updates()).not.toHaveProperty('priority')
         })
     })

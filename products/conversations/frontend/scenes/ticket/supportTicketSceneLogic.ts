@@ -1024,7 +1024,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     return []
                 }
                 const changes: string[] = []
-                if ((priority ?? null) !== (ticket.priority ?? null)) {
+                if (priority !== (ticket.priority ?? null)) {
                     changes.push(`Priority: ${priorityOptions.find((o) => o.value === priority)?.label ?? priority}`)
                 }
                 if (JSON.stringify(assignee) !== JSON.stringify(ticket.assignee)) {
@@ -1317,7 +1317,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             if (values.status && values.status !== values.ticket?.status) {
                 data.status = values.status
             }
-            if ((values.priority ?? null) !== (values.ticket?.priority ?? null)) {
+            if (values.priority !== (values.ticket?.priority ?? null)) {
                 data.priority = values.priority
             }
             data.assignee = values.assignee
