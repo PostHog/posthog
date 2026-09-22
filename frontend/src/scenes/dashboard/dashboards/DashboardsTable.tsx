@@ -336,6 +336,7 @@ export function DashboardsTable({
                 rowKey="id"
                 rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
                 tableLayout="fixed"
+                tableStyle={{ minWidth: '1400px' }}
                 columns={columns}
                 loading={dashboardsLoading}
                 defaultSorting={effectiveTableSorting}
