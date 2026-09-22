@@ -376,6 +376,15 @@ FILTER_FUNCTIONS: dict[str, tuple[int, Optional[int]]] = {
 _UNKNOWN_GLOBAL = "Unknown global variable: "
 
 
+def _unknown_filter_globals(expr: ast.Expr) -> list[str]:
+    """Compile once with the runtime's globals declared, and return the roots the runtime will not have."""
+    context = HogQLContext(team_id=None, globals=dict.fromkeys(FILTER_GLOBALS), allowed_functions=FILTER_FUNCTIONS)
+    create_bytecode(expr, context=context)
+    return sorted(
+        {w.message.removeprefix(_UNKNOWN_GLOBAL) for w in context.warnings if w.message.startswith(_UNKNOWN_GLOBAL)}
+    )
+
+
 def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> dict:
     filters = filters or {}
     try:
@@ -395,6 +404,18 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
             {w.message.removeprefix(_UNKNOWN_GLOBAL) for w in context.warnings if w.message.startswith(_UNKNOWN_GLOBAL)}
         )
         if unknown:
+            # The person saving a destination did not write the team's test account filters, so a
+            # message that only names the field sends them looking in the wrong place.
+            team_exprs = _build_test_account_filters(filters, team)
+            from_team = _unknown_filter_globals(_combine_expressions(team_exprs)) if team_exprs else []
+            if from_team:
+                own = [name for name in unknown if name not in from_team]
+                raise Exception(
+                    f"Your internal/test user filters read {', '.join(from_team)}, which real-time filters "
+                    f"cannot read. Those exist when a query runs, not while an event is being processed. "
+                    + (f"This destination's own filters also read {', '.join(own)}. " if own else "")
+                    + f"Update your filters at: {_internal_user_settings_url(team.id)}"
+                )
             raise Exception(
                 f"Real-time filters cannot read {', '.join(unknown)}. "
                 f"Check the spelling, or use a field or function that real-time filters support."

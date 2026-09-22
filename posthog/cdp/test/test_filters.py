@@ -250,6 +250,26 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
         assert "bytecode_error" not in allowed
 
+    def test_filters_name_the_team_settings_when_test_account_filters_cannot_run(self):
+        self.team.test_account_filters = [{"type": "hogql", "key": "$virt_is_bot = false"}]
+        self.team.save()
+
+        result = compile_filters_bytecode({"filter_test_accounts": True}, self.team)
+        assert result["bytecode"] is None
+        assert _normalize_error(result["bytecode_error"]) == (
+            "Your internal/test user filters read $virt_is_bot, which real-time filters cannot read. "
+            "Those exist when a query runs, not while an event is being processed. "
+            "Update your filters at: SETTINGS_URL#internal-user-filtering"
+        )
+
+        # The destination's own filters keep the plain message, so a person is sent to the right place.
+        own = compile_filters_bytecode(
+            {"filter_test_accounts": True, "properties": [{"type": "hogql", "key": "$virt_traffic_type = 'y'"}]},
+            self.team,
+        )
+        assert "$virt_traffic_type" in own["bytecode_error"]
+        assert "$virt_is_bot" in own["bytecode_error"]
+
     def test_filters_allow_group_globals(self):
         response = compile_filters_bytecode(
             filters={
