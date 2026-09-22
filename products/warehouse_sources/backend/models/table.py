@@ -116,7 +116,9 @@ def raw_error_message(err: Exception) -> str:
     the raw attribute is read before any wrapping. chdb runs out of process and `run_chdb_query`
     re-raises its stderr as a RuntimeError, so there the message is just `str(err)`.
     """
-    return err.message if isinstance(err, ClickHouseServerException) else str(err)
+    if isinstance(err, ClickHouseServerException) and err.message is not None:
+        return err.message
+    return str(err)
 
 
 def classify_warehouse_read_error(err: Exception) -> str | None:
