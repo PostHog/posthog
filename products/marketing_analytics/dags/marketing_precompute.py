@@ -520,13 +520,13 @@ def ensure_marketing_precompute_op(context: dagster.OpExecutionContext) -> dict[
 
     Teams are warmed in parallel (`_warm_team` in a thread pool, `MARKETING_PRECOMPUTE_TEAM_CONCURRENCY`
     workers), since warming is I/O-bound on ClickHouse and the active fleet is hundreds of teams. Each
-    team is gated on the same flags the read path checks: touchpoints + conversions when the conversion
-    precompute flag is on and the team has goals; costs when the costs precompute flag is on and the team
-    has warehouse tables. Every team, and each warming block within it, is isolated — one failure never
-    aborts the rest.
+    team warms touchpoints + conversions when it has conversion goals, deliberately independent of the
+    `marketing-analytics-precomputation` read flag so the tables are populated before the flip; costs
+    stay gated on the costs precompute flag plus the team having warehouse tables. Every team, and each
+    warming block within it, is isolated — one failure never aborts the rest.
 
     `conversion_teams` / `costs_teams` count teams whose block ran to completion without an unexpected
-    error (flag on + its raw material present — goals / warehouse tables), symmetric to each other. They
+    error (its raw material present — goals / warehouse tables), symmetric to each other. They
     are not success counts: per-chunk outcomes live in `failures` and the MARKETING_PRECOMPUTE_CHUNK_*
     metrics (a block can complete having warmed zero chunks, e.g. all goals ineligible).
     """
