@@ -139,7 +139,8 @@ class RoleExternalReferenceViewSet(
         if role_id:
             queryset = queryset.filter(role_id=role_id)
 
-        return queryset.order_by("provider", "provider_organization_id", "provider_role_slug")
+        # `provider_role_slug` is nullable, so it alone leaves ties that make paging skip or repeat rows.
+        return queryset.order_by("provider", "provider_organization_id", "provider_role_slug", "id")
 
     @extend_schema(parameters=[RoleLookupQuerySerializer], responses={200: RoleLookupResponseSerializer})
     @action(detail=False, methods=["GET"], url_path="lookup")
