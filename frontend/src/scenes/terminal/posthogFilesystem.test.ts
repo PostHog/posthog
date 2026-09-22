@@ -405,6 +405,7 @@ describe('PostHog filesystem projection', () => {
             nested: { enabled: false },
             readonly_field: 'from API',
             restriction_level: 0,
+            ...(type === 'experiment' ? { version: 7 } : {}),
         }
         jest.mocked(apiMutator).mockResolvedValue(original)
         const signal = new AbortController().signal
@@ -420,13 +421,21 @@ describe('PostHog filesystem projection', () => {
             const opened = await file.open!()
             expect(JSON.parse(decoder.decode(opened.bytes))).toEqual(original)
             expect(apiMutator).toHaveBeenLastCalledWith(`/api/projects/42/${route}/${ref}/`, { method: 'GET', signal })
+            const callsBeforeSave = jest.mocked(apiMutator).mock.calls.length
+            await opened.save!(opened.bytes)
+            expect(apiMutator).toHaveBeenCalledTimes(callsBeforeSave)
             const edited = { ...original, id: 'another-id', name: 'Edited', nested: { enabled: true } }
             await opened.save!(new TextEncoder().encode(JSON.stringify(edited)))
             expect(apiMutator).toHaveBeenLastCalledWith(`/api/projects/42/${route}/${ref}/`, {
                 method: 'PATCH',
                 signal,
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: 'another-id', name: 'Edited', nested: { enabled: true } }),
+                body: JSON.stringify({
+                    id: 'another-id',
+                    name: 'Edited',
+                    nested: { enabled: true },
+                    ...(type === 'experiment' ? { version: 7 } : {}),
+                }),
             })
         }
     })
@@ -508,6 +517,8 @@ describe('PostHog filesystem projection', () => {
         read.abort()
         expect(jest.mocked(notebooksRetrieve).mock.calls[0][2]?.signal).not.toBe(session.signal)
         jest.mocked(notebooksPartialUpdate).mockResolvedValue({ ...notebook, version: 8 })
+        await file.save!(file.bytes)
+        expect(notebooksPartialUpdate).not.toHaveBeenCalled()
         const data = new TextEncoder().encode(JSON.stringify({ ...notebook, title: 'Edited', version: 99 }))
         await file.save!(data)
         expect(notebooksPartialUpdate).toHaveBeenLastCalledWith(
@@ -522,6 +533,23 @@ describe('PostHog filesystem projection', () => {
             'note1',
             expect.objectContaining({ version: 8 }),
             expect.objectContaining({ signal: session.signal })
+        )
+    })
+
+    it('keeps notebook search text synchronized when saving JSON content', async () => {
+        const fs = new PosthogFilesystem('42', new AbortController().signal)
+        await fs.load()
+        const file = await fs.root.children!.get('api')!.children!.get('notebook')!.children!.get('note1.json')!.open!()
+        const content = {
+            type: 'doc',
+            content: [{ type: 'ph-markdown-notebook', attrs: { markdown: 'New search text' } }],
+        }
+        await file.save!(new TextEncoder().encode(JSON.stringify({ ...notebook, content })))
+        expect(notebooksPartialUpdate).toHaveBeenLastCalledWith(
+            '42',
+            'note1',
+            { content, text_content: 'New search text', version: 7 },
+            expect.anything()
         )
     })
 

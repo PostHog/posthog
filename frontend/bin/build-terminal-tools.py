@@ -9,7 +9,9 @@ from pathlib import Path
 
 import requests
 
-ASSETS = Path(__file__).resolve().parents[1] / "public" / "terminal"
+FRONTEND = Path(__file__).resolve().parents[1]
+ASSETS = FRONTEND / "src" / "scenes" / "terminal" / "assets"
+MANIFEST = FRONTEND / "public" / "terminal" / "tools-manifest.json"
 PREFIX = "opt/posthog-tools"
 
 
@@ -25,11 +27,12 @@ def download(url: str, algorithm: str, expected: str) -> bytes:
 def normalized(info: tarfile.TarInfo) -> tarfile.TarInfo:
     info.uid = info.gid = info.mtime = 0
     info.uname = info.gname = ""
+    info.mode = 0o755 if info.isdir() or info.issym() or info.mode & 0o111 else 0o644
     return info
 
 
 def build() -> None:
-    manifest = json.loads((ASSETS / "tools-manifest.json").read_text())
+    manifest = json.loads(MANIFEST.read_text())
     with tempfile.TemporaryDirectory(prefix="posthog-terminal-tools-") as temporary:
         root = Path(temporary)
         tools = root / PREFIX
@@ -90,6 +93,9 @@ def build() -> None:
                 output.write(buffer.getvalue())
             bundle = compressed.getvalue()
         (ASSETS / "tools-linux-i386.tar.gz.bin").write_bytes(bundle)
+        (ASSETS / "hashes.json").write_text(
+            json.dumps({"toolsSha256": hashlib.sha256(bundle).hexdigest()}, indent=4) + "\n"
+        )
         sys.stdout.write(
             f"tools-linux-i386.tar.gz.bin: {len(bundle)} bytes, SHA-256 {hashlib.sha256(bundle).hexdigest()}\n"
         )

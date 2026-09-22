@@ -48,7 +48,7 @@ export class TerminalSession {
         select: (selected: boolean) => void,
         paste: () => void
     ) {
-        this.element.className = 'h-full min-w-0 bg-black'
+        this.element.className = 'h-full min-w-0 bg-black ph-no-capture ph-replay-block'
         this.element.dataset.shortcutsIgnore = 'ctrl'
         this.element.dataset.shortcutsAllowKeys = '` ~'
         this.view.loadAddon(this.fit)

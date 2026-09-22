@@ -449,7 +449,22 @@ export class PosthogFilesystem extends TerminalFilesystem {
                                       JSON.stringify((original as Record<string, unknown>)[key])
                               )
                           )
-                          if (entry.type === 'notebook' && value && typeof value === 'object' && 'version' in value) {
+                          if (!Object.keys(payload).length) {
+                              return
+                          }
+                          if (entry.type === 'notebook' && 'content' in payload && !('text_content' in payload)) {
+                              const node = markdownNode(payload.content)
+                              if (!node) {
+                                  throw new Error('Include text_content when changing non-markdown notebook content.')
+                              }
+                              payload.text_content = node.attrs.markdown
+                          }
+                          if (
+                              ['notebook', 'experiment'].includes(entry.type ?? '') &&
+                              value &&
+                              typeof value === 'object' &&
+                              'version' in value
+                          ) {
                               payload.version = value.version
                           }
                           value = await endpoint.update(payload)

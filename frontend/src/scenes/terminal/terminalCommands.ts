@@ -2,27 +2,31 @@ import { MAX_TERMINAL_FILE_BYTES, TerminalFilesystem } from './terminalFilesyste
 
 export const PH_SCRIPT = String.raw`#!/bin/sh
 set -eu
-args='[]'
+set -o pipefail
+temporary=$(mktemp -d)
+trap 'rm -rf "$temporary"' EXIT
+trap 'exit 130' HUP INT TERM
 previous=''
 for argument in "$@"; do
     original="$argument"
-    case "$argument" in
-        @*) args=$(jq -nc --argjson args "$args" --rawfile value "$(printf '%s' "$argument" | cut -c2-)" '$args + [$value]') ;;
+    { case "$argument" in
+        @*) cat -- "$(printf '%s' "$argument" | cut -c2-)" ;;
         -)
             if [ "$previous" = '--json' ]; then
-                args=$(jq -Rsc --argjson args "$args" '$args + [.]')
+                cat
             else
-                args=$(jq -nc --argjson args "$args" --arg value "$argument" '$args + [$value]')
+                printf '%s' "$argument"
             fi
             ;;
-        *) args=$(jq -nc --argjson args "$args" --arg value "$argument" '$args + [$value]') ;;
-    esac
+        *) printf '%s' "$argument" ;;
+    esac; } | base64 | tr -d '\n'
     previous="$original"
-done
-request=$(jq -nc --argjson argv "$args" --arg cwd "$PWD" '{argv: $argv, cwd: $cwd}')
+    printf '\n'
+done > "$temporary/args"
+jq -Rs --arg cwd "$PWD" '{argv: (split("\n")[:-1] | map(@base64d)), cwd: $cwd}' < "$temporary/args" > "$temporary/request"
 exec 9>/tmp/posthog-ph.lock
 flock -x 9
-printf '%s' "$request" > /posthog/.ph/request
+cat "$temporary/request" > /posthog/.ph/request
 response=$(cat /posthog/.ph/response)
 flock -u 9
 if printf '%s' "$response" | jq -e '.ok' >/dev/null; then

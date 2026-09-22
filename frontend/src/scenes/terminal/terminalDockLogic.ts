@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
+import { commandLogic } from 'lib/components/Command/commandLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -73,9 +74,21 @@ export const terminalDockLogic = kea<terminalDockLogicType>([
         },
         setDockOpen: ({ open }) => {
             if (open) {
-                cache.previousFocus = document.activeElement
+                cache.previousFocus = document.activeElement?.closest('[role="dialog"]')
+                    ? cache.commandFocus
+                    : document.activeElement
             } else {
-                cache.previousFocus?.focus?.()
+                if (cache.previousFocus?.isConnected) {
+                    cache.previousFocus.focus()
+                }
+            }
+        },
+        [commandLogic.actionTypes.openCommand]: () => {
+            cache.commandFocus = document.activeElement
+        },
+        [commandLogic.actionTypes.toggleCommand]: () => {
+            if (commandLogic.values.isCommandOpen) {
+                cache.commandFocus = document.activeElement
             }
         },
         [featureFlagLogic.actionTypes.setFeatureFlags]: () => {

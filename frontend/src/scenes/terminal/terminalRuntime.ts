@@ -1,12 +1,12 @@
-import { V86 } from 'v86'
+import type { V86 } from 'v86'
 import wasmUrl from 'v86/build/v86.wasm?url'
 
-import kernelUrl from 'public/terminal/buildroot-bzimage.bin?url'
-import jqUrl from 'public/terminal/jq-linux-i386.bin?url'
-import biosUrl from 'public/terminal/seabios.bin?url'
-import toolsUrl from 'public/terminal/tools-linux-i386.tar.gz.bin?url'
-import vgaBiosUrl from 'public/terminal/vgabios.bin?url'
-
+import kernelUrl from './assets/buildroot-bzimage.bin?url'
+import assetHashes from './assets/hashes.json'
+import jqUrl from './assets/jq-linux-i386.bin?url'
+import biosUrl from './assets/seabios.bin?url'
+import toolsUrl from './assets/tools-linux-i386.tar.gz.bin?url'
+import vgaBiosUrl from './assets/vgabios.bin?url'
 import { NinePServer } from './ninepServer'
 
 function browserClock(): { timestamp: number; timezone: string } {
@@ -42,6 +42,7 @@ async function verifiedImage(url: string, sha256: string, signal: AbortSignal): 
 
 export class TerminalRuntime {
     private emulator?: V86
+    private emulatorLoaded = false
     private output = ''
     private decoder = new TextDecoder()
     private outputBuffer = new Uint8Array(8192)
@@ -55,6 +56,10 @@ export class TerminalRuntime {
     constructor(private onOutput: (bytes: Uint8Array) => void) {}
 
     async start(server: NinePServer, signal: AbortSignal, onReady: () => void): Promise<void> {
+        const { V86 } = await import('v86')
+        if (signal.aborted || this.disposed) {
+            return
+        }
         const [bios, vgaBios, kernel, jq, tools] = await Promise.all([
             verifiedImage(biosUrl, '73e3f359102e3a9982c35fce98eb7cd08f18303ac7f1ba6ebfbe6cdc1c244d98', signal),
             verifiedImage(vgaBiosUrl, 'a4bc0d80cc3ca028c73dafa8fee396b8d054ce87ebd8abfbd31b06b437607880', signal),
@@ -65,7 +70,7 @@ export class TerminalRuntime {
                 signal
             ),
             verifiedImage(jqUrl, 'ba996e8ce436973e2f39e2639405a37e8c81ba8c722b71c83996278ad0af16dd', signal),
-            verifiedImage(toolsUrl, '50c8d847c3811249d512245b0b506cfab5cc4b625cc5fa6079cb605a7681b2cc', signal),
+            verifiedImage(toolsUrl, assetHashes.toolsSha256, signal),
         ])
         if (signal.aborted || this.disposed) {
             return
@@ -93,11 +98,22 @@ export class TerminalRuntime {
             disable_mouse: true,
             disable_speaker: true,
             uart1: true,
-            autostart: true,
+            autostart: false,
         }))
+        emulator.add_listener('emulator-loaded', () => {
+            this.emulatorLoaded = true
+            if (this.disposed || signal.aborted) {
+                void emulator.destroy()
+            } else {
+                emulator.run()
+            }
+        })
         let boot = ''
         let configured = false
         emulator.add_listener('serial1-output-byte', (byte: number) => {
+            if (this.disposed) {
+                return
+            }
             if (configured && !this.ready && byte === 30) {
                 this.ready = true
                 this.resize(this.columns, this.rows)
@@ -105,6 +121,9 @@ export class TerminalRuntime {
             }
         })
         emulator.add_listener('serial0-output-byte', (byte: number) => {
+            if (this.disposed) {
+                return
+            }
             this.outputBuffer[this.outputLength++] = byte
             if (this.outputLength === this.outputBuffer.length) {
                 this.flushOutput()
@@ -197,7 +216,11 @@ export class TerminalRuntime {
 
     dispose(): void {
         this.disposed = true
-        this.emulator?.destroy()
+        this.ready = false
+        // V86 cannot destroy its CPU until asynchronous WASM initialization has finished.
+        if (this.emulatorLoaded) {
+            void this.emulator?.destroy()
+        }
         this.emulator = undefined
         this.output = ''
         this.outputLength = 0
