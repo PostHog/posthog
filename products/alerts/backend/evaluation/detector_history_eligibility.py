@@ -101,15 +101,21 @@ class _HourlySeriesMatcher:
                 and self._row_local(expr.left, allow_now=allow_now)
                 and self._row_local(expr.right, allow_now=allow_now)
             )
-        if isinstance(expr, ast.And | ast.Or):
+        if isinstance(expr, ast.And):
             return all(self._row_local(part, allow_now=allow_now) for part in expr.exprs)
+        # Below Or, Not, or a tuple, a now()-anchored bound is not a window narrowing: it changes
+        # which rows count toward a bucket as the bucket ages, so its value depends on when it was
+        # computed. Only conjuncts qualify, because those are what _window_hours folds into the
+        # window. The parser flattens AND chains, so a conjunct can never hide inside a nested And.
+        if isinstance(expr, ast.Or):
+            return all(self._row_local(part, allow_now=False) for part in expr.exprs)
         if isinstance(expr, ast.Not):
-            return self._row_local(expr.expr, allow_now=allow_now)
+            return self._row_local(expr.expr, allow_now=False)
         if isinstance(expr, ast.Tuple):
-            return all(self._row_local(part, allow_now=allow_now) for part in expr.exprs)
-        # A now()-anchored bound is sound in WHERE, where narrowing only removes older rows. Inside
-        # an aggregate argument it makes the bucket value depend on evaluation time, so a cached
-        # bucket and a full scan would disagree about the same hour.
+            return all(self._row_local(part, allow_now=False) for part in expr.exprs)
+        # A now()-anchored conjunct is sound in WHERE, where narrowing only removes older rows.
+        # Inside an aggregate argument it makes the bucket value depend on evaluation time, so a
+        # cached bucket and a full scan would disagree about the same hour.
         if allow_now and self._end(expr):
             return True
         if allow_now and isinstance(expr, ast.ArithmeticOperation) and expr.op == ast.ArithmeticOperationOp.Sub:
