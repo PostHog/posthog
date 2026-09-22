@@ -1,5 +1,5 @@
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import temporalio.workflow
 from temporalio.common import RetryPolicy
@@ -11,6 +11,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         backfill_experiment_metric,
         calculate_experiment_regular_metric,
         calculate_experiment_saved_metric,
+        create_recalculation_from_timeseries,
         get_experiment_regular_metrics_for_hour,
         get_experiment_saved_metrics_for_hour,
     )
@@ -24,6 +25,24 @@ with temporalio.workflow.unsafe.imports_passed_through():
 MAX_CONCURRENT_METRICS = 10
 
 
+async def _create_recalculations_from_timeseries(
+    experiment_ids: set[int], run_started_at: datetime, semaphore: asyncio.Semaphore
+) -> int:
+    """One activity per experiment this run touched; returns how many recalculation rows gained copies."""
+
+    async def _sync_experiment(experiment_id: int) -> str | None:
+        async with semaphore:
+            return await temporalio.workflow.execute_activity(
+                create_recalculation_from_timeseries,
+                args=[experiment_id, run_started_at.isoformat()],
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+
+    results = await asyncio.gather(*[_sync_experiment(eid) for eid in sorted(experiment_ids)], return_exceptions=True)
+    return sum(1 for result in results if isinstance(result, str))
+
+
 @temporalio.workflow.defn(name="experiment-regular-metrics-workflow")
 class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
     """
@@ -32,7 +51,8 @@ class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
     Runs daily per hour (24 schedules total). Each run:
     1. Discovers experiment-metrics for teams scheduled at this hour
     2. Calculates each metric in parallel (one activity per metric)
-    3. Returns summary of successes/failures
+    3. Assembles a completed metrics recalculation per experiment from this run's points
+    4. Returns summary of successes/failures
     """
 
     @staticmethod
@@ -41,6 +61,8 @@ class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: ExperimentRegularMetricsWorkflowInputs) -> dict:
+        run_started_at = temporalio.workflow.now()
+
         # Step 1: Discover experiment-metrics for this hour
         experiment_metrics = await temporalio.workflow.execute_activity(
             get_experiment_regular_metrics_for_hour,
@@ -76,7 +98,16 @@ class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
         tasks = [_run_metric(em) for em in experiment_metrics]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Step 3: Summarize
+        # Step 3: Assemble a recalculation per experiment from the points this run wrote, so the latest read
+        # serves them without a recompute. Points are matched against the run start, so the stamp is taken
+        # before discovery. Patched: an execution that started before this step existed replays without it.
+        recalculations_synced = 0
+        if temporalio.workflow.patched("experiment-timeseries-recalculation-sync-2026-09"):
+            recalculations_synced = await _create_recalculations_from_timeseries(
+                {em.experiment_id for em in experiment_metrics}, run_started_at, semaphore
+            )
+
+        # Step 4: Summarize
         succeeded = 0
         failed = 0
 
@@ -93,6 +124,7 @@ class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
             "total": len(experiment_metrics),
             "succeeded": succeeded,
             "failed": failed,
+            "recalculations_synced": recalculations_synced,
         }
 
 
@@ -104,7 +136,8 @@ class ExperimentSavedMetricsWorkflow(PostHogWorkflow):
     Runs daily per hour (24 schedules total). Each run:
     1. Discovers experiment-saved metrics for teams scheduled at this hour
     2. Calculates each metric in parallel (one activity per metric)
-    3. Returns summary of successes/failures
+    3. Assembles a completed metrics recalculation per experiment from this run's points
+    4. Returns summary of successes/failures
     """
 
     @staticmethod
@@ -113,6 +146,8 @@ class ExperimentSavedMetricsWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: ExperimentSavedMetricsWorkflowInputs) -> dict:
+        run_started_at = temporalio.workflow.now()
+
         # Step 1: Discover experiment-saved metrics for this hour
         experiment_metrics = await temporalio.workflow.execute_activity(
             get_experiment_saved_metrics_for_hour,
@@ -148,7 +183,16 @@ class ExperimentSavedMetricsWorkflow(PostHogWorkflow):
         tasks = [_run_metric(em) for em in experiment_metrics]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Step 3: Summarize
+        # Step 3: Assemble a recalculation per experiment from the points this run wrote, so the latest read
+        # serves them without a recompute. Points are matched against the run start, so the stamp is taken
+        # before discovery. Patched: an execution that started before this step existed replays without it.
+        recalculations_synced = 0
+        if temporalio.workflow.patched("experiment-timeseries-recalculation-sync-2026-09"):
+            recalculations_synced = await _create_recalculations_from_timeseries(
+                {em.experiment_id for em in experiment_metrics}, run_started_at, semaphore
+            )
+
+        # Step 4: Summarize
         succeeded = 0
         failed = 0
 
@@ -165,6 +209,7 @@ class ExperimentSavedMetricsWorkflow(PostHogWorkflow):
             "total": len(experiment_metrics),
             "succeeded": succeeded,
             "failed": failed,
+            "recalculations_synced": recalculations_synced,
         }
 
 
