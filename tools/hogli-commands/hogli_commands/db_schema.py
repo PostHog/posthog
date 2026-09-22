@@ -180,7 +180,8 @@ def _manage(target_db: str, *args: str) -> None:
 
 
 def _ensure_migration_defaults(target_db: str) -> None:
-    _manage(target_db, "ensure_migration_defaults")
+    # System checks import every URL module, which costs more than the seeding itself.
+    _manage(target_db, "ensure_migration_defaults", "--skip-checks")
 
 
 def _psql_write(target_db: str, sql: str) -> None:

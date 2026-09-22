@@ -1053,7 +1053,7 @@ jobs:
               # before tests run.
               run: |
                   bin/wait-for-docker temporal
-                  python manage.py register_temporal_search_attributes
+                  python manage.py register_temporal_search_attributes --skip-checks
 
             - name: Restore test durations from cache
               # pytest-split distributes this product's tests across shards using
@@ -2949,7 +2949,7 @@ jobs:
               with:
                   fetch-depth: 1
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
-                  ref: ${{ github.event.pull_request.head.ref }}
+                  ref: ${{ github.event.pull_request.head.sha }}
                   lfs: true
                   clean: false
 
@@ -3865,7 +3865,7 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
-                  ref: ${{ github.event.pull_request.head.ref }}
+                  ref: ${{ github.event.pull_request.head.sha }}
                   sparse-checkout: .github/clickhouse-versions.json
                   sparse-checkout-cone-mode: false
                   path: head-tree
