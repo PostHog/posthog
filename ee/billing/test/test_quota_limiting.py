@@ -2310,6 +2310,33 @@ class TestQuotaLimiting(BaseTest):
 
         mock_update_remote_config.apply_async.assert_not_called()
 
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @time_machine.travel("2021-01-25T00:00:00Z", tick=False)
+    @patch("posthog.tasks.remote_config.update_team_remote_config")
+    def test_update_org_billing_quotas_clears_mobile_limit_when_enforcement_off(
+        self, mock_update_remote_config, _patch_flag
+    ) -> None:
+        """With mobile enforcement off, a token left in the mobile zset from a previous
+        flag-on episode must be lifted: capture keeps dropping mobile sessions until the
+        zset entry goes, so flag-off removes it and dispatches the remote config rebuild."""
+        replace_limited_team_tokens(
+            QuotaResource.MOBILE_RECORDINGS,
+            {self.team.api_token: int(timezone.now().timestamp()) + 10_000},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+        self.organization.usage = {
+            "events": {"usage": 1, "limit": 100},
+            "recordings": {"usage": 1, "limit": 5_000},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.save()
+
+        update_org_billing_quotas(self.organization)
+
+        assert self.redis_client.zrange(f"@posthog/quota-limits/mobile_recordings", 0, -1) == []
+        mock_update_remote_config.apply_async.assert_called_once()
+
     @parameterized.expand(
         [
             ("active_member_becomes_unlimited", 10_000, 1, 1, False, 1, False),

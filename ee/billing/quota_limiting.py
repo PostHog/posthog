@@ -751,6 +751,14 @@ def update_org_billing_quotas(organization: Organization):
 
     for resource in QuotaResource:
         if resource == QuotaResource.MOBILE_RECORDINGS and not mobile_recordings_enforcement_enabled:
+            # Flag-off must also lift an existing mobile limit: a token left in the mobile
+            # zset keeps capture dropping mobile sessions after the org leaves the rollout.
+            for token in prev_recordings_zset_tokens[resource]:
+                team_id = teams_by_token.get(token)
+                if team_id is not None:
+                    recordings_transitioned_team_ids.add(team_id)
+            remove_limited_team_tokens(resource, team_attributes, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+            remove_limited_team_tokens(resource, team_attributes, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY)
             continue
         previously_quota_limited_team_tokens = list_limited_team_attributes(
             resource,
@@ -1259,6 +1267,7 @@ def update_all_orgs_billing_quotas(
     todays_usage_report: dict[str, UsageCounters] = {}
     orgs_by_id: dict[str, Organization] = {}
     teams_by_org: dict[str, list[str]] = {}
+    team_ids_by_token: dict[str, int] = {}
 
     # we iterate through all teams, and add their usage to the organization they belong to
     for team in teams:
@@ -1308,6 +1317,7 @@ def update_all_orgs_billing_quotas(
 
         if team.api_token:
             teams_by_org.setdefault(org_id, []).append(team.api_token)
+            team_ids_by_token[team.api_token] = team.id
 
     # Now we have the usage for all orgs for the current day
     # orgs_by_id is a dict of orgs by id (e.g. {"018e9acf-b488-0000-259c-534bcef40359": <Organization: 018e9acf-b488-0000-259c-534bcef40359>})
@@ -1367,6 +1377,7 @@ def update_all_orgs_billing_quotas(
     orgs_suspended_count = 0
     refresh_count = 0
     refresh_total_seconds = 0.0
+    recordings_transitioned_team_ids: set[int] = set()
 
     for org_id, todays_report in todays_usage_report.items():
         # Check and refresh DB connections if needed on every iteration.
@@ -1414,6 +1425,20 @@ def update_all_orgs_billing_quotas(
                 )
                 for resource in QuotaResource:
                     if resource == QuotaResource.MOBILE_RECORDINGS and not mobile_recordings_enforcement_enabled:
+                        # Flag-off must also lift an existing mobile limit: a token left in
+                        # the mobile zset keeps capture dropping mobile sessions after the
+                        # org leaves the rollout.
+                        org_mobile_tokens = set(teams_by_org.get(org_id, []))
+                        for token in previously_recordings_zset_tokens[resource.value] & org_mobile_tokens:
+                            team_id = team_ids_by_token.get(token)
+                            if team_id is not None:
+                                recordings_transitioned_team_ids.add(team_id)
+                        remove_limited_team_tokens(
+                            resource, teams_by_org.get(org_id, []), QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                        )
+                        remove_limited_team_tokens(
+                            resource, teams_by_org.get(org_id, []), QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
+                        )
                         continue
                     field = resource.value
                     # for each organization, we check if the current usage + today's unreported usage is over the limit
@@ -1484,7 +1509,6 @@ def update_all_orgs_billing_quotas(
 
     quota_limited_teams: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
     quota_limiting_suspended_teams: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
-    recordings_transitioned_team_ids: set[int] = set()
     recordings_fields = {QuotaResource.RECORDINGS.value, QuotaResource.MOBILE_RECORDINGS.value}
 
     # Convert the org ids to team tokens
