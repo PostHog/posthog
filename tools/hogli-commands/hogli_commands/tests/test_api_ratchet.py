@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+import yaml
 from click.testing import CliRunner, Result
 from hogli_commands import api_ratchet
 from hogli_commands.api_ratchet import ApiRequestResolver, Ratchet, cmd_lint_api_ratchet, read_baseline
@@ -197,6 +198,10 @@ def _write_repo(
     (root / "products/workflows/frontend/generated/api.ts").write_text(GENERATED_WORKFLOWS)
     (root / api_ratchet.CORE_GENERATED).parent.mkdir(parents=True, exist_ok=True)
     (root / api_ratchet.CORE_GENERATED).write_text(GENERATED_CORE)
+    rule = root / api_ratchet.SEMGREP_RULE
+    rule.parent.mkdir(parents=True, exist_ok=True)
+    rule.write_text(f"rules:\n{api_ratchet.SEMGREP_BEGIN}\n{api_ratchet.SEMGREP_END}\n")
+    api_ratchet.write_semgrep_rules(root, Ratchet(root))
     if baseline is not None:
         (root / api_ratchet.BASELINE).write_text(baseline)
 
@@ -407,6 +412,97 @@ class TestBaselineFixModes:
         assert result.exit_code == 0
         assert "grandfathers new debt" in result.output
         assert runner.invoke(cmd_lint_api_ratchet, []).exit_code == 0
+
+
+class TestNamespaceMembers:
+    # alerts() branches on an optional id, so api.alerts.list() must get the collection
+    # route and not the detail one, or the report names the wrong generated function.
+    def test_a_member_gets_the_route_its_arguments_select(self, tmp_path: Path) -> None:
+        api_ts = API_TS_FIXTURE.replace(
+            "const api = {",
+            "const api = {\n"
+            "    alerts: {\n"
+            "        async list(): Promise<any> {\n"
+            "            return await new ApiRequest().alerts().get()\n"
+            "        },\n"
+            "        async get(alertId: string): Promise<any> {\n"
+            "            return await new ApiRequest().alerts(alertId).get()\n"
+            "        },\n"
+            "    },",
+        ).replace(
+            "    public hogFlows(): ApiRequest {",
+            "    public alerts(alertId?: string, teamId?: TeamType['id']): ApiRequest {\n"
+            "        if (alertId) {\n"
+            "            return this.projectsDetail(teamId).addPathComponent('alerts').addPathComponent(alertId)\n"
+            "        }\n"
+            "        return this.projectsDetail(teamId).addPathComponent('alerts')\n"
+            "    }\n\n"
+            "    public hogFlows(): ApiRequest {",
+        )
+        _write_repo(tmp_path, api_ts=api_ts)
+        members = Ratchet(tmp_path).namespace_members()
+        assert members["alerts.list"].template == ("projects", "{}", "alerts")
+        assert members["alerts.get"].template == ("projects", "{}", "alerts", "{}")
+
+
+class TestMemberTransports:
+    # A member that sends through a wrapper used to be dropped, which hid the call from
+    # the report while the semgrep rule still flagged it.
+    def test_a_wrapper_counts_as_its_verb_and_an_unknown_one_is_reported(self, tmp_path: Path) -> None:
+        api_ts = API_TS_FIXTURE.replace(
+            "    signalReports: {",
+            "    signalReports: {\n"
+            "        async paginated(): Promise<any> {\n"
+            "            const url = new ApiRequest().signalReports().assembleFullUrl()\n"
+            "            return await api.loadPaginatedResults(url)\n"
+            "        },\n"
+            "        async streamed(): Promise<any> {\n"
+            "            return await api.stream(new ApiRequest().signalReports().assembleFullUrl(), {})\n"
+            "        },",
+        )
+        _write_repo(tmp_path, api_ts=api_ts)
+        members = Ratchet(tmp_path).namespace_members()
+        assert members["signalReports.paginated"].method == "GET"
+        # api.stream takes its method as a per-call option, so it stays unrecognized.
+        assert members["signalReports.streamed"].method == ""
+        assert members["signalReports.streamed"].transport == "stream"
+
+
+class TestSemgrepRules:
+    def test_rules_are_scoped_to_the_owning_product(self, tmp_path: Path) -> None:
+        _write_repo(tmp_path)
+        parsed = yaml.safe_load((tmp_path / api_ratchet.SEMGREP_RULE).read_text())
+        by_id = {rule["id"]: rule for rule in parsed["rules"]}
+        assert sorted(by_id) == [
+            "prefer-codegen-api-namespaced-signals",
+            "prefer-codegen-api-namespaced-workflows",
+        ]
+        signals = by_id["prefer-codegen-api-namespaced-signals"]
+        assert signals["paths"]["include"] == ["/products/signals/frontend/"]
+        assert signals["severity"] == "WARNING"
+        # Both nesting depths, so api.signalScout.runs.list() cannot slip through.
+        assert signals["pattern-either"] == [
+            {"pattern": "api.signalReports.$METHOD(...)"},
+            {"pattern": "api.signalReports.$MEMBER.$METHOD(...)"},
+        ]
+        # A namespace only the core client covers belongs to no product, so no rule.
+        assert "prefer-codegen-api-namespaced-core" not in by_id
+
+    def test_the_check_fails_when_the_committed_rules_are_stale(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write_repo(
+            tmp_path,
+            baseline=_baseline_lines(
+                "hogFlows", "propertyDefinitions", "organizationMembers", "signalReport", "signalReports"
+            ),
+        )
+        rule = tmp_path / api_ratchet.SEMGREP_RULE
+        rule.write_text(rule.read_text().replace("api.signalReports.$METHOD(...)", "api.somethingElse.$METHOD(...)"))
+        monkeypatch.setattr(api_ratchet, "REPO_ROOT", tmp_path)
+        result = runner.invoke(cmd_lint_api_ratchet, [])
+        assert result.exit_code == 1
+        assert "--write-semgrep" in result.output
 
 
 class TestCommand:
