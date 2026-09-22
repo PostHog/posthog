@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { type ReactNode, useEffect } from 'react'
 
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -28,7 +28,7 @@ import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
 import { NotebookWidgetTrustControls } from './NotebookWidgetTrustControls'
 import { getNotebookWidgetTrust, notebookWidgetTrustLogic } from './notebookWidgetTrustLogic'
 import { WidgetArtifactFrame } from './WidgetArtifactFrame'
-import { DEFAULT_WIDGET_MODEL, isWidgetModel, type WidgetModel } from './widgetModels'
+import { DEFAULT_WIDGET_MODEL, WIDGET_MODEL_OPTIONS, isWidgetModel, type WidgetModel } from './widgetModels'
 
 export type NotebookNodeGeneratedWidgetAttributes = {
     id?: string
@@ -132,7 +132,7 @@ function ExpandedWidget({
         setRuntimeError,
     } = useActions(logic)
     const { trustBuild } = useActions(trustLogic)
-    const { setMenuItems } = useActions(nodeLogic)
+    const { setMenuItems, updateAttributes } = useActions(nodeLogic)
     const selectedBuildHash =
         selectedVersionId === status?.current_version_id
             ? (status?.build_hash ?? null)
@@ -508,6 +508,15 @@ function ExpandedWidget({
                 {isEditable ? (
                     <>
                         <NotebookWidgetBetaNotice />
+                        <LemonSelect
+                            value={model}
+                            options={WIDGET_MODEL_OPTIONS}
+                            onChange={(model) => updateAttributes({ model })}
+                            disabled={generationRequestLoading}
+                            aria-label="Model"
+                            data-attr="widget-preview-model-select"
+                            className="max-w-full"
+                        />
                         <LemonButton
                             type="primary"
                             onClick={() => generateWidget(initialPrompt, model, 'initial')}
