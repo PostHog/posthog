@@ -1,5 +1,9 @@
 # Long-running agent evals: framework plan, instance one (the API-quality scout)
 
+This document records the round-1 design.
+For the proposed reusable environments, current decisions, and remaining work, see [Reusable scout environments](REUSABLE_ENVIRONMENTS.md).
+That proposal replaces live shared project state with a saved case restored into an isolated project for each trial.
+
 ## Question
 
 For one agent task, which model and prompt version does the job best per dollar, and can a prompt change be shown to fix one weakness without breaking the rest?

@@ -154,12 +154,19 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
         iteration.refresh_from_db()
         assert iteration.parent_suggestion_id is None
 
-    def test_record_iteration_rejects_foreign_parent_suggestion(self):
-        other_pipeline = AutoresearchPipeline.objects.create(
-            team=self.team, created_by=self.user, name="Other", target_event="$pageview", horizon_days=7
-        )
+    @parameterized.expand([("foreign",), ("dismissed",)])
+    def test_record_iteration_rejects_an_unusable_parent_suggestion(self, case: str):
+        pipeline = self.pipeline
+        if case == "foreign":
+            pipeline = AutoresearchPipeline.objects.create(
+                team=self.team, created_by=self.user, name="Other", target_event="$pageview", horizon_days=7
+            )
         foreign = AutoresearchSuggestion.objects.create(
-            pipeline=other_pipeline, created_by=self.user, prompt="foreign", source=AutoresearchSuggestion.Source.USER
+            pipeline=pipeline,
+            created_by=self.user,
+            prompt="foreign",
+            source=AutoresearchSuggestion.Source.USER,
+            status="dismissed" if case == "dismissed" else "queued",
         )
         run_id = self._open_run()
         resp = self.client.post(

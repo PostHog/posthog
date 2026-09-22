@@ -12,6 +12,7 @@ from django.core.cache import cache
 from django.db import connection
 from django.db.models import F
 from django.test.utils import CaptureQueriesContext
+from django.urls import reverse
 from django.utils import timezone
 
 from dateutil import parser
@@ -9031,6 +9032,36 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert response.json()["attr"] == expected_attr
+
+    @parameterized.expand(
+        [
+            ("flag_on_for_staff_only", "staff", status.HTTP_200_OK),
+            ("flag_on_for_customer_only", "customer", status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_flag_is_evaluated_for_the_impersonating_staff_user(
+        self, _name: str, flag_on_for: str, expected_status: int
+    ) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        customer = User.objects.create_and_join(self.organization, "setup-context-customer@example.com", None)
+        flag_distinct_id = str(self.user.distinct_id if flag_on_for == "staff" else customer.distinct_id)
+        self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": customer.id}),
+            data={"read_only": "true", "reason": "Setup context support ticket"},
+            format="multipart",
+        )
+        assert self.client.get("/api/users/@me/").json()["email"] == customer.email
+
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda key, distinct_id, *args, **_: (
+                key == EXPERIMENT_SETUP_CONTEXT_FLAG and distinct_id == flag_distinct_id
+            ),
+        ):
+            response = self.client.post(f"/api/projects/{self.team.id}/experiments/setup_context/", {}, format="json")
+
+        assert response.status_code == expected_status, response.content
 
     def test_omits_experiments_the_user_cannot_access(self) -> None:
         other_user = self._create_user("setup-context-other@posthog.com")

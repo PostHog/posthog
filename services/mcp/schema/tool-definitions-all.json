@@ -4635,6 +4635,22 @@
             "readOnlyHint": true
         }
     },
+    "experiment-migrate": {
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Only for experiments where is_legacy is true.\n\nMove a legacy experiment onto the new experiments engine. This creates a NEW experiment with the same configuration and its metrics converted to the new format, and returns it. The legacy experiment is left untouched and keeps its results, so the project ends up with two experiments. Both point at the same feature flag, so no new rollout is needed and users keep the variant they already have. Tell the user about the second experiment before you call this.\n\nLegacy shared metrics used by the experiment are converted too. Each one gets a new shared metric, and the new experiment links to that. The legacy shared metrics stay where they are.\n\nCalling this again returns the experiment created the first time instead of making another copy.\n\nReturns 400 if the experiment already uses the new engine.\n\nNo request body needed.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Migrate legacy experiment",
+        "title": "Migrate legacy experiment",
+        "required_scopes": ["experiment:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "experiment-migrate-mcp-tool",
+        "feature_flag_behavior": "enable"
+    },
     "experiment-pause": {
         "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nPause a running experiment by deactivating its feature flag (sets flag active=false). The flag is no longer returned by the /decide endpoint, so users fall back to the application default (typically control). No new exposure events are recorded while paused. The experiment stays in running status — it is not ended.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), already stopped (\"Experiment has already ended.\"), no linked flag (\"Experiment does not have a feature flag linked.\"), or already paused (\"Experiment is already paused.\").\n\nNo request body needed. Use resume to reactivate.",
         "category": "Experiments",
@@ -10775,7 +10791,7 @@
         }
     },
     "scout-runs-emissions-list": {
-        "description": "Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit with its `description` (the finding text as surfaced), `confidence`, `severity`, `tags`, and the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal. Use this to see *what* a run actually surfaced, not just how many (`emitted_count`) or which ids (`emitted_finding_ids`). Strictly team-scoped — a run UUID belonging to another team returns 404.",
+        "description": "Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit with its `description` (the finding text as surfaced), `severity`, `tags`, and the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal. Use this to see *what* a run actually surfaced, not just how many (`emitted_count`) or which ids (`emitted_finding_ids`). Strictly team-scoped — a run UUID belonging to another team returns 404.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List a scout run's emitted findings",
@@ -10803,7 +10819,7 @@
         }
     },
     "scout-runs-recent-emissions": {
-        "description": "Return the team's recently emitted scout findings across *every* `SignalScoutRun`, newest first — the cross-run counterpart to `scout-runs-emissions-list` (which is scoped to one run). Each row carries its `run_id`, `description` (the finding text as surfaced), `confidence`, `severity`, `tags`, and the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`). Use this to answer \"what has the fleet surfaced lately?\" in one call instead of listing runs and fanning out an emissions request per run. Pass `skill_name` to scope to a single scout, and `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to walk back past the cap. Capped at 200 rows (default 50). Strictly team-scoped.",
+        "description": "Return the team's recently emitted scout findings across *every* `SignalScoutRun`, newest first — the cross-run counterpart to `scout-runs-emissions-list` (which is scoped to one run). Each row carries its `run_id`, `description` (the finding text as surfaced), `severity`, `tags`, and the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`). Use this to answer \"what has the fleet surfaced lately?\" in one call instead of listing runs and fanning out an emissions request per run. Pass `skill_name` to scope to a single scout, and `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to walk back past the cap. Capped at 200 rows (default 50). Strictly team-scoped.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List recent emitted findings across all scout runs",
