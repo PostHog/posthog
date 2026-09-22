@@ -1016,7 +1016,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             ("valid_bracket", "{person.properties['self-serve']}", False),
             ("hyphenated_single", "{person.properties.self-serve}", True),
             ("hyphenated_multi", "{event.properties.multi-word-name}", True),
-            ("subtraction_with_spaces", "{event.properties.count - total}", False),
+            ("subtraction_with_spaces", "{event.properties.count - inputs.total}", False),
             ("subtraction_field_minus_field", "{event.properties.amount - event.properties.discount}", False),
         ]
     )
@@ -1049,10 +1049,11 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert rewritten == expected
 
     def test_record_alias_not_rewritten_without_dwh_source(self):
-        # Without a warehouse source, `record` is left untouched (compiles like any other global).
-        untouched = generate_template_bytecode("{record.name}", set(), function_type="destination", is_dwh_source=False)
-        rewritten = generate_template_bytecode("{record.name}", set(), function_type="destination", is_dwh_source=True)
-        assert untouched != rewritten
+        # Without a warehouse source there is no `record` global at run time, so it is refused like any other.
+        with self.assertRaises(Exception) as ctx:
+            generate_template_bytecode("{record.name}", set(), function_type="destination", is_dwh_source=False)
+        assert "Variable not available in inputs: record" in str(ctx.exception)
+        assert generate_template_bytecode("{record.name}", set(), function_type="destination", is_dwh_source=True)
 
     def test_record_alias_rewriter_only_touches_record_fields(self):
         # AST-level: a `record` field is rewritten; a non-record field and a same-named string

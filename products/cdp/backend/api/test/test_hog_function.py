@@ -2683,6 +2683,32 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ),
         }
 
+    def test_destination_rejects_inputs_referencing_unavailable_globals(self):
+        # `{distinct_id}` reads like a shortcut for `{event.distinct_id}`, saves, and then fails on
+        # every event because the runtime has no such global.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "inputs": {**EXAMPLE_FULL["inputs"], "url": {"value": "https://example.com/{distinct_id}"}},
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "inputs__url"
+        assert response.json()["detail"] == (
+            "Invalid template: Variable not available in inputs: distinct_id. Inputs can read event, person, "
+            "groups, project, source and inputs, and in a workflow also variables."
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "inputs": {**EXAMPLE_FULL["inputs"], "url": {"value": "https://example.com/{event.distinct_id}"}},
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
     def test_limits_transformation_functions_per_team(self):
         """Test that we can create unlimited disabled transformations but only 20 enabled ones"""
         # 1. Create several disabled transformations (more than the limit)

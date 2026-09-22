@@ -372,6 +372,8 @@ FILTER_GLOBALS: set[str] = set(_RUNTIME["roots"]) | set(_RUNTIME["callables"])
 FILTER_FUNCTIONS: dict[str, tuple[int, Optional[int]]] = {
     name: (arity[0], arity[1]) for name, arity in _RUNTIME["functions"].items()
 }
+# Input templates run against the invocation globals, a different shape from the flattened filter globals.
+TEMPLATE_GLOBALS: set[str] = set(_RUNTIME["template_roots"])
 
 _UNKNOWN_GLOBAL = "Unknown global variable: "
 

@@ -260,8 +260,11 @@ export const formatHogInput = async (
             throw error ?? result?.error
         }
         if (!result?.finished) {
-            // NOT ALLOWED
-            throw new Error(`Could not execute bytecode for input field: ${key}`)
+            // An uncaught hog exception comes back as an unfinished run with the error attached. Without
+            // the cause the log only says which field, and a template that reads a missing global looks
+            // the same as one that hit a real bug.
+            const cause = result?.error?.message ? `: ${result.error.message}` : ''
+            throw new Error(`Could not execute bytecode for input field: ${key}${cause}`)
         }
         return convertHogToJS(result.result)
     }

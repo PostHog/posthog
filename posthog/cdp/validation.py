@@ -16,7 +16,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
+from posthog.cdp.filters import TEMPLATE_GLOBALS, compile_filters_bytecode, compile_filters_expr
 from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration
 
 from products.cdp.backend.models.hog_functions.hog_function import (
@@ -296,6 +296,12 @@ class TransformationGlobalsValidator(TraversingVisitor):
         self._runtime_functions = (
             runtime_functions if runtime_functions is not None else TRANSFORMATION_RUNTIME_FUNCTIONS
         )
+        self._lambda_args: list[str] = []
+
+    def visit_lambda(self, node: ast.Lambda):
+        self._lambda_args.extend(node.args)
+        super().visit_lambda(node)
+        del self._lambda_args[len(self._lambda_args) - len(node.args) :]
 
     def visit_field(self, node: ast.Field):
         super().visit_field(node)
@@ -303,7 +309,8 @@ class TransformationGlobalsValidator(TraversingVisitor):
             return
         root = str(node.chain[0])
         if (
-            root in self._available_globals
+            root in self._lambda_args
+            or root in self._available_globals
             or root in self._runtime_functions
             or root in CORE_SUPPORTED_FUNCTIONS
             or root in PRODUCT_ASYNC_FUNCTIONS
@@ -481,6 +488,20 @@ def generate_template_bytecode(
                 raise Exception(
                     f"Variable not available in log transformations: {names}. "
                     f"Log transformations only have access to project, record, and inputs."
+                )
+        elif function_type is not None:
+            # Every other type resolves its inputs against the invocation globals at run time, where a
+            # name outside them fails on every event. `record` was rewritten to `event.properties` above.
+            template_validator = TransformationGlobalsValidator(
+                available_globals=TEMPLATE_GLOBALS, runtime_functions=set()
+            )
+            template_validator.visit(node)
+            if template_validator.invalid_globals:
+                names = ", ".join(sorted(template_validator.invalid_globals))
+                raise Exception(
+                    f"Variable not available in inputs: {names}. "
+                    f"Inputs can read event, person, groups, project, source and inputs, and in a workflow "
+                    f"also variables."
                 )
         return create_bytecode(node).bytecode
     else:
