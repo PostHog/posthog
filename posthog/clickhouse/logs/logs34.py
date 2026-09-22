@@ -364,12 +364,13 @@ AS {KAFKA_LOGS34_AVRO_MV_SELECT()}
 
 def LOGS34_TO_VOLUME_BUCKETS_MV_SELECT():
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
-    # Groups rows exactly like _rollup_sql in
+    # Groups rows like _rollup_sql in
     # products/logs/backend/temporal/volume_tick/aggregation.py, which carries
-    # the reasoning for the environment fallback and severity lowercasing. The
-    # 300s grid literal is frozen into the DDL at migration time; BUCKET_SECONDS
-    # there must stay equal to it or the detector reads buckets this MV never
-    # writes.
+    # the reasoning for the environment fallback and severity lowercasing.
+    # `retention_days` is the one dimension this MV adds on top of that
+    # grouping. The 300s grid literal is frozen into the DDL at migration time;
+    # BUCKET_SECONDS there must stay equal to it or the detector reads buckets
+    # this MV never writes.
     #
     # `retention_days` re-derives what the ingest path applied to this row,
     # because logs34 keeps the resulting expiry rather than the input. It feeds

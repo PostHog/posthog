@@ -1,4 +1,4 @@
-"""Derived from the declarative HCL by posthog/clickhouse/hcl/codegen/gen_migration.py.
+"""Written in the shape posthog/clickhouse/hcl/codegen/gen_migration.py emits for the declarative HCL.
 
 The sorting key statement is hand-written: codegen reports a key change as a
 recreate, but ClickHouse accepts a column appended to the sorting key when the
@@ -14,9 +14,8 @@ from posthog.clickhouse.logs import LOGS34_TO_VOLUME_BUCKETS_MV_SELECT
 DB = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 
 # Rows written before this migration read as `retention_days` 0, so they keep
-# the 42 day floor. The primary key stays the six dimensions it already covers:
-# MODIFY ORDER BY leaves it alone, and declaring it holds a table created from
-# scratch identical to one this migration altered.
+# the 42 day floor. MODIFY ORDER BY leaves the primary key alone, so the six
+# dimensions it already covers stay the primary key.
 ADD_RETENTION_DAYS = f"""
 ALTER TABLE {DB}.logs_volume_buckets
     ADD COLUMN IF NOT EXISTS retention_days UInt16 AFTER severity_text,

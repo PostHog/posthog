@@ -26,6 +26,11 @@ from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, 
 # key: a team that changes retention gets new series rather than rows whose TTL
 # depends on merge order. With ttl_only_drop_parts a part waits for its longest
 # lived row, so mixed retentions round up, never down.
+#
+# PRIMARY KEY stops before `retention_days`. The six dimensions ahead of it
+# already prune granules, and MODIFY ORDER BY on a live table leaves the
+# primary key at the columns the table was created with, so declaring it here
+# keeps a table created from scratch identical to one the migration altered.
 
 TABLE_NAME = "logs_volume_buckets"
 
