@@ -325,7 +325,12 @@ describe('supportTicketSceneLogic chatMessages mapping', () => {
             makeSupportComment({ id: 'sent', created_at: '2026-01-01T00:03:00Z' }),
         ])
 
-        expect(logic.values.deliveryStatusByMessageId).toEqual(new Map([['read', 'read'], ['sent', 'sent']]))
+        expect(logic.values.deliveryStatusByMessageId).toEqual(
+            new Map([
+                ['read', 'read'],
+                ['sent', 'sent'],
+            ])
+        )
     })
 })
 
