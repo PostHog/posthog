@@ -87,6 +87,9 @@ export const INGESTION_WARNING_TYPES = {
     invalid_group_set: { category: 'event', severity: 'error' },
     invalid_process_person_profile: { category: 'event', severity: 'warning' },
     invalid_event_when_process_person_profile_is_false: { category: 'event', severity: 'error' },
+    // 'info' because the team opted out of person processing, so this drop is the
+    // configured outcome and not a fault in the customer's payload.
+    event_dropped_person_processing_disabled: { category: 'event', severity: 'info' },
     event_dropped_too_old: { category: 'event', severity: 'info' },
 
     cookieless_team_disabled: { category: 'event', severity: 'error' },

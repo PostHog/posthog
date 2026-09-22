@@ -48,6 +48,7 @@ from products.tracing.backend.error_counts import (
     count_span_exceptions as _count_span_exceptions,
     count_trace_exceptions as _count_trace_exceptions,
 )
+from products.tracing.backend.impact_query_runner import run_impact_query as _run_impact_query
 from products.tracing.backend.latency_heatmap_query_runner import (
     run_latency_heatmap_query as _run_latency_heatmap_query,
 )
@@ -84,6 +85,24 @@ def run_count_query(
 ) -> TraceSpansQueryResponse | CachedTraceSpansQueryResponse:
     """Run a cheap scalar count of trace spans matching the given filters."""
     return _run_count_query(
+        team=team,
+        date_range=date_range,
+        service_names=service_names,
+        status_codes=status_codes,
+        filter_group=filter_group,
+    )
+
+
+def run_impact_query(
+    *,
+    team: "Team",
+    date_range: DateRange,
+    service_names: list[str] | None = None,
+    status_codes: list[int] | None = None,
+    filter_group: PropertyGroupFilter | None = None,
+) -> TraceSpansQueryResponse | CachedTraceSpansQueryResponse:
+    """Run the sessions/people aggregates for the spans matching the given filters."""
+    return _run_impact_query(
         team=team,
         date_range=date_range,
         service_names=service_names,

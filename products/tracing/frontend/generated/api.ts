@@ -31,6 +31,8 @@ import type {
     _TracingDurationHistogramRequestApi,
     _TracingErrorCountsRequestApi,
     _TracingErrorCountsResponseApi,
+    _TracingImpactRequestApi,
+    _TracingImpactResponseApi,
     _TracingLatencyHeatmapRequestApi,
     _TracingLatencyHeatmapResponseApi,
     _TracingQueryRequestApi,
@@ -233,6 +235,23 @@ export const tracingSpansHasSpansRetrieve = async (
     return apiMutator<_HasSpansResponseApi>(getTracingSpansHasSpansRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTracingSpansImpactCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/impact/`
+}
+
+export const tracingSpansImpactCreate = async (
+    projectId: string,
+    _tracingImpactRequestApi: _TracingImpactRequestApi,
+    options?: RequestInit
+): Promise<_TracingImpactResponseApi> => {
+    return apiMutator<_TracingImpactResponseApi>(getTracingSpansImpactCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingImpactRequestApi),
     })
 }
 
