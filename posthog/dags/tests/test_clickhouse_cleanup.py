@@ -1192,8 +1192,7 @@ class _FakeQueueConnection:
 
 @pytest.mark.parametrize("pgcode", ["55P03", "40P01"])
 def test_a_queue_write_conflict_is_retried_rather_than_failing_the_sweep(pgcode, monkeypatch):
-    # The drain deletes from this table while the sweep writes it. Before the retry a single lock
-    # conflict failed the whole weekly run.
+    # A single lock conflict with the drain would otherwise fail the whole weekly sweep.
     monkeypatch.setattr(clickhouse_cleanup.time, "sleep", lambda _: None)
     attempts = []
 

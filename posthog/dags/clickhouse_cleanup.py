@@ -1096,8 +1096,8 @@ def delete_orphaned_distinct_ids(
     )
 
 
-# The drain deletes from this table while we write to it. Its statements are sub-millisecond, so a
-# wait here is brief, but a lock_timeout would otherwise fail the whole weekly sweep.
+# The drain deletes from this table while we write it, and a lock conflict would otherwise fail
+# the whole weekly sweep.
 PG_QUEUE_CONFLICT_CODES = frozenset({"55P03", "40P01"})
 PG_QUEUE_RETRY_WINDOW_SECONDS = 300.0
 PG_QUEUE_RETRY_BACKOFF_SECONDS = 1.0
@@ -1131,9 +1131,8 @@ def _write_queue_page(
             remaining = deadline - time.monotonic()
             if getattr(exc, "pgcode", None) not in PG_QUEUE_CONFLICT_CODES or remaining <= 0:
                 raise
-            # The failed statement aborted the transaction, so the page has to start over. The
-            # upsert is idempotent and its WHERE guard leaves unchanged rows alone, so a replay
-            # writes no extra tuple versions.
+            # The failed statement aborted the transaction, so the page starts over. Its WHERE
+            # guard leaves unchanged rows alone, so a replay writes no extra tuple versions.
             connection.rollback()
             pause = min(PG_QUEUE_RETRY_BACKOFF_SECONDS * 2**retries, 30.0, remaining)
             retries += 1
@@ -1201,9 +1200,8 @@ def persist_deleted_persons(
             # open on the persons writer; the per-page upsert is idempotent, so a retry is safe.
             cursor.execute("SET statement_timeout = '120s'")
             cursor.execute("SET lock_timeout = '10s'")
-            # SET is transactional. Without this commit a retry's rollback would revert all three,
-            # and the role's own lock_timeout is 0, so the next conflict would wait out
-            # statement_timeout while holding a page of row locks.
+            # SET is transactional, so without this commit a retry's rollback reverts all three.
+            # The role's own lock_timeout is 0, which would leave the next conflict unbounded.
             persons_database.commit()
             while True:
                 page = cluster.any_host_by_role(partial(read_page, after=after), NodeRole.DATA).result()
