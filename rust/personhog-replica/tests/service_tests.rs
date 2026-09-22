@@ -4,8 +4,8 @@ use common::TestContext;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
-    DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest,
-    DeleteTombstonedPersonsRequest, GetDistinctIdsForPersonRequest,
+    DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest, DeletePersonsMode,
+    DeletePersonsRequest, DeleteTombstonedPersonsRequest, GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsRequest,
@@ -1424,6 +1424,68 @@ async fn test_delete_tombstoned_persons_reports_each_outcome(
         20 - expected_trimmed
     );
 
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_tombstone_mode_reports_versions() {
+    let ctx = ServiceTestContext::new().await;
+    let person = ctx.insert_person("svc_tomb_mode", None).await.unwrap();
+
+    let response = ctx
+        .service
+        .delete_persons(Request::new(DeletePersonsRequest {
+            team_id: ctx.team_id,
+            person_uuids: vec![person.uuid.to_string()],
+            mode: DeletePersonsMode::Tombstone as i32,
+        }))
+        .await
+        .expect("RPC failed")
+        .into_inner();
+
+    assert_eq!(response.deleted_count, 1);
+    assert!(response.tombstoned);
+    assert_eq!(response.tombstones.len(), 1);
+    assert_eq!(response.tombstones[0].person_uuid, person.uuid.to_string());
+    assert_eq!(response.tombstones[0].version, 1);
+    assert_eq!(response.tombstones[0].distinct_ids.len(), 1);
+    assert_eq!(
+        response.tombstones[0].distinct_ids[0].distinct_id,
+        "svc_tomb_mode"
+    );
+    assert_eq!(response.tombstones[0].distinct_ids[0].version, 1);
+
+    // A hard delete reports no versions and removes the tombstone.
+    let response = ctx
+        .service
+        .delete_persons(Request::new(DeletePersonsRequest {
+            team_id: ctx.team_id,
+            person_uuids: vec![person.uuid.to_string()],
+            mode: DeletePersonsMode::Hard as i32,
+        }))
+        .await
+        .expect("RPC failed")
+        .into_inner();
+    assert_eq!(response.deleted_count, 1);
+    assert!(!response.tombstoned);
+    assert!(response.tombstones.is_empty());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_rejects_an_unknown_mode() {
+    let ctx = ServiceTestContext::new().await;
+    let status = ctx
+        .service
+        .delete_persons(Request::new(DeletePersonsRequest {
+            team_id: ctx.team_id,
+            person_uuids: vec![Uuid::now_v7().to_string()],
+            mode: 99,
+        }))
+        .await
+        .unwrap_err();
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
     ctx.cleanup().await.ok();
 }
 
