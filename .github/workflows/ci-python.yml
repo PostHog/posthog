@@ -451,6 +451,12 @@ jobs:
                         [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
                         pytest bin/test/test_granian_shared_socket.py -v --junitxml=junit-granian-shared-socket.xml
 
+                  - name: Run CI Docker wait helper tests
+                    shell: bash
+                    run: |
+                        [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
+                        pytest bin/test/test_ci_wait_for_docker.py -v --junitxml=junit-ci-wait-for-docker.xml
+
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
