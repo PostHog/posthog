@@ -108,12 +108,9 @@ export type MaxContextItem =
     | MaxNotebookContext
 
 /**
- * The insight fields Max's context needs.
- *
- * Scene context is held in `rawSceneContext`, which deep-compares its whole value on every scene
- * update, so an insight is narrowed to these fields before it gets there. Passing the model whole
- * would put `result` into that comparison and make a refresh that only changed results look like a
- * context change.
+ * The insight fields Max's context needs. `rawSceneContext` deep-compares its whole value, so
+ * narrowing here keeps `result` out of that comparison. Pass the model whole and a refresh that
+ * changed only results reads as a context change.
  */
 export type MaxContextInsight = Pick<
     Partial<InsightModel>,
@@ -193,8 +190,7 @@ export const createMaxContextHelpers = {
             name: dashboard.name,
             description: dashboard.description,
             filters: dashboard.filters,
-            // A dashboard scene offers its context before the tiles stream in, so `tiles` can
-            // still be unset here despite the type.
+            // A dashboard scene offers its context before its tiles load, so this can be unset.
             tiles: (dashboard.tiles ?? []).map((tile) => ({
                 insight: tile.insight ? pickInsightFields(tile.insight) : tile.insight,
             })),
