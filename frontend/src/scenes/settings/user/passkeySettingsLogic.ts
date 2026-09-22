@@ -164,6 +164,13 @@ export interface passkeySettingsLogicActions {
     openDeleteModal: (id: number) => {
         id: number
     }
+    openRenameModal: (
+        id: number,
+        currentLabel: string
+    ) => {
+        currentLabel: string
+        id: number
+    }
     prepareRegistration: () => any
     prepareRegistrationFailure: (
         error: string,
@@ -178,13 +185,6 @@ export interface passkeySettingsLogicActions {
     ) => {
         registrationOptions: RegistrationBeginResponse | null
         payload?: any
-    }
-    openRenameModal: (
-        id: number,
-        currentLabel: string
-    ) => {
-        currentLabel: string
-        id: number
     }
     renamePasskey: (
         id: number,

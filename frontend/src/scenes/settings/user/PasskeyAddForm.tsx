@@ -5,17 +5,9 @@ import { LemonBanner, LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui
 
 import { passkeySettingsLogic } from './passkeySettingsLogic'
 
-function RegistrationBanners(): JSX.Element | null {
+function RegistrationBanners(): JSX.Element {
     const { registrationStep, pendingVerificationId, error } = useValues(passkeySettingsLogic)
     const { clearError, verifyPasskey } = useActions(passkeySettingsLogic)
-
-    const showsStep =
-        registrationStep === 'complete' ||
-        registrationStep === 'verifying' ||
-        registrationStep === 'awaiting_verification'
-    if (!error && !showsStep) {
-        return null
-    }
 
     return (
         <>
