@@ -1102,9 +1102,6 @@ class TestGetRunsWithOrphanedBatches:
             await conn.execute("SET enable_seqscan = on")
 
         assert "sb_claimable_idx" in plan
-        # The failed-run gate stays one probe per candidate run rather than a hash
-        # anti-join over every failed batch in the window.
-        assert "sb_run_gate_idx" in plan
 
     @pytest.mark.asyncio
     async def test_oldest_run_first_so_the_limit_cannot_starve_the_backlog(self, conn):

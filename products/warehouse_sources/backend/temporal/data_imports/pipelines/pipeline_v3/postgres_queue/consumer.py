@@ -484,13 +484,20 @@ class DeltaBatchConsumerAdapter:
         """
         orphaned = await BatchQueue.get_runs_with_orphaned_batches(conn, limit=limit)
         for ref in orphaned:
-            drained = await BatchQueue.fail_run(
-                conn,
-                run_uuid=ref.run_uuid,
-                team_id=ref.team_id,
-                schema_id=ref.schema_id,
-                reason=ORPHANED_BATCH_ERROR,
-            )
+            try:
+                drained = await BatchQueue.fail_run(
+                    conn,
+                    run_uuid=ref.run_uuid,
+                    team_id=ref.team_id,
+                    schema_id=ref.schema_id,
+                    reason=ORPHANED_BATCH_ERROR,
+                )
+            except Exception as e:
+                if _is_transient_queue_connection_drop(e, conn):
+                    raise
+                logger.exception("orphaned_batch_drain_run_failed", run_uuid=ref.run_uuid)
+                capture_exception(e)
+                continue
             if drained:
                 ORPHANED_BATCHES_DRAINED_TOTAL.inc(drained)
                 logger.warning(
