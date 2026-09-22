@@ -1,7 +1,10 @@
+import re
 import dataclasses
 from dataclasses import asdict
 from datetime import timedelta
-from typing import Any
+from pathlib import Path
+from types import UnionType
+from typing import Any, Union, get_args, get_origin, get_type_hints
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
@@ -72,6 +75,46 @@ def _retention_metric(uuid: str, start_event: str = "signup", completion_event: 
         "start_event": {"kind": "EventsNode", "event": start_event},
         "completion_event": {"kind": "EventsNode", "event": completion_event},
     }
+
+
+def _payload_of_each_section() -> dict[str, Any]:
+    """Section name to the dataclass its `data` carries."""
+    return {
+        name: get_args(annotation)[0]
+        for name, annotation in get_type_hints(setup_context_module.ExperimentSetupContext).items()
+    }
+
+
+def _without_optional_and_list(annotation: Any) -> Any:
+    while True:
+        origin = get_origin(annotation)
+        if origin in (Union, UnionType):
+            present = [argument for argument in get_args(annotation) if argument is not type(None)]
+            if len(present) != 1:
+                return annotation
+            annotation = present[0]
+        elif origin is list:
+            annotation = get_args(annotation)[0]
+        else:
+            return annotation
+
+
+def _path_resolves(payload: Any, dotted_path: str) -> bool:
+    segments = [segment.removesuffix("[]") for segment in dotted_path.lstrip(".").split(".")]
+    if segments[0] == "status":
+        return len(segments) == 1
+    if segments[0] == "data":
+        segments = segments[1:]
+    current: Any = payload
+    for segment in segments:
+        current = _without_optional_and_list(current)
+        if not dataclasses.is_dataclass(current):
+            return False
+        field_types = get_type_hints(current)
+        if segment not in field_types:
+            return False
+        current = field_types[segment]
+    return True
 
 
 def _stored_result(
@@ -192,6 +235,39 @@ class TestResponseCoversEveryFact(SimpleTestCase):
         }
 
         assert declared - self.UNRENDERED == {dataclass_name for dataclass_name, _ in self.PAIRS}
+
+
+class TestSetupDecisionsNamesRealFields(SimpleTestCase):
+    """The creation skill tells an agent which fields to read, in prose beside the dataclasses.
+
+    A renamed or removed field leaves the skill naming a path that is never in the response, and
+    the agent reads null instead of the fact the rule needs. Nothing else connects the two, and a
+    skill is not exercised by any test that runs the endpoint. Checked against the dataclasses
+    rather than the serializer because `TestResponseCoversEveryFact` already ties those together.
+
+    One direction only: a field no rule reads is allowed, so adding one stays cheap.
+    """
+
+    DOC = Path(__file__).parents[2] / "skills" / "creating-experiments" / "references" / "setup-decisions.md"
+
+    def test_every_documented_field_path_resolves(self) -> None:
+        payloads = _payload_of_each_section()
+        section = "|".join(payloads)
+        field_segment = r"[a-z_][a-z0-9_]*(?:\[\])?"
+        field_paths = re.compile(rf"\b({section})((?:\.{field_segment})+)")
+
+        unknown = sorted(
+            {
+                match.group(0)
+                for match in field_paths.finditer(self.DOC.read_text())
+                if not _path_resolves(payloads[match.group(1)], match.group(2))
+            }
+        )
+
+        assert not unknown, (
+            f"{self.DOC.name} names fields the setup context does not return: {', '.join(unknown)}. "
+            "Update the skill to the field's new name, or drop the rule that reads it."
+        )
 
 
 class TestSdkProfile(ClickhouseTestMixin, APIBaseTest):
