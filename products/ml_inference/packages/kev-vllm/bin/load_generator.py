@@ -1,6 +1,6 @@
 """Closed-loop load test against a running server: N workers each send requests back to back.
 
-    python bin/load_test.py --base-url http://localhost:8000 --records build/parity-records.jsonl --concurrency 1 8 32 64
+    python bin/load_generator.py --base-url http://localhost:8000 --records build/parity-records.jsonl --concurrency 1 8 32 64
 
 Records are /v1/systemone requests (one per line). Prints requests per second and latency percentiles per
 concurrency level. Stdlib only, so it runs with any environment on the box.

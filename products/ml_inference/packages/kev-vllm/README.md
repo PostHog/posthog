@@ -87,7 +87,7 @@ Measured 2026-09-22 on a Lambda 2x H100 SXM instance (one GPU used), vLLM 0.29.0
 | Prefix cache reads                                                   | 0 (the plugin task skips the cache, and vLLM would not serve one for a hybrid pooling model anyway) |
 | Engine start after weights are on disk                               | 31 s                                                                                                |
 
-`bin/load_test.py` produced the throughput row: a closed loop of N workers over the parity records, stdlib only.
+`bin/load_generator.py` produced the throughput row: a closed loop of N workers over the parity records, stdlib only.
 
 ## Tests
 

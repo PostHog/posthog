@@ -29,7 +29,11 @@ export function DecisionPlaygroundScene(): JSX.Element {
     const { setState, addQuestion, removeQuestion, updateQuestion, askDecision } = useActions(decisionPlaygroundLogic)
 
     const answerRows = decision
-        ? Object.entries(decision.answers).map(([id, answer]) => ({ id, answer: answer as DecisionAnswerApi }))
+        ? Object.entries(decision.answers).map(([key, answer]) => ({
+              key,
+              question: questions.find((question) => question.key === key)?.instructions ?? key,
+              answer: answer as DecisionAnswerApi,
+          }))
         : []
 
     return (
@@ -86,9 +90,9 @@ export function DecisionPlaygroundScene(): JSX.Element {
                     <>
                         <LemonTable
                             dataSource={answerRows}
-                            rowKey="id"
+                            rowKey="key"
                             columns={[
-                                { title: 'Question', dataIndex: 'id', key: 'id' },
+                                { title: 'Question', dataIndex: 'question', key: 'question' },
                                 {
                                     title: 'Answer',
                                     key: 'answer',
@@ -124,10 +128,6 @@ function QuestionRow({
     return (
         <div className="flex flex-col gap-2 border rounded p-3">
             <div className="flex flex-wrap gap-2 items-end">
-                <div className="w-40">
-                    <LemonLabel>Id</LemonLabel>
-                    <LemonInput value={question.id} onChange={(id) => onChange({ id })} placeholder="urgent" />
-                </div>
                 <div className="w-44">
                     <LemonLabel>Answer type</LemonLabel>
                     <LemonSelect

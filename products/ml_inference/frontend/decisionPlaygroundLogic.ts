@@ -11,9 +11,8 @@ import type { DecideRequestApi, DecideResponseApi } from './generated/api.schema
 export type PlaygroundQuestionType = 'noul' | 'choice' | 'score'
 
 export interface PlaygroundQuestion {
-    /** Stable React key; the id is user-editable and must not drive identity while it is typed. */
+    /** Doubles as the question id on the wire, so it must stay stable while the question is edited. */
     key: string
-    id: string
     type: PlaygroundQuestionType
     instructions: string
     /** One option per line as `name: what it means`; only read for choice and score questions. */
@@ -25,10 +24,9 @@ export const EXAMPLE_STATE =
     'my accountant is closing the books tomorrow.'
 
 export const EXAMPLE_QUESTIONS: PlaygroundQuestion[] = [
-    { key: 'example-urgent', id: 'urgent', type: 'noul', instructions: 'Is this urgent?', criteria: '' },
+    { key: 'urgent', type: 'noul', instructions: 'Is this urgent?', criteria: '' },
     {
-        key: 'example-queue',
-        id: 'queue',
+        key: 'queue',
         type: 'choice',
         instructions: 'Which team should handle this?',
         criteria: 'billing: payments, invoices, refunds\nsupport: product questions and bugs',
@@ -54,7 +52,7 @@ export function buildDecideRequest(state: string, questions: PlaygroundQuestion[
         state,
         questions: Object.fromEntries(
             questions.map((question) => [
-                question.id,
+                question.key,
                 {
                     type: question.type,
                     instructions: question.instructions,
@@ -156,8 +154,7 @@ export const decisionPlaygroundLogic = kea<decisionPlaygroundLogicType>([
                 addQuestion: (questions) => [
                     ...questions,
                     {
-                        key: `question-${Date.now()}`,
-                        id: `question_${questions.length + 1}`,
+                        key: `question_${Date.now()}`,
                         type: 'noul' as const,
                         instructions: '',
                         criteria: '',
@@ -186,11 +183,8 @@ export const decisionPlaygroundLogic = kea<decisionPlaygroundLogicType>([
                 if (questions.length === 0) {
                     return 'Add at least one question'
                 }
-                if (questions.some((question) => !question.id.trim() || !question.instructions.trim())) {
-                    return 'Every question needs an id and instructions'
-                }
-                if (new Set(questions.map((question) => question.id)).size !== questions.length) {
-                    return 'Question ids must be unique'
+                if (questions.some((question) => !question.instructions.trim())) {
+                    return 'Every question needs some text'
                 }
                 return null
             },
