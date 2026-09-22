@@ -3,9 +3,10 @@
     kev-vllm-upload --src build/kev-4b --version <kev hub revision> --profile ml-prod-us-write
 
 Objects land under `posthog/<model>-vllm/<version>/`, one prefix per export, never overwritten: the upload refuses a
-prefix that already holds anything. Subdirectories go along, which is how the `parity/` fixture travels with the
-weights it was measured against. A `checksums.tsv` in the bucket's `_provenance/` layout records every file's sha256
-and size, so a consumer can verify what it fetched.
+prefix that already holds anything, and every write carries If-None-Match so S3 itself refuses to replace an object
+(412) whatever the client does. Subdirectories go along, which is how the `parity/` fixture travels with the weights
+it was measured against. A `checksums.tsv` in the bucket's `_provenance/` layout records every file's sha256 and size,
+so a consumer can verify what it fetched.
 """
 
 import argparse
@@ -16,13 +17,40 @@ import sys
 from pathlib import Path
 
 import boto3
-from boto3.s3.transfer import TransferConfig
+from botocore.exceptions import ClientError
 
 from kev_vllm.checkpoint import sha256_of
 
 # The ML training account's base-models bucket; named by the operator, not the public repo.
 BUCKET = os.environ.get("KEV_VLLM_BASE_MODELS_BUCKET", "")
 PROVENANCE_PREFIX = "_provenance"
+
+
+PART_SIZE = 256 * 1024**2
+SINGLE_PUT_LIMIT = 4 * 1024**3
+
+
+def put_create_once(s3, bucket: str, key: str, body, digest: str) -> None:
+    s3.put_object(Bucket=bucket, Key=key, Body=body, IfNoneMatch="*", ChecksumSHA256=base64.b64encode(bytes.fromhex(digest)).decode())
+
+
+def multipart_create_once(s3, bucket: str, key: str, path: Path) -> None:
+    """The high-level uploader cannot send If-None-Match, so the multipart dance is written out; only the completing
+    call carries the header, which is the one the bucket policy checks."""
+    upload_id = s3.create_multipart_upload(Bucket=bucket, Key=key)["UploadId"]
+    try:
+        parts = []
+        with path.open("rb") as f:
+            for number in range(1, 10_001):
+                chunk = f.read(PART_SIZE)
+                if not chunk:
+                    break
+                etag = s3.upload_part(Bucket=bucket, Key=key, UploadId=upload_id, PartNumber=number, Body=chunk)["ETag"]
+                parts.append({"PartNumber": number, "ETag": etag})
+        s3.complete_multipart_upload(Bucket=bucket, Key=key, UploadId=upload_id, MultipartUpload={"Parts": parts}, IfNoneMatch="*")
+    except BaseException:
+        s3.abort_multipart_upload(Bucket=bucket, Key=key, UploadId=upload_id)
+        raise
 
 
 def prefix_is_empty(s3, bucket: str, prefix: str) -> bool:
@@ -47,18 +75,17 @@ def upload(src: Path, bucket: str, prefix: str, profile: str | None) -> None:
         key = f"{prefix}{relative}"
         size = path.stat().st_size
         print(f"put s3://{bucket}/{key} ({size / 1e9:.2f} GB)", file=sys.stderr)
-        if size < 4 * 1024**3:
-            with path.open("rb") as body:
-                s3.put_object(Bucket=bucket, Key=key, Body=body, ChecksumSHA256=base64.b64encode(bytes.fromhex(digest)).decode())
-        else:
-            # Above the single PUT limit S3 checks each part; the whole-file sha256 is recorded in checksums.tsv.
-            s3.upload_file(
-                str(path),
-                bucket,
-                key,
-                ExtraArgs={"ChecksumAlgorithm": "SHA256"},
-                Config=TransferConfig(multipart_chunksize=256 * 1024**2, max_concurrency=8),
-            )
+        try:
+            if size < SINGLE_PUT_LIMIT:
+                with path.open("rb") as body:
+                    put_create_once(s3, bucket, key, body, digest)
+            else:
+                # Above the single PUT limit the whole-file sha256 is only recorded in checksums.tsv.
+                multipart_create_once(s3, bucket, key, path)
+        except ClientError as error:
+            if error.response.get("Error", {}).get("Code") == "PreconditionFailed":
+                raise SystemExit(f"s3://{bucket}/{key} already exists; a published version is never replaced") from error
+            raise
         head = s3.head_object(Bucket=bucket, Key=key)
         if head["ContentLength"] != size:
             raise SystemExit(f"size mismatch after upload for {key}")
@@ -68,7 +95,9 @@ def upload(src: Path, bucket: str, prefix: str, profile: str | None) -> None:
         f"exported {manifest.get('exported_at')}\n"
         "# columns: path<TAB>algo<TAB>expected_hash<TAB>size_bytes\n"
     )
-    s3.put_object(Bucket=bucket, Key=f"{PROVENANCE_PREFIX}/{prefix}checksums.tsv", Body=(header + "\n".join(rows) + "\n").encode())
+    s3.put_object(
+        Bucket=bucket, Key=f"{PROVENANCE_PREFIX}/{prefix}checksums.tsv", Body=(header + "\n".join(rows) + "\n").encode(), IfNoneMatch="*"
+    )
     print(f"done: s3://{bucket}/{prefix}", file=sys.stderr)
 
 

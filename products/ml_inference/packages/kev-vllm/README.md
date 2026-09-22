@@ -28,7 +28,7 @@ By hand, the same upload is:
 uv run kev-vllm-upload --src build/kev-4b --profile ml-prod-us-write
 ```
 
-Writes to `s3://<base-models bucket>/posthog/kev-4b-vllm/<kev Hub revision>/` (the bucket comes from `--bucket` or `KEV_VLLM_BASE_MODELS_BUCKET`) and a `checksums.tsv` under `_provenance/`. Subdirectories of the export go along, which is how the parity fixture travels with the weights. It refuses a prefix that already has content, so a new export is a new version. The profile needs write access to the ML training account.
+Writes to `s3://<base-models bucket>/posthog/kev-4b-vllm/<kev Hub revision>/` (the bucket comes from `--bucket` or `KEV_VLLM_BASE_MODELS_BUCKET`) and a `checksums.tsv` under `_provenance/`. Subdirectories of the export go along, which is how the parity fixture travels with the weights. It refuses a prefix that already has content, and every write carries `If-None-Match` so the bucket policy lets CI create objects but never replace them: a new export is a new version. The profile needs write access to the ML training account.
 
 When the export sits on a GPU box with a fast pipe and no AWS credentials, `bin/upload_via_box.py` publishes it from there: this machine creates the multipart upload, presigns one URL per part and per small file, the box PUTs them in parallel over ssh-delivered URLs, and this machine completes the upload and writes the provenance file. The 8.4 GB Kev-4B checkpoint took 37 seconds from a Lambda instance. The URLs must be SigV4; SigV2 signs the content type and fails with `SignatureDoesNotMatch`.
 

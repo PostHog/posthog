@@ -29,14 +29,17 @@ from concurrent.futures import ThreadPoolExecutor
 job = json.load(sys.stdin)
 root = job["root"]
 
-def put(url, data):
-    req = urllib.request.Request(url, data=data, method="PUT", headers={"Content-Type": "application/octet-stream"})
+def put(url, data, create_once=False):
+    headers = {"Content-Type": "application/octet-stream"}
+    if create_once:
+        headers["If-None-Match"] = "*"
+    req = urllib.request.Request(url, data=data, method="PUT", headers=headers)
     with urllib.request.urlopen(req, timeout=600) as resp:
         return resp.headers["ETag"]
 
 def put_file(item):
     with open(f"{root}/{item['name']}", "rb") as f:
-        return item["name"], put(item["url"], f.read())
+        return item["name"], put(item["url"], f.read(), create_once=True)
 
 def put_part(item):
     with open(f"{root}/{job['multipart']['name']}", "rb") as f:
@@ -91,7 +94,10 @@ def main() -> None:
     for name, meta in sorted(files.items()):
         key = prefix + name
         if meta["size_bytes"] < SINGLE_PUT_LIMIT:
-            url = s3.generate_presigned_url("put_object", Params={"Bucket": args.bucket, "Key": key}, ExpiresIn=args.expires)
+            # The signed request carries If-None-Match, so the box's PUT is a create-once write too.
+            url = s3.generate_presigned_url(
+                "put_object", Params={"Bucket": args.bucket, "Key": key, "IfNoneMatch": "*"}, ExpiresIn=args.expires
+            )
             job["files"].append({"name": name, "url": url})
         else:
             if big is not None:
@@ -117,7 +123,9 @@ def main() -> None:
         result = run_worker(args, job)
         if big is not None:
             etags = [{"PartNumber": int(n), "ETag": etag} for n, etag in sorted(result["parts"].items(), key=lambda kv: int(kv[0]))]
-            s3.complete_multipart_upload(Bucket=args.bucket, Key=prefix + big, UploadId=upload_id, MultipartUpload={"Parts": etags})
+            s3.complete_multipart_upload(
+                Bucket=args.bucket, Key=prefix + big, UploadId=upload_id, MultipartUpload={"Parts": etags}, IfNoneMatch="*"
+            )
     except BaseException:
         if upload_id is not None:
             s3.abort_multipart_upload(Bucket=args.bucket, Key=prefix + big, UploadId=upload_id)
@@ -135,7 +143,12 @@ def main() -> None:
         f"exported {manifest.get('exported_at')}, uploaded from a remote box via presigned URLs\n"
         "# columns: path<TAB>algo<TAB>expected_hash<TAB>size_bytes\n"
     )
-    s3.put_object(Bucket=args.bucket, Key=f"{PROVENANCE_PREFIX}/{prefix}checksums.tsv", Body=(header + "\n".join(rows) + "\n").encode())
+    s3.put_object(
+        Bucket=args.bucket,
+        Key=f"{PROVENANCE_PREFIX}/{prefix}checksums.tsv",
+        Body=(header + "\n".join(rows) + "\n").encode(),
+        IfNoneMatch="*",
+    )
     print(f"done: s3://{args.bucket}/{prefix} ({len(files)} files)")
 
 
