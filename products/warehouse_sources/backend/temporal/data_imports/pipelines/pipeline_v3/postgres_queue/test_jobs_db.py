@@ -1,6 +1,7 @@
 import re
 import time
 import asyncio
+from collections.abc import Coroutine
 from datetime import timedelta
 from typing import Any
 from uuid import uuid4
@@ -648,6 +649,7 @@ class TestLeaseLockOrder:
         batches = await _claim(conn, owner=OWNER_A, limit=50)
         assert len(batches) == len(self.GROUPS)
 
+        run: Coroutine[Any, Any, object]
         if statement == "claim":
             # Re-claiming has to lock the existing rows, so expire them rather than delete.
             await conn.execute(f"UPDATE {LEASE_TABLE} SET expires_at = now() - interval '1 second'")

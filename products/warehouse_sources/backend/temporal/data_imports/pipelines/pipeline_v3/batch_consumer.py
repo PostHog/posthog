@@ -8,6 +8,7 @@ from collections import defaultdict
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from datetime import datetime
+from functools import partial
 from typing import Any, Protocol, TypeVar
 from uuid import uuid4
 
@@ -672,7 +673,7 @@ class BatchConsumer:
                         batches = await self._with_queue_conn(
                             "_poll_conn",
                             "fetch_and_lock",
-                            lambda conn, available=available: self._fetch_batches(conn, available=available),
+                            partial(self._fetch_batches, available=available),
                         )
                     conn = await self._ensure_poll_conn()
                 except TimeoutError:
