@@ -307,9 +307,9 @@ tools:
         description: >
             Amounts accrued so far this billing period, before and after discount, per product, add-on and tier, with
             the two totals. An organization total, so it needs full billing access: owners always, and admins when
-            owner-only billing is off. Use it for "what have we spent so far this month"; for the projection to the end
-            of the period call billing-forecast-get, for history call billing-spend-get. Beta: behind the
-            organization-billing-api flag, and the output shape may change while it is.
+            owner-only billing is off. Use it for "what have we spent so far this month". For the projection to the
+            end of the period call billing-forecast-get, and for spend over time call billing-spend-timeseries-get.
+            Beta: behind the organization-billing-api flag, and the output shape may change while it is.
         feature_flag: organization-billing-api
         url_prefix: /organization/billing/spend
     billing-spend-timeseries-get:
@@ -323,14 +323,14 @@ tools:
             idempotent: true
         title: Get spend over time by project
         description: >
-            Spend over time on the organization billing API, the counterpart of billing-spend-get on the legacy route:
-            the same series, paged by limit and cursor and clipped to the projects the caller can see. Same dimensional
-            parameters as billing-usage-get, but values are dollar amounts rather than usage volumes. Requires billing
-            usage/spend read access: owners always, admins when owner-only billing is off, or members only when
-            owner-only billing is off and the org has the member read-only billing usage/spend flag enabled. This member
-            grant applies only to usage/spend, not billing-overview-get or billing admin actions. Use this to
-            investigate cost spikes, compare spend across periods, or attribute spend to specific products or teams.
-            Beta: behind the organization-billing-api flag, and the output shape may change while it is.
+            Spend over time as dollar amounts, per product and per project. Pages by limit and cursor, and returns only
+            the projects the caller can see. Needs usage read access. Owners always have it, and admins have it when
+            owner-only billing is off. Members have it when owner-only billing is off and the organization allows
+            member usage and spend reads.
+            That member grant covers the series only, not the totals on billing-spend-summary-get. Use it to
+            investigate a cost spike, compare periods, or attribute spend to products or projects. For spend so far
+            this period call billing-spend-summary-get, and for quantities call billing-usage-timeseries-get. Beta:
+            behind the organization-billing-api flag, and the output shape may change while it is.
         param_overrides:
             start_date:
                 description: >
@@ -499,13 +499,14 @@ tools:
             idempotent: true
         title: Get usage this billing period
         description: >
-            Usage so far this billing period: per usage key the usage, the limit in effect, today's usage where PostHog
-            tracks it and whether the resource is being limited right now, and per product and add-on the current usage,
-            limit, ratio and over-limit flag. Quantities only, with the date the usage was reported through. An
-            organization total, so it needs full billing access; billing-usage-timeseries-get reads the same numbers per
-            project with usage read, and billing-usage-status-get is the member's read. Use it for "how many events have
-            we used"; for amounts call billing-overview-get, for history call billing-usage-get. Beta: behind the
-            organization-billing-api flag, and the output shape may change while it is.
+            Usage so far this billing period. Per usage key it returns the usage, the limit in effect and today's
+            usage where PostHog tracks it. It also says whether PostHog is limiting the resource right now. Per product and add-on it
+            returns the current usage, limit, ratio and over-limit flag. It returns quantities only, with the last date
+            the usage reports cover. It is an organization total, so it needs full billing access.
+            billing-usage-timeseries-get reads the same numbers per project with usage read access, and
+            billing-usage-status-get is the read for members. Use it for "how many events have we used". For amounts
+            call billing-spend-summary-get, and for usage over time call billing-usage-timeseries-get. Beta: behind
+            the organization-billing-api flag, and the output shape may change while it is.
         feature_flag: organization-billing-api
         url_prefix: /organization/billing/usage
     billing-usage-team-options-retrieve:
@@ -522,14 +523,13 @@ tools:
             idempotent: true
         title: Get usage over time by project
         description: >
-            Usage over time on the organization billing API, the counterpart of billing-usage-get on the legacy route:
-            the same series, paged by limit and cursor and clipped to the projects the caller can see. Supports per-team
-            (project) and per-usage-type dimensions. Requires billing usage/spend read access: owners always, admins
-            when owner-only billing is off, or members only when owner-only billing is off and the org has the member
-            read-only billing usage/spend flag enabled. This member grant applies only to usage/spend, not
-            billing-overview-get or billing admin actions. Use this to investigate usage spikes, compare periods, or
-            attribute usage to specific projects. For a single-snapshot aggregate view call billing-overview-get when
-            the caller has full billing access; for cost (spend) breakdowns call billing-spend-get. Beta: behind the
+            Usage over time as quantities, per usage type and per project. Pages by limit and cursor, and returns only
+            the projects the caller can see. Needs usage read access. Owners always have it, and admins have it when
+            owner-only billing is off. Members have it when owner-only billing is off and the organization allows
+            member usage and spend reads.
+            That member grant covers the series only, not the totals on billing-usage-summary-get. Use it to
+            investigate a usage spike, compare periods, or attribute usage to projects. For usage so far this period
+            call billing-usage-summary-get, and for dollar amounts call billing-spend-timeseries-get. Beta: behind the
             organization-billing-api flag, and the output shape may change while it is.
         param_overrides:
             start_date:
