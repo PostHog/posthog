@@ -57,10 +57,7 @@ function outcomeLabel(outcome: JourneyLinkMeta['outcome'] | undefined): string |
     return outcome === 'error' ? 'Error' : 'Completed'
 }
 
-/** Shares are measured against every session in the cluster, not just the displayed top paths,
- *  so a subset of paths never reads as more than its real share. Link tooltips also name the
- *  outcome, because same-node pairs are split into a completed and an errored ribbon that would
- *  otherwise be indistinguishable except by color. */
+// Shares divide by every session in the cluster, not just the displayed top paths, so a subset never reads as 100%.
 function makeJourneyTooltip(totalSessions: number) {
     return function JourneyTooltip({ hit }: SankeyTooltipContext<JourneyNodeMeta, JourneyLinkMeta>): JSX.Element {
         const { title, value, color, outcome } =
