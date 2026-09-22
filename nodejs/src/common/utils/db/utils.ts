@@ -48,9 +48,8 @@ export function timeoutGuard(
         if (sendException) {
             // A bare string makes posthog-node synthesize a stack at the capture point, so every
             // timeout shares one frame and the type `Error`, and error tracking collapses unrelated
-            // callsites into a single issue. The Error name becomes the exception type that grouping
-            // keys on. It defaults to the message, which is static per callsite; callers pass an
-            // explicit type when their message carries dynamic values.
+            // callsites into one issue. The Error name is the exception type grouping keys on, so a
+            // distinct name per callsite keeps them apart.
             const error = new Error(message)
             error.name = exceptionType ?? message
             captureException(error, ctx ? { extra: ctx } : undefined)
