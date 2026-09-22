@@ -284,6 +284,7 @@ layer = "modules"
 [[modules]]
 path = "products.dashboards"
 depends_on = [
+    "products.notebooks",
     "ee",
     "posthog",
     "products.alerts",

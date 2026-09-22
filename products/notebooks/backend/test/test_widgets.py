@@ -16,6 +16,7 @@ from django.utils import timezone
 import httpx
 from anthropic import APIStatusError
 from parameterized import parameterized
+from rest_framework.exceptions import PermissionDenied
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team
@@ -35,7 +36,9 @@ from products.notebooks.backend.models import (
     GeneratedWidgetVersion,
     Notebook,
     NotebookNodeRun,
+    NotebookRun,
     NotebookWidgetInstance,
+    NotebookWidgetSnapshot,
 )
 from products.notebooks.backend.presentation.widget_serializers import WidgetGenerateRequestSerializer
 from products.notebooks.backend.presentation.widget_throttles import WidgetFrameBurstThrottle
@@ -65,9 +68,11 @@ from products.notebooks.backend.widget_models import (
     MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH,
     MAX_WIDGET_PROMPT_LENGTH,
 )
+from products.notebooks.backend.widget_snapshots import WidgetSnapshots
 from products.notebooks.backend.widgets import (
     JOB_STALE_AFTER,
     MAX_FRAME_BYTES,
+    WidgetConflictError,
     WidgetError,
     WidgetInputInspection,
     WidgetRateLimitError,
@@ -619,6 +624,112 @@ class TestWidgetData(APIBaseTest):
         version = instance.pinned_version
         assert version is not None
         return version
+
+    def test_dashboard_snapshot_keeps_rows_and_version_after_the_kernel_stops(self) -> None:
+        version = self._pinned_version(self._mapping())
+        run = self._run(value=1)
+        run.envelope = {"types": [["lat", "float64"]], "first_page": [[1]], "row_count": 3}
+        run.save(update_fields=["envelope"])
+        authorize = MagicMock()
+        snapshots = WidgetSnapshots(self.notebook, authorize)
+        with patch(
+            "products.notebooks.backend.widgets.fetch_sql_v2_page", return_value={"rows": [[2], [3]], "row_count": 3}
+        ) as fetch:
+            snapshot = snapshots.capture(self.NODE_ID, version.id)
+        assert fetch.call_args.kwargs == {"offset": 1, "limit": 500}
+        self._run(value=99)
+        with patch(
+            "products.notebooks.backend.widgets.fetch_sql_v2_page", side_effect=AssertionError("must not use kernel")
+        ):
+            saved = snapshots.get(snapshot.id)
+            frame = snapshots.read_frame(saved, self.INPUT_NAME, 1, 1)
+        assert saved.version_id == version.id
+        assert frame["rows"] == [[2]]
+        assert frame["nextOffset"] == 2
+        assert str(frame["runId"]) == str(run.id)
+        authorize.assert_called_with(run)
+
+    def test_dashboard_refresh_uses_only_its_completed_notebook_run(self) -> None:
+        version = self._pinned_version(self._mapping())
+        parent = NotebookRun.objects.for_team(self.team.id).create(
+            team_id=self.team.id, notebook=self.notebook, user=self.user, status=NotebookRun.Status.DONE
+        )
+        run = self._run(value=1)
+        run.notebook_run = parent
+        run.envelope = {"types": [["lat", "float64"]], "first_page": [[1]], "row_count": 1}
+        run.save(update_fields=["notebook_run", "envelope"])
+        self._run(value=99)
+        snapshots = WidgetSnapshots(self.notebook, lambda _run: None)
+        snapshot = snapshots.capture(self.NODE_ID, version.id, parent.id)
+        assert snapshots.read_frame(snapshot, self.INPUT_NAME, 0, 10)["rows"] == [[1]]
+        parent.status = NotebookRun.Status.FAILED
+        parent.save(update_fields=["status"])
+        with self.assertRaises(WidgetConflictError):
+            snapshots.capture(self.NODE_ID, version.id, parent.id)
+        assert NotebookWidgetSnapshot.objects.for_team(self.team.id).count() == 1
+
+    @patch("products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=True)
+    def test_snapshot_creation_pins_metadata_and_rejects_changed_inputs(self, _flag: MagicMock) -> None:
+        instance = self._mapping()
+        version = self._pinned_version(instance)
+        run = self._run()
+        run.envelope = {"types": [["lat", "float64"]], "first_page": [[1]], "row_count": 1}
+        run.save(update_fields=["envelope"])
+        path = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widget_snapshots/"
+        payload = {"node_id": self.NODE_ID, "version_id": str(version.id)}
+        with patch(
+            "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
+            return_value=[SimpleNamespace(artifact_url="https://example.com/widget.html", build_hash="a" * 64)],
+        ):
+            response = self.client.post(path, payload)
+        assert response.status_code == 201
+        assert response.json()["version_id"] == str(version.id)
+        assert response.json()["frame_names"] == [self.INPUT_NAME]
+        assert response.json()["build_hash"] == "a" * 64
+        snapshot_id = response.json()["id"]
+        with patch(
+            "products.notebooks.backend.presentation.views.notebook.NotebookViewSet._authorize_widget_run",
+            side_effect=PermissionDenied(),
+        ):
+            assert self.client.get(f"{path}{snapshot_id}/").status_code == 403
+        instance.input_bindings = {self.INPUT_NAME: {"source": "other_df"}}
+        instance.save(update_fields=["input_bindings"])
+        response = self.client.post(path, {**payload, "previous_snapshot_id": snapshot_id})
+        assert response.status_code == 409
+        assert response.json()["code"] == "snapshot_inputs_changed"
+        assert NotebookWidgetSnapshot.objects.for_team(self.team.id).count() == 1
+
+    def test_incomplete_dashboard_snapshot_does_not_publish_partial_results(self) -> None:
+        version = self._pinned_version(self._mapping())
+        self._run()
+        with patch("products.notebooks.backend.widgets.fetch_sql_v2_page", return_value={"rows": []}):
+            with self.assertRaises(WidgetConflictError):
+                WidgetSnapshots(self.notebook, lambda _run: None).capture(self.NODE_ID, version.id)
+        assert not NotebookWidgetSnapshot.objects.for_team(self.team.id).exists()
+
+    @patch("products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=True)
+    def test_snapshot_frame_endpoint_checks_query_access_and_notebook_ownership(self, _flag: MagicMock) -> None:
+        version = self._pinned_version(self._mapping())
+        run = self._run()
+        run.envelope = {"types": [["lat", "float64"]], "first_page": [[1]], "row_count": 1}
+        run.save(update_fields=["envelope"])
+        snapshot = WidgetSnapshots(self.notebook, lambda _run: None).capture(self.NODE_ID, version.id)
+        path = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widget_snapshots/{snapshot.id}/frames/{self.INPUT_NAME}/"
+        assert self.client.get(path).status_code == 200
+        with patch(
+            "products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=False
+        ):
+            assert self.client.get(path).status_code == 404
+        with patch(
+            "products.notebooks.backend.presentation.views.notebook.NotebookViewSet._has_query_access",
+            return_value=False,
+        ):
+            assert self.client.get(path).status_code == 403
+        other = Notebook.objects.create(team=self.team, created_by=self.user)
+        assert self.client.get(path.replace(self.notebook.short_id, other.short_id)).status_code == 404
+        snapshot.team = Team.objects.create(organization=self.organization, name="Other project")
+        snapshot.save(update_fields=["team_id"])
+        assert self.client.get(path).status_code == 404
 
     @parameterized.expand([("all_ready", False), ("unrun_sibling", True)])
     def test_inspection_uses_latest_successful_run_and_authorizes_it(self, _name: str, unrun_sibling: bool) -> None:

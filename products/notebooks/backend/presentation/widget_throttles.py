@@ -1,6 +1,11 @@
 from posthog.rate_limit import _UserBucketRateThrottle
 
 
+class WidgetSnapshotThrottle(_UserBucketRateThrottle):
+    scope = "notebook_widget_snapshot"
+    rate = "10/hour"
+
+
 class WidgetFrameBurstThrottle(_UserBucketRateThrottle):
     scope = "notebook_widget_frame_burst"
     rate = "120/minute"

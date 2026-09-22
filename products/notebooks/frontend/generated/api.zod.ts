@@ -766,6 +766,27 @@ export const NotebooksSqlV2RunCreateBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
+export const notebooksWidgetSnapshotCreateBodyNodeIdMax = 128
+
+export const NotebooksWidgetSnapshotCreateBody = /* @__PURE__ */ zod.object({
+    node_id: zod
+        .string()
+        .max(notebooksWidgetSnapshotCreateBodyNodeIdMax)
+        .describe('Notebook widget node to add to a dashboard.'),
+    version_id: zod.uuid().describe('Immutable widget version to keep on the dashboard.'),
+    notebook_run_id: zod
+        .uuid()
+        .optional()
+        .describe('Completed whole-notebook run supplying every input after refresh.'),
+    previous_snapshot_id: zod
+        .uuid()
+        .optional()
+        .describe('Snapshot being refreshed; its version and input mappings must match.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const NotebooksWidgetAttachBody = /* @__PURE__ */ zod.object({
     widget_id: zod.uuid().describe('Reusable widget to place in this notebook node.'),
     version_id: zod

@@ -45,6 +45,7 @@ class TestRunPlanCellShapes(APIBaseTest):
     @parameterized.expand(
         [
             ("raw_string", '<SQLV2 nodeId="s1" query="select 1" />'),
+            ("prepared_insight", '<Query nodeId="s1" dataframeQuery="select 1" returnVariable="insight_df" />'),
             ("bare_hogql", '<SQLV2 nodeId="s1" query={{"kind":"HogQLQuery","query":"select 1"}} />'),
             (
                 "wrapped_in_a_data_table",
@@ -57,6 +58,7 @@ class TestRunPlanCellShapes(APIBaseTest):
 
         assert [cell["node_id"] for cell in plan_notebook_cells(notebook)] == ["s1"]
         assert plan_notebook_cells(notebook)[0]["code"] == "select 1"
+        assert plan_notebook_cells(notebook)[0]["cell_type"] == "sql"
 
     def test_code_still_wins_when_a_cell_carries_both(self) -> None:
         notebook = Notebook(

@@ -36,6 +36,16 @@ import { parseSurveyResultsWidgetConfigApiError } from './surveys/surveysWidgetC
 const ActivityEventsWidget = lazyWithRetry(() =>
     import('./activity/ActivityEventsWidget').then((m) => ({ default: m.ActivityEventsWidget }))
 )
+const NotebookDashboardWidget = lazyWithRetry(() =>
+    import('products/notebooks/frontend/NotebookDashboardWidget/NotebookDashboardWidget').then((m) => ({
+        default: m.NotebookDashboardWidget,
+    }))
+)
+const EditNotebookWidgetModal = lazyWithRetry(() =>
+    import('products/notebooks/frontend/NotebookDashboardWidget/EditNotebookWidgetModal').then((m) => ({
+        default: m.EditNotebookWidgetModal,
+    }))
+)
 const ConversationsWidget = lazyWithRetry(() =>
     import('./conversations/ConversationsWidget').then((m) => ({ default: m.ConversationsWidget }))
 )
@@ -227,6 +237,11 @@ export type DashboardWidgetEditModalProps = {
  * `satisfies Record<DashboardWidgetCatalogKey, …>` fails typecheck if catalog grows without a matching key.
  */
 export const DASHBOARD_WIDGET_REGISTRY = {
+    notebook_widget: {
+        Component: NotebookDashboardWidget,
+        EditModal: EditNotebookWidgetModal,
+        parseConfigApiError: () => null,
+    },
     conversations_recent_tickets: {
         Component: ConversationsWidget,
         TopHeading: ConversationsWidgetTopHeading,

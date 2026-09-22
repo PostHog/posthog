@@ -42,9 +42,8 @@ from products.notebooks.backend.sql_v2_variables import build_notebook_variables
 
 logger = structlog.get_logger(__name__)
 
-# The cell kinds a run executes. A `Query` cell embeds a saved insight and a widget renders
-# a frame, so neither has code to run.
-RUNNABLE_CELL_TYPES = ("sql", "python")
+# Embedded insights expose their prepared HogQL through dataframeQuery.
+RUNNABLE_CELL_TYPES = ("sql", "python", "saved_insight")
 
 _NOTHING_TO_RUN = (
     "This notebook has no SQL or Python cells with code in them, so there is nothing to run. Add a cell first."
@@ -95,7 +94,7 @@ def plan_notebook_cells(notebook: Notebook) -> list[PlannedCell]:
     return [
         PlannedCell(
             node_id=cell.node_id,
-            cell_type=cell.cell_type,
+            cell_type="sql" if cell.cell_type == "saved_insight" else cell.cell_type,
             dataframe_name=cell.dataframe_name,
             code=cell.code,
             connection_id=cell.connection_id,

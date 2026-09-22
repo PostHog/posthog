@@ -2,6 +2,7 @@ import math
 import hashlib
 from collections import Counter
 from typing import Any, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
@@ -94,6 +95,7 @@ from products.notebooks.backend.facade.sql_v2 import (
     dispatch_cell_run,
     kernel_sandbox_is_live,
 )
+from products.notebooks.backend.facade.widget_snapshots import WidgetSnapshots
 from products.notebooks.backend.facade.widgets import (
     WidgetConflictError,
     WidgetError,
@@ -136,9 +138,14 @@ from products.notebooks.backend.presentation.widget_serializers import (
     WidgetVersionPageSerializer,
     WidgetVersionQuerySerializer,
 )
+from products.notebooks.backend.presentation.widget_snapshot_serializers import (
+    WidgetSnapshotRequestSerializer,
+    WidgetSnapshotSerializer,
+)
 from products.notebooks.backend.presentation.widget_throttles import (
     WidgetFrameBurstThrottle,
     WidgetFrameSustainedThrottle,
+    WidgetSnapshotThrottle,
 )
 from products.notebooks.backend.python_analysis import analyze_python_globals
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
@@ -789,6 +796,89 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
     def _authorize_widget_run(self, run: NotebookNodeRun) -> None:
         self._require_run_connection_access(run, self._current_user())
+
+    @extend_schema(
+        operation_id="notebooks_widget_snapshot_create",
+        request=WidgetSnapshotRequestSerializer,
+        responses={201: WidgetSnapshotSerializer, 400: WidgetErrorSerializer, 409: WidgetErrorSerializer},
+    )
+    @action(
+        methods=["POST"],
+        url_path="widget_snapshots",
+        detail=True,
+        required_scopes=["notebook:write", "query:read"],
+        throttle_classes=[WidgetSnapshotThrottle],
+    )
+    def widget_snapshot_create(self, request: Request, **kwargs) -> Response:
+        self._require_query_access()
+        if not is_notebook_widget_enabled(self._current_user()):
+            raise Http404()
+        serializer = WidgetSnapshotRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        service = WidgetSnapshots(self.get_object(), self._authorize_widget_run)
+        try:
+            snapshot = service.capture(**serializer.validated_data)
+            return Response(WidgetSnapshotSerializer(service.describe(snapshot)).data, status=201)
+        except WidgetError as error:
+            return self._widget_error_response(error)
+
+    @extend_schema(
+        operation_id="notebooks_widget_snapshot_retrieve",
+        responses={200: WidgetSnapshotSerializer},
+        parameters=[OpenApiParameter("snapshot_id", OpenApiTypes.UUID, OpenApiParameter.PATH)],
+    )
+    @action(
+        methods=["GET"],
+        url_path="widget_snapshots/(?P<snapshot_id>[^/.]+)",
+        detail=True,
+        required_scopes=["notebook:read", "query:read"],
+    )
+    def widget_snapshot_retrieve(self, request: Request, snapshot_id: str, **kwargs) -> Response:
+        if not is_notebook_widget_enabled(self._current_user()):
+            raise Http404()
+        self._require_query_access()
+        service = WidgetSnapshots(self.get_object(), self._authorize_widget_run)
+        try:
+            snapshot = service.get(UUID(snapshot_id))
+            return Response(WidgetSnapshotSerializer(service.describe(snapshot)).data)
+        except ValueError:
+            raise Http404()
+        except WidgetError as error:
+            return self._widget_error_response(error)
+
+    @extend_schema(
+        operation_id="notebooks_widget_snapshot_frame",
+        responses={200: WidgetFrameSerializer},
+        parameters=[
+            WidgetFrameQuerySerializer,
+            OpenApiParameter("snapshot_id", OpenApiTypes.UUID, OpenApiParameter.PATH),
+            OpenApiParameter("frame_name", OpenApiTypes.STR, OpenApiParameter.PATH),
+        ],
+    )
+    @action(
+        methods=["GET"],
+        url_path="widget_snapshots/(?P<snapshot_id>[^/.]+)/frames/(?P<frame_name>[^/.]+)",
+        detail=True,
+        required_scopes=["notebook:read", "query:read"],
+        throttle_classes=[WidgetFrameBurstThrottle, WidgetFrameSustainedThrottle],
+    )
+    def widget_snapshot_frame(self, request: Request, snapshot_id: str, frame_name: str, **kwargs) -> Response:
+        if not is_notebook_widget_enabled(self._current_user()):
+            raise Http404()
+        self._require_query_access()
+        query = WidgetFrameQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        service = WidgetSnapshots(self.get_object(), self._authorize_widget_run)
+        try:
+            snapshot = service.get(UUID(snapshot_id))
+            frame = service.read_frame(
+                snapshot, frame_name, query.validated_data["offset"], query.validated_data["limit"]
+            )
+            return Response(WidgetFrameSerializer(frame).data)
+        except ValueError:
+            raise Http404()
+        except WidgetError as error:
+            return self._widget_error_response(error)
 
     @extend_schema(
         operation_id="notebooks_widget_generate",

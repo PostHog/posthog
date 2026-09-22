@@ -12,6 +12,23 @@ Costs come from recorded gateway usage and include the same markup as PostHog AI
 Older versions and generations without available usage records do not show a cost.
 The estimate does not include separate failed or canceled generation jobs, or notebook compute.
 
+## Dashboard widgets
+
+Choose **Add to dashboard** from a generated widget's notebook menu to save its selected version, input mappings, and completed dataframe results.
+Both generated notebook widgets and dashboard widgets must be enabled.
+Each snapshot holds up to 5,000 rows per dataframe and 8 MiB in total. Adding a widget fails if any required result has expired or cannot be fully captured within these limits.
+Opening a dashboard reads these saved rows without starting notebook compute. Each viewer still needs access to the source notebook, queries, and connected data sources, and must consent to the exact generated build before it reads data.
+Public dashboards show a placeholder instead of notebook results.
+
+**Refresh from notebook** runs the saved notebook's data cells in document order through the backend notebook runner.
+Prepared embedded insights run their saved dataframe query alongside SQL and Python cells. Insights without a prepared dataframe query cannot supply widget inputs.
+Refresh keeps the existing results visible and replaces the snapshot only after every cell and the new capture succeed.
+Keep the dashboard open until the refresh finishes. Closing it leaves the previous snapshot in place and does not stop the backend notebook run.
+Dashboard date ranges and filters do not change notebook variables. Refresh uses the notebook's saved variables and can incur Python compute charges.
+The dashboard keeps the selected generated version; generating a new version in the notebook does not replace dashboard widgets.
+
+## Notebook previews
+
 - Generation runs as a durable background job. The notebook shows its phase, elapsed time, cancellation, and terminal errors. Queued jobs stop immediately when canceled.
 - Failed jobs expose a stable error code and the failed source-generation, security-review, or publishing phase. AI request logs include upstream status and request IDs when available.
 - Source generation and security review send Claude requests through the native Anthropic Messages format in both local and cloud environments.
