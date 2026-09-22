@@ -8,13 +8,13 @@ import structlog
 
 from posthog.comment.formatting import escape_slack_mrkdwn
 from posthog.dataclasses import frozen
-from posthog.helpers.slack_scopes import bot_is_ready
 from posthog.models.integration import Integration
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
+from products.slack_app.backend.services.slack_scopes import bot_is_ready
 
 logger = structlog.get_logger(__name__)
 
