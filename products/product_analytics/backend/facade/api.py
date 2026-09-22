@@ -13,19 +13,13 @@ project's root team, because that is the team ``RootTeamMixin.save()`` writes th
 
 from collections.abc import Collection, Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models import QuerySet
-from django.http import HttpRequest
-
-from rest_framework.authentication import BaseAuthentication
-from rest_framework.exceptions import APIException
-from rest_framework.request import ForcedAuthentication, Request
 
 from posthog.models import Team, User
-from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend import logic
@@ -175,8 +169,6 @@ def saved_insight_for_update(*, team: Team, user: User, short_id: str) -> SavedI
 def save_saved_insight_query(
     *, team: Team, user: User, insight_id: int, expected_query: dict[str, Any], query: dict[str, Any]
 ) -> str | None:
-    from products.product_analytics.backend.presentation.insight import InsightSerializer
-
     with transaction.atomic():
         insight = Insight.objects.select_for_update().filter(team=team, pk=insight_id, deleted=False).first()
         if insight is None:
@@ -188,22 +180,8 @@ def save_saved_insight_query(
             "insight", "editor"
         ) or not access_control.check_access_level_for_object(insight, "editor"):
             return "You no longer have permission to edit this insight."
-        request = Request(HttpRequest(), authenticators=[cast(BaseAuthentication, ForcedAuthentication(user, None))])
-        serializer = InsightSerializer(
-            insight,
-            data={"query": query},
-            partial=True,
-            context={
-                "request": request,
-                "team_id": team.id,
-                "get_team": lambda: team,
-                "user_permissions": UserPermissions(user),
-                "user_access_control": access_control,
-            },
-        )
-        try:
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-        except APIException as error:
-            return str(error.detail)
+        insight.query = query
+        insight.saved = True
+        insight.last_modified_by = user
+        insight.save(update_fields=["query", "saved", "last_modified_by", "updated_at"])
     return None
