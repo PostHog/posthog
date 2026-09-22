@@ -60,6 +60,7 @@ from posthog.api.services.llm_prompt import (
     set_prompt_label,
 )
 from posthog.auth import (
+    DelegatedOAuthAccessTokenAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -143,6 +144,10 @@ class LLMPromptViewSet(
         return None
 
     def _is_browser_session(self, request: Request) -> bool:
+        # A delegated OAuth token is a service acting for a user, not the user's
+        # browser, and its authenticator subclasses the OAuth one, so exclude it first.
+        if isinstance(request.successful_authenticator, DelegatedOAuthAccessTokenAuthentication):
+            return False
         # A session cookie means a browser, and so does an OAuth token, which the app
         # frontend uses when Django does not serve it. OAuth also carries third-party
         # API clients; missing their unlabeled list reads costs less than counting

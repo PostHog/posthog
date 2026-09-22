@@ -1547,6 +1547,21 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
             assert fetch_events() == []
             mock_capture.assert_not_called()
 
+        # A delegated OAuth token is a service acting for a user, not the user's
+        # browser, so it counts as an API client.
+        delegated_token = encode_jwt(
+            {"id": self.user.id, "oauth_access_token_id": str(oauth_token.id)},
+            timedelta(minutes=15),
+            PosthogJwtAudience.DELEGATED_USER,
+        )
+        mock_report.reset_mock()
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            headers={"authorization": f"Bearer {delegated_token}"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert [event["prompt_count"] for event in fetch_events()] == [2]
+
     def test_archive_prompt_deletes_its_labels(self):
         self.create_prompt_version(version=1)
         assert self._set_label("my-prompt", "production", 1).status_code == status.HTTP_201_CREATED
