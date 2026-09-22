@@ -194,9 +194,14 @@ The internal `flags.json` producer keeps its separate rejection and inactive-fil
 `LegacyDefinitionsHyperCache` validates supplied payloads as well as ordinary rebuilds.
 Each Redis tier and object storage receive a companion `flags_with_cohorts.provenance.json` object containing the hash of the guarded body.
 The legacy body, ETag algorithm, keys, TTLs, and public JSON shape remain unchanged.
-The companion is written after its body; a partial write or mismatched pair causes a retry instead of serving an unverified value.
+The companion is written after its body; with enforcement enabled, a partial write or mismatched pair causes a retry instead of serving an unverified value.
 
-Readers require matching provenance because an older builder can omit an unsupported target while leaving a dependent with an empty chain.
+`FLAG_DEFINITIONS_REQUIRE_PROVENANCE` defaults to `false` in both Rust and Django.
+While it is false, Rust retains the legacy `get_with_source` and ETag paths, Python can read existing cache entries without provenance, and responses do not advertise `x-posthog-legacy-definitions: 1`.
+Guarded database producers still publish provenance, and the batch verifier still treats entries without it as misses.
+An unchanged body without provenance is rewritten during warmup, even when the caller requests `skip_if_unchanged`.
+
+When enforcement is enabled, readers require matching provenance because an older builder can omit an unsupported target while leaving a dependent with an empty chain.
 The cached dependent alone cannot distinguish that case from an ordinary missing v1 target.
 The Python provider rebuilds unverified entries through the existing database loader.
 The Rust definitions endpoint and its `local_evaluation` aliases retain their cache-only contract: an unverified entry follows the miss/self-heal path and returns a retryable error.
@@ -206,17 +211,26 @@ A full response verifies the exact cached bytes against provenance before attach
 Each tier is verified as a pair: a body is checked against the provenance stored beside it, and Redis failing to produce a verified pair falls back to the object storage pair rather than failing the request.
 A response only advertises an ETag when the stored ETag describes the body it served, because a conditional request revalidates against that stored ETag.
 
-Successful responses include `x-posthog-legacy-definitions: 1` so a cross-region mirror can require a guarded upstream reader.
-A mirror ignores an older upstream response without this header and waits for a later sync.
+With enforcement enabled, successful 200 and 304 responses include `x-posthog-legacy-definitions: 1` so a cross-region mirror can require a guarded upstream reader.
+The Django setting also controls the EU sync's requirement for this header.
+While it is false, the sync accepts older upstream responses but writes them without provenance and clears any previous provenance.
+Python repairs from unverified object storage also remain unverified.
+The sync sends an ETag only for a verified mirror, so an old entry must receive a full guarded response before it becomes trusted.
+With enforcement enabled, a mirror ignores an upstream response without the header and waits for a later sync.
 The mirror's cold-cache behavior remains retryable; it does not create a database miss sentinel.
 
-Deploy producers and warm or verify caches before deploying readers to avoid temporary cache misses.
-New readers reject changed bodies from old producers unless their content hash already has matching provenance.
+Deploy producers and readers with enforcement off and keep unsupported stored configurations disabled.
+Warm or verify the body/provenance pairs in both Redis tiers and object storage after all database producers have upgraded.
+Then enable enforcement on the upstream Rust reader, let EU sync fetch a guarded full response, and verify the EU mirror before enabling enforcement in Django and the remaining readers.
+Coordinate the Rust and Django settings across regions; enabling Django's requirement while upstream Rust still omits the header prevents mirror refreshes.
+These environment settings are read at process startup and require process replacement to change.
+Enable unsupported stored configurations only after enforcement is on everywhere.
+Enforcing readers reject changed bodies from old producers unless their content hash already has matching provenance.
 Unchanged safe v1 bodies retain their ETag through the transition.
 Old readers still consume the unchanged body keys, but old producers and readers together cannot establish format exclusion.
 
 Before unsupported data exists, producer, publication, and reader changes can each be reversed.
-Afterwards, producer rollback must retain classification and dependent exclusion; publication rollback must retain guarded bodies and matching provenance; reader rollback must retain the safety checks required by cached data.
+Afterwards, producer rollback must retain classification and dependent exclusion; publication rollback must retain guarded bodies and matching provenance; reader rollback must retain the safety checks required by cached data, including `FLAG_DEFINITIONS_REQUIRE_PROVENANCE=true`.
 Coordinate these changes across regions and both Redis tiers.
 Disabling a writer does not repair existing unsafe cache contents, and rollback never converts stored configurations.
 

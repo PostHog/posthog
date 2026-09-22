@@ -3069,12 +3069,16 @@ async fn test_cache_miss_does_not_enqueue_rebuild_when_self_heal_disabled() {
 }
 
 #[rstest::rstest]
-#[case("visible_target")]
-#[case("omitted_target")]
-#[case("malformed_envelope")]
+#[case("visible_target", true)]
+#[case("omitted_target", true)]
+#[case("malformed_envelope", true)]
+#[case("visible_target", false)]
+#[case("omitted_target", false)]
+#[case("malformed_envelope", false)]
 #[tokio::test]
-async fn test_unverified_definitions_never_304_and_rebuilt_aliases_are_stable(
+async fn test_definitions_provenance_rollout_and_rebuilt_aliases_are_stable(
     #[case] scenario: &str,
+    #[case] require_provenance: bool,
 ) {
     use feature_flags::{
         config::{Config, FlexBool},
@@ -3084,6 +3088,7 @@ async fn test_unverified_definitions_never_304_and_rebuilt_aliases_are_stable(
 
     let mut config = Config::default_test_config();
     config.flag_definitions_self_heal_enabled = FlexBool(true);
+    config.flag_definitions_require_provenance = FlexBool(require_provenance);
     let context = TestContext::new(Some(&config)).await;
     let (team, secret, _) = context
         .create_team_with_secret_token(None, None, None)
@@ -3143,9 +3148,23 @@ async fn test_unverified_definitions_never_304_and_rebuilt_aliases_are_stable(
             .send()
             .await
             .unwrap();
-        assert_eq!(response.status(), 503);
-        assert!(response.headers().get("etag").is_none());
-        assert!(poll_for_rebuild_enqueue(&config.redis_url, team.id).await);
+        assert!(response
+            .headers()
+            .get("x-posthog-legacy-definitions")
+            .is_none());
+        if require_provenance {
+            assert_eq!(response.status(), 503);
+            assert!(response.headers().get("etag").is_none());
+            assert!(poll_for_rebuild_enqueue(&config.redis_url, team.id).await);
+        } else {
+            assert_eq!(response.status(), 304);
+            let response = request().send().await.unwrap();
+            assert_eq!(response.status(), 200);
+            assert!(response
+                .headers()
+                .get("x-posthog-legacy-definitions")
+                .is_none());
+        }
 
         let etag = context
             .populate_cache_for_team_with_etag(team.id, "healthy")
@@ -3158,7 +3177,12 @@ async fn test_unverified_definitions_never_304_and_rebuilt_aliases_are_stable(
             .unwrap();
         assert_eq!(response.status(), 200);
         assert_eq!(response.headers()["etag"], format!("W/\"{etag}\""));
-        assert_eq!(response.headers()["x-posthog-legacy-definitions"], "1");
+        assert_eq!(
+            response
+                .headers()
+                .contains_key("x-posthog-legacy-definitions"),
+            require_provenance
+        );
         let body: serde_json::Value = response.json().await.unwrap();
         assert_eq!(body["flags"].as_array().unwrap().len(), 1);
         assert_eq!(body["flags"][0]["key"], "healthy");
@@ -3170,18 +3194,32 @@ async fn test_unverified_definitions_never_304_and_rebuilt_aliases_are_stable(
             .unwrap();
         assert_eq!(response.status(), 304);
         assert_eq!(response.headers()["etag"], format!("W/\"{etag}\""));
-        assert_eq!(response.headers()["x-posthog-legacy-definitions"], "1");
+        assert_eq!(
+            response
+                .headers()
+                .contains_key("x-posthog-legacy-definitions"),
+            require_provenance
+        );
     }
 }
 
+#[rstest::rstest]
+#[case(false)]
+#[case(true)]
 #[tokio::test]
-async fn test_object_storage_definitions_require_matching_provenance() {
+async fn test_object_storage_definitions_require_matching_provenance(
+    #[case] require_provenance: bool,
+) {
     use common_s3::{MockS3Client, S3Error};
-    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use feature_flags::{
+        config::{Config, FlexBool},
+        utils::test_utils::TestContext,
+    };
     use serde_json::json;
     use std::sync::Arc;
 
-    let config = Config::default_test_config();
+    let mut config = Config::default_test_config();
+    config.flag_definitions_require_provenance = FlexBool(require_provenance);
     let context = TestContext::new(Some(&config)).await;
     let (team, secret, _) = context
         .create_team_with_secret_token(None, None, None)
@@ -3213,9 +3251,15 @@ async fn test_object_storage_definitions_require_matching_provenance() {
             .send()
             .await
             .unwrap();
-        assert_eq!(response.status(), if verified { 200 } else { 503 });
-        if verified {
-            assert_eq!(response.headers()["x-posthog-legacy-definitions"], "1");
+        let served = verified || !require_provenance;
+        assert_eq!(response.status(), if served { 200 } else { 503 });
+        assert_eq!(
+            response
+                .headers()
+                .contains_key("x-posthog-legacy-definitions"),
+            verified && require_provenance
+        );
+        if served {
             assert_eq!(
                 response.json::<serde_json::Value>().await.unwrap()["flags"][0]["key"],
                 "healthy"
@@ -3233,13 +3277,14 @@ async fn test_unverifiable_redis_pair_falls_back_to_the_object_storage_pair(
 ) {
     use common_s3::{MockS3Client, S3Error};
     use feature_flags::{
-        config::Config,
+        config::{Config, FlexBool},
         utils::test_utils::{setup_redis_client, TestContext},
     };
     use serde_json::json;
     use std::sync::Arc;
 
-    let config = Config::default_test_config();
+    let mut config = Config::default_test_config();
+    config.flag_definitions_require_provenance = FlexBool(true);
     let context = TestContext::new(Some(&config)).await;
     let (team, secret, _) = context
         .create_team_with_secret_token(None, None, None)

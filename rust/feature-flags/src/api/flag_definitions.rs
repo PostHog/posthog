@@ -239,9 +239,15 @@ pub async fn flags_definitions(
     //
     // Both values are read from Redis. Pairing proof with a body from the other tier could
     // combine two generations of the cache — see `get_from_cache` for the S3 pair.
-    let redis_proof = read_proven_etag_from_redis(&state, &team_key).await;
-    let current_etag = current_etag
-        .filter(|etag| matches!(redis_proof.as_ref(), Ok(Some(proven)) if proven == etag));
+    let require_provenance = *state.config.flag_definitions_require_provenance;
+    let redis_proof = if require_provenance {
+        read_proven_etag_from_redis(&state, &team_key).await
+    } else {
+        Ok(None)
+    };
+    let current_etag = current_etag.filter(|etag| {
+        !require_provenance || matches!(redis_proof.as_ref(), Ok(Some(proven)) if proven == etag)
+    });
 
     // If client sent a matching ETag, short-circuit with 304 (skip full data fetch)
     if let (Some(ref client_val), Some(ref current_val)) = (&client_etag, &current_etag) {
@@ -251,7 +257,10 @@ pub async fn flags_definitions(
                 &[("result".to_string(), "hit".to_string())],
                 1,
             );
-            return Ok(not_modified_response(current_val));
+            return Ok(with_provenance_header(
+                not_modified_response(current_val),
+                require_provenance,
+            ));
         }
     }
 
@@ -283,10 +292,11 @@ pub async fn flags_definitions(
     // Advertise an ETag only when the ETag key describes the body actually served: a
     // conditional request revalidates against that key, so a value taken from the other
     // tier's generation would be an ETag no 304 could ever honour.
-    let response_etag = current_etag.filter(|etag| *etag == response_etag);
-    Ok(ok_response_with_etag(
-        cached_response,
-        response_etag.as_deref(),
+    let response_etag =
+        current_etag.filter(|etag| !require_provenance || Some(etag) == response_etag.as_ref());
+    Ok(with_provenance_header(
+        ok_response_with_etag(cached_response, response_etag.as_deref()),
+        require_provenance,
     ))
 }
 
@@ -350,12 +360,20 @@ pub(crate) fn format_weak_etag(raw: &str) -> String {
     format!("W/\"{}\"", raw)
 }
 
+fn with_provenance_header(mut response: Response, verified: bool) -> Response {
+    if verified {
+        response
+            .headers_mut()
+            .insert(PROVENANCE_HEADER, axum::http::HeaderValue::from_static("1"));
+    }
+    response
+}
+
 /// Build a 304 Not Modified response with ETag and Cache-Control headers.
 pub(crate) fn not_modified_response(etag: &str) -> Response {
     (
         StatusCode::NOT_MODIFIED,
         [
-            (PROVENANCE_HEADER, "1".to_string()),
             ("etag", format_weak_etag(etag)),
             ("cache-control", "private, must-revalidate".to_string()),
         ],
@@ -369,7 +387,6 @@ fn ok_response_with_etag(data: Value, etag: Option<&str>) -> Response {
         Some(etag_val) => (
             StatusCode::OK,
             [
-                (PROVENANCE_HEADER, "1".to_string()),
                 ("content-type", "application/json".to_string()),
                 ("etag", format_weak_etag(etag_val)),
                 ("cache-control", "private, must-revalidate".to_string()),
@@ -377,7 +394,7 @@ fn ok_response_with_etag(data: Value, etag: Option<&str>) -> Response {
             Json(data),
         )
             .into_response(),
-        None => ([(PROVENANCE_HEADER, "1")], Json(data)).into_response(),
+        None => Json(data).into_response(),
     }
 }
 
@@ -487,43 +504,51 @@ async fn get_from_cache(
     team_key: &KeyType,
     team_id: i32,
     redis_proof: Result<Option<String>, HyperCacheError>,
-) -> Result<(FlagDefinitionsResponse, String), FlagError> {
+) -> Result<(FlagDefinitionsResponse, Option<String>), FlagError> {
     let reader = &state.flags_with_cohorts_hypercache_reader;
-    let redis_result = async {
-        let proven_etag = redis_proof?.ok_or(HyperCacheError::CacheMiss)?;
-        let raw = reader
-            .get_typed_from_redis::<Box<RawValue>>(team_key)
-            .await?
-            .ok_or(HyperCacheError::CacheMiss)?;
-        verify_against_proof(&raw, &proven_etag)
-    }
-    .await;
-
-    // Redis holding no verifiable pair says nothing about S3, which keeps its own body
-    // and provenance: a body evicted from Redis under memory pressure would otherwise
-    // fail a request that the S3 pair can answer on its own.
-    let result = match redis_result {
-        Ok(data) => Ok((data, CacheSource::Redis)),
-        Err(redis_error) => {
-            let s3_result = async {
-                let proven_etag = read_proven_etag_from_s3(state, team_key).await?;
-                let raw = reader.get_typed_from_s3::<Box<RawValue>>(team_key).await?;
-                verify_against_proof(&raw, &proven_etag)
-            }
-            .await;
-            match s3_result {
-                Ok(data) => Ok((data, CacheSource::S3)),
-                // A confirmed S3 miss is the authoritative "nothing to serve" signal, and
-                // the only one the self-heal rebuild should act on. An infrastructure
-                // error from either tier is reported instead, Redis first, so a degraded
-                // tier is not mistaken for an empty cache.
-                Err(HyperCacheError::CacheMiss) => Err(HyperCacheError::CacheMiss),
-                Err(s3_error) => Err(match redis_error {
-                    HyperCacheError::CacheMiss => s3_error,
-                    other => other,
-                }),
-            }
+    let result = if !*state.config.flag_definitions_require_provenance {
+        reader
+            .get_with_source(team_key)
+            .await
+            .map(|(data, source)| ((data, None), source))
+    } else {
+        let redis_result = async {
+            let proven_etag = redis_proof?.ok_or(HyperCacheError::CacheMiss)?;
+            let raw = reader
+                .get_typed_from_redis::<Box<RawValue>>(team_key)
+                .await?
+                .ok_or(HyperCacheError::CacheMiss)?;
+            verify_against_proof(&raw, &proven_etag)
         }
+        .await;
+
+        // Redis holding no verifiable pair says nothing about S3, which keeps its own body
+        // and provenance: a body evicted from Redis under memory pressure would otherwise
+        // fail a request that the S3 pair can answer on its own.
+        let verified_result = match redis_result {
+            Ok(data) => Ok((data, CacheSource::Redis)),
+            Err(redis_error) => {
+                let s3_result = async {
+                    let proven_etag = read_proven_etag_from_s3(state, team_key).await?;
+                    let raw = reader.get_typed_from_s3::<Box<RawValue>>(team_key).await?;
+                    verify_against_proof(&raw, &proven_etag)
+                }
+                .await;
+                match s3_result {
+                    Ok(data) => Ok((data, CacheSource::S3)),
+                    // A confirmed S3 miss is the authoritative "nothing to serve" signal, and
+                    // the only one the self-heal rebuild should act on. An infrastructure
+                    // error from either tier is reported instead, Redis first, so a degraded
+                    // tier is not mistaken for an empty cache.
+                    Err(HyperCacheError::CacheMiss) => Err(HyperCacheError::CacheMiss),
+                    Err(s3_error) => Err(match redis_error {
+                        HyperCacheError::CacheMiss => s3_error,
+                        other => other,
+                    }),
+                }
+            }
+        };
+        verified_result.map(|((data, etag), source)| ((data, Some(etag)), source))
     };
 
     match result {

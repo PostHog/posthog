@@ -1,5 +1,8 @@
 import json
+import time
 from typing import Any
+
+from django.conf import settings
 
 from botocore.exceptions import BotoCoreError, ClientError
 from posthoganalytics import capture_exception
@@ -14,8 +17,10 @@ from posthog.storage.hypercache import (
     HyperCacheDependencyUnavailable,
     HyperCacheStoreMissing,
     KeyType,
+    emit_cache_sync_metrics,
 )
 
+from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
 from products.feature_flags.backend.legacy_definitions import sanitize_legacy_definitions
 
 PROVENANCE_OBJECT = "flags_with_cohorts.provenance.json"
@@ -41,6 +46,11 @@ class LegacyDefinitionsHyperCache(HyperCache):
             return None
 
     def get_etag(self, key: KeyType) -> str | None:
+        if not settings.FLAG_DEFINITIONS_REQUIRE_PROVENANCE:
+            return super().get_etag(key)
+        return self.get_verified_etag(key)
+
+    def get_verified_etag(self, key: KeyType) -> str | None:
         try:
             values = self.cache_client.get_many([self.get_etag_key(key), self._provenance_key(key)])
             etag = values.get(self.get_etag_key(key))
@@ -71,7 +81,33 @@ class LegacyDefinitionsHyperCache(HyperCache):
     ) -> int | None:
         if isinstance(data, dict):
             data = sanitize_legacy_definitions(data)
+        # An unchanged legacy body still needs publication provenance during warmup.
+        if skip_if_unchanged and self.expiry_sorted_set_key and self.get_verified_etag(key) is None:
+            skip_if_unchanged = False
         return super().set_cache_value(key, data, ttl, skip_if_unchanged)
+
+    def update_unverified_mirror(self, data: dict[str, Any]) -> bool:
+        start = time.monotonic()
+        size = None
+        success = False
+        try:
+            data = sanitize_legacy_definitions(data)
+            size = self._set_cache_value_redis(EU_CROSS_REGION_MIRROR_CACHE_KEY, data, publish_provenance=False)
+            if self.s3_enabled:
+                self._set_cache_value_s3(EU_CROSS_REGION_MIRROR_CACHE_KEY, data, publish_provenance=False)
+            success = True
+            return True
+        except Exception as error:
+            capture_exception(error)
+            return False
+        finally:
+            emit_cache_sync_metrics(
+                "success" if success else "failure",
+                self.namespace,
+                self.value,
+                duration=time.monotonic() - start,
+                size=size,
+            )
 
     def delete_cache_entry(self, key: KeyType, kinds: list[str] | None = None) -> None:
         super().delete_cache_entry(key, kinds)
@@ -89,12 +125,18 @@ class LegacyDefinitionsHyperCache(HyperCache):
         data: dict | None | HyperCacheStoreMissing,
         ttl: int | None = None,
         json_data: str | None = None,
+        *,
+        publish_provenance: bool = True,
     ) -> int | None:
         if isinstance(data, dict):
             data = sanitize_legacy_definitions(data)
             json_data = json.dumps(data, sort_keys=True)
         elif data is not None and not isinstance(data, HyperCacheStoreMissing):
             raise ValueError("Invalid legacy definitions envelope")
+        if not publish_provenance:
+            self._mirror_to_secondary(lambda client: client.delete(self._provenance_key(key)))
+            self.cache_client.delete(self._provenance_key(key))
+            return super()._set_cache_value_redis(key, data, ttl, json_data)
         # Publishing proof last makes interrupted writes fail closed at readers.
         size = super()._set_cache_value_redis(key, data, ttl, json_data)
         provenance_key = self._provenance_key(key)
@@ -109,16 +151,33 @@ class LegacyDefinitionsHyperCache(HyperCache):
         return size
 
     def _set_cache_value_s3(
-        self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: int | None = None
+        self,
+        key: KeyType,
+        data: dict | None | HyperCacheStoreMissing,
+        ttl: int | None = None,
+        *,
+        publish_provenance: bool = True,
     ) -> None:
         if isinstance(data, dict):
             data = sanitize_legacy_definitions(data)
+        if not publish_provenance:
+            object_storage.delete(self._provenance_key(key))
+            return super()._set_cache_value_s3(key, data, ttl)
         super()._set_cache_value_s3(key, data, ttl)
         if isinstance(data, dict):
             etag = self._compute_etag(json.dumps(data, sort_keys=True))
             object_storage.write(self._provenance_key(key), json.dumps({"etag": etag}))
         else:
             object_storage.delete(self._provenance_key(key))
+
+    def _read_payload(self, raw: str | None, provenance: str | None) -> dict[str, Any] | None:
+        if settings.FLAG_DEFINITIONS_REQUIRE_PROVENANCE:
+            return self._verified_payload(raw, provenance)
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) else None
+            return payload if isinstance(payload, dict) else None
+        except ValueError:
+            return None
 
     def get_from_cache_with_source(self, key: KeyType) -> tuple[dict | None, str]:
         cache_key = self.get_cache_key(key)
@@ -128,7 +187,7 @@ class LegacyDefinitionsHyperCache(HyperCache):
             if values.get(cache_key) == _HYPER_CACHE_EMPTY_VALUE:
                 HYPERCACHE_CACHE_COUNTER.labels(result="hit_redis", namespace=self.namespace, value=self.value).inc()
                 return None, "redis"
-            payload = self._verified_payload(values.get(cache_key), values.get(provenance_key))
+            payload = self._read_payload(values.get(cache_key), values.get(provenance_key))
             if payload is not None:
                 HYPERCACHE_CACHE_COUNTER.labels(result="hit_redis", namespace=self.namespace, value=self.value).inc()
                 return payload, "redis"
@@ -136,12 +195,13 @@ class LegacyDefinitionsHyperCache(HyperCache):
             capture_exception(error)
         if self.s3_enabled:
             try:
-                payload = self._verified_payload(
-                    object_storage.read(cache_key, missing_ok=True),
-                    object_storage.read(provenance_key, missing_ok=True),
-                )
+                raw = object_storage.read(cache_key, missing_ok=True)
+                provenance = object_storage.read(provenance_key, missing_ok=True)
+                payload = self._read_payload(raw, provenance)
                 if payload is not None:
-                    self._set_cache_value_redis(key, payload)
+                    self._set_cache_value_redis(
+                        key, payload, publish_provenance=self._verified_payload(raw, provenance) is not None
+                    )
                     HYPERCACHE_CACHE_COUNTER.labels(result="hit_s3", namespace=self.namespace, value=self.value).inc()
                     return payload, "s3"
             except (object_storage.ObjectStorageError, BotoCoreError, ClientError, ValueError) as error:

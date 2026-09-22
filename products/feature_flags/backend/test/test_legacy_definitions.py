@@ -2,7 +2,7 @@ import copy
 import json
 from typing import Any
 
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
@@ -12,6 +12,8 @@ from parameterized import parameterized
 from posthog.models.team import Team
 from posthog.storage.hypercache import HyperCacheDependencyUnavailable, KeyType
 
+from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
+from products.feature_flags.backend.cross_region_flag_sync import sync_cross_region_flags
 from products.feature_flags.backend.legacy_definitions import sanitize_legacy_definitions
 from products.feature_flags.backend.legacy_definitions_cache import LegacyDefinitionsHyperCache
 from products.feature_flags.backend.local_evaluation import _apply_flag_dependency_transformation
@@ -106,7 +108,8 @@ class TestLegacyDefinitions(SimpleTestCase):
 
 
 @override_settings(
-    CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "legacy-definitions"}}
+    FLAG_DEFINITIONS_REQUIRE_PROVENANCE=True,
+    CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "legacy-definitions"}},
 )
 class TestLegacyDefinitionsCache(SimpleTestCase):
     def setUp(self) -> None:
@@ -152,6 +155,66 @@ class TestLegacyDefinitionsCache(SimpleTestCase):
         assert self.loads == 1
         assert self.hypercache.get_if_none_match(1, etag) == (None, etag, False)
         assert self.loads == 1
+
+    @override_settings(FLAG_DEFINITIONS_REQUIRE_PROVENANCE=False)
+    def test_legacy_cache_stays_readable_while_verifier_and_unchanged_writes_add_provenance(self) -> None:
+        raw = json.dumps(self.payload, sort_keys=True)
+        etag = self.hypercache._compute_etag(raw)
+        cache.set(self.hypercache.get_cache_key(1), raw)
+        cache.set(self.hypercache.get_etag_key(1), etag)
+        assert self.hypercache.get_from_cache(1) == self.payload
+        assert self.hypercache.get_if_none_match(1, etag) == (None, etag, False)
+        assert self.loads == 0
+        assert self.hypercache.batch_get_from_cache([Team(id=1)])[1][1] == "miss"
+        self.hypercache.set_cache_value(1, self.payload, skip_if_unchanged=True)
+        with override_settings(FLAG_DEFINITIONS_REQUIRE_PROVENANCE=True):
+            assert self.hypercache.get_if_none_match(1, etag) == (None, etag, False)
+            assert self.hypercache.get_from_cache(1) == self.payload
+        assert self.loads == 0
+
+    @override_settings(
+        FLAG_DEFINITIONS_REQUIRE_PROVENANCE=False,
+        CLOUD_DEPLOYMENT="EU",
+        POSTHOG_FLAGS_PROJECT_SECRET_TOKEN="phs_test_token",
+    )
+    def test_mirror_rollout_requires_verified_full_response_before_trusting_legacy_data(self) -> None:
+        objects: dict[str, str] = {}
+        self.hypercache.s3_enabled = True
+        self.unavailable = True
+        key = EU_CROSS_REGION_MIRROR_CACHE_KEY
+        response = Mock(status_code=200, headers={})
+        response.json.return_value = self.payload
+        with (
+            patch("posthog.storage.object_storage.write", side_effect=lambda key, value: objects.update({key: value})),
+            patch("posthog.storage.object_storage.read", side_effect=lambda key, **kwargs: objects.get(key)),
+            patch("posthog.storage.object_storage.delete", side_effect=lambda key: objects.pop(key, None)),
+            patch("products.feature_flags.backend.cross_region_flag_sync.flag_definitions_hypercache", self.hypercache),
+            patch(
+                "products.feature_flags.backend.cross_region_flag_sync.requests.get", return_value=response
+            ) as request,
+        ):
+            self.hypercache.set_cache_value(key, self.payload)
+            sync_cross_region_flags()
+            assert self.hypercache.get_from_cache(key) == self.payload
+            assert self.hypercache.get_verified_etag(key) is None
+            cache.clear()
+            assert self.hypercache.get_from_cache_with_source(key) == (self.payload, "s3")
+            assert self.hypercache.get_verified_etag(key) is None
+            with override_settings(FLAG_DEFINITIONS_REQUIRE_PROVENANCE=True):
+                assert self.hypercache.get_from_cache_with_source(key) == (None, "dependency_unavailable")
+                sync_cross_region_flags()
+                assert self.hypercache.get_from_cache(key) is None
+            response.headers = {"x-posthog-legacy-definitions": "1"}
+            sync_cross_region_flags()
+            assert "If-None-Match" not in request.call_args.kwargs["headers"]
+            with override_settings(FLAG_DEFINITIONS_REQUIRE_PROVENANCE=True):
+                assert self.hypercache.get_from_cache(key) == self.payload
+                etag = self.hypercache.get_etag(key)
+                assert etag
+                response.status_code = 304
+                sync_cross_region_flags()
+                assert request.call_args.kwargs["headers"]["If-None-Match"] == f'"{etag}"'
+                assert self.hypercache.get_from_cache(key) == self.payload
 
     def test_old_writer_invalidates_provenance_and_sdk_rebuilds(self) -> None:
         self.hypercache.set_cache_value(1, self.payload)

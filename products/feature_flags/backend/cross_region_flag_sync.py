@@ -61,7 +61,8 @@ def sync_cross_region_flags() -> None:
         return
 
     headers = {"Authorization": f"Bearer {token}"}
-    local_etag = flag_definitions_hypercache.get_etag(EU_CROSS_REGION_MIRROR_CACHE_KEY)
+    # A full response must replace an unverified mirror before enforcement can start.
+    local_etag = flag_definitions_hypercache.get_verified_etag(EU_CROSS_REGION_MIRROR_CACHE_KEY)
     if local_etag:
         headers["If-None-Match"] = f'"{local_etag}"'
 
@@ -82,7 +83,8 @@ def sync_cross_region_flags() -> None:
         logger.warning("cross_region_flags_sync_request_failed", error=str(e))
         return
 
-    if response.headers.get(PROVENANCE_HEADER) != "1":
+    verified = response.headers.get(PROVENANCE_HEADER) == "1"
+    if settings.FLAG_DEFINITIONS_REQUIRE_PROVENANCE and not verified:
         logger.warning("cross_region_flags_sync_unverified_definitions")
         return
 
@@ -117,4 +119,7 @@ def sync_cross_region_flags() -> None:
     # write is what re-stamps the Redis TTL. On a long run of 304s the entry can
     # still expire; that self-heals within one tick, because the etag expires with
     # it, so the next poll sends no If-None-Match and gets a full 200.
-    flag_definitions_hypercache.update_cache(EU_CROSS_REGION_MIRROR_CACHE_KEY, data=payload)
+    if verified:
+        flag_definitions_hypercache.update_cache(EU_CROSS_REGION_MIRROR_CACHE_KEY, data=payload)
+    else:
+        flag_definitions_hypercache.update_unverified_mirror(payload)

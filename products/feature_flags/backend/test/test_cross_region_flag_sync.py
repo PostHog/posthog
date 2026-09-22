@@ -24,7 +24,9 @@ def _mock_response(status_code: int, json_data: dict | list | None = None, json_
     return response
 
 
-@override_settings(CLOUD_DEPLOYMENT="EU", POSTHOG_FLAGS_PROJECT_SECRET_TOKEN="phs_test_token")
+@override_settings(
+    CLOUD_DEPLOYMENT="EU", POSTHOG_FLAGS_PROJECT_SECRET_TOKEN="phs_test_token", FLAG_DEFINITIONS_REQUIRE_PROVENANCE=True
+)
 class TestSyncCrossRegionFlags(BaseTest):
     def setUp(self):
         super().setUp()
