@@ -39,6 +39,19 @@ If browser storage is unavailable or invalid, the list uses URL state and saved 
 `applyViewState` restores it without intermediate URL writes.
 The parent scene preserves the view hash when changing date or test-account filters.
 
+## Sorting
+
+The Accounts list uses server sorting until it knows that the full matching set fits on one page.
+This makes the first page globally correct when more pages are available, including when a sort comes from a saved view or shared URL.
+
+The list tracks result completeness per filter set as unknown, complete, or paginated.
+An unknown set includes the selected sort in its first request.
+If the response is complete, the list keeps that request's query identity and applies later sort changes to the loaded rows in the browser.
+If the response has more rows, later sort changes stay on the server and apply across every page.
+Loading the final page does not switch a paginated set to browser sorting or reset the accumulated rows.
+Changing filters starts the completeness decision again, and stale responses cannot update the current filter set.
+An explicit refresh uses the known mode for its request, then lets the response update completeness in either direction.
+
 ## Column widths
 
 The Customer analytics Accounts list sizes new columns to their rendered header and loaded values.
