@@ -1,7 +1,16 @@
+use metrics::counter;
 use opentelemetry_proto::tonic::trace::v1::{span, status::StatusCode, Span};
 use serde_json::{Map, Value};
 
 use super::fan_out::attributes_to_map;
+
+const ERROR_MESSAGE_KEYS: &[(&str, &str)] = &[
+    ("exception.type", "exception.message"),
+    ("error.type", "error.message"),
+];
+
+const MISSING_ERROR_MESSAGE: &str =
+    "Span reported an error without a message. Record an exception event, or set exception.message on the span.";
 
 const HTTP_STATUS_KEYS: &[&str] = &[
     "$ai_http_status",
@@ -152,19 +161,30 @@ fn latest_exception_event(span: &Span) -> Option<&span::Event> {
     })
 }
 
-fn error_message_from_exception(event: &span::Event) -> Option<String> {
-    let attrs = attributes_to_map(&event.attributes);
-    let message = attrs.get("exception.message").and_then(Value::as_str);
-    let error_type = attrs.get("exception.type").and_then(Value::as_str);
+fn error_message_from_attrs(attrs: &Map<String, Value>) -> Option<String> {
+    ERROR_MESSAGE_KEYS
+        .iter()
+        .find_map(|(type_key, message_key)| {
+            let error_type = attrs
+                .get(*type_key)
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty());
+            let message = attrs
+                .get(*message_key)
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty());
 
-    match (error_type, message) {
-        (Some(error_type), Some(message)) if !error_type.is_empty() && !message.is_empty() => {
-            Some(format!("{error_type}: {message}"))
-        }
-        (_, Some(message)) if !message.is_empty() => Some(message.to_string()),
-        (Some(error_type), _) if !error_type.is_empty() => Some(error_type.to_string()),
-        _ => None,
-    }
+            match (error_type, message) {
+                (Some(error_type), Some(message)) => Some(format!("{error_type}: {message}")),
+                (None, Some(message)) => Some(message.to_string()),
+                (Some(error_type), None) => Some(error_type.to_string()),
+                (None, None) => None,
+            }
+        })
+}
+
+fn error_message_from_exception(event: &span::Event) -> Option<String> {
+    error_message_from_attrs(&attributes_to_map(&event.attributes))
 }
 
 pub fn apply_error_status_properties(span: &Span, properties: &mut Map<String, Value>) {
@@ -181,8 +201,12 @@ pub fn apply_error_status_properties(span: &Span, properties: &mut Map<String, V
     if !properties.contains_key("$ai_error") {
         let error = latest_exception_event(span)
             .and_then(error_message_from_exception)
+            .or_else(|| error_message_from_attrs(properties))
             .or_else(|| (!status.message.is_empty()).then(|| status.message.clone()))
-            .unwrap_or_else(|| "OpenTelemetry span status error".to_string());
+            .unwrap_or_else(|| {
+                counter!("capture_ai_otel_error_message_missing").increment(1);
+                MISSING_ERROR_MESSAGE.to_string()
+            });
         properties.insert("$ai_error".to_string(), Value::String(error));
     }
 
@@ -276,6 +300,89 @@ mod tests {
             Value::String("provider failed".to_string())
         );
         assert_eq!(properties["$ai_http_status"], Value::Number(500.into()));
+    }
+
+    #[test]
+    fn test_error_status_reads_exception_attributes_on_the_span() {
+        let mut span = make_span(vec![
+            make_kv(
+                "exception.type",
+                any_value::Value::StringValue("ToolExecutionError".to_string()),
+            ),
+            make_kv(
+                "exception.message",
+                any_value::Value::StringValue("schema validation failed".to_string()),
+            ),
+        ]);
+        span.status = Some(Status {
+            code: StatusCode::Error as i32,
+            message: String::new(),
+        });
+        let mut properties = attributes_to_map(&span.attributes);
+
+        apply_error_status_properties(&span, &mut properties);
+
+        assert_eq!(
+            properties["$ai_error"],
+            Value::String("ToolExecutionError: schema validation failed".to_string())
+        );
+    }
+
+    #[test]
+    fn test_error_status_reads_error_attributes_on_the_span() {
+        let mut span = make_span(vec![make_kv(
+            "error.message",
+            any_value::Value::StringValue("upstream refused the request".to_string()),
+        )]);
+        span.status = Some(Status {
+            code: StatusCode::Error as i32,
+            message: String::new(),
+        });
+        let mut properties = attributes_to_map(&span.attributes);
+
+        apply_error_status_properties(&span, &mut properties);
+
+        assert_eq!(
+            properties["$ai_error"],
+            Value::String("upstream refused the request".to_string())
+        );
+    }
+
+    #[test]
+    fn test_error_status_prefers_span_attributes_over_status_message() {
+        let mut span = make_span(vec![make_kv(
+            "exception.message",
+            any_value::Value::StringValue("context window exceeded".to_string()),
+        )]);
+        span.status = Some(Status {
+            code: StatusCode::Error as i32,
+            message: "Error".to_string(),
+        });
+        let mut properties = attributes_to_map(&span.attributes);
+
+        apply_error_status_properties(&span, &mut properties);
+
+        assert_eq!(
+            properties["$ai_error"],
+            Value::String("context window exceeded".to_string())
+        );
+    }
+
+    #[test]
+    fn test_error_status_without_any_message_names_the_next_step() {
+        let mut span = make_span(vec![]);
+        span.status = Some(Status {
+            code: StatusCode::Error as i32,
+            message: String::new(),
+        });
+        let mut properties = Map::new();
+
+        apply_error_status_properties(&span, &mut properties);
+
+        assert_eq!(
+            properties["$ai_error"],
+            Value::String(MISSING_ERROR_MESSAGE.to_string())
+        );
     }
 
     #[test]
