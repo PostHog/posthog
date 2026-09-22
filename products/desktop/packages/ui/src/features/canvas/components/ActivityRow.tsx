@@ -168,7 +168,7 @@ export function ActivityRow({
             </span>
             {item.isUnread && !compact && <Badge variant="info">New</Badge>}
           </span>
-          <span className="flex min-w-0 items-center gap-1 text-muted-foreground text-xxs">
+          <span className="flex min-w-0 items-center justify-end gap-1 text-muted-foreground text-xxs">
             <span
               className="truncate"
               title={[presentation.metadata, presentation.spaceLabel]
@@ -180,7 +180,7 @@ export function ActivityRow({
             {presentation.spaceLabel && (
               <Badge
                 variant="default"
-                className="ml-auto min-w-0 shrink rounded-xs bg-muted/70 p-0"
+                className="min-w-0 shrink rounded-xs bg-muted/70 p-0"
                 title={presentation.spaceLabel}
               >
                 <span className="truncate">{presentation.spaceLabel}</span>
