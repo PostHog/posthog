@@ -427,6 +427,10 @@ def create_external_data_job_model_activity(
             person_property_sync_enabled=person_property_sync_enabled,
             fast_return_eligible=fast_return_eligible,
         )
+    except V3PipelineLockLostError:
+        # The takeover race the guard handles, not a defect — skip the generic handler's
+        # stack trace log, same reasoning as SourceOrSchemaDeletedError above.
+        raise
     except Exception as e:
         logger.exception(
             f"External data job failed on create_external_data_job_model_activity for {str(inputs.source_id)} with error: {e}"
