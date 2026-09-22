@@ -86,6 +86,7 @@ import {
     ActivityLogOrgLevelSettings,
     ActivityLogSettings,
 } from './environment/ActivityLogSettings'
+import { AdBlockedCaptureRate } from './environment/AdBlockedCaptureRate'
 import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
@@ -1208,6 +1209,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/session-replay',
                 component: <ReplayGeneral />,
                 keywords: ['recording', 'video', 'screen', 'session'],
+            },
+            {
+                id: 'replay-ad-blocker-impact',
+                title: 'Ad blocker impact',
+                description:
+                    'See how many of your sessions an ad blocker stopped PostHog from recording. Blocked sessions produce no recording and no client-side events.',
+                docsUrl: 'https://posthog.com/docs/advanced/proxy',
+                component: <AdBlockedCaptureRate />,
+                keywords: ['ad blocker', 'blocked', 'missing', 'proxy', 'loss'],
             },
             {
                 id: 'replay-log-capture',

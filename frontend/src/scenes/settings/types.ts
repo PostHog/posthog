@@ -260,6 +260,7 @@ export type SettingId =
     | 'project-move'
     | 'realtime-notifications'
     | 'replay'
+    | 'replay-ad-blocker-impact'
     | 'replay-ai-config'
     | 'replay-authorized-domains'
     | 'replay-canvas-capture'

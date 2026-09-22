@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { adBlockedCaptureLogic } from 'lib/components/AdBlockedCapture/adBlockedCaptureLogic'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
@@ -46,13 +47,8 @@ describe('projectNoticeLogic', () => {
             jest.useRealTimers()
         })
 
-        it.each([
-            { label: 'day of month is > 7', date: new Date(2026, 3, 15), dismissed: false },
-            { label: 'notice is dismissed', date: new Date(2026, 3, 3), dismissed: true },
-        ])('does not load proxy records when $label', async ({ date, dismissed }) => {
-            jest.useFakeTimers()
-            jest.setSystemTime(date)
-            getItemSpy.mockImplementation((key: string) => (dismissed && key === DISMISS_KEY ? 'true' : null))
+        it('does not load proxy records when the notice is dismissed', async () => {
+            getItemSpy.mockImplementation((key: string) => (key === DISMISS_KEY ? 'true' : null))
 
             const logic = projectNoticeLogic()
             logic.mount()
@@ -63,16 +59,20 @@ describe('projectNoticeLogic', () => {
             logic.unmount()
         })
 
-        it('loads proxy records when day <= 7 and notice not dismissed', async () => {
+        // The nudge used to be gated on the first 7 days of each month, which hid it for about three
+        // quarters of the year. It is now eligible on any day, and measured loss decides instead.
+        it.each([
+            { label: 'early in the month', date: new Date(2026, 3, 3) },
+            { label: 'late in the month', date: new Date(2026, 3, 27) },
+        ])('loads the proxy records and the measurement $label', async ({ date }) => {
             jest.useFakeTimers()
-            jest.setSystemTime(new Date(2026, 3, 3)) // April 3
-
+            jest.setSystemTime(date)
             getItemSpy.mockImplementation(() => null)
 
             const logic = projectNoticeLogic()
             logic.mount()
 
-            await expectLogic(logic).toDispatchActions(['loadRecords'])
+            await expectLogic(logic).toDispatchActions(['loadRecords', 'loadAdBlockedCaptureStats'])
 
             logic.unmount()
         })
@@ -80,7 +80,6 @@ describe('projectNoticeLogic', () => {
 
     describe('unauthenticated session', () => {
         let getItemSpy: jest.SpyInstance
-        let getDateSpy: jest.SpyInstance
         let originalAppContext: AppContext | undefined
 
         beforeEach(() => {
@@ -101,12 +100,10 @@ describe('projectNoticeLogic', () => {
             initKeaTests()
             getItemSpy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => null)
             // Inside the first-7-days nudge window, so only the auth guard can hold the fetch back.
-            getDateSpy = jest.spyOn(Date.prototype, 'getDate').mockReturnValue(3)
         })
 
         afterEach(() => {
             getItemSpy.mockRestore()
-            getDateSpy.mockRestore()
             window.POSTHOG_APP_CONTEXT = originalAppContext
         })
 
@@ -126,7 +123,6 @@ describe('projectNoticeLogic', () => {
         { status: 403, reason: 'restricted org member below read access' },
     ])('proxy records $status handling', ({ status }) => {
         let getItemSpy: jest.SpyInstance
-        let getDateSpy: jest.SpyInstance
 
         beforeEach(() => {
             useMocks({
@@ -141,12 +137,10 @@ describe('projectNoticeLogic', () => {
             })
             initKeaTests()
             getItemSpy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => null)
-            getDateSpy = jest.spyOn(Date.prototype, 'getDate').mockReturnValue(3)
         })
 
         afterEach(() => {
             getItemSpy.mockRestore()
-            getDateSpy.mockRestore()
         })
 
         it(`swallows a ${status} instead of surfacing a load failure`, async () => {
@@ -163,7 +157,6 @@ describe('projectNoticeLogic', () => {
 
     describe('reverse proxy checker connection', () => {
         let getItemSpy: jest.SpyInstance
-        let getDateSpy: jest.SpyInstance
 
         beforeEach(() => {
             useMocks({
@@ -179,24 +172,16 @@ describe('projectNoticeLogic', () => {
             })
             initKeaTests()
             getItemSpy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => null)
-            getDateSpy = jest.spyOn(Date.prototype, 'getDate')
         })
 
         afterEach(() => {
             getItemSpy.mockRestore()
-            getDateSpy.mockRestore()
         })
 
-        it.each([
-            { label: 'inside the nudge window', dayOfMonth: 3 },
-            { label: 'outside the nudge window', dayOfMonth: 15 },
-        ])('mounts the connected checker $label and tears it down on unmount', async ({ dayOfMonth }) => {
-            getDateSpy.mockReturnValue(dayOfMonth)
-
+        it('mounts the connected checker and tears it down on unmount', async () => {
             const logic = projectNoticeLogic()
             logic.mount()
 
-            // Connected via connect(), so it mounts with projectNoticeLogic regardless of the date gate.
             expect(reverseProxyCheckerLogic.isMounted()).toBe(true)
             // Let the auto-triggered detection settle so no async work outlives the test.
             await expectLogic(reverseProxyCheckerLogic).toDispatchActions(['loadHasReverseProxySuccess'])
@@ -208,7 +193,6 @@ describe('projectNoticeLogic', () => {
 
     describe('reverse proxy banner suppression', () => {
         let getItemSpy: jest.SpyInstance
-        let getDateSpy: jest.SpyInstance
 
         beforeEach(() => {
             useMocks({
@@ -224,12 +208,10 @@ describe('projectNoticeLogic', () => {
             preflightLogic.actions.loadPreflightSuccess({ cloud: true } as any)
             getItemSpy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => null)
             // Inside the first-7-days nudge window.
-            getDateSpy = jest.spyOn(Date.prototype, 'getDate').mockReturnValue(3)
         })
 
         afterEach(() => {
             getItemSpy.mockRestore()
-            getDateSpy.mockRestore()
         })
 
         // Drives the projectNoticeVariant selector deterministically: wait for the checker's
@@ -244,6 +226,10 @@ describe('projectNoticeLogic', () => {
             await expectLogic(reverseProxyCheckerLogic).toDispatchActions(['loadHasReverseProxySuccess'])
             reverseProxyCheckerLogic.actions.loadHasReverseProxySuccess(hasReverseProxy)
             logic.actions.loadRecordsSuccess([])
+            adBlockedCaptureLogic.actions.loadAdBlockedCaptureStatsSuccess({
+                blockedSessions: 101,
+                totalSessions: 1000,
+            })
             return logic
         }
 
@@ -260,6 +246,26 @@ describe('projectNoticeLogic', () => {
             const logic = await mountWithDetectedProxy(false)
 
             expect(logic.values.projectNoticeVariant).toEqual('missing_reverse_proxy')
+            // The banner quotes the account's own measured loss, so a reader can judge it.
+            expect(logic.values.projectNotice?.message).toContain('10%')
+
+            logic.unmount()
+        })
+
+        // Without measured loss there is nothing to fix, so the nudge must stay quiet. This is what
+        // the old calendar-day gate could not tell apart.
+        it.each([
+            { label: 'nothing is measured yet', stats: null },
+            { label: 'the measured loss is small', stats: { blockedSessions: 5, totalSessions: 1000 } },
+        ])('suppresses the nudge when $label', async ({ stats }) => {
+            const logic = projectNoticeLogic()
+            logic.mount()
+            await expectLogic(reverseProxyCheckerLogic).toDispatchActions(['loadHasReverseProxySuccess'])
+            reverseProxyCheckerLogic.actions.loadHasReverseProxySuccess(false)
+            logic.actions.loadRecordsSuccess([])
+            adBlockedCaptureLogic.actions.loadAdBlockedCaptureStatsSuccess(stats)
+
+            expect(logic.values.projectNoticeVariant).not.toEqual('missing_reverse_proxy')
 
             logic.unmount()
         })
@@ -320,7 +326,6 @@ describe('projectNoticeLogic', () => {
 
     describe('reverse proxy banner CTA navigation', () => {
         let getItemSpy: jest.SpyInstance
-        let getDateSpy: jest.SpyInstance
 
         beforeEach(() => {
             useMocks({
@@ -334,12 +339,10 @@ describe('projectNoticeLogic', () => {
             initKeaTests()
             preflightLogic.actions.loadPreflightSuccess({ cloud: true } as any)
             getItemSpy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => null)
-            getDateSpy = jest.spyOn(Date.prototype, 'getDate').mockReturnValue(3)
         })
 
         afterEach(() => {
             getItemSpy.mockRestore()
-            getDateSpy.mockRestore()
         })
 
         // The CTA used to be a mid-sentence inline <Link> in the banner message — a small, fragile
@@ -351,6 +354,10 @@ describe('projectNoticeLogic', () => {
             await expectLogic(reverseProxyCheckerLogic).toDispatchActions(['loadHasReverseProxySuccess'])
             reverseProxyCheckerLogic.actions.loadHasReverseProxySuccess(false)
             logic.actions.loadRecordsSuccess([])
+            adBlockedCaptureLogic.actions.loadAdBlockedCaptureStatsSuccess({
+                blockedSessions: 101,
+                totalSessions: 1000,
+            })
 
             expect(logic.values.projectNoticeVariant).toEqual('missing_reverse_proxy')
 
