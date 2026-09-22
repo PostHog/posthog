@@ -32,7 +32,6 @@ const meta: Meta<typeof DestinationModal> = {
     title: 'Data Warehouse/DestinationModal',
     component: DestinationModal,
     parameters: {
-        layout: 'fullscreen',
         viewMode: 'story',
         testOptions: { snapshotTargetSelector: '.LemonModal' },
     },

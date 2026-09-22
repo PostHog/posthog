@@ -240,6 +240,17 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
             **validated_data,
         )
 
+    def update(self, instance: ExternalDataDestination, validated_data: dict[str, Any]) -> ExternalDataDestination:
+        # `config` is a single JSON blob, so a PATCH that includes it replaces the whole thing.
+        # A caller that means to change one key (say `compression`) without repeating every other
+        # key would otherwise silently drop `database`/`schema` and strand already-synced rows,
+        # the exact outcome `_reject_retargeting` exists to prevent. Merging onto the current
+        # config keeps every field `_reject_retargeting` did not see change.
+        if "config" in validated_data:
+            current = instance.config or {}
+            validated_data["config"] = {**current, **validated_data["config"]}
+        return super().update(instance, validated_data)
+
 
 class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Manage where warehouse sources write their synced rows.

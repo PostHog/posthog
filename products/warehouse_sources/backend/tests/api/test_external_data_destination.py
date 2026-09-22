@@ -186,6 +186,17 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
 
+    def test_a_partial_config_update_keeps_the_fields_it_did_not_mention(self) -> None:
+        # `config` is one JSON blob. A PATCH naming only the key it means to change must not
+        # replace the whole blob and silently drop the target fields alongside it.
+        destination = self._create_destination(config={"database": "analytics", "schema": "public"})
+
+        response = self.client.patch(f"{self.base}/{destination.id}", {"config": {"ssl_mode": "require"}})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        destination.refresh_from_db()
+        assert destination.config == {"database": "analytics", "schema": "public", "ssl_mode": "require"}
+
     def test_delete_detaches_everything_that_synced_to_it(self) -> None:
         destination = self._create_destination()
         ExternalDataSourceDestination.objects.for_team(self.team.pk).create(

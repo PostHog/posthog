@@ -1,13 +1,15 @@
 import { LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
-import { S3_REGION_OPTIONS } from 'lib/integrations/s3Regions'
+import { AWS_ONLY_REGION_OPTIONS, S3_REGION_OPTIONS } from 'lib/integrations/s3Regions'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { DEFAULT_PARQUET_COMPRESSION, PARQUET_COMPRESSION_OPTIONS } from './parquetCompression'
 import type { WarehouseDestinationDefinition } from './types'
 
-// One type covers AWS and every S3-compatible provider, so the region list is the broad one and
-// virtual-style addressing stays visible. AWS ignores the setting; MinIO and Wasabi need it.
+// One type covers AWS and every S3-compatible provider. AWS only accepts its own region codes,
+// so aws-s3 gets the narrow catalog; s3-compatible providers (MinIO, Wasabi, GCS, R2, OVH, ...)
+// get the broad one. Virtual-style addressing stays visible either way: AWS ignores the setting,
+// but MinIO and Wasabi need it.
 export const s3Definition: WarehouseDestinationDefinition = {
     type: 'S3',
     integrationKinds: ['aws-s3', 's3-compatible'],
@@ -15,7 +17,10 @@ export const s3Definition: WarehouseDestinationDefinition = {
     requiredFields: () => ['bucket', 'region'],
     configKeys: ['bucket', 'region', 'prefix', 'compression', 'use_virtual_style_addressing'],
     retargetingKeys: ['bucket', 'prefix'],
-    Fields: function S3Fields({ isNew }) {
+    Fields: function S3Fields({ isNew, formValues }) {
+        // AWS rejects region values that only exist for GCP, R2 or OVH, so aws-s3 gets the
+        // narrower catalog; s3-compatible providers reuse those values, so they get the broad one.
+        const regionOptions = formValues.integrationKind === 'aws-s3' ? AWS_ONLY_REGION_OPTIONS : S3_REGION_OPTIONS
         return (
             <>
                 <div className="flex gap-2">
@@ -27,7 +32,7 @@ export const s3Definition: WarehouseDestinationDefinition = {
                         />
                     </LemonField>
                     <LemonField name="region" label="Region" className="flex-1">
-                        <LemonSelect options={S3_REGION_OPTIONS} data-attr="warehouse-destination-region" />
+                        <LemonSelect options={regionOptions} data-attr="warehouse-destination-region" />
                     </LemonField>
                 </div>
                 <LemonField
