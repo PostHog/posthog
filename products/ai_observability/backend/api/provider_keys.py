@@ -83,19 +83,19 @@ def validate_provider_key(provider: str, api_key: str, **kwargs) -> tuple[str, s
         return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
 
 
-def _validation_error_field(provider: str, error_message: str | None, *, default: str | None = "api_key") -> str | None:
-    """Pick the serializer field to attach a validation error to.
+def _validation_error_field(provider: str, error_message: str | None) -> str | None:
+    """Pick the form field a validation error belongs to, or None when it is unattributed.
 
     Azure OpenAI and OpenAI-compatible providers may fail because of endpoint issues (unreachable,
     wrong domain, 404), in which case the error is attributed to the endpoint field so the UI can
-    highlight the right input. `default` is what an unattributed message falls back to: `api_key`
-    when the error has to land on some field, `None` when the caller reports the field separately.
+    highlight the right input. Callers that must land the error on some field fall back to
+    `api_key`; the pre-validation endpoint reports the field separately and keeps the None.
     """
     if provider == LLMProvider.AZURE_OPENAI:
-        return azure_error_field(error_message) or default
+        return azure_error_field(error_message)
     if provider == LLMProvider.OPENAI_COMPATIBLE:
-        return openai_compatible_error_field(error_message) or default
-    return default
+        return openai_compatible_error_field(error_message)
+    return None
 
 
 # Write-only serializer fields that carry provider-specific config into encrypted_config.
@@ -286,7 +286,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         if api_key:
             state, error_message = validate_provider_key(provider, api_key, **config_kwargs)
             if state != LLMProviderKey.State.OK:
-                error_field = _validation_error_field(provider, error_message)
+                error_field = _validation_error_field(provider, error_message) or "api_key"
                 raise serializers.ValidationError({error_field: error_message or "Key validation failed"})
             validated_data["encrypted_config"] = {"api_key": api_key, **config_kwargs}
             validated_data["state"] = state
@@ -313,7 +313,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
 
             state, error_message = validate_provider_key(instance.provider, api_key, **extra_kwargs)
             if state != LLMProviderKey.State.OK:
-                error_field = _validation_error_field(instance.provider, error_message)
+                error_field = _validation_error_field(instance.provider, error_message) or "api_key"
                 raise serializers.ValidationError({error_field: error_message or "Key validation failed"})
             encrypted_config: dict = {"api_key": api_key}
             if instance.provider == LLMProvider.AZURE_OPENAI:
@@ -633,5 +633,5 @@ class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 extra_kwargs["base_url"] = base_url
 
         state, error_message = validate_provider_key(provider, api_key, **extra_kwargs)
-        error_field = _validation_error_field(provider, error_message, default=None)
+        error_field = _validation_error_field(provider, error_message)
         return Response({"state": state, "error_message": error_message, "error_field": error_field})
