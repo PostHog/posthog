@@ -74,6 +74,12 @@ describe('computeSankeyLayout', () => {
         expect(layoutOf({ links: [] }).nodes).toHaveLength(0)
         expect(() => layoutOf({ links: [{ source: 'start', target: 'nope', value: 1 }] })).toThrow('missing: nope')
     })
+
+    it('returns an empty layout when all link values are zero', () => {
+        const layout = layoutOf({ links: [{ source: 'start', target: 'a', value: 0 }] })
+        expect(layout.nodes).toHaveLength(0)
+        expect(layout.total).toBe(0)
+    })
 })
 
 describe('sankeyHitAt', () => {
@@ -95,5 +101,22 @@ describe('sankeyHitAt', () => {
         expect(linkHit).toEqual({ kind: 'link', index: aToDone })
 
         expect(sankeyHitAt(layout, { x: -50, y: -50 })).toBeNull()
+    })
+
+    it('detects a zero-value node whose drawn height is floored at 1px', () => {
+        // A node with only empty inflow/outflow gets y1 === y0 from the layout engine.
+        // The draw code floors its height at Math.max(1, y1 - y0), so it paints as 1px.
+        // The hit box must match: floor the height here too.
+        const layoutWithZeroNode = layoutOf({
+            nodes: [...NODES, { id: 'orphan' }],
+            links: LINKS,
+        })
+        const zeroNode = layoutWithZeroNode.nodes.find((n) => n.id === 'orphan')!
+        // Even though the node has zero layout height, it can still be hit.
+        const hit = sankeyHitAt(layoutWithZeroNode, {
+            x: (zeroNode.x0 + zeroNode.x1) / 2,
+            y: zeroNode.y0,
+        })
+        expect(hit).toEqual({ kind: 'node', index: layoutWithZeroNode.nodes.indexOf(zeroNode) })
     })
 })

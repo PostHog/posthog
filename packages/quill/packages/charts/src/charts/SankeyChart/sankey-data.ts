@@ -129,7 +129,8 @@ export const EMPTY_SANKEY_LAYOUT: SankeyChartLayout<never> = {
 
 /** Lays the graph out inside `plot`. Pure: safe to call from a memo or a test. Throws when a link
  *  names a missing node or the graph has a cycle, so a consumer bug surfaces through the chart's
- *  error boundary instead of drawing nothing. */
+ *  error boundary instead of drawing nothing. Returns `EMPTY_SANKEY_LAYOUT` when the graph has no
+ *  flow (all link values are zero). */
 export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
     nodes,
     links,
@@ -210,6 +211,11 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
 
     const total = graph.nodes.filter((node) => node.targetLinks.length === 0).reduce((sum, node) => sum + node.value, 0)
 
+    // Guard against all-zero flow: the layout engine produces NaN coordinates when total is 0
+    if (total === 0) {
+        return EMPTY_SANKEY_LAYOUT as SankeyChartLayout<NodeMeta, LinkMeta>
+    }
+
     return { nodes: outNodes, links: outLinks, columnCount, columnX, total, nodeWidth }
 }
 
@@ -224,7 +230,10 @@ export function sankeyHitAt(
 ): SankeyHit | null {
     for (let i = 0; i < layout.nodes.length; i++) {
         const node = layout.nodes[i]
-        if (cursor.x >= node.x0 && cursor.x <= node.x1 && cursor.y >= node.y0 && cursor.y <= node.y1) {
+        const nodeHeight = Math.max(1, node.y1 - node.y0)
+        const y0 = node.y0
+        const y1 = y0 + nodeHeight
+        if (cursor.x >= node.x0 && cursor.x <= node.x1 && cursor.y >= y0 && cursor.y <= y1) {
             return { kind: 'node', index: i }
         }
     }
