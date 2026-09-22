@@ -9756,6 +9756,10 @@ snapshots:
         hash: v1.k794b7964.099228351b7624d666505094801048a76f10d19b6122bdae57095a2f248a85af.ceSOAt-JxUJXvTOF3O-qcPOyDJfYQy_JxLBIJTITHBU
     scenes-app-notebooks-dataframe-hint--on-a-cell-with-no-dataframe-name--light:
         hash: v1.k794b7964.9cb4583e02d3192ab41346398046f32619977f6a4d7d56644245f4018b1c1451.rqbs7lbVXIaK4wH1m1_NFxMizFc2esosnCWk6XB-_VQ
+    scenes-app-notebooks-generated-widgets--before-generation--dark:
+        hash: v1.k794b7964.34f04fefd940684d90f0896ea18041a45e83d357c9858134a0fd30e0a5d41398.iF-if0on9M_2xgY8TOAaoiVj7HfOI0ymzofa5LvFZHw
+    scenes-app-notebooks-generated-widgets--before-generation--light:
+        hash: v1.k794b7964.7288ee860561f5f2ace5cfd8dda153f38299c9dcf074164f54eff9d2d9fa8822.t3v1QVuYt2iyIXotJIf-oQUJNmijr7YB8lyMNbOCblg
     scenes-app-notebooks-kernel-info--free-compute--dark:
         hash: v1.k794b7964.e8e81cc18d66dcca3d1cd23cc5017833b040abcaa4a3be85c6161787fed0efcd.OiaNuBz69zbpOxiLQsFYOQuJn_226577RmjJ_GbOdyQ
     scenes-app-notebooks-kernel-info--free-compute--light:
