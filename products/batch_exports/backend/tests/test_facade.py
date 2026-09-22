@@ -23,7 +23,7 @@ WINDOW_BEGIN = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
 WINDOW_END = WINDOW_BEGIN + dt.timedelta(days=1)
 IN_WINDOW = WINDOW_BEGIN + dt.timedelta(hours=1)
 
-S3 = BatchExportDestination.Destination.S3
+AWS_S3 = BatchExportDestination.Destination.AWS_S3
 HTTP = BatchExportDestination.Destination.HTTP
 NOOP = BatchExportDestination.Destination.NOOP
 WORKFLOWS = BatchExportDestination.Destination.WORKFLOWS
@@ -40,7 +40,7 @@ def team(organization):
     return create_team(organization=organization)
 
 
-def _create_export(team, *, name="export", destination_type=S3, config=None, **fields):
+def _create_export(team, *, name="export", destination_type=AWS_S3, config=None, **fields):
     return testing.create_batch_export(
         team.pk,
         name=name,
@@ -85,8 +85,8 @@ def test_billable_rows_exported_sums_scheduled_and_on_demand_runs_per_team(team)
     [
         (HTTP, {}, False),
         (WORKFLOWS, {}, False),
-        (S3, {"model": BatchExport.Model.HOGQL}, False),
-        (S3, {}, True),
+        (AWS_S3, {"model": BatchExport.Model.HOGQL}, False),
+        (AWS_S3, {}, True),
     ],
     ids=["http destination", "workflows destination", "hogql model", "deleted export"],
 )
@@ -198,7 +198,7 @@ def test_batch_export_by_name_carries_the_event_filters_and_no_destination_secre
 def test_batch_export_by_name_is_none_when_nothing_matches(team):
     _create_export(team, name="migration", destination_type=HTTP)
 
-    assert api.get_batch_export_by_name(team.pk, "migration", S3) is None
+    assert api.get_batch_export_by_name(team.pk, "migration", AWS_S3) is None
 
 
 def test_batch_export_by_name_rejects_an_ambiguous_match(team):

@@ -616,7 +616,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         _, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
         batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+            type=BatchExportDestination.Destination.AWS_S3, config={"bucket_name": "my_production_s3_bucket"}
         )
         batch_export = BatchExport.objects.create(  # type: ignore
             team=user.team, name="A batch export", destination=batch_export_destination
@@ -638,7 +638,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_does_not_send_batch_export_run_failure_for_on_demand_export(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+            type=BatchExportDestination.Destination.AWS_S3, config={"bucket_name": "my_production_s3_bucket"}
         )
         with team_scope(team_id=self.team.pk, canonical=True):
             on_demand_export = BatchExportOnDemand.objects.create(team=self.team, destination=destination)
@@ -657,7 +657,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_batch_export_run_failure_with_settings(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+            type=BatchExportDestination.Destination.AWS_S3, config={"bucket_name": "my_production_s3_bucket"}
         )
         batch_export = BatchExport.objects.create(  # type: ignore
             team=self.user.team, name="A batch export", destination=batch_export_destination
@@ -690,7 +690,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_batch_export_run_failure_with_threshold(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+            type=BatchExportDestination.Destination.AWS_S3, config={"bucket_name": "my_production_s3_bucket"}
         )
         batch_export = BatchExport.objects.create(  # type: ignore
             team=self.user.team, name="A batch export", destination=batch_export_destination
@@ -740,7 +740,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_batch_export_run_failure_with_threshold_disabled(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+            type=BatchExportDestination.Destination.AWS_S3, config={"bucket_name": "my_production_s3_bucket"}
         )
         batch_export = BatchExport.objects.create(  # type: ignore
             team=self.user.team, name="A batch export", destination=batch_export_destination
@@ -1353,7 +1353,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_batch_export_run_failure_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+            type=BatchExportDestination.Destination.AWS_S3, config={"bucket_name": "my_production_s3_bucket"}
         )
         batch_export = BatchExport.objects.create(  # type: ignore
             team=self.user.team, name="A batch export", destination=batch_export_destination

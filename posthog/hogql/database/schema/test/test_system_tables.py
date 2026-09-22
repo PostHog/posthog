@@ -209,7 +209,7 @@ class TestSystemTablesTeamScoping(BaseTest):
 def _create_batch_export(team: Team, label: str):
     from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
 
-    destination = BatchExportDestination.objects.create(type="S3", config={})
+    destination = BatchExportDestination.objects.create(type="AwsS3", config={})
     return BatchExport.objects.create(team=team, name=f"export_{label}", destination=destination, interval="hour")
 
 
@@ -230,7 +230,7 @@ def _create_batch_export_backfill(team: Team, label: str):
         BatchExportDestination,
     )
 
-    destination = BatchExportDestination.objects.create(type="S3", config={})
+    destination = BatchExportDestination.objects.create(type="AwsS3", config={})
     batch_export = BatchExport.objects.create(
         team=team, name=f"export_for_backfill_{label}", destination=destination, interval="hour"
     )
@@ -240,7 +240,7 @@ def _create_batch_export_backfill(team: Team, label: str):
 def _create_batch_export_run(team: Team, label: str):
     from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 
-    destination = BatchExportDestination.objects.create(type="S3", config={})
+    destination = BatchExportDestination.objects.create(type="AwsS3", config={})
     batch_export = BatchExport.objects.create(
         team=team, name=f"export_for_run_{label}", destination=destination, interval="hour"
     )
@@ -250,7 +250,7 @@ def _create_batch_export_run(team: Team, label: str):
 def _create_batch_export_on_demand(team: Team, label: str):
     from products.batch_exports.backend.models.batch_export import BatchExportDestination, BatchExportOnDemand
 
-    destination = BatchExportDestination.objects.create(type="S3", config={})
+    destination = BatchExportDestination.objects.create(type="AwsS3", config={})
     with team_scope(team.pk):
         return BatchExportOnDemand.objects.create(team=team, destination=destination)
 
