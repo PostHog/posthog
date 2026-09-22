@@ -150,12 +150,15 @@ Only a removal counts as existing cleanup work.
 Read what you find against the base branch.
 The test is whether a runtime check of the key still evaluates it, not whether the key string appears:
 a finished cleanup can leave historical documentation, analytics property names, and the payload reads step 6 keeps.
+A removal merged into the base branch is history and not work in progress, so check which one you have:
+`git merge-base --is-ancestor <removal commit> origin/<base branch>` succeeds for a removal that already landed.
 
-- **A branch, commit, or PR removes the key, and no runtime check of the key remains in the base branch.** The cleanup landed already. What remains is deployment and archival, not code. Go to "After the cleanup is deployed".
-- **A branch, commit, or PR removes the key, and a runtime check of the key remains in the base branch.** A cleanup is in flight, or it landed and missed a call site. Report where it is and stop.
+- **A merged removal, and no runtime check of the key remains.** The cleanup landed already. What remains is deployment and archival, not code. Go to "After the cleanup is deployed".
+- **A merged removal, and a runtime check of the key remains.** The key came back after that cleanup, or that cleanup missed a call site. Continue, and say which. A key that came back may be a seasonal flag, so ask before you remove it again.
+- **An unmerged branch or an open PR removes the key.** A cleanup is in flight. Report where it is and stop.
 - **Nothing removes the key.** Continue. A key absent from the base branch with no commit that removed it was never checked here, which step 5 reports as a no-op rather than a finished cleanup.
 
-When you find existing work, report it: the branch, commit, or PR, when it was made, and whether a runtime check of the key remains in the base branch.
+When a cleanup is in flight, report it: the branch or PR, when it was made, and whether a runtime check of the key remains in the base branch.
 Then stop and let the user decide.
 Continuing someone else's branch needs them to ask for it, because a second cleanup duplicates the review as well as the work.
 
