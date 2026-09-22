@@ -1,5 +1,7 @@
 import os
+import fcntl
 import tempfile
+import threading
 from pathlib import Path
 
 from unittest import TestCase
@@ -26,10 +28,10 @@ class TestPrometheusMultiprocDir(TestCase):
             mmaped.close()
         return path
 
-    def _all_samples(self) -> dict[tuple[str, tuple[tuple[str, str], ...]], float]:
+    def _all_samples(self) -> dict[str, float]:
         collector = multiprocess.MultiProcessCollector(None, path=str(self.directory))
         return {
-            (sample.name, tuple(sorted(sample.labels.items()))): sample.value
+            f"{sample.name}{sorted(sample.labels.items())}": sample.value
             for metric in collector.collect()
             for sample in metric.samples
         }
@@ -112,6 +114,46 @@ class TestPrometheusMultiprocDir(TestCase):
         assert not dead.exists()
         assert live.exists()
 
+    def test_a_pid_reused_while_cleanup_waits_keeps_its_files(self) -> None:
+        # Liveness read before the lock can name a pid that a new child owns by the time the lock
+        # arrives, and that child's file is live.
+        kept = self._write("counter", 4242, {self._counter_key("a"): (1.0, 0.0)})
+        alive: set[int] = set()
+        holding = threading.Event()
+        release = threading.Event()
+        swept = threading.Event()
+        checked = threading.Event()
+
+        def is_alive(pid: int) -> bool:
+            checked.set()
+            return pid in alive
+
+        def hold_the_lock() -> None:
+            with self.multiproc._lock(fcntl.LOCK_EX):
+                holding.set()
+                release.wait(timeout=10)
+
+        def sweep() -> None:
+            self.multiproc.retire_dead_processes()
+            swept.set()
+
+        with patch.object(PrometheusMultiprocDir, "_is_alive", staticmethod(is_alive)):
+            holder = threading.Thread(target=hold_the_lock)
+            holder.start()
+            assert holding.wait(timeout=10)
+            sweeper = threading.Thread(target=sweep)
+            sweeper.start()
+            # The sweep must reach its liveness test only once it holds the lock, so nothing is
+            # checked while it waits here. A new child takes the pid in the meantime.
+            assert not checked.wait(timeout=0.3), "liveness was read before the lock"
+            alive.add(4242)
+            release.set()
+            sweeper.join(timeout=10)
+            holder.join(timeout=10)
+
+        assert swept.is_set()
+        assert kept.exists()
+
     def test_purge_all_clears_the_archive_too(self) -> None:
         # Boot cleanup must not carry a previous pod's totals into this one.
         self._write("counter", 4242, {self._counter_key("a"): (1.0, 0.0)})
@@ -131,8 +173,43 @@ class TestPrometheusMultiprocDir(TestCase):
         assert self.multiproc.retire_pids([4242]) == 1
         assert not corrupt.exists()
 
-    def test_the_collector_sees_a_file_removed_mid_scrape_as_nothing_unusual(self) -> None:
+    def test_the_collector_reads_the_files_samples(self) -> None:
+        self._write("counter", 4242, {self._counter_key("a"): (7.0, 0.0)})
+
+        collector = LockedMultiProcessCollector(self.multiproc)
+        assert any(metric.samples for metric in collector.collect())
+
+    def test_cleanup_waits_for_a_scrape_in_flight(self) -> None:
+        # Drop the shared lock from collect() and prometheus_client raises FileNotFoundError for
+        # a file deleted between its listing and its read, which fails the whole scrape.
         self._write("counter", 4242, {self._counter_key("a"): (7.0, 0.0)})
         collector = LockedMultiProcessCollector(self.multiproc)
+        scraping = threading.Event()
+        release = threading.Event()
+        retired = threading.Event()
 
-        assert any(metric.samples for metric in collector.collect())
+        def blocking_collect() -> list:
+            scraping.set()
+            release.wait(timeout=10)
+            return []
+
+        def retire() -> None:
+            self.multiproc.retire_pids([4242])
+            retired.set()
+
+        with patch.object(collector, "_collector") as inner:
+            inner.collect.side_effect = blocking_collect
+            scraper = threading.Thread(target=collector.collect)
+            scraper.start()
+            try:
+                assert scraping.wait(timeout=10)
+                cleaner = threading.Thread(target=retire)
+                cleaner.start()
+                assert not retired.wait(timeout=0.3), "cleanup deleted a file under a live scrape"
+            finally:
+                release.set()
+            cleaner.join(timeout=10)
+            scraper.join(timeout=10)
+
+        assert retired.is_set()
+        assert not (self.directory / "counter_4242.db").exists()

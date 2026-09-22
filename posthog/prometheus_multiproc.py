@@ -12,7 +12,7 @@ scrape keeps the totals while the number of files stops growing with the number 
 
 import os
 import fcntl
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from enum import Enum
 
@@ -208,28 +208,34 @@ class PrometheusMultiprocDir:
             if archive is not None:
                 archive.close()
 
+    def _retire(self, should_retire: Callable[[MetricFile], bool]) -> int:
+        """Archive and delete the files the caller picks. The exclusive lock must be held."""
+        retired = 0
+        for metric_file in self._metric_files():
+            if not should_retire(metric_file):
+                continue
+            self._archive(metric_file)
+            if self._unlink(metric_file.path):
+                retired += 1
+        return retired
+
     def retire_pids(self, pids: Iterable[int]) -> int:
         """Archive the samples of the given processes, then delete the files they own."""
         owners = {str(pid) for pid in pids}
         if not owners:
             return 0
-        retired = 0
         with self._lock(fcntl.LOCK_EX):
-            for metric_file in self._metric_files():
-                if metric_file.owner not in owners:
-                    continue
-                self._archive(metric_file)
-                if self._unlink(metric_file.path):
-                    retired += 1
-        return retired
+            return self._retire(lambda metric_file: metric_file.owner in owners)
 
     def retire_dead_processes(self) -> int:
         """Retire the files of processes that are gone, so a full pod recovers without a restart.
 
-        A child that is killed (OOM, SIGKILL) never runs its shutdown handler.
+        A child that is killed (OOM, SIGKILL) never runs its shutdown handler. The liveness test
+        runs under the lock and picks the files themselves, because a pid read before the lock can
+        belong to a new child by the time the lock arrives, and that child's file is live.
         """
-        pids = {metric_file.pid for metric_file in self._metric_files()}
-        return self.retire_pids(pid for pid in pids if pid is not None and not self._is_alive(pid))
+        with self._lock(fcntl.LOCK_EX):
+            return self._retire(lambda metric_file: metric_file.pid is not None and not self._is_alive(metric_file.pid))
 
     def purge_all(self) -> int:
         """Delete every metric file, archives included. Only safe before the children write."""
