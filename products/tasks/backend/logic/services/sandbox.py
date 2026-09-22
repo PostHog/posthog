@@ -720,17 +720,20 @@ class SandboxBase(ABC):
                 if isinstance(raw_phases, dict)
                 else {}
             )
+            versioned_contract = isinstance(boot, dict) and "contractVersion" in boot
             for source, target in (
                 ("totalMs", "server_total"),
                 ("httpReadyMs", "http_ready"),
                 ("launcherToProcessMs", "launcher_to_process"),
             ):
+                if source == "totalMs" and not versioned_contract:
+                    continue
                 duration = boot.get(source) if isinstance(boot, dict) else None
                 if isinstance(duration, int | float) and not isinstance(duration, bool):
                     phases[target] = max(0, int(duration))
             boot_ms = payload.get("bootMs")
-            if "server_total" not in phases and isinstance(boot_ms, int | float) and not isinstance(boot_ms, bool):
-                phases["server_total"] = max(0, int(boot_ms))
+            if isinstance(boot_ms, int | float) and not isinstance(boot_ms, bool):
+                phases["process_total"] = max(0, int(boot_ms))
             return int(session_init_ms) if isinstance(session_init_ms, int | float) else None, phases
         except Exception:
             return None, {}

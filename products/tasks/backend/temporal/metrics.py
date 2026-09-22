@@ -434,6 +434,25 @@ def record_agent_server_step_ms(
         pass
 
 
+def record_agent_server_boot_phases_ms(
+    boot_phases_ms: Mapping[str, int],
+    boot_path: str,
+    *,
+    used_snapshot: bool | None = None,
+    origin_product: str | None = None,
+    runtime: str | None = None,
+) -> None:
+    for phase, duration_ms in boot_phases_ms.items():
+        record_agent_server_step_ms(
+            f"agent_server_phase_{phase}",
+            duration_ms,
+            boot_path,
+            used_snapshot=used_snapshot,
+            origin_product=origin_product,
+            runtime=runtime,
+        )
+
+
 def increment_agent_server_readiness_retry(
     attempt: int,
     outcome: str,

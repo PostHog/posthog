@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { STRUCTURED_CONTENT_ONLY_TEXT, type ToolResultPayload, UI_APP_RENDER_NOTE } from '@/lib/build-tool-result'
 import { handleToolError, PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
+import { formatResponse } from '@/lib/response'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
@@ -104,13 +105,13 @@ describe('exec tool', () => {
                     projectAvailable: false,
                     commands: [
                         'learn skills',
-                        'learn -s <query>',
+                        'learn -s "<up to 8 keywords>"',
                         'learn -d <source>:<skill> [...]',
                         'learn posthog:<skill> [path]',
                         'learn project:<skill> [path]',
                         'learn <source>:<skill> <path> [path...]',
                         'learn <source>:<skill> [<source>:<skill>...]',
-                        'learn <source>:<skill> <path> -s <query>',
+                        'learn <source>:<skill> <path> -s "<up to 8 keywords>"',
                         'learn <source>:<skill> <path> --lines <start>:<end>',
                     ],
                 },
@@ -392,6 +393,21 @@ describe('exec tool', () => {
             expect(result).toContain('name: test')
             expect(result).not.toBe(JSON.stringify({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] }))
         })
+
+        it.each(['call mock-tool', 'call --json mock-tool'])(
+            'uses the requested pagination format for %s',
+            async (command) => {
+                const results = [{ id: 1, name: 'example' }]
+                const handlerResult = { results, next: null, count: 1, previous: null }
+                const exec = createExec([makeMockTool({ handler: async () => handlerResult })])
+
+                const result = await exec.handler(mockContext, { command })
+
+                expect(result).toBe(
+                    command.includes('--json') ? JSON.stringify(handlerResult) : formatResponse(results)
+                )
+            }
+        )
 
         it('returns raw JSON when --json flag is passed in command', async () => {
             const exec = createExec()

@@ -25,7 +25,6 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.git import extract_explicit_repo, extract_linked_repo, extract_repo_from_scopes
-from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
     Integration,
@@ -94,6 +93,7 @@ from products.slack_app.backend.services.slack_messages import (
     parse_slack_file_refs,
     post_slack_thread_reply,
 )
+from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 from products.slack_app.backend.services.slack_settings import resolve_untagged_followup_mode
 from products.slack_app.backend.services.slack_user_info import (
     clear_workspace_profile_cache,
