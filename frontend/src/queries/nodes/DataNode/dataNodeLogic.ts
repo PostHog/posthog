@@ -179,11 +179,16 @@ function sanitizeRefreshType(refresh: unknown): RefreshType | undefined {
 }
 
 const concurrencyController = new ConcurrencyController(1)
+const accountsTableConcurrencyController = new ConcurrencyController(2)
 const webAnalyticsConcurrencyController = new ConcurrencyController(6)
 const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(6)
 const marketingAnalyticsConcurrencyController = new ConcurrencyController(6)
 
 function getConcurrencyController(query: DataNode, currentTeam: TeamType): ConcurrencyController {
+    if (isAccountsTableQuery(query)) {
+        return accountsTableConcurrencyController
+    }
+
     const mountedSceneLogic = sceneLogic.findMounted()
     const activeScene = mountedSceneLogic?.values.activeSceneId
 
