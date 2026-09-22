@@ -15,7 +15,8 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.x509.oid import NameOID
 from parameterized import parameterized
 
-from products.workflows.backend.services.sns_verification import (
+from posthog.ingress.verify.errors import VerifierUnavailable
+from posthog.ingress.verify.sns_signature import (
     _MAX_UNKNOWN_CERT_FETCHES_PER_MINUTE,
     _fetch_signing_cert,
     is_valid_sns_cert_url,
@@ -62,7 +63,7 @@ def _signed_notification(tamper: dict[str, Any] | None = None) -> dict[str, Any]
 
 class TestSnsVerification(TestCase):
     def _verify(self, message: dict[str, Any]) -> bool:
-        with patch("products.workflows.backend.services.sns_verification._fetch_signing_cert", return_value=_CERT_PEM):
+        with patch("posthog.ingress.verify.sns_signature._fetch_signing_cert", return_value=_CERT_PEM):
             return verify_sns_message(message)
 
     def test_accepts_a_correctly_signed_notification(self) -> None:
@@ -121,17 +122,40 @@ class TestSigningCertFetch(SimpleTestCase):
     def setUp(self) -> None:
         cache.clear()
 
-    def test_a_cert_url_sns_could_not_serve_is_rejected_without_fetching(self) -> None:
-        message = _signed_notification({"SigningCertURL": "https://sns.us-east-1.amazonaws.com/evil.pem"})
+    @parameterized.expand(
+        [
+            ("path_sns_does_not_serve", "https://sns.us-east-1.amazonaws.com/evil.pem"),
+            ("host_outside_sns", "https://attacker.example.com/SimpleNotificationService-0123456789ab.pem"),
+        ]
+    )
+    def test_a_cert_url_sns_could_not_serve_is_rejected_without_fetching(self, _name: str, cert_url: str) -> None:
+        message = _signed_notification({"SigningCertURL": cert_url})
 
-        with patch("products.workflows.backend.services.sns_verification.requests.get") as get:
+        with patch("posthog.ingress.verify.sns_signature.requests.get") as get:
             assert verify_sns_message(message) is False
 
         assert get.call_count == 0
 
+    @parameterized.expand(
+        [
+            ("connection_error", requests.ConnectionError("boom"), None),
+            ("timeout", requests.Timeout("too slow"), None),
+            ("server_error", None, requests.HTTPError("503 Server Error", response=requests.Response())),
+        ]
+    )
+    def test_a_certificate_that_could_not_be_fetched_is_unavailable_rather_than_a_bad_signature(
+        self, _name: str, fetch_error: Exception | None, status_error: Exception | None
+    ) -> None:
+        with patch("posthog.ingress.verify.sns_signature.requests.get") as get:
+            get.side_effect = fetch_error
+            get.return_value.raise_for_status.side_effect = status_error
+
+            with self.assertRaises(VerifierUnavailable):
+                verify_sns_message(_signed_notification())
+
     def test_a_failed_fetch_is_not_retried_for_the_same_url(self) -> None:
         with patch(
-            "products.workflows.backend.services.sns_verification.requests.get",
+            "posthog.ingress.verify.sns_signature.requests.get",
             side_effect=requests.RequestException("boom"),
         ) as get:
             assert _fetch_signing_cert(_CERT_URL) is None
@@ -140,7 +164,7 @@ class TestSigningCertFetch(SimpleTestCase):
         assert get.call_count == 1
 
     def _spend_the_budget(self) -> None:
-        with patch("products.workflows.backend.services.sns_verification.requests.get") as get:
+        with patch("posthog.ingress.verify.sns_signature.requests.get") as get:
             get.return_value.content = _CERT_PEM
             for index in range(_MAX_UNKNOWN_CERT_FETCHES_PER_MINUTE):
                 _fetch_signing_cert(f"https://sns.us-east-1.amazonaws.com/SimpleNotificationService-{index:032x}.pem")
@@ -148,7 +172,7 @@ class TestSigningCertFetch(SimpleTestCase):
     def test_fetching_a_new_url_stops_once_the_minute_budget_is_spent(self) -> None:
         self._spend_the_budget()
 
-        with patch("products.workflows.backend.services.sns_verification.requests.get") as get:
+        with patch("posthog.ingress.verify.sns_signature.requests.get") as get:
             get.return_value.content = _CERT_PEM
             assert _fetch_signing_cert(_CERT_URL) is None
 
@@ -160,18 +184,18 @@ class TestSigningCertFetch(SimpleTestCase):
         remember_verified_cert_url(_CERT_URL)
         self._spend_the_budget()
 
-        with patch("products.workflows.backend.services.sns_verification.requests.get") as get:
+        with patch("posthog.ingress.verify.sns_signature.requests.get") as get:
             get.return_value.content = _CERT_PEM
             assert _fetch_signing_cert(_CERT_URL) == _CERT_PEM
 
         assert get.call_count == 1
 
     def test_a_verified_message_marks_its_cert_url_known(self) -> None:
-        with patch("products.workflows.backend.services.sns_verification._fetch_signing_cert", return_value=_CERT_PEM):
+        with patch("posthog.ingress.verify.sns_signature._fetch_signing_cert", return_value=_CERT_PEM):
             assert verify_sns_message(_signed_notification()) is True
 
         self._spend_the_budget()
-        with patch("products.workflows.backend.services.sns_verification.requests.get") as get:
+        with patch("posthog.ingress.verify.sns_signature.requests.get") as get:
             get.return_value.content = _CERT_PEM
             assert _fetch_signing_cert(_CERT_URL) == _CERT_PEM
 
