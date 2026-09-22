@@ -55,6 +55,8 @@ export interface dataWarehouseViewsLogicValues {
     views: DatabaseSchemaViewTable[] // databaseTableListLogic
     user: UserType | null // userLogic
     dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
+    dataWarehouseSavedQueriesFailed: boolean
+    dataWarehouseSavedQueriesLoaded: boolean
     dataWarehouseSavedQueriesLoading: boolean
     dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[]
     dataWarehouseSavedQueryFoldersById: Record<string, DataWarehouseSavedQueryFolder>
@@ -356,6 +358,21 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             {
                 loadDataWarehouseSavedQueriesSuccess: () => false,
                 loadDataWarehouseSavedQueriesFailure: () => false,
+            },
+        ],
+        dataWarehouseSavedQueriesLoaded: [
+            false,
+            {
+                loadDataWarehouseSavedQueriesSuccess: () => true,
+                loadDataWarehouseSavedQueriesFailure: () => false,
+            },
+        ],
+        dataWarehouseSavedQueriesFailed: [
+            false,
+            {
+                loadDataWarehouseSavedQueries: () => false,
+                loadDataWarehouseSavedQueriesSuccess: () => false,
+                loadDataWarehouseSavedQueriesFailure: () => true,
             },
         ],
         updatingDataWarehouseSavedQuery: [

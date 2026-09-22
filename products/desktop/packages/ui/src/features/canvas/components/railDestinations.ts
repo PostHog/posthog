@@ -1,6 +1,7 @@
 import {
   BellIcon,
   BookOpenTextIcon,
+  ChatsCircleIcon,
   EnvelopeSimple,
   HouseSimple,
   type IconProps,
@@ -15,6 +16,7 @@ import { SpacesIcon } from "@posthog/ui/features/canvas/components/SpacesIcon";
 import {
   isRestorableVisitHref,
   type NavRailPane,
+  railPaneFoldsIntoWork,
 } from "@posthog/ui/features/canvas/railPane";
 import {
   applyTabViewState,
@@ -259,4 +261,31 @@ export function visibleRailDestinations(
   flags: RailFlags,
 ): readonly RailDestination[] {
   return RAIL_DESTINATIONS.filter(({ enabled }) => enabled?.(flags) ?? true);
+}
+
+export function showWorkColumn(): void {
+  useSidebarStore.getState().setOpen(true);
+}
+
+const WORK_DESTINATION: RailDestination = {
+  pane: "spaces",
+  label: "Work",
+  analyticsId: "spaces",
+  Icon: ChatsCircleIcon,
+  href: "/spaces",
+  onPick: () => {
+    showWorkColumn();
+    navigateToSpaces();
+  },
+  onReclick: showWorkColumn,
+};
+
+export function visibleWorkRailDestinations(
+  flags: RailFlags,
+): readonly RailDestination[] {
+  const rest = RAIL_DESTINATIONS.filter(
+    ({ enabled, pane }) =>
+      !railPaneFoldsIntoWork(pane) && (enabled?.(flags) ?? true),
+  );
+  return [WORK_DESTINATION, ...rest];
 }

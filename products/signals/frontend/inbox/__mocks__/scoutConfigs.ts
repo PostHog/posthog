@@ -48,6 +48,7 @@ function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
         last_run_at: null,
         consecutive_failure_count: 0,
         status_changed_at: null,
+        status_changed_by: null,
         auto_pause_exempt: false,
         tags: [],
         mcp_gateway_server_ids: [],
