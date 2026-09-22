@@ -124,6 +124,20 @@ def _argument_segments(argument: str) -> tuple[str, ...]:
 
 
 @dataclass(frozen=True)
+class RedundantMethod:
+    """A path method and one generated route it duplicates."""
+
+    name: str
+    template: tuple[str, ...]
+    products: frozenset[str]
+
+    @property
+    def entry(self) -> str:
+        """The baseline line for this pair."""
+        return f"{self.name} {'/'.join(self.template)}"
+
+
+@dataclass(frozen=True)
 class ReturnStatement:
     """One ``return`` of a path method, with the statements that run before it."""
 
@@ -151,17 +165,46 @@ def _split_returns(body: str) -> list[ReturnStatement]:
     return returns
 
 
+def _ternary_branches(expression: str) -> list[str]:
+    """The branches of a ternary, or the expression itself when there is no ternary.
+
+    A ternary return builds two different URLs, and reading the calls of both branches
+    as one chain produces a template that neither branch builds.
+    """
+    depth = 0
+    quote = ""
+    question = -1
+    for index, char in enumerate(expression):
+        if quote:
+            quote = "" if char == quote else quote
+            continue
+        if char in "\"'`":
+            quote = char
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        elif depth != 0:
+            continue
+        elif char == "?" and question < 0 and expression[index + 1 : index + 2] not in {".", "?"}:
+            question = index
+        elif char == ":" and question >= 0:
+            return [expression[question + 1 : index], expression[index + 1 :]]
+    return [expression]
+
+
 def _return_expression(chunk: str) -> str:
     """The returned expression alone, without the statements that follow it.
 
-    A chain can span lines, so a continuation line is one that opens the expression
-    further or starts with the next call in the chain.
+    A chain or a ternary can span lines, so a continuation line is one that opens the
+    expression further, starts with the next call in the chain, or starts with a
+    ternary arm.
     """
     lines = chunk.splitlines(keepends=True)
     taken = [lines[0]]
     for line in lines[1:]:
         text = "".join(taken)
-        if text.count("(") > text.count(")") or line.lstrip().startswith("."):
+        if text.count("(") > text.count(")") or line.lstrip().startswith((".", "?", ":")):
             taken.append(line)
             continue
         break
@@ -240,7 +283,16 @@ class ApiRequestResolver:
         return self._cache[name]
 
     def _resolve_return(self, statement: ReturnStatement) -> list[tuple[str, ...]]:
-        """Every template one return can build, one per branch of its base method."""
+        """Every template one return can build, across its ternary and base branches."""
+        branches = _ternary_branches(statement.statement)
+        if len(branches) > 1:
+            resolved: list[tuple[str, ...]] = []
+            for branch in branches:
+                resolved.extend(self._resolve_return(ReturnStatement(setup=statement.setup, statement=branch)))
+            return resolved
+        return self._resolve_chain(statement)
+
+    def _resolve_chain(self, statement: ReturnStatement) -> list[tuple[str, ...]]:
         base = _CHAIN_BASE.search(statement.statement)
         if base is not None:
             prefixes = self._base_prefixes(base.group(1))
@@ -336,7 +388,10 @@ class Ratchet:
         self._source = (repo_root / API_TS).read_text()
         self._resolver = ApiRequestResolver(self._source)
         self._generated = GeneratedTemplates(repo_root)
-        self.redundant: dict[str, tuple[tuple[str, ...], frozenset[str]]] = {}
+        # Every branch of a method that matches, not only the first: a method that
+        # builds both a collection and a detail route duplicates two generated routes,
+        # and grandfathering one of them would leave the other unguarded.
+        self.redundant: list[RedundantMethod] = []
         for name in sorted(self._resolver.method_names()):
             for template in self._resolver.templates(name):
                 normalized = normalize_template(template)
@@ -344,18 +399,23 @@ class Ratchet:
                     continue
                 products = self._generated.products_covering(normalized)
                 if products:
-                    self.redundant[name] = (normalized, products)
-                    break
+                    self.redundant.append(RedundantMethod(name=name, template=normalized, products=products))
+
+    def products_by_method(self) -> dict[str, frozenset[str]]:
+        """The products covering each redundant method, across all of its routes."""
+        products: dict[str, frozenset[str]] = {}
+        for entry in self.redundant:
+            products[entry.name] = products.get(entry.name, frozenset()) | entry.products
+        return products
 
     def namespaces(self) -> dict[str, frozenset[str]]:
         """Namespaces on the ``api`` singleton that call a redundant path method."""
         owned: dict[str, frozenset[str]] = {}
         for namespace, block in self._namespace_blocks().items():
             products: set[str] = set()
+            by_method = self.products_by_method()
             for call in _MEMBER_CALL.finditer(block):
-                entry = self.redundant.get(call.group(1))
-                if entry is not None:
-                    products |= entry[1]
+                products |= by_method.get(call.group(1), frozenset())
             if products:
                 owned[namespace] = frozenset(products)
         return owned
@@ -384,15 +444,6 @@ class Ratchet:
         return blocks
 
 
-def baseline_entry(name: str, template: tuple[str, ...]) -> str:
-    """One baseline line: the method plus the route it duplicates.
-
-    The route is part of the identity. Keyed on the name alone, a method that keeps
-    its name and moves to another generated route would stay grandfathered.
-    """
-    return f"{name} {'/'.join(template)}"
-
-
 def read_baseline(repo_root: Path) -> set[str]:
     path = repo_root / BASELINE
     if not path.exists():
@@ -412,10 +463,10 @@ def write_baseline(repo_root: Path, methods: set[str]) -> None:
 def _report_json(ratchet: Ratchet, new: set[str], stale: set[str]) -> str:
     return json.dumps(
         {
-            "redundant": {
-                name: {"template": "/".join(template), "products": sorted(products)}
-                for name, (template, products) in sorted(ratchet.redundant.items())
-            },
+            "redundant": [
+                {"method": entry.name, "template": "/".join(entry.template), "products": sorted(entry.products)}
+                for entry in sorted(ratchet.redundant, key=lambda item: item.entry)
+            ],
             "namespaces": {ns: sorted(products) for ns, products in sorted(ratchet.namespaces().items())},
             "new": sorted(new),
             "stale": sorted(stale),
@@ -436,7 +487,7 @@ def cmd_lint_api_ratchet(update_baseline: bool, prune_baseline: bool, namespaces
     """Fail on a new ApiRequest path method that a generated client already covers."""
     repo_root = Path(REPO_ROOT)
     ratchet = Ratchet(repo_root)
-    redundant = {baseline_entry(name, template) for name, (template, _) in ratchet.redundant.items()}
+    redundant = {entry.entry for entry in ratchet.redundant}
 
     if namespaces:
         for namespace, products in sorted(ratchet.namespaces().items()):
@@ -476,10 +527,13 @@ def cmd_lint_api_ratchet(update_baseline: bool, prune_baseline: bool, namespaces
         click.echo("    Run: hogli lint:api-ratchet --prune-baseline")
     if new:
         click.echo(f"\n❌ {len(new)} path method(s) duplicate a generated client:")
-        for entry in sorted(new):
-            name = entry.split(" ", 1)[0]
-            template, products = ratchet.redundant[name]
-            click.echo(f"    {name}  ->  /api/{'/'.join(template)}  (generated in: {', '.join(sorted(products))})")
+        for entry in sorted(ratchet.redundant, key=lambda item: item.entry):
+            if entry.entry not in new:
+                continue
+            click.echo(
+                f"    {entry.name}  ->  /api/{'/'.join(entry.template)}"
+                f"  (generated in: {', '.join(sorted(entry.products))})"
+            )
         click.echo(
             "\nUse the product's generated client from products/<product>/frontend/generated/api.ts instead.\n"
             "The match is on the route, so check the operation you need is generated as well:\n"

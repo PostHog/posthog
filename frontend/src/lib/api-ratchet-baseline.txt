@@ -14,7 +14,9 @@ actions projects/{}/actions
 actionsDetail projects/{}/actions/{}
 activityLog projects/{}/activity_log
 aiObservabilityTranslate projects/{}/llm_analytics/translate
+alert projects/{}/alerts
 alert projects/{}/alerts/{}
+alerts projects/{}/alerts
 alerts projects/{}/alerts/{}
 annotation projects/{}/annotations/{}
 annotations projects/{}/annotations
@@ -116,6 +118,7 @@ featureFlagDeleteScheduledChange projects/{}/scheduled_changes/{}
 featureFlagScheduledChange projects/{}/scheduled_changes/{}
 featureFlagScheduledChanges projects/{}/scheduled_changes
 featureFlags projects/{}/feature_flags
+featureFlagsActivity projects/{}/feature_flags/activity
 featureFlagsActivity projects/{}/feature_flags/{}/activity
 fileSystem projects/{}/file_system
 fileSystemCount projects/{}/file_system/{}/count
@@ -206,6 +209,7 @@ organizationMemberScopedApiKeys organizations/{}/members/{}/scoped_api_keys
 organizationMembers organizations/{}/members
 organizationOAuthApplications organizations/{}/oauth_applications
 person projects/{}/persons/{}
+personActivity projects/{}/persons/activity
 personActivity projects/{}/persons/{}/activity
 persons projects/{}/persons
 productTour projects/{}/product_tours/{}
@@ -241,6 +245,7 @@ signalUserAutonomy users/{}/signal_autonomy
 subscription projects/{}/subscriptions/{}
 subscriptions projects/{}/subscriptions
 survey projects/{}/surveys/{}
+surveyActivity projects/{}/surveys/activity
 surveyActivity projects/{}/surveys/{}/activity
 surveys projects/{}/surveys
 surveysResponsesCount projects/{}/surveys/responses_count

@@ -146,11 +146,16 @@ export const remindersList = () => {
 """
 
 
-def _write_repo(root: Path, api_ts: str = API_TS_FIXTURE, baseline: str | None = None) -> None:
+def _write_repo(
+    root: Path,
+    api_ts: str = API_TS_FIXTURE,
+    baseline: str | None = None,
+    generated_signals: str = GENERATED_SIGNALS,
+) -> None:
     (root / "frontend/src/lib").mkdir(parents=True, exist_ok=True)
     (root / "frontend/src/lib/api.ts").write_text(api_ts)
     (root / "products/signals/frontend/generated").mkdir(parents=True, exist_ok=True)
-    (root / "products/signals/frontend/generated/api.ts").write_text(GENERATED_SIGNALS)
+    (root / "products/signals/frontend/generated/api.ts").write_text(generated_signals)
     (root / "products/workflows/frontend/generated").mkdir(parents=True, exist_ok=True)
     (root / "products/workflows/frontend/generated/api.ts").write_text(GENERATED_WORKFLOWS)
     (root / api_ratchet.CORE_GENERATED).parent.mkdir(parents=True, exist_ok=True)
@@ -232,13 +237,12 @@ class TestApiRequestResolver:
 class TestRatchet:
     def test_flags_methods_with_a_generated_twin(self, tmp_path: Path) -> None:
         _write_repo(tmp_path)
-        ratchet = Ratchet(tmp_path)
-        assert {name: sorted(products) for name, (_, products) in ratchet.redundant.items()} == {
-            "signalReports": ["signals"],
-            "signalReport": ["signals"],
-            "hogFlows": ["workflows"],
-            "propertyDefinitions": ["core"],
-            "organizationMembers": ["core"],
+        assert {entry.entry: sorted(entry.products) for entry in Ratchet(tmp_path).redundant} == {
+            "signalReports projects/{}/signals/reports": ["signals"],
+            "signalReport projects/{}/signals/reports/{}": ["signals"],
+            "hogFlows projects/{}/hog_flows": ["workflows"],
+            "propertyDefinitions projects/{}/property_definitions": ["core"],
+            "organizationMembers organizations/{}/members": ["core"],
         }
 
     def test_namespaces_lists_only_those_calling_a_redundant_method(self, tmp_path: Path) -> None:
@@ -246,6 +250,34 @@ class TestRatchet:
         assert {ns: sorted(products) for ns, products in Ratchet(tmp_path).namespaces().items()} == {
             "signalReports": ["signals"],
             "hogFlows": ["workflows"],
+        }
+
+
+class TestEveryBranch:
+    # Grandfathering the first route would leave the other branch unguarded.
+    def test_a_method_on_two_generated_routes_gets_a_line_each(self, tmp_path: Path) -> None:
+        api_ts = API_TS_FIXTURE.replace(
+            "    public hogFlows(): ApiRequest {",
+            "    public signalReportsActivity(id?: string, teamId?: TeamType['id']): ApiRequest {\n"
+            "        return id\n"
+            "            ? this.signalReports(teamId).addPathComponent(id).addPathComponent('activity')\n"
+            "            : this.signalReports(teamId).addPathComponent('activity')\n"
+            "    }\n\n"
+            "    public hogFlows(): ApiRequest {",
+        )
+        generated = GENERATED_SIGNALS + (
+            "export const signalsReportsActivityList = (projectId: string) => {\n"
+            "    return apiMutator({ url: `/api/projects/${projectId}/signals/reports/activity/`, method: 'GET' })\n"
+            "}\n"
+            "export const signalsReportsActivityRetrieve = (projectId: string, id: string) => {\n"
+            "    return apiMutator({ url: `/api/projects/${projectId}/signals/reports/${id}/activity/`, method: 'GET' })\n"
+            "}\n"
+        )
+        _write_repo(tmp_path, api_ts=api_ts, generated_signals=generated)
+        entries = {entry.entry for entry in Ratchet(tmp_path).redundant if entry.name == "signalReportsActivity"}
+        assert entries == {
+            "signalReportsActivity projects/{}/signals/reports/activity",
+            "signalReportsActivity projects/{}/signals/reports/{}/activity",
         }
 
 
@@ -274,10 +306,10 @@ class TestBaselineIdentity:
             "    public projects(): ApiRequest {",
         )
         _write_repo(tmp_path, api_ts=api_ts)
-        redundant = Ratchet(tmp_path).redundant
-        assert "reminders" in redundant
-        assert "projects" not in redundant
-        assert "organizations" not in redundant
+        names = {entry.name for entry in Ratchet(tmp_path).redundant}
+        assert "reminders" in names
+        assert "projects" not in names
+        assert "organizations" not in names
 
 
 class TestBaselineFixModes:
