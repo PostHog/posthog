@@ -118,6 +118,10 @@ const ALIGNMENTS = {
     justify: sankeyJustify,
 }
 
+export function defaultValueFormatter(value: number): string {
+    return value.toLocaleString()
+}
+
 export const EMPTY_SANKEY_LAYOUT: SankeyChartLayout<never> = {
     nodes: [],
     links: [],
