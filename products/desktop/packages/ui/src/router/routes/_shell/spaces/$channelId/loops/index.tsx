@@ -8,7 +8,7 @@ import {
 } from "@posthog/ui/router/routeSkeletons";
 import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/_shell/spaces/$channelId/loops")({
+export const Route = createFileRoute("/_shell/spaces/$channelId/loops/")({
   component: ChannelLoopsRoute,
   ...withRouteSkeleton(spaceRouteSkeleton(SpaceContextSkeleton)),
 });
