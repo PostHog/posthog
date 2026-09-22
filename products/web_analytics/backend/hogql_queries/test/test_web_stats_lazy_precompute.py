@@ -244,12 +244,20 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert lazy == raw, f"lazy/raw mismatch under channel filter: raw={raw}, lazy={lazy}"
 
+    @parameterized.expand(
+        [
+            (
+                "channel_filtered",
+                [SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)],
+            ),
+            ("unfiltered", []),
+        ]
+    )
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
-    def test_channel_filter_over_max_days_still_admitted(self):
-        # The gate check the customer path depends on: a channel-filtered range
-        # past MAX_PRECOMPUTE_DAYS (90) but under CHANNEL_MAX_PRECOMPUTE_DAYS
-        # (366) must stay eligible instead of DateRangeOverMax falling to live.
-        props = [SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)]
+    def test_year_long_range_stays_admitted(self, _name: str, props: list):
+        # The gate check the year-long dashboards depend on. Both shapes reach
+        # MAX_PRECOMPUTE_DAYS (366), so a narrower cap would send a "this year"
+        # tile back to the live path through DateRangeOverMax.
         runner = WebStatsTableQueryRunner(
             team=self.team,
             query=self._build_query(properties=props, date_from="2023-06-01", date_to="2024-01-07"),
@@ -257,12 +265,16 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         with self._enable_lazy():
             assert can_use_stats_lazy_precompute(runner)
 
-        unfiltered = WebStatsTableQueryRunner(
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_range_past_max_days_falls_through(self):
+        # The cap still has to bite somewhere: past 366 days the framework would
+        # build more daily jobs than one shape can justify.
+        runner = WebStatsTableQueryRunner(
             team=self.team,
-            query=self._build_query(date_from="2023-06-01", date_to="2024-01-07"),
+            query=self._build_query(date_from="2022-06-01", date_to="2024-01-07"),
         )
         with self._enable_lazy():
-            assert not can_use_stats_lazy_precompute(unfiltered), "the 366-day cap is channel-scoped, not general"
+            assert not can_use_stats_lazy_precompute(runner)
 
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_uuid_session_mode_stays_rejected_with_channel_filter(self):
