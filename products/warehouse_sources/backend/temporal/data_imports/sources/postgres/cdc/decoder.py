@@ -46,9 +46,11 @@ logger = logging.getLogger(__name__)
 # memory and writes each full chunk to a local temporary file. A bulk INSERT, UPDATE or DELETE then
 # costs worker disk, not worker memory, and COMMIT streams the chunks back one at a time.
 TX_SPILL_CHUNK_EVENTS = 50_000
-# Bounds the temporary file on the worker's local disk. The orchestration layer classifies
+# Both bound the temporary file on the worker's local disk: the byte cap covers wide rows, which
+# fill the disk long before the change count trips. The orchestration layer classifies
 # CDCTransactionTooLargeError as a non-retryable failure.
 MAX_TX_BUFFER_EVENTS = 50_000_000
+MAX_TX_SPILL_BYTES = 64 * 1024**3
 
 # PostgreSQL epoch: 2000-01-01 00:00:00 UTC
 # Timestamps in pgoutput are microseconds since this epoch
@@ -421,6 +423,7 @@ class PgOutputDecoder:
         """Buffer a decoded change until COMMIT, guarding against an unbounded transaction."""
         self._tx_event_count += 1
         if self._tx_event_count > MAX_TX_BUFFER_EVENTS:
+            self._reset_transaction()
             raise CDCTransactionTooLargeError(
                 f"Transaction buffered more than {MAX_TX_BUFFER_EVENTS} changes before COMMIT"
             )
@@ -430,6 +433,11 @@ class PgOutputDecoder:
                 self._tx_spill = tempfile.TemporaryFile()
             pickle.dump(self._tx_buffer, self._tx_spill, protocol=pickle.HIGHEST_PROTOCOL)
             self._tx_buffer = []
+            if self._tx_spill.tell() > MAX_TX_SPILL_BYTES:
+                self._reset_transaction()
+                raise CDCTransactionTooLargeError(
+                    f"Transaction spilled more than {MAX_TX_SPILL_BYTES} bytes before COMMIT"
+                )
 
 
 def _replay_spilled_transaction(spill: IO[bytes], tail: list[ChangeEvent], end_lsn: str) -> Iterator[ChangeEvent]:

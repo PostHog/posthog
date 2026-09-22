@@ -550,8 +550,9 @@ class TestTransactionBufferGuard:
         assert {e.position_serialized for e in events} == {"0/500"}
         assert [e.columns["id"] for e in follow_up] == [100, 101, 102]
 
-    def test_raises_when_transaction_exceeds_the_cap(self):
-        with patch(f"{_DECODER_MODULE}.MAX_TX_BUFFER_EVENTS", 3), patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 2):
+    @parameterized.expand([("change_count", "MAX_TX_BUFFER_EVENTS", 3), ("spill_bytes", "MAX_TX_SPILL_BYTES", 1)])
+    def test_raises_when_transaction_exceeds_a_cap(self, _name, cap, value):
+        with patch(f"{_DECODER_MODULE}.{cap}", value), patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", 4):
             decoder = self._decoder_with_relation()
             decoder.decode_message(_make_begin(), "0/1")
             for i in range(3):
