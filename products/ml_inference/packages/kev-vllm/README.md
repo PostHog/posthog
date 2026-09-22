@@ -20,7 +20,7 @@ Downloads the base model and adapter, merges the LoRA in fp32 the way `kev.serve
 
 ## Publish it
 
-`.github/workflows/ml-inference-publish-model.yml` is the publisher: dispatch it with the Hub id (optionally `@revision`) and it exports on a CI runner, measures the fp32 parity fixture on the pinned Kev eval records, and uploads the checkpoint with the fixture under it as `parity/reference-fp32.jsonl`. The job needs two repository variables, `ML_BASE_MODELS_BUCKET` and `AWS_ML_BASE_MODELS_PUBLISH_IAM_ROLE`, and refuses to run without them. Its summary lists the prefix and the manifest.
+Publishing runs from PostHog/MLHog, `models/kev/scripts/publish_checkpoint.sh`: from an engineer's machine, with that account's own write profile, it exports the checkpoint on a GPU box, measures the fp32 parity fixture on the pinned Kev eval records into `parity/reference-fp32.jsonl` under the export, and uploads the directory with `bin/upload_via_box.py` from here. Nothing in this repository's CI writes to the bucket.
 
 By hand, the same upload is:
 
@@ -28,7 +28,7 @@ By hand, the same upload is:
 uv run kev-vllm-upload --src build/kev-4b --profile ml-prod-us-write
 ```
 
-Writes to `s3://<base-models bucket>/posthog/kev-4b-vllm/<kev Hub revision>/` (the bucket comes from `--bucket` or `KEV_VLLM_BASE_MODELS_BUCKET`) and a `checksums.tsv` under `_provenance/`. Subdirectories of the export go along, which is how the parity fixture travels with the weights. It refuses a prefix that already has content, and every write carries `If-None-Match` so the bucket policy lets CI create objects but never replace them: a new export is a new version. The profile needs write access to the ML training account.
+Writes to `s3://<base-models bucket>/posthog/kev-4b-vllm/<kev Hub revision>/` (the bucket comes from `--bucket` or `KEV_VLLM_BASE_MODELS_BUCKET`) and a `checksums.tsv` under `_provenance/`. Subdirectories of the export go along, which is how the parity fixture travels with the weights. It refuses a prefix that already has content, and every write carries `If-None-Match` so S3 itself answers 412 instead of replacing an object: a new export is a new version. The profile needs write access to the ML training account.
 
 When the export sits on a GPU box with a fast pipe and no AWS credentials, `bin/upload_via_box.py` publishes it from there: this machine creates the multipart upload, presigns one URL per part and per small file, the box PUTs them in parallel over ssh-delivered URLs, and this machine completes the upload and writes the provenance file. The 8.4 GB Kev-4B checkpoint took 37 seconds from a Lambda instance. The URLs must be SigV4; SigV2 signs the content type and fails with `SignatureDoesNotMatch`.
 
