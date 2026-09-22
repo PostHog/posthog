@@ -9,7 +9,6 @@ sha256 and size, so a consumer can verify what it fetched.
 
 import argparse
 import base64
-import hashlib
 import json
 import os
 import sys
@@ -18,17 +17,11 @@ from pathlib import Path
 import boto3
 from boto3.s3.transfer import TransferConfig
 
+from kev_vllm.checkpoint import sha256_of
+
 # The ML training account's base-models bucket; named by the operator, not the public repo.
 BUCKET = os.environ.get("KEV_VLLM_BASE_MODELS_BUCKET", "")
 PROVENANCE_PREFIX = "_provenance"
-
-
-def sha256_of(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def prefix_is_empty(s3, bucket: str, prefix: str) -> bool:

@@ -11,7 +11,7 @@
 # the same files from cloud-init.
 set -euo pipefail
 
-INSTANCE_HOST=${INSTANCE_HOST:?the instance's DNS name}
+INSTANCE_HOST=${INSTANCE_HOST:?the DNS name of this instance}
 ACME_EMAIL=${ACME_EMAIL:?contact email for the ACME account}
 KEV_BEARER=${KEV_BEARER:?per-instance bearer}
 MODEL_DIR=${MODEL_DIR:?directory holding the exported checkpoint}
@@ -57,5 +57,12 @@ for _ in $(seq 1 120); do
   sleep 5
 done
 curl -fs http://127.0.0.1:8000/health >/dev/null || { journalctl -u kev-vllm --no-pager -n 50; echo "server did not come up" >&2; exit 1; }
-curl -fsS -o /dev/null -w "through caddy with the bearer: %{http_code}\n" -H "Authorization: Bearer $KEV_BEARER" "https://$INSTANCE_HOST/health"
-curl -sS -o /dev/null -w "through caddy without the bearer: %{http_code}\n" "https://$INSTANCE_HOST/health"
+expect_status() {
+  local expected=$1 label=$2; shift 2
+  local status
+  status=$(curl -sS -o /dev/null -w "%{http_code}" "$@")
+  echo "through caddy $label: $status"
+  [ "$status" = "$expected" ] || { echo "expected $expected $label" >&2; exit 1; }
+}
+expect_status 200 "with the bearer" -H "Authorization: Bearer $KEV_BEARER" "https://$INSTANCE_HOST/health"
+expect_status 401 "without the bearer" "https://$INSTANCE_HOST/health"

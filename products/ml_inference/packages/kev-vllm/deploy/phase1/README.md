@@ -19,7 +19,7 @@ Then, as root:
 
 ```bash
 INSTANCE_HOST=kev-1.<zone> ACME_EMAIL=<contact> KEV_BEARER=<bearer> MODEL_DIR=/srv/models/kev-4b \
-  IMAGE=ghcr.io/posthog/posthog-ml-inference-decision:<tag> ./bootstrap.sh
+  IMAGE=ghcr.io/posthog/posthog-ml-inference-decision:sha-<commit>@sha256:<digest> ./bootstrap.sh
 ```
 
 The script installs Caddy if missing, writes the env file and the units, pulls the image, starts both services, and prints the health status through Caddy with and without the bearer (200 and 401).

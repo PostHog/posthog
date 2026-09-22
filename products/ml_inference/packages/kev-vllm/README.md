@@ -61,7 +61,7 @@ The entrypoint (`bin/serve.sh`, installed as `kev-vllm-serve`) checks the checkp
 ```bash
 docker run --rm --gpus all --network host --ipc host \
   -v /srv/models/kev-4b:/models/kev-4b:ro \
-  ghcr.io/posthog/posthog-ml-inference-decision:latest
+  ghcr.io/posthog/posthog-ml-inference-decision:sha-<commit>@sha256:<digest>
 ```
 
 The container serves as an unprivileged user (uid 10001), so the mounted checkpoint must be world-readable and outside a home directory. `HOST=0.0.0.0` exposes the port directly for a bring-up box behind a firewall or tunnel. `MODEL_NAME`, `PORT`, `MAX_MODEL_LEN` and `GPU_MEMORY_UTILIZATION` override the defaults, and any extra arguments go to `vllm serve`. `kev-vllm-checkpoint verify <dir>` is the same manifest check on its own.

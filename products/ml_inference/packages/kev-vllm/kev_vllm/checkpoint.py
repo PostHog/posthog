@@ -10,6 +10,20 @@ import hashlib
 import json
 import sys
 from pathlib import Path
+from typing import Any, TypedDict
+
+
+class ManifestFile(TypedDict):
+    sha256: str
+    size_bytes: int
+
+
+class Manifest(TypedDict, total=False):
+    """What kev-vllm-export writes; `files` is the part verification needs, the rest is provenance."""
+
+    kev_run: str
+    kev_hub_revision: str
+    files: dict[str, ManifestFile]
 
 
 def sha256_of(path: Path) -> str:
@@ -20,13 +34,20 @@ def sha256_of(path: Path) -> str:
     return digest.hexdigest()
 
 
-def verify(checkpoint_dir: Path) -> dict:
+def read_manifest(checkpoint_dir: Path) -> Manifest:
     manifest_path = checkpoint_dir / "manifest.json"
     if not manifest_path.is_file():
         raise FileNotFoundError(f"{checkpoint_dir} has no manifest.json; it is not an exported checkpoint")
-    manifest = json.loads(manifest_path.read_text())
+    manifest: Any = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("files"), dict):
+        raise ValueError(f"{manifest_path} has no files table; it is not a manifest kev-vllm-export wrote")
+    return manifest
+
+
+def verify(checkpoint_dir: Path) -> Manifest:
+    manifest = read_manifest(checkpoint_dir)
     problems = []
-    for name, meta in manifest.get("files", {}).items():
+    for name, meta in manifest["files"].items():
         path = checkpoint_dir / name
         if not path.is_file():
             problems.append(f"{name}: missing")
