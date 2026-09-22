@@ -12,6 +12,7 @@ import type {
     AIContextAccountPropertyApi,
     AIReplyPlaybookApi,
     AiFeedbackRequestApi,
+    AiHumanOutcomeRequestApi,
     BulkUpdateStatusRequestApi,
     BulkUpdateStatusResponseApi,
     BulkUpdateTagsUUIDRequestApi,
@@ -208,6 +209,27 @@ export const conversationsTicketsAiFeedbackCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(aiFeedbackRequestApi),
+    })
+}
+
+export const getConversationsTicketsAiHumanOutcomeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/ai_human_outcome/`
+}
+
+/**
+ * Record that a human used or edited the latest AI draft.
+ */
+export const conversationsTicketsAiHumanOutcomeCreate = async (
+    projectId: string,
+    id: string,
+    aiHumanOutcomeRequestApi: AiHumanOutcomeRequestApi,
+    options?: RequestInit
+): Promise<AiHumanOutcomeRequestApi> => {
+    return apiMutator<AiHumanOutcomeRequestApi>(getConversationsTicketsAiHumanOutcomeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aiHumanOutcomeRequestApi),
     })
 }
 

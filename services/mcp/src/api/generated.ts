@@ -9847,6 +9847,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `used` - used
+     * * `edited` - edited
+     */
+    export type AiDraftHumanOutcomeEnum = typeof AiDraftHumanOutcomeEnum[keyof typeof AiDraftHumanOutcomeEnum];
+
+
+    export const AiDraftHumanOutcomeEnum = {
+      Used: 'used',
+      Edited: 'edited',
+    } as const;
+
+    /**
      * * `good` - good
      * * `bad` - bad
      */
@@ -9877,6 +9889,22 @@ export namespace Schemas {
          * @maxLength 2000
          */
       feedback_text?: string;
+    }
+
+    /**
+     * Payload for recording whether a human adopted an AI draft.
+     */
+    export interface AiHumanOutcomeRequest {
+      /**
+         * ID of the private AI draft being adopted.
+         * @maxLength 200
+         */
+      message_id: string;
+      /** used when the human inserts the draft as-is; edited after they change it in the composer.
+       *
+       * * `used` - used
+       * * `edited` - edited */
+      outcome: AiDraftHumanOutcomeEnum;
     }
 
     /**
@@ -19822,40 +19850,80 @@ export namespace Schemas {
       _create_static_person_ids?: string[];
     }
 
-    export type CohortPersonResultProperties = { [key: string]: unknown };
-
-    export type CohortPersonResultMatchedRecordingsItem = { [key: string]: unknown };
+    /**
+     * Minimal serializer for cohort references, read by the person cohorts endpoint.
+     */
+    export interface CohortMinimal {
+      readonly id: number;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      count?: number | null;
+    }
 
     /**
-     * * `person` - person
+     * Marks this actor as a person.
      */
-    export type CohortPersonResultTypeEnum = typeof CohortPersonResultTypeEnum[keyof typeof CohortPersonResultTypeEnum];
+    export type SerializedPersonActorType = typeof SerializedPersonActorType[keyof typeof SerializedPersonActorType];
 
 
-    export const CohortPersonResultTypeEnum = {
+    export const SerializedPersonActorType = {
       Person: 'person',
     } as const;
 
-    export interface CohortPersonResult {
+    /**
+     * The actor's properties.
+     */
+    export type SerializedPersonActorProperties = { [key: string]: unknown };
+
+    export type SerializedPersonActorMatchedRecordingsItem = { [key: string]: unknown };
+
+    export interface SerializedPersonActor {
+      /** The person's UUID, or the group's key. */
       id: string;
-      uuid: string;
-      type: CohortPersonResultTypeEnum;
-      name: string;
-      distinct_ids: string[];
-      properties: CohortPersonResultProperties;
-      /** @nullable */
+      /** The actor's properties. */
+      properties: SerializedPersonActorProperties;
+      /**
+         * When the actor was first seen.
+         * @nullable
+         */
       created_at: string | null;
-      /** @nullable */
-      last_seen_at: string | null;
-      /** @nullable */
-      is_identified: boolean | null;
-      matched_recordings: CohortPersonResultMatchedRecordingsItem[];
-      /** @nullable */
+      /** Recordings that matched the query. Empty unless the endpoint asks for them. */
+      matched_recordings: SerializedPersonActorMatchedRecordingsItem[];
+      /**
+         * The actor's value at the data point it was queried for. Null unless the query computes one.
+         * @nullable
+         */
       value_at_data_point: number | null;
+      /** Marks this actor as a person. */
+      type: SerializedPersonActorType;
+      /** The person's UUID. Same value as `id`. */
+      uuid: string;
+      /** Display name, resolved from the person's properties or distinct IDs. */
+      name: string;
+      /** The person's distinct IDs, newest first. */
+      distinct_ids: string[];
+      /**
+         * When the person was last seen.
+         * @nullable
+         */
+      last_seen_at: string | null;
+      /**
+         * Whether the person has been identified.
+         * @nullable
+         */
+      is_identified: boolean | null;
     }
 
     export interface CohortPersonsResponse {
-      results: CohortPersonResult[];
+      results: SerializedPersonActor[];
       /** @nullable */
       next: string | null;
       /** @nullable */
@@ -45358,6 +45426,26 @@ export namespace Schemas {
       add_images_to_comment_on_pr?: boolean;
     }
 
+    /**
+     * The group's properties.
+     */
+    export type FindGroupGroupProperties = { [key: string]: unknown };
+
+    export interface FindGroup {
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      group_type_index: number;
+      /** @maxLength 400 */
+      group_key: string;
+      /** The group's properties. */
+      group_properties: FindGroupGroupProperties;
+      readonly created_at: string;
+      /** @nullable */
+      readonly notebook: string | null;
+    }
+
     export interface FlagValueItem {
       name: unknown;
     }
@@ -46501,6 +46589,11 @@ export namespace Schemas {
       Symbol: 'symbol',
     } as const;
 
+    /**
+     * The group's properties.
+     */
+    export type GroupGroupProperties = { [key: string]: unknown };
+
     export interface Group {
       /**
          * @minimum -2147483648
@@ -46509,8 +46602,14 @@ export namespace Schemas {
       group_type_index: number;
       /** @maxLength 400 */
       group_key: string;
-      group_properties?: unknown;
+      /** The group's properties. */
+      group_properties: GroupGroupProperties;
       readonly created_at: string;
+    }
+
+    export interface GroupDeleteProperty {
+      /** Name of the property to delete. */
+      $unset: string;
     }
 
     export interface GroupType {
@@ -46532,6 +46631,18 @@ export namespace Schemas {
       default_columns?: string[] | null;
       /** @nullable */
       created_at?: string | null;
+    }
+
+    /**
+     * Value to set. Any JSON value other than null.
+     */
+    export type GroupUpdatePropertyRequestValue = string | number | boolean | { [key: string]: unknown } | unknown[];
+
+    export interface GroupUpdatePropertyRequest {
+      /** Name of the property to set. */
+      key: string;
+      /** Value to set. Any JSON value other than null. */
+      value: GroupUpdatePropertyRequestValue;
     }
 
     /**
@@ -47169,14 +47280,14 @@ export namespace Schemas {
       /** Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]. */
       events?: HogFlowConversionEvent[];
       /**
-         * How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. Omit it to use the default window. Set this or 'window_minutes', not both.
+         * How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both.
          * @maxLength 32
          * @nullable
          * @pattern ^(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)[dhms]$
          */
       window?: string | null;
       /**
-         * DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default window. Set this or 'window', not both.
+         * DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both.
          * @nullable
          */
       window_minutes?: number | null;
@@ -65593,7 +65704,7 @@ export namespace Schemas {
       ai_resolved?: boolean;
       /** @nullable */
       escalation_reason?: string | null;
-      /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
+      /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, verdict, blocker, sources). Retrieve hydrates sources from citations. */
       readonly ai_triage: unknown;
       readonly created_at: string;
       readonly updated_at: string;
@@ -76092,6 +76203,11 @@ export namespace Schemas {
       deletion_errors?: PersonBulkDeleteResponseDeletionErrorsItem[];
     }
 
+    export interface PersonCohortsResponse {
+      /** Cohorts the person currently belongs to. */
+      results: CohortMinimal[];
+    }
+
     export interface PersonDeletePropertyRequest {
       /** A property key, or a list of property keys, to remove from this person. */
       $unset: string | string[];
@@ -82301,6 +82417,50 @@ export namespace Schemas {
       Redshift: 'Redshift',
     } as const;
 
+    /**
+     * Marks this actor as a group.
+     */
+    export type SerializedGroupActorType = typeof SerializedGroupActorType[keyof typeof SerializedGroupActorType];
+
+
+    export const SerializedGroupActorType = {
+      Group: 'group',
+    } as const;
+
+    /**
+     * The actor's properties.
+     */
+    export type SerializedGroupActorProperties = { [key: string]: unknown };
+
+    export type SerializedGroupActorMatchedRecordingsItem = { [key: string]: unknown };
+
+    export interface SerializedGroupActor {
+      /** The person's UUID, or the group's key. */
+      id: string;
+      /** The actor's properties. */
+      properties: SerializedGroupActorProperties;
+      /**
+         * When the actor was first seen.
+         * @nullable
+         */
+      created_at: string | null;
+      /** Recordings that matched the query. Empty unless the endpoint asks for them. */
+      matched_recordings: SerializedGroupActorMatchedRecordingsItem[];
+      /**
+         * The actor's value at the data point it was queried for. Null unless the query computes one.
+         * @nullable
+         */
+      value_at_data_point: number | null;
+      /** Marks this actor as a group. */
+      type: SerializedGroupActorType;
+      /** Key identifying the group within its group type. */
+      group_key: string;
+      /** Index of the group type this group belongs to. */
+      group_type_index: number;
+    }
+
+    export type RelatedActor = SerializedPersonActor | SerializedGroupActor;
+
     export interface RelationshipReject {
       /** Why the proposal is rejected. Persisted so it is never re-proposed. */
       rejection_reason?: string;
@@ -84512,6 +84672,7 @@ export namespace Schemas {
      * * `evaluation` - evaluation
      * * `event` - event
      * * `insight` - insight
+     * * `instructions` - instructions
      * * `notebook` - notebook
      * * `text` - text
      */
@@ -84525,6 +84686,7 @@ export namespace Schemas {
       Evaluation: 'evaluation',
       Event: 'event',
       Insight: 'insight',
+      Instructions: 'instructions',
       Notebook: 'notebook',
       Text: 'text',
     } as const;
@@ -84537,7 +84699,7 @@ export namespace Schemas {
      * the live path wraps context client-side (`products/posthog_ai/frontend/utils/posthogContextBlock.ts`).
      */
     export interface SandboxAttachedContextItem {
-      /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.
+      /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` and `instructions` carry `value`. `instructions` is the caller's own guidance and renders into the trusted context block; every other kind renders into the untrusted block, which tells the agent to read it as data.
        *
        * * `action` - action
        * * `dashboard` - dashboard
@@ -84545,6 +84707,7 @@ export namespace Schemas {
        * * `evaluation` - evaluation
        * * `event` - event
        * * `insight` - insight
+       * * `instructions` - instructions
        * * `notebook` - notebook
        * * `text` - text */
       type: SandboxAttachedContextItemTypeEnum;
@@ -84552,7 +84715,7 @@ export namespace Schemas {
       id?: unknown;
       /** Optional human-readable label rendered in the context block. */
       name?: string;
-      /** Free-text content. Only for `text` attachments. */
+      /** Free-text content. Only for `text` and `instructions` attachments. */
       value?: string;
     }
 
@@ -95581,7 +95744,9 @@ export namespace Schemas {
     }
 
     export interface TicketError {
+      /** Human-readable error message. */
       detail: string;
+      /** Machine-readable error code. */
       error_type?: string;
     }
 
@@ -106057,11 +106222,11 @@ export namespace Schemas {
     skip_create_notebook?: boolean;
     };
 
-    export type GroupsRelatedRetrieveParams = {
+    export type GroupsRelatedListParams = {
     /**
-     * Specify the group type to find
+     * Group type of the actor to find related actors for. Omit when the actor is a person.
      */
-    group_type_index: number;
+    group_type_index?: number;
     /**
      * Specify the id of the user to find groups for
      */
