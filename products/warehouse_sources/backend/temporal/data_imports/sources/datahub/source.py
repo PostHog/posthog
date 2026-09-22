@@ -19,6 +19,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.datahub import (
+    MIN_TIMESERIES_SCROLL_VERSION,
+    TIMESERIES_SCROLL_UNSUPPORTED_ERROR,
     DatahubResumeConfig,
     check_endpoint_permissions,
     datahub_source,
@@ -100,6 +102,11 @@ The token is a [personal access token](https://docs.datahub.com/docs/authenticat
             "401 Client Error": "Your DataHub access token is invalid or has expired. Generate a new personal access token under Settings → Access Tokens and reconnect.",
             "Unauthorized for url": "Your DataHub access token is invalid or has expired. Generate a new personal access token under Settings → Access Tokens and reconnect.",
             "403 Client Error": "Your DataHub access token does not have permission to read this data. Check the token owner's view privileges, then reconnect.",
+            TIMESERIES_SCROLL_UNSUPPORTED_ERROR: (
+                f"Your DataHub instance is older than {MIN_TIMESERIES_SCROLL_VERSION}, whose timeseries API cannot "
+                "paginate. Upgrade the instance to sync the run event, profile, usage and operation tables, or turn "
+                "those tables off."
+            ),
         }
 
     def get_schemas(

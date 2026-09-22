@@ -11,6 +11,7 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.cloud_utils import is_cloud
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
@@ -42,6 +43,13 @@ MAX_PAGES_PER_SWEEP = 100_000
 DEFAULT_PROBE_ENTITY = "dataPlatform"
 
 HOST_NOT_ALLOWED_ERROR = "DataHub instance URL is not allowed"
+# The OpenAPI v2 timeseries endpoint only started returning a scroll cursor in DataHub v1.4.0
+# (datahub-project/datahub#15784). An older instance answers every page with results and no cursor,
+# so a sweep would end after the first page and truncate the table without any error. A fixed
+# instance always returns a cursor alongside a full page, which makes a full page with no cursor an
+# exact signature of the old server. This string is matched by `get_non_retryable_errors`.
+MIN_TIMESERIES_SCROLL_VERSION = "v1.4.0"
+TIMESERIES_SCROLL_UNSUPPORTED_ERROR = "returned a full page of timeseries events with no scroll cursor"
 
 
 class DatahubRetryableError(Exception):
@@ -57,6 +65,10 @@ class DatahubResponseTooLargeError(Exception):
 
 
 class DatahubTooManyPagesError(Exception):
+    pass
+
+
+class DatahubTimeseriesScrollUnsupportedError(Exception):
     pass
 
 
@@ -168,21 +180,32 @@ def _timeseries_params(scroll_id: str | None, start_time_millis: int | None, cou
     return params
 
 
+@frozen
+class _PageRequest:
+    url: str
+    params: dict[str, Any]
+    # Top-level key the page's rows live under in the response envelope.
+    items_key: str
+
+
 def _page_request(
     config: DatahubEndpointConfig,
     base_url: str,
     scroll_id: str | None = None,
     start_time_millis: int | None = None,
     count: int = PAGE_SIZE,
-) -> tuple[str, dict[str, Any], str]:
-    """URL, query params and response envelope key for one page of `config`."""
+) -> _PageRequest:
     if config.timeseries_aspect:
-        return (
-            _timeseries_url(base_url, config.entity_type, config.timeseries_aspect),
-            _timeseries_params(scroll_id, start_time_millis, count=count),
-            "results",
+        return _PageRequest(
+            url=_timeseries_url(base_url, config.entity_type, config.timeseries_aspect),
+            params=_timeseries_params(scroll_id, start_time_millis, count=count),
+            items_key="results",
         )
-    return _entity_url(base_url, config.entity_type), _scroll_params(scroll_id, count=count), "entities"
+    return _PageRequest(
+        url=_entity_url(base_url, config.entity_type),
+        params=_scroll_params(scroll_id, count=count),
+        items_key="entities",
+    )
 
 
 def _extract_page(data: Any, url: str, items_key: str) -> tuple[list[dict[str, Any]], str | None]:
@@ -305,9 +328,10 @@ def get_rows(
 
     pages_fetched = 0
     while True:
-        url, params, items_key = _page_request(config, base_url, scroll_id, start_time_millis)
+        page = _page_request(config, base_url, scroll_id, start_time_millis, count=PAGE_SIZE)
+        url = page.url
         try:
-            data = _fetch(session, url, params, logger)
+            data = _fetch(session, url, page.params, logger)
         except requests.HTTPError as exc:
             # A saved scroll cursor can go stale between attempts (scroll contexts are
             # server-side and expire). If the resumed first request is rejected, restart the
@@ -323,7 +347,16 @@ def get_rows(
         resuming = False
         pages_fetched += 1
 
-        rows, next_scroll_id = _extract_page(data, url, items_key)
+        rows, next_scroll_id = _extract_page(data, url, page.items_key)
+
+        # Raise before yielding, so a sync against an instance too old to paginate fails instead of
+        # writing a table silently truncated to one page.
+        if config.timeseries_aspect and not next_scroll_id and len(rows) >= PAGE_SIZE:
+            raise DatahubTimeseriesScrollUnsupportedError(
+                f"DataHub {TIMESERIES_SCROLL_UNSUPPORTED_ERROR} for {endpoint}. The timeseries API "
+                f"paginates from DataHub {MIN_TIMESERIES_SCROLL_VERSION} onwards."
+            )
+
         if rows:
             yield _with_timeseries_row_ids(rows) if config.timeseries_aspect else rows
 
@@ -426,7 +459,7 @@ def validate_credentials(
     probe_config = DATAHUB_ENDPOINTS.get(schema_name) if schema_name is not None else None
     if probe_config is None:
         probe_config = DatahubEndpointConfig(name=DEFAULT_PROBE_ENTITY, entity_type=DEFAULT_PROBE_ENTITY)
-    probe_url, probe_params, _ = _page_request(probe_config, base_url, count=1)
+    probe = _page_request(probe_config, base_url, count=1)
 
     session = _get_session(api_token)
     try:
@@ -434,7 +467,7 @@ def validate_credentials(
         # address, defeating the host check above (SSRF). stream=True so a hostile server can't
         # exhaust the API worker with an unbounded body — a 200 returns without reading it, and
         # error snippets are read under a cap.
-        response = session.get(probe_url, params=probe_params, timeout=15, stream=True)
+        response = session.get(probe.url, params=probe.params, timeout=15, stream=True)
     except requests.exceptions.RequestException as e:
         return False, f"Could not connect to DataHub: {e}"
 
@@ -483,11 +516,11 @@ def check_endpoint_permissions(
         if config is None:
             results[endpoint] = None
             continue
-        url, params, _ = _page_request(config, base_url, count=1)
+        probe = _page_request(config, base_url, count=1)
         try:
             # stream=True so a hostile instance can't exhaust the API worker with an unbounded
             # body; only a capped error snippet is read below when the status warrants a message.
-            response = session.get(url, params=params, timeout=15, stream=True)
+            response = session.get(probe.url, params=probe.params, timeout=15, stream=True)
         except requests.exceptions.RequestException:
             results[endpoint] = None
             continue

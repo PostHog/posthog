@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.da
     DatahubResponseTooLargeError,
     DatahubResumeConfig,
     DatahubRetryableError,
+    DatahubTimeseriesScrollUnsupportedError,
     DatahubTooManyPagesError,
     _extract_page,
     _headers,
@@ -374,6 +375,32 @@ class TestDatahub:
         rows, _calls = self._collect(manager, monkeypatch, pages, endpoint="dataset_profiles")
         assert rows[0]["id"] == _timeseries_row_id(pages[None]["results"][0])
         assert rows[0]["event"] == {"rowCount": 1}
+
+    def test_timeseries_full_page_without_a_cursor_fails_instead_of_truncating(self, monkeypatch: Any) -> None:
+        # DataHub before v1.4.0 never returns a scroll cursor from the timeseries endpoint, so the
+        # sweep would end after one page and write a silently truncated table. A fixed instance
+        # always pairs a full page with a cursor, so this shape only happens on an old one.
+        monkeypatch.setattr(datahub, "PAGE_SIZE", 2)
+        manager = _FakeResumableManager()
+        pages = {None: {"results": [{"urn": "u1", "timestampMillis": 3000}, {"urn": "u2", "timestampMillis": 2000}]}}
+        with pytest.raises(DatahubTimeseriesScrollUnsupportedError):
+            self._collect(manager, monkeypatch, pages, endpoint="dataset_profiles")
+
+    def test_timeseries_short_final_page_without_a_cursor_ends_the_sweep(self, monkeypatch: Any) -> None:
+        monkeypatch.setattr(datahub, "PAGE_SIZE", 2)
+        manager = _FakeResumableManager()
+        pages = {None: {"results": [{"urn": "u1", "timestampMillis": 3000}]}}
+        rows, _calls = self._collect(manager, monkeypatch, pages, endpoint="dataset_profiles")
+        assert [r["urn"] for r in rows] == ["u1"]
+
+    def test_entity_full_page_without_a_cursor_ends_the_sweep(self, monkeypatch: Any) -> None:
+        # The entity scroll has always signalled its last page by omitting the cursor, so the
+        # timeseries guard must not fire on it.
+        monkeypatch.setattr(datahub, "PAGE_SIZE", 2)
+        manager = _FakeResumableManager()
+        pages = {None: {"entities": [{"urn": "u1"}, {"urn": "u2"}]}}
+        rows, _calls = self._collect(manager, monkeypatch, pages)
+        assert [r["urn"] for r in rows] == ["u1", "u2"]
 
     @parameterized.expand(
         [

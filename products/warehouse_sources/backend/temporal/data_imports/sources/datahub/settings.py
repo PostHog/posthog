@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -13,7 +15,7 @@ TIMESERIES_ROW_ID_COLUMN = "id"
 TIMESERIES_INCREMENTAL_FIELD = "timestampMillis"
 
 
-@dataclass
+@frozen
 class DatahubEndpointConfig:
     name: str
     # DataHub metadata-model entity name, interpolated into /openapi/v3/entity/{entity_type}.
