@@ -19,7 +19,7 @@ import http.client
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 API_ROOT = "https://api.github.com"
@@ -32,7 +32,6 @@ DISTINCT_ID = "posthog-github-action"
 CI_ENGINE = "depot"
 # The check-run details URL: https://depot.dev/orgs/<org>/workflows/<workflow id>?job=<job id>&...
 WORKFLOW_URL = re.compile(r"^(https://depot\.dev/orgs/[^/?#]+/workflows/([^/?#]+))")
-# Depot posts a job's check run once the job starts, so this job's own run can lag its first read.
 LOOKUP_ATTEMPTS = 3
 LOOKUP_BACKOFF_SECONDS = 10
 PAGE_SIZE = 100
@@ -91,27 +90,32 @@ def job_name(check_run: dict[str, Any]) -> str:
 
 def build_events(
     check_runs: list[dict[str, Any]],
-    own_job: str,
+    workflow_id: str,
+    gate_job: str,
     context: dict[str, Any],
-    conclusion: str,
     attempt: int,
-    now: datetime,
 ) -> list[dict[str, Any]]:
-    """The events for the workflow whose `own_job` check run is still in progress, or none when
-    that workflow cannot be told apart from the others on the same commit."""
-    own = {
-        workflow
-        for run in check_runs
-        if run.get("status") == "in_progress" and job_name(run) == own_job and (workflow := workflow_of(run))
-    }
-    if len(own) != 1:
-        return []
-    workflow_id, url = own.pop()
+    """The events for `workflow_id`, timed to its latest completed `gate_job` check run, or none
+    when that gate has not completed."""
     runs = [
         run
         for run in check_runs
         if (workflow := workflow_of(run)) and workflow[0] == workflow_id and run.get("started_at")
     ]
+    gate = max(
+        (
+            run
+            for run in runs
+            if job_name(run) == gate_job and run.get("status") == "completed" and run.get("completed_at")
+        ),
+        key=lambda run: int(run.get("id", 0)),
+        default=None,
+    )
+    if gate is None:
+        return []
+    _, url = workflow_of(gate) or (workflow_id, "")
+    now = parse_time(gate["completed_at"])
+    conclusion = str(gate.get("conclusion") or "")
     started_at = min((run["started_at"] for run in runs), key=parse_time)
     group_key = f"{context['repositoryOwner']}/{context['repository']}/{context['runId']}"
     common = {
@@ -157,7 +161,7 @@ def build_events(
     for run in sorted(runs, key=lambda run: run["id"]):
         latest[job_name(run)] = run
     for name, run in latest.items():
-        if not run.get("completed_at") or name == own_job:
+        if not run.get("completed_at"):
             continue
         duration = parse_time(run["completed_at"]) - parse_time(run["started_at"])
         events.append(
@@ -175,43 +179,6 @@ def build_events(
             )
         )
     return events
-
-
-def build_events_for_workflow(
-    check_runs: list[dict[str, Any]],
-    workflow_id: str,
-    gate_job: str,
-    context: dict[str, Any],
-    attempt: int,
-) -> list[dict[str, Any]]:
-    runs = [run for run in check_runs if (workflow := workflow_of(run)) and workflow[0] == workflow_id]
-    gate = max(
-        (
-            run
-            for run in runs
-            if job_name(run) == gate_job and run.get("status") == "completed" and run.get("completed_at")
-        ),
-        key=lambda run: int(run.get("id", 0)),
-        default=None,
-    )
-    if gate is None:
-        return []
-    completed_at = parse_time(str(gate["completed_at"]))
-    anchor = {
-        "id": -1,
-        "name": "Backend CI on Depot / __trusted-reporter-anchor__",
-        "status": "in_progress",
-        "started_at": gate["completed_at"],
-        "details_url": gate["details_url"],
-    }
-    return build_events(
-        [*runs, anchor],
-        "__trusted-reporter-anchor__",
-        context,
-        str(gate.get("conclusion") or ""),
-        attempt,
-        completed_at,
-    )
 
 
 def fetch_check_runs(repo: str, sha: str, token: str) -> list[dict[str, Any]]:
@@ -269,27 +236,17 @@ def main() -> int:
             if isinstance(error, urllib.error.HTTPError) and error.code < 500:
                 return 0
             continue
-        if workflow_id := env.get("DEPOT_WORKFLOW_ID"):
-            events = build_events_for_workflow(
-                check_runs,
-                workflow_id,
-                env.get("GATE_JOB_NAME", "Django Tests Pass on Depot"),
-                github_context(env),
-                as_int(env.get("CI_SOURCE_RUN_ATTEMPT", "")) or 1,
-            )
-        else:
-            events = build_events(
-                check_runs,
-                env.get("OWN_JOB_NAME", ""),
-                github_context(env),
-                env.get("CONCLUSION", ""),
-                as_int(env.get("GITHUB_RUN_ATTEMPT", "")) or 1,
-                datetime.now(UTC),
-            )
+        events = build_events(
+            check_runs,
+            env.get("DEPOT_WORKFLOW_ID", ""),
+            env.get("GATE_JOB_NAME", "Django Tests Pass on Depot"),
+            github_context(env),
+            as_int(env.get("CI_SOURCE_RUN_ATTEMPT", "")) or 1,
+        )
         if events:
             break
     if not events:
-        warn("Cannot find this job's check run, so the Depot CI workflow is unknown and no running time is sent.")
+        warn("Cannot find the completed gate check run of the Depot CI workflow, so no running time is sent.")
         return 0
     sent = 0
     for token in tokens:

@@ -276,7 +276,7 @@ def main() -> int:
     append_output("run_attempt", str(run_attempt))
     append_output("has_junit", str(bool(junit)).lower())
     if selection:
-        chosen = max(selection, key=lambda artifact: (artifact.attempt, artifact.artifact_id))
+        chosen = max(selection, key=lambda artifact: artifact.artifact_id)
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             _download(chosen, args.org, directory)

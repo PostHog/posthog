@@ -894,7 +894,7 @@ def test_product_shard_derives_product_suite_and_keeps_repo_relative_paths(
     [
         ({}, "https://github.com/PostHog/posthog/actions/runs/25218527467", None),
         (
-            {"CI_ENGINE": "depot", "DEPOT_JOB_URL": "https://depot.dev/orgs/org1/workflows/wf1?job=j1"},
+            {"CI_ENGINE": "depot", "CI_RUN_URL": "https://depot.dev/orgs/org1/workflows/wf1?job=j1"},
             "https://depot.dev/orgs/org1/workflows/wf1?job=j1",
             "depot",
         ),

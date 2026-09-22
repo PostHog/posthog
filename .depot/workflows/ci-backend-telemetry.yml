@@ -196,7 +196,7 @@ jobs:
                   CI_SOURCE_RUN_ATTEMPT: ${{ steps.inputs.outputs.run_attempt }}
                   CI_SOURCE_ACTOR: ${{ env.SOURCE_ACTOR }}
                   CI_SOURCE_EVENT_NAME: pull_request
-                  DEPOT_JOB_URL: https://depot.dev/orgs/${{ steps.backend.outputs.org_id }}/workflows/${{ steps.backend.outputs.workflow_id }}
+                  CI_RUN_URL: https://depot.dev/orgs/${{ steps.backend.outputs.org_id }}/workflows/${{ steps.backend.outputs.workflow_id }}
                   POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   POSTHOG_CI_TRACES_EXTRA_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
                   POSTHOG_OTLP_TRACES_ENDPOINT: ${{ vars.POSTHOG_OTLP_TRACES_ENDPOINT || 'https://us.i.posthog.com/i/v1/traces' }}

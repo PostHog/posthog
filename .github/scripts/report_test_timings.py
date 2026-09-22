@@ -677,13 +677,18 @@ def filter_shards(
     ]
 
 
+def source_env(key: str, default: str = "") -> str:
+    """A `GITHUB_<key>` value, overridden by `CI_SOURCE_<key>` when a reporter describes another run."""
+    return os.environ.get(f"CI_SOURCE_{key}") or os.environ.get(f"GITHUB_{key}", default)
+
+
 # ---------- re-run attempts ----------
 
 
 def current_run_attempt() -> int:
     """The workflow run attempt this emit runs under; 1 outside CI or on malformed input."""
     try:
-        return max(1, int(os.environ.get("CI_SOURCE_RUN_ATTEMPT") or os.environ.get("GITHUB_RUN_ATTEMPT", "1") or "1"))
+        return max(1, int(source_env("RUN_ATTEMPT") or "1"))
     except ValueError:
         return 1
 
@@ -730,9 +735,9 @@ def get_pull_request_number() -> int | None:
 
 
 def get_run_url() -> str:
-    # Depot CI sets a GITHUB_RUN_ID that GitHub has no run for, so link the Depot job instead.
-    if os.environ.get("CI_ENGINE") == "depot":
-        return os.environ.get("DEPOT_JOB_URL", "")
+    # Depot CI sets a GITHUB_RUN_ID that GitHub has no run for, so its reporter passes the run URL.
+    if run_url := os.environ.get("CI_RUN_URL"):
+        return run_url
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     if not repo or not run_id:
@@ -744,17 +749,13 @@ def get_run_url() -> str:
 def workflow_resource_attributes() -> dict[str, str | int]:
     """Resource attributes attached to every span — pre-aggregation context for the run."""
     keys = ("WORKFLOW", "RUN_ID", "RUN_NUMBER", "RUN_ATTEMPT", "REF", "SHA", "ACTOR", "REPOSITORY")
-
-    def source(key: str) -> str:
-        return os.environ.get(f"CI_SOURCE_{key}") or os.environ.get(f"GITHUB_{key}", "")
-
-    attrs: dict[str, str | int] = {f"ci.{k.lower()}": source(k) for k in keys}
-    attrs["ci.event_name"] = source("EVENT_NAME")
-    attrs["ci.head_ref"] = source("HEAD_REF")
-    attrs["ci.base_ref"] = source("BASE_REF")
-    attrs["ci.ref_name"] = source("REF_NAME")
+    attrs: dict[str, str | int] = {f"ci.{k.lower()}": source_env(k) for k in keys}
+    attrs["ci.event_name"] = source_env("EVENT_NAME")
+    attrs["ci.head_ref"] = source_env("HEAD_REF")
+    attrs["ci.base_ref"] = source_env("BASE_REF")
+    attrs["ci.ref_name"] = source_env("REF_NAME")
     # Branch name regardless of event: PR source branch, else the pushed branch.
-    attrs["ci.branch"] = source("HEAD_REF") or source("REF_NAME")
+    attrs["ci.branch"] = source_env("HEAD_REF") or source_env("REF_NAME")
     pr_number = get_pull_request_number()
     if pr_number is not None:
         attrs["ci.pr_number"] = pr_number
@@ -841,8 +842,8 @@ def owner_team_lookup() -> Callable[[str], str]:
 
 def emit_traces(shards: list[Shard], endpoint: str, token: str, runner: Runner = DEFAULT_RUNNER) -> None:
     """Emit one trace per job: a `<workflow> / <job>` root span with test children, shipped via OTLP HTTP."""
-    run_id = os.environ.get("CI_SOURCE_RUN_ID") or os.environ.get("GITHUB_RUN_ID", "0")
-    run_attempt = os.environ.get("CI_SOURCE_RUN_ATTEMPT") or os.environ.get("GITHUB_RUN_ATTEMPT", "1")
+    run_id = source_env("RUN_ID", "0")
+    run_attempt = source_env("RUN_ATTEMPT", "1")
     service_name = SERVICE_NAMES[runner]
     suites = {shard.info.suite for shard in shards}
     if runner == "jest" and suites:
@@ -850,7 +851,7 @@ def emit_traces(shards: list[Shard], endpoint: str, token: str, runner: Runner =
         # homogeneous; GITHUB_WORKFLOW's real value still rides on ci.workflow either way.
         if len(suites) == 1:
             service_name = SUITE_SERVICE_NAMES.get(next(iter(suites)), service_name)
-    workflow = os.environ.get("CI_SOURCE_WORKFLOW") or os.environ.get("GITHUB_WORKFLOW", "") or service_name
+    workflow = source_env("WORKFLOW") or service_name
 
     id_generator = _FixedTraceIdGenerator()
     resource = Resource.create({"service.name": service_name, **workflow_resource_attributes()})

@@ -1,6 +1,5 @@
 import urllib.error
 import importlib.util
-from datetime import UTC, datetime
 from email.message import Message
 from pathlib import Path
 from typing import Any
@@ -14,8 +13,7 @@ assert SPEC.loader is not None
 capture = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(capture)
 
-OWN_JOB = "Calculate running time"
-NOW = datetime(2026, 9, 18, 15, 30, tzinfo=UTC)
+GATE = "Django Tests Pass on Depot"
 CONTEXT = capture.github_context(
     {
         "GITHUB_REPOSITORY": "PostHog/posthog",
@@ -58,13 +56,15 @@ def test_builds_run_and_job_events_from_this_workflow_only() -> None:
         check_run(3, "wf1", "Django tests (1/2)", "2026-09-18T15:03:00Z", "2026-09-18T15:10:00Z", "failure"),
         check_run(4, "wf1", "Django tests (1/2)", "2026-09-18T15:11:00Z", "2026-09-18T15:20:30Z"),
         check_run(5, "wf1", "Django tests (2/2)", "2026-09-18T15:03:00Z"),
-        check_run(6, "wf1", OWN_JOB, "2026-09-18T15:29:00Z"),
+        check_run(6, "wf1", GATE, "2026-09-18T15:29:00Z", "2026-09-18T15:30:00Z", "failure"),
         check_run(7, "wf1", "Validate migrations", "2026-09-18T15:02:05Z", "2026-09-18T15:02:04Z", "skipped"),
+        check_run(8, "other", GATE, "2026-09-18T15:31:00Z", "2026-09-18T15:31:01Z"),
     ]
 
-    events = capture.build_events(check_runs, OWN_JOB, CONTEXT, "failure", 1, NOW)
+    events = capture.build_events(check_runs, "wf1", GATE, CONTEXT, 1)
 
     run_event, group_event, *job_events = events
+    assert run_event["timestamp"] == "2026-09-18T15:30:00+00:00"
     assert run_event["properties"] == {
         "duration_seconds": 1800,
         "url": "https://depot.dev/orgs/org1/workflows/wf1",
@@ -84,18 +84,14 @@ def test_builds_run_and_job_events_from_this_workflow_only() -> None:
     ] == [
         ("posthog-ci-running-time-job", "Wait for GitHub Actions to hand off backend tests", 120, "success"),
         ("posthog-ci-running-time-job", "Django tests (1/2)", 570, "success"),
+        ("posthog-ci-running-time-job", GATE, 60, "failure"),
         ("posthog-ci-running-time-job", "Validate migrations", 0, "skipped"),
     ]
 
 
-def test_clamps_workflow_duration_when_started_at_is_in_the_future() -> None:
+def test_clamps_workflow_duration_when_the_gate_completes_before_it_starts() -> None:
     events = capture.build_events(
-        [check_run(1, "wf1", OWN_JOB, "2026-09-18T15:31:00Z")],
-        OWN_JOB,
-        CONTEXT,
-        "success",
-        1,
-        NOW,
+        [check_run(1, "wf1", GATE, "2026-09-18T15:31:00Z", "2026-09-18T15:30:00Z")], "wf1", GATE, CONTEXT, 1
     )
 
     assert events[0]["properties"]["duration_seconds"] == 0
@@ -104,48 +100,31 @@ def test_clamps_workflow_duration_when_started_at_is_in_the_future() -> None:
 @pytest.mark.parametrize(
     "check_runs",
     [
-        [check_run(1, "wf1", OWN_JOB, "2026-09-18T15:29:00Z", "2026-09-18T15:29:30Z")],
-        [check_run(1, "wf1", OWN_JOB, "2026-09-18T15:29:00Z"), check_run(2, "wf2", OWN_JOB, "2026-09-18T15:29:05Z")],
+        [check_run(1, "wf1", GATE, "2026-09-18T15:29:00Z")],
+        [check_run(1, "other", GATE, "2026-09-18T15:29:00Z", "2026-09-18T15:29:30Z")],
     ],
-    ids=["own check run not posted yet", "two workflows running this job"],
+    ids=["gate still running", "gate only in another workflow"],
 )
-def test_sends_nothing_when_this_workflow_is_ambiguous(check_runs: list[dict[str, Any]]) -> None:
-    assert capture.build_events(check_runs, OWN_JOB, CONTEXT, "success", 1, NOW) == []
-
-
-def test_builds_events_for_a_trusted_reporter_after_the_gate_finishes() -> None:
-    runs = [
-        check_run(1, "wf1", "Django tests (1/1)", "2026-09-18T15:00:00Z", "2026-09-18T15:20:00Z"),
-        check_run(2, "wf1", "Django Tests Pass on Depot", "2026-09-18T15:20:01Z", "2026-09-18T15:20:03Z"),
-        check_run(3, "other", "Django Tests Pass on Depot", "2026-09-18T15:21:00Z", "2026-09-18T15:21:01Z"),
-    ]
-
-    events = capture.build_events_for_workflow(runs, "wf1", "Django Tests Pass on Depot", CONTEXT, 1)
-
-    assert events[0]["properties"]["duration_seconds"] == 1203
-    assert events[0]["properties"]["conclusion"] == "success"
-    assert {event["properties"].get("name") for event in events[2:]} == {
-        "Django tests (1/1)",
-        "Django Tests Pass on Depot",
-    }
+def test_sends_nothing_without_a_completed_gate(check_runs: list[dict[str, Any]]) -> None:
+    assert capture.build_events(check_runs, "wf1", GATE, CONTEXT, 1) == []
 
 
 def http_error(code: int) -> urllib.error.HTTPError:
     return urllib.error.HTTPError("https://api.github.com", code, "error", Message(), None)
 
 
-OWN_RUN = [check_run(1, "wf1", OWN_JOB, "2026-09-18T15:29:00Z")]
+GATE_RUN = [check_run(1, "wf1", GATE, "2026-09-18T15:29:00Z", "2026-09-18T15:30:00Z")]
 
 
 @pytest.mark.parametrize(
     "reads, batches_sent",
     [
-        ([[], [], OWN_RUN], 1),
-        ([http_error(502), OWN_RUN], 1),
+        ([[], [], GATE_RUN], 1),
+        ([http_error(502), GATE_RUN], 1),
         ([http_error(403)], 0),
         ([[], [], []], 0),
     ],
-    ids=["own check run posted late", "server error", "client error", "own check run never posted"],
+    ids=["gate completed late", "server error", "client error", "gate never completed"],
 )
 def test_retries_the_check_run_lookup(
     monkeypatch: pytest.MonkeyPatch, reads: list[list[dict[str, Any]] | Exception], batches_sent: int
@@ -164,7 +143,7 @@ def test_retries_the_check_run_lookup(
     monkeypatch.setattr(capture, "LOOKUP_BACKOFF_SECONDS", 0)
     monkeypatch.setenv("POSTHOG_API_TOKEN", "phc_test")
     monkeypatch.delenv("POSTHOG_DEVEX_PROJECT_API_TOKEN", raising=False)
-    monkeypatch.setenv("OWN_JOB_NAME", OWN_JOB)
+    monkeypatch.setenv("DEPOT_WORKFLOW_ID", "wf1")
 
     assert capture.main() == 0
     assert next(pending, None) is None
