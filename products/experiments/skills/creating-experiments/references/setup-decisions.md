@@ -131,7 +131,7 @@ Read the shape back with `read-data-schema` (`event_property_values`, a sample o
 
 ### Read the counts in this order
 
-1. `candidate_metric.event_volume` is 0: the metric event never occurred in the window under `metric_properties`. Check the event name with `read-data-schema`, then check the filters. A `conversion_rate` of 0 says nothing until this is above 0.
+1. `candidate_metric.event_volume` is 0: the metric event never occurred in the window under `metric_properties`. Check the event name with `read-data-schema`, then check the filters. A `candidate_metric.conversion_rate` of 0 says nothing until this is above 0.
 2. `candidate_metric.event_volume` is above 0 but `candidate_metric.persons_converted` is 0: the event happens, but never after the target event. Either the metric measures something people do elsewhere in the product, or the target is wrong. `candidate_metric.unique_persons` says how many people send the event at all, which separates a rare event from a misplaced one.
 3. `candidate_metric.persons_reached` is 0: no one sent the target event in the window under `target_properties` and `target_url_contains`. Say the target may be wrong.
 
