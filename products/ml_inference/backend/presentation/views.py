@@ -75,13 +75,8 @@ class DecisionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             logger.warning("ml_inference_decision_gateway_unavailable", team_id=self.team_id, reason=str(error))
             raise DecisionGatewayUnavailable() from error
         except DecisionGatewayError as error:
-            # The gateway's body stays in the log: it can carry upstream diagnostics the caller should not see.
-            logger.warning(
-                "ml_inference_decision_gateway_refused",
-                team_id=self.team_id,
-                status_code=error.status_code,
-                detail=error.detail,
-            )
+            # Only the status is logged: the gateway's body can echo the state text, and the gateway logs its own refusals.
+            logger.warning("ml_inference_decision_gateway_refused", team_id=self.team_id, status_code=error.status_code)
             raise DecisionGatewayRefused() from error
         return Response(DecideResponseSerializer(_wire_result(result)).data)
 

@@ -72,6 +72,12 @@ def decision_url(gateway_url: str) -> str:
     return urlunparse(parsed._replace(path=path + DECISION_PATH, params="", query="", fragment=""))
 
 
+def carries_credentials_safely(gateway_url: str) -> bool:
+    """The bearer only travels in clear to a loopback gateway, which is the local development setup."""
+    parsed = urlparse(gateway_url)
+    return parsed.scheme == "https" or parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+
+
 def decide(
     request: DecisionRequest,
     *,
@@ -81,6 +87,8 @@ def decide(
     config = resolve_ai_gateway_config()
     if config is None:
         raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
+    if not carries_credentials_safely(config.url):
+        raise GatewayNotConfiguredError("AI_GATEWAY_URL must use https unless it points at this machine")
     headers = {"Authorization": f"Bearer {config.api_key}"}
     headers.update(ai_gateway_headers(ai_product="ml_inference", distinct_id=team_distinct_id(request.team_id)) or {})
     try:

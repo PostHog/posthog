@@ -19,8 +19,10 @@ from kev_vllm.kev_compat import SystemOneRequest, encode, output_tokens, rows_of
 
 # Serving limits, as kev.serve: the per-branch cap mirrors Jev's window and the base model bounds both.
 INFER_MAX_STATE, INFER_MAX_BRANCH = 8192, 8192
-# A request aborted between pre_process and post_process never collects its entry, so old ones are swept.
-PENDING_SWEEP_SIZE, PENDING_MAX_AGE_SECONDS = 1000, 600
+# A request aborted between pre_process and post_process never collects its entry, so old ones are swept. vLLM has no
+# abort hook for IO processors and bounds admission rather than request age, so the age is set far beyond any wait a
+# caller survives: the gateway gives up on a request in well under a minute.
+PENDING_SWEEP_SIZE, PENDING_MAX_AGE_SECONDS = 10_000, 3600
 
 
 class KevIOProcessor(IOProcessor[SystemOneRequest, dict]):
@@ -46,7 +48,10 @@ class KevIOProcessor(IOProcessor[SystemOneRequest, dict]):
         return [TokensPrompt(prompt_token_ids=state_ids + row["ids"]) for row in rows]
 
     def post_process(self, model_output: Sequence[PoolingRequestOutput], request_id: str | None = None, **kwargs) -> dict:
-        meta, input_tokens, _ = self._pending[request_id].popleft()
+        entries = self._pending.get(request_id)
+        if not entries:
+            raise ValueError(f"request {request_id} waited longer than {PENDING_MAX_AGE_SECONDS}s and was swept")
+        meta, input_tokens, _ = entries.popleft()
         if not self._pending[request_id]:
             del self._pending[request_id]
         probs = [out.outputs.data.tolist() for out in model_output]

@@ -125,6 +125,25 @@ class TestDecide:
 
         assert raised.value.status_code == 404
 
+    @pytest.mark.parametrize(
+        "gateway_url,allowed",
+        [
+            ("https://gateway.example.com/v1", True),
+            ("http://localhost:8080/v1", True),
+            ("http://127.0.0.1:8080/v1", True),
+            ("http://gateway.example.com/v1", False),
+        ],
+    )
+    def test_sends_the_bearer_in_clear_only_to_this_machine(self, gateway_url: str, allowed: bool) -> None:
+        transport = httpx.MockTransport(lambda _request: httpx.Response(200, json=ANSWERS))
+
+        with override_settings(AI_GATEWAY_URL=gateway_url, AI_GATEWAY_API_KEY="phs_test"):
+            if allowed:
+                assert decisions.decide(_request(), transport=transport).model == "kev-latest"
+            else:
+                with pytest.raises(GatewayNotConfiguredError):
+                    decisions.decide(_request(), transport=transport)
+
     def test_refuses_to_call_without_a_configured_gateway(self) -> None:
         transport = httpx.MockTransport(lambda _request: pytest.fail("no request expected"))
 
