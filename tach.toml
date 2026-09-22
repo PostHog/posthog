@@ -714,6 +714,7 @@ depends_on = [
     "products.alerts",
     "products.dashboards",
     "products.event_definitions",
+    "products.exports",
     "products.annotations",
     "products.warehouse_sources", "products.access_control",
     # A trends query filtering on a first-pageview-aware property builds it through
