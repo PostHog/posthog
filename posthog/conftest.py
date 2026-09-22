@@ -1,5 +1,6 @@
 import os
 import time
+import logging
 import warnings
 import subprocess
 from collections.abc import Callable
@@ -9,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote_plus
 
 import pytest
-from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
+from posthog.test.base import PostHogTestCase, _selective_flush, run_clickhouse_statement_in_parallel
 
 from _pytest.junitxml import ET, bin_xml_escape, mangle_test_address
 
@@ -22,13 +23,17 @@ except ImportError:  # fail-open: runs without tools/hogli-commands on pythonpat
     apply_quarantine_markers = None
 
 from django.conf import settings
+from django.core.management import call_command
 from django.core.management.commands.flush import Command as FlushCommand
+from django.test import TransactionTestCase
 
 from infi.clickhouse_orm import Database
 
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_ci
 from posthog.test import flush_lock_guard
+
+logger = logging.getLogger(__name__)
 
 
 def create_clickhouse_tables():
@@ -464,6 +469,29 @@ def _patched_flush_handle(self, **options: Any) -> None:
 
 _original_flush_handle = FlushCommand.handle
 FlushCommand.handle = _patched_flush_handle  # type: ignore[method-assign]
+
+
+def _patched_fixture_teardown(self: TransactionTestCase) -> None:
+    """
+    pytest-django tears down ``django_db(transaction=True)`` tests through the stock
+    TransactionTestCase teardown, which runs the flush command: a TRUNCATE of every table
+    and a post_migrate re-seed for each test. Use the selective flush that
+    NonAtomicBaseTest uses instead. Subset flushes (available_apps) and serialized
+    rollback keep the stock path.
+    """
+    if self.available_apps is not None or self.serialized_rollback:
+        _original_fixture_teardown(self)
+        return
+    for db_name in self._databases_names(include_mirrors=False):
+        try:
+            _selective_flush(db_name, reset_sequences=False)
+        except Exception:
+            logger.exception("Selective flush of %r failed; falling back to the stock flush command", db_name)
+            call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
+
+
+_original_fixture_teardown = TransactionTestCase._fixture_teardown
+TransactionTestCase._fixture_teardown = _patched_fixture_teardown  # type: ignore[method-assign]
 
 
 @pytest.fixture
