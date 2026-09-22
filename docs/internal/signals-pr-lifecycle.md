@@ -8,6 +8,17 @@ The shared PR-linking service applies this rule to task outputs and agent attach
 An existing attachment retry does not reopen a report, and importing legacy assignments preserves its status.
 Suppressed reports remain suppressed when another PR is attached.
 
+A report that is `part_of` another report is a step in a plan, and the plan completes from its steps.
+When every live step of a plan is closed, the plan takes their verdict: resolved if at least one step resolved, suppressed if they all were.
+A plan with any step still open is left alone, and a deleted step counts neither way.
+Deleting a step also checks the plan again.
+A plan that becomes ready checks its own steps, in case they closed while the plan was still in research.
+The check locks each plan before it reads and updates its state.
+It continues through an already closed plan to check that plan's parent.
+An archived step never undoes a resolved plan.
+The roll-up runs on the step's own status change, so a merged PR, a manual resolve, a bulk state change, and an MCP state write all reach it.
+It continues up a plan of plans, and skips a plan that is waiting on a replacement.
+
 ## Reviewer notifications
 
 Slack notifications for a ready report include only reviewers who have access to the report's project when delivery starts.
@@ -19,12 +30,35 @@ If no suggested reviewer has access, the ready report still goes to the configur
 Only scouts and the signals pipeline create and manage typed, directed report links.
 Scouts attach them through the `links` list on `scout-edit-report`.
 Public callers can read `report_link` artefacts, but cannot create, edit, or delete them through the artefact API.
+Typed links cannot yet be removed through a supported operation.
+[Issue #102776](https://github.com/PostHog/posthog/issues/102776) tracks the unlink API and MCP tool.
+The Implement button overrides an automatic start check; it does not remove a link or change plan membership.
 Links must name a different live report in the same project and cannot form a cycle among links of the same kind.
+
+Research reads a report's outgoing `follow_up_of`, `depends_on`, and `part_of` links and starts from the linked reports' findings and pull requests.
+A linked report must have an explicit safe verdict in its latest safety judgment.
+Research uses the latest finding for each signal and removes repeated links.
+It loads at most ten distinct relationships and limits the rendered context to 12,000 characters.
+All linked fields are escaped and marked as untrusted evidence.
+A follow-up can refer to a manual fix or a regression; it must not invent a missing pull request.
+
+Three link gates hold back automatic implementation, and each one records why on the report:
+
+- A report that duplicates another one does not start its own work when the duplicate's root is resolved or already carries a pull request.
+- A report that depends on another one does not start until that dependency carries a pull request.
+- A report that other reports are `part_of` never starts its own work, because its steps do the work.
+
+Link readers use the writer database so a new link takes effect without replica delay.
+The implementation path checks the gates again under the report lock before it creates a task.
+The gates apply to automatic implementation only.
+Pressing Implement in the inbox starts a run whatever the links say.
+Nothing re-evaluates a held-back report when its dependency's pull request opens, so it starts on the report's next pipeline evaluation or by hand.
 
 ## Recurrence after a fixed verdict
 
 A report dismissed as `already_fixed`, `fixed_outside_posthog`, or `pr_merged` can create a new report when the issue returns.
 The pipeline records the new report's parent with a typed `recurrence_of` report link.
+A report created because a follow-up check failed on a resolved report also gets a typed `follow_up_of` link to that report, carrying the verdict as the link's reason.
 Generic `related_to` links do not control signal assignment.
 Later signals follow the recurrence chain, even if an older parent is restored.
 Matching selects the current successor before the specificity check, so the check uses its signals and title.

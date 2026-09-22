@@ -189,3 +189,51 @@ export const CheckLifecycleNarrow: Story = {
         ),
     ],
 }
+
+/** The three link gates that hold automatic implementation back, and the link one of them acted on. */
+const linkArtefacts = [
+    {
+        id: 'skip-plan-parent',
+        type: 'autostart_skip',
+        created_at: '2026-09-22T09:10:00Z',
+        content: {
+            skip_reason: 'plan_parent',
+            detail: 'No work started here because other reports are part of this one and do the work.',
+        },
+    },
+    {
+        id: 'skip-dependency',
+        type: 'autostart_skip',
+        created_at: '2026-09-22T09:05:00Z',
+        content: {
+            skip_reason: 'blocked_by_dependency',
+            linked_report_id: '0198c0de-0000-7000-8000-000000000002',
+            detail: 'No work started here because a report this one depends on has no pull request yet.',
+        },
+    },
+    {
+        id: 'skip-duplicate',
+        type: 'autostart_skip',
+        created_at: '2026-09-22T09:00:00Z',
+        content: {
+            skip_reason: 'duplicate_of',
+            linked_report_id: '0198c0de-0000-7000-8000-000000000001',
+            detail: 'No work started here because this report duplicates another one that is already resolved or has a pull request.',
+        },
+    },
+    {
+        id: 'link-duplicate',
+        type: 'report_link',
+        created_at: '2026-09-22T08:55:00Z',
+        content: {
+            kind: 'duplicate_of',
+            report_id: '0198c0de-0000-7000-8000-000000000001',
+            reason: 'Same export timeout, already covered by the earlier report.',
+        },
+    },
+]
+
+export const LinkedReportGates: Story = {
+    parameters: { mockDate: '2026-09-23T10:00:00Z' },
+    args: { artefacts: linkArtefacts },
+}
