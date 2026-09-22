@@ -149,7 +149,7 @@ Request IDs prevent a stale response from changing the state of a newer filter s
 Explicit refreshes use the known mode for the request and let the fresh response update completeness in either direction.
 Restored URL and saved-view sorts use the same initial server-sort path.
 
-Sort safety: removing the sorted column drops the sort (`clearSortIfColumnRemoved`); otherwise a server-side sort would reference a missing SELECT alias.
+Sort safety: removing the current or pinned server-sorted column drops that sort (`clearSortIfColumnRemoved`); otherwise a server-side sort would reference a missing SELECT alias.
 
 ## Account detail scene
 

@@ -754,6 +754,28 @@ describe('accountsLogic', () => {
             expect(logic.values.sortedRowsTransformer).toBeUndefined()
         })
 
+        it('replaces a removed pinned server sort with the active client sort', async () => {
+            logic.actions.setSortOrder({ column: 'notebook_count', direction: 'asc' })
+            receiveResponse('complete-request', false)
+            logic.actions.setSortOrder({ column: 'csm', direction: 'asc' })
+
+            expect(logic.values.serverSortOrder).toEqual({ column: 'notebook_count', direction: 'asc' })
+
+            await expectLogic(logic, () => {
+                accountsColumnConfigLogic
+                    .findMounted()!
+                    .actions.unselectColumn('accounts.notebooks.count AS notebook_count')
+            }).toFinishAllListeners()
+
+            expect(logic.values.visibleColumnNames).not.toContain('notebook_count')
+            expect(logic.values.sortOrder).toEqual({ column: 'csm', direction: 'asc' })
+            expect(logic.values.serverSortOrder).toEqual({ column: 'csm', direction: 'asc' })
+            expect(logic.values.accountsQuerySource?.sort).toEqual({
+                column: { kind: 'relationship', definitionId: CSM_DEFINITION_ID },
+                direction: 'asc',
+            })
+        })
+
         it('tracks completeness per filter set and ignores stale responses', () => {
             logic.actions.setSortOrder({ column: 'notebook_count', direction: 'asc' })
             receiveResponse('initial-small-request', false)

@@ -693,7 +693,8 @@ export interface accountsLogicMeta {
         serverSortOrder: (
             listDataCompleteness: AccountListDataCompleteness,
             listResponseState: AccountListResponseState | null,
-            sortOrder: AccountSortOrder
+            sortOrder: AccountSortOrder,
+            visibleColumnNames: string[]
         ) => AccountSortOrder
         sortedRowsTransformer: (
             canSortClientSide: boolean,
@@ -1207,13 +1208,18 @@ export const accountsLogic = kea<accountsLogicType>([
             (listDataCompleteness: AccountListDataCompleteness): boolean => listDataCompleteness === 'complete',
         ],
         serverSortOrder: [
-            (s) => [s.listDataCompleteness, s.listResponseState, s.sortOrder],
+            (s) => [s.listDataCompleteness, s.listResponseState, s.sortOrder, s.visibleColumnNames],
             (
                 listDataCompleteness: AccountListDataCompleteness,
                 listResponseState: AccountListResponseState | null,
-                sortOrder: AccountSortOrder
+                sortOrder: AccountSortOrder,
+                visibleColumnNames: string[]
             ): AccountSortOrder =>
-                listDataCompleteness === 'complete' && listResponseState && sortOrder
+                listDataCompleteness === 'complete' &&
+                listResponseState &&
+                sortOrder &&
+                listResponseState.serverSortOrder &&
+                visibleColumnNames.includes(listResponseState.serverSortOrder.column)
                     ? listResponseState.serverSortOrder
                     : sortOrder,
         ],
