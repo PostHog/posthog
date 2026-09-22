@@ -133,8 +133,7 @@ class ConversationCompactionManager(ABC):
         try:
             return await self._get_token_count(model, messages, tools, **kwargs)
         except Exception as e:
-            # A model-specific counter only supports the models it knows, and the Anthropic one counts
-            # over the network, so it can also fail on an upstream error. The estimate keeps the turn alive.
+            # The counter can reject the model, or fail on the network. The estimate keeps the turn alive.
             TOKEN_COUNT_ESTIMATE_FALLBACK_COUNTER.inc()
             logger.exception("Model token counting failed, falling back to an estimate")
             capture_exception(e)
