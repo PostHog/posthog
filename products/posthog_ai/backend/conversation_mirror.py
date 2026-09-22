@@ -24,6 +24,7 @@ from django.utils import timezone
 
 import structlog
 from asgiref.sync import sync_to_async
+from temporalio.exceptions import ApplicationError
 
 from posthog.schema import ContextMessage
 
@@ -70,8 +71,16 @@ class CopyProgress:
     last_message_id: str | None
 
 
-class CopyConflict(Exception):
-    """Another copy of the same conversation moved the run on first; the caller retries."""
+class CopyConflict(ApplicationError):
+    """Another copy of the same conversation moved the run on first; the caller retries.
+
+    An ApplicationError, because the Temporal interceptor classifies an expected failure by its
+    type (see EXPECTED_CONTROL_FLOW_ERROR_TYPES). The retry resolves this race on its own, so a
+    captured exception would only be an error tracking issue nobody can act on.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, type=type(self).__name__, non_retryable=False)
 
 
 @frozen
@@ -419,6 +428,13 @@ async def amirror_conversation(conversation_id: UUID | str, team_id: int, user_i
         # The run's copied count is no longer what this copy read: another copy of the same
         # conversation moved it on. It may have copied fewer turns than this one saw, so the retry
         # re-reads the run and appends whatever is still missing.
+        logger.info(
+            "conversation_mirror.copy_conflict",
+            conversation_id=str(conversation.id),
+            task_id=str(task_id),
+            run_id=str(run.id),
+            copied_count_read=progress.message_count,
+        )
         raise CopyConflict(f"conversation {conversation.id}: copied count moved past {progress.message_count}")
     await sync_to_async(tasks_facade.touch_imported_task)(
         task_id, team_id, title=conversation.title, last_activity_at=updated_at

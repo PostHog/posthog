@@ -27,6 +27,7 @@ from posthog.schema import (
 )
 
 from posthog.models import User
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.posthog_ai.backend.conversation_mirror import (
     LAST_MESSAGE_ID_KEY,
@@ -375,10 +376,12 @@ class TestMirrorConversation(APIBaseTest):
         # A second copier that read the run before the first one wrote it sees nothing copied yet.
         with (
             patch(f"{MIRROR}._read_copy_progress", return_value=CopyProgress(message_count=0, last_message_id=None)),
-            pytest.raises(CopyConflict),
+            pytest.raises(CopyConflict) as raised,
         ):
             self._mirror()
         assert len(self._log_methods()) == 4
+        # The retry fixes the race, so the interceptor must not report it to error tracking.
+        assert is_expected_activity_failure(raised.value) is True
 
     def test_a_title_the_user_set_on_the_task_survives_later_copies(self) -> None:
         self.state_messages = [HumanMessage(content="hello", id="h1"), AssistantMessage(content="hi", id="a1")]
