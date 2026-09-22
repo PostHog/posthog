@@ -103,6 +103,27 @@ const workflowsGet = (): ToolBase<ReturnType<typeof WorkflowsGetSchema>, WithPos
         },
     })
 
+const WorkflowsGetCodeSchema = () => {
+    const HogFlowsCodeRetrieveParams = orvalSchemas.HogFlowsCodeRetrieveParams()
+    return HogFlowsCodeRetrieveParams.omit({ project_id: true })
+}
+
+const workflowsGetCode = (): ToolBase<
+    ReturnType<typeof WorkflowsGetCodeSchema>,
+    WithPostHogUrl<Schemas.HogFlowCode>
+> => ({
+    name: 'workflows-get-code',
+    schema: WorkflowsGetCodeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsGetCodeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.HogFlowCode>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/code/`,
+        })
+        return await withPostHogUrl(context, result, `/workflows/${params.id}/workflow`)
+    },
+})
+
 const WorkflowsGetInvocationSchema = () => {
     const HogFlowsInvocationResultRetrieveParams = orvalSchemas.HogFlowsInvocationResultRetrieveParams()
     return HogFlowsInvocationResultRetrieveParams.omit({ project_id: true })
@@ -550,6 +571,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-create': workflowsCreate,
     'workflows-discard-draft': workflowsDiscardDraft,
     'workflows-get': workflowsGet,
+    'workflows-get-code': workflowsGetCode,
     'workflows-get-invocation': workflowsGetInvocation,
     'workflows-get-revision': workflowsGetRevision,
     'workflows-global-stats': workflowsGlobalStats,

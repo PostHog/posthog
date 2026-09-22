@@ -207,6 +207,24 @@ tools:
             awaiting workflows-publish (null when nothing is staged) — the live config in actions/edges is what's
             running.
         ui_app: workflow
+    workflows-get-code:
+        operation: hog_flows_code_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.id}/workflow'
+        title: Get workflow as code
+        description: >
+            Get a workflow as source code, where id is the workflow's UUID. Returns TypeScript source written
+            against @posthog/workflows, ready to load with the posthog-workflows CLI. The source renders what the
+            visual editor shows: the staged draft when one exists, otherwise the live config. Read `warnings` first.
+            It lists everything the source can't express, one entry per loss, with action_id naming the affected
+            step (null when the warning is about the whole workflow). The same list opens the file as a comment, so
+            it stays visible even if you only copy out the code.
     workflows-get-invocation:
         operation: hog_flows_invocation_result_retrieve
         enabled: true
