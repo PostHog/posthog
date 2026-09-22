@@ -90,9 +90,8 @@ const isPostHogDomain = (url: string): boolean => {
     return /^https:\/\/((www|app|eu)\.)?posthog\.com/.test(url)
 }
 
-// Any scheme-qualified target belongs to the browser, not to the app router. A narrower test that
-// named only mailto and http let `chrome-extension://…` through as an app path, which
-// `addProjectIdIfMissing` then rewrote into `/project/<id>/chrome-extension://…`, a dead route.
+// Any scheme-qualified target belongs to the browser, not to the app router. A target the router
+// claims gets the project prefix, and `/project/<id>/chrome-extension://…` matches no route.
 const isDirectLink = (url: string): boolean => {
     return /^([a-zA-Z][a-zA-Z\d+\-.]*:|:\/\/)/.test(url)
 }
@@ -146,8 +145,8 @@ export const LinkPrimitive: React.FC<LinkPrimitiveProps & React.RefAttributes<HT
         },
         ref
     ) => {
-        // `isExternalLink` misses schemes such as `chrome-extension:`, and `router.actions.push`
-        // rejects those with a `SecurityError`, so the scheme test widens the same exclusion.
+        // `isExternalLink` knows http and mailto only, and `router.actions.push` rejects any other
+        // scheme with a `SecurityError`, so the scheme test widens the same exclusion.
         const browserOwnedLink = isExternalLink(to) || (typeof to === 'string' && isDirectLink(to))
         const { elementProps: draggableProps } = useLinkDrag(typeof to === 'string' ? to : undefined)
 
