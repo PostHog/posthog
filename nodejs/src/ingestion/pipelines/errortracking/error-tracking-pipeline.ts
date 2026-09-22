@@ -186,12 +186,12 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
     const afterCymbal = preCymbal
         // Process through Cymbal as a batch (before enrichment - Cymbal only
         // needs raw exception data, not person/geoip/group data).
-        // Retry on transient failures (5xx, timeout, network errors).
-        // 3 retries keeps the worst-case batch time (3 × 45s timeout =
-        // 135s) well within the 180s liveness interval, and reduces
-        // amplification pressure on Cymbal during degradation.
+        // Retry on transient failures (5xx, timeout, network errors). Those
+        // usually last longer than a few hundred milliseconds, so the backoff
+        // grows fast (0.1s, 0.4s, 1.6s, 6.4s) to stop sending while Cymbal
+        // recovers. The total stays within the liveness interval.
         .pipeChunk(createCymbalProcessingStep(cymbalClient), {
-            retry: { tries: 3, sleepMs: 100, name: 'cymbal_processing' },
+            retry: { tries: 5, sleepMs: 100, backoffFactor: 4, name: 'cymbal_processing' },
         })
 
     return (
