@@ -2270,15 +2270,15 @@ Note: Diffed against both machine-readable specs (v1: 1.6 MB, v2: 7.3 MB), 1062 
 
 ## DataForSEO — **thin**
 
-Today (5): `backlinks_summary`, `competitors_domain`, `domain_rank_overview`, `historical_rank_overview`, `ranked_keywords`
+Today (11): `backlinks_history`, `backlinks_referring_domains`, `backlinks_summary`, `backlinks_timeseries_summary`, `categories`, `competitors_domain`, `domain_rank_overview`, `historical_rank_overview`, `locations_and_languages`, `ranked_keywords`, `relevant_pages`
 
 Diffed against: <https://docs.dataforseo.com/v3/wp-sitemap-posts-page-1.xml>
 
 - [ ] `POST /v3/backlinks/backlinks/live` — the individual backlink rows behind the backlinks_summary aggregate we already sync (high)
-- [ ] `POST /v3/backlinks/referring_domains/live` — referring-domain breakdown with rank and spam score — the standard link-profile dimension table (high)
-- [ ] `POST /v3/dataforseo_labs/locations_and_languages and /v3/dataforseo_labs/categories` — lookup tables resolving the location_code, language_code and category codes stamped on every row we already sync (high)
-- [ ] `POST /v3/dataforseo_labs/google/relevant_pages/live` — top organic landing pages per domain with traffic and keyword counts (high)
-- [ ] `POST /v3/backlinks/history/live and /v3/backlinks/timeseries_summary/live` — backlink profile over time and new/lost link trend, versus the single current snapshot we sync (high)
+- [x] `POST /v3/backlinks/referring_domains/live` — referring-domain breakdown with rank and spam score — the standard link-profile dimension table (high)
+- [x] `GET /v3/dataforseo_labs/locations_and_languages and /v3/dataforseo_labs/categories` — lookup tables resolving the location_code, language_code and category codes stamped on every row we already sync (high). Both are free GET lookups, not POST tasks as first recorded.
+- [x] `POST /v3/dataforseo_labs/google/relevant_pages/live` — top organic landing pages per domain with traffic and keyword counts (high)
+- [x] `POST /v3/backlinks/history/live and /v3/backlinks/timeseries_summary/live` — backlink profile over time and new/lost link trend, versus the single current snapshot we sync (high)
 - [ ] `POST /v3/keywords_data/google_ads/search_volume/live` — search volume, CPC and competition per keyword — the base metric for any SEO model (medium)
 - [ ] `POST /v3/dataforseo_labs/google/historical_search_volume/live` — monthly search volume history for tracked keywords (medium)
 - [ ] `POST /v3/backlinks/anchors/live` — anchor-text distribution for a target domain (medium)
