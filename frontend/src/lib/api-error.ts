@@ -32,6 +32,22 @@ export function isApprovalRequiredError(error: { status?: number; data?: any } |
     return error?.status === 409 && Boolean(error?.data?.change_request_id)
 }
 
+/**
+ * DRF code for the experiment metric rejection raised when a metric names an event the project has
+ * never ingested (`UNKNOWN_METRIC_EVENTS_CODE` in
+ * `products/experiments/backend/experiment_service.py`). Keep the two in sync.
+ */
+export const UNKNOWN_METRIC_EVENTS_ERROR_CODE = 'unknown_metric_events'
+
+/**
+ * A 400 the experiment metric editor renders inline next to the event the person picked. It is
+ * input validation rather than a defect, and the editor already says what to do about it.
+ */
+export function isUnknownMetricEventsError(error: unknown): boolean {
+    const failure = error as { status?: number; code?: string | null } | null
+    return failure?.status === 400 && failure?.code === UNKNOWN_METRIC_EVENTS_ERROR_CODE
+}
+
 /** Infrastructure-level failures where the gateway couldn't reach the backend. */
 const TRANSIENT_GATEWAY_STATUSES: ReadonlySet<number> = new Set([502, 503, 504])
 
@@ -166,6 +182,7 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  * - 404 `Project not found.` / `Organization not found.` — the scope in the URL is gone, so every
  *   request under it fails the same way. The scene routing takes the user off that URL, and until
  *   it does, a poll on the dead scope would otherwise file one exception per tick.
+ * - 400 `unknown_metric_events` — the experiment metric editor renders the rejection inline.
  * - 502/503/504 — the gateway couldn't reach the backend, so application code is not at fault.
  *
  * Left unreported for a second reason, that there is nothing to fix:
@@ -211,6 +228,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
         return false
     }
     if (isAccessDeniedError(failure)) {
+        return false
+    }
+    if (isUnknownMetricEventsError(failure)) {
         return false
     }
     if (status === 403 && failure.code != null && HANDLED_AUTH_GATE_CODES.has(failure.code)) {

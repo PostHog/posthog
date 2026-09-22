@@ -2,6 +2,7 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -21,6 +22,11 @@ import {
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { Experiment, MultivariateFlagVariant } from '~/types'
+
+import {
+    METRIC_CONTEXTS,
+    experimentMetricModalLogic,
+} from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 
 import { ExperimentSavedMetric, ExperimentWarning, experimentLogic, getDisplayOrderedIndices } from './experimentLogic'
 
@@ -359,6 +365,11 @@ describe('experimentLogic', () => {
     })
 
     describe('updateExperimentMetrics', () => {
+        beforeEach(() => {
+            jest.spyOn(api, 'update')
+            api.update.mockClear()
+        })
+
         it('keeps existing results when saving the metric definitions fails', async () => {
             const existingResult = experimentMetricResultsSuccessJson.query_status
                 .results as unknown as CachedNewExperimentQueryResponse
@@ -366,7 +377,7 @@ describe('experimentLogic', () => {
             logic.actions.setExperiment(experiment)
             logic.actions.setPrimaryMetricsResults([existingResult])
             logic.actions.setPrimaryMetricsResultsErrors([null])
-            jest.spyOn(api, 'update').mockRejectedValueOnce(new Error('network down'))
+            api.update.mockRejectedValueOnce(new Error('network down'))
 
             await expectLogic(logic, () => logic.actions.updateExperimentMetrics())
                 .toDispatchActions(['updateExperimentFailure'])
@@ -374,6 +385,54 @@ describe('experimentLogic', () => {
 
             expect(logic.values.primaryMetricsResults).toEqual([existingResult])
             expect(logic.values.primaryMetricsResultsErrors).toEqual([null])
+        })
+
+        it('closes the metric editor once the save lands', async () => {
+            const modalLogic = experimentMetricModalLogic()
+            modalLogic.mount()
+            modalLogic.actions.openExperimentMetricModal(METRIC_CONTEXTS.primary)
+            logic.actions.setExperiment(experiment)
+            api.update.mockResolvedValue(experiment)
+
+            await expectLogic(logic, () => logic.actions.updateExperimentMetrics()).toFinishAllListeners()
+
+            expect(modalLogic.values.isModalOpen).toBe(false)
+        })
+
+        it('keeps the metric editor open with the rejection when the project never sent the event', async () => {
+            const modalLogic = experimentMetricModalLogic()
+            modalLogic.mount()
+            modalLogic.actions.openExperimentMetricModal(METRIC_CONTEXTS.primary)
+            const savedMetrics = experiment.metrics
+            logic.actions.setExperiment(experiment)
+            logic.actions.setUnmodifiedExperiment(experiment)
+            logic.actions.setExperiment({
+                metrics: [
+                    ...(savedMetrics || []),
+                    {
+                        kind: NodeKind.ExperimentMetric,
+                        metric_type: ExperimentMetricType.MEAN,
+                        uuid: 'never-ingested-metric',
+                        source: { kind: NodeKind.EventsNode, event: 'never_ingested' },
+                    } as ExperimentMetric,
+                ],
+            })
+            api.update.mockRejectedValueOnce(
+                new ApiError('Bad Request', 400, undefined, {
+                    code: 'unknown_metric_events',
+                    detail: "PostHog hasn't received the event 'never_ingested' from this project yet.",
+                })
+            )
+
+            await expectLogic(logic, () => logic.actions.updateExperimentMetrics())
+                .toDispatchActions(['updateExperimentFailure'])
+                .toFinishAllListeners()
+
+            expect(modalLogic.values.isModalOpen).toBe(true)
+            expect(modalLogic.values.saveError).toContain('never_ingested')
+            expect(modalLogic.values.isSaving).toBe(false)
+            // The list behind the editor must not keep showing a metric the server refused.
+            expect(logic.values.experiment.metrics).toEqual(savedMetrics)
         })
     })
 
