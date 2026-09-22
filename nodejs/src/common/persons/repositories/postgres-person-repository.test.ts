@@ -317,6 +317,36 @@ describe('PostgresPersonRepository', () => {
             expect(messages).toEqual([])
         })
 
+        it('updatePersonsBatch keeps a property another writer set after the snapshot was read', async () => {
+            const person = await createTestPerson(team.id, 'batch-lost-update-did', { own: 'v1' })
+
+            // Another writer (a merge fold on another pod) lands a property on the row.
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `UPDATE posthog_person SET properties = properties || '{"from_merge": "kept?"}'::jsonb, version = version + 1
+                 WHERE team_id = $1 AND id = $2`,
+                [team.id, person.id],
+                'otherWriter'
+            )
+
+            // This pod flushes its own $set from the snapshot it read before that write.
+            const stale = {
+                ...buildPersonUpdate(person, 'batch-lost-update-did', person.version),
+                properties: { own: 'v1' },
+                properties_to_set: { own: 'v2' },
+            }
+            const results = await repository.updatePersonsBatch([stale])
+            expect(results.get(person.uuid)).toMatchObject({ success: true })
+
+            const rows = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT properties FROM posthog_person WHERE team_id = $1 AND id = $2',
+                [team.id, person.id],
+                'fetchAfterBatch'
+            )
+            expect(rows.rows[0].properties).toEqual({ own: 'v2', from_merge: 'kept?' })
+        })
+
         it('updatePersonsBatch skips tombstoned persons and leaves the death version intact', async () => {
             const livePerson = await createTestPerson(team.id, 'guard-batch-live-did')
             const deadPerson = await createTestPerson(team.id, 'guard-batch-dead-did')

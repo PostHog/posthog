@@ -2124,22 +2124,16 @@ export class PostgresPersonRepository
         const isIdentified: boolean[] = []
         const createdAt: string[] = []
         const lastSeenAt: (string | null)[] = []
+        const propertiesToUnset: string[] = []
 
         for (const update of personUpdates) {
             uuids.push(update.uuid)
             teamIds.push(update.team_id)
 
-            // Calculate final properties by applying set and unset operations
-            const finalProperties = { ...update.properties }
-            Object.entries(update.properties_to_set).forEach(([key, value]) => {
-                finalProperties[key] = value
-            })
-            update.properties_to_unset.forEach((key) => {
-                delete finalProperties[key]
-            })
-
-            // sanitizeJsonbValue already returns JSON.stringify(value) for objects, so don't double-stringify
-            properties.push(sanitizeJsonbValue(finalProperties))
+            // Only this update's own sets travel; the row keeps every key another
+            // writer landed since this snapshot was read.
+            properties.push(sanitizeJsonbValue(update.properties_to_set))
+            propertiesToUnset.push(JSON.stringify(update.properties_to_unset))
             propertiesLastUpdatedAt.push(sanitizeJsonbValue(update.properties_last_updated_at))
             propertiesLastOperation.push(sanitizeJsonbValue(update.properties_last_operation))
             isIdentified.push(update.is_identified)
@@ -2154,9 +2148,9 @@ export class PostgresPersonRepository
                 PostgresUse.PERSONS_WRITE,
                 `
                 UPDATE posthog_person AS p SET
-                    properties = batch.new_properties::jsonb,
-                    properties_last_updated_at = batch.new_properties_last_updated_at::jsonb,
-                    properties_last_operation = batch.new_properties_last_operation::jsonb,
+                    properties = (p.properties || batch.new_properties::jsonb) - unset.keys,
+                    properties_last_updated_at = (p.properties_last_updated_at || batch.new_properties_last_updated_at::jsonb) - unset.keys,
+                    properties_last_operation = (p.properties_last_operation || batch.new_properties_last_operation::jsonb) - unset.keys,
                     is_identified = batch.new_is_identified,
                     created_at = batch.new_created_at::timestamp with time zone,
                     last_seen_at = batch.new_last_seen_at::timestamp with time zone,
@@ -2169,8 +2163,12 @@ export class PostgresPersonRepository
                     $5::text[],
                     $6::boolean[],
                     $7::text[],
-                    $8::text[]
-                ) AS batch(batch_uuid, batch_team_id, new_properties, new_properties_last_updated_at, new_properties_last_operation, new_is_identified, new_created_at, new_last_seen_at)
+                    $8::text[],
+                    $9::text[]
+                ) AS batch(batch_uuid, batch_team_id, new_properties, new_properties_last_updated_at, new_properties_last_operation, new_is_identified, new_created_at, new_last_seen_at, unset_json)
+                CROSS JOIN LATERAL (
+                    SELECT COALESCE(ARRAY(SELECT jsonb_array_elements_text(batch.unset_json::jsonb)), ARRAY[]::text[]) AS keys
+                ) AS unset
                 WHERE p.uuid = batch.batch_uuid AND p.team_id = batch.batch_team_id AND p.is_deleted = false
                 RETURNING ${PERSON_COLUMNS_PREFIXED}
                 `,
@@ -2183,6 +2181,7 @@ export class PostgresPersonRepository
                     isIdentified,
                     createdAt,
                     lastSeenAt,
+                    propertiesToUnset,
                 ],
                 'updatePersonsBatch'
             )
