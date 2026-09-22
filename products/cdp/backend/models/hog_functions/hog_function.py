@@ -112,6 +112,12 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         db_table = "posthog_hogfunction"
         indexes = [
             models.Index(fields=["type", "enabled", "team"]),
+            # Template popularity counts group live functions by template across all teams.
+            models.Index(
+                fields=["template_id"],
+                condition=models.Q(enabled=True, deleted=False),
+                name="hogfunction_active_template",
+            ),
         ]
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
