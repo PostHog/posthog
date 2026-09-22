@@ -46,7 +46,11 @@ function isStep(value: unknown): boolean {
     return typeof value === 'object' && value !== null && typeof kind === 'string' && STEP_KINDS.has(kind)
 }
 
-/** A step or a path of steps, exported on its own, is a graph that was never made a workflow. */
+/**
+ * A step or a path of steps, exported on its own, is a graph that was never made a workflow.
+ *
+ * @param value - One export of the file.
+ */
 function isLooseGraph(value: unknown): boolean {
     if (Array.isArray(value)) {
         return value.length > 0 && value.every(isStep)
@@ -66,6 +70,9 @@ export interface LoadOptions {
  * that was never wrapped in `workflow()`, or two of its workflows carry one key. The last one
  * matters because the key is the identity, so two workflows sharing one would fight over the same
  * row and the second push would overwrite the first.
+ *
+ * @param path - The file to load, as given on the command line.
+ * @param options - The environment `secret()` reads while the file evaluates.
  */
 export async function loadWorkflowFile(path: string, options: LoadOptions): Promise<LoadedFile> {
     const absolute = isAbsolute(path) ? path : resolve(process.cwd(), path)
@@ -150,6 +157,8 @@ export async function loadWorkflowFile(path: string, options: LoadOptions): Prom
  * `check` runs on a pull request, and a pull request from a fork cannot read a repository secret,
  * so an unset variable must not fail it. The placeholder never reaches PostHog: `check` writes
  * nothing, and the diff excludes every secret input on both sides.
+ *
+ * @param env - The real process environment, read before the placeholder is used.
  */
 export function previewEnv(
     env: Readonly<Record<string, string | undefined>>

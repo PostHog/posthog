@@ -28,7 +28,12 @@ interface CredentialsFile {
     readonly env_id?: string
 }
 
-/** `POSTHOG_HOME` first, then `~/.posthog`, following `cli/src/utils/homedir.rs`. */
+/**
+ * `POSTHOG_HOME` first, then `~/.posthog`, following `cli/src/utils/homedir.rs`.
+ *
+ * @param env - The process environment, read for `POSTHOG_HOME`.
+ * @param homeDir - The user's home directory, where `.posthog` lives by default.
+ */
 function credentialsPath(env: Readonly<Record<string, string | undefined>>, homeDir: string): string {
     const home = env.POSTHOG_HOME
     return home === undefined || home === ''
@@ -58,6 +63,9 @@ function shown(path: string, homeDir: string): string {
  * another instance is what the variable is for, and a push names the host it wrote to.
  *
  * Null rather than a throw when nothing is configured, which is what lets `check` degrade.
+ *
+ * @param env - The process environment, read for the `POSTHOG_CLI_*` variables.
+ * @param homeDir - The user's home directory, where the credentials file lives by default.
  */
 export function resolveCredentials(
     env: Readonly<Record<string, string | undefined>>,

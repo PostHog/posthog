@@ -97,7 +97,11 @@ export class Client {
         return this.credentials.host
     }
 
-    /** The workflow itself. Without the last segment this is the list of every workflow. */
+    /**
+     * The workflow itself. Without the last segment this is the list of every workflow.
+     *
+     * @param id - The id PostHog gave the stored workflow.
+     */
     urlFor(id: string): string {
         return `${this.credentials.host}/project/${this.credentials.projectId}/workflows/${id}/workflow`
     }
@@ -138,6 +142,8 @@ export class Client {
      * A row is a match only when it carries the key. A PostHog that does not know the filter
      * answers with the first page of every workflow in the project instead, and adopting a row
      * out of that would overwrite a workflow nobody meant to touch.
+     *
+     * @param key - The key the workflow file declares, which is the identity PostHog matches on.
      */
     async resolve(key: string): Promise<StoredWorkflow | null> {
         const page = (await this.request('GET', `${this.base}?key=${encodeURIComponent(key)}`)) as unknown as {

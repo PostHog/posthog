@@ -37,7 +37,11 @@ function git(cwd: string, args: readonly string[]): string | undefined {
     return value === '' ? undefined : value
 }
 
-/** `git@github.com:acme/flows.git` and `https://github.com/acme/flows` both become `github.com/acme/flows`. */
+/**
+ * `git@github.com:acme/flows.git` and `https://github.com/acme/flows` both become `github.com/acme/flows`.
+ *
+ * @param url - The remote URL, in SCP or HTTPS form.
+ */
 export function repositoryFromRemote(url: string): string | undefined {
     const trimmed = url.trim().replace(/\.git$/, '')
     const scp = /^[^@/]+@([^:]+):(.+)$/.exec(trimmed)
@@ -83,7 +87,12 @@ function repoRelativePath(options: SourceOptions): string | undefined {
     return inside.startsWith('..') ? undefined : inside.split('\\').join('/')
 }
 
-/** The author and the subject line, which only the checkout holds. */
+/**
+ * The author and the subject line, which only the checkout holds.
+ *
+ * @param cwd - The checkout to ask.
+ * @param commit - The commit sha to describe.
+ */
 function commitDetails(cwd: string, commit: string): { author?: string; message?: string } {
     const author = git(cwd, ['log', '-1', '--format=%an', commit])
     const message = git(cwd, ['log', '-1', '--format=%s', commit])
@@ -168,7 +177,11 @@ function withPath(options: SourceOptions): { path?: string } {
     return path === undefined ? {} : { path }
 }
 
-/** The source for this run, or null when neither CI nor a checkout can say. */
+/**
+ * The source for this run, or null when neither CI nor a checkout can say.
+ *
+ * @param options - The environment, the file path and the working directory to resolve from.
+ */
 export function resolveSource(options: SourceOptions): Source | null {
     if (options.env.GITHUB_ACTIONS === 'true') {
         return fromGitHubActions(options)

@@ -97,6 +97,8 @@ async function main(): Promise<number> {
  * `instanceof` is not enough: the file being loaded imports `@posthog/workflows` from their
  * `node_modules`, which can be a second copy of this package, and a class from another module
  * instance fails that check. The four fields are the contract, so the shape is what is read.
+ *
+ * @param error - Whatever the file threw while it loaded.
  */
 function refusal(error: unknown): WorkflowError | null {
     if (error instanceof WorkflowError) {

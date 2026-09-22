@@ -44,6 +44,10 @@ function withoutDerived(value: Json): Json {
  * its own: extra keys on the remote side are ignored there, and the derived names are dropped from
  * both sides. Everywhere else the comparison is exact, because a key named `order` or `bytecode`
  * inside a value the customer wrote is the customer's, and dropping it would lose their edit.
+ *
+ * @param mine - The value from the local workflow file.
+ * @param theirs - The value PostHog stores.
+ * @param tolerateExtra - True inside the part of the tree PostHog owns, where extra remote keys are ignored.
  */
 function same(mine: unknown, theirs: unknown, tolerateExtra: boolean): boolean {
     if (Array.isArray(mine) || Array.isArray(theirs)) {
@@ -83,6 +87,10 @@ function configWithoutInputs(config: unknown): Json {
  * PostHog reads a secret input back as a placeholder, so comparing it would report a change on
  * every run. The value is sent on every push instead, and `--force` is how a rotation that changes
  * nothing else still writes.
+ *
+ * @param mine - The step from the local workflow file.
+ * @param theirs - The matching step PostHog stores.
+ * @param secretKeys - Every `actionId.inputKey` that names a secret input.
  */
 function sameAction(mine: Action, theirs: Json, secretKeys: ReadonlySet<string>): boolean {
     if (mine.type !== theirs.type || mine.name !== theirs.name) {
@@ -140,6 +148,10 @@ function short(value: unknown): string {
  *
  * Steps are matched by action id, which is the slug of the step name, so inserting a step reads as
  * one addition rather than a rewrite of everything after it.
+ *
+ * @param local - The workflow the file emitted.
+ * @param remote - The workflow PostHog stores, as the API returned it.
+ * @param secretInputs - The inputs the file reads from `secret()`, left out of the comparison.
  */
 export function diffWorkflow(
     local: WorkflowDefinition,
