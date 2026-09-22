@@ -791,9 +791,9 @@ export interface _SpanTreeNodeApi {
     name: string
     /** Service that emitted the spans. */
     service_name: string
-    /** Parent node's span name. Empty at the root. */
+    /** Parent node's span name. The literal `<ROOT>` for a root node, which is how a client finds the roots. */
     parent_name: string
-    /** Parent node's service. Empty at the root. */
+    /** Parent node's service. Empty string at the root. */
     parent_service: string
     /** Spans aggregated into this node. */
     count: number
