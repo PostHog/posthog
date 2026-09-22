@@ -148,7 +148,7 @@ export function ProductHogHero({
  *
  * The card loads after the nav is already interactive, so it can slide into the footer under a
  * cursor that was aimed at a nav link. A click that lands in the first moments is a mis-aim, not a
- * decision to dismiss, and dropping it costs a deliberate dismisser only a second click.
+ * decision to dismiss.
  */
 export const DISMISS_SETTLE_MS = 500
 
@@ -206,8 +206,8 @@ export function AdvertisementCard({
             ) : (
                 body
             )}
-            {/* Overlaid rather than placed next to the title, so the control sits outside the card's
-                link and a click only dismisses where the button is actually drawn. */}
+            {/* Overlaid rather than placed next to the title, so the control sits outside the
+                card's link and only dismisses where the button is actually drawn. */}
             <div className="absolute right-1 top-1">
                 <LemonButton
                     icon={<IconX className="text-muted" />}
