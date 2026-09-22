@@ -150,7 +150,7 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         )
         # Set on the team, not the runner: the previous-period runner builds its own config from the same
         # team instance, and it is the one that has to read the flag as on.
-        self.team._ma_precompute_flags = {"conversion": True, "costs": False}
+        self.team._ma_precompute_flags = {"conversion": True, "costs": False}  # type: ignore[attr-defined]
         runner = self._create_query_runner(query)
 
         response = runner.calculate()
