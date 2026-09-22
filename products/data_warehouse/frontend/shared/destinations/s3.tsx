@@ -1,0 +1,58 @@
+import { LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+
+import { S3_REGION_OPTIONS } from 'lib/integrations/s3Regions'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+
+import { DEFAULT_PARQUET_COMPRESSION, PARQUET_COMPRESSION_OPTIONS } from './parquetCompression'
+import type { WarehouseDestinationDefinition } from './types'
+
+// One type covers AWS and every S3-compatible provider, so the region list is the broad one and
+// virtual-style addressing stays visible. AWS ignores the setting; MinIO and Wasabi need it.
+export const s3Definition: WarehouseDestinationDefinition = {
+    type: 'S3',
+    integrationKinds: ['aws-s3', 's3-compatible'],
+    defaults: () => ({ compression: DEFAULT_PARQUET_COMPRESSION, use_virtual_style_addressing: false }),
+    requiredFields: () => ['bucket', 'region'],
+    configKeys: ['bucket', 'region', 'prefix', 'compression', 'use_virtual_style_addressing'],
+    retargetingKeys: ['bucket', 'prefix'],
+    Fields: function S3Fields({ isNew }) {
+        return (
+            <>
+                <div className="flex gap-2">
+                    <LemonField name="bucket" label="Bucket" className="flex-1">
+                        <LemonInput
+                            placeholder="my-bucket"
+                            disabled={!isNew}
+                            data-attr="warehouse-destination-bucket"
+                        />
+                    </LemonField>
+                    <LemonField name="region" label="Region" className="flex-1">
+                        <LemonSelect options={S3_REGION_OPTIONS} data-attr="warehouse-destination-region" />
+                    </LemonField>
+                </div>
+                <LemonField
+                    name="prefix"
+                    label="Prefix"
+                    showOptional
+                    info="Folder to write under. Each table gets its own folder below this."
+                >
+                    <LemonInput placeholder="posthog/" disabled={!isNew} data-attr="warehouse-destination-prefix" />
+                </LemonField>
+                <LemonField name="compression" label="Compression">
+                    <LemonSelect options={PARQUET_COMPRESSION_OPTIONS} data-attr="warehouse-destination-compression" />
+                </LemonField>
+                <LemonField name="use_virtual_style_addressing">
+                    {({ value, onChange }) => (
+                        <LemonCheckbox
+                            bordered
+                            checked={!!value}
+                            onChange={onChange}
+                            label="Use virtual-hosted style addressing"
+                            data-attr="warehouse-destination-virtual-style"
+                        />
+                    )}
+                </LemonField>
+            </>
+        )
+    },
+}
