@@ -266,12 +266,11 @@ _PR_DESCRIPTION_FORM_RULES = (
 # that. A review request is never written server-side, so anything the run adds is unreviewable and
 # arrives as noise on somebody else's notifications.
 #
-# The run needs telling, because the material it reads is full of names that read like routing. A
-# steering note carries a team roster, the report names suggested reviewers, and the repository
-# holds CODEOWNERS and a git history. Each of those answers "who owns this area", which is one
-# short step from "request their review", and a run that takes the step fans one pull request out
-# across a whole team. State the boundary once, next to the PR-opening instructions, rather than
-# leaving each source of names to disclaim itself.
+# The run needs telling, because the material it reads is full of names that read like routing: a
+# steering note's team roster, the report's suggested reviewers, CODEOWNERS, the git history. Each
+# answers "who owns this area", one short step from "request their review", and a run that takes
+# the step fans one pull request across a whole team. The boundary sits here rather than next to
+# each source of names, so a new source does not have to remember to disclaim itself.
 _PR_ROUTING_BOUNDARY = (
     "Who the PR reaches is not yours to set. Do not add or remove reviewers, assignees, teams, or "
     "labels on it, and do not @-mention anybody in its title, body, or comments. PostHog routes the "
