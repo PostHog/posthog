@@ -22,12 +22,13 @@ from typing import Any, cast
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
-from django.db import transaction
+from django.db import ProgrammingError, transaction
 from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
 import structlog
+import psycopg.errors
 from posthoganalytics import capture_exception
 from prometheus_client import Counter
 
@@ -520,6 +521,41 @@ def clear_flag_definition_caches(team: KeyType, kinds: list[str] | None = None):
     flag_definitions_hypercache.clear_cache(team, kinds=kinds)
 
 
+# TeamFeatureFlagsConfig columns this blob carries, newest last, mapped to the value a
+# missing config row means. The refresh reads them from DATABASE_FOR_LOCAL_EVALUATION,
+# which can be a read replica that has not applied the newest migration yet. The same
+# hazard on Team columns is handled by narrowing the SELECT
+# (_FLAG_DEFINITIONS_REFRESH_ONLY_FIELDS), which cannot work here because the lagging
+# column is one this blob needs.
+_TEAM_FLAG_CONFIG_DEFAULTS: dict[str, Any] = {
+    "minimal_flag_called_events": False,
+    "property_matching_version": PropertyMatchingVersion.LEGACY,
+}
+
+
+def _load_team_flag_config(team_ids: list[int]) -> dict[int, dict[str, Any]]:
+    """Load each team's flag config, defaulting the columns the database does not have yet."""
+    fields = list(_TEAM_FLAG_CONFIG_DEFAULTS)
+    while fields:
+        try:
+            return {
+                row[0]: {**_TEAM_FLAG_CONFIG_DEFAULTS, **dict(zip(fields, row[1:]))}
+                for row in TeamFeatureFlagsConfig.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
+                .filter(team_id__in=team_ids)
+                .values_list("team_id", *fields)
+            }
+        except ProgrammingError as e:
+            if not isinstance(e.__cause__, psycopg.errors.UndefinedColumn):
+                raise
+            # Serve the column's default rather than skip the cache write for every team
+            # in the batch, which would leave local-evaluation SDKs on a stale blob.
+            logger.warning(
+                "Flag config column missing from database, using default",
+                extra={"database": DATABASE_FOR_LOCAL_EVALUATION, "dropped_field": fields.pop()},
+            )
+    return {}
+
+
 def _local_eval_response(
     *,
     flags: list[dict[str, Any]],
@@ -571,14 +607,7 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
 
     # Local-evaluation SDKs never call /flags, so team rollout settings must travel in
     # this blob. Missing config rows retain both legacy behaviors.
-    team_config_by_team_id = {
-        team_id: (minimal_flag_called_events, property_matching_version)
-        for team_id, minimal_flag_called_events, property_matching_version in TeamFeatureFlagsConfig.objects.db_manager(
-            DATABASE_FOR_LOCAL_EVALUATION
-        )
-        .filter(team_id__in=team_ids)
-        .values_list("team_id", "minimal_flag_called_events", "property_matching_version")
-    }
+    team_config_by_team_id = _load_team_flag_config(team_ids)
 
     # Bulk load survey flag IDs across all teams
     survey_flag_ids: set[int] = set()
@@ -713,15 +742,13 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
                 FLAG_PROCESSING_ERROR_COUNTER.inc()
                 continue
 
-        minimal_flag_called_events, property_matching_version = team_config_by_team_id.get(
-            tid, (False, PropertyMatchingVersion.LEGACY)
-        )
+        team_config = team_config_by_team_id.get(tid, _TEAM_FLAG_CONFIG_DEFAULTS)
         response_data = _local_eval_response(
             flags=flags_data,
             group_type_mapping=gtm_by_project.get(team.project_id, {}),
             cohorts=cohorts,
-            minimal_flag_called_events=minimal_flag_called_events,
-            property_matching_version=property_matching_version,
+            minimal_flag_called_events=team_config["minimal_flag_called_events"],
+            property_matching_version=team_config["property_matching_version"],
         )
 
         results[tid] = _apply_flag_dependency_transformation(response_data, flag_id_to_key)
@@ -729,15 +756,13 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
     # Ensure every requested team has a result, even if it had no flags
     for tid in team_ids:
         if tid not in results:
-            minimal_flag_called_events, property_matching_version = team_config_by_team_id.get(
-                tid, (False, PropertyMatchingVersion.LEGACY)
-            )
+            team_config = team_config_by_team_id.get(tid, _TEAM_FLAG_CONFIG_DEFAULTS)
             results[tid] = _local_eval_response(
                 flags=[],
                 group_type_mapping=gtm_by_project.get(team_by_id[tid].project_id, {}),
                 cohorts={},
-                minimal_flag_called_events=minimal_flag_called_events,
-                property_matching_version=property_matching_version,
+                minimal_flag_called_events=team_config["minimal_flag_called_events"],
+                property_matching_version=team_config["property_matching_version"],
             )
 
     return results
