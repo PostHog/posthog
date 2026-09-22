@@ -94,6 +94,7 @@ class TestSetupResourcesPreflight:
             "cdc_management_mode": "posthog",
             "cdc_slot_name": "posthog_019ef4e83bfd",
             "cdc_publication_name": "posthog_pub_019ef4e83bfd",
+            "cdc_ingest_mode": "buffered",
         }
         mock_create_slot.assert_not_called()
         mock_create_publication.assert_not_called()

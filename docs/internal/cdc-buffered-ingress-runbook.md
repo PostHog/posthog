@@ -3,6 +3,9 @@
 How to move a Postgres CDC source from legacy extraction onto the S3 change buffer, and how to move
 it back.
 
+A source that turns on CDC starts on the buffer: setting up the slot also writes
+`cdc_ingest_mode = "buffered"`. Only a source that enabled CDC before that needs the flip.
+
 ## What changes
 
 Capture stops transforming and dispatching change events. It decodes WAL, writes Parquet to
@@ -147,8 +150,7 @@ preserved, so there is no WAL gap and no re-sync.
    Capture stops writing shadow copies the moment a source is buffered: a schema not yet served
    would otherwise accumulate files the consumer merges the day it turns eligible, on top of what
    the legacy lane already wrote. So this window exists only before the first flip. A schema
-   added to a buffered source later, or one left on legacy by an earlier flip, moves on the re-run
-   without one.
+   added to a buffered source later joins the buffer after its first sync, without one.
 
 5. Check what will move:
 
@@ -160,19 +162,10 @@ preserved, so there is no WAL gap and no re-sync.
 
 ## Flip
 
-Eligibility is opt-in per schema. The command writes `cdc_buffered_lane: true` into each moved
-schema's `sync_type_config`, and capture and the scheduled sync serve only marked schemas — plus
-`consolidated` schemas on an already-buffered source, which predate the marker. A `cdc_only` or
-`both` schema is never picked up by a deploy on its own: a source flipped before those modes were
-served left them on legacy with their per-schema schedules paused, and routing their changes into
-the buffer with nothing scheduled to consume would have lost them to the S3 retention.
-
-To move such a schema, or one added since, **re-run the flip on the already-buffered source**. It
-processes only the schemas not yet served: pauses extraction, quiesces those schedules, purges only
-their prefixes (the served schemas' buffers hold files the consumer still owes), runs the
-reserved-column check on them, marks them, and unpauses. A schema whose own table carries a
-`_ph_cdc_seq` this lane wrote is waived by its own `cdc_buffered_before` marker; a schema never
-buffered before is checked.
+Every schema that is streaming and has finished its first sync is served, in any table mode. The
+command still writes `cdc_buffered_lane: true` into each moved schema's `sync_type_config`, but
+nothing reads it. A schema added to a buffered source later joins the buffer after its first sync,
+with no re-run.
 
 ```bash
 python manage.py migrate_cdc_source_to_buffered --source-id <uuid>

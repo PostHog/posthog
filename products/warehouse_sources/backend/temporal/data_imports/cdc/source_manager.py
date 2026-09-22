@@ -126,15 +126,11 @@ def buffered_lane_candidate(schema: ExternalDataSchema) -> bool:
 def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
     """Schema-side conditions for buffered ingress; the source's `ingest_mode` is the other half.
 
-    Eligibility is opt-in per schema, by the marker the flip command writes. A source flipped
-    before history modes were served left its `cdc_only` and `both` schemas on legacy with
-    their schedules paused; widening this predicate by mode alone would have capture route
-    those schemas into the buffer on deploy, with nothing scheduled to consume it. Consolidated
-    schemas on an already-buffered source predate the marker and stay served without it.
+    No per-schema opt-in: a schema added to a buffered source, or one on a source created
+    buffered, has nothing that would write one, so requiring it would keep that schema's history
+    modes on the legacy lane.
     """
-    if not buffered_lane_candidate(schema):
-        return False
-    return schema.cdc_table_mode == "consolidated" or bool(schema.sync_type_config.get(BUFFERED_LANE_KEY))
+    return buffered_lane_candidate(schema)
 
 
 def consumes_buffer(schema: ExternalDataSchema, *, ingest_mode: str) -> bool:

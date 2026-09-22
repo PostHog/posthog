@@ -239,6 +239,9 @@ class PostgresCDCAdapter:
             "cdc_management_mode": management_mode,
             "cdc_slot_name": slot_name,
             "cdc_publication_name": pub_name,
+            # Written with the slot, before capture first runs, so the buffer receives every change
+            # the slot sees and no legacy delivery ever precedes it.
+            "cdc_ingest_mode": "buffered",
         }
 
         if management_mode == "posthog":
