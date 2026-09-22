@@ -49,10 +49,10 @@ Enable production only in a separate rollout after dev verification.
 ### Shared orchestration rollout and rollback
 
 The deployment identity is `temporal-worker-alerts-platform-shared-orchestration`.
-The three deployments and their `--task-queue` arguments live in `PostHog/charts`, which still names them `alerts-product-*`.
-A worker polls the queue its chart passes, so charts must move to the new queue names in the same rollout as this code, or the workers poll queues nothing writes to.
 It uses the shared `posthog-cloud` image built by `container-images-cd.yml`, not a separate image build or repository.
 Worker deployment configuration lives outside this repository. Deploying this code must be coordinated with starting the orchestration worker.
+The three deployments in `PostHog/charts` still pass the old `alerts-product-*` queue names.
+A worker polls the queue its chart gives it, so charts must move to the new names in the same rollout, or the workers poll queues nothing writes to.
 Schedule reconciliation now routes directly to orchestration; merging the code alone does not start a worker process.
 If the dev schedule does not exist yet, start all three workers before the first reconciliation: new schedules start unpaused.
 
@@ -103,8 +103,7 @@ The evaluation workflow is `alerts-platform-evaluate` (class `AlertsPlatformEval
 These replace `alerts-product-check-due`, `alerts_product_check_due_activity` and `create_alerts_product_check_due_schedule`: discovery finds what is due and dispatchers hand it out, so this workflow only evaluates.
 A workflow type rename breaks runs of the old type that are in flight at deploy time: no worker knows the old name, so they fail. Dev evaluations live under their execution timeout, and production is off.
 The schedule ID is `alerts-platform-check-due-schedule`, renamed from `alerts-product-check-due-schedule`.
-Registration does not delete schedules, so a dev environment that ran the old ID keeps both until someone deletes the old one by hand.
-Delete `alerts-product-check-due-schedule` in the dev namespace after this code deploys, or it keeps starting the workflow type no worker knows.
+Registration does not delete schedules, so delete the old ID by hand in any dev environment that ran it: it keeps starting a workflow type no worker knows.
 
 ## Tick loop and source dispatchers
 
