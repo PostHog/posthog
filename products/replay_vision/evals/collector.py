@@ -596,7 +596,11 @@ def collect(
     merged = _reusable_existing_cases(output)
     merged.update({case.case_id: case for case in cases})
     dataset = GoldenDataset(
-        created_at=dt.datetime.now(dt.UTC).isoformat(), host=host, project_id=project_id, cases=list(merged.values())
+        created_at=dt.datetime.now(dt.UTC).isoformat(),
+        host=host,
+        project_id=project_id,
+        organization_id=int(environment["organization"]),
+        cases=list(merged.values()),
     )
     save_dataset(output, dataset)
     return dataset
