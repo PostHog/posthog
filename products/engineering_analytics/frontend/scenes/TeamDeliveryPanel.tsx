@@ -20,11 +20,11 @@ export function TeamDeliveryPanel({
     controls: ReactNode
     children: ReactNode
 }): JSX.Element {
-    const { summary, summaryLoading } = useValues(deliverySummaryLogic({ scope, sourceId }))
+    const { summary, summaryFailed, summaryLoading } = useValues(deliverySummaryLogic({ scope, sourceId }))
 
     return (
         <ScopePanel busy={busy || summaryLoading} controls={controls}>
-            {summary && !summary.has_membership_data ? (
+            {summary && !summaryFailed && !summary.has_membership_data ? (
                 // Without the members table a team matches no author, so every figure would be a false zero.
                 <div className="py-8 text-center text-sm text-secondary">
                     No team membership data. Sync the team members table on this GitHub source to see this team's
