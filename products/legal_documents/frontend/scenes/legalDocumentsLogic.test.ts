@@ -4,17 +4,30 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 
+import { billingJson } from '~/mocks/fixtures/_billing'
+import { defaultPlatformAddons } from '~/mocks/fixtures/_billing_platform_addons'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { BillingType, StartupProgramLabel } from '~/types'
+import { BillingPlan, BillingType, StartupProgramLabel } from '~/types'
 
 import { legalDocumentsLogic } from './legalDocumentsLogic'
 
 function billingFor(startupProgramLabel: StartupProgramLabel | null, boostSubscribed: boolean): BillingType {
     return {
+        ...billingJson,
         startup_program_label: startupProgramLabel,
-        products: [{ type: 'platform_and_support', addons: [{ type: 'boost', subscribed: boostSubscribed }] }],
-    } as unknown as BillingType
+        products: billingJson.products.map((product) =>
+            product.type === 'platform_and_support'
+                ? {
+                      ...product,
+                      addons: defaultPlatformAddons.map((addon) => ({
+                          ...addon,
+                          subscribed: boostSubscribed && addon.type === BillingPlan.Boost,
+                      })),
+                  }
+                : product
+        ),
+    }
 }
 
 describe('legalDocumentsLogic', () => {
