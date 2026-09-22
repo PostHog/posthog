@@ -129,6 +129,7 @@ from products.workflows.backend.api.graph_validation import validate_graph
 from products.workflows.backend.api.hog_flow_batch_job import (
     HogFlowBatchJobCancelResponseSerializer,
     HogFlowBatchJobSerializer,
+    HogFlowBatchJobStatusUpdateResponseSerializer,
 )
 from products.workflows.backend.api.message_assets import (
     MessageAssetContentRequestSerializer,
@@ -6298,11 +6299,9 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         if batch_job.status in terminal_states:
             # Idempotent no-op: already in a terminal state.
             return Response(
-                {
-                    "id": str(batch_job.id),
-                    "status": batch_job.status,
-                    "no_op": True,
-                }
+                HogFlowBatchJobStatusUpdateResponseSerializer(
+                    {"id": batch_job.id, "status": batch_job.status, "no_op": True}
+                ).data
             )
 
         try:
@@ -6314,18 +6313,14 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             if not updated:
                 batch_job.refresh_from_db()
                 return Response(
-                    {
-                        "id": str(batch_job.id),
-                        "status": batch_job.status,
-                        "no_op": True,
-                    }
+                    HogFlowBatchJobStatusUpdateResponseSerializer(
+                        {"id": batch_job.id, "status": batch_job.status, "no_op": True}
+                    ).data
                 )
             return Response(
-                {
-                    "id": str(batch_job.id),
-                    "status": new_status,
-                    "no_op": False,
-                }
+                HogFlowBatchJobStatusUpdateResponseSerializer(
+                    {"id": batch_job.id, "status": new_status, "no_op": False}
+                ).data
             )
         except Exception as e:
             logger.exception(

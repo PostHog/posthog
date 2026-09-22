@@ -55,6 +55,21 @@ class HogFlowBatchJobSerializer(serializers.ModelSerializer):
         return super().create(validated_data=validated_data)
 
 
+class HogFlowBatchJobStatusUpdateResponseSerializer(serializers.Serializer):
+    """
+    Response from the internal batch run status endpoint the workflow workers write to.
+    """
+
+    id = serializers.UUIDField(help_text="ID of the batch run.")
+    status = serializers.ChoiceField(
+        choices=HogFlowBatchJob.State.choices,
+        help_text="The batch run's status after this request. An already-terminal run keeps the status it had.",
+    )
+    no_op = serializers.BooleanField(
+        help_text="True when the run was already terminal, so this request changed nothing."
+    )
+
+
 class HogFlowBatchJobCancelResponseSerializer(serializers.Serializer):
     """
     Response from the batch job cancel endpoint. Stopping is asynchronous: this call flags the
