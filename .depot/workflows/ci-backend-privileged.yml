@@ -40,7 +40,7 @@ jobs:
                   [ -n "$DEPOT_TOKEN" ] || { echo "::error::DEPOT_CI_CANCEL_TOKEN is not available to the trusted workflow"; exit 1; }
 
                   workflow=$(timeout --kill-after=5s 30s depot ci workflow list --repo "$REPO" --pr "$PR_NUMBER" --sha "$HEAD_SHA" -o json \
-                      | jq -c '[.[] | select(.workflow_path == ".depot/workflows/ci-backend.yml")] | max_by(.created_at) // empty')
+                      | jq -c '[.[] | select(.workflow_path == "ci-backend.yml")] | max_by(.created_at) // empty')
                   if [ -z "$workflow" ]; then
                       echo "Backend CI did not hand this pull request to Depot."
                       exit 0
