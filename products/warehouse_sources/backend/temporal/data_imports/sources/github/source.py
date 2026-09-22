@@ -7,9 +7,10 @@ from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-from posthog.schema import (
+from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -19,9 +20,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
-from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
-
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
@@ -187,7 +185,7 @@ class GithubSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GITHUB,
+            name=ExternalDataSourceType.GITHUB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             featured=True,
             label="GitHub",
@@ -377,8 +375,14 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # Either way it's a dropped connection, not a GitHub or customer problem, so once Temporal
         # retries the activity the failure is transient and self-recovering. Mirrors ClickHouse's
         # equivalent classification of the same urllib3/OpenSSL wording.
+        #
+        # A GitHubEgressBudgetExhausted gets the same treatment as the GitHub-side rate limit it is
+        # the twin of. It is our own limiter shedding a deferrable call on purpose, so it is the
+        # least surprising failure the source has; tracking it as an exception put a self-inflicted,
+        # self-healing condition at the top of the pipeline-error groups.
         return {
             "GitHub API rate limit exceeded",
+            "GitHub egress budget exhausted",
             "Github API error (retryable)",
             "UNEXPECTED_EOF_WHILE_READING",
             "EOF occurred in violation of protocol",

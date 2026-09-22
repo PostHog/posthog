@@ -115,10 +115,14 @@ flags_hypercache = HyperCache(
 
 The `_get_feature_flags_for_service` function fetches all flags for a team (including inactive, but excluding deleted and encrypted remote config flags), then returns a cache payload trimmed to the flags worth caching. The Rust service filters out inactive flags at request time via `filtered_out_flag_ids`.
 
+Cohort references and flag dependencies are read from each flag's `filters` through `products/feature_flags/backend/facade/references.py`, which runs `detect_config_format` before it reads a v1 key.
+A flag stored in any other config format raises `ConfigFormatError` rather than reading as a flag with no references; in this cache that fails the team's rebuild the way any malformed document does, and `HyperCache.update_cache` keeps the existing entry and ETag.
+Inactive and deleted flags are skipped before that read (`_is_unevaluable`), so they are not classified.
+
 Because that filtering happens before the matcher reads `filters`, an inactive flag can never affect a response, so the payload keeps only evaluable flags plus the inactive flags that another flag's dependency conditions reference.
 A referenced entry is load-bearing: the matcher pre-seeds its id as false, so a dependent with `flag_evaluates_to: false` on a disabled flag still matches instead of missing a dependency.
 `_drop_unreferenced_unevaluable_flags` removes the rest, `evaluation_metadata` is computed on the surviving set, and `_blank_inactive_filters` replaces the kept unevaluable flags' `filters` with an empty `{"groups": []}` before the payload is written.
-`build_flags_cache` in `rust/feature-flags/src/flags/cache_builder.rs` writes the same entry and applies the same drop and blanking.
+`build_flags_cache` in `rust/feature-flags/src/flags/cache_builder.rs` writes the same entry and applies the same drop, blanking, and config-format rejection: an evaluable non-v1 document fails that team's build there too, so the two writers cannot publish different answers for the same row.
 Parity is per team, not per byte: each team has one primary writer (teams whose invalidation routes to Kafka via `KAFKA_ROUTING_FLAG` get the Rust builder, every other team Python), the Python verifier remains a repair writer for every team, and the two serializers order keys differently — so what must match is the flag set, fields, and metadata, not the bytes or etag.
 Verifier fixes on the flags cache carry a `writer` label (`posthog_hypercache_verify_fixes_total{cache_type="flags", writer="rust"|"python"|"unknown"}`), attributed by evaluating the same routing flag (`get_team_primary_flags_writer` in `flags_cache.py`): a fix on a rust-routed team is the parity signal that the Rust builder diverged, which the unattributed counter blends into Python's baseline repair noise. `unknown` means the routing flag couldn't be evaluated at fix time, so an attribution outage can't masquerade as a clean Rust ramp.
 Old-shape entries that still carry unreferenced inactive rows stay valid: the matcher never reads those rows, and `verify_team_flags` suppresses them instead of reporting `STALE_IN_CACHE`, so they converge through flag edits and TTL rather than a fleet-wide repair.
@@ -175,6 +179,9 @@ flag_definitions_hypercache = HyperCache(
 ```
 
 It includes full cohort definitions and group type mappings, since all current SDKs support cohort evaluation locally. A legacy `flag_definitions_without_cohorts_hypercache` variant — pre-flattened cohort filters for SDKs too old to evaluate cohorts locally — was removed once nothing served it to real clients anymore.
+
+The builder reads cohort references and flag dependencies through the same `facade/references.py` accessors as the service cache.
+A flag in an unsupported config format is dropped from the payload by the per-flag error handling (logged and counted in `posthog_flag_definitions_processing_error`), the team's other flags are published as before, and the cohort prepass skips that flag so one document cannot fail the whole batch.
 
 ### Cache invalidation
 
@@ -490,11 +497,12 @@ The Rust service only operates when `FLAGS_REDIS_URL` is configured. All cache u
 
 Cache freshness is maintained through scheduled Celery tasks.
 
-| Task                                         | Schedule         | Purpose                                              |
-| -------------------------------------------- | ---------------- | ---------------------------------------------------- |
-| `refresh_expiring_flags_cache_entries`       | Hourly at :15    | Refresh caches with TTL < 24h before they expire     |
-| `cleanup_stale_flags_expiry_tracking_task`   | Daily at 3:15 AM | Remove expired team entries from tracking sorted set |
-| `verify_and_fix_flag_definitions_cache_task` | Hourly at :50    | Verify flag definitions cache against database       |
+| Task                                              | Schedule         | Purpose                                              |
+| ------------------------------------------------- | ---------------- | ---------------------------------------------------- |
+| `refresh_expiring_flags_cache_entries`            | Hourly at :15    | Refresh caches with TTL < 24h before they expire     |
+| `cleanup_stale_flags_expiry_tracking_task`        | Daily at 3:15 AM | Remove expired team entries from tracking sorted set |
+| `refresh_expiring_flag_definitions_cache_entries` | Hourly at :35    | Refresh flag definitions caches before they expire   |
+| `verify_and_fix_flag_definitions_cache_task`      | Hourly at :50    | Verify flag definitions cache against database       |
 
 ### Refresh task
 
@@ -590,10 +598,16 @@ FLAGS_REDIS_URL=redis://flags-redis:6379
 FLAGS_CACHE_TTL=604800             # 7 days (default)
 FLAGS_CACHE_MISS_TTL=86400         # 1 day (default)
 
-# Scheduled task settings
+# Scheduled task settings for the flags cache sweep
 FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS=24  # Refresh caches expiring within 24h
 FLAGS_CACHE_REFRESH_LIMIT=5000              # Max teams per refresh run
 FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=5  # Skip recently updated flags
+
+# Scheduled task settings for the flag definitions cache sweep.
+# Each one defaults to the resolved flags value above, so both sweeps move together.
+# Uncomment one to move this sweep alone.
+# FLAG_DEFINITIONS_CACHE_REFRESH_TTL_THRESHOLD_HOURS=12
+# FLAG_DEFINITIONS_CACHE_REFRESH_LIMIT=2000
 
 # For S3 fallback
 OBJECT_STORAGE_ENABLED=true

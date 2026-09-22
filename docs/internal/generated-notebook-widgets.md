@@ -2,6 +2,16 @@
 
 Notebooks can generate interactive widgets from instructions and the notebook's SQL and Python dataframe context.
 
+Generated widgets are in beta. Generation uses PostHog AI credits based on model token costs plus a 20% markup, including security review and retries.
+The insert menu, notebook widget toolbar, generation dialog, and reusable widget page show a **BETA** label.
+Before generating, improving, or regenerating a widget, the form says "Generation uses PostHog AI credits".
+The ungenerated widget preview includes a model selector directly above **Generate widget**, synchronized with the model in the edit panel.
+The notebook edit panel and reusable widget page show the selected version's estimated generation charge as a small USD amount beside the version controls.
+The info tooltip explains that the estimate includes all model requests in that successful generation job.
+Costs come from recorded gateway usage and include the same markup as PostHog AI credit billing; final credits can differ because billing rounds aggregated usage.
+Older versions and generations without available usage records do not show a cost.
+The estimate does not include separate failed or canceled generation jobs, or notebook compute.
+
 - Generation runs as a durable background job. The notebook shows its phase, elapsed time, cancellation, and terminal errors. Queued jobs stop immediately when canceled.
 - Failed jobs expose a stable error code and the failed source-generation, security-review, or publishing phase. AI request logs include upstream status and request IDs when available.
 - Source generation and security review send Claude requests through the native Anthropic Messages format in both local and cloud environments.
@@ -13,7 +23,8 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 - A preview without dataframe inputs runs immediately when its automated review found no potential issues. Previews with dataframe access, flagged reviews, and legacy unreviewed versions require exact-build consent at a gate that links to the source.
 - Every ready build exposes the SHA-256 of its frozen Canvas artifact manifest. Choosing “Run widget” at a gate records consent for that exact hash. A later gated build with different artifact contents requires a new decision. A build with identical contents reuses the earlier consent.
 - “View source” remains available before a widget runs and reads the source belonging to the selected historical version.
-- Every dataframe must have a completed run before generation. Each preview load pins permission-checked pages to one run and reads at most 5,000 rows per connected dataframe without sending values to the model. Across all its dataframes, one preview reads at most 200 pages and 32 MiB of response data.
+- Generation uses dataframes with completed runs and skips cells that have not run. Each preview load pins permission-checked pages to one run and reads at most 5,000 rows per connected dataframe without sending values to the model. Across all its dataframes, one preview reads at most 200 pages and 32 MiB of response data.
+- Improving a notebook widget requires completed results for its existing inputs, including renamed connections, and preserves their slots and schemas. Unrelated cells without completed results are still skipped.
 - Notebook-managed Canvas artifacts use a restricted source policy. Signed artifact URLs can render them, but the ordinary Canvas API cannot list or edit them.
 - `<Widget>` is the only notebook markdown tag for generated widgets.
 - Widget previews allow pointer lock for interactive controls such as games. Both the iframe and artifact CSP permit `allow-pointer-lock`; the preview URL varies to refresh previously cached CSP headers.
@@ -80,9 +91,41 @@ Reusable widgets remain behind the `notebook-generated-widgets` feature flag and
 
 ## Agent access
 
+New widgets default to Claude Sonnet 5. An explicitly selected model stays selected.
+Widget IDs are saved when their settings, title, or panel visibility change, so editing a widget keeps its generation history attached.
+
+New SQL cells receive a unique name beginning with `sql_df_`; Python cells receive one beginning with `df_`.
+You can rename a dataframe in its result panel.
+The SQL and insight dataframe name rows are visible when either `revamped-py-notebooks` or `notebook-generated-widgets` is enabled.
+The widget flag enables HogQL dataframe preparation. Python, kernel-backed SQL, and direct connections require `revamped-py-notebooks`.
+Insights that expose SQL have the same dataframe name field below their results, starting with `insight_df` (with a numeric suffix when needed).
+An editor prepares the insight's dataframe when a SQL or Python cell first references it, before generating a widget, or when rerunning a widget's data dependencies.
+Widget generation continues with the available dataframes if an embedded insight cannot be prepared.
+Refreshing a widget prepares only its connected insight dataframes; SQL and Python cells prepare any insights they reference when they run.
+An insight preparation failure still stops a cell or widget refresh that depends on that insight.
+Widgets that use only insight dataframes refresh after preparation without requiring a SQL or Python cell.
+Opening a notebook, renaming a dataframe, or refreshing an insight's display does not prepare dataframes or save preparation metadata.
+Preparation uses the insight query cache and saves the run reference and column metadata only after the SQL run completes.
+If the insight query changes during preparation, the completed result is discarded and the editor can try again.
+Concurrent preparation requests from the same user reuse the same matching run for up to one hour.
+Run reuse is disabled for token-only callers because runs do not record their individual identities.
+An unchanged insight with a saved completed run reuses that snapshot. **Refresh dataframe** prepares a fresh snapshot; **Try again** retries a failed preparation.
+Viewers and shared notebooks do not show insight dataframe controls or prepare dataframes.
+
+SQL and Python cells save their run ID, column metadata, and row count in the notebook.
+A bounded preview keeps at most five rows within 8 KiB and up to 2,048 characters per console stream in the notebook, including runs created through MCP.
+The preview helper is shared with MCP, so the MCP TypeScript CI filter covers `products/notebooks/**`.
+Full results and images load from the saved run. Older browser tabs can still display the small preview.
+Saved result reads remain available if the execution flags are disabled, subject to notebook and query permissions.
+Loading a saved result does not execute a cell or mark dependent cells stale. If a saved run is unavailable, the preview stays visible and the cell offers a rerun.
+
 New notebooks place the typing caret in the title, including when opened through the command menu. Enter continues into the notebook body.
 The notebook's inline **Ask AI** uses LangGraph and receives widget authoring instructions when `notebook-generated-widgets` is enabled for the user.
 The bookmark toggle **Keep question with answer** is on by default, retaining the question and the submitting user's name above the answer. Turning it off saves `keepQuestion={false}` on that prompt.
+**Ask AI** is disabled until the organization approves AI data processing, including submission from saved prompt blocks.
+Inline notebook artifacts update the open notebook without saving a second copy, even when the tool requests a save.
+Full-notebook replacements preserve the retained question when **Keep question with answer** is on.
+Standalone AI notebook saves preserve Markdown separators and live MDX cells, including `<SQLV2 />` and `<Widget />`, while resolving visualization references.
 Its notebook context and `create_notebook` tool share the same instructions for inserting `<Widget title="Interactive visualization" prompt="Describe the visualization" />`.
 When the widget flag is enabled, inline AI insertion also converts plain, `md`, or `markdown` code fences containing only valid `<Widget>` tags into widget blocks. Fences containing other code, malformed tags, or an explicit language such as `text` remain code examples.
 The user clicks **Generate widget** in the inserted block's settings to start generation.
@@ -94,7 +137,7 @@ Generation also requires the organization's AI data processing consent and the `
 
 An agent inserts a `Widget` component through `notebooks-add-cell`, then calls `notebooks-widget-generate` with its returned `node_id`.
 Markdown editing can also insert `<Widget nodeId="widget-example" prompt="Show an interactive chart" />` into a saved notebook.
-All notebook SQL and Python dataframes must have completed runs before generation.
+Only notebook SQL and Python dataframes with completed runs are available to generation; unrun cells do not block it.
 Inserting the tag does not start a generation job.
 The agent polls status and directs the user to the notebook for review and execution consent.
 MCP responses for widget generation, status, and attachment omit the preview URL so previews open through the notebook's existing consent flow.
@@ -117,6 +160,11 @@ The generated-code trust flow works as follows:
 7. Canvas records a SHA-256 over the complete frozen artifact manifest. The hash covers artifact contents only, with no build or version id, so a build with different contents has a different hash and requires a new execution decision when gated. A build with identical contents keeps the same hash and reuses the earlier decision.
 
 Exact-build execution choices are stored in the browser, partitioned by PostHog user ID. Generated widgets are not rendered in publicly shared notebooks. This client-side consent state is a user-experience boundary; server authorization remains the data boundary.
+
+Ordinary `<Embed>` blocks accept absolute HTTP or HTTPS URLs.
+Public sharing removes invalid embed sources before serving notebook markdown.
+Embed frames run without same-origin access, including when an external URL redirects to the application origin.
+Embedded pages that require cookies or browser storage may need to be opened directly.
 
 After consent, the bridge exposes only the version’s declared dataframes through permission-checked endpoints. The Canvas CSP keeps `connect-src 'none'`, but iframe self-navigation can still transmit data. A clean automated review cannot prove arbitrary JavaScript safe, so dataframe access requires consent even when no findings were reported.
 

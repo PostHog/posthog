@@ -6,6 +6,7 @@ from django.db.models.functions import Cast
 from posthog.models.utils import UUIDModel
 
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
+from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 
 
@@ -117,6 +118,10 @@ class ReplayObservation(UUIDModel):
     completed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # The backfill sweep backs off on these; `db_default` because recording-api inserts this raw.
+    media_render_attempts = models.PositiveSmallIntegerField(default=0, db_default=0)
+    media_render_attempted_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         constraints = [
             # Succeeded rows are sticky; admin deletes to re-trigger. A backfill may retake a failed row.
@@ -131,6 +136,8 @@ class ReplayObservation(UUIDModel):
         ]
         indexes = [
             models.Index(fields=["team", "created_at"], name="rlo_team_created_idx"),
+            # Serves the recording-delete cleanup, which looks rows up by session rather than scanner.
+            models.Index(fields=["team", "session_id"], name="rlo_team_session_idx"),
             models.Index(fields=["scanner", "status"], name="rlo_scanner_status_idx"),
             # Serves the alert-engine observation window: succeeded rows per scanner in a
             # completed_at range. Partial: terminal succeeded rows are the only ones scanned.
@@ -141,6 +148,12 @@ class ReplayObservation(UUIDModel):
             ),
             # Serves the per-scanner list ordering and the prev/next-neighbor lookups (both order by created_at).
             models.Index(fields=["scanner", "created_at"], name="rlo_scanner_created_idx"),
+            # Serves the media backfill's cross-team walk; every other created_at index is prefixed.
+            models.Index(
+                fields=["-created_at"],
+                name="rlo_succeeded_created_idx",
+                condition=models.Q(status="succeeded"),
+            ),
             models.Index(
                 fields=["workflow_id"],
                 name="rlo_workflow_id_idx",
@@ -200,7 +213,19 @@ def hydrate_for_serialization(
         if viewer_id is not None
         else Value(False, output_field=models.BooleanField())
     )
-    return qs.select_related("triggered_by_user", "label").annotate(scanner_origin=F("scanner__origin"), viewed=viewed)
+    return (
+        qs.select_related("triggered_by_user", "label")
+        # Explicit queryset, because the serializer reads `media` off each row and the reverse manager is
+        # fail-closed: without one it raises unless the caller happens to sit inside a team scope. The rows
+        # are reachable only through an observation the caller already passed team filtering on.
+        .prefetch_related(
+            models.Prefetch(
+                "media",
+                queryset=ReplayObservationMedia.objects.unscoped().select_related("asset").order_by("kind", "position"),
+            )
+        )
+        .annotate(scanner_origin=F("scanner__origin"), viewed=viewed)
+    )
 
 
 def annotate_output_number(

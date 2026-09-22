@@ -399,6 +399,44 @@ async fn a_successor_fences_every_lane_of_the_predecessor() {
     .expect("writes parked forever — a window_closed wakeup was lost");
 }
 
+/// A write that arrives while another lane commits parks behind it
+/// instead of opening a second window; the next window opens on the
+/// lane idle longest once that commit ends.
+#[tokio::test]
+async fn a_write_parks_behind_a_commit_on_another_lane() {
+    let topic = format!("fence_serial_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(&topic, 2));
+    producers.acquire(0).await.expect("acquire the fence");
+    producers.begin_committing_for_test(0, 0);
+    let write = {
+        let p = Arc::clone(&producers);
+        tokio::spawn(async move { p.produce(0, &test_person(1)).await })
+    };
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while producers.parked_writers_for_test(0, 0) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the writer must park behind lane 0's commit, not open lane 1");
+    assert_eq!(
+        producers.lane_commit_marks_for_test(0),
+        vec![0, 0],
+        "nothing commits while lane 0's commit is in flight"
+    );
+    producers.finish_committing_for_test(0, 0);
+    tokio::time::timeout(Duration::from_secs(10), write)
+        .await
+        .expect("the woken writer must commit")
+        .expect("the writer task must not panic")
+        .expect("the write lands");
+    let marks = producers.lane_commit_marks_for_test(0);
+    assert!(
+        marks[1] > marks[0],
+        "the write commits on lane 1 after lane 0's commit ends: {marks:?}"
+    );
+}
+
 /// A writer that parked because every lane was committing picks again
 /// when it wakes: the lane whose commit just finished is the one the
 /// coordinator is holding, and another lane may have finished earlier.
@@ -924,7 +962,7 @@ async fn healing_retakes_a_fence_for_a_served_partition() {
     let clock = AuthorityClock::unclaimed();
     clock.begin_session(Duration::from_secs(30), std::time::Instant::now());
 
-    let outcome = heal_fence(&producers, &inflight, Some(&clock), 0).await;
+    let outcome = heal_fence(&producers, &inflight, &clock, 0).await;
     assert_eq!(
         outcome,
         Ok(HealOutcome::Healed),
@@ -965,7 +1003,7 @@ async fn healing_without_standing_does_not_steal_the_epoch() {
     let lapsed = AuthorityClock::unclaimed();
     lapsed.begin_session(Duration::from_secs(30), std::time::Instant::now());
     lapsed.surrender();
-    let outcome = heal_fence(&zombie, &inflight, Some(&lapsed), 0).await;
+    let outcome = heal_fence(&zombie, &inflight, &lapsed, 0).await;
     assert_eq!(outcome, Ok(HealOutcome::Intact));
 
     owner
@@ -988,7 +1026,7 @@ async fn healing_skips_a_partition_under_handoff() {
     let valid = AuthorityClock::unclaimed();
     valid.begin_session(Duration::from_secs(30), std::time::Instant::now());
     inflight.fence(0);
-    let outcome = heal_fence(&other, &inflight, Some(&valid), 0).await;
+    let outcome = heal_fence(&other, &inflight, &valid, 0).await;
     assert_eq!(outcome, Ok(HealOutcome::Intact));
 
     owner
@@ -1016,7 +1054,7 @@ async fn healing_gives_back_a_fence_it_lost_standing_for() {
         losing.surrender();
     });
 
-    let outcome = heal_fence(&producers, &inflight, Some(&clock), 0).await;
+    let outcome = heal_fence(&producers, &inflight, &clock, 0).await;
     assert_ne!(
         outcome,
         Ok(HealOutcome::Healed),
@@ -1101,7 +1139,7 @@ async fn healing_leaves_a_fence_it_already_holds_alone() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // A reconcile tick with everything healthy.
-    let outcome = heal_fence(&producers, &inflight, Some(&clock), 0).await;
+    let outcome = heal_fence(&producers, &inflight, &clock, 0).await;
     assert_eq!(outcome, Ok(HealOutcome::Intact));
 
     let result = writing.await.expect("the write task must not panic");
@@ -1837,8 +1875,6 @@ async fn an_unwound_committer_condemns_rather_than_stranding_its_waiters() {
 async fn the_derived_production_timescales_compose_against_a_real_broker() {
     let mut config =
         personhog_leader::config::Config::init_from_env().expect("defaults are constructible");
-    config.kafka_transactional_fencing = true;
-    config.lease_gated_authority = true;
     config.lease_ttl = 30;
     config.fencing_txn_timeout_ms = 0;
     config.fencing_message_timeout_ms = 0;

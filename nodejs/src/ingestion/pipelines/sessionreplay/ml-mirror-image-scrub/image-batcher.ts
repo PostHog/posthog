@@ -1,16 +1,17 @@
 import { LibrdKafkaError, Message, TopicPartitionOffset } from 'node-rdkafka'
 import { setTimeout as waitForRetry } from 'node:timers/promises'
+import pLimit from 'p-limit'
 
 import { findOffsetsToCommit, parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
-import { MlPrivacyRuntime } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/runtime'
+import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import {
     INGESTION_VERSION_HEADER,
     imageKeyId,
     tableKeyString,
-} from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/schema'
-import { ingestionVersion } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/transport'
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
+import { MlDecodedMessage, ingestionVersion } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
 import { parseImageRef } from './content-ref'
@@ -73,6 +74,7 @@ const REVOKED_PARTITION_CODES = new Set([
 /** The batch index is what lets offsets advance across the messages planning skipped. */
 interface PlannedScrub {
     sessionMonth?: string
+    datasetVersion?: 2 | 3
     encryptedValue?: Buffer
     index: number
     ref: string
@@ -113,6 +115,7 @@ interface SettledScrub {
 }
 
 export interface ImageBatcherOptions {
+    /** How long scrubbed images accumulate before a hand-off, so images of one team-month across several polls share a shard. */
     flushIntervalMs: number
     maxImages: number
     maxBytes: number
@@ -120,11 +123,76 @@ export interface ImageBatcherOptions {
     dedupMaxRefs: number
 }
 
+/**
+ * S3 objects in flight per hand-off: shard groups and URL images alike.
+ *
+ * A batch's images spread over as many shard groups as it has team-months, which is most of them,
+ * so written one after another the groups cost a round trip each and the sidecar idles for the sum.
+ * Written together they cost about one. Bounded so that, together with the store's own lookup
+ * limiter, a burst stays under the S3 client's socket pool, and separate from the scrub concurrency
+ * so a write never takes a slot from the next batch.
+ */
+export const WRITE_CONCURRENCY = 8
+
+/**
+ * Hand-offs the write lane may hold: one writing, one queued. A batch that hands off while both
+ * are held waits for the oldest to finish before it continues.
+ *
+ * Writes run behind the scrub of the next batches, so an S3 slowdown would otherwise queue
+ * hand-offs without limit and hold their images in memory. The wait bounds resident scrubbed output
+ * at two hand-offs plus what the running batch has staged, and the hand-off being written is copied
+ * twice more (Buffer.concat, then the encryption envelope). That multiplier is what the MAX_BYTES
+ * comment in ml-mirror/config.ts states, so change both together.
+ */
+const MAX_WRITES_IN_FLIGHT = 2
+
+/**
+ * What a batch hands to the write lane: images whose offsets retired in order, and those offsets.
+ * The offsets are stored only once every image here is durable, so they travel together.
+ */
+interface WriteHandoff {
+    images: ScrubbedRef[]
+    offsets: TopicPartitionOffset[]
+}
+
+/**
+ * Waits for every write, then raises the first failure. A lane failure exits the process, and a
+ * sibling write still in flight at that point leaves a partial shard behind that nothing indexes.
+ */
+async function settleAll(writes: Promise<void>[]): Promise<void> {
+    const failed = (await Promise.allSettled(writes)).find(
+        (result): result is PromiseRejectedResult => result.status === 'rejected'
+    )
+    if (failed) {
+        throw failed.reason
+    }
+}
+
 export class ImageBatcher {
-    private buffer: ScrubbedRef[] = []
-    private bufferBytes = 0
-    private pendingOffsets = new Map<string, TopicPartitionOffset>()
-    private lastFlushMs: number
+    /** Retired images of the running batch that no hand-off has taken yet. */
+    private outgoing: ScrubbedRef[] = []
+    private outgoingBytes = 0
+    private outgoingOffsets = new Map<string, TopicPartitionOffset>()
+    /**
+     * When an interval-driven hand-off last happened. Undefined until the first one, so the first
+     * batch does not wait a whole interval. Capacity hand-offs do not reset it: the batch clock is
+     * read once per batch, so a reset would leave the tail behind a capacity hand-off waiting for a
+     * later batch with its offsets uncommitted.
+     */
+    private lastHandOffMs: number | undefined
+    /**
+     * Writes hand-offs one at a time, in the order the batches retired them.
+     *
+     * The order is what makes a failure safe: a hand-off stores its offsets only after its own
+     * images are durable, and the first failure poisons the lane so nothing behind it can store an
+     * offset past the images that were never written. The process then exits on the next batch and
+     * replays from the last stored offset.
+     */
+    private readonly writeLane = pLimit(1)
+    private readonly writeLimiter = pLimit(WRITE_CONCURRENCY)
+    private writesInFlight: Promise<void>[] = []
+    private writeFailure: unknown
+    private activeBatchSettled: Promise<void> = Promise.resolve()
     private readonly maxInFlight: number
     private readonly scrubConcurrency: ConcurrencyController
     /**
@@ -133,9 +201,9 @@ export class ImageBatcher {
      * between recrawls. A best-effort stand-in for asking S3 "are these bytes already in the bucket",
      * which shards cannot answer: they pack many images per object, so no per-hash key exists. The
      * topic is keyed by ref, so every copy of an inline image reaches this same pod and within capacity
-     * the answer is exact; past it we simply rescrub. Marking a scrubbed ref only after its buffer push
-     * is what stops a rebalance without a restart from skipping a ref it never persisted, since a batch
-     * that throws keeps its buffer. Sizing is a throughput question, not a correctness one.
+     * the answer is exact; past it we simply rescrub. Marking a scrubbed ref only once it is staged for a
+     * hand-off is what stops a rebalance without a restart from skipping a ref it never persisted, since
+     * a batch that throws discards what it staged. Sizing is a throughput question, not a correctness one.
      */
     private readonly seenRefs: RefDedupCache
     /**
@@ -149,7 +217,7 @@ export class ImageBatcher {
     private activeBatch: AbortController | null = null
     private stopping = false
     /**
-     * Set when a flush finds this pod no longer owns the partitions it is committing.
+     * Set when a write finds this pod no longer owns the partitions it is committing.
      *
      * Whatever is left of the batch belongs to another pod now, and scrubbing it anyway spends the
      * same saturated sidecar twice on one image and writes a second shard for a span the new owner
@@ -165,9 +233,8 @@ export class ImageBatcher {
         private readonly offsetStore: OffsetStore,
         private readonly scrubClient: ScrubClient,
         private readonly options: ImageBatcherOptions,
-        nowMs: number,
         private readonly deadLetters: DeadLetterSink | null = null,
-        private readonly privacy?: MlPrivacyRuntime
+        private readonly keyManager?: MlKeyManager
     ) {
         // 0 would admit nothing and spin the loop forever; NaN would skip it entirely, committing
         // offsets for unprocessed messages. Fail at boot rather than either.
@@ -184,30 +251,71 @@ export class ImageBatcher {
                 `scrubConcurrency must exceed ${POISON_MIN_OTHER_SUCCESSES} for dead-lettering to be reachable, got ${this.maxInFlight}`
             )
         }
-        this.lastFlushMs = nowMs
         this.scrubConcurrency = new ConcurrencyController(this.maxInFlight)
         this.seenRefs = new RefDedupCache('image_scrub_consumer', options.dedupMaxRefs)
     }
 
-    /** Interrupts the running batch so a graceful shutdown does not wait on an unresponsive sidecar. */
-    public stop(): void {
+    /**
+     * Interrupts the running batch so a graceful shutdown does not wait on an unresponsive sidecar,
+     * then waits for the write lane, so the images that did finish reach S3 and their offsets are
+     * stored while the consumer is still connected to commit them. Resolves either way: a write
+     * that failed was already logged by the lane, and there is no batch left to raise it through.
+     */
+    public async stop(): Promise<void> {
         this.stopping = true
         this.activeBatch?.abort()
+        await this.activeBatchSettled
+        try {
+            await this.drain()
+        } catch (error) {
+            logger.error('🔥', 'image_scrub_write_failed_during_shutdown', { error: String(error) })
+        }
     }
 
-    public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
+    /** Resolves once every hand-off taken so far is written and its offsets stored; rejects with the lane's failure. */
+    public async drain(): Promise<void> {
+        await Promise.all(this.writesInFlight)
+        // A hand-off that failed before this call has already left the list, so the list alone cannot report it.
+        if (this.writeFailure !== undefined) {
+            throw this.writeFailure
+        }
+    }
+
+    public async handleBatch(messages: Message[], nowMs = Date.now()): Promise<void> {
         if (this.stopping) {
             return
+        }
+        // Raised here rather than swallowed by the lane, because the Kafka loop exits the process on
+        // a batch error and that exit is what replays the unwritten images from the last stored offset.
+        if (this.writeFailure !== undefined) {
+            throw this.writeFailure
         }
         const controller = new AbortController()
         this.activeBatch = controller
         this.partitionsRevoked = false
+        const running = this.handleActiveBatch(messages, controller, nowMs)
+        this.activeBatchSettled = running.then(
+            () => undefined,
+            () => undefined
+        )
         try {
-            await this.handleActiveBatch(messages, nowMs, controller)
+            await running
         } catch (error) {
-            if (!(this.stopping && error instanceof ScrubAborted)) {
-                throw error
+            if (this.stopping && error instanceof ScrubAborted) {
+                return
             }
+            // The Kafka loop disconnects the client as soon as this rejects, before shutdown reaches
+            // stop(), so a hand-off still writing would find no client to store its offsets with and
+            // its shards would be written again after the restart. A poisoned lane has nothing left
+            // that could store, so its own failure is raised straight away.
+            if (error !== this.writeFailure) {
+                // Logged rather than raised, so the batch failure stays the one the process exits on,
+                // and the storage failure behind it is still on record for whoever reads the logs.
+                await this.drain().catch((writeError) =>
+                    logger.error('🔥', 'image_scrub_write_failed_behind_failed_batch', { error: String(writeError) })
+                )
+            }
+            throw error
         } finally {
             // Cleared here rather than on the success path: a throwing batch that left this set would
             // have shutdown abort a controller belonging to a batch that is already over.
@@ -215,27 +323,28 @@ export class ImageBatcher {
         }
     }
 
-    private async handleActiveBatch(messages: Message[], nowMs: number, controller: AbortController): Promise<void> {
+    private async handleActiveBatch(messages: Message[], controller: AbortController, nowMs: number): Promise<void> {
         // Skips resolve up front so the window only ever holds real work: a duplicate admitted into a
         // slot would occupy it and complete instantly, spending the pod's concurrency on no-ops.
         if (messages.length) {
             ImageScrubConsumerMetrics.observeBatchMessages(messages.length)
         }
-        const decoded = this.privacy
-            ? await this.privacy.kafka.read(messages, 'image-source', true)
+        const decoded: MlDecodedMessage[] = this.keyManager
+            ? await this.keyManager.kafka.read(messages, { bindKafkaKey: true })
             : messages.map((message) => {
-                  if (ingestionVersion(message) === 2) {
-                      throw new Error('ML v2 images require privacy configuration')
+                  const version = ingestionVersion(message)
+                  if (version === 2) {
+                      throw new Error('ML v2 images require key manager configuration')
                   }
-                  return { message, original: message, key: undefined, invalid: undefined }
+                  return { message, original: message, version, invalid: undefined }
               })
-        const decodedValid = decoded.filter((entry) => !entry.invalid)
-        const encrypted = decodedValid.filter((entry) => entry.key).length
-        ImageScrubConsumerMetrics.incrementVersion('2', encrypted)
-        ImageScrubConsumerMetrics.incrementVersion('1', decodedValid.length - encrypted)
+        const decodedValid = decoded.filter((entry) => !entry.invalid && !entry.legacy)
+        const v2 = decodedValid.filter((entry) => entry.version === 2).length
+        ImageScrubConsumerMetrics.incrementVersion('2', v2)
+        ImageScrubConsumerMetrics.incrementVersion('1', decodedValid.length - v2)
         for (const entry of decoded.filter((entry) => entry.invalid)) {
             if (!this.deadLetters) {
-                throw new Error('Invalid encrypted ML image requires a dead-letter destination')
+                throw new Error('An invalid ML image record requires a dead-letter destination')
             }
             await this.parkImageUntilAccepted(
                 {
@@ -243,7 +352,7 @@ export class ImageBatcher {
                     bytes: entry.original.value ?? Buffer.alloc(0),
                     headers: parseKafkaHeaders(entry.original.headers),
                     detail: {
-                        reason: 'invalid_encryption',
+                        reason: 'invalid_record',
                         sourceTopic: entry.original.topic,
                         sourcePartition: entry.original.partition,
                         sourceOffset: entry.original.offset,
@@ -252,9 +361,7 @@ export class ImageBatcher {
                 controller.signal
             )
         }
-        const byOriginal = new Map(
-            decoded.filter((entry) => !entry.invalid).map((entry) => [entry.original, entry.message])
-        )
+        const byOriginal = new Map(decodedValid.map((entry) => [entry.original, entry.message]))
         const planned = this.planBatch(
             messages.map((message) => byOriginal.get(message) ?? { ...message, value: null })
         )
@@ -310,7 +417,7 @@ export class ImageBatcher {
         const settled = new Array<boolean>(planned.length).fill(false)
         const inFlight = new Map<number, Promise<SettledScrub>>()
         // Results wait here until their slot retires, so the buffer only ever holds images whose
-        // offsets have been recorded. Without it a flush could persist an image while a still-running
+        // offsets have been recorded. Without it a write could persist an image while a still-running
         // predecessor kept its offset unrecorded, and a later batch failure would rewrite it under a
         // fresh shard key. Staged bytes count towards capacity, which is what bounds this.
         const staged = new Array<ScrubbedRef | null>(planned.length).fill(null)
@@ -326,9 +433,9 @@ export class ImageBatcher {
                 inFlight.set(nextToSubmit, this.submitScrub(nextToSubmit, planned[nextToSubmit], controller))
                 nextToSubmit++
             }
-            // Only reachable over capacity with work left: flush to make room rather than spin.
+            // Only reachable over capacity with work left: hand off to make room rather than spin.
             if (inFlight.size === 0) {
-                await this.flushOrThrow(nowMs)
+                await this.handOffOrAbort(controller)
                 if (this.partitionsRevoked) {
                     break
                 }
@@ -338,7 +445,7 @@ export class ImageBatcher {
             const done = await Promise.race(inFlight.values())
             inFlight.delete(done.slot)
             if (done.error !== undefined) {
-                // Shutdown is not a failure. Everything retired so far is flushed below and its
+                // Shutdown is not a failure. Everything retired so far is handed off below and its
                 // offsets are already recorded; the rest was never finished, so its offsets stay
                 // unrecorded and it replays wherever the partition lands next.
                 if (this.stopping) {
@@ -347,6 +454,12 @@ export class ImageBatcher {
                 controller.abort() // one failure dooms the batch, so cancel the siblings still in flight
                 ImageScrubConsumerMetrics.incBatchFailed('scrub')
                 throw done.error
+            }
+            // A hand-off that failed behind this batch: nothing this batch retires can be stored past
+            // the images it never wrote, so stop scrubbing now rather than at the end of the batch.
+            if (this.writeFailure !== undefined) {
+                controller.abort()
+                throw this.writeFailure
             }
             if (done.scrubbed) {
                 staged[done.slot] = done.scrubbed
@@ -357,14 +470,14 @@ export class ImageBatcher {
             // Completions arrive out of order, so only the contiguous run from the front is safe to
             // commit: anything past a still-running image would commit an offset for work that has
             // not happened. The span also covers the skipped messages between retired entries, which
-            // are done too and would otherwise replay forever. Offsets are only ever *stored* by a
-            // flush, after the buffer holding these images is durably written.
+            // are done too and would otherwise replay forever. Offsets are only ever *stored* by the
+            // write lane, after the hand-off holding these images is durably written.
             settled[done.slot] = true
             const retiredBefore = retired
             while (retired < planned.length && settled[retired]) {
                 const ready = staged[retired]
                 if (ready) {
-                    this.bufferScrubbedRef(ready)
+                    this.stageOutgoing(ready)
                     // Marked here rather than on completion: a staged image is a local that a thrown
                     // batch discards, so a ref marked before retirement could be skipped on replay
                     // without ever having been persisted.
@@ -384,7 +497,7 @@ export class ImageBatcher {
                 spanStart = spanEnd
             }
             if (this.overCapacity(stagedCount, stagedBytes)) {
-                await this.flushOrThrow(nowMs)
+                await this.handOffOrAbort(controller)
             }
             if (this.partitionsRevoked) {
                 controller.abort()
@@ -395,22 +508,97 @@ export class ImageBatcher {
             // Neither the offsets nor the shard belong to this pod any more. Writing it would only
             // duplicate what the partition's new owner is already producing, under a fresh key that
             // nothing later reconciles.
-            this.buffer = []
-            this.bufferBytes = 0
-            this.pendingOffsets.clear()
+            this.forgetUnwritten(this.outgoing)
+            this.outgoing = []
+            this.outgoingBytes = 0
+            this.outgoingOffsets.clear()
             return
         }
         if (this.stopping) {
             // Deliberately no tail recordOffsets: past the last retired image nothing was finished,
             // and moving offsets over it here would lose exactly what the wait exists to protect.
-            await this.flushOrThrow(nowMs)
+            await this.handOff()
             return
         }
         // A batch whose tail is all skips, or which is nothing but skips, still has to move offsets.
         this.recordOffsets(messages.slice(spanStart))
-        if (this.shouldFlush(nowMs)) {
-            await this.flushOrThrow(nowMs)
+        // nowMs is the batch's start. A batch that crosses the interval leaves its tail to the next
+        // poll, and empty polls run this check too, so that is at most one poll timeout later.
+        if (this.lastHandOffMs === undefined || nowMs - this.lastHandOffMs >= this.options.flushIntervalMs) {
+            this.lastHandOffMs = nowMs
+            await this.handOff()
         }
+    }
+
+    /** A rejected wait on the lane ends the batch like a failed scrub does: the sidecar must not keep working on results nobody will read. */
+    private async handOffOrAbort(controller: AbortController): Promise<void> {
+        try {
+            await this.handOff()
+        } catch (error) {
+            controller.abort()
+            throw error
+        }
+    }
+
+    /**
+     * Moves everything retired so far to the write lane and returns as soon as the lane has room,
+     * so the scrub of the next batch overlaps the S3 round trips of this one. The wait on the
+     * oldest hand-off is the only place a slow S3 reaches the scrub, and it is what bounds memory.
+     */
+    private async handOff(): Promise<void> {
+        if (this.outgoing.length === 0 && this.outgoingOffsets.size === 0) {
+            return
+        }
+        const handoff: WriteHandoff = { images: this.outgoing, offsets: [...this.outgoingOffsets.values()] }
+        this.outgoing = []
+        this.outgoingBytes = 0
+        this.outgoingOffsets = new Map()
+        const write = this.writeLane(() => this.writeOrPoison(handoff))
+        this.writesInFlight.push(write)
+        const forget = (): void => {
+            const index = this.writesInFlight.indexOf(write)
+            if (index >= 0) {
+                void this.writesInFlight.splice(index, 1)
+            }
+        }
+        void write.then(forget, forget)
+        if (this.writesInFlight.length >= MAX_WRITES_IN_FLIGHT) {
+            const waitedFrom = performance.now()
+            try {
+                await this.writesInFlight[0]
+            } finally {
+                ImageScrubConsumerMetrics.observeWriteWait((performance.now() - waitedFrom) / 1000)
+            }
+        }
+    }
+
+    private async writeOrPoison(handoff: WriteHandoff): Promise<void> {
+        if (this.writeFailure !== undefined) {
+            throw this.writeFailure
+        }
+        // Found by the hand-off ahead of this one, whose offsets could not be stored: the span belongs
+        // to another pod now, and writing it here would leave a second shard under a random key.
+        if (this.partitionsRevoked) {
+            logger.warn('🔁', 'image_scrub_handoff_discarded_after_revoke', {
+                images: handoff.images.length,
+                partitions: handoff.offsets.map((offset) => offset.partition),
+            })
+            ImageScrubConsumerMetrics.incOffsetsDiscarded(handoff.offsets.length)
+            this.forgetUnwritten(handoff.images)
+            return
+        }
+        const startedAt = performance.now()
+        try {
+            await this.write(handoff)
+        } catch (error) {
+            if (this.writeFailure === undefined) {
+                this.writeFailure = error ?? new Error('image shard write failed')
+            }
+            ImageScrubConsumerMetrics.incBatchFailed('write')
+            throw error
+        }
+        // Observed on success only, so an S3 incident's retry budgets do not read as slow writes.
+        ImageScrubConsumerMetrics.observeWrite((performance.now() - startedAt) / 1000)
     }
 
     /** Retains nothing between batches, so unlike [[seenRefs]] this dedup cannot be sized wrong or disabled. */
@@ -443,6 +631,7 @@ export class ImageBatcher {
                 ref,
                 teamId: parsed.teamId,
                 sessionMonth: parsed.sessionMonth,
+                datasetVersion: parsed.version,
                 pseudoTeam: parsed.pseudoTeam,
                 hash: parsed.hash,
                 source: parsed.source,
@@ -483,14 +672,23 @@ export class ImageBatcher {
         return planned
     }
 
-    private bufferScrubbedRef(ready: ScrubbedRef): void {
-        this.buffer.push(ready)
-        this.bufferBytes += ready.image.bytes.length
+    /** A ref that was marked seen but never persisted would be deduped away unwritten if its partition came back here. */
+    private forgetUnwritten(images: ScrubbedRef[]): void {
+        for (const { ref, source } of images) {
+            if (source === 'bytes') {
+                this.seenRefs.delete(ref)
+            }
+        }
+    }
+
+    private stageOutgoing(ready: ScrubbedRef): void {
+        this.outgoing.push(ready)
+        this.outgoingBytes += ready.image.bytes.length
     }
 
     private recordOffsets(messages: Message[]): void {
         for (const offset of findOffsetsToCommit(messages)) {
-            this.pendingOffsets.set(`${offset.topic}:${offset.partition}`, offset)
+            this.outgoingOffsets.set(`${offset.topic}:${offset.partition}`, offset)
         }
     }
 
@@ -511,15 +709,6 @@ export class ImageBatcher {
                 }),
                 (error): SettledScrub => ({ slot, scrubbed: null, error: error ?? new Error('scrub failed') })
             )
-    }
-
-    private async flushOrThrow(nowMs: number): Promise<void> {
-        try {
-            await this.flush(nowMs)
-        } catch (e) {
-            ImageScrubConsumerMetrics.incBatchFailed('write')
-            throw e
-        }
     }
 
     private async scrubOne(
@@ -572,6 +761,7 @@ export class ImageBatcher {
             return {
                 teamId: planned.teamId,
                 sessionMonth: planned.sessionMonth,
+                datasetVersion: planned.datasetVersion,
                 hash: planned.hash,
                 bytes,
                 sourcePartition: planned.sourcePartition,
@@ -580,6 +770,7 @@ export class ImageBatcher {
         }
         return {
             sessionMonth: planned.sessionMonth,
+            datasetVersion: planned.datasetVersion,
             teamId: planned.teamId,
             pseudoTeam: planned.pseudoTeam,
             hash: planned.hash,
@@ -663,99 +854,88 @@ export class ImageBatcher {
     /** Staged results are counted so a slow slot holding back retirement still applies backpressure. */
     private overCapacity(stagedCount = 0, stagedBytes = 0): boolean {
         return (
-            this.buffer.length + stagedCount >= this.options.maxImages ||
-            this.bufferBytes + stagedBytes >= this.options.maxBytes
+            this.outgoing.length + stagedCount >= this.options.maxImages ||
+            this.outgoingBytes + stagedBytes >= this.options.maxBytes
         )
     }
 
-    private shouldFlush(nowMs: number): boolean {
-        if (this.overCapacity()) {
-            return true
-        }
-        const hasPending = this.buffer.length > 0 || this.pendingOffsets.size > 0
-        return hasPending && nowMs - this.lastFlushMs >= this.options.flushIntervalMs
-    }
-
-    public async flush(nowMs: number): Promise<void> {
-        this.lastFlushMs = nowMs
-        if (this.buffer.length > 0) {
-            const imageKeys = this.privacy
-                ? await this.privacy.reader.read(
-                      this.buffer.flatMap(({ image }) =>
+    private async write(handoff: WriteHandoff): Promise<void> {
+        if (handoff.images.length > 0) {
+            const imageKeys = this.keyManager
+                ? await this.keyManager.reader.read(
+                      handoff.images.flatMap(({ image }) =>
                           image.sessionMonth === undefined
                               ? []
                               : [imageKeyId(Number(image.teamId), image.sessionMonth!)]
                       )
                   )
                 : new Map()
-            this.buffer = this.buffer.filter(
+            const keyed = handoff.images.filter(
                 ({ image }) =>
                     image.sessionMonth === undefined ||
                     imageKeys.has(tableKeyString(imageKeyId(Number(image.teamId), image.sessionMonth!)))
             )
-            const inlineItems = this.buffer.filter(
+            const inlineItems = keyed.filter(
                 (item): item is ScrubbedRef & { image: ScrubbedImage } => item.source === 'bytes'
             )
-            const urlItems = this.buffer.filter(
+            const urlItems = keyed.filter(
                 (item): item is ScrubbedRef & { image: ScrubbedUrlImage } => item.source === 'url'
             )
-            await Promise.all(
-                urlItems.map(async (item) => {
-                    const outcome = await this.scrubConcurrency.run({
-                        debugTag: item.image.hash,
-                        fn: () =>
-                            this.store.writeUrlImage(
-                                item.image,
-                                item.image.sessionMonth === undefined
-                                    ? undefined
-                                    : imageKeys.get(
-                                          tableKeyString(
-                                              imageKeyId(Number(item.image.teamId), item.image.sessionMonth!)
-                                          )
-                                      )
-                            ),
+            // URL images first: their keys are deterministic, so a failure here leaves nothing behind,
+            // while a shard is written under a fresh key that a replay would duplicate.
+            await settleAll(
+                urlItems.map((item) =>
+                    this.writeLimiter(async () => {
+                        const outcome = await this.store.writeUrlImage(
+                            item.image,
+                            item.image.sessionMonth === undefined
+                                ? undefined
+                                : imageKeys.get(
+                                      tableKeyString(imageKeyId(Number(item.image.teamId), item.image.sessionMonth!))
+                                  )
+                        )
+                        if (outcome === 'created' && item.capturedAtMs !== undefined) {
+                            ImageScrubConsumerMetrics.observeCaptureToS3('url', item.capturedAtMs, Date.now())
+                        }
                     })
-                    if (outcome === 'created' && item.capturedAtMs !== undefined) {
-                        ImageScrubConsumerMetrics.observeCaptureToS3('url', item.capturedAtMs, Date.now())
-                    }
-                })
+                )
             )
             const groups = new Map<string, typeof inlineItems>()
             for (const item of inlineItems) {
                 const groupId =
                     item.image.sessionMonth === undefined
                         ? String(item.image.teamId !== undefined)
-                        : `${item.image.teamId}:${item.image.sessionMonth}`
+                        : `v${item.image.datasetVersion}:${item.image.teamId}:${item.image.sessionMonth}`
                 const group = groups.get(groupId) ?? []
                 group.push(item)
                 groups.set(groupId, group)
             }
-            for (const items of groups.values()) {
-                if (items.length === 0) {
-                    continue
-                }
-                const { bytes } = await this.store.writeShard(
-                    items.map((item) => item.image),
-                    items[0].image.sessionMonth === undefined
-                        ? undefined
-                        : imageKeys.get(
-                              tableKeyString(imageKeyId(Number(items[0].image.teamId), items[0].image.sessionMonth!))
-                          )
+            await settleAll(
+                [...groups.values()].map((items) =>
+                    this.writeLimiter(async () => {
+                        const { bytes } = await this.store.writeShard(
+                            items.map((item) => item.image),
+                            items[0].image.sessionMonth === undefined
+                                ? undefined
+                                : imageKeys.get(
+                                      tableKeyString(
+                                          imageKeyId(Number(items[0].image.teamId), items[0].image.sessionMonth!)
+                                      )
+                                  )
+                        )
+                        const storedAtMs = Date.now()
+                        for (const item of items) {
+                            if (item.capturedAtMs !== undefined) {
+                                ImageScrubConsumerMetrics.observeCaptureToS3('inline', item.capturedAtMs, storedAtMs)
+                            }
+                        }
+                        ImageScrubConsumerMetrics.observeShard(items.length, bytes)
+                    })
                 )
-                const storedAtMs = Date.now()
-                for (const item of items) {
-                    if (item.capturedAtMs !== undefined) {
-                        ImageScrubConsumerMetrics.observeCaptureToS3('inline', item.capturedAtMs, storedAtMs)
-                    }
-                }
-                ImageScrubConsumerMetrics.observeShard(items.length, bytes)
-            }
-            this.buffer = []
-            this.bufferBytes = 0
+            )
         }
-        if (this.pendingOffsets.size > 0) {
-            this.storeOffsetsUnlessRevoked([...this.pendingOffsets.values()])
-            this.pendingOffsets.clear()
+        if (handoff.offsets.length > 0) {
+            this.storeOffsetsUnlessRevoked(handoff.offsets)
         }
     }
 
@@ -768,6 +948,11 @@ export class ImageBatcher {
      *
      * The disconnected client throws a plain Error with no code at all, which is the same situation
      * arriving during shutdown, so it is tolerated on the same grounds.
+     *
+     * The write lane runs while the loop keeps polling, so a revoke can also land while a hand-off
+     * is still writing. Its offsets are discarded here and the new owner rescrubs that span, which
+     * can cost MAX_WRITES_IN_FLIGHT hand-offs per pod per rebalance. That is the accepted price of
+     * overlapping the writes, and incOffsetsDiscarded is where it shows.
      */
     private storeOffsetsUnlessRevoked(offsets: TopicPartitionOffset[]): void {
         try {

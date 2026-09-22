@@ -1,13 +1,13 @@
-// Red check time on the listed merged pull requests, split by what turned the check green. No repo
-// figure: the cause comes from replaying each pull request's timeline, which is too heavy to run over
-// the whole repository per request.
+// No repo figure: the cause comes from replaying each pull request's timeline, which is too heavy to run
+// over the whole repository per request.
 
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 
 import { compactAgeLabel } from '../lib/format'
-import { RedTimeByCause, SEGMENT_KIND_STYLES, segmentBackground } from '../lib/pullRequestDayView'
+import { RedTimeByCause } from '../lib/pullRequestDayView'
+import { SEGMENT_KIND_STYLES, segmentBackground } from '../lib/pullRequestTimeline'
 
 export function RedTimeByCauseCard({
     redTime,

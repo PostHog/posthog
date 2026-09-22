@@ -201,6 +201,112 @@ export interface CurrentBranchHealthApi {
     failing_workflow_names: string[]
 }
 
+export interface ReadyToMergeMediansApi {
+    /** Pull requests merged in the window, bots and drafts excluded. */
+    merged_pr_count: number
+    /**
+     * Median seconds from the last ready_for_review to merge. Null when nothing was measured.
+     * @nullable
+     */
+    ready_to_merge_seconds: number | null
+    /**
+     * 90th percentile of the ready-to-merge seconds.
+     * @nullable
+     */
+    p90_ready_to_merge_seconds: number | null
+    /**
+     * Median seconds from ready to the first approval, over the pull requests with an approval. Null when nothing was measured.
+     * @nullable
+     */
+    ready_to_first_approval_seconds: number | null
+    /**
+     * Median seconds from the first approval to merge. The two approval medians do not add up to the ready-to-merge median.
+     * @nullable
+     */
+    first_approval_to_merge_seconds: number | null
+    /**
+     * Share (0 to 1) of all ready-to-merge hours spent before the first approval, summed over the pull requests, so long pull requests weigh more.
+     * @nullable
+     */
+    before_first_approval_share: number | null
+}
+
+export interface TeamReadyToMergeMediansApi {
+    /** Over the pull requests by the team's members, the same population as a github_team scope, without the pr_number pull request. Null when fewer than three other authors contribute a ready time, because the author could read a teammate's value back from the median. The approval medians are null on the same terms for approvals. */
+    medians: ReadyToMergeMediansApi | null
+    /** The GitHub team slug. */
+    github_team: string
+}
+
+export interface PullRequestReadyToMergeApi {
+    /** The pull request number. */
+    number: number
+    /**
+     * Seconds from the last ready_for_review to merge. Null when not observed.
+     * @nullable
+     */
+    ready_to_merge_seconds: number | null
+    /**
+     * Seconds from ready to the first approval. Null without an approval or review data.
+     * @nullable
+     */
+    ready_to_first_approval_seconds: number | null
+    /**
+     * Seconds from the first approval to merge. Null without an approval or review data.
+     * @nullable
+     */
+    first_approval_to_merge_seconds: number | null
+    /**
+     * Share (0 to 1) of the ready-to-merge time spent before the first approval.
+     * @nullable
+     */
+    before_first_approval_share: number | null
+}
+
+/**
+ * * `pull_request` - PULL_REQUEST
+ * * `review_requests` - REVIEW_REQUESTS
+ * * `only_team` - ONLY_TEAM
+ * * `all_teams` - ALL_TEAMS
+ * * `no_team` - NO_TEAM
+ */
+export type TeamBasisEnumApi = (typeof TeamBasisEnumApi)[keyof typeof TeamBasisEnumApi]
+
+export const TeamBasisEnumApi = {
+    PullRequest: 'pull_request',
+    ReviewRequests: 'review_requests',
+    OnlyTeam: 'only_team',
+    AllTeams: 'all_teams',
+    NoTeam: 'no_team',
+} as const
+
+export interface DeliveryComparisonApi {
+    /** Over the author's pull requests, without the pr_number pull request. */
+    author_medians: ReadyToMergeMediansApi
+    /** The author's teams that team_basis picked, sorted by slug. Empty for no_team. */
+    teams: TeamReadyToMergeMediansApi[]
+    /** Over every non-bot pull request in the repository, the author's included and the pr_number pull request left out. */
+    repo_medians: ReadyToMergeMediansApi
+    /** The pr_number pull request measured the same way, when it merged in the window. Null otherwise. */
+    pull_request: PullRequestReadyToMergeApi | null
+    /** The GitHub login the comparison is for. */
+    author: string
+    /** True when the team membership table is synced. Without it, team_basis is no_team. */
+    has_membership_data: boolean
+    /** False when reviews aren't synced: the approval medians are then null. */
+    review_data_available: boolean
+    /** False when issue events aren't synced: the ready-to-merge medians are then null. */
+    ready_data_available: boolean
+    /** How the teams were picked from the author's teams that own code: pull_request (the pr_number asked the team to review); review_requests (the team the author's pull requests asked to review most often in the window, with ties kept); only_team (the author is in one team); all_teams (no review request points at one team); no_team (no team, or no membership data).
+     *
+     * * `pull_request` - PULL_REQUEST
+     * * `review_requests` - REVIEW_REQUESTS
+     * * `only_team` - ONLY_TEAM
+     * * `all_teams` - ALL_TEAMS
+     * * `no_team` - NO_TEAM */
+    team_basis: TeamBasisEnumApi
+}
+
 export interface ScopeRepoFigureApi {
     /**
      * The figure over the pull requests in scope. Null when the scope has nothing to measure.
@@ -279,7 +385,7 @@ export interface DeliveryLeadTimeApi {
     environment_scope: string
     /** PRs in scope merged in the window (bots and drafts excluded). */
     merged_pr_count: number
-    /** Of merged_pr_count, the PRs a successful in-scope deploy contains. The rest are still waiting for a deploy or fall outside the scan. */
+    /** Of merged_pr_count, the PRs whose first successful in-scope deployment was observed by the window end. The rest are still waiting for a deploy or fall outside the scan. */
     deployed_merged_pr_count: number
 }
 
@@ -568,7 +674,7 @@ export interface FlakyTestItemApi {
 }
 
 export interface FlakyTestListApi {
-    /** Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs. */
+    /** Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs. A CI setup break (a run attempt whose tests errored in 3 or more jobs or for 3 or more owning teams, or a job attempt with 100 or more distinct failed or errored tests) excludes every trial of that attempt, not only its failures. */
     items: FlakyTestItemApi[]
     /** True when more tests qualified than the cap; `items` is the highest-ranked `limit` rows. */
     truncated: boolean
@@ -866,6 +972,13 @@ export interface WorkflowRunDetailApi {
     is_merge_queue: boolean
 }
 
+export interface PRTimelinePushApi {
+    /** The pushed head commit. */
+    head_sha: string
+    /** When the commit's first workflow run was created, which is when the commit arrived. */
+    pushed_at: string
+}
+
 /**
  * * `draft` - DRAFT
  * * `waiting_for_review` - WAITING_FOR_REVIEW
@@ -923,6 +1036,8 @@ export interface PRTimelineSegmentApi {
 export interface PRTimelineApi {
     /** The repository the pull request belongs to. */
     repo: RepoRefApi
+    /** Distinct head commits that triggered CI, oldest first, merge-queue gate runs excluded. A PR listed for an author or a team misses pushes from more than 30 days before the window. */
+    pushes: PRTimelinePushApi[]
     /** Consecutive segments from started_at to the merge, the close, or now, with no gaps. */
     segments: PRTimelineSegmentApi[]
     /** Pull request number. */
@@ -948,8 +1063,6 @@ export interface PRTimelineApi {
      * @nullable
      */
     merged_at: string | null
-    /** Distinct head commits that triggered CI, merge-queue gate runs excluded. */
-    pushes: number
     /**
      * Estimated CI cost over the PR's runs, in USD. Null when nothing was costable.
      * @nullable
@@ -1678,15 +1791,15 @@ export interface TeamCIHealthItemApi {
     regression_test_count: number
     /** Same count over the prior window. */
     regression_test_count_prior: number
-    /** CI runs (not spans) where an owned test's recorded outcome was failed or error. An absolute count, not a rate: fast passing runs are not emitted. */
+    /** Distinct CI runs where at least one owned test failed or errored. A run with many failing owned tests counts once. An absolute count, not a rate: fast passing runs are not emitted. */
     failed_run_count: number
     /** Same count over the prior window. */
     failed_run_count_prior: number
-    /** Runs where one commit both failed and passed an owned test: a re-run attempt went green, or an in-job retry recovered it. */
+    /** Distinct CI runs where one commit both failed and passed at least one owned test: a re-run attempt went green, or an in-job retry recovered it. */
     same_commit_recovery_run_count: number
     /** Same count over the prior window. */
     same_commit_recovery_run_count_prior: number
-    /** Runs where an owned test recorded a tolerated failure while quarantined: masked in CI, still failing. */
+    /** Distinct CI runs where at least one owned test recorded a tolerated failure while quarantined. */
     quarantined_failed_run_count: number
     /** Same count over the prior window. */
     quarantined_failed_run_count_prior: number
@@ -1718,7 +1831,7 @@ export interface TeamCIHealthItemApi {
 }
 
 export interface TeamCIHealthListApi {
-    /** Owning teams ranked by current flaky + failure signal, heaviest first, capped at `limit`. Teams are organizational owners of code surfaces; this never aggregates by author. */
+    /** Owning teams ranked by current flaky + failure signal, heaviest first, capped at `limit`. Teams are organizational owners of code surfaces; this never aggregates by author. A CI setup break (a run attempt whose tests errored in 3 or more jobs or for 3 or more owning teams, or a job attempt with 100 or more distinct failed or errored tests) excludes every trial of that attempt, not only its failures. */
     items: TeamCIHealthItemApi[]
     /** True when more teams had signal than the cap. */
     truncated: boolean
@@ -2017,6 +2130,33 @@ export type EngineeringAnalyticsCiFailureLogsParams = {
 export type EngineeringAnalyticsCurrentBranchHealthParams = {
     /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsDeliveryComparisonParams = {
+    /**
+     * GitHub login of the author to compare with their team and the repository.
+     */
+    author: string
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * A pull request by the author. Needs repo. A team of the author's that this pull request asked to review is the team to compare with, and the pull request stays out of the medians.
+     */
+    pr_number?: number
+    /**
+     * 'owner/name' repository. Required with pr_number; otherwise it picks the repository when the selected source syncs several.
      */
     repo?: string
     /**
