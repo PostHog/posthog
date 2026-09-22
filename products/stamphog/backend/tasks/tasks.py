@@ -1462,7 +1462,9 @@ def _queue_review_at_head(
             ReviewRun.objects.for_team(team_id)
             .using(run_write_db)
             .select_for_update()
-            .filter(pull_request=pr_obj, head_sha=head_sha)
+            # A dismissed approval no longer covers the head: a base retarget dismisses it without
+            # moving the head, and in label mode no webhook run replaces it.
+            .filter(pull_request=pr_obj, head_sha=head_sha, approval_dismissed_at__isnull=True)
             .exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
             .order_by("-created_at")
             .first()

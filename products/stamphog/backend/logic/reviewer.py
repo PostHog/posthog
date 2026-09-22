@@ -191,7 +191,10 @@ def _parse_rich(obj: dict) -> ReviewerVerdict:
     final = str(obj.get("final_verdict", "")).strip()
     verdict = _FINAL_VERDICT_MAP.get(final, "escalate")
 
-    reviewer = obj.get("reviewer") or {}
+    reviewer = obj.get("reviewer")
+    # A crashed or version-skewed engine can print a non-object here, and reading it must not raise.
+    if not isinstance(reviewer, dict):
+        reviewer = {}
     reasoning = str(reviewer.get("reasoning", "")).strip()
     # Clipped rather than rejected: the engine caps this at CHANGE_SUMMARY_MAX_CHARS, but the
     # value crosses a trust boundary, so the server does not rely on the sandbox honoring it.

@@ -8,6 +8,7 @@ from unittest.mock import patch
 from django.core import signing
 from django.db import transaction
 from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -687,17 +688,26 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             # A QUEUED run lost its workflow start, so a repeat request restarts it.
-            ("queued_restarts", ReviewRunStatus.QUEUED, False, True),
-            ("reviewing_is_returned", ReviewRunStatus.REVIEWING, False, False),
-            ("completed_is_returned", ReviewRunStatus.COMPLETED, False, False),
-            ("failed_is_replaced", ReviewRunStatus.FAILED, True, True),
+            ("queued_restarts", ReviewRunStatus.QUEUED, False, False, True),
+            ("reviewing_is_returned", ReviewRunStatus.REVIEWING, False, False, False),
+            ("completed_is_returned", ReviewRunStatus.COMPLETED, False, False, False),
+            ("failed_is_replaced", ReviewRunStatus.FAILED, False, True, True),
+            # A base retarget dismisses the approval without moving the head.
+            ("dismissed_approval_is_replaced", ReviewRunStatus.COMPLETED, True, True, True),
         ]
     )
     def test_repeat_request_dedupes_on_the_current_head(
-        self, _name: str, existing_status: ReviewRunStatus, expect_created: bool, expect_start: bool
+        self,
+        _name: str,
+        existing_status: ReviewRunStatus,
+        approval_dismissed: bool,
+        expect_created: bool,
+        expect_start: bool,
     ) -> None:
         first = self._request().json()["run"]["id"]
-        ReviewRun.objects.unscoped().filter(id=first).update(status=existing_status)
+        ReviewRun.objects.unscoped().filter(id=first).update(
+            status=existing_status, approval_dismissed_at=timezone.now() if approval_dismissed else None
+        )
         self.start_workflow.reset_mock()
 
         response = self._request()
