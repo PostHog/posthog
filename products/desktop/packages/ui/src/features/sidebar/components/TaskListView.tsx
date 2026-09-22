@@ -13,6 +13,7 @@ import type {
 } from "@posthog/core/sidebar/sidebarData.types";
 import { cn, MenuLabel, Text } from "@posthog/quill";
 import { builderHog } from "@posthog/ui/assets/hedgehogs";
+import { useFilingTasksStore } from "@posthog/ui/features/canvas/stores/filingTasksStore";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { DragBatchLabel } from "@posthog/ui/features/sidebar/components/DragBatchLabel";
@@ -115,6 +116,8 @@ export function TaskListView({
   );
   const view = useAppView();
   const isOnTaskInput = view.type === "task-input";
+  const filingTasks = useFilingTasksStore((state) => state.filingTasks);
+  const hideFiledTask = useFilingTasksStore((state) => state.hideFiledTask);
   const prefersReducedMotion = useReducedMotion();
   // A drag that starts on a selected row carries the whole selection, so a pin
   // or an unpin applies to every row the user picked, not just the grabbed one.
@@ -187,6 +190,8 @@ export function TaskListView({
 
   const renderTaskRow = (task: TaskData, depth = 0) => {
     const isDragged = draggedIdSet.has(task.id);
+    const filing = filingTasks[task.id];
+    if (filing?.status === "hidden") return null;
     return (
       <motion.div
         key={task.id}
@@ -194,10 +199,20 @@ export function TaskListView({
         layoutId={`sidebar-task-${task.id}`}
         initial={false}
         animate={
-          isDragged
-            ? { height: 0, opacity: 0, scale: 0.98 }
+          isDragged || filing?.status === "complete"
+            ? {
+                height: 0,
+                opacity: 0,
+                scale: 0.98,
+                x: filing?.status === "complete" ? -16 : 0,
+              }
             : { height: "auto", opacity: 1, scale: 1 }
         }
+        onAnimationComplete={() => {
+          if (filing?.status === "complete") {
+            hideFiledTask(task.id, filing.channelId);
+          }
+        }}
         transition={rowTransition}
         className="overflow-hidden"
       >
