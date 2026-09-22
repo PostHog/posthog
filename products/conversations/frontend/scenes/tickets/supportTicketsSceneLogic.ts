@@ -270,9 +270,6 @@ export interface supportTicketsSceneLogicActions {
     clearFiltersKeepingSearch: () => {
         value: true
     }
-    restoreLoadedView: () => {
-        value: true
-    }
     clearSelectedTickets: () => {
         value: true
     }
@@ -285,12 +282,15 @@ export interface supportTicketsSceneLogicActions {
     resetFilters: () => {
         value: true
     }
+    restoreLoadedView: () => {
+        value: true
+    }
     setActiveView: (
         view: SavedTicketView | null,
         appliedFilters?: TicketViewFilters
     ) => {
+        appliedFilters: TicketViewFilters | undefined
         view: SavedTicketView | null
-        appliedFilters?: TicketViewFilters
     }
     setAiTriageResultFilter: (results: AITriageFilterValue[]) => {
         results: AiTriageResultEnumApi[]

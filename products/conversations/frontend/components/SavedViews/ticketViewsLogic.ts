@@ -59,18 +59,18 @@ export interface ticketViewsLogicActions {
     applyView: (view: SavedTicketView) => {
         view: SavedTicketView
     } // supportTicketsSceneLogic
-    setActiveView: (
-        view: SavedTicketView | null,
-        appliedFilters?: TicketViewFilters
-    ) => {
-        view: SavedTicketView | null
-        appliedFilters?: TicketViewFilters
-    } // supportTicketsSceneLogic
     resetFilters: () => {
         value: true
     } // supportTicketsSceneLogic
     restoreLoadedView: () => {
         value: true
+    } // supportTicketsSceneLogic
+    setActiveView: (
+        view: SavedTicketView | null,
+        appliedFilters?: TicketViewFilters | undefined
+    ) => {
+        appliedFilters: TicketViewFilters | undefined
+        view: SavedTicketView | null
     } // supportTicketsSceneLogic
     closeModal: () => {
         value: true
