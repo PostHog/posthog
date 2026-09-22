@@ -20,6 +20,7 @@ async def connect(
     namespace: str,
     client_cert: str | None = None,
     client_key: str | None = None,
+    *,
     runtime: Runtime | None = None,
     server_root_ca_cert: str | None = None,
     tls_domain: str | None = None,
