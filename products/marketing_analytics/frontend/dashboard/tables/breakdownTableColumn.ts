@@ -22,8 +22,23 @@ export interface BreakdownTableColumn<Row> {
     tooltipContent?: (row: Row) => React.ReactNode
 }
 
-/** Sorts on the current period. A row with no value sorts last in either direction. */
-export const compareByCurrent =
-    <Row>(column: BreakdownTableColumn<Row>) =>
-    (a: Row, b: Row): number =>
-        (column.value(a)?.[0] ?? -Infinity) - (column.value(b)?.[0] ?? -Infinity)
+export function compareByCurrent<Row>(
+    column: BreakdownTableColumn<Row>,
+    sortOrder: 1 | -1
+): (a: Row, b: Row) => number {
+    return (a: Row, b: Row): number => {
+        const aValue = column.value(a)?.[0]
+        const bValue = column.value(b)?.[0]
+        if (aValue === bValue) {
+            return 0
+        }
+        // LemonTable multiplies this result by the sort order, so compensate to keep missing values last.
+        if (aValue === undefined) {
+            return sortOrder
+        }
+        if (bValue === undefined) {
+            return -sortOrder
+        }
+        return aValue - bValue
+    }
+}

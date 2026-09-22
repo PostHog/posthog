@@ -18,8 +18,9 @@ export type ChangeFormat = 'number' | 'percentage' | 'duration' | 'decimal' | 'c
 const money = (value: number, currency: CurrencyCode): string => {
     const { symbol, isPrefix } = getCurrencySymbol(currency)
     const decimals = Math.abs(value) >= 1000 ? 0 : 2
-    const amount = humanFriendlyNumber(value, decimals, decimals)
-    return isPrefix ? `${symbol}${amount}` : `${amount} ${symbol}`
+    const sign = value < 0 ? '-' : ''
+    const amount = humanFriendlyNumber(Math.abs(value), decimals, decimals)
+    return isPrefix ? `${sign}${symbol}${amount}` : `${sign}${amount} ${symbol}`
 }
 
 const format = (value: number, kind: ChangeFormat, currency: CurrencyCode): string => {
@@ -114,7 +115,7 @@ export function ChangeValueCell({
                 // eslint-disable-next-line react/forbid-dom-props
                 <span className="inline-flex items-center gap-0.5 text-xs" style={{ color }}>
                     <Icon />
-                    {delta}
+                    <span>{delta}</span>
                 </span>
             )}
         </span>

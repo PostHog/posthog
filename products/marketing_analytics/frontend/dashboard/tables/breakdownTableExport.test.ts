@@ -1,6 +1,11 @@
-import { buildExportRows } from './breakdownTableExport'
+import { LemonMenuItemLeaf } from 'lib/lemon-ui/LemonMenu'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
+import { buildExportMenuItems, buildExportRows } from './breakdownTableExport'
 import { SESSIONS_PER_VISITOR_COLUMN, VISITORS_COLUMN } from './webStatsColumns'
 import { WebStatsRow } from './webStatsRows'
+
+jest.mock('lib/utils/copyToClipboard', () => ({ copyToClipboard: jest.fn() }))
 
 describe('buildExportRows', () => {
     const rows: WebStatsRow[] = [
@@ -39,5 +44,23 @@ describe('buildExportRows', () => {
                       ['Organic', '', ''],
                   ]
         )
+    })
+
+    it.each([
+        ['Copy as CSV', 'Channel,Visitors\r\nEmail,0'],
+        ['Copy for Excel', 'Channel\tVisitors\r\nEmail\t0'],
+    ])('copies the latest rows through %s', (label, expected) => {
+        let data = [['stale']]
+        const item = buildExportMenuItems(() => data, 'engagement', true).find(
+            (item) => item.label === label
+        ) as LemonMenuItemLeaf
+        data = [
+            ['Channel', 'Visitors'],
+            ['Email', '0'],
+        ]
+
+        item.onClick?.({} as React.MouseEvent)
+
+        expect(copyToClipboard).toHaveBeenLastCalledWith(expected, 'table')
     })
 })

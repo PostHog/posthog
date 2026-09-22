@@ -1,7 +1,8 @@
 import { LemonMenuItem } from '@posthog/lemon-ui'
 
-import { downloadTableDataAsCsv, exportTableData } from 'scenes/web-analytics/webAnalyticsExportUtils'
+import { downloadTableDataAsCsv } from 'scenes/web-analytics/webAnalyticsExportUtils'
 
+import { copyTableData } from '~/queries/nodes/InsightViz/exportAdapters'
 import { ExporterFormat } from '~/types'
 
 import type { BreakdownTableColumn } from './breakdownTableColumn'
@@ -62,14 +63,14 @@ export function buildExportMenuItems(getRows: () => string[][], filename: string
         {
             label: 'Copy as CSV',
             disabledReason,
-            onClick: () => exportTableData(getRows(), ExporterFormat.CSV),
+            onClick: () => copyTableData(getRows(), ExporterFormat.CSV),
         },
         {
             // A real .xlsx needs the server exporter, which cannot re-run an in-memory table.
             // Tab-separated text pastes into Excel as columns, which is what people want here.
             label: 'Copy for Excel',
             disabledReason,
-            onClick: () => exportTableData(getRows(), ExporterFormat.XLSX),
+            onClick: () => copyTableData(getRows(), ExporterFormat.XLSX),
         },
     ]
 }
