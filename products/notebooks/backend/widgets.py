@@ -1018,7 +1018,7 @@ def heartbeat_widget_generation_job(job_id: UUID, team_id: int) -> None:
     ).update(heartbeat_at=timezone.now())
 
 
-def _clear_widget_gateway_credential(job_id: UUID, team_id: int) -> None:
+def _clear_widget_gateway_credential(job_id: UUID, team_id: int, credential_hash: str | None = None) -> None:
     if not settings.AI_GATEWAY_REDIS_URL:
         return
     from posthog.storage.gateway_credential_cache import (  # noqa: PLC0415 — keeps gateway cache setup off notebook startup
@@ -1026,7 +1026,7 @@ def _clear_widget_gateway_credential(job_id: UUID, team_id: int) -> None:
     )
 
     jobs = GeneratedWidgetGenerationJob.objects.for_team(team_id).filter(id=job_id)
-    credential_hash = jobs.values_list("gateway_credential_hash", flat=True).first()
+    credential_hash = credential_hash or jobs.values_list("gateway_credential_hash", flat=True).first()
     if credential_hash:
         clear_gateway_credential(credential_hash)
         jobs.filter(gateway_credential_hash=credential_hash).update(gateway_credential_hash=None)
@@ -1052,8 +1052,23 @@ def _project_widget_gateway_credential(job: GeneratedWidgetGenerationJob) -> Non
         created_by=job.requested_by,
         scopes=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE],
     )
-    # The unsaved model reuses the gateway policy resolver without exposing this credential through the key API.
-    project_gateway_credential(credential)
+    with transaction.atomic():
+        # Serialize policy refresh with cancellation and stale-job recovery so a retired credential cannot return.
+        active = (
+            GeneratedWidgetGenerationJob.objects.for_team(job.team_id)
+            .select_for_update()
+            .filter(
+                id=job.id,
+                status=GeneratedWidgetGenerationJob.Status.GENERATING,
+                cancel_requested_at__isnull=True,
+                gateway_credential_hash=job.gateway_credential_hash,
+            )
+            .exists()
+        )
+        if not active:
+            raise WidgetError("This generation is no longer active.", "generation_abandoned")
+        # The unsaved model reuses the gateway policy resolver without exposing this credential through the key API.
+        project_gateway_credential(credential)
 
 
 @contextmanager
@@ -1070,9 +1085,10 @@ def _widget_gateway_api_key(job: GeneratedWidgetGenerationJob) -> Iterator[str |
             "Widget source generation could not authorize this project's AI usage because gateway billing is not configured. Contact support.",
             "gateway_billing_not_configured",
         )
+    value = generate_random_token_secret()
+    credential_hash = hash_key_value(value)
+    job.gateway_credential_hash = credential_hash
     try:
-        value = generate_random_token_secret()
-        job.gateway_credential_hash = hash_key_value(value)
         updated = (
             GeneratedWidgetGenerationJob.objects.for_team(job.team_id)
             .filter(id=job.id, status=GeneratedWidgetGenerationJob.Status.GENERATING, cancel_requested_at__isnull=True)
@@ -1083,7 +1099,7 @@ def _widget_gateway_api_key(job: GeneratedWidgetGenerationJob) -> Iterator[str |
         _project_widget_gateway_credential(job)
         yield value
     finally:
-        _clear_widget_gateway_credential(job.id, job.team_id)
+        _clear_widget_gateway_credential(job.id, job.team_id, credential_hash)
 
 
 def run_widget_generation_job(job_id: UUID, team_id: int) -> None:

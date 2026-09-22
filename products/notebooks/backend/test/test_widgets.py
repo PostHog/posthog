@@ -1680,6 +1680,59 @@ class TestWidgetData(APIBaseTest):
         assert job.status == GeneratedWidgetGenerationJob.Status.FAILED
         assert job.error_code == "generation_abandoned"
 
+    @parameterized.expand([("recovered", True), ("hash_removed", False)])
+    @override_settings(
+        AI_GATEWAY_URL="https://ai-gateway.example/v1",
+        AI_GATEWAY_API_KEY="phs_shared_key",
+        AI_GATEWAY_REDIS_URL="redis://gateway",
+    )
+    def test_generation_worker_rejects_retired_credentials(self, _name: str, recovered: bool) -> None:
+        instance = self._mapping()
+        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            widget=instance.widget,
+            instance=instance,
+            requested_by=self.user,
+            operation=GeneratedWidgetVersion.Operation.IMPROVE,
+            prompt="Make it lighter",
+            model="claude-sonnet-4-6",
+            base_version=self._pinned_version(instance),
+            input_contract=[],
+            schema_hash="",
+        )
+        credential_hashes: list[str] = []
+
+        def retire_credential(**kwargs: object) -> GeneratedWidgetSource:
+            credential_hashes.append(hash_key_value(cast(str, kwargs["api_key"])))
+            if recovered:
+                fail_widget_generation_job(job.id, self.team.id)
+            else:
+                GeneratedWidgetGenerationJob.objects.for_team(self.team.id).filter(id=job.id).update(
+                    gateway_credential_hash=None
+                )
+            before_request = kwargs["before_request"]
+            assert callable(before_request)
+            before_request()
+            raise AssertionError("A retired credential must stop the model request")
+
+        with (
+            patch("posthog.storage.gateway_credential_cache.project_gateway_credential") as project_credential,
+            patch("posthog.storage.gateway_credential_cache.clear_gateway_credential") as clear_credential,
+            patch("products.notebooks.backend.widget_generation.generate_widget_source", side_effect=retire_credential),
+            patch("products.canvas.backend.notebook_integration.get_notebook_canvas_source", return_value="source"),
+            patch("products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_source") as publish,
+        ):
+            run_widget_generation_job(job.id, self.team.id)
+
+        job.refresh_from_db()
+        assert job.status == GeneratedWidgetGenerationJob.Status.FAILED
+        assert job.error_code == "generation_abandoned"
+        assert job.gateway_credential_hash is None
+        project_credential.assert_called_once()
+        assert clear_credential.call_count == (2 if recovered else 1)
+        assert all(call.args[0] == credential_hashes[0] for call in clear_credential.call_args_list)
+        publish.assert_not_called()
+
     def test_generation_worker_does_not_publish_after_the_job_becomes_terminal(self) -> None:
         instance = self._mapping()
         base_version = self._pinned_version(instance)
