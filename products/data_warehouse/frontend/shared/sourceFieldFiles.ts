@@ -1,3 +1,5 @@
+import { getTextFromFile } from 'lib/utils/file-utils'
+
 import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 
 type FileUploadField = Extract<SourceFieldConfig, { type: 'file-upload' }>
@@ -73,11 +75,5 @@ export const findUploadedFiles = (fields: SourceFieldConfig[], valueObj: Record<
 }
 
 export const readJsonFile = async (file: File): Promise<unknown> => {
-    const contents: string = await new Promise((resolve, reject) => {
-        const fileReader = new FileReader()
-        fileReader.onload = (e) => resolve(e.target?.result as string)
-        fileReader.onerror = () => reject(fileReader.error ?? new Error(`Failed to read the "${file.name}" file`))
-        fileReader.readAsText(file)
-    })
-    return JSON.parse(contents)
+    return JSON.parse(await getTextFromFile(file))
 }

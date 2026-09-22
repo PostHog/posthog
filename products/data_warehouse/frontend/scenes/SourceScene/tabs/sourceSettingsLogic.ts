@@ -1085,6 +1085,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 auto_sync_new_schemas,
                 auto_sync_schema_patterns,
             }) => {
+                const captureSaveOutcome = (outcome: string): void => {
+                    posthog.capture('warehouse source saved', {
+                        source_type: values.source?.source_type,
+                        outcome,
+                    })
+                }
+
                 const sanitizedPayload = clonePayloadPreservingFiles(payload) as Record<string, any>
                 if (values.sourceFieldConfig?.fields) {
                     removeEmptySensitiveValues(values.sourceFieldConfig.fields, sanitizedPayload)
@@ -1106,10 +1113,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         container[field.name] = await readJsonFile(file)
                     } catch (e: any) {
                         posthog.captureException(e)
-                        posthog.capture('warehouse source saved', {
-                            source_type: values.source?.source_type,
-                            outcome: 'file_unreadable',
-                        })
+                        captureSaveOutcome('file_unreadable')
                         lemonToast.error(`The "${field.name}" file is not valid — it must be a readable JSON file.`)
                         return
                     }
@@ -1141,10 +1145,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         description: description !== '' ? description : (values.source?.description ?? null),
                     })
                     actions.loadSource()
-                    posthog.capture('warehouse source saved', {
-                        source_type: values.source?.source_type,
-                        outcome: 'success',
-                    })
+                    captureSaveOutcome('success')
                     lemonToast.success('Source updated')
 
                     if (nextLookbackDays > previousLookbackDays && schemasToResync.length > 0) {
@@ -1165,10 +1166,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                             : undefined,
                     })
                 } catch (e: any) {
-                    posthog.capture('warehouse source saved', {
-                        source_type: values.source?.source_type,
-                        outcome: 'rejected',
-                    })
+                    captureSaveOutcome('rejected')
                     if (e.message) {
                         lemonToast.error(e.message)
                     } else {
