@@ -11,6 +11,7 @@ the bridge is deleted.
 
 """
 
+import re
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Literal, TypedDict, get_args
 
@@ -30,6 +31,10 @@ AttachedContextType = Literal[
 ]
 
 ALLOWED_TYPES: frozenset[str] = frozenset(get_args(AttachedContextType))
+
+# Must stay equivalent to the frontend `defang` regex in `posthogContextBlock.ts`: every open and
+# close variant of the three context tag names, the legacy `posthog_context` this module emits included.
+_CONTEXT_TAG_PATTERN = re.compile(r"<(/?)(posthog_(?:(?:un)?trusted_)?context)")
 
 # Caps on attached-context size.
 MAX_ATTACHED_ITEMS = 32
@@ -115,13 +120,20 @@ class ContextService:
 
     @staticmethod
     def _defang(text: str | int) -> str:
-        """Invariant: interpolated fields must never contain the literal close-tag sequence.
+        r"""Invariant: an interpolated field must never contain a literal context tag or a line break.
 
         The frontend replay stripper cuts at the FIRST `</posthog_context>`, so a raw close tag
-        inside the body would truncate the strip early and leave block remnants. Mirrors the
-        frontend `defang` in `posthogContextBlock.ts`.
+        inside the body truncates the strip early and leaves block remnants. A raw
+        `<posthog_trusted_context>` is worse, because the system prompt tells the agent to follow
+        that block like system instructions: a value an attacker can influence, such as a property
+        filter carried in a shared URL, could forge one and have its contents obeyed. Line breaks
+        are escaped for the same reason one level down, so that a value carrying `\n- ` cannot forge
+        extra item lines in the block the model reads. A lone `\r` is a line break too.
+
+        Must stay equivalent to the frontend `defang` in `posthogContextBlock.ts`.
         """
-        return str(text).replace("</posthog_context", "<\\/posthog_context")
+        escaped = _CONTEXT_TAG_PATTERN.sub(r"<\\\1\2", str(text))
+        return escaped.replace("\r\n", "\\n").replace("\r", "\\n").replace("\n", "\\n")
 
     def _format_item(self, item: AttachedContext) -> str:
         """Render one attachment line.
