@@ -202,8 +202,9 @@ export function LegacyExperimentView(): JSX.Element {
 
                         {showDeprecationNotice && (
                             <LemonBanner type="error" className="mb-4">
-                                Legacy experiments will be deprecated on October 1, 2026. Take a screenshot of these
-                                results if you need them after that date.
+                                Legacy experiments will be deprecated on October 15, 2026. Take a screenshot of these
+                                results if you need them after that date. Legacy experiments can be migrated to the new
+                                engine, and PostHog AI can do this for you. Contact support if you have questions.
                             </LemonBanner>
                         )}
 
