@@ -6144,6 +6144,22 @@ snapshots:
         hash: v1.k794b7964.f7bd678d57ae64d2ec9dec79e1017fbc7a916f466a56562bb387a0a4eb3a58a9.bQGrcXvT7JLVejN-8Xo7XKYa4rSc5A6C-7dkfpXHPcw
     products-data-quality-overview--narrow-empty--light:
         hash: v1.k794b7964.2e8bd152beae69121fee95257fd82b94845eb349372d743971a471eb3e5328cd.YgUtIxLiYjsHr0Val39OaOaf-D4S9aToLSY85dDjB4I
+    products-growth-enrichment-scoring--editor--dark:
+        hash: v1.k794b7964.aa136fd2e0487911babd781447c7dc86bb63a2ee231cd13234520a2a2a3c20e9.vo1ujOKpsBOgPU1t2K-BzOUbr6JCwpY368OsPbbBi6U
+    products-growth-enrichment-scoring--editor--light:
+        hash: v1.k794b7964.4e3a26ba9261ac9badbbab6602781468a3cc0a2746677d9263b4a0dd1c0f3fa2.So35PP7D_QTamLzmsCGvHLsdI30hi4EJn405tccaHJk
+    products-growth-enrichment-scoring--narrow--dark:
+        hash: v1.k794b7964.2333671eb4e0490d65c0260d99a8714d45ea5fb1e6210a1e550b61e01e75cd6a.vofTTnCvWW290DRbsMYY-zto2QIV8o6Iu3m2k79N_v4
+    products-growth-enrichment-scoring--narrow--light:
+        hash: v1.k794b7964.11ec5c0394fcdfdf313c4e0a84c075f018b5a470982acb960fbda1e7d98127b0.cyR_V-HeGFkaWqDsPTw-fFx_j9RvMk0t9W7SoC_rj5g
+    products-growth-enrichment-scoring--no-configuration--dark:
+        hash: v1.k794b7964.e3a5f1d56c017a276dcd334793a624d9ffc496f571985bdb88e866008887d6de.wPo_sGguqY6YNkKNBB7K8C1O-20DTXnJ7xdDivI_16w
+    products-growth-enrichment-scoring--no-configuration--light:
+        hash: v1.k794b7964.a4aff979e5624560d22320582eb17a90d475e4addcecc17e539a56d01f33244d.Qi0Dsas0WCDOyoJ2cKEbnqGVUQvQ5mA3vN4FFd2U2gs
+    products-growth-enrichment-scoring--ten-companies--dark:
+        hash: v1.k794b7964.7076ffb8f4a8580158b2acf5ec5832fdee3b919e2e7847fed1b6498991e1cf56.UV1nDDMCRTUMYKCxRG7iBRUliLEz3lyCnqMeNO8hLek
+    products-growth-enrichment-scoring--ten-companies--light:
+        hash: v1.k794b7964.358bcb74edafe29ceb578725ae7a5ae4abcf4bd095a15019931cef07fd2dccc1.8SW1GX7QBdyEKIJJKO3Dzck8peLKCRJAqVRkcvfcEn0
     products-mcp-analytics-feedback-prompt--contextual-copy--dark:
         hash: v1.k794b7964.b9a43443a726379620a7b8fcb5a97d6f42eb092717a96a050c1d60e4850d7f29.pqYVY5w4VqCVPWENMeYL5kO5uRWJ3YGEAh2gPbkpg_U
     products-mcp-analytics-feedback-prompt--contextual-copy--light:
