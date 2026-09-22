@@ -96,14 +96,14 @@ describe('heatmapLogic', () => {
 
     describe('resolveScreenshotReadiness', () => {
         it.each([
-            ['completed', true, 'ready'],
-            ['completed', false, 'unavailable'],
-            ['failed', false, 'failed'],
-            ['failed', true, 'failed'],
-            ['processing', false, 'pending'],
-            [undefined, undefined, 'pending'],
-        ] as const)('resolveScreenshotReadiness(%s, %s) → %s', (status, hasContent, expected) => {
-            expect(resolveScreenshotReadiness(status, hasContent)).toBe(expected)
+            ['completed', true, { outcome: 'ready' }],
+            ['completed', false, { outcome: 'error', message: expect.stringContaining('Generate it again') }],
+            ['failed', false, { outcome: 'error', message: 'boom' }],
+            ['failed', true, { outcome: 'error', message: 'boom' }],
+            ['processing', false, { outcome: 'pending' }],
+            [undefined, undefined, { outcome: 'pending' }],
+        ] as const)('resolveScreenshotReadiness(%s, %s)', (status, hasContent, expected) => {
+            expect(resolveScreenshotReadiness(status, hasContent, 'boom')).toEqual(expected)
         })
     })
 
