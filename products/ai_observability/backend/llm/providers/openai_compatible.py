@@ -89,10 +89,10 @@ def _pinned_http_client(base_url: str, timeout: float) -> httpx.Client:
 
     Raises ``SSRFBlockedError`` before any connection is opened when validation fails.
     """
-    allowed, reason, pinned_ips = validate_url_and_pin_ips(base_url)
-    if not allowed:
-        raise SSRFBlockedError(reason or "URL blocked by SSRF protection")
-    return tagged_http_client(timeout=timeout, pin=(base_url, pinned_ips), follow_redirects=False)
+    verdict = validate_url_and_pin_ips(base_url)
+    if not verdict.allowed:
+        raise SSRFBlockedError(verdict.reason or "URL blocked by SSRF protection")
+    return tagged_http_client(timeout=timeout, pin=(base_url, verdict.pinned_ips), follow_redirects=False)
 
 
 class OpenAICompatibleAdapter(OpenAIAdapter):

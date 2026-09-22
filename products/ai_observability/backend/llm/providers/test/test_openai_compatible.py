@@ -6,7 +6,9 @@ import openai
 from parameterized import parameterized
 
 from posthog.security.pinned_requests import SSRFBlockedError
+from posthog.security.url_validation import PinnedUrlVerdict
 
+from products.ai_observability.backend.llm.errors import ProviderConfigurationError
 from products.ai_observability.backend.llm.providers import openai_compatible
 from products.ai_observability.backend.llm.providers.openai_compatible import (
     DISALLOWED_BASE_URL_MESSAGE,
@@ -160,13 +162,13 @@ class TestOpenAICompatibleAdapter:
     def test_complete_refuses_disallowed_base_url(self, _name, base_url):
         adapter = OpenAICompatibleAdapter(base_url=base_url)
 
-        with pytest.raises(ValueError, match="Base URL must be"):
+        with pytest.raises(ProviderConfigurationError, match="Base URL must be"):
             adapter.complete(_completion_request(), "test-key", AnalyticsContext())
 
     def test_stream_refuses_disallowed_base_url(self):
         adapter = OpenAICompatibleAdapter(base_url="")
 
-        with pytest.raises(ValueError, match="Base URL must be"):
+        with pytest.raises(ProviderConfigurationError, match="Base URL must be"):
             list(adapter.stream(_completion_request(), "test-key", AnalyticsContext()))
 
     @patch(OPENAI_PATCH_TARGET)
@@ -188,7 +190,11 @@ class TestOpenAICompatibleAdapter:
         # Validation runs while the client is built, so a URL that fails it is reported as an
         # invalid key rather than escaping as a 500. A rebind *after* this point is handled by
         # dialing the pinned address, not by this path.
-        with patch.object(openai_compatible, "validate_url_and_pin_ips", return_value=(False, "Internal IP", set())):
+        with patch.object(
+            openai_compatible,
+            "validate_url_and_pin_ips",
+            return_value=PinnedUrlVerdict(allowed=False, reason="Internal IP", pinned_ips=set()),
+        ):
             state, message = OpenAICompatibleAdapter.validate_key("test-key", base_url=ALLOWED_BASE_URL)
 
         assert state == "invalid"
@@ -196,7 +202,11 @@ class TestOpenAICompatibleAdapter:
         mock_openai.assert_not_called()
 
     def test_list_models_is_empty_when_the_endpoint_fails_validation(self):
-        with patch.object(openai_compatible, "validate_url_and_pin_ips", return_value=(False, "Internal IP", set())):
+        with patch.object(
+            openai_compatible,
+            "validate_url_and_pin_ips",
+            return_value=PinnedUrlVerdict(allowed=False, reason="Internal IP", pinned_ips=set()),
+        ):
             assert OpenAICompatibleAdapter.list_models("test-key", base_url=ALLOWED_BASE_URL) == []
 
     @patch(OPENAI_PATCH_TARGET)

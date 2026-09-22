@@ -14,7 +14,6 @@ from products.ai_observability.backend.api.models import (
     LLMModelsListResponseSerializer,
 )
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
-from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 
 class TestLLMModelInfoSerializer(SimpleTestCase):
