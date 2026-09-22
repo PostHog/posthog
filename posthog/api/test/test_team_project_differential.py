@@ -10,6 +10,7 @@ from posthog.api.team import TEAM_CONFIG_FIELDS
 from posthog.models.organization import OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_secret
 
 from products.dashboards.backend.models.dashboard import Dashboard
 
@@ -373,6 +374,9 @@ class TestWriteActionParity(DifferentialParityBase):
         project, team = Project.objects.create_with_team(
             organization=self.organization, name="Twin project", initiating_user=self.user
         )
+        # Minting a first legacy secret token is refused, so seed one to keep rotate_secret_token on its 200 path.
+        team.secret_api_token = generate_random_token_secret()
+        team.save()
         return project, team
 
     def _assert_team_shaped_parity(self, body_a: dict, body_b: dict) -> None:
