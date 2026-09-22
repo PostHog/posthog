@@ -25,9 +25,9 @@ table the read won't consult would be wasted ClickHouse work, so both are evalua
 both paths, so a warmed job is byte-identical to the one a real read would create — same query hash,
 same job, no poisoning and no access-control bypass.
 
-Rollout mirrors the web dimensional precompute job: the audience is a small built-in list on PostHog
-Cloud (`DEFAULT_ROLLOUT_TEAM_IDS`), fully overridable via the `MARKETING_PRECOMPUTE_TEAM_IDS` env var
-(comma-separated team IDs; set it to empty to disable). Self-hosted defaults to no teams.
+Reads are precompute-only, so the audience is every team that uses marketing analytics (has a
+conversion goal), discovered from `TeamMarketingAnalyticsConfig`. The `MARKETING_PRECOMPUTE_TEAM_IDS`
+env var overrides that (comma-separated team IDs; set it to empty to disable warming entirely).
 """
 
 import os
@@ -47,10 +47,10 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, check_for_concurrent_runs, chunk_ranges
 from posthog.models import Team
 from posthog.models.team.team import DEFAULT_CURRENCY
+from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 from posthog.settings import TEST
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -100,11 +100,9 @@ COST_MATERIALIZATION_GRAINS = (
     MarketingAnalyticsDrillDownLevel.AD,
 )
 
-# Built-in rollout audience used when the env var is unset: PostHog's internal dogfood project.
-# Applied on PostHog Cloud only (see get_selected_team_ids).
-DEFAULT_ROLLOUT_TEAM_IDS = [2]
-
-# Comma-separated team IDs to warm. Overrides DEFAULT_ROLLOUT_TEAM_IDS; set to empty to disable.
+# Comma-separated team IDs to warm. When set, it wins (an explicit override / kill switch: set it to
+# empty to disable warming entirely). When unset, the warmer discovers every team that uses marketing
+# analytics — see get_selected_team_ids.
 SELECTED_TEAM_IDS_ENV_VAR = "MARKETING_PRECOMPUTE_TEAM_IDS"
 
 _TOUCHPOINTS_TABLE_LABEL = LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED.value
@@ -129,16 +127,24 @@ MARKETING_PRECOMPUTE_TEAM_FAILED = Counter(
 
 
 def get_selected_team_ids() -> list[int]:
-    """Resolve the team allowlist.
+    """Resolve which teams to warm.
 
-    The env var wins if set (even to empty): a comma-separated list, blank/invalid entries skipped.
-    If unset, fall back to DEFAULT_ROLLOUT_TEAM_IDS — but only on PostHog Cloud; self-hosted defaults
-    to none so the job never warms unrelated teams that happen to share those IDs.
+    Reads are precompute-only, so every team that uses marketing analytics must be warmed or its
+    conversion-goal tiles report not-ready. The default audience is therefore every team with a
+    conversion goal configured — discovered from `TeamMarketingAnalyticsConfig`, not a static list.
+
+    The env var still wins when set (even to empty): a comma-separated override / kill switch, blank or
+    invalid entries skipped. Per-team flag and eligibility checks inside the warmer still gate what is
+    actually materialized, so this default is a safe superset.
     """
     raw = os.getenv(SELECTED_TEAM_IDS_ENV_VAR)
-    if raw is None:
-        return list(DEFAULT_ROLLOUT_TEAM_IDS) if is_cloud() else []
-    return [int(part.strip()) for part in raw.split(",") if part.strip().isdigit()]
+    if raw is not None:
+        return [int(part.strip()) for part in raw.split(",") if part.strip().isdigit()]
+    return list(
+        TeamMarketingAnalyticsConfig.objects.exclude(_conversion_goals=[])
+        .exclude(_conversion_goals__isnull=True)
+        .values_list("team_id", flat=True)
+    )
 
 
 def _ensure_chunks(
