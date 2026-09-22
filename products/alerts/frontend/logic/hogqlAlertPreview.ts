@@ -30,6 +30,7 @@ export type HogQLAlertPreview =
     | { status: 'bad-shape' }
     | { status: 'too-many-rows'; rowCount: number }
     | { status: 'last-row-truncated'; rowCount: number }
+    | { status: 'last-row-default-limit' }
     | { status: 'ambiguous-columns'; columnNames: string[] | null }
     | { status: 'missing-column'; column: string; columnNames: string[] | null }
     | { status: 'not-numeric'; value: string }
@@ -104,6 +105,11 @@ export function deriveHogQLAlertPreview(
     }
     if (mode === 'last_row' && rows.length >= HOGQL_LAST_ROW_MAX_ROWS) {
         return { status: 'last-row-truncated', rowCount: rows.length }
+    }
+    // `hasMore` is the query layer's own truncation flag: it paginates a select that declares no
+    // LIMIT and reads one row past the cut. last_row then reads the end of a page, not the newest row.
+    if (mode === 'last_row' && insightData?.hasMore === true) {
+        return { status: 'last-row-default-limit' }
     }
     const columnNames = Array.isArray(insightData?.columns) ? insightData.columns.map(String) : null
 

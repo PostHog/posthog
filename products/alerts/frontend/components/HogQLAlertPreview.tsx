@@ -112,6 +112,14 @@ function getHogQLPreviewBannerCopy(preview: Exclude<HogQLAlertPreview, { status:
                     (newest-first ordering), or the alert will fail to evaluate.
                 </>
             )
+        case 'last-row-default-limit':
+            return (
+                <>
+                    The query has no LIMIT, so the alert reads only the first page of its result and the last row isn't
+                    the newest. Add a LIMIT to the query, aggregate it, or switch to evaluating the first row
+                    (newest-first ordering), or the alert will fail to evaluate.
+                </>
+            )
         case 'bad-shape':
             return "The query result isn't plain rows of values. The alert requires a query returning rows with a numeric column."
         case 'ambiguous-columns':

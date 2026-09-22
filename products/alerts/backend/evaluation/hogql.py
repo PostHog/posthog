@@ -4,10 +4,11 @@ from typing import Any
 
 from posthog.schema import AlertCondition, AlertConditionType, HogQLAlertConfig, HogQLAlertEvaluation
 
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext, get_default_limit_for_context
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
+from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
 
@@ -27,7 +28,7 @@ _HOGQL_SUBJECT = "The SQL insight value"
 # Any-row alerts fail loud past this many rows: silently truncating could skip the breaching row
 # (a false negative), which is worse than asking the user to add a LIMIT or aggregate the query.
 # Deliberately conservative to start — easy to raise if users ask for more. Mirrored in the
-# frontend preview as ``HOGQL_ANY_ROW_MAX_ROWS`` (frontend/src/lib/components/Alerts/alertFormLogic.ts);
+# frontend preview as ``HOGQL_ANY_ROW_MAX_ROWS`` (products/alerts/frontend/logic/hogqlAlertPreview.ts);
 # keep the two in sync.
 ANY_ROW_MAX_ROWS = 50
 # last_row reads the tail, so a result truncated at HogQL's hard cap can't be trusted (the real
@@ -35,6 +36,9 @@ ANY_ROW_MAX_ROWS = 50
 # the head, which truncation never touches, so it has no such limit — use it (with a DESC ORDER BY)
 # for queries that would otherwise return too many rows.
 LAST_ROW_MAX_ROWS = MAX_SELECT_RETURNED_ROWS
+# The row count a query that declares no LIMIT of its own is cut to. Named in the error text so the
+# user knows how large a LIMIT to add.
+DEFAULT_ROW_LIMIT = get_default_limit_for_context(LimitContext.QUERY_ASYNC)
 _DEFAULT_HOGQL_CONFIG = {"type": "HogQLAlertConfig", "evaluation": "last_row"}
 
 
@@ -43,11 +47,22 @@ def hogql_config_or_default(raw: dict | None) -> HogQLAlertConfig:
     return HogQLAlertConfig.model_validate(raw or _DEFAULT_HOGQL_CONFIG)
 
 
+@frozen
+class _QueryResult:
+    """One SQL alert query run, as the extractors read it."""
+
+    rows: list
+    column_names: list[str] | None
+    # The query had rows the alert never received. Reported by the paginator the query layer
+    # attaches to a select that declares no LIMIT of its own, which reads one row past the cut.
+    truncated: bool
+
+
 def _calculate_rows_and_columns(
     insight: Insight, team: Any, *, user: Any, execution_mode: ExecutionMode
-) -> tuple[list, list[str] | None]:
-    """Run a SQL insight and return (rows, column_names) — the fetch-and-validate prologue shared by
-    the threshold and detector extractors. A ``None`` result means the query layer swallowed an error
+) -> _QueryResult:
+    """Run a SQL insight and return its rows — the fetch-and-validate prologue shared by the
+    threshold and detector extractors. A ``None`` result means the query layer swallowed an error
     (raise to avoid a misfire, matching trends); a non-list result is a malformed shape.
     """
     calculation_result = calculate_for_query_based_insight(
@@ -64,15 +79,21 @@ def _calculate_rows_and_columns(
         raise AlertExtractionError(f"SQL alert query returned an unexpected result shape ({type(rows).__name__}).")
     columns = calculation_result.columns if isinstance(calculation_result.columns, list) else None
     column_names = [str(c) for c in columns] if columns else None
-    return rows, column_names
+    return _QueryResult(
+        rows=rows,
+        column_names=column_names,
+        truncated=bool(calculation_result.has_more),
+    )
 
 
-def _check_row_caps(rows: list, evaluation: HogQLAlertEvaluation) -> None:
-    """Fail loud on a result the evaluation mode can't trust. last_row reads the tail, which HogQL's
-    hard cap can silently truncate (so the last row might not be the real one); any_row would skip a
-    breaching row past its cap. first_row reads the head (truncation-immune), so it has no cap. Shared
-    by the threshold and detector extractors so the guard can't drift between them.
+def _check_row_caps(result: _QueryResult, evaluation: HogQLAlertEvaluation) -> None:
+    """Fail loud on a result the evaluation mode can't trust. last_row reads the tail, which both
+    HogQL's hard cap and its default limit can silently truncate (so the last row might not be the
+    real one); any_row would skip a breaching row past its cap. first_row reads the head
+    (truncation-immune), so it has no cap. Shared by the threshold and detector extractors so the
+    guard can't drift between them.
     """
+    rows = result.rows
     if evaluation == HogQLAlertEvaluation.ANY_ROW and len(rows) > ANY_ROW_MAX_ROWS:
         raise AlertExtractionError(
             f"Any-row SQL alerts evaluate at most {ANY_ROW_MAX_ROWS} rows, but the query returned "
@@ -83,6 +104,12 @@ def _check_row_caps(rows: list, evaluation: HogQLAlertEvaluation) -> None:
             f"Last-row SQL alerts can't trust a result of {len(rows)}+ rows — it may be truncated, so "
             "the last row might not be the real one. Add ORDER BY ... LIMIT, aggregate, or use first-row "
             "evaluation with a newest-first ordering."
+        )
+    if evaluation == HogQLAlertEvaluation.LAST_ROW and result.truncated:
+        raise AlertExtractionError(
+            f"The query has no LIMIT, so the alert reads only its first {DEFAULT_ROW_LIMIT} rows and the last "
+            "one is not the newest. Add a LIMIT to the query, aggregate it, or use first-row evaluation with "
+            "a newest-first ordering."
         )
 
 
@@ -106,7 +133,7 @@ class HogQLExtractor:
 
     PREVIEW MIRROR CONTRACT: the configure-time preview re-implements this extractor's decision
     rules in TypeScript (``deriveHogQLAlertPreview`` in
-    frontend/src/lib/components/Alerts/alertFormLogic.ts) so the modal can preview instantly from
+    products/alerts/frontend/logic/hogqlAlertPreview.ts) so the modal can preview instantly from
     the already-loaded result. The mirror is advisory only — this extractor is the sole authority
     at evaluation time — but if you change any of these rules, update the mirror to match:
       1. value-column resolution: explicit ``column`` -> single column -> single numeric column
@@ -120,6 +147,7 @@ class HogQLExtractor:
       5. empty result evaluates as 0 (zero sentinel)
       6. any-row cap: ``ANY_ROW_MAX_ROWS`` (mirrored as ``HOGQL_ANY_ROW_MAX_ROWS``)
       7. anchor row: ``last_row`` reads the tail, ``first_row`` the head; both yield (previous, current)
+      8. a truncated result (``hasMore``) is rejected in last_row mode
     """
 
     def extract(
@@ -130,9 +158,10 @@ class HogQLExtractor:
         config = hogql_config_or_default(alert.config)
         evaluation = config.evaluation
 
-        rows, column_names = _calculate_rows_and_columns(
+        query_result = _calculate_rows_and_columns(
             insight, alert.team, user=alert.created_by, execution_mode=execution_mode
         )
+        rows, column_names = query_result.rows, query_result.column_names
         if len(rows) == 0:
             # No rows means the metric is genuinely 0 this check (matching trends), so a lower
             # bound can still breach.
@@ -146,7 +175,7 @@ class HogQLExtractor:
 
         # Checked before column resolution so an oversized result gets the clearer "too many rows"
         # error rather than a column-resolution one.
-        _check_row_caps(rows, evaluation)
+        _check_row_caps(query_result, evaluation)
 
         value_index = _resolve_value_column_index(config.column, column_names, rows)
 
@@ -220,14 +249,15 @@ def extract_hogql_detector_series(
             "entities, not a time series. Use last-row or first-row evaluation."
         )
 
-    rows, column_names = _calculate_rows_and_columns(insight, team, user=user, execution_mode=execution_mode)
+    query_result = _calculate_rows_and_columns(insight, team, user=user, execution_mode=execution_mode)
+    rows, column_names = query_result.rows, query_result.column_names
     if len(rows) == 0:
         return ExtractionResult(
             series=[], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False, empty_query_result=True
         )
     # last_row scores the tail as the current value, so the same truncation guard the threshold path
     # enforces applies here — a tail truncated at HogQL's hard cap would score the wrong "current" row.
-    _check_row_caps(rows, config.evaluation)
+    _check_row_caps(query_result, config.evaluation)
 
     value_index = _resolve_value_column_index(config.column, column_names, rows)
     # The series is the value column across every row, oldest->newest so the detector scores the
@@ -247,6 +277,14 @@ def extract_hogql_detector_series(
     # returning exactly the detector's minimum would be wrongly rejected as "not enough data".)
     min_samples = _compute_min_samples_for_detector(detector_config)
     if len(values) < min_samples:
+        if query_result.truncated:
+            # Uncomputed is the answer for a query that genuinely has too little history. A query
+            # cut at the default limit has more history than it returned, so reporting uncomputed
+            # here would hide the alert forever: it can never fill a window past the cap.
+            raise AlertExtractionError(
+                f"This alert scores {min_samples} rows, but the query has no LIMIT, so the alert reads only "
+                f"its first {DEFAULT_ROW_LIMIT}. Add a LIMIT of at least {min_samples} to the query."
+            )
         return ExtractionResult(series=[], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
 
     # Score only the most recent window the detector needs (current stays last). A SQL query can

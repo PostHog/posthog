@@ -31,10 +31,10 @@ def _alert(rows_config: dict | None = None, detector_config: dict | None = ZSCOR
     return alert
 
 
-def _extract(values, *, columns=None, rows_config=None, detector_config=ZSCORE):
+def _extract(values, *, columns=None, rows_config=None, detector_config=ZSCORE, has_more=False):
     rows = [[v] for v in values] if columns is None else values
     with patch(CALC_PATH) as calc:
-        calc.return_value = MagicMock(result=rows, columns=columns)
+        calc.return_value = MagicMock(result=rows, columns=columns, has_more=has_more)
         return HogQLDetectorExtractor().extract(
             _alert(rows_config, detector_config), MagicMock(), MagicMock(), EXEC_MODE
         )
@@ -72,6 +72,19 @@ def test_last_row_truncation_guard_rejects_a_capped_result():
     # must fail loud just like the threshold extractor rather than score a wrong "current" row.
     with pytest.raises(AlertExtractionError, match="may be truncated"):
         _extract([[1.0]] * LAST_ROW_MAX_ROWS, columns=["value"])
+
+
+def test_truncation_is_reported_instead_of_uncomputed():
+    # A window the cut result can never fill would otherwise report uncomputed on every check, so
+    # the alert stays silent forever. Fail loud instead.
+    with pytest.raises(AlertExtractionError, match="no LIMIT"):
+        _extract([1.0, 2.0, 3.0], rows_config={"evaluation": "first_row"}, has_more=True)
+
+
+def test_first_row_scores_a_truncated_result_that_fills_the_window():
+    # The head holds the newest rows, so a cut result the window still fits is scored as usual.
+    result = _extract([100.0, *STABLE_HISTORY], rows_config={"evaluation": "first_row"}, has_more=True)
+    assert result.series[0].points[-1].value == 100.0
 
 
 def test_first_row_reverses_so_the_head_is_current():
@@ -145,7 +158,7 @@ def test_extract_hogql_detector_series_is_alert_less():
     # The simulation reuses the alert-less builder directly (no AlertConfiguration).
     config = HogQLAlertConfig(type="HogQLAlertConfig", evaluation="last_row")
     with patch(CALC_PATH) as calc:
-        calc.return_value = MagicMock(result=[[v] for v in [*STABLE_HISTORY, 100.0]], columns=None)
+        calc.return_value = MagicMock(result=[[v] for v in [*STABLE_HISTORY, 100.0]], columns=None, has_more=False)
         result = extract_hogql_detector_series(
             MagicMock(), MagicMock(), config, ZSCORE, user=None, execution_mode=EXEC_MODE
         )

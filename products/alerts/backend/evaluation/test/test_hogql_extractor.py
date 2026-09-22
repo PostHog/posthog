@@ -41,9 +41,16 @@ def _threshold(type_=InsightThresholdType.ABSOLUTE, lower=None, upper=None):
     return InsightThreshold(type=type_, bounds=InsightsThresholdBounds(lower=lower, upper=upper))
 
 
-def _extract(rows, *, columns=None, condition_type=AlertConditionType.ABSOLUTE_VALUE, config: dict | None = None):
+def _extract(
+    rows,
+    *,
+    columns=None,
+    condition_type=AlertConditionType.ABSOLUTE_VALUE,
+    config: dict | None = None,
+    has_more=False,
+):
     with patch(CALC_PATH) as calc:
-        calc.return_value = MagicMock(result=rows, columns=columns)
+        calc.return_value = MagicMock(result=rows, columns=columns, has_more=has_more)
         return HogQLExtractor().extract(_alert(condition_type, config), MagicMock(), MagicMock(), _IF_STALE)
 
 
@@ -109,7 +116,7 @@ def test_evaluation_uses_saved_variable_values_not_session_overrides():
     # never reach evaluation. This is why the configure-time preview (which reads the user's
     # possibly-overridden cached result) can disagree with what the alert actually evaluates.
     with patch(CALC_PATH) as calc:
-        calc.return_value = MagicMock(result=[[5]], columns=["count"])
+        calc.return_value = MagicMock(result=[[5]], columns=["count"], has_more=False)
         HogQLExtractor().extract(_alert(), MagicMock(), MagicMock(), _IF_STALE)
     assert "variables_override" not in calc.call_args.kwargs
 
@@ -208,6 +215,25 @@ def test_last_row_fails_loud_when_result_hits_the_cap():
     rows = [[float(i)] for i in range(LAST_ROW_MAX_ROWS)]
     with pytest.raises(AlertExtractionError, match="may be truncated"):
         _extract(rows)
+
+
+@pytest.mark.parametrize(
+    "config,raises",
+    [
+        # The query layer cut rows the alert never saw, so the last row is the end of a page rather
+        # than the newest row, and the alert would grade stale data on every check.
+        ({}, True),
+        # first_row reads the head, which the cut never touches.
+        ({"evaluation": "first_row"}, False),
+    ],
+)
+def test_truncated_result(config, raises):
+    rows = [[1.0], [2.0], [3.0]]
+    if raises:
+        with pytest.raises(AlertExtractionError, match="no LIMIT"):
+            _extract(rows, config=config, has_more=True)
+    else:
+        assert _extract(rows, config=config, has_more=True).series
 
 
 def test_first_row_evaluates_the_head_newest_first():
