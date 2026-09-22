@@ -69,12 +69,11 @@ class TestHogQLExtractorFiltersPlaceholder(APIBaseTest, ClickhouseDestroyTablesM
 
 
 class TestHogQLExtractorDefaultRowLimit(APIBaseTest, ClickhouseDestroyTablesMixin):
-    """A query that sets no LIMIT is cut at HogQL's default row count and nothing says so, so
-    last-row evaluation would grade row 100 instead of the newest row, and an anomaly detector
-    could never fill a window past the cut. Pins that the alert fails loud on such a result,
-    and still evaluates one the query limited itself."""
+    """A query that sets no LIMIT is cut at the default row count and nothing says so, so last-row
+    evaluation would grade the end of a page instead of the newest row. Pins that the truncation
+    reaches the extractor as ``has_more`` on the real query path, which no mocked test can show."""
 
-    def _evaluate(self, query: str) -> float:
+    def _evaluate(self, query: str) -> float | None:
         insight = Insight.objects.create(
             team=self.team,
             query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": query}},
@@ -98,3 +97,7 @@ class TestHogQLExtractorDefaultRowLimit(APIBaseTest, ClickhouseDestroyTablesMixi
 
     def test_query_with_its_own_limit_evaluates_the_last_row(self) -> None:
         assert self._evaluate("SELECT number FROM numbers(200) ORDER BY number LIMIT 200") == 199.0
+
+    def test_short_result_without_a_limit_evaluates_normally(self) -> None:
+        # Nothing was cut, so a LIMIT-less query under the default row count still evaluates.
+        assert self._evaluate("SELECT number FROM numbers(3) ORDER BY number") == 2.0

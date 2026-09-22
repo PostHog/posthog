@@ -12,22 +12,6 @@ export const HOGQL_ANY_ROW_MAX_ROWS = 50
  * the true last row. first_row is immune — it reads the head. */
 export const HOGQL_LAST_ROW_MAX_ROWS = 50000
 
-/** Mirror of the backend's DEFAULT_ROW_LIMIT (= HogQL's DEFAULT_RETURNED_ROWS). A query that sets no
- * LIMIT of its own is cut here without saying so, so a result of exactly this size from such a query
- * is truncated, and last_row then reads row 100 instead of the newest row. */
-export const HOGQL_DEFAULT_ROW_LIMIT = 100
-
-/** Whether the query sets a LIMIT of its own, so the default row limit never applied to it.
- * Deliberately loose next to the backend, which parses the query: a LIMIT anywhere (a subquery, say)
- * suppresses the warning. The mirror is advisory, so a missed warning is better than a false one. */
-const declaresLimit = (source: string): boolean =>
-    /\blimit\b/i.test(
-        source
-            .replace(/--[^\n]*/g, '')
-            .replace(/\/\*[\s\S]*?\*\//g, '')
-            .replace(/'(?:[^'\\]|\\.)*'/g, "''")
-    )
-
 /** One result row as the alert would read it, for the configure-time preview table. */
 export interface HogQLAlertPreviewRow {
     /** Label-column value, falling back to the row number — mirrors the backend's row labeling. */
@@ -122,8 +106,9 @@ export function deriveHogQLAlertPreview(
     if (mode === 'last_row' && rows.length >= HOGQL_LAST_ROW_MAX_ROWS) {
         return { status: 'last-row-truncated', rowCount: rows.length }
     }
-    const source = typeof insightData?.query === 'string' ? insightData.query : null
-    if (mode === 'last_row' && rows.length === HOGQL_DEFAULT_ROW_LIMIT && source !== null && !declaresLimit(source)) {
+    // `hasMore` is the query layer's own truncation flag: it paginates a select that declares no
+    // LIMIT and reads one row past the cut. last_row then reads the end of a page, not the newest row.
+    if (mode === 'last_row' && insightData?.hasMore === true) {
         return { status: 'last-row-default-limit' }
     }
     const columnNames = Array.isArray(insightData?.columns) ? insightData.columns.map(String) : null

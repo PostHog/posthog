@@ -4,17 +4,13 @@ from typing import Any
 
 from posthog.schema import AlertCondition, AlertConditionType, HogQLAlertConfig, HogQLAlertEvaluation
 
-from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
-from posthog.hogql.parser import parse_select
-from posthog.hogql.resolver_utils import extract_select_queries
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext, get_default_limit_for_context
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
-from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS
-from posthog.utils import get_from_dict_or_attr
 
 from products.alerts.backend.evaluation.contract import (
     AlertExtractionError,
@@ -40,12 +36,9 @@ ANY_ROW_MAX_ROWS = 50
 # the head, which truncation never touches, so it has no such limit — use it (with a DESC ORDER BY)
 # for queries that would otherwise return too many rows.
 LAST_ROW_MAX_ROWS = MAX_SELECT_RETURNED_ROWS
-# HogQL gives a query that declares no LIMIT of its own one of exactly DEFAULT_RETURNED_ROWS rows,
-# and reports nothing about the cut. A result of exactly that size from such a query is therefore
-# the signature of a silent truncation: the tail is missing, so last-row evaluation grades the wrong
-# row and a detector window longer than the cap can never fill. Mirrored in the frontend preview as
-# ``HOGQL_DEFAULT_ROW_LIMIT`` (products/alerts/frontend/logic/hogqlAlertPreview.ts); keep in sync.
-DEFAULT_ROW_LIMIT = DEFAULT_RETURNED_ROWS
+# The row count a query that declares no LIMIT of its own is cut to. Named in the error text so the
+# user knows how large a LIMIT to add.
+DEFAULT_ROW_LIMIT = get_default_limit_for_context(LimitContext.QUERY_ASYNC)
 _DEFAULT_HOGQL_CONFIG = {"type": "HogQLAlertConfig", "evaluation": "last_row"}
 
 
@@ -60,36 +53,9 @@ class _QueryResult:
 
     rows: list
     column_names: list[str] | None
-    # True when the result carries the signature of HogQL's silent default-limit truncation.
-    maybe_truncated: bool
-
-
-def _hogql_source(insight: Insight) -> str | None:
-    """Return the SQL text of a HogQL insight, unwrapping the visualization node the query sits in."""
-    try:
-        query = insight.query
-        if get_from_dict_or_attr(query, "kind") in WRAPPER_NODE_KINDS:
-            query = get_from_dict_or_attr(query, "source")
-        source = get_from_dict_or_attr(query, "query")
-    except AttributeError:
-        return None
-    return source if isinstance(source, str) else None
-
-
-def _declares_limit(source: str | None) -> bool:
-    """True when every top-level select of the query sets its own LIMIT.
-
-    This is the same condition HogQL's executor tests before it injects the default limit, so a
-    query that fails it is one whose result the executor caps. An unparsable query can't have run,
-    so treating it as limitless costs nothing.
-    """
-    if not source:
-        return False
-    try:
-        select = parse_select(source)
-    except Exception:
-        return False
-    return all(one.limit is not None for one in extract_select_queries(select))
+    # The query had rows the alert never received. Reported by the paginator the query layer
+    # attaches to a select that declares no LIMIT of its own, which reads one row past the cut.
+    truncated: bool
 
 
 def _calculate_rows_and_columns(
@@ -116,7 +82,7 @@ def _calculate_rows_and_columns(
     return _QueryResult(
         rows=rows,
         column_names=column_names,
-        maybe_truncated=len(rows) == DEFAULT_ROW_LIMIT and not _declares_limit(_hogql_source(insight)),
+        truncated=bool(calculation_result.has_more),
     )
 
 
@@ -139,11 +105,11 @@ def _check_row_caps(result: _QueryResult, evaluation: HogQLAlertEvaluation) -> N
             "the last row might not be the real one. Add ORDER BY ... LIMIT, aggregate, or use first-row "
             "evaluation with a newest-first ordering."
         )
-    if evaluation == HogQLAlertEvaluation.LAST_ROW and result.maybe_truncated:
+    if evaluation == HogQLAlertEvaluation.LAST_ROW and result.truncated:
         raise AlertExtractionError(
-            f"The query has no LIMIT, so SQL insights cut its result at {DEFAULT_ROW_LIMIT} rows. That makes "
-            f"the last row row {DEFAULT_ROW_LIMIT}, not the newest one. Add a LIMIT to the query, aggregate it, "
-            "or use first-row evaluation with a newest-first ordering."
+            f"The query has no LIMIT, so the alert reads only its first {DEFAULT_ROW_LIMIT} rows and the last "
+            "one is not the newest. Add a LIMIT to the query, aggregate it, or use first-row evaluation with "
+            "a newest-first ordering."
         )
 
 
@@ -181,7 +147,7 @@ class HogQLExtractor:
       5. empty result evaluates as 0 (zero sentinel)
       6. any-row cap: ``ANY_ROW_MAX_ROWS`` (mirrored as ``HOGQL_ANY_ROW_MAX_ROWS``)
       7. anchor row: ``last_row`` reads the tail, ``first_row`` the head; both yield (previous, current)
-      8. default-limit truncation: ``DEFAULT_ROW_LIMIT`` (mirrored as ``HOGQL_DEFAULT_ROW_LIMIT``)
+      8. a truncated result (``hasMore``) is rejected in last_row mode
     """
 
     def extract(
@@ -311,13 +277,13 @@ def extract_hogql_detector_series(
     # returning exactly the detector's minimum would be wrongly rejected as "not enough data".)
     min_samples = _compute_min_samples_for_detector(detector_config)
     if len(values) < min_samples:
-        if query_result.maybe_truncated:
+        if query_result.truncated:
             # Uncomputed is the answer for a query that genuinely has too little history. A query
             # cut at the default limit has more history than it returned, so reporting uncomputed
             # here would hide the alert forever: it can never fill a window past the cap.
             raise AlertExtractionError(
-                f"This alert scores {min_samples} rows, but the query has no LIMIT, so SQL insights cut its "
-                f"result at {DEFAULT_ROW_LIMIT} rows. Add a LIMIT of at least {min_samples} to the query."
+                f"This alert scores {min_samples} rows, but the query has no LIMIT, so the alert reads only "
+                f"its first {DEFAULT_ROW_LIMIT}. Add a LIMIT of at least {min_samples} to the query."
             )
         return ExtractionResult(series=[], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
 
