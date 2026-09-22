@@ -25,6 +25,7 @@ from posthog.models.utils import UUIDModel
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
+    ActionabilityAssessment,
     ArtefactContent,
     ArtefactContentValidationError,
     ChannelAssignment,
@@ -330,6 +331,14 @@ class SignalReport(UUIDModel):
     # only as this count, which the inbox renders as one line instead of a wall of near-identical
     # entries.
     corroboration_count = models.IntegerField(null=True, blank=True)
+
+    # The `actionability` and `already_addressed` values of the report's newest
+    # `actionability_judgment` artefact, mirrored here when that artefact is written. The log stays
+    # the source of truth and renders the report; these two columns exist so the inbox's view
+    # filters can read the current judgment without a per-report subquery over the log. Null means
+    # no judgment has been made yet.
+    latest_actionability = models.CharField(max_length=40, null=True, blank=True)
+    latest_already_addressed = models.BooleanField(null=True, blank=True)
 
     # LLM-generated during signal matching
     title = models.TextField(null=True, blank=True)
@@ -1302,7 +1311,7 @@ class SignalReportArtefact(UUIDModel):
             ).exists()
         ):
             raise ArtefactContentValidationError("Claim must belong to this report and team.")
-        return cls.objects.create(
+        artefact = cls.objects.create(
             team_id=team_id,
             report_id=report_id,
             type=artefact_type_for(content),
@@ -1314,6 +1323,16 @@ class SignalReportArtefact(UUIDModel):
             claim_id=claim_id,
             channel_id=content.channel_id if isinstance(content, ChannelAssignment) else None,
         )
+        if isinstance(content, ActionabilityAssessment):
+            # Mirror the newest judgment onto the report it judges, in the same call that writes the
+            # artefact. The log stays the source of truth and renders the report; these two columns
+            # let the inbox view filters read the current judgment without a per-report subquery
+            # over the log. The content is already typed here, so no row is re-read or re-parsed.
+            SignalReport.objects.filter(team_id=team_id, id=report_id).update(
+                latest_actionability=content.actionability.value,
+                latest_already_addressed=content.already_addressed,
+            )
+        return artefact
 
     @classmethod
     def append_status(
