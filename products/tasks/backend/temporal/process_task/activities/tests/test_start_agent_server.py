@@ -334,6 +334,70 @@ async def test_combined_start_failure_records_step_statuses(mocker, error, expec
         assert record_step.call_args_list[1].args[:2] == ("agent_server_health", 120)
 
 
+@pytest.mark.parametrize(
+    ("activity", "boot_path"),
+    [(start_agent_server, "classic"), (await_agent_server_ready, "overlap")],
+)
+async def test_agent_server_boot_phases_are_recorded_as_step_metrics(mocker, activity, boot_path) -> None:
+    context = _context()
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.supports_combined_agent_server_start_and_health.return_value = False
+    sandbox.read_agent_server_boot_metrics.return_value = (
+        90,
+        {"context_fetch": 40, "repository_ready": 1200, "server_total": 1400},
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_sandbox_class_for_sandbox_id",
+        **{"return_value.get_by_id.return_value": sandbox},
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.current_activity_attempt",
+        return_value=1,
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._prepare_launch",
+        return_value=mocker.Mock(agentsh_domains=None),
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._invoke_start_agent_server"
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._record_agent_server_launch"
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._record_network_enforcement_observation"
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._spawn_post_ready_diagnostics"
+    )
+    mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server._launch_agent_shadow")
+    mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server.emit_agent_log")
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.update_state_atomic"
+    )
+    record_step = mocker.patch("products.tasks.backend.temporal.metrics.record_agent_server_step_ms")
+
+    await activity(
+        StartAgentServerInput(
+            context=context,
+            sandbox_id="sandbox-id",
+            sandbox_url="https://sandbox.example",
+            boot_path=boot_path,
+            used_snapshot=True,
+        )
+    )
+
+    assert [record.args for record in record_step.call_args_list] == [
+        ("agent_server_phase_context_fetch", 40, boot_path),
+        ("agent_server_phase_repository_ready", 1200, boot_path),
+        ("agent_server_phase_server_total", 1400, boot_path),
+    ]
+    assert all(
+        record.kwargs == {"used_snapshot": True, "origin_product": None, "runtime": "gvisor"}
+        for record in record_step.call_args_list
+    )
+
+
 @pytest.mark.parametrize(("attempt", "expects_relaunch"), [(1, False), (2, True), (3, True)])
 async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, attempt, expects_relaunch) -> None:
     context = _context()

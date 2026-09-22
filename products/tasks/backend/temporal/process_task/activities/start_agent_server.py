@@ -42,6 +42,7 @@ from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
     increment_agent_server_readiness_retry,
+    record_agent_server_boot_phases_ms,
     record_agent_server_session_init_ms,
     record_agent_server_step_ms,
     record_boot_total_ms,
@@ -795,6 +796,13 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             record_agent_server_session_init_ms(
                 session_init_ms, boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
             )
+        record_agent_server_boot_phases_ms(
+            boot_phases_ms,
+            input.boot_path,
+            used_snapshot=input.used_snapshot,
+            origin_product=ctx.origin_product,
+            runtime=runtime,
+        )
 
         boot_total_ms = _record_boot_total(input)
 
@@ -995,6 +1003,13 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
             record_agent_server_session_init_ms(
                 session_init_ms, boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
             )
+        record_agent_server_boot_phases_ms(
+            boot_phases_ms,
+            input.boot_path,
+            used_snapshot=input.used_snapshot,
+            origin_product=ctx.origin_product,
+            runtime=runtime,
+        )
 
         boot_total_ms = _record_boot_total(input)
 
