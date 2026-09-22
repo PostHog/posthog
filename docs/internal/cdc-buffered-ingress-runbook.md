@@ -4,7 +4,9 @@ How to move a Postgres CDC source from legacy extraction onto the S3 change buff
 it back.
 
 A source that turns on CDC starts on the buffer: setting up the slot also writes
-`cdc_ingest_mode = "buffered"`. Only a source that enabled CDC before that needs the flip.
+`cdc_ingest_mode = "buffered"`. Recreating a lost slot does the same, through "Repair CDC" or the
+automatic recovery when capture finds its slot invalidated, so a repaired legacy source comes back
+buffered. Only a healthy source that enabled CDC before that needs the flip.
 
 ## What changes
 

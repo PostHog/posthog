@@ -215,7 +215,7 @@ class TestRecreateSlot:
 
         fields = PostgresCDCAdapter().recreate_slot(source, tables=["users", "orders"])
 
-        assert fields == {"cdc_consistent_point": "0/AA"}
+        assert fields == {"cdc_consistent_point": "0/AA", "cdc_ingest_mode": "buffered"}
         mock_drop.assert_called_once()
         assert mock_drop.call_args.args[1] == "posthog_slot"
         mock_create.assert_called_once()
@@ -250,7 +250,7 @@ class TestRecreateSlot:
 
         fields = PostgresCDCAdapter().recreate_slot(source, tables=tables)
 
-        assert fields == {"cdc_consistent_point": "0/BB"}
+        assert fields == {"cdc_consistent_point": "0/BB", "cdc_ingest_mode": "buffered"}
         mock_create_slot_and_pub.assert_called_once()
         assert mock_create_slot_and_pub.call_args.args[1:3] == ("posthog_slot", "posthog_pub")
         assert mock_create_slot_and_pub.call_args.kwargs["tables"] == expected_pairs
@@ -305,7 +305,7 @@ class TestRecreateSlot:
 
         fields = PostgresCDCAdapter().recreate_slot(source, tables=["users"])
 
-        assert fields == {"cdc_consistent_point": "0/CC"}
+        assert fields == {"cdc_consistent_point": "0/CC", "cdc_ingest_mode": "buffered"}
         assert mock_create_slot.call_count == 2
         assert mock_drop.call_count == 2
 

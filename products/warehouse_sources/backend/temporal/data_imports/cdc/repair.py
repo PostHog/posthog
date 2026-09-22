@@ -4,7 +4,8 @@ Recovery counterpart of ``broken.mark_cdc_broken``: once the change-stream resou
 recreated (the safety net dropped the slot, or someone dropped it on the source database),
 repair recreates the engine-side resources against the stored CDC config, resets every
 active CDC schema to snapshot mode so it re-syncs from current table state, clears the
-``cdc_broken`` markers, and resumes the paused schedules.
+``cdc_broken`` markers, and resumes the paused schedules. The new slot starts on buffered
+ingress, so a repaired legacy source comes back buffered.
 
 WAL between the old slot's last confirmed position and the new slot's consistent point is
 gone — the re-snapshot covers current rows, but intermediate changes in that gap (including
