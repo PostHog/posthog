@@ -19,7 +19,7 @@ replica and report a conflict for a reservation that already resolved. This clie
 import json
 import uuid
 import hashlib
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
@@ -30,7 +30,6 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.api.tagged_item import current_tag_names
 from posthog.models.comment import Comment
 from posthog.redis import get_client
 
@@ -381,7 +380,7 @@ def _classify_held_value(key: str, held: Any, token: str) -> Reservation:
 
 # Compose opens a brand-new outbound ticket, so it hashes into its own keyspace — a compose retry
 # must never collapse onto a reply, or vice versa. Bump the version when the contents below change.
-_COMPOSE_KEY_PREFIX = "conversations:compose_dedupe:v4:"
+_COMPOSE_KEY_PREFIX = "conversations:compose_dedupe:v5:"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -391,6 +390,9 @@ class ComposeFingerprint:
     Two requests with the same fingerprint open the same outbound ticket: same team, sending
     channel, recipient, subject, first message, and resolved person link. ``build`` returns None
     for anything this guard must not collapse.
+
+    Tags are not part of the identity. The system tags a ticket after it is created (plan tier at
+    creation, then triage), so the ticket's live tags outgrow the request's and cannot identify it.
     """
 
     team_id: int
@@ -406,8 +408,6 @@ class ComposeFingerprint:
     # send identical content to the same recipient are two distinct tickets, so they must not
     # collapse — only a genuine retry from the same author does.
     creator_id: int | None
-    # Two composes that differ only by tags are distinct requests, not a replay of one another.
-    tags: frozenset[str]
 
     @classmethod
     def build(
@@ -421,7 +421,6 @@ class ComposeFingerprint:
         rich_content: Any,
         distinct_id: Any,
         creator_id: int | None,
-        tags: Iterable[str] = (),
     ) -> "ComposeFingerprint | None":
         if not email_config_id or not recipient_email or not isinstance(message, str) or not message:
             return None
@@ -434,7 +433,6 @@ class ComposeFingerprint:
             rich_content=rich_content,
             distinct_id=str(distinct_id or ""),
             creator_id=creator_id,
-            tags=frozenset(tags),
         )
 
     @property
@@ -449,7 +447,6 @@ class ComposeFingerprint:
                 "rich_content": self.rich_content,
                 "distinct_id": self.distinct_id,
                 "creator_id": self.creator_id,
-                "tags": sorted(self.tags),
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -481,9 +478,6 @@ class ComposeFingerprint:
         # The author is the opening comment's creator, so a different agent's identical compose is
         # a distinct ticket even when everything else matches.
         if first.created_by_id != self.creator_id:
-            return False
-        # A retry that adds or drops a tag must not replay a differently-tagged ticket.
-        if current_tag_names(ticket) != self.tags:
             return False
         return True
 

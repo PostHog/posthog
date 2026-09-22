@@ -170,7 +170,7 @@ def link_report_tracker_issues(self, team_id: int, task_id: str, pr_url: str) ->
     """Write a task's new pull request body: the Origin section and the tracker issue cross-reference.
 
     Both edits share this task so they run in sequence. Two tasks would race on the same body and
-    keep failing each other's etag check.
+    keep failing each other's changed-body check.
     """
     report_ids = (
         SignalReport.objects.filter(team_id=team_id)
@@ -610,6 +610,74 @@ def open_implementation_pr_for_review(team_id: int, report_id: str, pr_url: str)
     Unlike assignment, a retry could also fight a reviewer who redrafted the pull request in between.
     """
     open_pull_request_ready_for_review(team_id=team_id, report_id=report_id, pr_url=pr_url)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.move_merged_report_signals",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def move_merged_report_signals(team_id: int, survivor_report_id: str, source_report_ids: list[str]) -> None:
+    """Re-emit every merged-away report's ClickHouse signals under the surviving report's id.
+
+    Runs on a worker because the merge's own transaction must not wait on a ClickHouse read plus
+    one embedding emission per signal. The Postgres half of the merge is already committed and the
+    survivor's counters were taken from the source rows, so the report is consistent while this is
+    in flight; what the move buys is semantic search and future grouping pointing at the survivor.
+    Best-effort, so this never retries: grouping follows the merge pointer in the meantime
+    (`report_merge.merge_survivor`), which is what keeps a signal from re-attaching to the
+    duplicate before the rows land.
+    """
+    from products.signals.backend.report_merge import (  # noqa: PLC0415 — keeps the merge module off the celery import path
+        merge_survivor,
+    )
+    from products.signals.backend.temporal.signal_queries import (  # noqa: PLC0415 — keeps the temporal and hogql deps off the import path
+        reassign_report_signals,
+    )
+
+    team = Team.objects.get(pk=team_id)
+    # Two merges in quick succession (A into B, then B into C) queue two tasks that can run out of
+    # order, so the survivor recorded at merge time may itself be merged away by now. Follow the
+    # chain here instead, or A's signals land under the archived B and never reach C.
+    survivor = SignalReport.objects.filter(team_id=team_id, id=survivor_report_id).first()
+    if survivor is None:
+        logger.warning(
+            "signals_merged_report_signals_survivor_missing",
+            team_id=team_id,
+            survivor_report_id=survivor_report_id,
+        )
+        return
+    survivor_report_id = str(merge_survivor(survivor).id)
+
+    for source_report_id in source_report_ids:
+        try:
+            moved = reassign_report_signals(
+                source_report_id=source_report_id,
+                survivor_report_id=survivor_report_id,
+                team_id=team_id,
+                team=team,
+            )
+        except SoftTimeLimitExceeded:
+            # Celery's own termination signal. Swallowing it would defeat the soft time limit.
+            raise
+        except Exception:
+            # Each source is an independent ClickHouse read plus its own emissions, and the task
+            # does not retry, so one source's failure must not strand the sources after it.
+            logger.exception(
+                "signals_merged_report_signals_move_failed",
+                team_id=team_id,
+                survivor_report_id=survivor_report_id,
+                source_report_id=source_report_id,
+            )
+            continue
+        logger.info(
+            "signals_merged_report_signals_moved",
+            team_id=team_id,
+            survivor_report_id=survivor_report_id,
+            source_report_id=source_report_id,
+            signal_count=moved,
+        )
 
 
 def _capture_refund_sync_event(refund: SignalReportRefund, event: str, extra: dict[str, object]) -> None:
