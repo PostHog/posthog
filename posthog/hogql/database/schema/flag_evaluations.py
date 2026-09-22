@@ -26,7 +26,10 @@ FLAG_EVALUATIONS_CLICKHOUSE_TABLE = "flag_evaluations"
 # applies it for every team instead of following the mode, because the mode decides where person properties
 # come from and this table stores none. A team on a non-override mode therefore reads a merge-aware person
 # here, and from `events` the write-time person until the squash rewrites it.
-# The table and its `poe` subtable share this one field, so `person_id` and `person.id` cannot disagree.
+# The table and its `poe` subtable both read this name, but pydantic deep-copies mutable field defaults
+# per instantiation and the catalog is pickled per build, so they are separate objects that carry the
+# same expression rather than one shared field. The tests in test_flag_evaluations.py select `person_id`
+# and `person.id` together, so the two drifting apart fails there.
 _PERSON_ID = ExpressionField(
     name="person_id",
     expr=parse_expr(
@@ -97,14 +100,23 @@ class FlagEvaluationsTable(Table):
             nullable=False,
             description="When the row was written to ClickHouse; later than `created_at` by the ingestion lag.",
         ),
-        # The person written onto the row at ingestion time. Nothing rewrites it when a later identify or
-        # merge joins that person to another, so it is hidden behind `person_id`, which corrects it.
-        "flag_evaluation_person_id": UUIDDatabaseField(name="person_id", nullable=False, hidden=True),
-        # Joined only when a query reads `person_id`, so every other query pays nothing for it.
+        # Left visible because it is the only person filter the `person_id_idx` bloom filter can serve,
+        # and a hidden field reaches neither the schema browser nor `system.information_schema.columns`.
+        "flag_evaluation_person_id": UUIDDatabaseField(
+            name="person_id",
+            nullable=False,
+            description="The person written onto the row at ingestion time, before any later identify or "
+            "merge. Unlike `person_id` it is a stored column, so filtering on it can use the table's index; "
+            "it stays stale until the person-overrides squash rewrites it.",
+        ),
+        # Joined only when a query reads `person_id`, so every other query pays nothing for it. Hidden
+        # because it is an implementation detail of that correction: it carries person columns the row
+        # does not store, and `person` is the documented way to reach the person.
         "override": LazyJoin(
             from_field=["distinct_id"],
             join_table=PersonDistinctIdOverridesTable(),
             resolver=PERSON_DISTINCT_ID_OVERRIDES,
+            hidden=True,
         ),
         "person_id": _PERSON_ID,
         "flag_key": StringDatabaseField(
