@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, Optional, Union, cast
 import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import PropertyOperatorType
+from posthog.constants import FILTER_TEST_ACCOUNTS, PROPERTIES, PropertyOperatorType
 from posthog.exceptions_capture import capture_exception
 from posthog.schema_enums import PropertyOperator
 
@@ -165,3 +165,21 @@ def _expand_cohort_property(property: Property, team: "Team") -> PropertyGroup:
     return simplified_cohort_filter_properties(
         cohort, team, property.negation or property.operator == PropertyOperator.NOT_IN.value
     )
+
+
+def parse_properties_for_team(data: dict, team: "Team") -> PropertyGroup:
+    """Parse a filter dict's properties and resolve them against the team.
+
+    Folds in the team's test-account filters when the dict asks for them, then expands
+    cohorts, matching what a team-bound filter used to produce.
+    """
+    parsed = parse_property_group_data(data.get(PROPERTIES))
+
+    if data.get(FILTER_TEST_ACCOUNTS) in (True, "true"):
+        test_accounts = {"type": "AND", "values": team.test_account_filters}
+        existing = parsed.to_dict()
+        parsed = parse_property_group_data(
+            {"type": "AND", "values": [test_accounts, existing]} if existing else test_accounts
+        )
+
+    return expand_cohort_properties(parsed, team)

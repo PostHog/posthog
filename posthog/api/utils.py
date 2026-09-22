@@ -29,6 +29,7 @@ from urllib3 import HTTPConnectionPool, HTTPSConnectionPool, PoolManager
 from posthog.schema import QueryTiming
 
 from posthog.api.documentation import extend_schema
+from posthog.constants import LIMIT, OFFSET
 from posthog.exceptions import (
     RequestParsingError,
     UnspecifiedCompressionFallbackParsingError,
@@ -745,3 +746,10 @@ def log_activity_from_viewset(
         )
     except:
         pass
+
+
+def paging_params(request: request.Request) -> tuple[int, int]:
+    """Read the `limit` and `offset` query params, defaulting either to 0 when absent or empty."""
+    limit_raw = request.GET.get(LIMIT)
+    offset_raw = request.GET.get(OFFSET)
+    return (int(limit_raw) if limit_raw else 0, int(offset_raw) if offset_raw else 0)

@@ -23,7 +23,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.models.property import GroupTypeIndex, Property, PropertyGroup, PropertyValidationError
-from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
+from posthog.models.property.parse import parse_properties_for_team
 from posthog.models.property.relative_date import relative_date_parse_for_feature_flag_matching
 from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
@@ -143,16 +143,7 @@ def replace_proxy_properties(team: Team, feature_flag_condition: dict) -> Proper
     # a 400. Cohort ids are cast eagerly so a bad id fails here instead of surfacing as a bare
     # ValueError from deep inside query building.
     try:
-        parsed = parse_property_group_data(feature_flag_condition.get("properties"))
-
-        if feature_flag_condition.get("filter_test_accounts"):
-            test_accounts = {"type": "AND", "values": team.test_account_filters}
-            existing = parsed.to_dict()
-            parsed = parse_property_group_data(
-                {"type": "AND", "values": [test_accounts, existing]} if existing else test_accounts
-            )
-
-        prop_groups = expand_cohort_properties(parsed, team)
+        prop_groups = parse_properties_for_team(feature_flag_condition, team)
 
         for prop in prop_groups.flat:
             if prop.type in ("cohort", "static-cohort", "precalculated-cohort"):
