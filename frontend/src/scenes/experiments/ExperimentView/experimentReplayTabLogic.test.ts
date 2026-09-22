@@ -1091,9 +1091,8 @@ describe('experimentReplayTabLogic', () => {
     })
 
     it('reports a failed first page with the backend reason, and clears it on the next list', async () => {
-        // The playlist's own banner says "Error while trying to load recordings." for every
-        // failure, so without the detail neither the viewer nor a reader of the event can tell a
-        // refusal this experiment can never escape from a wait-and-retry.
+        // Without the detail, neither the viewer nor a reader of the event can tell a refusal this
+        // experiment can never escape from a wait-and-retry.
         const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
         const failures = (): any[] =>
             captureSpy.mock.calls.filter(

@@ -26,6 +26,7 @@ import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToN
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { RecordingsUniversalFiltersEmbedButton } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { ListLoadErrorBanner } from 'scenes/session-recordings/playlist/ListLoadErrorBanner'
 import { playlistFiltersLogic } from 'scenes/session-recordings/playlist/playlistFiltersLogic'
 import { SessionRecordingPreview } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
@@ -412,12 +413,12 @@ const TitleWithCount = ({ title, count }: { title?: string; count: number }): JS
 }
 
 const ListEmptyState = ({ listEmptyState }: Pick<PlaylistProps, 'listEmptyState'>): JSX.Element => {
-    const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
+    const { sessionRecordingsAPIError, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
         <div className="p-3 text-sm text-secondary">
-            {sessionRecordingsAPIErrored ? (
-                <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
+            {sessionRecordingsAPIError ? (
+                <ListLoadErrorBanner error={sessionRecordingsAPIError} />
             ) : unusableEventsInFilter.length ? (
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
             ) : (
@@ -436,12 +437,12 @@ const CollectionEmptyState = ({
     isSynthetic?: boolean
     description?: string
 }): JSX.Element => {
-    const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
+    const { sessionRecordingsAPIError, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
         <div className="p-3 text-sm text-secondary">
-            {sessionRecordingsAPIErrored ? (
-                <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
+            {sessionRecordingsAPIError ? (
+                <ListLoadErrorBanner error={sessionRecordingsAPIError} />
             ) : unusableEventsInFilter.length ? (
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
             ) : isSynthetic ? (

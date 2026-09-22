@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { BROWSER_FETCH_FAILURE_MESSAGES } from 'lib/api-error'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -121,6 +122,37 @@ describe('apiStatusLogic', () => {
 
             expect(errorSpy).not.toHaveBeenCalled()
             errorSpy.mockRestore()
+        })
+    })
+    describe('connection issues', () => {
+        // Chromium, WebKit and Gecko each word a failed fetch differently, and the banner has to
+        // come up on all three.
+        it.each(BROWSER_FETCH_FAILURE_MESSAGES.map((message) => [message]))(
+            'raises the connection issue for "%s"',
+            async (message: string) => {
+                // Without the common logics, no other response cancels this call's breakpoint.
+                initKeaTests(false)
+                logic = apiStatusLogic()
+                logic.mount()
+
+                logic.actions.onApiResponse(undefined, new TypeError(message))
+
+                await expectLogic(logic)
+                    .toDispatchActions(['setInternetConnectionIssue'])
+                    .toMatchValues({ internetConnectionIssue: true })
+            }
+        )
+
+        it('leaves the connection issue alone for a failure that reached the server', async () => {
+            initKeaTests(false)
+            logic = apiStatusLogic()
+            logic.mount()
+
+            logic.actions.onApiResponse(undefined, new TypeError('recording.map is not a function'))
+
+            await expectLogic(logic)
+                .toNotHaveDispatchedActions(['setInternetConnectionIssue'])
+                .toMatchValues({ internetConnectionIssue: false })
         })
     })
 })
