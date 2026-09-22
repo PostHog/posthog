@@ -57,7 +57,7 @@
         {
             "id": "action_delay_0199e2c6-2a1b-7c3d-8e4f-000000000001",
             "name": "Delay",
-            "description": "",
+            "description": "Wait for 1 day.",
             "on_error": null,
             "filters": null,
             "created_at": 1758540060000,
@@ -70,7 +70,7 @@
         {
             "id": "action_function_email_0199e2c6-2a1b-7c3d-8e4f-000000000002",
             "name": "Email",
-            "description": "",
+            "description": "Send an email to the user.",
             "on_error": null,
             "filters": null,
             "created_at": 1758540120000,

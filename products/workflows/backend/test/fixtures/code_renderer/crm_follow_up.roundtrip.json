@@ -37,6 +37,7 @@
         {
             "id": "tell_the_crm",
             "name": "Tell the CRM",
+            "description": "Push the deal to the CRM.",
             "type": "function",
             "config": {
                 "template_id": "template-webhook",
@@ -56,6 +57,7 @@
         {
             "id": "which_plan",
             "name": "Which plan?",
+            "description": "Split the path on the plan the person is on.",
             "type": "conditional_branch",
             "config": {
                 "conditions": [
@@ -97,6 +99,7 @@
         {
             "id": "tell_the_crm_2",
             "name": "Tell the CRM",
+            "description": "Push the deal to the CRM.",
             "type": "function",
             "config": {
                 "template_id": "template-webhook",
