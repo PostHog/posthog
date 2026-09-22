@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
@@ -11,6 +11,7 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import {
     AnyResponseType,
     WebAnalyticsPreComputeStrategy,
+    WebVitalsMetric,
     WebVitalsMetricBand,
     WebVitalsPathBreakdownQuery,
     WebVitalsPathBreakdownQueryResponse,
@@ -37,10 +38,12 @@ export function WebVitalsPathBreakdown(props: {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `WebVitalsPathBreakdown.${uniqueNode++}`)
 
+    const [cachedMetricResult, rememberMetricResult] = useMetricResponseCache(props.query)
+
     const logic = dataNodeLogic({
         query: props.query,
         key,
-        cachedResults: props.cachedResults,
+        cachedResults: props.cachedResults ?? cachedMetricResult,
         loadPriority,
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
@@ -49,6 +52,14 @@ export function WebVitalsPathBreakdown(props: {
     useAttachedLogic(logic, props.attachTo)
 
     const { response, responseLoading } = useValues(logic)
+
+    useEffect(() => {
+        // While a load is in flight the response still holds the previous metric, so storing it
+        // here would file one metric's numbers under another's.
+        if (response && !responseLoading) {
+            rememberMetricResult(response)
+        }
+    }, [response, responseLoading, rememberMetricResult])
 
     // Properly type it before passing to Content
     const webVitalsQueryResponse = response as WebVitalsPathBreakdownQueryResponse | undefined
@@ -76,6 +87,35 @@ export function WebVitalsPathBreakdown(props: {
             </div>
         </div>
     )
+}
+
+/**
+ * A metric tab switch only changes `metric` and `thresholds`, so the new query percentiles the same
+ * unmaterialized property over the same events again. Hold each metric's response while the rest of
+ * the query is unchanged, so a tab the person already opened costs no query at all.
+ */
+function useMetricResponseCache(
+    query: WebVitalsPathBreakdownQuery
+): [AnyResponseType | undefined, (response: AnyResponseType) => void] {
+    const { metric, thresholds, ...queryWithoutMetric } = query
+    const filtersKey = JSON.stringify(queryWithoutMetric)
+
+    const cache = useRef<{ filtersKey: string; byMetric: Partial<Record<WebVitalsMetric, AnyResponseType>> }>({
+        filtersKey,
+        byMetric: {},
+    })
+    if (cache.current.filtersKey !== filtersKey) {
+        cache.current = { filtersKey, byMetric: {} }
+    }
+
+    const remember = useCallback(
+        (response: AnyResponseType): void => {
+            cache.current.byMetric[metric] = response
+        },
+        [metric]
+    )
+
+    return [cache.current.byMetric[metric], remember]
 }
 
 const Header = ({ band, label }: { band: WebVitalsMetricBand; label: string }): JSX.Element => {
