@@ -5,6 +5,10 @@ import { NotebookBtw } from './NotebookBtw'
 const meta: Meta<typeof NotebookBtw> = {
     title: 'Scenes-App/Notebooks/Btw mode',
     component: NotebookBtw,
+    parameters: {
+        layout: 'fullscreen',
+        testOptions: { snapshotTargetSelector: '.LemonModal' },
+    },
     args: {
         session: {
             panelId: 'notebook-btw-story',

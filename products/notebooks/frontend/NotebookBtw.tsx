@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 
 import { LemonModal } from '@posthog/lemon-ui'
 
-import { useAttachedContext, useComposerOverride, useWelcomeOverride } from 'products/posthog_ai/frontend/api/logics'
+import { useComposerOverride, useWelcomeOverride } from 'products/posthog_ai/frontend/api/logics'
 import { SidePanelRunner } from 'products/posthog_ai/frontend/api/runner'
 
 import { getNotebookBtwContext } from './notebookBtwContext'
@@ -19,7 +19,6 @@ const COMPOSER_OVERRIDE = {
 
 export function NotebookBtw({ session, onClose }: { session: NotebookBtwSession; onClose: () => void }): JSX.Element {
     const contextItems = useMemo(() => getNotebookBtwContext(session.context), [session.context])
-    useAttachedContext(contextItems)
     useComposerOverride(COMPOSER_OVERRIDE)
     useWelcomeOverride(['What would you like to know?'])
 
@@ -32,7 +31,7 @@ export function NotebookBtw({ session, onClose }: { session: NotebookBtwSession;
             width={640}
         >
             <div className="flex h-[65vh] min-h-0 flex-col overflow-hidden">
-                <SidePanelRunner panelId={session.panelId} attachApplyBackInstructions={false} />
+                <SidePanelRunner panelId={session.panelId} contextItems={contextItems} attachApplyBackInstructions={false} />
             </div>
         </LemonModal>
     )

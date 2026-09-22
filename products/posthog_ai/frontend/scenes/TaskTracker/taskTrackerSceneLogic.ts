@@ -82,6 +82,8 @@ export type PersistedRepositoryConfig = Pick<RepositoryConfig, 'integrationId' |
 // `urlToAction` cleanup (main-app navigation must never release a side panel's in-flight creation).
 export interface TaskTrackerSceneLogicProps {
     panelId?: string
+    /** Context exclusive to an embedded runner. */
+    contextItems?: AttachedContextItem[]
 }
 
 const LAST_REPOSITORY_CONFIG_STORAGE_KEY = 'posthog_ai.tasks.lastRepositoryConfig'
@@ -669,7 +671,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // pane renders, and survives across the React swap into the detail page (which adopts the same
             // instance by binding this `streamKey`). Released by `clearActiveCreation` (failure / leaving the run).
             const streamKey = `draft-${uuid()}`
-            const seededContext = values.contextItems
+            const seededContext = props.contextItems ?? values.contextItems
             actions.claimApplyBackTargets(streamKey)
             const stream = runStreamLogic({ streamKey })
             const interaction = runInteractionLogic({
@@ -682,6 +684,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 currentMode: permissionMode,
                 currentRuntimeAdapter:
                     values.isDefaultSelection && !values.defaultRuntimeAdapter ? null : values.composerAdapter,
+                contextItems: props.contextItems,
             })
             cache.disposables.add(
                 () => {

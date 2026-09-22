@@ -8,6 +8,7 @@ import { useAttachedContext } from '../../../hooks/useAttachedContext'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
 import { composerOverrideLogic } from '../../../logics/composerOverrideLogic'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../../../utils/posthogContextBlock'
+import type { AttachedContextItem } from '../../../types/contextTypes'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { StartupRunChat } from './StartupRunChat'
 import { TaskComposer } from './TaskComposer'
@@ -19,6 +20,8 @@ export interface SidePanelRunnerImplProps {
     panelId: string
     composer?: ReactNode
     attachApplyBackInstructions?: boolean
+    /** Context exclusive to this runner, rather than the app-wide attached-context registry. */
+    contextItems?: AttachedContextItem[]
 }
 
 /**
@@ -32,10 +35,11 @@ export function SidePanelRunnerImpl({
     panelId,
     composer,
     attachApplyBackInstructions = true,
+    contextItems,
 }: SidePanelRunnerImplProps): JSX.Element {
     return (
-        <BindLogic logic={taskTrackerSceneLogic} props={{ panelId }}>
-            <SidePanelRunnerContent composer={composer} attachApplyBackInstructions={attachApplyBackInstructions} />
+        <BindLogic logic={taskTrackerSceneLogic} props={{ panelId, contextItems }}>
+            <SidePanelRunnerContent composer={composer} attachApplyBackInstructions={attachApplyBackInstructions} contextItems={contextItems} />
         </BindLogic>
     )
 }
@@ -43,9 +47,11 @@ export function SidePanelRunnerImpl({
 function SidePanelRunnerContent({
     composer,
     attachApplyBackInstructions,
+    contextItems,
 }: {
     composer?: ReactNode
     attachApplyBackInstructions: boolean
+    contextItems?: AttachedContextItem[]
 }): JSX.Element {
     const { activeCreation, historyExpanded } = useValues(taskTrackerSceneLogic)
     const { composerOverride } = useValues(composerOverrideLogic)
@@ -116,11 +122,12 @@ function SidePanelRunnerContent({
                         initialDraft={activeCreation.draft}
                         onDraftAdopted={() => setStartupDraft('')}
                         autoFocus={startupFocusedRef.current}
+                        contextItems={contextItems}
                     />
                 </div>
             ) : (
                 <div className="flex-1 min-h-0 px-4">
-                    <StartupRunChat streamKey={activeCreation.streamKey} focusedRef={startupFocusedRef} />
+                    <StartupRunChat streamKey={activeCreation.streamKey} focusedRef={startupFocusedRef} contextItems={contextItems} />
                 </div>
             )}
         </div>

@@ -6,16 +6,19 @@ import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 import { RunEscapeBoundary, type RunEscapeBoundaryProps } from '../../../components/RunEscapeBoundary'
 import { runInteractionLogic, type RunInteractionLogicProps } from '../../../logics/runInteractionLogic'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
+import type { AttachedContextItem } from '../../../types/contextTypes'
 import { TaskRunComposer } from './TaskRunComposer'
 
 export function StartupRunChat({
     streamKey,
     focusedRef,
     escapeScope = 'composer',
+    contextItems,
 }: {
     streamKey: string
     focusedRef?: MutableRefObject<boolean>
     escapeScope?: RunEscapeBoundaryProps['scope']
+    contextItems?: AttachedContextItem[]
 }): JSX.Element {
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const flushDraftRef = useRef<() => void>(() => {})
@@ -26,6 +29,7 @@ export function StartupRunChat({
         streamKey,
         interactionKey: streamKey,
         flushDraft: () => flushDraftRef.current(),
+        contextItems,
     }
     const interaction = runInteractionLogic(logicProps)
     const { handleEscape } = useActions(interaction)

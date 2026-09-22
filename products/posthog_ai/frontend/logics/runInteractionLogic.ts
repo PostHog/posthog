@@ -76,6 +76,8 @@ export interface RunInteractionLogicProps {
     initialDraft?: string
     onDraftAdopted?: () => void
     flushDraft?: () => void
+    /** Context exclusive to the runner that owns this interaction. */
+    contextItems?: AttachedContextItem[]
     /** The run's stored model / reasoning effort / launch mode, injected by the consumer. They seed the picker's
      * display and the config a terminal-run send launches the next run with (override ?? this ?? default). */
     currentModel?: string | null
@@ -1004,7 +1006,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         // text is intentional, e.g. consecutive error snippets).
         pendingContextItems: [
             (s) => [
-                s.contextItems,
+                (_, p: RunInteractionLogicProps) => p.contextItems ?? s.contextItems,
                 s.sentContextKeysByTask,
                 s.seenContextLinesByTask,
                 (_, p: RunInteractionLogicProps) => p.taskId,
