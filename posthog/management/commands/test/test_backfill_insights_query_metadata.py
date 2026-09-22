@@ -2,7 +2,7 @@ from posthog.test.base import BaseTest
 
 from django.core.management import call_command
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestBackfillInsightsQueryMetadata(BaseTest):

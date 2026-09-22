@@ -1,6 +1,6 @@
 from unittest.mock import Mock, patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 
@@ -385,7 +385,7 @@ class TestQueryEventsExtractor(TestCase):
         self.assertCountEqual(result, [])
 
 
-class TestQueryPropertiesExtractor(TestCase):
+class TestQueryPropertiesExtractor(SimpleTestCase):
     def setUp(self):
         self.extractor = QueryPropertiesExtractor()
 
@@ -536,7 +536,7 @@ class TestQueryPropertiesExtractor(TestCase):
         self.assertEqual(len(result), MAX_PROPERTIES_PER_QUERY_METADATA)
 
 
-class TestExtractQueryMetadata(TestCase):
+class TestExtractQueryMetadata(SimpleTestCase):
     def test_includes_events_and_properties(self):
         metadata = extract_query_metadata(
             {
