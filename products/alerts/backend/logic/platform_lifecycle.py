@@ -12,6 +12,9 @@ from django.db.models import Exists, OuterRef, Q
 
 from products.alerts.backend.facade.contracts import (
     AlertEventKind,
+    EvaluationAnnouncement,
+    GroupTransition,
+    Notification,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
@@ -283,3 +286,54 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
         },
     )
     return created
+
+
+def _fan_in(transitions: tuple[GroupTransition, ...]) -> tuple[Notification, ...]:
+    """Collapses N alert instances into the messages that announce them.
+
+    One message carrying every transition, until a configuration can say otherwise. How far to
+    collapse is a policy rather than a default: an alert grouped by service wants one message
+    naming all fifty, and an alert grouped by error identity wants a message per identity that
+    a person can resolve on its own. This is the only place that policy changes, because
+    delivery already reads a list.
+    """
+    if not transitions:
+        return ()
+    return (Notification(notification_key="", transitions=transitions),)
+
+
+def announcement(team_id: int, configuration_id: str, evaluation_key: str) -> EvaluationAnnouncement | None:
+    """What delivery says about one evaluation, read back out of history.
+
+    Only the rows that announced something. A check that confirmed the alert is recorded for
+    a comparison to read and has nothing to send.
+
+    Nothing here reads the configuration, so a rename between the root message and a reply
+    cannot make one thread contradict itself. A deleted configuration cascades these rows
+    away, so it reaches the same empty answer without needing its own check.
+    """
+    events = list(
+        PlatformAlertEvent.objects.for_team(team_id)
+        .filter(alert__configuration_id=configuration_id, evaluation_key=evaluation_key)
+        .exclude(kind=PlatformAlertEvent.Kind.CHECK)
+        # One row per group once a source groups, so the order has to be stated.
+        .order_by("alert__grouping_key")
+        .select_related("alert")
+    )
+    transitions = tuple(
+        GroupTransition(
+            grouping_key=event.alert.grouping_key,
+            kind=AlertEventKind(event.kind),
+            previous_state=event.previous_state,
+            state=event.state,
+            value=event.value,
+            labels=event.labels,
+            condition=event.condition_snapshot,
+            source_config=event.source_config_snapshot,
+        )
+        for event in events
+    )
+    if not transitions:
+        return None
+    # One name for the configuration, so any row carries it.
+    return EvaluationAnnouncement(alert_name=events[0].alert_name, notifications=_fan_in(transitions))

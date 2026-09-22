@@ -12,8 +12,8 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.models.scoping import team_scope
 
-from products.alerts.backend.facade.contracts import SourceBatchEvaluation, SourceKind
-from products.alerts.backend.facade.platform_alerts import due_checks, record_outcomes
+from products.alerts.backend.facade.contracts import AlertEventKind, SourceBatchEvaluation, SourceKind
+from products.alerts.backend.facade.platform_alerts import announcement, due_checks, record_outcomes
 from products.alerts.backend.facade.temporal import SOURCE_EVALUATION_TIMEOUT
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertEvent
 from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
@@ -82,7 +82,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         evaluation, _ = self._run(configuration)
         self._record(evaluation)
 
-        assert [t.notification for preview in evaluation.previews for t in preview.transitions] == ["fire"]
+        assert [d.configuration_id for d in evaluation.deliveries] == [str(configuration.id)]
         with team_scope(self.team.id):
             alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
             configuration.refresh_from_db()
@@ -104,7 +104,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         evaluation, _ = self._run(configuration)
 
-        assert evaluation.previews
+        assert evaluation.deliveries
         with team_scope(self.team.id):
             configuration.refresh_from_db()
             assert not PlatformAlert.objects.filter(configuration=configuration).exists()
@@ -113,13 +113,13 @@ class TestLogsAlertEvaluation(APIBaseTest):
     def test_a_delivery_the_batch_cannot_carry_leaves_its_alert_due(self) -> None:
         configurations = [self._configuration(), self._configuration()]
 
-        with patch(f"{_MODULE}.MAX_PREVIEWS_PER_CYCLE", 1):
+        with patch(f"{_MODULE}.MAX_DELIVERIES_PER_CYCLE", 1):
             evaluation, _ = self._run(*configurations)
         self._record(evaluation)
 
         # A firing alert does not fire again, so recording the second outcome would retire its
         # breach with no delivery to announce it.
-        assert len(evaluation.previews) == 1
+        assert len(evaluation.deliveries) == 1
         assert evaluation.omitted == 1
         with team_scope(self.team.id):
             still_due = PlatformAlertConfiguration.objects.filter(
@@ -136,7 +136,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         self._record(evaluation)
 
         query.assert_not_called()
-        assert evaluation.previews == ()
+        assert evaluation.deliveries == ()
         with team_scope(self.team.id):
             configuration.refresh_from_db()
         # Dropping the check without an outcome left its due time where it was, so the next tick
@@ -225,7 +225,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         evaluation, _ = self._run(configuration)
 
-        assert [p.evaluation_key for p in evaluation.previews] == [f"window:{self.cutoff.isoformat()}"]
+        assert [d.evaluation_key for d in evaluation.deliveries] == [f"window:{self.cutoff.isoformat()}"]
 
     def test_a_breach_records_the_count_it_measured(self) -> None:
         configuration = self._configuration()
@@ -251,6 +251,31 @@ class TestLogsAlertEvaluation(APIBaseTest):
             event = PlatformAlertEvent.objects.get(alert__configuration=configuration)
         assert event.value is None
         assert event.error_message is not None
+
+    def test_delivery_reads_the_transition_out_of_history(self) -> None:
+        configuration = self._configuration()
+
+        evaluation, _ = self._run(configuration)
+        self._record(evaluation)
+
+        # A transition delivery cannot read back is one nothing announces.
+        delivery = evaluation.deliveries[0]
+        announced = announcement(self.team.id, delivery.configuration_id, delivery.evaluation_key)
+        assert announced is not None
+        assert announced.alert_name == configuration.name
+
+        # Renaming the configuration must not change what an in-flight retry announces, or a
+        # resolve replies into its own thread under a different name.
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=configuration.id).update(name="Renamed")
+        assert announcement(self.team.id, delivery.configuration_id, delivery.evaluation_key).alert_name == (
+            configuration.name
+        )
+        # One message carrying every transition, so fan-in changes the partition and not this.
+        assert len(announced.notifications) == 1
+        transitions = announced.notifications[0].transitions
+        assert [(t.kind, t.value) for t in transitions] == [(AlertEventKind.FIRING, 500.0)]
+        assert transitions[0].condition["threshold_count"] == 10
 
 
 class TestEvaluationTimeoutLadder(SimpleTestCase):

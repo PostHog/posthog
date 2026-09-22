@@ -3,7 +3,7 @@
 Reads a batch of checks from the shared platform and reports what it decided. The logs
 product's own tables are never touched: the production logs fleet evaluates the same alerts
 against `LogsAlertConfiguration` on its own queue, so the two stacks keep separate state and
-neither can notify on the other's behalf. Delivery stops at a recorded preview.
+neither can notify on the other's behalf. Delivery stops at a recorded preview, which reads those rows back.
 
 This reads and decides; it writes nothing. The platform records the batch in its own activity,
 after Temporal has the deliveries this returned, so an attempt that dies mid-flight costs its
@@ -24,10 +24,9 @@ import structlog
 from posthog.models import Team
 
 from products.alerts.backend.facade.contracts import (
-    AlertDeliveryPreview,
+    AlertDeliveryRequest,
     AlertEventKind,
     CheckOutcomeReason,
-    GroupTransition,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
     SourceBatchEvaluation,
@@ -79,8 +78,8 @@ logger = structlog.get_logger(__name__)
 
 # A fleet-wide burst would otherwise return one activity payload over Temporal's ~2 MiB limit,
 # which fails the whole batch rather than truncating it. The bound drops an outcome along with
-# the preview it belongs to, so a breach this batch cannot announce keeps its due time.
-MAX_PREVIEWS_PER_CYCLE = 500
+# the delivery it belongs to, so a breach this batch cannot announce keeps its due time.
+MAX_DELIVERIES_PER_CYCLE = 500
 
 # Cohorts run one after another, and the production runner measures about four seconds each. A
 # higher bound spends the query budget below and returns fewer cohorts, not more; a cohort left
@@ -160,7 +159,7 @@ def _snapshot(check: PlatformAlertCheckInput, prior_breached: tuple[bool, ...]) 
     )
 
 
-Decision = tuple[PlatformAlertOutcome, AlertDeliveryPreview | None]
+Decision = tuple[PlatformAlertOutcome, AlertDeliveryRequest | None]
 
 
 def _record_check_metrics(
@@ -221,15 +220,13 @@ def _decide(
         alert_id=str(check.legacy_configuration_id or check.id),
         allowed_event_ids=[spec.event_id],
     )
-    return recorded, AlertDeliveryPreview(
+    # Names the evaluation rather than describing it; delivery reads the rows back.
+    return recorded, AlertDeliveryRequest(
         source=SourceKind.LOGS,
-        alert_id=str(check.id),
-        alert_name=check.name,
+        team_id=check.team_id,
+        configuration_id=str(check.id),
         evaluation_key=evaluation_key,
         destination_names=tuple(destination.name for destination in destinations),
-        # One transition with an empty grouping key. Logs does not group yet, and delivery
-        # reads a list either way, so fan-out changes this call and nothing downstream.
-        transitions=(GroupTransition(grouping_key="", notification=outcome.notification.value),),
     )
 
 
@@ -397,27 +394,27 @@ def _triage(
 def _collect(decided: Sequence[Decision], team_id: int, slot: str, started_at: float) -> SourceBatchEvaluation:
     """Applies the payload bound and reports the batch."""
     outcomes: list[PlatformAlertOutcome] = []
-    previews: list[AlertDeliveryPreview] = []
+    deliveries: list[AlertDeliveryRequest] = []
     omitted = 0
-    for outcome, preview in decided:
-        if preview is not None and len(previews) >= MAX_PREVIEWS_PER_CYCLE:
+    for outcome, delivery in decided:
+        if delivery is not None and len(deliveries) >= MAX_DELIVERIES_PER_CYCLE:
             omitted += 1
             continue
         outcomes.append(outcome)
-        if preview is not None:
-            previews.append(preview)
+        if delivery is not None:
+            deliveries.append(delivery)
 
     if omitted:
         logger.warning(
             "Deferred logs alert deliveries over the batch payload bound",
             team_id=team_id,
             slot=slot,
-            delivered=len(previews),
+            delivered=len(deliveries),
             deferred=omitted,
         )
         safe_record(increment_deliveries_deferred, SourceKind.LOGS.value, omitted)
     safe_record(record_batch_duration, SourceKind.LOGS.value, int((time.monotonic() - started_at) * 1000))
-    return SourceBatchEvaluation(outcomes=tuple(outcomes), previews=tuple(previews), omitted=omitted)
+    return SourceBatchEvaluation(outcomes=tuple(outcomes), deliveries=tuple(deliveries), omitted=omitted)
 
 
 def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatchEvaluation:
@@ -433,11 +430,11 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
     started_at = time.monotonic()
     checks = due_checks(team_id, SourceKind.LOGS.value, slot, cutoff)
     if not checks:
-        return SourceBatchEvaluation(outcomes=(), previews=())
+        return SourceBatchEvaluation(outcomes=(), deliveries=())
 
     team = Team.objects.filter(id=team_id).first()
     if team is None:
-        return SourceBatchEvaluation(outcomes=(), previews=())
+        return SourceBatchEvaluation(outcomes=(), deliveries=())
 
     decided, evaluable = _triage(checks, team, now=cutoff)
     if not evaluable:

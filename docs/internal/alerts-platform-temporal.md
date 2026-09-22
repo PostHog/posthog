@@ -212,7 +212,7 @@ The alerts product imports nothing from a source: the binding holds a name, and 
 
 ## Logs source evaluation
 
-`logs-alert-evaluate` evaluates one batch key, a team's alerts due in one minute, and previews one delivery per notification.
+`logs-alert-evaluate` evaluates one batch key, a team's alerts due in one minute, and starts one delivery per notification.
 The evaluation is a plain function in `products/logs/backend/alert_source_cycle.py`, so a test calls it without Temporal.
 
 It writes its own state and never the logs product's rows.
@@ -220,6 +220,7 @@ The production `logs-alerting-task-queue` fleet evaluates these same alerts ever
 so a write to those rows, a `LogsAlertEvent` row or a Kafka message here would transition an alert twice and notify a person twice for one breach.
 State transitions land on `PlatformAlert` and schedule advancement on `PlatformAlertConfiguration`, which the logs fleet never reads.
 Delivery stops at `alerts-platform-deliver-preview`, which records what would have been sent and contacts no destination.
+It is handed a key rather than a message, and reads the transitions back out of `PlatformAlertEvent`.
 
 The lifecycle decision comes from `products/alerts/backend/facade/lifecycle.py` configured with `LOGS_ALERT_POLICY`,
 which is the shared machine the logs product's own state machine is a thin adapter over.
@@ -298,8 +299,9 @@ The write is safe to run twice. An attempt that commits leaves every configurati
 and a replay skips those rows rather than advancing them again and skipping a cycle.
 It runs in one transaction, so no alert is marked as notified while its schedule still says the check is due.
 
-`MAX_PREVIEWS_PER_CYCLE` bounds an outcome together with the delivery it belongs to.
-Recording an outcome whose preview the batch cannot carry would leave an alert firing with nothing announcing it,
+`MAX_DELIVERIES_PER_CYCLE` bounds an outcome together with the delivery it belongs to.
+A recorded transition announces nothing on its own: something has to start the delivery that reads it.
+So recording an outcome whose delivery the batch cannot carry would leave an alert firing with nothing announcing it,
 and a firing alert does not fire again. Dropping the pair leaves it due, the way a truncated cohort already behaves.
 `alerts_platform_deliveries_deferred_total` counts them.
 
@@ -323,8 +325,21 @@ The budget covers the cohort queries only. The per-alert destination lookup is o
 The cap reaches ClickHouse as `max_execution_time` on `BatchedAlertCheckQuery`, with `timeout_overflow_mode` set to throw,
 because a partial count could resolve an alert that is actually breaching.
 
-Delivery previews carry a list of group transitions with one entry and an empty grouping key.
-Logs does not group yet; the list is the shape that lets fan-out change the evaluation and nothing downstream.
+A delivery travels as `(source, team, configuration, evaluation key, destination names)` and nothing else.
+The facts a message states come from the rows, so what it says and what history records cannot disagree,
+a retry announces what was recorded rather than what one attempt carried,
+and the batch payload does not grow with what each transition has to say.
+Destination names are the exception, because they are routing rather than content and a source still resolves its own:
+the destinations stay the source's HogFunctions until `AlertDestination` exists.
+
+`announcement` reads one evaluation's transitions and skips the `check` rows, which announce nothing by definition.
+It reads no configuration, so a rename between a root message and a later reply cannot make one thread contradict itself, and a deleted configuration cascades these rows away rather than needing its own check.
+It returns them partitioned into notifications: one message carrying every transition today, ordered by grouping key.
+
+`_fan_in` is where that partition is decided, and it is the only place notification fan-in changes.
+How far to collapse is a policy a configuration will carry, not a default: an alert grouped by service wants one message naming all fifty,
+and an alert grouped by error identity wants a message per identity that a person can resolve on its own.
+`notification_key` names the projection that produced a message and is empty while one message carries every group.
 
 ### Metrics
 
