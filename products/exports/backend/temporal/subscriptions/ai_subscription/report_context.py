@@ -236,7 +236,8 @@ def _validated_saved_query(insight: Insight) -> BaseModel | None:
         if not isinstance(query, dict):
             query = upgraded_query
         return validate_assistant_query(query)
-    except Exception:
+    except Exception as err:
+        capture_exception(err)
         return None
 
 
