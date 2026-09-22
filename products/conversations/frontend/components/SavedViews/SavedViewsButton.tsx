@@ -11,15 +11,11 @@ import { SavedViewsModal } from './SavedViewsModal'
 import { type TicketViewsLogicProps, ticketViewsLogic } from './ticketViewsLogic'
 
 function SavedViewsButtonInner({ ticketListProps }: TicketViewsLogicProps): JSX.Element {
-    const { favoriteViews, viewsLoading, activeView, viewWithUnsavedChanges } = useValues(
-        ticketViewsLogic({ ticketListProps })
-    )
-    const { openModal, openSaveModal, loadView, loadViews, saveViewChanges, resetFilters } = useActions(
-        ticketViewsLogic({ ticketListProps })
-    )
+    const logic = ticketViewsLogic({ ticketListProps })
+    const { favoriteViews, viewsLoading, activeView, viewWithUnsavedChanges: editedView } = useValues(logic)
+    const { openModal, openSaveModal, loadView, loadViews, saveViewChanges, resetFilters } = useActions(logic)
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
-    const editedView = viewWithUnsavedChanges
     const shownView = activeView ?? editedView
 
     return (

@@ -82,8 +82,9 @@ function FiltersSummary({ filters }: { filters: TicketViewFilters }): JSX.Elemen
 }
 
 function SaveViewModal({ ticketListProps }: TicketViewsLogicProps): JSX.Element {
-    const { isSaveModalOpen, viewName, currentFilters, isSavingView } = useValues(ticketViewsLogic({ ticketListProps }))
-    const { closeSaveModal, setViewName, saveView } = useActions(ticketViewsLogic({ ticketListProps }))
+    const logic = ticketViewsLogic({ ticketListProps })
+    const { isSaveModalOpen, viewName, currentFilters, isSavingView } = useValues(logic)
+    const { closeSaveModal, setViewName, saveView } = useActions(logic)
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
 
@@ -124,12 +125,11 @@ function SaveViewModal({ ticketListProps }: TicketViewsLogicProps): JSX.Element 
 }
 
 export function SavedViewsModal({ ticketListProps }: TicketViewsLogicProps): JSX.Element {
-    const { isModalOpen, filteredViews, viewsLoading, currentFilters, favoritingShortIds, searchTerm } = useValues(
-        ticketViewsLogic({ ticketListProps })
-    )
-    const { closeModal, openSaveModal, deleteView, loadView, updateView, toggleFavorite, setSearchTerm } = useActions(
-        ticketViewsLogic({ ticketListProps })
-    )
+    const logic = ticketViewsLogic({ ticketListProps })
+    const { isModalOpen, filteredViews, viewsLoading, currentFilters, favoritingShortIds, searchTerm } =
+        useValues(logic)
+    const { closeModal, openSaveModal, deleteView, loadView, updateView, toggleFavorite, setSearchTerm } =
+        useActions(logic)
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
 

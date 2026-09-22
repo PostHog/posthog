@@ -14,8 +14,8 @@ import {
 } from '../../generated/api'
 import type { PatchedTicketViewApi, TicketViewFiltersApi } from '../../generated/api.schemas'
 import {
-    SUPPORT_TICKETS_DEFAULT_KEY,
     type SupportTicketsSceneLogicProps,
+    supportTicketsLogicKey,
     supportTicketsSceneLogic,
 } from '../../scenes/tickets/supportTicketsSceneLogic'
 import type { SavedTicketView, TicketViewFilters } from '../../types'
@@ -171,7 +171,7 @@ export type ticketViewsLogicType = MakeLogicType<
 
 export const ticketViewsLogic = kea<ticketViewsLogicType>([
     props({} as TicketViewsLogicProps),
-    key((props) => props.ticketListProps.key || SUPPORT_TICKETS_DEFAULT_KEY),
+    key((props) => supportTicketsLogicKey(props.ticketListProps)),
     path((key) => ['products', 'conversations', 'frontend', 'components', 'SavedViews', 'ticketViewsLogic', key]),
 
     connect((props: TicketViewsLogicProps) => ({

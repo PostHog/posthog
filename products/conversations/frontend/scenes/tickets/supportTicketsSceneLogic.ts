@@ -42,10 +42,11 @@ import type {
 
 export const SUPPORT_TICKETS_PAGE_SIZE = 20
 
-// Key of the main scene instance. Embedded ticket lists (e.g. a person's profile)
-// pass their own key, so anything that connects to a ticket list must use the key
-// of the instance it renders next to.
-export const SUPPORT_TICKETS_DEFAULT_KEY = 'SupportTicketsScene'
+// Embedded ticket lists (e.g. a person's profile) pass their own key, so anything that
+// connects to a ticket list must key itself off the instance it renders next to.
+export function supportTicketsLogicKey(props: SupportTicketsSceneLogicProps): string {
+    return props?.key || 'SupportTicketsScene'
+}
 
 // Must mirror the filter reducers' defaults below. The date range is deliberately
 // omitted: it's a persisted user preference, so clearing a view restores the
@@ -195,6 +196,13 @@ function urlFiltersMatchState(searchParams: Record<string, any>, currentFilters:
     )
 }
 
+// A loaded saved view, with the filters it actually put on screen. The stored filters
+// are sparse, so only this snapshot can tell a later edit from the view itself.
+export interface LoadedTicketView {
+    view: SavedTicketView
+    filters: TicketViewFilters
+}
+
 export interface SupportTicketsSceneLogicProps {
     key?: string
     distinctIds?: string[]
@@ -220,8 +228,7 @@ export interface supportTicketsSceneLogicValues {
     dateTo: string | null
     editableSelectedTicketIds: string[]
     hasActiveFilters: boolean
-    loadedView: SavedTicketView | null
-    loadedViewFilters: TicketViewFilters | null
+    loadedView: LoadedTicketView | null
     orderBy: string
     priorityFilter: TicketPriority[]
     searchQuery: string
@@ -388,8 +395,7 @@ export interface supportTicketsSceneLogicMeta {
         ) => TicketViewFilters
         viewWithUnsavedChanges: (
             activeView: SavedTicketView | null,
-            loadedView: SavedTicketView | null,
-            loadedViewFilters: TicketViewFilters | null,
+            loadedView: LoadedTicketView | null,
             currentFilters: TicketViewFilters
         ) => SavedTicketView | null
     }
@@ -405,7 +411,7 @@ export type supportTicketsSceneLogicType = MakeLogicType<
 export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'tickets', 'supportTicketsSceneLogic']),
     props({} as SupportTicketsSceneLogicProps),
-    key((props: SupportTicketsSceneLogicProps) => props?.key || SUPPORT_TICKETS_DEFAULT_KEY),
+    key(supportTicketsLogicKey),
     actions({
         setStatusFilter: (statuses: TicketStatus[]) => ({ statuses }),
         setChannelFilter: (channel: TicketChannel | 'all') => ({ channel }),
@@ -581,22 +587,13 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             },
         ],
         loadedView: [
-            null as SavedTicketView | null,
+            null as LoadedTicketView | null,
             { persist: true },
             {
-                setActiveView: (_, { view }) => view,
-                applyUrlFilters: () => null,
-                resetFilters: () => null,
-                clearFiltersKeepingSearch: () => null,
-            },
-        ],
-        loadedViewFilters: [
-            null as TicketViewFilters | null,
-            { persist: true },
-            {
-                // A rename keeps the filters it was loaded with, so only a caller that
-                // passes the filters it just applied moves the snapshot.
-                setActiveView: (state, { view, appliedFilters }) => (view ? (appliedFilters ?? state) : null),
+                // A rename keeps the filters the view was loaded with, so only a caller
+                // that passes the filters it just applied moves the snapshot.
+                setActiveView: (state, { view, appliedFilters }) =>
+                    view ? { view, filters: appliedFilters ?? state?.filters ?? {} } : null,
                 applyUrlFilters: () => null,
                 resetFilters: () => null,
                 clearFiltersKeepingSearch: () => null,
@@ -758,16 +755,13 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         // A filter change detaches the open view, so the edit is only recoverable if we
         // keep pointing at the view it came from.
         viewWithUnsavedChanges: [
-            (s) => [s.activeView, s.loadedView, s.loadedViewFilters, s.currentFilters],
+            (s) => [s.activeView, s.loadedView, s.currentFilters],
             (
                 activeView: SavedTicketView | null,
-                loadedView: SavedTicketView | null,
-                loadedViewFilters: TicketViewFilters | null,
+                loadedView: LoadedTicketView | null,
                 currentFilters: TicketViewFilters
             ): SavedTicketView | null =>
-                !activeView && loadedView && loadedViewFilters && !objectsEqual(loadedViewFilters, currentFilters)
-                    ? loadedView
-                    : null,
+                !activeView && loadedView && !objectsEqual(loadedView.filters, currentFilters) ? loadedView.view : null,
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
