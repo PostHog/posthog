@@ -305,9 +305,10 @@ tools:
             link back. A source's open pull request stays open, because the survivor holds it after the move; a source's
             active claim by another actor is released first. Titles and summaries are NOT combined, so follow with
             `inbox-reports-update` if the survivor needs a rewrite. Both ends must be a live report: a resolved
-            survivor, or a source that is the survivor itself or is already resolved or archived, comes back as 409
-            and nothing moves, because the whole call applies or none of it does. A merged report keeps its URL but can never be restored, so merge only reports you are confident are
-            the same issue, and use an `inbox-report-artefacts-create` `related_to` link when they are merely related.
+            survivor, or a source that is the survivor itself or is already resolved or archived, comes back as 409 and
+            nothing moves, because the whole call applies or none of it does. A merged report keeps its URL but can
+            never be restored, so merge only reports you are confident are the same issue, and use an
+            `inbox-report-artefacts-create` `related_to` link when they are merely related.
         param_overrides:
             id:
                 aliases:
