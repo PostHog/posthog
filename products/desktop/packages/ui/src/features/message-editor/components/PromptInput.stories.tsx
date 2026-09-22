@@ -256,6 +256,7 @@ const meta: Meta<typeof PromptInputHarness> = {
     showSteerQueue: { control: "boolean" },
     channelContext: { control: "boolean" },
     hideDefaultToolbar: { control: "boolean" },
+    toolbarCollapsed: { control: "boolean" },
     editorHeight: { control: "radio", options: ["default", "large"] },
     placeholder: { control: "text" },
   },
@@ -547,6 +548,15 @@ export const NoToolbar: Story = {
   },
 };
 
+export const ToolbarFolded: Story = {
+  name: "Toolbar: folded away (panel docked above)",
+  args: {
+    sessionId: "sb-toolbar-folded",
+    text: SAMPLE_TEXT,
+    toolbarCollapsed: true,
+  },
+};
+
 export const WithHeaderAddon: Story = {
   name: "Header addon above the editor",
   args: {
@@ -611,6 +621,10 @@ const MATRIX: Array<{ label: string; args: Partial<HarnessProps> }> = [
     },
   },
   { label: "Context nearly full", args: { contextUsage: nearFullUsage } },
+  {
+    label: "Toolbar folded away",
+    args: { toolbarCollapsed: true, text: SAMPLE_TEXT },
+  },
 ];
 
 export const Matrix: Story = {
