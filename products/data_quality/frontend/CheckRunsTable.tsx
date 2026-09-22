@@ -6,7 +6,7 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { DataQualitySubjectType } from './checksApi'
-import { CHECK_STATUS_TAG_TYPES, byStatusAttention, checkRunDisplayName } from './checksConstants'
+import { CHECK_STATUS_TAG_TYPES, byStatusAttention, checkRunDisplayName, observedValueCell } from './checksConstants'
 import type { DataQualityCheckRunApi } from './generated/api.schemas'
 
 type CheckRunColumn = LemonTableColumn<DataQualityCheckRunApi, keyof DataQualityCheckRunApi | undefined>
@@ -37,7 +37,16 @@ const OUTCOME_COLUMNS: CheckRunColumn[] = [
     {
         title: 'Observed value',
         key: 'observed_value',
-        render: (_, run) => (run.observed_value === null ? '-' : humanFriendlyNumber(run.observed_value)),
+        render: (_, run) => {
+            const { label, tooltip } = observedValueCell(run)
+            return tooltip ? (
+                <Tooltip title={tooltip}>
+                    <span>{label}</span>
+                </Tooltip>
+            ) : (
+                label
+            )
+        },
     },
     {
         title: 'Failed rows',
