@@ -617,8 +617,18 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
                 responses.append(response.results)
             self.assertCountEqual(responses[0], responses[1])
 
-    @parameterized.expand([(goal, explicit) for goal in ("purchase", "$pageview") for explicit in (False, True)])
-    def test_fractional_boundary_events_match_conversion_date_precision(self, goal: str, explicit: bool) -> None:
+    @parameterized.expand(
+        [
+            (goal, explicit, version)
+            for goal in ("purchase", "$pageview")
+            for explicit in (False, True)
+            for version in (SessionTableVersion.V2, SessionTableVersion.V3)
+        ]
+    )
+    def test_fractional_boundary_events_match_conversion_date_precision(
+        self, goal: str, explicit: bool, version: SessionTableVersion
+    ) -> None:
+        self.team.modifiers = {"sessionTableVersion": version}
         config = self.team.marketing_analytics_config
         config.conversion_goals[0]["event"] = goal
         config.save()

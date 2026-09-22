@@ -422,7 +422,7 @@ def _conversions_per_person(runner: "AttributionQueryRunnerBase", date_range: Qu
         where=ast.And(
             exprs=[
                 runner.conversion_condition,
-                *runner._get_where_conditions(date_range, date_field="events.timestamp"),
+                *runner._event_date_conditions(date_range),
             ]
         ),
         group_by=[ast.Field(chain=["events", "person_id"])],
