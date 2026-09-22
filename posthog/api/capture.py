@@ -540,7 +540,7 @@ def _submit_batch_chunk(
         result = CaptureInternalResult(status_code=status_code, results=aggregated, error=error)
         if error is not None:
             result.request_failures.append(
-                RequestFailure(lane=lane, status_code=status_code, error=error, event_count=len(uuid_to_event))
+                RequestFailure(lane=lane, status_code=status_code, error=error, event_count=len(pending_batch))
             )
         for uid, entry in aggregated.items():
             status = entry.get("result", "ok")

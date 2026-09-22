@@ -774,6 +774,25 @@ class TestCaptureBatchInternal(SimpleTestCase):
 
     @patch("posthog.api.capture.time.sleep")
     @patch("posthog.api.capture.internal_requests_session")
+    def test_failure_after_a_partial_ack_counts_only_the_resubmitted_events(
+        self, mock_session_fn: MagicMock, mock_sleep: MagicMock
+    ) -> None:
+        u_ok, u_retry = str(uuid4()), str(uuid4())
+        events = [_make_event(event_uuid=u_ok), _make_event(event_uuid=u_retry, event="retryable")]
+        resp1 = MockResponse(body={"results": {u_ok: {"result": "ok"}, u_retry: {"result": "retry"}}})
+        resp2 = MockResponse(status_code=503, body={"error": "down"})
+        InstallV1Spy(mock_session_fn, [resp1, resp2])
+
+        result = capture_batch_internal(events=events, token="tok", event_source="partial_then_down")
+
+        assert result.ok == [u_ok]
+        assert result.unaccounted == [u_retry]
+        assert result.request_failures == [
+            RequestFailure(lane="analytics", status_code=503, error={"error": "down"}, event_count=1)
+        ]
+
+    @patch("posthog.api.capture.time.sleep")
+    @patch("posthog.api.capture.internal_requests_session")
     def test_retry_without_retry_after_header(self, mock_session_fn: MagicMock, mock_sleep: MagicMock) -> None:
         u_retry = str(uuid4())
         events = [_make_event(event_uuid=u_retry)]
