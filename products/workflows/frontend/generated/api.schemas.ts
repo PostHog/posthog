@@ -238,11 +238,13 @@ export const HogFlowStateEnumApi = {
 
 /**
  * * `loops` - Loops
+ * * `broadcasts` - Broadcasts
  */
 export type HogFlowOriginProductEnumApi = (typeof HogFlowOriginProductEnumApi)[keyof typeof HogFlowOriginProductEnumApi]
 
 export const HogFlowOriginProductEnumApi = {
     Loops: 'loops',
+    Broadcasts: 'broadcasts',
 } as const
 
 /**
@@ -369,14 +371,14 @@ export interface HogFlowConversionApi {
     /** Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]. */
     events?: HogFlowConversionEventApi[]
     /**
-     * How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. Omit it to use the default window. Set this or 'window_minutes', not both.
+     * How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both.
      * @maxLength 32
      * @nullable
      * @pattern ^(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)[dhms]$
      */
     window?: string | null
     /**
-     * DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default window. Set this or 'window', not both.
+     * DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both.
      * @nullable
      */
     window_minutes?: number | null
@@ -595,7 +597,8 @@ export interface HogFlowApi {
     status?: HogFlowStateEnumApi
     /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
      *
-     * * `loops` - Loops */
+     * * `loops` - Loops
+     * * `broadcasts` - Broadcasts */
     origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -693,7 +696,8 @@ export interface HogFlowUpdateApi {
     status?: HogFlowStateEnumApi
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
-     * * `loops` - Loops */
+     * * `loops` - Loops
+     * * `broadcasts` - Broadcasts */
     readonly origin_product: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -791,7 +795,8 @@ export interface PatchedHogFlowUpdateApi {
     status?: HogFlowStateEnumApi
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
-     * * `loops` - Loops */
+     * * `loops` - Loops
+     * * `broadcasts` - Broadcasts */
     readonly origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -1808,15 +1813,16 @@ export type HogFlowsListParams = {
      */
     trigger?: string
     /**
-     * Filter by workflow type. `loop` returns workflows owned by a Desktop loop; `messaging` returns the remaining workflows with an email, SMS, or push action; `automation` returns the rest.
+     * Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.
      */
-    type?: HogFlowsListType
+    type?: string
     updated_at?: string
 }
 
 export type HogFlowsListOriginProduct = (typeof HogFlowsListOriginProduct)[keyof typeof HogFlowsListOriginProduct]
 
 export const HogFlowsListOriginProduct = {
+    Broadcasts: 'broadcasts',
     Loops: 'loops',
 } as const
 
@@ -1826,14 +1832,6 @@ export const HogFlowsListStatus = {
     Active: 'active',
     Archived: 'archived',
     Draft: 'draft',
-} as const
-
-export type HogFlowsListType = (typeof HogFlowsListType)[keyof typeof HogFlowsListType]
-
-export const HogFlowsListType = {
-    Automation: 'automation',
-    Loop: 'loop',
-    Messaging: 'messaging',
 } as const
 
 export type HogFlowsAssetsRetrieveParams = {

@@ -7,7 +7,11 @@ jest.mock('scenes/marketing-analytics/Setup/sectionRouting', () => ({ suggestion
 
 jest.mock('scenes/marketing-analytics/Setup/SuggestionRow', () => ({ SuggestionRow: () => null }))
 
-jest.mock('kea', () => ({ ...jest.requireActual('kea'), useValues: jest.fn(), useActions: () => ({}) }))
+jest.mock('kea', () => ({
+    ...jest.requireActual('kea'),
+    useValues: jest.fn(),
+    useActions: () => new Proxy({}, { get: () => jest.fn() }),
+}))
 jest.mock('@posthog/lemon-ui', () => ({
     LemonBanner: () => null,
     LemonCard: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,

@@ -36,7 +36,8 @@
 ## Commits and Pull Requests
 
 - Use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) for all commit messages and PR titles.
-- When a change touches user-facing behavior, an API, a config/setting, or a documented workflow, update the existing doc under `docs/` **in the same PR** — a stale doc is part of the breakage. **Never add a new doc unless a person asks**; PR context goes in the PR description.
+- When a change touches user-facing behavior, an API, a config/setting, or a documented workflow, update a relevant existing doc under `docs/` **in the same PR**. If none exists, make no docs change.
+- A new `docs/**` file requires a person to request that specific document in the current conversation. Existing related docs, PR checklists, and general docs requirements do not authorize one. Put PR-specific context in the PR description.
 
 ### Commit types
 
