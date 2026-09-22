@@ -95,12 +95,13 @@ class DataCatalogWeeklyDigestWorkflow(PostHogWorkflow):
 
         threshold_exceeded = totals.batch_size > 0 and totals.failure_rate > input.failure_threshold
 
-        await workflow.execute_activity(
-            push_digest_metrics_activity,
-            args=[dataclasses.asdict(totals), not threshold_exceeded],
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=ACTIVITY_RETRY_POLICY,
-        )
+        if input.publishes_metrics:
+            await workflow.execute_activity(
+                push_digest_metrics_activity,
+                args=[dataclasses.asdict(totals), not threshold_exceeded],
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=ACTIVITY_RETRY_POLICY,
+            )
 
         if threshold_exceeded:
             raise ApplicationError(

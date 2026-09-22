@@ -42,6 +42,13 @@ class DataCatalogWeeklyDigestInput:
     active_since_days: int | None = 30
     org_ids: list[str] | None = None
 
+    # Pushgateway deletes every gauge already pushed under the job name, so a scoped or dry run
+    # would replace the week's numbers and advance the last-run timestamp. Only a full real run
+    # speaks for the week.
+    @property
+    def publishes_metrics(self) -> bool:
+        return self.org_ids is None and not self.dry_run
+
 
 @dataclasses.dataclass(frozen=True)
 class OrgBatchPageInput:

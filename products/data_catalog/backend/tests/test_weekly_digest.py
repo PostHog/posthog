@@ -299,3 +299,20 @@ def test_a_mistyped_scope_key_fails_instead_of_widening_the_run() -> None:
     parsed = DataCatalogWeeklyDigestWorkflow.parse_inputs(['{"org_ids": ["abc"], "dry_run": false}'])
     assert parsed.org_ids == ["abc"]
     assert parsed.dry_run is False
+
+
+# Pushgateway deletes every gauge already pushed under the digest's job name. A manual run that
+# published would stand in for the weekly result and advance the last-run timestamp, so a staleness
+# alert would read healthy through a week that sent nothing.
+@pytest.mark.parametrize(
+    "workflow_input,publishes",
+    [
+        (DataCatalogWeeklyDigestInput(dry_run=False), True),
+        (DataCatalogWeeklyDigestInput(), False),
+        (DataCatalogWeeklyDigestInput(dry_run=False, org_ids=["abc"]), False),
+    ],
+)
+def test_only_the_full_real_run_publishes_metrics(
+    workflow_input: DataCatalogWeeklyDigestInput, publishes: bool
+) -> None:
+    assert workflow_input.publishes_metrics is publishes
