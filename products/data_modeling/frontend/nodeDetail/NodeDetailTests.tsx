@@ -9,7 +9,7 @@ import { dataQualityChecksLogic } from 'products/data_quality/frontend/dataQuali
 import { DataQualityChecksPanel } from 'products/data_quality/frontend/DataQualityChecksPanel'
 import { dataQualityGateLogic } from 'products/data_quality/frontend/dataQualityGateLogic'
 
-import { nodeDetailSceneLogic } from '../nodeDetailSceneLogic'
+import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
 function GateNotice(): JSX.Element | null {
     const { gateConfig, gateReadable } = useValues(dataQualityGateLogic)
