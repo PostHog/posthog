@@ -1,12 +1,9 @@
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
-
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
-import { teamLogic } from 'scenes/teamLogic'
-
 import { useMocks } from '~/mocks/jest'
+import { getAllByDataAttr } from '~/test/byDataAttr'
 import { initKeaTests } from '~/test/init'
 
 import { sdkHealthLogic } from './sdkHealthLogic'
@@ -32,6 +29,12 @@ const OUTDATED_REPORT = {
     ],
 }
 
+// LemonBanner renders its action twice, once per responsive breakpoint, so both copies carry the
+// same data-attr and only the visible one is worth clicking.
+function bannerAction(dataAttr: string): HTMLElement {
+    return getAllByDataAttr(document.body, dataAttr)[0]
+}
+
 function mountWithOutdatedReport(): ReturnType<typeof sdkHealthLogic.build> {
     const logic = sdkHealthLogic()
     logic.mount()
@@ -52,8 +55,6 @@ describe('<SdkHealthScene />', () => {
             },
         })
         initKeaTests()
-        teamLogic.mount()
-        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
     })
 
     afterEach(() => {
@@ -67,19 +68,19 @@ describe('<SdkHealthScene />', () => {
 
         expect(screen.getByText('Time for an update!')).toBeInTheDocument()
 
-        fireEvent.click(document.querySelector('[data-attr="sdk-health-snooze-warning"]')!)
+        fireEvent.click(bannerAction('sdk-health-snooze-warning'))
 
         expect(screen.queryByText('Time for an update!')).toBeNull()
         expect(screen.getByText('Update warning snoozed')).toBeInTheDocument()
-        expect(screen.getByText(/1 SDK still needs an update/)).toBeInTheDocument()
+        expect(screen.getByText(/1 SDK still needs an update\. Snoozed until/)).toBeInTheDocument()
     })
 
     it('brings the update warning back when the snooze is lifted', () => {
         mountWithOutdatedReport()
         render(<SdkHealthScene />)
 
-        fireEvent.click(document.querySelector('[data-attr="sdk-health-snooze-warning"]')!)
-        fireEvent.click(document.querySelector('[data-attr="sdk-health-unsnooze-warning"]')!)
+        fireEvent.click(bannerAction('sdk-health-snooze-warning'))
+        fireEvent.click(bannerAction('sdk-health-unsnooze-warning'))
 
         expect(screen.getByText('Time for an update!')).toBeInTheDocument()
         expect(screen.queryByText('Update warning snoozed')).toBeNull()

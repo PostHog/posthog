@@ -70,7 +70,6 @@ export interface sdkHealthLogicValues {
     augmentedData: AugmentedTeamSdkVersionsInfo
     hasErrors: boolean
     isSnoozed: boolean
-    needsAttention: boolean
     needsUpdatingCount: number
     report: SdkHealthReportApi | null
     reportLoading: boolean
@@ -115,7 +114,6 @@ export interface sdkHealthLogicMeta {
         augmentedData: (report: SdkHealthReportApi | null) => AugmentedTeamSdkVersionsInfo
         needsUpdatingCount: (report: SdkHealthReportApi | null) => number
         isSnoozed: (snoozedUntil: string | null) => boolean
-        needsAttention: (report: SdkHealthReportApi | null, isSnoozed: boolean) => boolean
         sdkHealth: (report: SdkHealthReportApi | null) => SdkHealthStatus
         hasErrors: (report: SdkHealthReportApi | null, reportLoading: boolean) => boolean
     }
@@ -153,6 +151,9 @@ export const sdkHealthLogic = kea<sdkHealthLogicType>([
     }),
 
     reducers(() => ({
+        // Browser-local, unlike the server-side snooze on the same `sdk_outdated` condition that
+        // the Health scene drives through posthog/api/health_issue.py. Snoozing here does not
+        // reach that one.
         snoozedUntil: [
             null as string | null,
             { persist: true },
@@ -246,16 +247,6 @@ export const sdkHealthLogic = kea<sdkHealthLogicType>([
         isSnoozed: [
             (s) => [s.snoozedUntil],
             (snoozedUntil: string | null): boolean => !!snoozedUntil && dayjs(snoozedUntil).isAfter(dayjs()),
-        ],
-
-        needsAttention: [
-            (s) => [s.report, s.isSnoozed],
-            (report: SdkHealthReportApi | null, isSnoozed: boolean): boolean => {
-                if (isSnoozed) {
-                    return false
-                }
-                return report?.overall_health === 'needs_attention'
-            },
         ],
 
         sdkHealth: [

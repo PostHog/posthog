@@ -56,6 +56,13 @@ export function SdkHealthScene(): JSX.Element {
         unsnooze()
     }
 
+    const snoozeNotice = `${pluralize(needsUpdatingCount, 'SDK')} still ${pluralize(
+        needsUpdatingCount,
+        'needs',
+        'need',
+        false
+    )} an update. Snoozed until ${dayjs(snoozedUntil).format('MMM D, YYYY')}.`
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -132,11 +139,7 @@ export function SdkHealthScene(): JSX.Element {
                                 'data-attr': 'sdk-health-unsnooze-warning',
                             }}
                         >
-                            <p className="text-sm">
-                                {pluralize(needsUpdatingCount, 'SDK')} still{' '}
-                                {needsUpdatingCount === 1 ? 'needs' : 'need'} an update. We'll remind you again on{' '}
-                                {dayjs(snoozedUntil).format('MMM D, YYYY')}.
-                            </p>
+                            <p className="text-sm">{snoozeNotice}</p>
                         </LemonBanner>
                     </section>
                 ) : (
