@@ -1,6 +1,6 @@
 import { DEFAULT_JITTER_FACTOR, retryIfRetriable } from '~/common/utils/retries'
 
-describe('retryIfRetriable jitter', () => {
+describe('retryIfRetriable backoff', () => {
     function captureSleeps(): number[] {
         const sleeps: number[] = []
         jest.spyOn(global, 'setTimeout').mockImplementation(((fn: () => void, ms?: number) => {
@@ -43,5 +43,11 @@ describe('retryIfRetriable jitter', () => {
         jest.spyOn(Math, 'random').mockReturnValue(0)
         await retryIfRetriable(failThenSucceed(1), 5, 100, 1) // full jitter -> floor is 0
         expect(sleeps[0]).toBe(0)
+    })
+
+    it('grows each backoff by a custom factor', async () => {
+        const sleeps = captureSleeps()
+        await retryIfRetriable(failThenSucceed(3), 5, 100, 0, 4)
+        expect(sleeps).toEqual([100, 400, 1600])
     })
 })

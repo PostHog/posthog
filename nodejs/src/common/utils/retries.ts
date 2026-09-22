@@ -55,12 +55,15 @@ export const DEFAULT_JITTER_FACTOR = 0.05
  *
  * Each sleep is jittered down by up to `jitterFactor` of the backoff so
  * concurrent callers don't retry in lockstep. Pass `0` to opt out.
+ *
+ * Each backoff grows by `backoffFactor`, capped at `defaultRetryConfig.MAX_INTERVAL`.
  */
 export async function retryIfRetriable<T>(
     fn: () => Promise<T>,
     tries = 3,
     sleepMs = 100,
-    jitterFactor = DEFAULT_JITTER_FACTOR
+    jitterFactor = DEFAULT_JITTER_FACTOR,
+    backoffFactor = defaultRetryConfig.BACKOFF_FACTOR
 ): Promise<T> {
     let currentSleepMs = sleepMs
     for (let i = 0; i < tries; i++) {
@@ -76,10 +79,7 @@ export async function retryIfRetriable<T>(
             const jitteredSleepMs =
                 jitterFactor > 0 ? currentSleepMs * (1 - jitterFactor + Math.random() * jitterFactor) : currentSleepMs
             await sleep(jitteredSleepMs)
-            currentSleepMs = Math.min(
-                currentSleepMs * defaultRetryConfig.BACKOFF_FACTOR,
-                defaultRetryConfig.MAX_INTERVAL
-            )
+            currentSleepMs = Math.min(currentSleepMs * backoffFactor, defaultRetryConfig.MAX_INTERVAL)
         }
     }
 
