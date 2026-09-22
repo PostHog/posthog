@@ -58,6 +58,10 @@ def test_accepts_bucket_local_aggregations(aggregate: str, column: str | None) -
         SQL.replace("AND event = 'signup'", "AND event =~ properties.pattern"),
         SQL.replace("count()", "countIf(event IN (SELECT event FROM events))"),
         SQL.replace("count()", "countIf(timestamp >= toStartOfHour(now()) - INTERVAL 6 HOUR)"),
+        SQL.replace(
+            "AND event = 'signup'",
+            "AND (timestamp >= toStartOfHour(now()) - INTERVAL 6 HOUR OR event = 'signup')",
+        ),
         SQL.replace("AND event = 'signup'", "AND {filters}"),
         "SELECT 1",
         "not valid hogql at all",
