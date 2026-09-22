@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# Drive a hand-launched decision instance from an engineer's machine in one go: the SSH key comes from 1Password into
-# a throwaway agent, the checkpoint reaches the box through presigned URLs, and the ACME key and the bearer come from
-# Secrets Manager, where Terraform and the secrets tool put them, and travel over the SSH session, never through a
-# command line or a file on this machine.
+# Drive a hand-launched decision instance from an engineer's machine in one go: the SSH key and the CA key come from
+# 1Password, the checkpoint reaches the box through presigned URLs, the box's certificate is signed here from a CSR
+# the box made (its private key never leaves it), and the bearer comes from the gateway's secrets bag. Secrets
+# travel over the SSH session, never through a command line or a file on this machine.
 #
 #   deploy/phase1/lambda-host.sh prod-us all
 #
 # The first argument names the environment: its values live in envs/<environment>.env (see envs/prod-us.env.example),
-# with the SSH key as an op:// reference. The script re-executes itself under `op run --env-file` so 1Password
-# prompts once. Steps: `sync` copies this directory to the box, `stage` downloads and verifies the checkpoint,
-# `bootstrap` writes /etc/kev-vllm/env and runs bootstrap.sh, `all` does the three.
+# with the SSH key and the CA key as op:// references. The script re-executes itself under `op run --env-file` so
+# 1Password prompts once. Steps: `sync` copies this directory to the box, `stage` downloads and verifies the
+# checkpoint, `certificate` issues the box its certificate, `bootstrap` writes /etc/kev-vllm/env and runs
+# bootstrap.sh, `all` does the four.
 set -euo pipefail
 
 ENVIRONMENT=${1:?environment, one of the files under envs/ without the .env suffix}
@@ -21,6 +22,8 @@ if [ -z "${LAMBDA_HOST_RESOLVED:-}" ]; then
   exec op run --env-file "$ENV_FILE" -- env LAMBDA_HOST_RESOLVED=1 "$0" "$@"
 fi
 TARGET=${TARGET:?TARGET in $ENV_FILE}
+INSTANCE_IP=${TARGET#*@}
+CERT_DAYS=1826
 : "${LAMBDA_SSH_KEY:?private key from 1Password (op run resolves it)}"
 
 # Secretive pins IdentityAgent in ssh config, so the throwaway agent has to be named explicitly.
@@ -62,21 +65,35 @@ stage_checkpoint() {
     sudo docker run --rm -v '$dest':/models/kev-4b:ro --entrypoint kev-vllm-checkpoint '$IMAGE' verify /models/kev-4b"
 }
 
+issue_certificate() {
+  : "${KEV_CA_KEY:?CA private key from 1Password (op run resolves it)}"
+  # The box keeps its private key and hands back a CSR; the CA key touches this machine only inside a private
+  # temporary directory for the signing call. Five years of validity, so nothing on the box ever renews.
+  local csr signing_dir
+  csr=$("${SSH[@]}" "$TARGET" "set -e; sudo install -d -m 0750 /etc/kev-vllm/tls
+    [ -f /etc/kev-vllm/tls/instance.key ] || sudo sh -c 'umask 077; openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out /etc/kev-vllm/tls/instance.key'
+    sudo openssl req -new -key /etc/kev-vllm/tls/instance.key -subj '/O=PostHog/CN=$INSTANCE_IP'")
+  signing_dir=$(mktemp -d)
+  trap 'rm -rf "$signing_dir"; ssh-agent -k >/dev/null 2>&1' EXIT
+  chmod 700 "$signing_dir"
+  printf '%s\n' "$KEV_CA_KEY" > "$signing_dir/ca.key"
+  printf 'subjectAltName=IP:%s\nextendedKeyUsage=serverAuth\nkeyUsage=critical,digitalSignature\nbasicConstraints=CA:FALSE\n' "$INSTANCE_IP" > "$signing_dir/ext"
+  printf '%s\n' "$csr" | openssl x509 -req -CA "$HERE/ca.pem" -CAkey "$signing_dir/ca.key" -days "$CERT_DAYS" -extfile "$signing_dir/ext" -out "$signing_dir/instance.crt" 2>/dev/null
+  rm -f "$signing_dir/ca.key"
+  openssl x509 -in "$signing_dir/instance.crt" -noout -subject -enddate
+  tar -C "$signing_dir" -cf - instance.crt | "${SSH[@]}" "$TARGET" "sudo tar -C /etc/kev-vllm/tls -xf - && sudo chmod 0644 /etc/kev-vllm/tls/instance.crt"
+  "${SSH[@]}" "$TARGET" "sudo tee /etc/kev-vllm/tls/ca.pem >/dev/null && sudo chmod 0644 /etc/kev-vllm/tls/ca.pem" < "$HERE/ca.pem"
+  rm -rf "$signing_dir"
+}
+
 bootstrap_box() {
-  : "${INSTANCE_HOST:?}" "${ACME_EMAIL:?}" "${ROUTE53_ZONE_ID:?}" "${ACME_SECRET_ID:?}" "${AWS_READ_PROFILE:?}"
   : "${GATEWAY_SECRETS_PROFILE:?}" "${MODEL_NAME:?}" "${IMAGE:?}"
-  local acme_key_id acme_secret bearer
-  { read -r acme_key_id; read -r acme_secret; } < <(secret_fields "$AWS_READ_PROFILE" "$ACME_SECRET_ID" AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY)
+  local bearer
   # The gateway reads the same bag, so the two sides of the bearer cannot drift.
   read -r bearer < <(secret_fields "$GATEWAY_SECRETS_PROFILE" ai-gateway-secrets AI_GATEWAY_KEV_API_KEY)
   # The env file goes over stdin and lands root-only on the box; bootstrap.sh reads it from there.
   printf '%s\n' \
-    "INSTANCE_HOST=$INSTANCE_HOST" \
-    "ACME_EMAIL=$ACME_EMAIL" \
-    "ROUTE53_ZONE_ID=$ROUTE53_ZONE_ID" \
-    "AWS_ACCESS_KEY_ID=$acme_key_id" \
-    "AWS_SECRET_ACCESS_KEY=$acme_secret" \
-    "AWS_REGION=${AWS_REGION:-us-east-1}" \
+    "INSTANCE_IP=$INSTANCE_IP" \
     "KEV_BEARER=$bearer" \
     "IMAGE=$IMAGE" \
     "MODEL_DIR=/srv/models/${MODEL_NAME}" \
@@ -87,7 +104,8 @@ bootstrap_box() {
 case "$STEP" in
   sync) sync_files ;;
   stage) stage_checkpoint ;;
+  certificate) issue_certificate ;;
   bootstrap) sync_files; bootstrap_box ;;
-  all) sync_files; stage_checkpoint; bootstrap_box ;;
-  *) echo "unknown step $STEP (sync, stage, bootstrap, all)" >&2; exit 2 ;;
+  all) sync_files; stage_checkpoint; issue_certificate; bootstrap_box ;;
+  *) echo "unknown step $STEP (sync, stage, certificate, bootstrap, all)" >&2; exit 2 ;;
 esac

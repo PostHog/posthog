@@ -1,22 +1,15 @@
-# The proxy in front of vLLM on a decision instance: a Let's Encrypt certificate obtained and renewed through a
-# DNS-01 challenge, the per-instance bearer on every request, and only the decision endpoint, health and metrics
-# exposed. vLLM itself binds loopback (see bin/serve.sh).
+# The proxy in front of vLLM on a decision instance: the instance's own certificate, issued by the ML inference CA
+# through lambda-host.sh, the per-instance bearer on every request, and only the decision endpoint, health and
+# metrics exposed. vLLM itself binds loopback (see bin/serve.sh). Only the AI gateway talks to this box, and it
+# trusts that CA, so there is no public CA, no ACME and nothing to renew for years.
 #
-# Environment (from /etc/kev-vllm/env): INSTANCE_HOST is the instance's DNS name, ACME_EMAIL the certificate contact,
-# ROUTE53_ZONE_ID the zone the name lives in, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY a credential that can write
-# only the _acme-challenge TXT record for this name, KEV_BEARER the per-instance bearer. Nothing listens on port 80:
-# the challenge is a DNS record, so there is no ACME responder and no redirect.
+# Environment (from /etc/kev-vllm/env): KEV_BEARER, the per-instance bearer. Nothing listens on port 80.
 {
-	email {$ACME_EMAIL}
-	auto_https disable_redirects
+	auto_https off
 }
 
-{$INSTANCE_HOST} {
-	tls {
-		dns route53 {
-			hosted_zone_id {$ROUTE53_ZONE_ID}
-		}
-	}
+:443 {
+	tls /etc/kev-vllm/tls/instance.crt /etc/kev-vllm/tls/instance.key
 
 	@unauthorized {
 		not header Authorization "Bearer {$KEV_BEARER}"

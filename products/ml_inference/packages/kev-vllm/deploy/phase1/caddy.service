@@ -7,12 +7,11 @@ Wants=network-online.target
 [Service]
 EnvironmentFile=/etc/kev-vllm/env
 ExecStartPre=-/usr/bin/docker rm -f kev-caddy
-# The data volume keeps the certificate and ACME account across restarts, so a restart is not a reissue.
 ExecStart=/usr/bin/docker run --rm --name kev-caddy --network host \
     --env-file /etc/kev-vllm/env \
     --volume /etc/kev-vllm/Caddyfile:/etc/caddy/Caddyfile:ro \
-    --volume /var/lib/kev-vllm/caddy:/data \
-    kev-caddy:local
+    --volume /etc/kev-vllm/tls:/etc/kev-vllm/tls:ro \
+    ${CADDY_IMAGE}
 ExecStop=/usr/bin/docker stop kev-caddy
 Restart=always
 RestartSec=5

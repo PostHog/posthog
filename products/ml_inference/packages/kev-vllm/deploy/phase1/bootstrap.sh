@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# Bring one hand-launched decision instance up in front of the gateway: Caddy obtaining its own certificate through
-# a DNS-01 challenge and checking the per-instance bearer, the serving container under systemd, both reading
-# /etc/kev-vllm/env. Idempotent; run as root on an Ubuntu Lambda instance that already has Docker and the NVIDIA
-# container runtime, with the checkpoint at MODEL_DIR and the DNS name in INSTANCE_HOST already resolving to this
-# instance.
+# Bring one hand-launched decision instance up in front of the gateway: Caddy serving the instance's certificate
+# and checking the per-instance bearer, the serving container under systemd, both reading /etc/kev-vllm/env.
+# Idempotent; run as root on an Ubuntu Lambda instance that already has Docker and the NVIDIA container runtime,
+# with the checkpoint at MODEL_DIR and the certificate pair under /etc/kev-vllm/tls.
 #
-# Normally run through lambda-host.sh from an engineer's machine, which fills /etc/kev-vllm/env first; by hand, the
-# same variables can be exported before calling it.
+# Normally run through lambda-host.sh from an engineer's machine, which issues the certificate and fills
+# /etc/kev-vllm/env first; by hand, the same variables can be exported before calling it.
 #
 # This is the phase 1 layout from the ML inference RFC: launched by hand, temporary by construction. Phase 2 renders
 # the same files from cloud-init.
@@ -19,32 +18,28 @@ if [ -f /etc/kev-vllm/env ]; then
   . /etc/kev-vllm/env
   set +a
 fi
-INSTANCE_HOST=${INSTANCE_HOST:?the DNS name of this instance}
-ACME_EMAIL=${ACME_EMAIL:?contact email for the ACME account}
-ROUTE53_ZONE_ID=${ROUTE53_ZONE_ID:?the zone the name lives in}
-AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:?credential that can write the ACME challenge record}
-AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:?credential that can write the ACME challenge record}
+INSTANCE_IP=${INSTANCE_IP:?the public IP the certificate was issued for}
 KEV_BEARER=${KEV_BEARER:?per-instance bearer}
 MODEL_DIR=${MODEL_DIR:?directory holding the exported checkpoint}
 IMAGE=${IMAGE:?serving image reference}
+CADDY_IMAGE=${CADDY_IMAGE:-caddy:2.10.2}
 KEV_DATE_FACTS=${KEV_DATE_FACTS:-0}
 HERE=$(cd "$(dirname "$0")" && pwd)
 
 [ -f "$MODEL_DIR/manifest.json" ] || { echo "no checkpoint at $MODEL_DIR" >&2; exit 1; }
 # The image serves as an unprivileged user (uid 10001), so the checkpoint must be readable by everyone.
 chmod -R a+rX "$MODEL_DIR"
+for f in instance.crt instance.key ca.pem; do
+  [ -f "/etc/kev-vllm/tls/$f" ] || { echo "no /etc/kev-vllm/tls/$f; lambda-host.sh issues the certificate first" >&2; exit 1; }
+done
 
-install -d -m 0750 /etc/kev-vllm /var/lib/kev-vllm/caddy
+install -d -m 0750 /etc/kev-vllm
 umask 077
 cat > /etc/kev-vllm/env <<ENV
-INSTANCE_HOST=$INSTANCE_HOST
-ACME_EMAIL=$ACME_EMAIL
-ROUTE53_ZONE_ID=$ROUTE53_ZONE_ID
-AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-AWS_REGION=us-east-1
+INSTANCE_IP=$INSTANCE_IP
 KEV_BEARER=$KEV_BEARER
 IMAGE=$IMAGE
+CADDY_IMAGE=$CADDY_IMAGE
 MODEL_DIR=$MODEL_DIR
 KEV_DATE_FACTS=$KEV_DATE_FACTS
 ENV
@@ -54,7 +49,7 @@ install -m 0644 "$HERE/Caddyfile" /etc/kev-vllm/Caddyfile
 install -m 0644 "$HERE/kev-vllm.service" /etc/systemd/system/kev-vllm.service
 install -m 0644 "$HERE/caddy.service" /etc/systemd/system/caddy.service
 
-docker build -q -t kev-caddy:local "$HERE/caddy" >/dev/null
+docker pull -q "$CADDY_IMAGE" >/dev/null
 docker pull "$IMAGE"
 systemctl daemon-reload
 systemctl enable --now kev-vllm.service
@@ -73,13 +68,14 @@ expect_status() {
   echo "through caddy $label: $status"
   [ "$status" = "$expected" ] || { echo "expected $expected $label" >&2; exit 1; }
 }
-# The first request waits for the certificate; Caddy answers once the DNS-01 challenge has been validated.
-for _ in $(seq 1 24); do
-  curl -fs -o /dev/null -H "Authorization: Bearer $KEV_BEARER" "https://$INSTANCE_HOST/health" 2>/dev/null && break
+# Verified the way the gateway verifies: against the CA, for the public IP in the certificate, connecting to loopback.
+via_caddy=(--cacert /etc/kev-vllm/tls/ca.pem --connect-to "$INSTANCE_IP:443:127.0.0.1:443")
+for _ in $(seq 1 12); do
+  curl -fs -o /dev/null "${via_caddy[@]}" -H "Authorization: Bearer $KEV_BEARER" "https://$INSTANCE_IP/health" 2>/dev/null && break
   sleep 5
 done
-expect_status 200 "with the bearer" -H "Authorization: Bearer $KEV_BEARER" "https://$INSTANCE_HOST/health"
-expect_status 401 "without the bearer" "https://$INSTANCE_HOST/health"
+expect_status 200 "with the bearer" "${via_caddy[@]}" -H "Authorization: Bearer $KEV_BEARER" "https://$INSTANCE_IP/health"
+expect_status 401 "without the bearer" "${via_caddy[@]}" "https://$INSTANCE_IP/health"
 if curl -s -o /dev/null --connect-timeout 3 "http://127.0.0.1:80/"; then
   echo "something answers on port 80; the instance should have no plain HTTP listener" >&2
   exit 1
