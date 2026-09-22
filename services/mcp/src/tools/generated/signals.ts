@@ -1100,9 +1100,6 @@ const scoutEmitSignal = (): ToolBase<ReturnType<typeof ScoutEmitSignalSchema>, S
         if (params.description !== undefined) {
             body['description'] = params.description
         }
-        if (params.confidence !== undefined) {
-            body['confidence'] = params.confidence
-        }
         if (params.evidence !== undefined) {
             body['evidence'] = params.evidence
         }
@@ -2052,9 +2049,6 @@ const signalsScoutEmitSignal = (): ToolBase<
         const body: Record<string, unknown> = {}
         if (params.description !== undefined) {
             body['description'] = params.description
-        }
-        if (params.confidence !== undefined) {
-            body['confidence'] = params.confidence
         }
         if (params.evidence !== undefined) {
             body['evidence'] = params.evidence
