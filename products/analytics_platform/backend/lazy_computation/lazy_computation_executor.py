@@ -170,6 +170,17 @@ LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL = Counter(
     ["table"],
 )
 
+# The read-correctness backstop. Every execution proves coverage before it breaks
+# out of the build loop, so a gap in the set it finally serves means a window was
+# lost after that proof. Near zero is the healthy state; a sustained rate means
+# reads are being downgraded to live queries, and a step change means a window is
+# being lost faster than it is rebuilt.
+LAZY_COMPUTATION_COVERAGE_GAPS_TOTAL = Counter(
+    "lazy_computation_coverage_gaps_total",
+    "Executions rejected because the READY jobs collected for the read no longer tile the range.",
+    ["table"],
+)
+
 
 def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False, read_after_write: bool = True) -> dict:
     """Build ClickHouse settings for preaggregation INSERT queries.
@@ -1125,9 +1136,10 @@ class LazyComputationExecutor:
         historical_end = end_utc if end_is_data_horizon and end_utc < today_start_utc else None
 
         def _log_execution(outcome: str, result: LazyComputationResult) -> None:
-            if outcome == "check_miss":
-                # Check-only misses return before any job is created or waited on,
-                # which the branch below would misread as a cache hit.
+            if outcome in ("check_miss", "coverage_gap"):
+                # Neither outcome serves anything. A check-only miss returns before any
+                # job is created or waited on, and a coverage gap can return after a
+                # full build, so the branch below would call both of them cache hits.
                 cache_state = "partial_hit" if had_ready_at_start else "miss"
             elif jobs_created == 0 and not waited_job_ids:
                 cache_state = "hit"
@@ -1176,9 +1188,8 @@ class LazyComputationExecutor:
                 # would read as zero if the unfiltered union counted it as covered.
                 # The filter can also hide a window covered only by an older
                 # PENDING job; recomputing it costs at most one duplicate build.
-                missing_ranges = find_missing_contiguous_windows(filter_overlapping_jobs(fresh_jobs), start, end)
-                build_ranges = clamp_ranges_to_data_horizon(
-                    split_ranges_by_ttl(missing_ranges, self.ttl_schedule), historical_end
+                build_ranges = self._missing_build_ranges(
+                    filter_overlapping_jobs(fresh_jobs), start, end, historical_end
                 )
 
                 if had_ready_at_start is None:
@@ -1444,6 +1455,31 @@ class LazyComputationExecutor:
         final_jobs = find_existing_jobs(team, query_hash, start, end)
         final_fresh = self._filter_by_freshness(final_jobs)
         final_ready = filter_overlapping_jobs([j for j in final_fresh if j.status == PreaggregationJob.Status.READY])
+
+        # The loop proved coverage over the set it read at the top of its last pass.
+        # This set is read later, and can have lost a window in between: a job crossed
+        # its TTL, or a concurrent rebuild on a narrower window evicted a broader job
+        # through `filter_overlapping_jobs`. The reads serve `job_ids` as the whole
+        # answer, so a lost day becomes a short count that carries no sign of being
+        # short — the same range then disagrees with a range that kept the day. Fall
+        # back to the live path, which is always complete.
+        uncovered = self._missing_build_ranges(final_ready, start, end, historical_end)
+        if uncovered:
+            LAZY_COMPUTATION_COVERAGE_GAPS_TOTAL.labels(table=str(query_info.table)).inc()
+            logger.warning(
+                "lazy_computation.coverage_gap",
+                team_id=team.id,
+                query_hash=query_hash,
+                table=str(query_info.table),
+                time_range_start=str(start),
+                time_range_end=str(end),
+                uncovered_ranges=[(str(r.start), str(r.end)) for r in uncovered],
+                job_count=len(final_ready),
+            )
+            result = LazyComputationResult(ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded)
+            _log_execution("coverage_gap", result)
+            return result
+
         result = LazyComputationResult(
             ready=True,
             job_ids=[j.id for j in final_ready],
@@ -1527,6 +1563,24 @@ class LazyComputationExecutor:
 
         job_age = (django_timezone.now() - job.created_at).total_seconds()
         return job_age > self.stale_pending_threshold_seconds
+
+    def _missing_build_ranges(
+        self,
+        jobs: list[PreaggregationJob],
+        start: datetime,
+        end: datetime,
+        historical_end: datetime | None,
+    ) -> list[BuildRange]:
+        """Ranges of [start, end) that `jobs` does not cover, as buildable ranges.
+
+        The build loop and the final collection must agree on what "covered" means,
+        or the loop stops on a range the collection then rejects, or serves one the
+        loop would still have built. Keep the predicate in one place.
+        """
+        return clamp_ranges_to_data_horizon(
+            split_ranges_by_ttl(find_missing_contiguous_windows(jobs, start, end), self.ttl_schedule),
+            historical_end,
+        )
 
     def _filter_by_freshness(
         self, jobs: list[PreaggregationJob], grace_seconds: float = 0.0

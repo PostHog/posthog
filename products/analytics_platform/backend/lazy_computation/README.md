@@ -180,7 +180,7 @@ Each invocation of the executor emits both a structured log and Prometheus count
 
 | label         | values                                                              |
 | ------------- | ------------------------------------------------------------------- |
-| `outcome`     | `success`, `timeout`, `non_retryable_error`, `max_retries_exceeded` |
+| `outcome`     | `success`, `stale_hit`, `check_miss`, `coverage_gap`, `timeout`, `non_retryable_error`, `max_retries_exceeded` |
 | `cache_state` | `hit`, `partial_hit`, `miss` — see below                            |
 | `table`       | the lazy table being populated (e.g. `preaggregation_results`)      |
 
@@ -191,6 +191,13 @@ Jobs run synchronously inside `execute()` — there is no background queue, so P
 - `lazy_computation_jobs_created_total{cache_state, table}` — one increment every time a PENDING row is inserted (one per missing range per executor). The loser of a partial-unique-index race does **not** increment, so the count matches PG row inserts. `cache_state` mirrors the executor-level label so a job created during a fresh execute() call lands on `miss` and a top-up job filling a hole in pre-existing READY data lands on `partial_hit`. `hit` never appears because hits don't create anything.
 - `lazy_computation_job_create_conflicts_total{table}` — one increment every time a create is skipped because a PENDING row already holds the `unique_pending_job_per_range` slot. A steady background rate is expected (the warmers and SWR revalidation race on the same windows by design); a sustained elevated rate means writers piling onto the same windows, or a PENDING row past its own `expires_at` blocking a window it no longer serves. Each conflict also emits a `lazy_computation.job_create_conflict` structured log with `team_id`, `query_hash`, and the window, which is the only place the colliding values appear now that the insert no longer raises a Postgres error.
 - `lazy_computation_jobs_finished_total{outcome, table}` — one increment every time a job reaches a terminal status.
+- `lazy_computation_coverage_gaps_total{table}` — one increment every time an execution is rejected because the READY jobs collected for the read no longer tile the requested range. The loop proves coverage before it stops, so a gap here means a window was lost after that proof: a job crossed its TTL, or a peer rebuilt a narrower window and evicted a broader job in the overlap filter. The read falls back to the live query, which is always complete, and the loss is recoverable on the next request. Near zero is the healthy state. Each increment also emits a `lazy_computation.coverage_gap` structured log carrying the uncovered ranges.
+
+Coverage gaps per table (alert on any sustained rate — it means reads are being downgraded to live queries):
+
+```promql
+sum by (table) (rate(lazy_computation_coverage_gaps_total[5m]))
+```
 
 `outcome` values:
 
