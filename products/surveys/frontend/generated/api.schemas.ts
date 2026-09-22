@@ -959,6 +959,8 @@ export interface SurveyOpenQuestionSchemaApi {
     optional?: boolean
     /** Custom button label. */
     buttonText?: string
+    /** Whether to submit the answer when the respondent selects it. */
+    skipSubmitButton?: boolean
 }
 
 /**
@@ -988,6 +990,8 @@ export interface SurveyLinkQuestionSchemaApi {
     optional?: boolean
     /** Custom button label. */
     buttonText?: string
+    /** Whether to submit the answer when the respondent selects it. */
+    skipSubmitButton?: boolean
     /** HTTPS or mailto URL for link questions. */
     link: string
 }
@@ -1117,6 +1121,8 @@ export interface SurveyRatingQuestionSchemaApi {
     optional?: boolean
     /** Custom button label. */
     buttonText?: string
+    /** Whether to submit the answer when the respondent selects it. */
+    skipSubmitButton?: boolean
     /** Display format: 'number' shows numeric scale, 'emoji' shows emoji scale.
      *
      * * `number` - number
@@ -1161,6 +1167,8 @@ export interface SurveySingleChoiceQuestionSchemaApi {
     optional?: boolean
     /** Custom button label. */
     buttonText?: string
+    /** Whether to submit the answer when the respondent selects it. */
+    skipSubmitButton?: boolean
     /**
      * Array of choice options. Choice indices (0, 1, 2, ...) are used for branching logic.
      * @minItems 2
@@ -1201,6 +1209,8 @@ export interface SurveyMultipleChoiceQuestionSchemaApi {
     optional?: boolean
     /** Custom button label. */
     buttonText?: string
+    /** Whether to submit the answer when the respondent selects it. */
+    skipSubmitButton?: boolean
     /**
      * Array of choice options. Multiple selections allowed. No branching logic supported.
      * @minItems 2

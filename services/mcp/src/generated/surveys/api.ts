@@ -479,6 +479,10 @@ export const SurveysCreateBody = () => zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
+                    skipSubmitButton: zod
+                        .boolean()
+                        .optional()
+                        .describe('Whether to submit the answer when the respondent selects it.'),
                 }),
                 zod.object({
                     id: zod
@@ -497,6 +501,10 @@ export const SurveysCreateBody = () => zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
+                    skipSubmitButton: zod
+                        .boolean()
+                        .optional()
+                        .describe('Whether to submit the answer when the respondent selects it.'),
                     link: zod.string().describe('HTTPS or mailto URL for link questions.'),
                 }),
                 zod.object({
@@ -516,6 +524,10 @@ export const SurveysCreateBody = () => zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
+                    skipSubmitButton: zod
+                        .boolean()
+                        .optional()
+                        .describe('Whether to submit the answer when the respondent selects it.'),
                     display: zod
                         .enum(['number', 'emoji'])
                         .describe('\* `number` - number\n\* `emoji` - emoji')
@@ -606,6 +618,10 @@ export const SurveysCreateBody = () => zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
+                    skipSubmitButton: zod
+                        .boolean()
+                        .optional()
+                        .describe('Whether to submit the answer when the respondent selects it.'),
                     choices: zod
                         .array(zod.string())
                         .min(surveysCreateBodyQuestionsItemFourChoicesMin)
@@ -695,6 +711,10 @@ export const SurveysCreateBody = () => zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
+                    skipSubmitButton: zod
+                        .boolean()
+                        .optional()
+                        .describe('Whether to submit the answer when the respondent selects it.'),
                     choices: zod
                         .array(zod.string())
                         .min(surveysCreateBodyQuestionsItemFiveChoicesMin)
@@ -1358,6 +1378,10 @@ export const SurveysPartialUpdateBody = () => zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
+                    skipSubmitButton: zod
+                        .boolean()
+                        .optional()
+                        .describe('Whether to submit the answer when the respondent selects it.'),
                 }),
                 zod.object({
                     id: zod
@@ -1376,6 +1400,10 @@ export const SurveysPartialUpdateBody = () => zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
+                    skipSubmitButton: zod
+                        .boolean()
+                        .optional()
+                        .describe('Whether to submit the answer when the respondent selects it.'),
                     link: zod.string().describe('HTTPS or mailto URL for link questions.'),
                 }),
                 zod.object({
@@ -1395,6 +1423,10 @@ export const SurveysPartialUpdateBody = () => zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
+                    skipSubmitButton: zod
+                        .boolean()
+                        .optional()
+                        .describe('Whether to submit the answer when the respondent selects it.'),
                     display: zod
                         .enum(['number', 'emoji'])
                         .describe('\* `number` - number\n\* `emoji` - emoji')
@@ -1485,6 +1517,10 @@ export const SurveysPartialUpdateBody = () => zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
+                    skipSubmitButton: zod
+                        .boolean()
+                        .optional()
+                        .describe('Whether to submit the answer when the respondent selects it.'),
                     choices: zod
                         .array(zod.string())
                         .min(surveysPartialUpdateBodyQuestionsItemFourChoicesMin)
@@ -1574,6 +1610,10 @@ export const SurveysPartialUpdateBody = () => zod.object({
                         .describe('Format for the description field.\n\n\* `text` - text\n\* `html` - html'),
                     optional: zod.boolean().optional().describe('Whether respondents may skip this question.'),
                     buttonText: zod.string().optional().describe('Custom button label.'),
+                    skipSubmitButton: zod
+                        .boolean()
+                        .optional()
+                        .describe('Whether to submit the answer when the respondent selects it.'),
                     choices: zod
                         .array(zod.string())
                         .min(surveysPartialUpdateBodyQuestionsItemFiveChoicesMin)
