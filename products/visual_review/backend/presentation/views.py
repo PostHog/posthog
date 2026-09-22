@@ -679,10 +679,10 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not identifier:
             return Response({"detail": _MISSING_IDENTIFIER_DETAIL}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            run = api.get_run(_parse_uuid(pk), team_id=self.team_id)
+            scope = api.get_run_scope(_parse_uuid(pk), team_id=self.team_id)
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
-        entries = api.get_tolerated_hashes(run.repo_id, identifier)
+        entries = api.get_tolerated_hashes(scope.repo_id, identifier)
         page = self.paginate_queryset(entries)
         if page is not None:
             return self.get_paginated_response(ToleratedHashEntrySerializer(instance=page, many=True).data)
@@ -720,11 +720,11 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": _MISSING_IDENTIFIER_DETAIL}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            run = api.get_run(_parse_uuid(pk), team_id=self.team_id)
+            scope = api.get_run_scope(_parse_uuid(pk), team_id=self.team_id)
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        history = api.get_snapshot_history(run.repo_id, identifier, run.run_type)
+        history = api.get_snapshot_history(scope.repo_id, identifier, scope.run_type)
         page = self.paginate_queryset(history)
         if page is not None:
             return self.get_paginated_response(SnapshotHistoryEntrySerializer(instance=page, many=True).data)

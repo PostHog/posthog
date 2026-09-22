@@ -199,21 +199,27 @@ def list_toleration_pileups(
     min_intentional: int = VARIANT_PILEUP_MIN,
     min_automatic: int | None = None,
     newest_run_by_type: Mapping[str, Run] | None = None,
-) -> dict[SnapshotKey, TolerationCounts]:
-    """Snapshot identities that keep getting tolerated, whether quarantined or not.
+) -> list[tuple[SnapshotKey, TolerationCounts]]:
+    """Snapshot identities that keep getting tolerated, whether quarantined or not, biggest manual
+    pile first, then by identity so a tie reads the same way every time.
 
     An identity qualifies with `min_intentional` or more tolerations by a person or agent in the
     window, or, when `min_automatic` is set, with that many automatic ones. The defaults are the
     debt digest's rule, and the digest and the pile-ups endpoint share this function so the
     reminder and what an agent reads cannot drift apart.
     """
-    return {
-        key: counts
-        for key, counts in count_recent_tolerations(
-            repo_id, since=now - timedelta(days=window_days), newest_run_by_type=newest_run_by_type
-        ).items()
-        if counts.intentional >= min_intentional or (min_automatic is not None and counts.automatic >= min_automatic)
-    }
+    counts_by_key = count_recent_tolerations(
+        repo_id, since=now - timedelta(days=window_days), newest_run_by_type=newest_run_by_type
+    )
+    return sorted(
+        (
+            (key, counts)
+            for key, counts in counts_by_key.items()
+            if counts.intentional >= min_intentional
+            or (min_automatic is not None and counts.automatic >= min_automatic)
+        ),
+        key=lambda item: (-item[1].intentional, -item[1].automatic, item[0].run_type, item[0].identifier),
+    )
 
 
 def _current_baseline_hashes(

@@ -424,9 +424,7 @@ def collect_debt(repo: Repo, now: datetime) -> RepoDebt:
     quarantined_keys = quarantine.active_quarantine_keys(repo.id, now=now)
     piled_up = {
         key: counts.intentional
-        for key, counts in toleration.list_toleration_pileups(
-            repo.id, now=now, newest_run_by_type=newest_run_by_type
-        ).items()
+        for key, counts in toleration.list_toleration_pileups(repo.id, now=now, newest_run_by_type=newest_run_by_type)
         # Any live quarantine, expiring or not, already says somebody knows the snapshot is
         # unreliable, so asking them about the tolerations underneath it is a second reminder about
         # one problem.
@@ -456,10 +454,8 @@ def collect_debt(repo: Repo, now: datetime) -> RepoDebt:
                 line=_pileup_line(repo, key.run_type, key.identifier, count),
                 facts=_pileup_facts(count),
             )
-            # Biggest pile first, then by identity so a tie reads the same way every morning.
-            for key, count in sorted(
-                piled_up.items(), key=lambda item: (-item[1], item[0].run_type, item[0].identifier)
-            )
+            # Already in pile order: `list_toleration_pileups` sorts, and the dict keeps it.
+            for key, count in piled_up.items()
         ],
     )
 
