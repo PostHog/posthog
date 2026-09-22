@@ -48,7 +48,9 @@ export class TerminalSession {
         select: (selected: boolean) => void,
         paste: () => void
     ) {
-        this.element.className = 'h-full min-w-0 bg-black'
+        // The terminal can show any project data, so ph-no-capture keeps its contents out of
+        // session replay.
+        this.element.className = 'ph-no-capture h-full min-w-0 bg-black'
         this.element.dataset.shortcutsIgnore = 'ctrl'
         this.element.dataset.shortcutsAllowKeys = '` ~'
         this.view.loadAddon(this.fit)
