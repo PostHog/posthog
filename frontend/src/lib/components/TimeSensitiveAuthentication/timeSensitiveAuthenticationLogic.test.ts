@@ -207,6 +207,15 @@ describe('timeSensitiveAuthenticationLogic', () => {
                 expect(lemonToast.error).toHaveBeenCalledTimes(toasted ? 1 : 0)
             }
         )
+        it('keeps SAML on the full-page redirect', () => {
+            const open = jest.spyOn(window, 'open')
+            // jsdom reports the page navigation as not implemented
+            jest.spyOn(console, 'error').mockImplementation(() => {})
+
+            logic.actions.beginSsoReauthentication('saml')
+
+            expect(open).not.toHaveBeenCalled()
+        })
     })
 
     describe('failed SSO re-authentication', () => {

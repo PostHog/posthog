@@ -427,6 +427,19 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
         },
         beginSsoReauthentication: ({ provider }) => {
             const params = { email: values.user?.email || '', reauth: 'true' }
+            const redirectInPage = (): void => {
+                window.location.href = getSocialLoginUrl(provider, {
+                    ...params,
+                    next: location.href.replace(location.origin, ''),
+                })
+            }
+            // SAML posts back cross-site without the session cookie, so the backend runs a fresh login that can
+            // switch accounts. In a popup that switch would be invisible and the pending write would retry as
+            // the other account.
+            if (provider === 'saml') {
+                redirectInPage()
+                return
+            }
             cache.ssoReauthAttempt = uuid()
             // A popup keeps this page, and the request waiting on re-auth, alive.
             const popup = window.open(
@@ -439,10 +452,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
                 'popup,width=600,height=700'
             )
             if (!popup) {
-                window.location.href = getSocialLoginUrl(provider, {
-                    ...params,
-                    next: location.href.replace(location.origin, ''),
-                })
+                redirectInPage()
             }
         },
         ssoReauthenticationFinished: ({ attempt, errorCode }) => {
