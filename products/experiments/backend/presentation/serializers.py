@@ -402,7 +402,8 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "'mean' (set source to an EventsNode with an event name), "
             "'funnel' (set series to an array of EventsNode steps), "
             "'ratio' (set numerator and denominator EventsNode entries), or "
-            "'retention' (set start_event and completion_event). "
+            "'retention' (set start_event and completion_event; pass start_event "
+            '{"kind": "ExperimentExposureNode"} to start retention from the experiment\'s exposure event). '
             "Use the read-data-schema tool with query kind 'events' to find available events in the project."
         ),
     )
