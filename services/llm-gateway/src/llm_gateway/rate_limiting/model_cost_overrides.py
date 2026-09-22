@@ -97,6 +97,19 @@ MODEL_COST_OVERRIDES: Final[dict[str, ModelCost]] = {
         "supports_vision": True,
         "supports_prompt_caching": True,
     },
+    "claude-opus-5-5": {
+        "litellm_provider": "anthropic",
+        "mode": "chat",
+        # 200k not 1M: the 1M window is a beta-header feature, same as opus-4.x.
+        "max_input_tokens": 200_000,
+        "max_output_tokens": 64_000,
+        "input_cost_per_token": 4e-06,
+        "output_cost_per_token": 2e-05,
+        "cache_read_input_token_cost": 2e-07,
+        "cache_creation_input_token_cost": 5e-06,
+        "supports_vision": True,
+        "supports_prompt_caching": True,
+    },
     "gpt-5.6-sol": {
         "litellm_provider": "openai",
         "mode": "responses",

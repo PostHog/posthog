@@ -213,6 +213,18 @@ export const MODELS: readonly CatalogModel[] = [
         costSummary: 'Input $5 · Output $25 per 1M tokens',
     },
     {
+        id: 'claude-opus-5-5',
+        runtimeAdapter: 'claude',
+        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
+        label: 'Claude Opus 5.5',
+        cost: {
+            inputPerMtok: 4,
+            outputPerMtok: 20,
+        },
+        costMultiplier: '2×',
+        costSummary: 'Input $4 · Output $20 per 1M tokens',
+    },
+    {
         id: 'claude-fable-5',
         runtimeAdapter: 'claude',
         reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
