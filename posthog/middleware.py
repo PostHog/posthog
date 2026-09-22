@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from ipaddress import ip_address, ip_network
 from typing import Optional, cast
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
@@ -1468,12 +1468,15 @@ class CSPMiddleware:
                 frame_ancestors += " http://localhost:8001"
 
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
+            js_url = urlsplit(settings.JS_URL)
+            bundle_origin = f"{js_url.scheme}://{js_url.netloc}" if js_url.scheme and js_url.netloc else ""
             csp_parts = [
                 # Firefox checks <link rel="modulepreload"> against default-src instead of script-src,
-                # so without the static host it refuses the preloads index.html emits for the boot
-                # chain. The fetch directives below each set their own sources, so only a load a
-                # browser cannot map to one of them falls back to this list.
-                f"default-src 'self' {resource_url}",
+                # so without the bundle host it refuses the preloads index.html emits for the boot
+                # chain. Every preload href starts with JS_URL, so its origin is the one host needed.
+                # The fetch directives below each set their own sources, so only a load a browser
+                # cannot map to one of them falls back to this list.
+                f"default-src 'self' {bundle_origin}".rstrip(),
                 f"style-src 'self' 'unsafe-inline' {resource_url} https://fonts.googleapis.com",
                 # 'wasm-unsafe-eval' permits WebAssembly compilation and nothing else. It is not
                 # 'unsafe-eval': it does not permit eval() or the Function constructor. Compiling a
