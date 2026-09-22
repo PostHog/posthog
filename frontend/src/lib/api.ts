@@ -746,19 +746,6 @@ export class ApiRequest {
         return this.links(teamId).addPathComponent(id)
     }
 
-    // # MCP Store
-    public mcpServers(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('mcp_servers')
-    }
-
-    public mcpServerInstallations(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('mcp_server_installations')
-    }
-
-    public mcpServerInstallation(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.mcpServerInstallations(teamId).addPathComponent(id)
-    }
-
     // # Actions
     public actions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('actions')
@@ -4077,73 +4064,6 @@ const api = {
         },
         async delete(id: LinkType['id']): Promise<void> {
             await new ApiRequest().link(id).delete()
-        },
-    },
-
-    mcpServers: {
-        async list(): Promise<CountedPaginatedResponse<Record<string, any>>> {
-            return await new ApiRequest().mcpServers().get()
-        },
-    },
-
-    mcpServerInstallations: {
-        async list(): Promise<CountedPaginatedResponse<Record<string, any>>> {
-            return await new ApiRequest().mcpServerInstallations().get()
-        },
-        async update(id: string, data: Record<string, any>): Promise<Record<string, any>> {
-            return await new ApiRequest().mcpServerInstallation(id).update({ data })
-        },
-        async delete(id: string): Promise<void> {
-            await new ApiRequest().mcpServerInstallation(id).delete()
-        },
-        async share(id: string): Promise<Record<string, any>> {
-            return await new ApiRequest().mcpServerInstallation(id).withAction('share').create({ data: {} })
-        },
-        async unshare(id: string): Promise<Record<string, any>> {
-            return await new ApiRequest().mcpServerInstallation(id).withAction('unshare').create({ data: {} })
-        },
-        async installCustom(data: {
-            name: string
-            url: string
-            auth_type: string
-            api_key?: string
-            description?: string
-            client_id?: string
-            client_secret?: string
-            scope?: 'personal' | 'shared'
-        }): Promise<Record<string, any>> {
-            return await new ApiRequest().mcpServerInstallations().withAction('install_custom').create({ data })
-        },
-        async installTemplate(data: {
-            template_id: string
-            api_key?: string
-            scope?: 'personal' | 'shared'
-        }): Promise<Record<string, any>> {
-            return await new ApiRequest().mcpServerInstallations().withAction('install_template').create({ data })
-        },
-        async listTools(
-            id: string,
-            params?: { include_removed?: boolean }
-        ): Promise<{ results: Record<string, any>[] }> {
-            return await new ApiRequest()
-                .mcpServerInstallation(id)
-                .withAction('tools')
-                .withQueryString(params?.include_removed ? { include_removed: '1' } : undefined)
-                .get()
-        },
-        async updateToolApproval(
-            id: string,
-            toolName: string,
-            approvalState: 'approved' | 'needs_approval' | 'do_not_use'
-        ): Promise<Record<string, any>> {
-            return await new ApiRequest()
-                .mcpServerInstallation(id)
-                .withAction('tools')
-                .withAction(encodeURIComponent(toolName))
-                .update({ data: { approval_state: approvalState } })
-        },
-        async refreshTools(id: string): Promise<{ results: Record<string, any>[] }> {
-            return await new ApiRequest().mcpServerInstallation(id).withAction('tools/refresh').create({ data: {} })
         },
     },
 
