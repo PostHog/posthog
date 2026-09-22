@@ -186,23 +186,6 @@ If `bin/start` sees any `op://` reference in `.env.local`, it re-execs itself un
 
 If the `op` CLI isn't installed, `op://` lines are skipped (rather than sourced as literal `op://...` strings that break downstream services with cryptic errors). Services that need those secrets will fail with their own "missing key" errors — install `1password-cli` or replace the refs with literal values.
 
-### Correlating PostHog AI events with backend traces
-
-The PostHog AI runner's dedicated regional clients enable `capture_trace_context=True`.
-AI events carry the active OpenTelemetry `$trace_id` and `$span_id` when valid context exists at capture time.
-These identify the active backend context, which can be an enclosing operation rather than the AI operation itself.
-Existing `$ai_trace_id`, `$ai_span_id`, and AI parentage stay unchanged.
-This option does not create or export backend spans, change sampling, or copy prompts into span attributes.
-
-Run the focused regression tests with `hogli test ee/hogai/core/test/test_base_callback_handlers.py`.
-They exercise the regional client path with synthetic streaming model and tool callbacks without uploading events or calling a model provider.
-The normal local/hobby path still uses the shared `posthoganalytics.default_client` and does not enable this option automatically.
-For a manual local trial, use a dedicated test client with `capture_trace_context=True` and a test project's token; do not enable cloud mode just to send test events to the built-in regional projects.
-Configure the existing OTel exporter to deliver backend spans to the same test project, and verify actual sampling before checking links in both directions.
-Compare normalized trace/span IDs within that project, not timestamps or users.
-Missing context produces no correlation IDs; unsampled context can produce IDs without a stored span.
-An event copied to another regional project does not guarantee that the corresponding backend spans exist there.
-
 ### Running in detached mode
 
 By default, `hogli start` runs interactively with a terminal UI (phrocs) that displays logs from all processes. If you prefer to run the dev stack in the background without an attached terminal, use detached mode:
