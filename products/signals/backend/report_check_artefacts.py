@@ -14,13 +14,17 @@ from typing import Literal
 import structlog
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import CheckCancelled, CheckExpired, CheckLifecycleEntry, CheckScheduled
+from products.signals.backend.artefact_schemas import CheckCancelled, CheckExpired, CheckScheduled
 from products.signals.backend.models import SignalReportArtefact, SignalReportCheck
 
 logger = structlog.get_logger(__name__)
 
 
-def _write(check: SignalReportCheck, content: CheckLifecycleEntry, attribution: ArtefactAttribution) -> None:
+def _write(
+    check: SignalReportCheck,
+    content: CheckScheduled | CheckExpired | CheckCancelled,
+    attribution: ArtefactAttribution,
+) -> None:
     try:
         SignalReportArtefact.add_log(
             team_id=check.team_id,
