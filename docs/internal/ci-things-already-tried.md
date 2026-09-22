@@ -111,6 +111,16 @@ The larger fixed cost is collection: each shard of the product collects all 58,0
 
 _Also asked as:_ too many parametrized tests, trim the warehouse-sources suite, delete per-source tests, why is the last warehouse-sources shard slow
 
+### Lower the backend shard wall target from 12 to 10 minutes
+
+**Verdict: rejected** · Sep 2026 · one run each: [12 minutes](https://github.com/PostHog/posthog/actions/runs/35784807053), [10 minutes](https://github.com/PostHog/posthog/actions/runs/35784814651)
+
+`TARGET_WALL_SECONDS` in `turbo-discover.js` sizes every backend test shard.
+At 10 minutes a full PR run used 85 test jobs instead of 58, and 23% more shard minutes.
+The run did not finish sooner: 13.4 minutes against 12.9. Each extra shard pays the full setup and collection cost again.
+
+_Also asked as:_ more shards, smaller shards, lower the shard target, split the slowest shard
+
 ### Shard the Playwright E2E suite
 
 **Verdict: reverted** · Feb 2026 · [#46774](https://github.com/PostHog/posthog/pull/46774), reverted by [#46853](https://github.com/PostHog/posthog/pull/46853)
@@ -228,7 +238,7 @@ _Also asked as:_ skip product tests on a full run, narrow the product matrix, wh
 
 ### Disable the pytest `unraisableexception` and `threadexception` plugins
 
-**Verdict: open, and approved** · Jul 2026 · [#70886](https://github.com/PostHog/posthog/pull/70886)
+**Verdict: landed on the second attempt** · Jul 2026 to Aug 2026 · [#70886](https://github.com/PostHog/posthog/pull/70886), landed by [#89057](https://github.com/PostHog/posthog/pull/89057)
 
 Each pytest session runs several full-heap `gc.collect()` passes at cleanup.
 These plugins run the passes only to report `__del__` exceptions and thread exceptions as warnings.
@@ -237,7 +247,7 @@ These plugins run the passes only to report `__del__` exceptions and thread exce
 A fixed benchmark of 320 tests decreased from 24.7 seconds to 21.8 seconds.
 
 A reviewer approved the PR. The branch then became inactive, and the stale bot closed it.
-You can open this PR again without changes.
+[#89057](https://github.com/PostHog/posthog/pull/89057) landed the same change, and `pytest.ini` now disables both plugins.
 
 Read this entry before you try a different solution for the pytest cleanup cost.
 [#88759](https://github.com/PostHog/posthog/pull/88759) tried a different solution. It deleted the `gc.unfreeze()` in `pytest_unconfigure`.
