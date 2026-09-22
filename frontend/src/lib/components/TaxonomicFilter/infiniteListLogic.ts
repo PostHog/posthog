@@ -735,7 +735,8 @@ export interface infiniteListLogicMeta {
                 groupType: TaxonomicFilterGroupType | undefined
                 value: TaxonomicFilterValue | undefined
             },
-            arg: boolean | undefined
+            arg: boolean | undefined,
+            arg2: boolean | undefined
         ) => {
             count: number
             first: boolean | undefined
@@ -1778,6 +1779,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.taxonomicGroups,
                 s.selectionPromotionContext,
                 (_, props: InfiniteListLogicProps) => props.collapseUrlsToContainsRow,
+                (_, props: InfiniteListLogicProps) => props.promoteSelectedItemToFirstPosition,
             ],
             (
                 remoteItems: ListStorage,
@@ -1798,7 +1800,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     groupType: TaxonomicFilterGroupType | undefined
                     value: TaxonomicFilterValue | undefined
                 },
-                collapseUrlsToContainsRow: boolean | undefined
+                collapseUrlsToContainsRow: boolean | undefined,
+                promoteSelectedItemToFirstPosition: boolean | undefined
             ) => {
                 const { group, groupType, value } = selectionPromotionContext
                 // Collapse URL groups to a single "URL contains <query>" shortcut row
@@ -1915,6 +1918,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         getItemGroup(leadingItem, taxonomicGroups, group)?.getValue?.(leadingItem) === null
                             ? 1
                             : 0
+                    const selectedItemOffset = promoteSelectedItemToFirstPosition ? 0 : leadingCatchAllOffset
                     // The synthetic stand-in for a selection whose real row isn't loaded —
                     // shaped like a top match, so `getItemGroup` resolves its source group.
                     // Only usable when the source group round-trips it back to the committed
@@ -1933,7 +1937,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     } as unknown as TaxonomicDefinitionTypes
                     const syntheticRoundTrips = sourceGroup?.getValue?.(synthetic) === value
                     const insertSynthetic = (list: typeof orderedBase): typeof orderedBase =>
-                        leadingCatchAllOffset > 0 ? [list[0], synthetic, ...list.slice(1)] : [synthetic, ...list]
+                        selectedItemOffset > 0 ? [list[0], synthetic, ...list.slice(1)] : [synthetic, ...list]
                     if (isSuggested) {
                         // The aggregated list is fully client-side (recents/pinned prefixes),
                         // so both floating and prepending are safe here.
@@ -1951,7 +1955,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                             )
                         })
                         if (selectedIndex >= 0) {
-                            orderedBase = floatToFront(orderedBase, selectedIndex, leadingCatchAllOffset)
+                            orderedBase = floatToFront(orderedBase, selectedIndex, selectedItemOffset)
                         } else if (syntheticRoundTrips) {
                             orderedBase = insertSynthetic(orderedBase)
                             syntheticSelectedCount = 1
@@ -1987,8 +1991,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                                 }
                                 return true
                             }
-                            if (selectedIndex > leadingCatchAllOffset && rowsAboveSelectionLoaded()) {
-                                orderedBase = floatToFront(orderedBase, selectedIndex, leadingCatchAllOffset)
+                            if (selectedIndex > selectedItemOffset && rowsAboveSelectionLoaded()) {
+                                orderedBase = floatToFront(orderedBase, selectedIndex, selectedItemOffset)
                             }
                         }
                     }
