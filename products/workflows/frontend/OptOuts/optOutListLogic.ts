@@ -22,6 +22,7 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import {
     messagingPreferencesAddOptOutCreate,
+    messagingPreferencesBulkAddOptOutsCreate,
     messagingPreferencesOptOutsRetrieve,
     messagingPreferencesRemoveOptOutCreate,
 } from 'products/messaging/frontend/generated/api'
@@ -460,6 +461,10 @@ export const optOutListLogic = kea<optOutListLogicType>([
                     if (!file) {
                         return null
                     }
+                    if (values.currentProjectId === null) {
+                        lemonToast.error('No current project')
+                        return null
+                    }
 
                     let rows: string[][]
                     try {
@@ -483,9 +488,15 @@ export const optOutListLogic = kea<optOutListLogicType>([
                     for (let start = 0; start < parsed.entries.length; start += BULK_OPT_OUT_CHUNK_SIZE) {
                         const chunk = parsed.entries.slice(start, start + BULK_OPT_OUT_CHUNK_SIZE)
                         try {
-                            const chunkResult = await api.messaging.bulkAddOptOuts(
-                                chunk.map(({ identifier, category_key }) => ({ identifier, category_key })),
-                                props.category?.key
+                            const chunkResult = await messagingPreferencesBulkAddOptOutsCreate(
+                                String(values.currentProjectId),
+                                {
+                                    opt_outs: chunk.map(({ identifier, category_key }) => ({
+                                        identifier,
+                                        category_key,
+                                    })),
+                                    category_key: props.category?.key,
+                                }
                             )
                             result.opted_out += chunkResult.opted_out
                             result.skipped += chunkResult.skipped
