@@ -614,7 +614,10 @@ class TestResolveReportContext(NonAtomicBaseTest):
         )
         self._add_insight_context(subscription, insight)
 
-        async def slow_execute(*_args: object, **_kwargs: object) -> str:
+        async def slow_execute(*_args: object, **kwargs: object) -> str:
+            on_query_handle = kwargs["on_query_handle"]
+            assert callable(on_query_handle)
+            on_query_handle(QueryExecutionHandle(id=str(kwargs["query_id"]), cancellable=True))
             await asyncio.sleep(0.1)
             return "late result"
 
@@ -641,7 +644,10 @@ class TestResolveReportContext(NonAtomicBaseTest):
         started = asyncio.Event()
         cleaned_up = asyncio.Event()
 
-        async def blocked_execute(*_args: object, **_kwargs: object) -> str:
+        async def blocked_execute(*_args: object, **kwargs: object) -> str:
+            on_query_handle = kwargs["on_query_handle"]
+            assert callable(on_query_handle)
+            on_query_handle(QueryExecutionHandle(id=str(kwargs["query_id"]), cancellable=True))
             started.set()
             try:
                 await asyncio.Event().wait()
