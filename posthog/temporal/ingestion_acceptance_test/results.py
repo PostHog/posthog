@@ -14,6 +14,7 @@ CONNECTION_ERROR_TYPES = frozenset(
     {
         "SocketTimeoutError",
         "NetworkError",
+        "ClickHouseConnectionLost",
         "ConnectionError",
         "ConnectionResetError",
         "ConnectionRefusedError",

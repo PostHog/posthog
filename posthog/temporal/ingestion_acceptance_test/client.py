@@ -15,7 +15,12 @@ from clickhouse_driver.errors import ErrorCodes
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.errors import InternalCHQueryError
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseConnectionLost,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.temporal.ingestion_acceptance_test.results import CapturedEventRef
 
 from .config import Config
@@ -320,6 +325,7 @@ class PostHogClient:
                     ClickHouseAtCapacity,
                     ClickHouseQueryTimeOut,
                     ClickHouseQueryMemoryLimitExceeded,
+                    ClickHouseConnectionLost,
                     EOFError,
                     ConnectionError,
                     OSError,

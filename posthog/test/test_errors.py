@@ -2,12 +2,14 @@ from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from posthog.errors import (
+    CH_TRANSIENT_ERRORS,
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
     look_up_clickhouse_error_code_meta,
     wrap_clickhouse_query_error,
 )
+from posthog.exceptions import ClickHouseConnectionLost
 
 
 class TestWrapClickhouseQueryError:
@@ -83,3 +85,14 @@ class TestWrapClickhouseQueryError:
 
         assert isinstance(wrapped, InternalCHQueryError)
         assert not isinstance(wrapped, ExposedCHQueryError)
+
+    def test_eof_while_reading_wraps_as_transient_connection_lost(self) -> None:
+        # clickhouse_driver raises a bare builtin EOFError when a pooled socket closes mid-result.
+        # Without this branch it stays unclassified, so retrying callers skip it and the caller gets
+        # an unhandled 500.
+        err = EOFError("Unexpected EOF while reading bytes")
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, ClickHouseConnectionLost)
+        assert isinstance(wrapped, CH_TRANSIENT_ERRORS)

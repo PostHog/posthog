@@ -89,6 +89,19 @@ class ClickHouseAtCapacity(APIException):
     )
 
 
+class ClickHouseConnectionLost(APIException):
+    """The ClickHouse connection dropped while the query results were being read.
+
+    `clickhouse_driver` raises a bare builtin `EOFError` from its buffered reader for this, which no
+    ClickHouse error code covers, so it gets a named class here instead.
+    """
+
+    user_safe = True
+    status_code = 503
+    default_code = "clickhouse_connection_lost"
+    default_detail = "We lost the connection to the database while this query was running. Please try again."
+
+
 class QueryRanConcurrently(APIException):
     """Raised by a query single flight follower whose leader left nothing to serve or rebuild: the
     leader failed in a way that cannot be shared, died, or held its lock past the limit."""
