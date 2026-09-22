@@ -1055,8 +1055,9 @@ class TestActivateBillingAPI(APILicensedTest):
         captured_properties = mock_capture.call_args.kwargs["properties"]
         self.assertEqual(captured_properties["products"], products)
         self.assertEqual(captured_properties["cancelled_whole_subscription"], expected_whole_subscription)
-        self.assertEqual(captured_properties["membership_level"], OrganizationMembership.Level.OWNER)
-        self.assertTrue(captured_properties["by_organization_owner"])
+        # The default member here is an admin, which is exactly the role the warning guards against.
+        self.assertEqual(captured_properties["membership_level"], OrganizationMembership.Level.ADMIN)
+        self.assertFalse(captured_properties["by_organization_owner"])
 
     def test_deactivate_failure(self):
         url = "/api/billing/deactivate"
