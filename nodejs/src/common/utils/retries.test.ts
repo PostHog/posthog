@@ -76,21 +76,33 @@ describe('retryIfRetriable backoff', () => {
         expect(sleeps).toEqual([100, 400, 500])
     })
 
-    it('gives up early once a slow failure spends the deadline', async () => {
+    it('gives up early once a slow failure spends the soft deadline', async () => {
         const sleeps = captureSleeps()
         const fn = jest.fn(alwaysFails(4000))
-        await expect(retryIfRetriable(fn, { tries: 5, sleepMs: 100, jitter: 0, deadlineMs: 5000 })).rejects.toThrow('x')
+        await expect(retryIfRetriable(fn, { tries: 5, sleepMs: 100, jitter: 0, softDeadlineMs: 5000 })).rejects.toThrow(
+            'x'
+        )
         expect(fn).toHaveBeenCalledTimes(2)
         expect(sleeps).toEqual([100])
     })
 
-    it('lets fast failures use every try within the deadline', async () => {
+    it('lets fast failures use every try within the soft deadline', async () => {
         const sleeps = captureSleeps()
         const fn = jest.fn(alwaysFails())
         await expect(
-            retryIfRetriable(fn, { tries: 5, sleepMs: 100, jitter: 0, backoffFactor: 4, deadlineMs: 10000 })
+            retryIfRetriable(fn, { tries: 5, sleepMs: 100, jitter: 0, backoffFactor: 4, softDeadlineMs: 10000 })
         ).rejects.toThrow('x')
         expect(fn).toHaveBeenCalledTimes(5)
         expect(sleeps).toEqual([100, 400, 1600, 6400])
+    })
+
+    it('does not start an attempt after a sleep crosses the soft deadline', async () => {
+        const sleeps = captureSleeps()
+        const fn = jest.fn(alwaysFails(3000))
+        await expect(
+            retryIfRetriable(fn, { tries: 5, sleepMs: 100, jitter: 0, backoffFactor: 4, softDeadlineMs: 10000 })
+        ).rejects.toThrow('x')
+        expect(fn).toHaveBeenCalledTimes(3)
+        expect(sleeps).toEqual([100, 400, 1600])
     })
 })

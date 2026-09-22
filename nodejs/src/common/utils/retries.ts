@@ -59,21 +59,20 @@ export interface RetrySchedule {
     maxSleepMs?: number
     /** Fraction of each sleep to jitter down by. Pass 0 to opt out. */
     jitter?: number
-    /** Total budget from the first attempt, in ms. No deadline by default. */
-    deadlineMs?: number
+    /** No attempt starts after this much time since the first, in ms. An attempt already running is never cut short. */
+    softDeadlineMs?: number
 }
 
 /**
  * Retry `fn` while `error.isRetriable` is not false. Sleeps are jittered so
- * callers don't retry in lockstep. The deadline is checked between attempts,
- * so an attempt already in flight runs to completion.
+ * callers don't retry in lockstep.
  */
 export async function retryIfRetriable<T>(fn: () => Promise<T>, options: RetrySchedule = {}): Promise<T> {
     const tries = options.tries ?? defaultRetryConfig.MAX_RETRIES_DEFAULT
     const backoffFactor = options.backoffFactor ?? defaultRetryConfig.BACKOFF_FACTOR
     const maxSleepMs = options.maxSleepMs ?? defaultRetryConfig.MAX_INTERVAL
     const jitter = options.jitter ?? DEFAULT_JITTER_FACTOR
-    const deadlineMs = options.deadlineMs
+    const softDeadlineMs = options.softDeadlineMs
 
     const startedAt = Date.now()
     let currentSleepMs = options.sleepMs ?? defaultRetryConfig.RETRY_INTERVAL_DEFAULT
@@ -86,7 +85,9 @@ export async function retryIfRetriable<T>(fn: () => Promise<T>, options: RetrySc
                 throw error
             }
 
-            if (deadlineMs !== undefined && Date.now() - startedAt >= deadlineMs) {
+            const pastSoftDeadline = (): boolean =>
+                softDeadlineMs !== undefined && Date.now() - startedAt >= softDeadlineMs
+            if (pastSoftDeadline()) {
                 throw error
             }
 
@@ -94,6 +95,9 @@ export async function retryIfRetriable<T>(fn: () => Promise<T>, options: RetrySc
             const jitteredSleepMs = jitter > 0 ? currentSleepMs * (1 - jitter + Math.random() * jitter) : currentSleepMs
             await sleep(jitteredSleepMs)
             currentSleepMs = Math.min(currentSleepMs * backoffFactor, maxSleepMs)
+            if (pastSoftDeadline()) {
+                throw error
+            }
         }
     }
 
