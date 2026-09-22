@@ -9,7 +9,12 @@ from rest_framework import status
 
 from posthog.models import Organization, OrganizationMembership, Team
 
-from products.tasks.backend.access import DesktopAccessReason, DesktopAccessResolutionError, get_desktop_access_decision
+from products.tasks.backend.access import (
+    DESKTOP_ACCESS_DECISION_EVENT,
+    DesktopAccessReason,
+    DesktopAccessResolutionError,
+    get_desktop_access_decision,
+)
 from products.tasks.backend.logic.services.code_usage_gate import code_access_required_response
 
 from ee.billing.billing_manager import OrganizationFundingStatus, PrepaidCreditState, StartupProgramLabel
@@ -43,24 +48,18 @@ class TestDesktopAccessPolicy(APIBaseTest):
     @parameterized.expand(
         [
             ("normal", None, PrepaidCreditState.NONE, True, None),
-            (
-                "startup",
-                "Startup",
-                PrepaidCreditState.NONE,
-                False,
-                DesktopAccessReason.STARTUP_PLAN,
-            ),
-            ("yc", "YC", PrepaidCreditState.NONE, False, DesktopAccessReason.STARTUP_PLAN),
+            ("startup", "Startup", PrepaidCreditState.NONE, True, None),
+            ("yc", "YC", PrepaidCreditState.NONE, True, None),
             ("pending", None, PrepaidCreditState.PENDING, False, DesktopAccessReason.PREPAID_CREDITS),
             ("active", None, PrepaidCreditState.ACTIVE, False, DesktopAccessReason.PREPAID_CREDITS),
             ("exhausted", None, PrepaidCreditState.EXHAUSTED, True, None),
             ("expired", None, PrepaidCreditState.EXPIRED, True, None),
             (
-                "combined",
+                "startup_with_prepaid_credits",
                 "Startup",
                 PrepaidCreditState.ACTIVE,
                 False,
-                DesktopAccessReason.STARTUP_PLAN,
+                DesktopAccessReason.PREPAID_CREDITS,
             ),
         ]
     )
@@ -83,6 +82,39 @@ class TestDesktopAccessPolicy(APIBaseTest):
 
         self.assertEqual(decision.allowed, expected_allowed)
         self.assertEqual(decision.reason, expected_reason)
+
+    @parameterized.expand(
+        [
+            ("allowed", "Startup", PrepaidCreditState.NONE, "allowed", True),
+            ("blocked", None, PrepaidCreditState.ACTIVE, "prepaid_credits", False),
+        ]
+    )
+    @patch("products.tasks.backend.access.posthoganalytics.capture")
+    @patch("products.tasks.backend.access._get_funding_status")
+    def test_decision_is_captured_as_an_event(
+        self,
+        _name: str,
+        startup_program_label: StartupProgramLabel | None,
+        prepaid_credit_state: PrepaidCreditState,
+        expected_outcome: str,
+        expected_allowed: bool,
+        mock_funding,
+        mock_capture,
+    ) -> None:
+        mock_funding.return_value = OrganizationFundingStatus(
+            startup_program_label=startup_program_label,
+            prepaid_credit_state=prepaid_credit_state,
+        )
+
+        get_desktop_access_decision(self.user, self.organization)
+
+        mock_capture.assert_called_once()
+        properties = mock_capture.call_args.kwargs["properties"]
+        self.assertEqual(mock_capture.call_args.kwargs["event"], DESKTOP_ACCESS_DECISION_EVENT)
+        self.assertEqual(properties["outcome"], expected_outcome)
+        self.assertEqual(properties["allowed"], expected_allowed)
+        self.assertEqual(properties["organization_id"], str(self.organization.id))
+        self.assertEqual(properties.get("startup_program_label"), startup_program_label)
 
     @patch("products.tasks.backend.access._get_funding_status")
     def test_override_grants_access_before_funding_resolution(self, mock_funding) -> None:
@@ -138,8 +170,8 @@ class TestDesktopAccessPolicy(APIBaseTest):
                     prepaid_credit_state=PrepaidCreditState.NONE,
                 )
             return OrganizationFundingStatus(
-                startup_program_label="YC",
-                prepaid_credit_state=PrepaidCreditState.NONE,
+                startup_program_label=None,
+                prepaid_credit_state=PrepaidCreditState.ACTIVE,
             )
 
         mock_funding.side_effect = funding_status
@@ -150,12 +182,12 @@ class TestDesktopAccessPolicy(APIBaseTest):
         self.assertEqual(allowed_response.status_code, status.HTTP_200_OK)
         self.assertEqual(allowed_response.json(), {"allowed": True, "reason": None})
         self.assertEqual(blocked_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(blocked_response.json(), {"allowed": False, "reason": "startup_plan"})
+        self.assertEqual(blocked_response.json(), {"allowed": False, "reason": "prepaid_credits"})
 
     @parameterized.expand(
         [
-            ("allowed", None, True),
-            ("startup", "Startup", False),
+            ("allowed", PrepaidCreditState.NONE, True),
+            ("prepaid_credits", PrepaidCreditState.ACTIVE, False),
         ]
     )
     @patch("products.tasks.backend.presentation.views.api.tasks_access.has_loops_access", return_value=True)
@@ -163,14 +195,14 @@ class TestDesktopAccessPolicy(APIBaseTest):
     def test_legacy_endpoint_uses_access_policy(
         self,
         _name: str,
-        startup_program_label: StartupProgramLabel | None,
+        prepaid_credit_state: PrepaidCreditState,
         expected_access: bool,
         mock_funding,
         _mock_loops,
     ) -> None:
         mock_funding.return_value = OrganizationFundingStatus(
-            startup_program_label=startup_program_label,
-            prepaid_credit_state=PrepaidCreditState.NONE,
+            startup_program_label=None,
+            prepaid_credit_state=prepaid_credit_state,
         )
 
         response = self.client.get("/api/code/invites/check-access/")

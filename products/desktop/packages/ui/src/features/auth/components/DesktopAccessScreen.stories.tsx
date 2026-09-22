@@ -7,7 +7,7 @@ const meta = {
   component: DesktopAccessScreen,
   parameters: { layout: "fullscreen" },
   args: {
-    access: { projectId: 1, status: "blocked", reason: "startup_plan" },
+    access: { projectId: 1, status: "blocked", reason: "prepaid_credits" },
     orgProjectsMap: {
       "org-1": {
         orgName: "Example organization",

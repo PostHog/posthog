@@ -2309,7 +2309,7 @@ class TestCanvasActions(CanvasAPIBaseTest):
         with (
             patch(
                 "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
-                return_value=DesktopAccessDecision.ALLOWED if allowed else DesktopAccessDecision.STARTUP_PLAN,
+                return_value=DesktopAccessDecision.ALLOWED if allowed else DesktopAccessDecision.PREPAID_CREDITS,
             ),
             patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=usage),
         ):

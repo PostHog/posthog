@@ -2,7 +2,6 @@ import {
   ArrowClockwise,
   CaretDown,
   Coins,
-  RocketLaunch,
   SignOut,
   WarningCircle,
 } from "@phosphor-icons/react";
@@ -43,20 +42,22 @@ interface ProjectOption {
   name: string;
 }
 
-const BLOCKED_CONTENT = {
-  startup_plan: {
-    icon: <RocketLaunch />,
-    title: "Desktop isn't available for this organization",
-    description:
-      "Organizations in the Startup or YC program can't use PostHog Desktop. Select another organization to continue.",
-  },
+const GENERIC_BLOCKED_CONTENT = {
+  icon: <WarningCircle />,
+  title: "Desktop isn't available for this organization",
+  description: "Select another organization or project to continue.",
+};
+
+const BLOCKED_CONTENT: Partial<
+  Record<NonNullable<DesktopAccess["reason"]>, typeof GENERIC_BLOCKED_CONTENT>
+> = {
   prepaid_credits: {
     icon: <Coins />,
     title: "Desktop isn't available with prepaid credits",
     description:
       "Organizations with pending or active prepaid credits can't use PostHog Desktop. Select another organization to continue. To discuss access, contact your PostHog account executive. If you don't have one, email sales@posthog.com.",
   },
-} as const;
+};
 
 interface DesktopAccessScreenProps {
   access: DesktopAccess;
@@ -116,21 +117,17 @@ export function DesktopAccessScreen({
     projects.find((project) => project.id === currentProjectId) ?? null;
   const controlsDisabled = isSwitching || access.status === "checking";
 
-  const blockedContent = access.reason
-    ? BLOCKED_CONTENT[access.reason]
-    : {
-        icon: <WarningCircle />,
-        title: "Desktop isn't available for this organization",
-        description: "Select another organization or project to continue.",
-      };
+  const blockedContent =
+    (access.reason ? BLOCKED_CONTENT[access.reason] : undefined) ??
+    GENERIC_BLOCKED_CONTENT;
   const isTechnicalError = access.status === "error";
-  const icon = isTechnicalError ? <WarningCircle /> : blockedContent?.icon;
+  const icon = isTechnicalError ? <WarningCircle /> : blockedContent.icon;
   const title = isTechnicalError
     ? "Couldn't check Desktop access"
-    : blockedContent?.title;
+    : blockedContent.title;
   const description = isTechnicalError
     ? "Try again, or select another organization or project."
-    : blockedContent?.description;
+    : blockedContent.description;
 
   const footerRight = (
     <Button

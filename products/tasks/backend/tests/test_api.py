@@ -210,7 +210,7 @@ class BaseTaskAPITest(TestCase):
             side_effect=lambda *_args, **_kwargs: (
                 tasks_access.DesktopAccessDecision.ALLOWED
                 if self._desktop_access_enabled
-                else tasks_access.DesktopAccessDecision.STARTUP_PLAN
+                else tasks_access.DesktopAccessDecision.PREPAID_CREDITS
             ),
         )
         self.desktop_access_patcher.start()
@@ -2241,7 +2241,7 @@ class TestTaskAPI(BaseTaskAPITest):
     @parameterized.expand(
         [
             ("allowed", tasks_access.DesktopAccessDecision.ALLOWED, "acme/web"),
-            ("refused", tasks_access.DesktopAccessDecision.STARTUP_PLAN, None),
+            ("refused", tasks_access.DesktopAccessDecision.PREPAID_CREDITS, None),
             ("unresolvable", DesktopAccessResolutionError("cannot verify"), None),
         ]
     )
@@ -9211,7 +9211,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "code_access_required")
-        self.assertEqual(response.json()["reason"], "startup_plan")
+        self.assertEqual(response.json()["reason"], "prepaid_credits")
         mock_usage.assert_not_called()
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
@@ -11990,7 +11990,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "code_access_required")
-        self.assertEqual(response.json()["reason"], "startup_plan")
+        self.assertEqual(response.json()["reason"], "prepaid_credits")
         mock_signal_followup.assert_not_called()
 
     @parameterized.expand(
@@ -12020,7 +12020,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "code_access_required")
-        self.assertEqual(response.json()["reason"], "startup_plan")
+        self.assertEqual(response.json()["reason"], "prepaid_credits")
         mock_post.assert_not_called()
 
     @parameterized.expand(
@@ -12123,7 +12123,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "code_access_required")
-        self.assertEqual(response.json()["reason"], "startup_plan")
+        self.assertEqual(response.json()["reason"], "prepaid_credits")
         mock_post.assert_not_called()
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
@@ -14248,7 +14248,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "code_access_required")
-        self.assertEqual(response.json()["reason"], "startup_plan")
+        self.assertEqual(response.json()["reason"], "prepaid_credits")
         mock_warm.assert_not_called()
 
     @patch("products.tasks.backend.facade.api.warm_task_sandbox")
@@ -14360,7 +14360,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "code_access_required")
-        self.assertEqual(response.json()["reason"], "startup_plan")
+        self.assertEqual(response.json()["reason"], "prepaid_credits")
         self.assertFalse(TaskRun.objects.filter(task=task).exists())
         mock_gate.assert_not_called()
         mock_workflow.assert_not_called()
@@ -14403,7 +14403,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "code_access_required")
-        self.assertEqual(response.json()["reason"], "startup_plan")
+        self.assertEqual(response.json()["reason"], "prepaid_credits")
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
@@ -14468,7 +14468,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "code_access_required")
-        self.assertEqual(response.json()["reason"], "startup_plan")
+        self.assertEqual(response.json()["reason"], "prepaid_credits")
         self.assertFalse(TaskRun.objects.filter(task=task).exists())
         mock_gate.assert_not_called()
 
@@ -14653,7 +14653,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "code_access_required")
-        self.assertEqual(response.json()["reason"], "startup_plan")
+        self.assertEqual(response.json()["reason"], "prepaid_credits")
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.QUEUED)
 
@@ -14676,7 +14676,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "code_access_required")
-        self.assertEqual(response.json()["reason"], "startup_plan")
+        self.assertEqual(response.json()["reason"], "prepaid_credits")
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_create_local_run_is_not_gated(self, mock_gate):
@@ -14900,7 +14900,7 @@ class TestUsageLimitResponse(TestCase):
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision")
     def test_code_access_required_response_is_structured(self, mock_access):
-        mock_access.return_value = tasks_access.DesktopAccessDecision.STARTUP_PLAN
+        mock_access.return_value = tasks_access.DesktopAccessDecision.PREPAID_CREDITS
         request = MagicMock()
         request.successful_authenticator = None
         organization = MagicMock(id=1)
@@ -14909,7 +14909,7 @@ class TestUsageLimitResponse(TestCase):
         assert response is not None
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.data["code"], "code_access_required")
-        self.assertEqual(response.data["reason"], "startup_plan")
+        self.assertEqual(response.data["reason"], "prepaid_credits")
 
 
 def _make_custom_image(*, team: Team, user: User, **kwargs) -> SandboxCustomImage:

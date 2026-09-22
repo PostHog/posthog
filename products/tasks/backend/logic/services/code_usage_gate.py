@@ -227,10 +227,6 @@ def code_access_required_response(
         return None
 
     messages = {
-        DesktopAccessReason.STARTUP_PLAN: (
-            "PostHog Desktop isn't available for Startup or YC program organizations. "
-            "Select another organization to continue."
-        ),
         DesktopAccessReason.PREPAID_CREDITS: (
             "PostHog Desktop isn't available while this organization has prepaid credits. "
             "Select another organization to continue."

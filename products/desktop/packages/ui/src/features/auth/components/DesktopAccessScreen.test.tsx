@@ -60,8 +60,10 @@ function renderScreen(
 
 describe("DesktopAccessScreen", () => {
   it.each([
-    ["startup_plan", "Organizations in the Startup or YC program"],
     ["prepaid_credits", "sales@posthog.com"],
+    // A reason this build has no copy for falls back to the generic blocked screen, so a client
+    // that updates ahead of the backend never renders an empty one.
+    ["startup_plan", "Select another organization or project to continue."],
   ] as const)("renders the %s reason", (reason, expectedCopy) => {
     renderScreen({ projectId: 1, status: "blocked", reason });
 
@@ -73,7 +75,7 @@ describe("DesktopAccessScreen", () => {
   it.each([
     [{ projectId: 1, status: "error", reason: null }, "Try again"],
     [
-      { projectId: 1, status: "blocked", reason: "startup_plan" },
+      { projectId: 1, status: "blocked", reason: "prepaid_credits" },
       "Check again",
     ],
   ] as const)("rechecks access for %s", async (access, buttonLabel) => {
@@ -90,7 +92,7 @@ describe("DesktopAccessScreen", () => {
     const { container, onSelectProject } = renderScreen({
       projectId: 1,
       status: "blocked",
-      reason: "startup_plan",
+      reason: "prepaid_credits",
     });
     const trigger = container.querySelector(
       '[data-attr="desktop-access-project-switcher"]',

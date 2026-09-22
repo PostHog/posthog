@@ -1120,7 +1120,7 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         with (
             patch(
                 "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
-                return_value=tasks_access.DesktopAccessDecision.STARTUP_PLAN,
+                return_value=tasks_access.DesktopAccessDecision.PREPAID_CREDITS,
             ),
             patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as m_signal,
         ):
@@ -1145,7 +1145,7 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         # goes through, and the run endpoint gates it when execution is actually requested.
         with patch(
             "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
-            return_value=tasks_access.DesktopAccessDecision.STARTUP_PLAN,
+            return_value=tasks_access.DesktopAccessDecision.PREPAID_CREDITS,
         ):
             response = self.client.post(
                 "/api/projects/@current/tasks/",
