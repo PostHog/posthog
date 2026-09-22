@@ -1218,3 +1218,17 @@ def test_a_queue_write_error_that_is_not_a_conflict_still_fails_the_sweep(monkey
     monkeypatch.setattr(clickhouse_cleanup, "execute_values", fake_execute_values)
     with pytest.raises(psycopg2.OperationalError):
         clickhouse_cleanup._write_queue_page(_FakeQueueConnection(), object(), [(1, "uuid-a")], datetime.now(UTC))
+
+
+def test_persistent_queue_conflicts_give_up_inside_the_retry_window(monkeypatch):
+    # An unbounded retry would hang the weekly sweep on a table it shares with the drain.
+    clock = itertools.count(0.0, 5.0)
+    monkeypatch.setattr(clickhouse_cleanup.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(clickhouse_cleanup.time, "sleep", lambda _: None)
+
+    def always_conflicts(cursor, sql, rows, page_size):
+        raise type("_Conflict", (psycopg2.OperationalError,), {"pgcode": "55P03"})()
+
+    monkeypatch.setattr(clickhouse_cleanup, "execute_values", always_conflicts)
+    with pytest.raises(psycopg2.OperationalError):
+        clickhouse_cleanup._write_queue_page(_FakeQueueConnection(), object(), [(1, "uuid-a")], datetime.now(UTC))
