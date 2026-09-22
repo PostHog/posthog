@@ -1394,3 +1394,17 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         metadata = self._select("SELECT properties.$time FROM events WHERE timestamp >= '2026-09-19'")
 
         self.assertFalse(any("deprecated property" in warning.message for warning in metadata.warnings))
+
+    def test_metadata_does_not_warn_when_a_cte_shadows_the_events_table(self):
+        metadata = self._select(
+            """
+            WITH events AS (
+                SELECT properties
+                FROM events
+                WHERE timestamp >= '2026-09-19'
+            )
+            SELECT count() FROM events WHERE properties.$time >= '2026-09-19'
+            """
+        )
+
+        self.assertFalse(any("deprecated property" in warning.message for warning in metadata.warnings))

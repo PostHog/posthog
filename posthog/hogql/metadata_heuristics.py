@@ -64,7 +64,15 @@ class DeprecatedTimestampPropertyHeuristic(MetadataHeuristic):
     def run(self, query: ast.SelectQuery | ast.SelectSetQuery) -> list[HogQLNotice]:
         warnings: list[HogQLNotice] = []
 
-        for select_query in _collect_select_queries(query):
+        select_queries = _collect_select_queries(query)
+
+        # A CTE may be named `events` and shadow the physical table. This runs before source
+        # resolution, so a `FROM events` cannot be told apart from one that reads the CTE. Say
+        # nothing for the whole query rather than warn about a scan that may not happen.
+        if any("events" in (select_query.ctes or {}) for select_query in select_queries):
+            return warnings
+
+        for select_query in select_queries:
             if "events" not in _collect_table_names_from_join(select_query.select_from):
                 continue
 
