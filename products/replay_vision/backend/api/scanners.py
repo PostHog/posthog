@@ -1241,7 +1241,12 @@ class InlineScanRequestSerializer(serializers.Serializer):
         choices=ScannerType.choices,
         required=False,
         default=ScannerType.MONITOR,
-        help_text="What the scan produces. Defaults to monitor, an open-ended observation against the prompt.",
+        help_text=(
+            "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. "
+            "Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by "
+            "its whole config, so the Summarize button in the replay player shares this scan only when "
+            "the prompt and `scanner_config` match the ones it sends."
+        ),
     )
     scanner_config = serializers.JSONField(
         required=False,
@@ -1486,6 +1491,14 @@ class WatchFeedReasonSerializer(serializers.Serializer):
     )
     signals_count = serializers.IntegerField(
         required=False, allow_null=True, help_text="Signals this observation emitted, for `signal_emitted`."
+    )
+    problem_types = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Issue type of each emitted signal (`bug`, `crash`, `design_flaw`, `ux_friction`), one entry per "
+            "signal in the order raised, for `signal_emitted`. Absent on signals scanned before this shipped."
+        ),
     )
     verdict = serializers.CharField(
         required=False, allow_null=True, help_text="The monitor's answer, for `unusual_verdict`."
@@ -2401,6 +2414,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
         The config resolves to a scanner minted on first use, so asking the same question twice reuses
         the observations it already has, while a different question about the same session gets its own.
+
+        With `scanner_type` set to `summarizer`, this is how you get PostHog's own AI summary for a
+        recording ID. It resolves to the Summarize button's own scanner only when the prompt and
+        `scanner_config` match what the button sends, since the config is what the key fingerprints.
         """
         # This action is `detail=False`, so the generic gate settles for editor access to any one
         # scanner and there is no object afterwards to narrow that against. An inline scan mints a

@@ -36,6 +36,7 @@ StreamConnectionOutcome = Literal[
     "backlog_busy",
 ]
 StreamWriteSkippedPath = Literal["ingest", "mirror", "relay"]
+StreamTokenRoute = Literal["proxy", "django", "thin_tail_withheld"]
 _ALLOWED_MODES = {"background", "interactive"}
 _ALLOWED_RUN_SOURCES = {"manual", "signal_report", "agent"}
 _ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex"}
@@ -312,6 +313,12 @@ TASK_RUN_STREAM_RESUME_GAP_TOTAL = Counter(
     "posthog_tasks_task_run_stream_resume_gap_total",
     "SSE reconnects whose Last-Event-ID was already trimmed from Redis (events lost for that client)",
     labelnames=["origin_product"],
+)
+
+TASK_RUN_STREAM_TOKEN_ROUTED_TOTAL = Counter(
+    "posthog_tasks_task_run_stream_token_routed_total",
+    "Stream read tokens minted, labeled by the read leg the client was routed to and whether it asked to resync",
+    labelnames=["origin_product", "route", "resync_requested"],
 )
 
 TASK_RUN_STREAM_WRITE_SKIPPED_TOTAL = Counter(
@@ -654,6 +661,14 @@ def observe_stream_length_on_connect(length: int) -> None:
 
 def observe_stream_resume_gap(origin_product: str) -> None:
     TASK_RUN_STREAM_RESUME_GAP_TOTAL.labels(origin_product=origin_product).inc()
+
+
+def observe_stream_token_routed(origin_product: str, route: StreamTokenRoute, resync_requested: bool) -> None:
+    TASK_RUN_STREAM_TOKEN_ROUTED_TOTAL.labels(
+        origin_product=_metric_label(origin_product),
+        route=route,
+        resync_requested="true" if resync_requested else "false",
+    ).inc()
 
 
 def observe_stream_write_skipped(path: StreamWriteSkippedPath, origin_product: str | None = None) -> None:
