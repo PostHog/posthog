@@ -1,0 +1,47 @@
+{
+    "SA1": {
+        "cluster": 3,
+        "confidence": "high",
+        "reason": "Asserts self_driving_review is read with truthy coercion and should be checked with `is True`, anchored at review_local.py:321, which is exactly cluster 3's claim and anchor; cluster 5 (TRUSTED provenance rendered off the flag) rejected because SA1 is about the flag's type check, not what it renders."
+    },
+    "SA2": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Claims the on_commit callback catches a failed Celery publish, only logs, and no durable record or guaranteed later save recovers it, so the initial review is silently lost; that is cluster 58's fire-and-forget/no-reconciliation claim (anchored at the caller of facade/api.py:149); cluster 54 rejected because it claims publish errors raise into the caller's save path, the opposite failure mode."
+    },
+    "SA3": {
+        "cluster": 51,
+        "confidence": "medium",
+        "reason": "The defect is the except block in get_stamphog_connected logging a full error-level stack trace for every transient breaker-open failure, which is cluster 51's broad-except logging claim framed as log volume rather than signal collapse; cluster 7 rejected because it is about the cost of the uncached cross-DB read itself, not the logging."
+    },
+    "SA4": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Same claim as cluster 58 at its own anchor facade/api.py:149: .delay is the only dispatch, the caller swallows publish errors, and no durable request exists for a worker to recover."
+    },
+    "SA5": {
+        "cluster": 58,
+        "confidence": "medium",
+        "reason": "Claims a Temporal start failure plus the task's three retries exhausting leaves the QUEUED ReviewRun stranded with no reconciliation, which is the 'exhaustion of the task's three retries silently drops the review' leg named in cluster 58's issue, at a different anchor (tasks.py:1231-1237); cluster 32 rejected because SA5 does not rely on the disproven on_commit-ordering mechanism."
+    },
+    "SA6": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Claims process_inbox_pr_review trusts its Celery args and stamps inbox_review without verifying the task run produced this PR or that the author is a bot, which is cluster 2's receiver-leg no-positive-linkage/no-bot-verification claim on the same function; cluster 31 (toggle re-check at execution time) is only one sub-bullet of SA6, not its root cause."
+    },
+    "SA7": {
+        "cluster": 57,
+        "confidence": "high",
+        "reason": "Claims the gate resolves one canonical acting reviewer and checks only that user's stamphog toggle, so an opted-in non-canonical assignee is ignored on both legs, at receivers.py:111-126/144-155, matching cluster 57's claim and anchors exactly."
+    },
+    "SA8": {
+        "cluster": 39,
+        "confidence": "high",
+        "reason": "Claims find_task_run selects across all teams and find_signal_implementation_run only rechecks run.team_id afterwards at facade/api.py:504-506, which is cluster 39's unscoped-query/post-hoc-team-check claim at the same anchor; the false-negative consequence SA8 stresses is a consequence of that same root cause."
+    },
+    "SA9": {
+        "cluster": 73,
+        "confidence": "high",
+        "reason": "Claims the branch fallback in find_task_run can return a run whose output.pr_url names a different PR and thereby authorize the new bot PR as self-driving, which is cluster 73's claim at the same facade/api.py:504 anchor; cluster 39 rejected because it is about tenant scoping, not PR identity."
+    }
+}

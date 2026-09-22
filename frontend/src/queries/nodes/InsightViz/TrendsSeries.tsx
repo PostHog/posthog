@@ -18,7 +18,7 @@ import { LifecycleQuery, NodeKind, StickinessQuery, TrendsQuery } from '~/querie
 import { isInsightQueryNode } from '~/queries/utils'
 import { ChartDisplayType, FilterType } from '~/types'
 
-import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
+import { actionsAndEventsToSeries } from '../InsightQuery/utils/actionsAndEventsToSeries'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
 import { LifecycleSeriesHeader } from './LifecycleSeriesHeader'
 import { TrendsFormula } from './TrendsFormula'

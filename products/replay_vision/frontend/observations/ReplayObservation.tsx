@@ -5,7 +5,6 @@ import { Suspense, useEffect, useState } from 'react'
 import {
     IconArrowLeft,
     IconArrowRight,
-    IconChevronRight,
     IconClock,
     IconCollapse,
     IconExpand,
@@ -24,7 +23,6 @@ import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils/durations'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -42,10 +40,12 @@ import {
     ObservationConfidence,
     ObservationPrimaryOutput,
     ObservationStatusTag,
+    PromptRow,
     readResult,
 } from '../components/ObservationCard'
 import { ObservationProgressBar } from '../components/ObservationProgressBar'
 import { ObservationRetryButton } from '../components/ObservationRetryButton'
+import { ObservationThumbnail } from '../components/ObservationThumbnail'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import type { ReplayObservationApi } from '../generated/api.schemas'
@@ -70,6 +70,7 @@ import { ObservationLabelControl } from './ObservationLabelControl'
 import { observationLabelLogic } from './observationLabelLogic'
 import { ObservationPinnedProperties } from './ObservationPinnedProperties'
 import { ObservationShareButton } from './ObservationShareButton'
+import { ObservationSignalReports } from './ObservationSignalReports'
 import {
     neighborFilterParams,
     observationDetailUrl,
@@ -85,34 +86,6 @@ export const scene: SceneExport = {
     component: ReplayObservationSceneComponent,
     logic: replayObservationSceneLogic,
     productKey: ProductKey.REPLAY_VISION,
-}
-
-// A reader opens an observation for the result, not the prompt they configured. Collapse the prompt to one
-// peek line so the verdict and reasoning stay above the fold.
-function PromptRow({ prompt }: { prompt: string }): JSX.Element {
-    const [expanded, setExpanded] = useState(false)
-    return (
-        <div>
-            <button
-                type="button"
-                className="flex items-center gap-0.5 text-xs text-muted mb-0.5 hover:text-default"
-                onClick={() => setExpanded(!expanded)}
-                aria-expanded={expanded}
-                data-attr="vision-observation-prompt-toggle"
-            >
-                <IconChevronRight className={cn('transition-transform', expanded && 'rotate-90')} />
-                Prompt
-            </button>
-            <p
-                className={cn(
-                    'text-sm m-0 leading-snug',
-                    expanded ? 'text-default whitespace-pre-wrap' : 'text-muted line-clamp-1'
-                )}
-            >
-                {prompt}
-            </p>
-        </div>
-    )
 }
 
 /** Rating happens here, not in the Calibration tab, so a rater never sees the recommendation it feeds. */
@@ -354,9 +327,9 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                         aria-expanded={false}
                         data-attr="vision-observation-recording-toggle"
                     >
-                        <span className="flex items-center justify-center w-20 h-12 rounded bg-black shrink-0">
-                            <IconPlayFilled className="text-xl text-brand-red" />
-                        </span>
+                        <ObservationThumbnail observation={observation} className="w-20 shrink-0">
+                            <IconPlayFilled className="text-xl text-brand-red drop-shadow" />
+                        </ObservationThumbnail>
                         <span className="flex-1 min-w-0">
                             <h3 className="text-lg font-semibold m-0">Watch the recording</h3>
                             <span className="text-sm text-muted">Play the session this observation was made from</span>
@@ -468,6 +441,12 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                         $recording_observed
                                     </Link>
                                 </LabeledRow>
+                            )}
+                            {snapshot.emits_signals && (
+                                <ObservationSignalReports
+                                    observationId={observation.id}
+                                    signalsCount={observation.scanner_result?.signals_count ?? 0}
+                                />
                             )}
                             <ObservationLabelControl observationId={observation.id} initialLabel={observation.label} />
                             <CalibrationEntryPoint observation={observation} />

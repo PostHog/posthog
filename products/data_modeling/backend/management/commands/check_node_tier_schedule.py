@@ -31,7 +31,7 @@ from products.data_modeling.backend.logic.tier_membership import (
     read_live_tiers,
 )
 from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.models.node import Node, NodeType
+from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, Node
 
 
 class Command(BaseCommand):
@@ -116,7 +116,7 @@ class Command(BaseCommand):
         self._print_human(live_by_dag, dags_by_id, statuses)
 
     def _resolve_nodes(self, team_id: int, options: dict[str, Any]) -> list[Node]:
-        qs = Node.objects.filter(team_id=team_id).exclude(type=NodeType.TABLE)
+        qs = Node.objects.filter(team_id=team_id, type__in=SAVED_QUERY_NODE_TYPES)
         if options["node_id"]:
             qs = qs.filter(id=options["node_id"])
         elif options["saved_query_id"]:
@@ -131,9 +131,9 @@ class Command(BaseCommand):
 
     def _dag_nodes(self, team_id: int, dag_id: str) -> list[Node]:
         return list(
-            Node.objects.filter(team_id=team_id, dag_id=dag_id)
-            .exclude(type=NodeType.TABLE)
-            .select_related("dag", "saved_query")
+            Node.objects.filter(team_id=team_id, dag_id=dag_id, type__in=SAVED_QUERY_NODE_TYPES).select_related(
+                "dag", "saved_query"
+            )
         )
 
     @staticmethod
