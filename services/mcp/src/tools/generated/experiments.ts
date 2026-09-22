@@ -818,33 +818,6 @@ const experimentList = (): ToolBase<
         },
     })
 
-const ExperimentMigrateSchema = () => {
-    const ExperimentsMigrateCreateParams = orvalSchemas.ExperimentsMigrateCreateParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
-        ExperimentsMigrateCreateParams.omit({ project_id: true }).extend({
-            id: z.preprocess(castStringToInt, ExperimentsMigrateCreateParams.shape['id']),
-        })
-    )
-}
-
-const experimentMigrate = (): ToolBase<
-    ReturnType<typeof ExperimentMigrateSchema>,
-    WithPostHogUrl<Schemas.Experiment>
-> =>
-    withUiApp('experiment', {
-        name: 'experiment-migrate',
-        schema: ExperimentMigrateSchema(),
-        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentMigrateSchema>>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.Experiment>({
-                method: 'POST',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/migrate/`,
-            })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
-        },
-    })
-
 const ExperimentMetricsRecalculationCreateSchema = () => {
     const ExperimentsMetricsRecalculationCreateBody = orvalSchemas.ExperimentsMetricsRecalculationCreateBody()
     const ExperimentsMetricsRecalculationCreateParams = orvalSchemas.ExperimentsMetricsRecalculationCreateParams()
@@ -961,6 +934,33 @@ const experimentMetricsRecalculationRetrieve = (): ToolBase<
         return await withPostHogUrl(context, filtered, `/experiments/${params.id}`)
     },
 })
+
+const ExperimentMigrateSchema = () => {
+    const ExperimentsMigrateCreateParams = orvalSchemas.ExperimentsMigrateCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsMigrateCreateParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, ExperimentsMigrateCreateParams.shape['id']),
+        })
+    )
+}
+
+const experimentMigrate = (): ToolBase<
+    ReturnType<typeof ExperimentMigrateSchema>,
+    WithPostHogUrl<Schemas.Experiment>
+> =>
+    withUiApp('experiment', {
+        name: 'experiment-migrate',
+        schema: ExperimentMigrateSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentMigrateSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.Experiment>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/migrate/`,
+            })
+            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+        },
+    })
 
 const ExperimentPauseSchema = () => {
     const ExperimentsPauseCreateParams = orvalSchemas.ExperimentsPauseCreateParams()
@@ -1635,10 +1635,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-holdouts-retrieve': experimentHoldoutsRetrieve,
     'experiment-launch': experimentLaunch,
     'experiment-list': experimentList,
-    'experiment-migrate': experimentMigrate,
     'experiment-metrics-recalculation-create': experimentMetricsRecalculationCreate,
     'experiment-metrics-recalculation-latest-retrieve': experimentMetricsRecalculationLatestRetrieve,
     'experiment-metrics-recalculation-retrieve': experimentMetricsRecalculationRetrieve,
+    'experiment-migrate': experimentMigrate,
     'experiment-pause': experimentPause,
     'experiment-prompt-templates': experimentPromptTemplates,
     'experiment-reset': experimentReset,
