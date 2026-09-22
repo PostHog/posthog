@@ -86,6 +86,8 @@ function getCreationFailureCategory(error: unknown): 'validation' | 'permission'
     return 'unknown'
 }
 
+const PREVIEW_SCALE_SLACK_PX = 8
+
 function isValidPageUrl(url: string | null): boolean {
     if (!url) {
         return true
@@ -921,7 +923,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
         previewScale: [
             (s) => [s.widthOverride, s.containerWidth],
             (widthOverride: number, containerWidth: number | null) =>
-                containerWidth && widthOverride > 0 ? Math.min(1, containerWidth / widthOverride) : 1,
+                containerWidth && widthOverride > 0 && containerWidth < widthOverride - PREVIEW_SCALE_SLACK_PX
+                    ? containerWidth / widthOverride
+                    : 1,
         ],
         scalePercent: [(s) => [s.previewScale], (previewScale: number) => Math.round(previewScale * 100)],
     }),

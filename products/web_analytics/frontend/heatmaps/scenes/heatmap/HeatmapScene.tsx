@@ -47,7 +47,6 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         screenshotUrl,
         generatingScreenshot,
         screenshotLoaded,
-        containerWidth,
         desiredNumericWidth,
         effectiveWidth,
         previewScale,
@@ -212,7 +211,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                             <span className="min-w-0 flex-1 truncate" title={displayUrl ?? undefined}>
                                 {displayUrl}
                             </span>
-                            {typeof widthOverride === 'number' && containerWidth && widthOverride > containerWidth ? (
+                            {previewScale < 1 ? (
                                 <Tooltip
                                     title={`Scaled from ${widthOverride}px to ${Math.round(effectiveWidth as number)}px to fit the preview`}
                                 >
