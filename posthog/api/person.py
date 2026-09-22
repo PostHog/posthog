@@ -1533,8 +1533,22 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def push_notifications(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         return self._message_assets_response(request, kind="push")
 
+    def _message_assets_person_uuid(self) -> str:
+        """Person uuid to read message assets for, without requiring a Postgres person row.
+
+        Message assets live in ClickHouse and are keyed by person uuid. Personless events produce
+        a deterministic person uuid that never gets a Postgres row, so resolving the URL id through
+        ``get_object`` would answer a valid profile with 404. A uuid in the URL is already the key,
+        so use it directly. A numeric pk carries no uuid of its own and still needs the lookup.
+        """
+        person_id = str(self.kwargs[self.lookup_field])
+        try:
+            return str(uuid.UUID(person_id))
+        except ValueError:
+            return str(self.get_object().uuid)
+
     def _message_assets_response(self, request: request.Request, kind: str) -> response.Response:
-        person = self.get_object()
+        person_uuid = self._message_assets_person_uuid()
         param_serializer = PersonMessageAssetsRequestSerializer(data=request.query_params)
         param_serializer.is_valid(raise_exception=True)
         params = param_serializer.validated_data
@@ -1548,7 +1562,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         data = fetch_message_assets_for_person(
             team_id=self.team_id,
-            person_id=str(person.uuid),
+            person_id=person_uuid,
             limit=params["limit"],
             offset=params["offset"],
             after=after_date,

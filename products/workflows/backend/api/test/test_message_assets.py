@@ -239,6 +239,14 @@ class TestPersonEmails(ClickhouseTestMixin, APIBaseTest):
         assert res.status_code == status.HTTP_200_OK
         assert res.json() == []
 
+    @parameterized.expand([("emails", "email"), ("push_notifications", "push")])
+    def test_reads_person_without_postgres_row(self, tab: str, kind: str):
+        personless_uuid = "019abcde-0000-7000-8000-0000000000aa"
+        self._seed("inv-personless", person_id=personless_uuid, kind=kind)
+        res = self.client.get(f"/api/projects/{self.team.id}/persons/{personless_uuid}/{tab}/")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert [r["invocation_id"] for r in res.json()] == ["inv-personless"]
+
     def test_returns_emails_with_function_id_for_navigation(self):
         self._seed("inv-1", subject="Hello", recipient="p@example.com")
         rows = self._emails().json()
