@@ -33616,13 +33616,6 @@ export namespace Schemas {
          */
       description: string;
       /**
-         * Deprecated and ignored. Nothing reads it; omit it. Still range-checked when supplied.
-         * @minimum 0
-         * @maximum 1
-         * @nullable
-         */
-      confidence?: number | null;
-      /**
          * Citations supporting the finding. Capped at 20 entries.
          * @maxItems 20
          */
@@ -83171,7 +83164,6 @@ export namespace Schemas {
       finding_id: string;
       skill_name: string;
       skill_version: number;
-      confidence?: number | null;
       severity?: ReportPriority | null;
       hypothesis?: string | null;
       evidence: SignalsScoutEvidenceEntry[];
@@ -86640,13 +86632,6 @@ export namespace Schemas {
       finding_id: string;
       /** The emitted finding prose — the signal's `description` as surfaced to the inbox. */
       description: string;
-      /**
-         * Deprecated and no longer set on new findings. Null unless the run supplied one.
-         * @minimum 0
-         * @maximum 1
-         * @nullable
-         */
-      confidence: number | null;
       /** Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.
        *
        * * `P0` - P0
