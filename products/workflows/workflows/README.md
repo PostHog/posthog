@@ -51,3 +51,10 @@ pnpm --filter=@posthog/workflows exec node dist/cli/main.js init ../../workflows
 ```
 
 Leave `status` out of the file. A pushed workflow starts as a draft and sends nothing, and a person turns it on in PostHog once it is reviewed. A push never changes the status of a file that does not set one.
+
+## In CI
+
+The `Workflows as code` GitHub Actions job (`.github/workflows/workflows-as-code.yml`) runs `repo:check` on every pull request that touches this folder or the package, offline and without credentials, so a pull request from a fork passes too.
+On a push to `master` it runs `repo:push` when the repository secret `POSTHOG_WORKFLOWS_API_KEY` and the repository variable `POSTHOG_WORKFLOWS_PROJECT_ID` are set.
+The variable `POSTHOG_WORKFLOWS_HOST` is optional and defaults to `https://us.posthog.com`.
+Without the secret and the project id, the job prints one line and succeeds.

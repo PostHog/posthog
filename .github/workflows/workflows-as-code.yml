@@ -1,0 +1,66 @@
+name: Workflows as code
+
+# Checks the repository's own workflows in products/workflows/workflows/ on a
+# pull request and pushes them to PostHog on master. The trigger paths keep
+# the workflow away from every PR that does not touch the folder or the SDK.
+on:
+    pull_request:
+        paths:
+            - products/workflows/workflows/**
+            - products/workflows/packages/workflows/**
+            - products/workflows/package.json
+            - .github/workflows/workflows-as-code.yml
+    push:
+        branches:
+            - master
+        paths:
+            - products/workflows/workflows/**
+            - products/workflows/packages/workflows/**
+            - products/workflows/package.json
+            - .github/workflows/workflows-as-code.yml
+
+# Master pushes share one group with cancellation off, so two pushes never
+# race a deploy: the newer run waits, and the newest commit wins.
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    workflows:
+        name: ${{ github.event_name == 'push' && 'Push workflows' || 'Check workflows' }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+
+            # The workflow files import @posthog/workflows through the devDependency
+            # in products/workflows/package.json, and pnpm only creates that link
+            # when the product package is selected too.
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter "@posthog/workflows..." --filter "@posthog/products-workflows"
+
+            # Offline: no credentials are set, so the CLI validates every file
+            # and skips the comparison. A fork PR passes the same way.
+            - name: Check workflows
+              if: github.event_name == 'pull_request'
+              run: pnpm --filter=@posthog/workflows repo:check
+
+            - name: Push workflows to PostHog
+              if: github.event_name == 'push'
+              env:
+                  POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_WORKFLOWS_API_KEY }}
+                  POSTHOG_CLI_PROJECT_ID: ${{ vars.POSTHOG_WORKFLOWS_PROJECT_ID }}
+                  POSTHOG_CLI_HOST: ${{ vars.POSTHOG_WORKFLOWS_HOST || 'https://us.posthog.com' }}
+              run: |
+                  if [[ -z "$POSTHOG_CLI_API_KEY" || -z "$POSTHOG_CLI_PROJECT_ID" ]]; then
+                      echo "Push skipped: set the POSTHOG_WORKFLOWS_API_KEY secret and the POSTHOG_WORKFLOWS_PROJECT_ID variable to push these workflows."
+                      exit 0
+                  fi
+                  pnpm --filter=@posthog/workflows repo:push
