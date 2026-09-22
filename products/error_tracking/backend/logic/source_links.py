@@ -38,6 +38,17 @@ from posthog.storage import object_storage
 from products.error_tracking.backend.models import ErrorTrackingRelease, ErrorTrackingStackFrame, ErrorTrackingSymbolSet
 
 from . import batch_get_stack_frames
+from .source_link_metrics import (
+    SOURCE_LINK_CACHE,
+    SOURCE_LINK_FRAMES,
+    SOURCE_LINK_GITLAB_REQUESTS,
+    SOURCE_LINK_PUBLIC_TOKEN,
+    SOURCE_LINK_REQUESTS,
+    SOURCE_LINK_RESOLVE_SECONDS,
+    SOURCE_LINK_SYMBOL_SET_READS,
+    SOURCE_LINK_TREE_LISTING_REQUESTS,
+    SOURCE_LINK_TREE_LISTINGS,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -362,23 +373,30 @@ def symbol_set_sources(symbol_set: ErrorTrackingSymbolSet) -> list[str] | None:
     gives the same answer. A storage error gives None so the caller does not keep the result.
     """
     if not symbol_set.storage_ptr:
+        SOURCE_LINK_SYMBOL_SET_READS.labels("empty").inc()
         return []
     try:
         head = object_storage.head_object(symbol_set.storage_ptr)
         if head and head.get("ContentLength", 0) > MAX_SYMBOL_SET_BYTES:
             logger.info("source_links_symbol_set_too_large", symbol_set_id=str(symbol_set.id))
+            SOURCE_LINK_SYMBOL_SET_READS.labels("too_large").inc()
             return []
         data = object_storage.read_bytes(symbol_set.storage_ptr)
     except Exception:
         logger.warning("source_links_symbol_set_unreadable", symbol_set_id=str(symbol_set.id), exc_info=True)
+        SOURCE_LINK_SYMBOL_SET_READS.labels("unreadable").inc()
         return None
     if not data:
+        SOURCE_LINK_SYMBOL_SET_READS.labels("empty").inc()
         return []
     try:
-        return source_map_sources(read_source_map(data))
+        sources = source_map_sources(read_source_map(data))
     except Exception:
         logger.info("source_links_symbol_set_rejected", symbol_set_id=str(symbol_set.id), exc_info=True)
+        SOURCE_LINK_SYMBOL_SET_READS.labels("rejected").inc()
         return []
+    SOURCE_LINK_SYMBOL_SET_READS.labels("read").inc()
+    return sources
 
 
 # Circuit breaker for the shared public GitHub token. Django-cache-backed so it is shared across
@@ -414,6 +432,7 @@ class PublicGitHubTokenCircuit:
             if count >= _UNAUTHORIZED_THRESHOLD:
                 cache.set(_PUBLIC_TOKEN_CIRCUIT_OPEN_KEY, True, _CIRCUIT_OPEN_SECONDS)
                 logger.error("github_public_token_circuit_opened", unauthorized_count=count)
+                SOURCE_LINK_PUBLIC_TOKEN.labels("circuit_opened").inc()
         except Exception:
             pass
 
@@ -484,6 +503,7 @@ class PublicTokenGitHubApi:
         if response.status_code == 401:
             self._circuit.record_unauthorized()
             logger.error("github_public_token_unauthorized", status_code=401)
+            SOURCE_LINK_PUBLIC_TOKEN.labels("unauthorized").inc()
             return None
         self._circuit.record_success()
         return response
@@ -504,11 +524,14 @@ def _github_integration_with_access(team_id: int, repository: Repository) -> Git
     key = f"error_tracking:source_links:github_integration:{team_id}:{repository.path}"
     cached = cache.get(key)
     if cached == "":
+        SOURCE_LINK_CACHE.labels("integration_access", "negative").inc()
         return None
     if cached is not None:
         integration = Integration.objects.filter(team_id=team_id, kind="github", id=cached).first()
         if integration is not None:
+            SOURCE_LINK_CACHE.labels("integration_access", "hit").inc()
             return GitHubIntegration(integration, source="error_tracking", priority=Priority.NORMAL)
+    SOURCE_LINK_CACHE.labels("integration_access", "miss").inc()
     try:
         github = GitHubIntegration.first_for_team_repository(
             team_id, repository.path, source="error_tracking", priority=Priority.NORMAL
@@ -543,7 +566,9 @@ def _github_default_branch(api: GitHubApi, repository: Repository) -> str | None
     key = f"error_tracking:source_links:default_branch:{api.identity}:{repository.path}"
     cached = cache.get(key)
     if isinstance(cached, str):
+        SOURCE_LINK_CACHE.labels("default_branch", "hit" if cached else "negative").inc()
         return cached or None
+    SOURCE_LINK_CACHE.labels("default_branch", "miss").inc()
     response = api.get(f"/repos/{repository.path}", endpoint="/repos/{owner}/{repo}")
     branch: str | None = None
     if response is not None and response.status_code == 200:
@@ -579,6 +604,7 @@ class _TreeRequests:
         self._repository = repository
         self._deadline = time.time() + TREE_LISTING_DEADLINE_SECONDS
         self.remaining = MAX_TREE_REQUESTS
+        self.incomplete = False
 
     def get(self, tree_ref: str, *, recursive: bool, etag: str | None = None) -> requests.Response | None:
         if time.time() > self._deadline:
@@ -609,7 +635,12 @@ class _TreeRequests:
         return body
 
     def log_incomplete(self, tree_ref: str) -> None:
+        self.incomplete = True
         logger.warning("source_links_tree_incomplete", repository=self._repository.path, tree=tree_ref)
+
+    def record(self, result: str) -> None:
+        SOURCE_LINK_TREE_LISTINGS.labels(result).inc()
+        SOURCE_LINK_TREE_LISTING_REQUESTS.observe(MAX_TREE_REQUESTS - self.remaining)
 
 
 def list_github_tree(
@@ -624,13 +655,17 @@ def list_github_tree(
     tree_requests = _TreeRequests(api, repository)
     response = tree_requests.get(ref, recursive=True, etag=etag)
     if etag and response is not None and response.status_code == 304:
+        tree_requests.record("not_modified")
         return TreeListing(paths=(), etag=etag, not_modified=True)
     body = tree_requests.body(response)
     if body is None or response is None:
+        tree_requests.record("failed")
         return None
     paths: set[str] = set()
     if not _collect_tree(tree_requests, ref, body, prefix="", paths=paths, depth=0):
+        tree_requests.record("failed")
         return None
+    tree_requests.record("incomplete" if tree_requests.incomplete else "complete")
     return TreeListing(paths=tuple(sorted(paths)), etag=response.headers.get("ETag"))
 
 
@@ -690,15 +725,19 @@ def github_tree(api: GitHubApi, target: SourceTarget) -> RepositoryTree | None:
     stale: dict | None = None
     if isinstance(cached, dict):
         if cached.get("paths") is None:
+            SOURCE_LINK_CACHE.labels("tree", "negative").inc()
             return None
         if target.pinned or now - cached.get("checked_at", 0) < BRANCH_TTL_SECONDS:
+            SOURCE_LINK_CACHE.labels("tree", "hit").inc()
             return _tree_from_cache(cached)
         stale = cached
+    SOURCE_LINK_CACHE.labels("tree", "revalidate" if stale else "miss").inc()
 
     # Concurrent page loads of one release would each list the tree. The one that takes the lock
     # lists it, and the others use what they have, which is nothing for a first load.
     lock_key = f"{key}:lock"
     if not cache.add(lock_key, True, TREE_LOCK_SECONDS):
+        SOURCE_LINK_CACHE.labels("tree", "locked").inc()
         return _tree_from_cache(stale) if stale else None
     try:
         listing = list_github_tree(api, target.repository, target.ref, etag=stale.get("etag") if stale else None)
@@ -748,7 +787,9 @@ def github_paths_for_symbol_set(
     )
     cached = cache.get(key)
     if isinstance(cached, dict) and all(source in cached for source in frame_sources):
+        SOURCE_LINK_CACHE.labels("mapping", "hit").inc()
         return cached
+    SOURCE_LINK_CACHE.labels("mapping", "miss").inc()
 
     tree = load_tree()
     if tree is None:
@@ -852,6 +893,7 @@ def gitlab_search(
             response = requests.get(
                 url, params=params, headers=headers, timeout=GITLAB_SEARCH_TIMEOUT_SECONDS, allow_redirects=False
             )
+            SOURCE_LINK_GITLAB_REQUESTS.labels(str(response.status_code)).inc()
             if response.status_code != 200:
                 continue
             for item in response.json() or []:
@@ -863,6 +905,7 @@ def gitlab_search(
                 if hit_ref:
                     return GitLabHit(host_url=credential.host_url, ref=hit_ref, path=item_path)
         except Exception as error:
+            SOURCE_LINK_GITLAB_REQUESTS.labels("error").inc()
             logger.exception("gitlab_code_search_request_failed", error=str(error))
     return None
 
@@ -876,6 +919,14 @@ def _gitlab_lookup(frame: ErrorTrackingStackFrame) -> GitLabLookup | None:
     return GitLabLookup(file_name=file_name, code_sample=code_sample)
 
 
+@frozen
+class GitLabLookupResult:
+    """The hit for one lookup, or why there is none: a miss, or a deadline that cut the lookup off."""
+
+    hit: GitLabHit | None
+    cut_off: bool = False
+
+
 def _gitlab_hit(
     team_id: int,
     repository: Repository,
@@ -883,27 +934,30 @@ def _gitlab_hit(
     credentials: list[GitLabCredential],
     lookup: GitLabLookup,
     deadline: float,
-) -> GitLabHit | None:
+) -> GitLabLookupResult:
     key = (
         f"error_tracking:source_links:gitlab:{team_id}:{repository.path}@{ref or ''}:"
         f"{lookup.file_name}:{zlib.crc32(lookup.code_sample.encode())}"
     )
     cached = cache.get(key)
     if cached == "":
-        return None
+        SOURCE_LINK_CACHE.labels("gitlab_search", "negative").inc()
+        return GitLabLookupResult(hit=None)
     if isinstance(cached, GitLabHit):
-        return cached
+        SOURCE_LINK_CACHE.labels("gitlab_search", "hit").inc()
+        return GitLabLookupResult(hit=cached)
+    SOURCE_LINK_CACHE.labels("gitlab_search", "miss").inc()
 
     hit: GitLabHit | None = None
     for credential in credentials:
         # Past the deadline the answer is unknown rather than negative, so nothing is cached.
         if time.time() > deadline:
-            return None
+            return GitLabLookupResult(hit=None, cut_off=True)
         hit = gitlab_search(lookup, credential, repository, ref)
         if hit is not None:
             break
     cache.set(key, hit if hit is not None else "", BRANCH_TTL_SECONDS if hit else NEGATIVE_TTL_SECONDS)
-    return hit
+    return GitLabLookupResult(hit=hit)
 
 
 @frozen
@@ -960,6 +1014,15 @@ def _blob_url(target: SourceTarget, path: str, line: int | None) -> str:
     return f"{url}#L{line}" if line else url
 
 
+@frozen
+class Resolution:
+    """What a resolve request produced, and why it stopped where it did, for the request metric."""
+
+    provider: str
+    outcome: str
+    links: list[SourceLink]
+
+
 def resolve_source_links(team_id: int, release_id: str, raw_ids: list[str]) -> list[SourceLink]:
     """One link per frame that maps to a file in the release's repository.
 
@@ -967,11 +1030,22 @@ def resolve_source_links(team_id: int, release_id: str, raw_ids: list[str]) -> l
     A symbol set's release is not consulted: in event release mode it has none, and the event's
     release is the one that was deployed. An event without a release gets no links.
     """
+    started = time.monotonic()
+    resolution = _resolve(team_id, release_id, raw_ids)
+    SOURCE_LINK_RESOLVE_SECONDS.labels(resolution.provider).observe(time.monotonic() - started)
+    SOURCE_LINK_REQUESTS.labels(resolution.provider, resolution.outcome).inc()
+    return resolution.links
+
+
+def _resolve(team_id: int, release_id: str, raw_ids: list[str]) -> Resolution:
     release = ErrorTrackingRelease.objects.filter(team_id=team_id, id=release_id).first()
-    git = _release_git(release.metadata if release else None)
+    if release is None:
+        return Resolution(provider="none", outcome="no_release", links=[])
+    git = _release_git(release.metadata)
     repository = parse_repository(git.remote_url)
     if repository is None:
-        return []
+        return Resolution(provider="none", outcome="no_repository", links=[])
+    provider = repository.provider
 
     frames = [
         frame
@@ -979,16 +1053,17 @@ def resolve_source_links(team_id: int, release_id: str, raw_ids: list[str]) -> l
         if frame.symbol_set is not None and isinstance(frame.contents, dict) and frame.contents.get("source")
     ]
     if not frames:
-        return []
-    if repository.provider == "gitlab":
-        return _gitlab_links(team_id, repository, git.commit_id, frames)
+        return Resolution(provider=provider, outcome="no_frames", links=[])
+    if provider == "gitlab":
+        gitlab_links = _gitlab_links(team_id, repository, git.commit_id, frames)
+        return Resolution(provider=provider, outcome="linked" if gitlab_links else "no_links", links=gitlab_links)
 
     api = github_api_for(team_id, repository)
     if api is None:
-        return []
+        return Resolution(provider=provider, outcome="no_credential", links=[])
     target = github_target(api, repository, git.commit_id)
     if target is None:
-        return []
+        return Resolution(provider=provider, outcome="no_target", links=[])
 
     by_symbol_set: dict[object, list[ErrorTrackingStackFrame]] = defaultdict(list)
     for frame in frames:
@@ -1006,6 +1081,7 @@ def resolve_source_links(team_id: int, release_id: str, raw_ids: list[str]) -> l
         )
         for frame in symbol_set_frames:
             path = mapping.get(frame.contents["source"])
+            SOURCE_LINK_FRAMES.labels("github", "linked" if path else "unlinked").inc()
             if not path:
                 continue
             links.append(
@@ -1016,7 +1092,7 @@ def resolve_source_links(team_id: int, release_id: str, raw_ids: list[str]) -> l
                     path=path,
                 )
             )
-    return links
+    return Resolution(provider="github", outcome="linked" if links else "no_links", links=links)
 
 
 def _gitlab_links(
@@ -1031,9 +1107,12 @@ def _gitlab_links(
     lookups: dict[GitLabLookup, list[ErrorTrackingStackFrame]] = defaultdict(list)
     for frame in frames:
         if frame.contents.get("in_app") is False:
+            SOURCE_LINK_FRAMES.labels("gitlab", "skipped_vendor").inc()
             continue
         lookup = _gitlab_lookup(frame)
-        if lookup is not None:
+        if lookup is None:
+            SOURCE_LINK_FRAMES.labels("gitlab", "unlinked").inc()
+        else:
             lookups[lookup].append(frame)
     if not lookups:
         return []
@@ -1042,12 +1121,15 @@ def _gitlab_links(
 
     links: list[SourceLink] = []
     with ThreadPoolExecutor(max_workers=min(len(lookups), 5)) as executor:
-        hits = executor.map(
+        results = executor.map(
             lambda lookup: _gitlab_hit(team_id, repository, ref, credentials, lookup, deadline), lookups
         )
-        for lookup_frames, hit in zip(lookups.values(), hits):
+        for lookup_frames, result in zip(lookups.values(), results):
+            hit = result.hit
             if hit is None:
+                SOURCE_LINK_FRAMES.labels("gitlab", "cut_off" if result.cut_off else "unlinked").inc(len(lookup_frames))
                 continue
+            SOURCE_LINK_FRAMES.labels("gitlab", "linked").inc(len(lookup_frames))
             url = f"{hit.host_url}/{repository.path}/-/blob/{urllib.parse.quote(hit.ref, safe='')}/{urllib.parse.quote(hit.path)}"
             for frame in lookup_frames:
                 line = frame_line_number(frame)

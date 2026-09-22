@@ -11,6 +11,7 @@ from django.test import override_settings
 
 import requests
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from requests.structures import CaseInsensitiveDict
 
 from posthog.models.integration import Integration
@@ -46,6 +47,13 @@ class _FakeGitHubApi:
         if path == "/repos/acme/app":
             return _response(200, {"default_branch": self.default_branch})
         return _response(404)
+
+
+def _frames_counted(provider: str, outcome: str) -> float:
+    return (
+        REGISTRY.get_sample_value("error_tracking_source_link_frames_total", {"provider": provider, "outcome": outcome})
+        or 0.0
+    )
 
 
 class _SourceLinksTestMixin(APIBaseTest):
@@ -124,8 +132,15 @@ class TestGitProviderFileLinksResolve(_SourceLinksTestMixin):
         symbol_set = self._symbol_set()
         three = self._frame(symbol_set, "frame-three", "../src/three.ts")
         missing = self._frame(symbol_set, "frame-missing", "../src/not-in-repo.ts")
+        counted_before = {outcome: _frames_counted("github", outcome) for outcome in ("linked", "unlinked")}
 
         links = self._resolve(str(release.id), [three, missing])
+
+        # The dashboard reads these label values, so a rename or a lost increment breaks it silently.
+        assert {outcome: _frames_counted("github", outcome) - before for outcome, before in counted_before.items()} == {
+            "linked": 1,
+            "unlinked": 1,
+        }
 
         assert links == {
             three: {

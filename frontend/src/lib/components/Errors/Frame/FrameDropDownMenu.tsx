@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconCopy, IconExternal, IconGitLab, IconGithub } from '@posthog/icons'
@@ -79,7 +80,10 @@ export function SourceDataLink({ sourceData, onClick }: { sourceData: SourceData
             to={sourceData.url}
             target="_blank"
             className={buttonPrimitiveVariants({ menuItem: true })}
-            onClick={onClick}
+            onClick={() => {
+                posthog.capture('error_tracking_source_link_clicked', { provider: sourceData.provider })
+                onClick?.()
+            }}
         >
             <Icon />
             Open in {PROVIDER_NAME_MAP[sourceData.provider] ?? sourceData.provider}
