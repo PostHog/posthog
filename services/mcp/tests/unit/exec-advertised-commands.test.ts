@@ -113,19 +113,20 @@ function namesToolWhenWithheld(name: string): boolean {
     return advertisedCommands(execGuidance(available)).includes(name)
 }
 
+const CATALOG_TOOLS: Tool<ZodObjectAny>[] = CATALOG_TOOL_NAMES.map((name) => ({
+    name,
+    title: name,
+    description: name,
+    schema: z.object({}),
+    scopes: [],
+    annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false, readOnlyHint: true },
+    handler: async () => ({}),
+}))
+
 /** What the live dispatcher answers when an advertised name arrives as a command
  *  instead of as a `call` argument. */
 async function replyToBareCommand(name: string): Promise<string> {
-    const tools: Tool<ZodObjectAny>[] = CATALOG_TOOL_NAMES.map((tool) => ({
-        name: tool,
-        title: tool,
-        description: tool,
-        schema: z.object({}),
-        scopes: [],
-        annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false, readOnlyHint: true },
-        handler: async () => ({}),
-    }))
-    const exec = createExecTool(tools, {} as Context, 'description', 'reference', undefined)
+    const exec = createExecTool(CATALOG_TOOLS, {} as Context, 'description', 'reference', undefined)
     return exec.handler({} as Context, { command: `${name} {}` }).then(
         (result) => String(result),
         (error: Error) => error.message
