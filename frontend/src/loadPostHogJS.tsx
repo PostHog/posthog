@@ -8,6 +8,36 @@ import { startDetachedElementTracking } from './detachedElementTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-05-30'
 
+export function shouldCaptureLcpDiagnostics(): boolean {
+    return (
+        window.location.hostname === 'us.posthog.com' &&
+        /^\/project\/\d+\/web\/?$/.test(window.location.pathname) &&
+        !window.IMPERSONATED_SESSION &&
+        !isOAuthMode() &&
+        !!window.POSTHOG_APP_CONTEXT?.current_user &&
+        window.POSTHOG_USER_IDENTITY_WITH_FLAGS?.featureFlags?.[FEATURE_FLAGS.WEB_LCP_DIAGNOSTICS] === true
+    )
+}
+
+export const filterLcpDiagnostics: BeforeSendFn = (event) => {
+    if (event?.event !== '$web_vitals') {
+        return event
+    }
+
+    const metric = event.properties.$web_vitals_LCP_event
+    if (metric?.attribution) {
+        // Keep timing data, but exclude URLs and selectors that can contain customer data.
+        metric.attribution = Object.fromEntries(
+            ['timeToFirstByte', 'resourceLoadDelay', 'resourceLoadDuration', 'elementRenderDelay']
+                .filter((key) => Number.isFinite(metric.attribution[key]) && metric.attribution[key] >= 0)
+                .map((key) => [key, metric.attribution[key]])
+        )
+        event.properties.lcp_diagnostics = true
+        event.properties.lcp_navigation_start = performance.timeOrigin
+    }
+    return event
+}
+
 // The same hash as posthog-js's own `sampleOnProperty`, so existing sessions keep their side of the
 // split. Inlined because the deep import of that extension ships a second copy of @posthog/core.
 export function isInDeferredInitSample(sessionId: string): boolean {
@@ -42,6 +72,7 @@ export interface LoadPostHogJSOptions {
 
 export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
     if (window.JS_POSTHOG_API_KEY) {
+        const captureLcpDiagnostics = shouldCaptureLcpDiagnostics()
         posthog.init(window.JS_POSTHOG_API_KEY, {
             opt_out_useragent_filter: window.location.hostname === 'localhost', // we ARE a bot when running in localhost, so we need to enable this opt-out
             api_host: window.JS_POSTHOG_HOST,
@@ -61,7 +92,9 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
                 __capturePostHogExceptions: true,
             },
             metrics: { network: true, serviceName: 'posthog-app', ...options.metrics },
-            before_send: options.beforeSend,
+            before_send: captureLcpDiagnostics
+                ? [filterLcpDiagnostics, ...(options.beforeSend ? [options.beforeSend].flat() : [])]
+                : options.beforeSend,
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
@@ -169,8 +202,9 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             tracing_headers: isOAuthMode() ? [] : ['eu.posthog.com', 'us.posthog.com'],
             __preview_disable_xhr_credentials: true,
             capture_performance: {
-                //disabling to investigate if this is associated with memory leak in the posthog app
-                web_vitals_attribution: false,
+                // Attribution stays off outside the pilot while its memory cost is measured.
+                // Choose observers once per page load; attributed observers cannot be removed by a flag update.
+                web_vitals_attribution: captureLcpDiagnostics ? ['LCP'] : false,
             },
             identity_distinct_id: window.JS_POSTHOG_IDENTITY_DISTINCT_ID,
             identity_hash: window.JS_POSTHOG_IDENTITY_HASH,

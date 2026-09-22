@@ -13,6 +13,24 @@ We try to be very explicit about this separation, and avoid local React state wh
 
 Hence the explicit separation between the data and view layers.
 
+#### LCP diagnostics
+
+The `web-lcp-diagnostics` flag enables LCP phase timings on full page loads of the US Web analytics page.
+It requires an authenticated user in the app context and a true flag value in the SDK bootstrap data.
+It excludes impersonation and OAuth mode.
+Keep the flag off by default and start with a small cohort.
+The SDK selects observers at page load, so disabling the flag takes effect on the next full page load.
+Only LCP gets attribution; the event filter keeps finite phase timings and removes attribution URLs and selectors.
+The `lcp_navigation_start` property identifies the browser navigation start in milliseconds since the Unix epoch.
+Use it with the window ID to group page loads, and use the metric's navigation URL to select the measured route.
+
+For query requests, the `query.client_query_id` attribute on `posthog.query.process_query_model` matches the existing browser `query completed` event's `queryId` and the API response event's `client_query_id`.
+Only UUID-shaped IDs are added to spans.
+A matching ID links a request to its processing span; it does not prove that the request delayed LCP.
+An asynchronous query can continue in a separate trace after the submission request ends.
+Check request timing against LCP, and inspect child spans and self time before choosing a performance fix.
+Compare LCP, dashboard load time, INP, CLS, errors, and memory use with a control group before expanding the pilot.
+
 #### General tips
 
 - The `tracing-ui-v2` feature flag replaces the tracing scene with a `Tracing UI v2` placeholder for targeted testing. When the flag is off or unavailable, the existing tracing UI remains unchanged.
