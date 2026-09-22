@@ -198,13 +198,24 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertFalse(FileSystem.objects.filter(pk=file1_obj.pk).exists())
         self.assertFalse(FileSystem.objects.filter(pk=file2_obj.pk).exists())
 
-    def test_delete_empty_folder_without_cascading(self) -> None:
+    @parameterized.expand([("empty", False), ("child_added_before_delete", True)])
+    def test_delete_empty_folder_without_cascading(self, _name: str, add_child: bool) -> None:
         folder = FileSystem.objects.create(team=self.team, path="Empty", type="folder", created_by=self.user)
         other_team = Team.objects.create(organization=self.organization)
         unrelated = FileSystem.objects.create(team=other_team, path="Empty/Child", type="folder")
-        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder.pk}/?recursive=false")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(FileSystem.objects.filter(pk=folder.pk).exists())
+
+        def insert_before_delete(execute: Callable[..., Any], sql: str, params: Any, many: bool, context: Any) -> Any:
+            if add_child and sql.startswith('DELETE FROM "posthog_filesystem"'):
+                FileSystem.objects.create(team=self.team, path="Empty/Child", type="folder")
+            return execute(sql, params, many, context)
+
+        with connection.execute_wrapper(insert_before_delete):
+            response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder.pk}/?recursive=false")
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT if add_child else status.HTTP_204_NO_CONTENT)
+        self.assertEqual(FileSystem.objects.filter(pk=folder.pk).exists(), add_child)
+        if add_child:
+            self.assertEqual(response.json()["code"], "directory_not_empty")
         self.assertTrue(FileSystem.objects.filter(pk=unrelated.pk).exists())
 
     def test_delete_ref_less_registered_row_refused_on_web_surface(self):

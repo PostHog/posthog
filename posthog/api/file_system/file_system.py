@@ -8,7 +8,7 @@ from typing import Any, Optional, cast
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
+from django.db.models import Case, Exists, F, IntegerField, Q, QuerySet, Value, When
 from django.db.models.functions import Concat, Lower
 
 from drf_spectacular.utils import extend_schema
@@ -782,11 +782,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 descendants = self._scope_by_project_and_environment(
                     FileSystem.objects.filter(path__startswith=f"{instance.path}/")
                 )
-                if descendants.exists():
+                empty_folder = FileSystem.objects.filter(
+                    pk=instance.pk, team_id=instance.team_id, path=instance.path, type="folder"
+                ).filter(~Exists(descendants))
+                # Keep the emptiness predicate in the DELETE statement. Folders have no dependent rows,
+                # and the view-log cleanup signal only applies to files, so no collector is needed.
+                if not empty_folder._raw_delete(empty_folder.db):
                     raise Conflict("Folder is not empty.", code="directory_not_empty")
-                self._ensure_can_delete(instance)
-                # Never cascade: a concurrent insert after the emptiness check must keep its contents.
-                instance.delete()
                 deleted_objects = []
             else:
                 reaches_backing_object = self._ensure_can_delete(instance)
