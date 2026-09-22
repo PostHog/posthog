@@ -72,5 +72,4 @@ hogli build:openapi
 ## Further reading
 
 - [AGENTS.md](./AGENTS.md) — product-specific conventions.
-- [docs/evaluation-backfills.md](./docs/evaluation-backfills.md) — how a backfill walks a past range, and what its counters mean.
 - [products/architecture.md](../architecture.md) — target architecture for products (facades, contracts, isolation). This product has not yet been migrated.
