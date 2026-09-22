@@ -47,7 +47,9 @@ export function useOpenTargetDeepLink() {
 
       switch (target.kind) {
         case "task":
-          void handleOpenTask(target.taskId, target.taskRunId);
+          void handleOpenTask(target.taskId, target.taskRunId, {
+            artifact: target.artifact,
+          });
           break;
         case "canvas":
           void focusOrOpenBrowserTab(

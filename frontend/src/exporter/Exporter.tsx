@@ -15,13 +15,19 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from 'scenes/dashboard/dashboardConstants'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { ExporterLogin } from '~/exporter/ExporterLogin'
 import { ExportType, ExportedData } from '~/exporter/types'
 import { isMetricInsightQuery } from '~/queries/utils'
 
 import { exporterViewLogic } from './exporterViewLogic'
+import { SharedPageActions } from './SharedPageActions'
+import { SharedPageHeader } from './SharedPageHeader'
+import { SharedPageTitleMenu } from './SharedPageTitleMenu'
 
+const LazyArtifactScene = lazyWithRetry(() => import('./scenes/ExporterArtifactScene'))
+const LazyCanvasScene = lazyWithRetry(() => import('./scenes/ExporterCanvasScene'))
 const LazyDashboardScene = lazyWithRetry(() => import('./scenes/ExporterDashboardScene'))
 const LazyHeatmapScene = lazyWithRetry(() => import('./scenes/ExporterHeatmapScene'))
 const LazyInsightScene = lazyWithRetry(() => import('./scenes/ExporterInsightScene'))
@@ -87,10 +93,16 @@ export function Exporter(props: ExportedData): JSX.Element {
         accessToken,
         exportToken,
         interview,
+        canvas,
+        task_artifact: taskArtifact,
+        viewer,
         ...exportOptions
     } = props
     const { whitelabel, showInspector = false } = exportOptions
-    const forcedTheme = useResolvedForcedTheme(exportOptions.theme)
+    // A shared canvas or file has no theme of its own, so it follows the viewer: their PostHog choice
+    // when they are signed in, otherwise the OS setting.
+    const viewerTheme = canvas || taskArtifact ? viewer?.theme_mode || 'system' : undefined
+    const forcedTheme = useResolvedForcedTheme(exportOptions.theme ?? viewerTheme)
 
     // A metric insight sizes to a compact card rather than filling the viewport, so drop the 100vh floor
     // that would otherwise leave empty space below it (see Exporter.scss and ExportedInsight.scss).
@@ -120,8 +132,14 @@ export function Exporter(props: ExportedData): JSX.Element {
         } else if (notebook && (type === ExportType.Scene || type === ExportType.Embed)) {
             const baseTitle = notebook.title || 'Notebook'
             document.title = whitelabel ? baseTitle : `${baseTitle} • PostHog`
+        } else if (canvas && (type === ExportType.Scene || type === ExportType.Embed)) {
+            const baseTitle = canvas.name || 'Canvas'
+            document.title = whitelabel ? baseTitle : `${baseTitle} • PostHog`
+        } else if (taskArtifact && (type === ExportType.Scene || type === ExportType.Embed)) {
+            const baseTitle = taskArtifact.name || 'File'
+            document.title = whitelabel ? baseTitle : `${baseTitle} • PostHog`
         }
-    }, [dashboard, insight, notebook, type, whitelabel])
+    }, [dashboard, insight, notebook, canvas, taskArtifact, type, whitelabel])
 
     useThemedHtml(false, forcedTheme)
 
@@ -146,6 +164,8 @@ export function Exporter(props: ExportedData): JSX.Element {
                     'Exporter--dashboard': !!dashboard,
                     'Exporter--recording': !!recording,
                     'Exporter--notebook': !!notebook,
+                    'Exporter--canvas': !!canvas,
+                    'Exporter--artifact': !!taskArtifact,
                     'Exporter--heatmap': type === ExportType.Heatmap,
                 })}
                 ref={elementRef}
@@ -210,6 +230,57 @@ export function Exporter(props: ExportedData): JSX.Element {
                                 inline_query_results={inlineQueryResults}
                             />
                         </Suspense>
+                    </div>
+                ) : canvas ? (
+                    <div className="SharedCanvas">
+                        {!whitelabel && type === ExportType.Scene && (
+                            <SharedPageHeader
+                                title={
+                                    <SharedPageTitleMenu
+                                        title={canvas.name || 'Canvas'}
+                                        noun="canvas"
+                                        isCreator={viewer?.is_creator}
+                                        teamName={currentTeam?.name}
+                                        updatedAt={canvas.shared_at}
+                                        openPath={viewer?.open_path}
+                                        // A copy starts from the build the link shows, so a gone build offers no copy.
+                                        forkUrl={
+                                            canvas.allow_forking && canvas.published && accessToken
+                                                ? urls.codeCanvasFork(accessToken)
+                                                : null
+                                        }
+                                    />
+                                }
+                                utmCampaign="shared-canvas"
+                                actions={<SharedPageActions noun="canvas" viewer={viewer} />}
+                            />
+                        )}
+                        <Suspense fallback={<ExportedSceneSkeleton />}>
+                            <LazyCanvasScene canvas={canvas} forcedTheme={forcedTheme} />
+                        </Suspense>
+                    </div>
+                ) : taskArtifact ? (
+                    <div className="SharedArtifact">
+                        {!whitelabel && type === ExportType.Scene && (
+                            <SharedPageHeader
+                                title={
+                                    <SharedPageTitleMenu
+                                        title={taskArtifact.name || 'File'}
+                                        noun="file"
+                                        teamName={currentTeam?.name}
+                                        updatedAt={taskArtifact.uploaded_at}
+                                        openPath={viewer?.open_path}
+                                    />
+                                }
+                                utmCampaign="shared-artifact"
+                                actions={<SharedPageActions noun="file" viewer={viewer} />}
+                            />
+                        )}
+                        <div className="SharedArtifact-body flex-1 p-4">
+                            <Suspense fallback={<ExportedSceneSkeleton />}>
+                                <LazyArtifactScene artifact={taskArtifact} />
+                            </Suspense>
+                        </div>
                     </div>
                 ) : insight ? (
                     <Suspense fallback={<ExportedSceneSkeleton />}>
