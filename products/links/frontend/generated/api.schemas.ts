@@ -86,7 +86,8 @@ export interface LinkApi {
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
-    readonly created_by: UserBasicApi
+    /** User who created the link. Null when that user was deleted. */
+    readonly created_by: UserBasicApi | null
     /** Folder path to file the link under in the project tree. */
     _create_in_folder?: string
 }
@@ -122,7 +123,8 @@ export interface PatchedLinkApi {
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null
-    readonly created_by?: UserBasicApi
+    /** User who created the link. Null when that user was deleted. */
+    readonly created_by?: UserBasicApi | null
     /** Folder path to file the link under in the project tree. */
     _create_in_folder?: string
 }
