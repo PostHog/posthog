@@ -2211,12 +2211,6 @@ class TestReusableSecretPassthroughCheck:
 
 
 def _write_table_actions(repo_root: Path, *, declared: bool = True) -> None:
-    """Write a satisfying ``action.yml`` for every ``SHELL_SPLIT_INPUTS`` entry.
-
-    Without it every table entry also reports as drift and drowns the
-    assertion under test. Built from the table rather than hardcoded so a
-    second entry does not break these tests.
-    """
     for action, names in SHELL_SPLIT_INPUTS.items():
         directory = repo_root / action
         directory.mkdir(parents=True, exist_ok=True)
@@ -2263,7 +2257,72 @@ class TestShellSplitActionArgsCheck:
             _caller("--config p/security-audit\n                # temporarily off\n                --config p/python"),
         )
         assert "with.args" in issue, issue
-        assert "'#'" in issue and "comment" in issue, issue
+        assert "'#'" in issue and "script" in issue, issue
+
+    def test_flags_a_semicolon_the_inner_shell_would_treat_as_a_terminator(self, tmp_path: Path) -> None:
+        _write_table_actions(tmp_path)
+        [issue] = self._run(tmp_path, _caller("--config p/python ; --include /posthog"))
+        assert "';'" in issue, issue
+
+    def test_flags_a_newline_a_more_indented_line_leaves_unfolded(self, tmp_path: Path) -> None:
+        # A folded scalar does not fold a MORE-INDENTED line: YAML keeps the breaks
+        # around it, so an author indenting one flag for readability ships a literal
+        # newline, which truncates the command exactly as a '#' does.
+        _write_table_actions(tmp_path)
+        [issue] = self._run(
+            tmp_path,
+            _caller("--config p/python\n                  --indented /posthog\n                --jobs 4"),
+        )
+        assert "\\n" in issue or "newline" in issue, issue
+
+    def test_derivation_reads_a_single_quoted_shell_c_operand(self, tmp_path: Path) -> None:
+        # Actions substitutes `${{ inputs.x }}` before the shell parses, so a
+        # single-quoted script splices an input exactly as a double-quoted one does.
+        action_dir = tmp_path / ".github" / "actions" / "singlequoted"
+        action_dir.mkdir(parents=True)
+        (action_dir / "action.yml").write_text(
+            "name: A\ndescription: A\ninputs:\n  flags:\n    description: d\n    required: true\n"
+            "runs:\n  using: composite\n  steps:\n    - shell: bash\n"
+            "      run: sh -c 'tool ${{ inputs.flags }}'\n",
+            encoding="utf-8",
+        )
+        derived = derive_shell_split_inputs(tmp_path)
+        assert derived.get(".github/actions/singlequoted") == frozenset({"flags"}), derived
+
+    def test_the_shipped_runtime_guard_rejects_everything_the_linter_rejects(self) -> None:
+        # The linter cannot see a value a GitHub expression interpolates in, so the
+        # guard in action.yml is the only layer for that case. Execute the SHIPPED
+        # block rather than a copy, or this passes while the guard rots.
+        from hogli.manifest import REPO_ROOT
+
+        text = (REPO_ROOT / ".github" / "actions" / "semgrep-ci" / "action.yml").read_text(encoding="utf-8")
+        lines = text.splitlines()
+        start = next(i for i, line in enumerate(lines) if line.strip().startswith('case "$SEMGREP_ARGS"'))
+        end = next(i for i in range(start, len(lines)) if lines[i].strip() == "esac")
+        guard = textwrap.dedent("\n".join(lines[start : end + 1]).replace(" " * 14, ""))
+
+        def run(value: str) -> int:
+            return subprocess.run(
+                ["sh", "-c", guard],
+                env={"SEMGREP_ARGS": value, "PATH": "/usr/bin:/bin"},
+                capture_output=True,
+            ).returncode
+
+        assert run("--config p/python --include /posthog --jobs 4") == 0
+        for bad in ("--config p/python # off", "--config p/python ; --include /x", "--config p/python\n--include /x"):
+            assert run(bad) == 1, bad
+
+    def test_a_foreign_action_sharing_our_layout_is_not_matched(self, tmp_path: Path) -> None:
+        # `OtherOrg/repo/.github/actions/semgrep-ci` is a different action. Matching it
+        # would fail a workflow over semantics that action does not have.
+        _write_table_actions(tmp_path)
+        assert (
+            self._run(
+                tmp_path,
+                _caller("--config p/python # off", uses="OtherOrg/repo/.github/actions/semgrep-ci@abc123"),
+            )
+            == []
+        )
 
     def test_allows_a_value_with_no_hash(self, tmp_path: Path) -> None:
         _write_table_actions(tmp_path)

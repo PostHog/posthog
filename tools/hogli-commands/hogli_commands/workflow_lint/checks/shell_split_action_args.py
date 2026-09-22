@@ -34,6 +34,8 @@ from ..check import CheckResult, Issue, WorkflowCheck
 from ..model import Workflow
 
 # Source of truth. Enforcement reads only this table; see `_drift_issues`.
+REPO_PREFIX = "PostHog/posthog/"
+
 SHELL_SPLIT_INPUTS: dict[str, frozenset[str]] = {
     ".github/actions/semgrep-ci": frozenset({"args"}),
 }
@@ -42,7 +44,13 @@ ACTIONS_DIR = ".github/actions"
 
 # Scoped to the `-c` operand: a var elsewhere in the run body (`"$SEMGREP_IMAGE"`)
 # is its own quoted argument, never re-parsed, so it carries no hazard.
-SHELL_C_RE = re.compile(r"\b(?:sh|bash|dash|zsh|ksh)\b\s+(?:-\S+\s+)*-c\s+\"(?P<script>(?:[^\"\\]|\\.)*)\"")
+UNSAFE_ARG_RE = re.compile(r"[^ A-Za-z0-9._/@:=+-]")
+SHELL_C_RE = re.compile(
+    # Both quotings: Actions substitutes `${{ }}` before the shell parses, so a
+    # single-quoted script splices an input just as a double-quoted one does.
+    r"\b(?:sh|bash|dash|zsh|ksh)\b\s+(?:-\S+\s+)*-c\s+"
+    r"(?:\"(?P<dquoted>(?:[^\"\\]|\\.)*)\"|'(?P<squoted>[^']*)')",
+)
 VAR_REF_RE = re.compile(r"\$(?:\{(?P<braced>[A-Za-z_]\w*)[^}]*\}|(?P<plain>[A-Za-z_]\w*))")
 INPUT_EXPR_RE = re.compile(
     r"\$\{\{\s*inputs(?:\.(?P<dot>[\w-]+)|\[\s*['\"](?P<bracket>[\w-]+)['\"]\s*\])\s*\}\}",
@@ -62,13 +70,19 @@ def _action_key(uses: str | None) -> str | None:
     if not uses:
         return None
     path = uses.split("@", 1)[0].strip()
-    index = path.find(ACTIONS_DIR)
-    if index == -1:
+    # Anchored, never a substring search: `OtherOrg/repo/.github/actions/semgrep-ci`
+    # is a different action that happens to share our layout, and matching it would
+    # fail a workflow over semantics that action does not have.
+    if path.startswith("./"):
+        path = path[2:]
+    elif path.startswith(REPO_PREFIX):
+        path = path[len(REPO_PREFIX) :]
+    if not path.startswith(ACTIONS_DIR):
         return None
-    return path[index:].rstrip("/")
+    return path.rstrip("/")
 
 
-def _load_action(action_dir: Path) -> dict | None:
+def _load_action(action_dir: Path) -> dict[str, object] | None:
     """Parse ``<action_dir>/action.y[a]ml``. Returns None when there is no action there."""
     for name in ("action.yml", "action.yaml"):
         path = action_dir / name
@@ -91,7 +105,7 @@ def _declared_inputs(action_dir: Path) -> frozenset[str] | None:
     return frozenset(str(name) for name in inputs) if isinstance(inputs, dict) else frozenset()
 
 
-def _composite_steps(data: dict) -> Iterator[dict]:
+def _composite_steps(data: dict[str, object]) -> Iterator[dict[str, object]]:
     runs = data.get("runs")
     if not isinstance(runs, dict):
         return
@@ -103,7 +117,7 @@ def _composite_steps(data: dict) -> Iterator[dict]:
             yield step
 
 
-def _spliced_inputs(step: dict) -> Iterator[str]:
+def _spliced_inputs(step: dict[str, object]) -> Iterator[str]:
     """Input names this composite step splices into an inner shell command string."""
     run = step.get("run")
     if not isinstance(run, str):
@@ -118,7 +132,7 @@ def _spliced_inputs(step: dict) -> Iterator[str]:
             if match is not None:
                 by_var[str(var)] = _input_name(match)
     for shell_c in SHELL_C_RE.finditer(run):
-        script = shell_c.group("script")
+        script = shell_c.group("dquoted") or shell_c.group("squoted") or ""
         for ref in VAR_REF_RE.finditer(script):
             name = by_var.get(ref.group("braced") or ref.group("plain") or "")
             if name is not None:
@@ -182,7 +196,10 @@ class ShellSplitActionArgsCheck(WorkflowCheck):
                         continue
                     for name in sorted(SHELL_SPLIT_INPUTS.get(action, frozenset())):
                         value = (step.with_ or {}).get(name)
-                        if not isinstance(value, str) or "#" not in value:
+                        if not isinstance(value, str):
+                            continue
+                        offenders = sorted(set(UNSAFE_ARG_RE.findall(value)))
+                        if not offenders:
                             continue
                         result.issues.append(
                             Issue(
@@ -190,9 +207,9 @@ class ShellSplitActionArgsCheck(WorkflowCheck):
                                 job=job.name,
                                 step=step.ref,
                                 message=(
-                                    f"with.{name} passed to {action} contains '#'; the action splices this input "
-                                    "into an inner shell command string, where '#' starts a comment and silently "
-                                    "drops every flag after it"
+                                    f"with.{name} passed to {action} contains {offenders!r}; the action splices "
+                                    "this input into an inner shell command string, which re-parses it as a script, "
+                                    "so a '#', newline, ';' or similar silently drops every flag after it"
                                 ),
                                 file=str(wf.path),
                             )

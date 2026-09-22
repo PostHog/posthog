@@ -38,20 +38,24 @@ runs:
               # A `#` anywhere in SEMGREP_ARGS silently truncates the scan.
               # Callers write the value as a YAML block scalar (`args: >-`), and
               # inside one a `#` is data, not a YAML comment. It survives into
-              # this variable, which the last line splices UNQUOTED into the
-              # `sh -c "..."` string. That inner shell re-parses the string --
-              # which is what performs the documented whitespace split into
-              # flags -- and the same tokenizer reads `#` as starting a comment,
-              # discarding every flag after it. Semgrep then loads fewer configs
-              # and the job still exits 0, so nothing looks wrong.
+              # this variable, which the last line splices into the
+              # `sh -c "..."` string. That inner shell re-parses the string as a
+              # SCRIPT -- which is what performs the documented whitespace split
+              # into flags -- and `exec` then replaces the shell on the first
+              # command it finds. So every token that ends a command truncates
+              # the flag list: `#`, a newline, `;`, `&`, `|`. Semgrep loads
+              # fewer configs, scans a narrower tree, and still exits 0.
               # Quoting is NOT the fix: `$SEMGREP_ARGS` already sits inside
               # double quotes, and quoting it again collapses every flag into a
-              # single argument. `hogli lint:workflows` (WF012) rejects a literal
-              # `#` in a caller's args; this catches one that a GitHub expression
+              # single argument. An allowlist rather than a blocklist, because
+              # the dangerous set is "whatever this shell's grammar treats as a
+              # terminator", not a list anyone can keep current.
+              # `hogli lint:workflows` (WF012) applies the same allowlist to a
+              # caller's literal args; this catches a value a GitHub expression
               # interpolates in, which the linter cannot see.
               case "$SEMGREP_ARGS" in
-                  *'#'*)
-                      echo "::error title=semgrep-ci::args contain '#', which the container shell reads as a comment and would silently drop every flag after it"
+                  *[!\ A-Za-z0-9._/@:=+-]*)
+                      echo "::error title=semgrep-ci::args may contain only flags and [A-Za-z0-9._/@:=+-]; the container shell re-parses this value as a script, so a '#', newline, ';' or similar silently drops every flag after it"
                       exit 1
                       ;;
               esac
