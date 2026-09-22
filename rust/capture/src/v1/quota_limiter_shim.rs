@@ -194,6 +194,7 @@ mod tests {
             ai_max_event_bytes: 8_388_608,
             ai_lane_predicate: crate::v0_request::AiLanePredicate::Allowlist,
             ai_gateway_signing_secret: None,
+            capture_internal_signing_secret: None,
             http1_header_read_timeout_ms: Some(5000),
             body_chunk_read_timeout_ms: None,
             body_read_chunk_size_kb: 256,

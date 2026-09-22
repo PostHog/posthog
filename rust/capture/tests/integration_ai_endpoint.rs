@@ -185,6 +185,7 @@ fn setup_ai_test_router_with_predicate(ai_lane_predicate: AiLanePredicate) -> Ro
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
+        None,             // capture_internal_signing_secret
         false,            // ai_events_overflow_enabled
         None,             // ingestion_warning_emitter
     )
@@ -243,6 +244,7 @@ fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
         None,
         8,
         None,
+        None, // capture_internal_signing_secret
         false,
         warning_emitter,
     );
@@ -1349,6 +1351,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
+        None,             // capture_internal_signing_secret
         false,            // ai_events_overflow_enabled
         None,             // ingestion_warning_emitter
     );
@@ -2020,6 +2023,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
+        None,             // capture_internal_signing_secret
         false,            // ai_events_overflow_enabled
         None,             // ingestion_warning_emitter
     );
@@ -2088,6 +2092,7 @@ fn setup_ai_test_router_with_byte_limiter() -> (Router, CapturingSink) {
         None,  // v1_sink_router
         8,     // capture_v1_scatter_gather_min_batch
         None,  // ai_gateway_signing_secret
+        None,  // capture_internal_signing_secret
         false, // ai_events_overflow_enabled
         None,  // ingestion_warning_emitter
     );
@@ -2352,6 +2357,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
+        None,             // capture_internal_signing_secret
         false,            // ai_events_overflow_enabled
         None,             // ingestion_warning_emitter
     );
@@ -2512,6 +2518,7 @@ fn setup_ai_test_router_with_overflow_limiter(
         None, // v1_sink_router
         8,    // capture_v1_scatter_gather_min_batch
         None, // ai_gateway_signing_secret
+        None, // capture_internal_signing_secret
         true, // ai_events_overflow_enabled
         None, // ingestion_warning_emitter
     );
@@ -2655,6 +2662,7 @@ fn ai_router(
         None,
         8,
         Some(GW_SECRET.to_string()),
+        None,  // capture_internal_signing_secret
         false, // ai_events_overflow_enabled
         None,  // ingestion_warning_emitter
     );

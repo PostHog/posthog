@@ -20,7 +20,9 @@ capture-rs's blind property splicing never produces duplicate keys.
 
 from __future__ import annotations
 
+import hmac
 import time
+import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -39,6 +41,7 @@ from posthog.settings.ingestion import (
     CAPTURE_AI_INTERNAL_URL,
     CAPTURE_INTERNAL_BATCH_CHUNK_SIZE,
     CAPTURE_INTERNAL_MAX_WORKERS,
+    CAPTURE_INTERNAL_SIGNING_SECRET,
     CAPTURE_INTERNAL_URL,
     CAPTURE_V1_AI_INTERNAL_ENDPOINT,
     CAPTURE_V1_INTERNAL_ENDPOINT,
@@ -212,15 +215,27 @@ class CaptureInternalResult:
 
 
 def _build_v1_headers(token: str, attempt: int) -> dict[str, str]:
-    return {
+    request_id = str(uuid4())
+    now = datetime.now(UTC).isoformat()
+    headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
         "User-Agent": SDK_INFO,
         "PostHog-Sdk-Info": SDK_INFO,
         "PostHog-Attempt": str(attempt),
-        "PostHog-Request-Id": str(uuid4()),
-        "PostHog-Request-Timestamp": datetime.now(UTC).isoformat(),
+        "PostHog-Request-Id": request_id,
+        "PostHog-Request-Timestamp": now,
     }
+    if CAPTURE_INTERNAL_SIGNING_SECRET:
+        headers["PostHog-Internal-Signed-At"] = now
+        headers["PostHog-Internal-Signature"] = sign_internal_request(token, request_id, now)
+    return headers
+
+
+def sign_internal_request(token: str, request_id: str, signed_at: str) -> str:
+    """Matches capture-rs gateway_provenance::canonical."""
+    message = b"".join(len(f).to_bytes(4, "big") + f for f in (token.encode(), request_id.encode(), signed_at.encode()))
+    return hmac.new(CAPTURE_INTERNAL_SIGNING_SECRET.encode(), message, hashlib.sha256).hexdigest()
 
 
 # --------------------------------------------------------------------------- #

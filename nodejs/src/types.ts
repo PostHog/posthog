@@ -878,7 +878,7 @@ export interface EventHeaders {
     skip_heatmap_processing: boolean
     /** The Kafka partition key a redirect dropped, so the overflow lane can refresh its overflow flag. */
     redirect_original_key?: string
-    /** Set by capture-rs on its internal analytics route only. */
+    /** Set by capture-rs for verified capture_internal requests. */
     internal_producer?: boolean
 }
 

@@ -128,6 +128,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     ai_max_event_bytes: 8_388_608,         // 8MiB default
     ai_lane_predicate: capture::v0_request::AiLanePredicate::Allowlist,
     ai_gateway_signing_secret: None,
+    capture_internal_signing_secret: None,
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default

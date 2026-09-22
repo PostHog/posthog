@@ -90,6 +90,7 @@ async fn run_pipeline(
         return Err(err);
     }
     context.set_batch_metadata(&batch);
+    context.verify_internal_producer(state.capture_internal_signing_secret.as_deref());
 
     let mut events = match validate_events(context, state.ai_lane_predicate, batch) {
         Ok(events) => events,
@@ -1882,6 +1883,8 @@ mod tests {
             capture_internal: false,
             historical_migration: false,
             gateway_signature: None,
+            internal_signature: None,
+            internal_producer: false,
         }
     }
 

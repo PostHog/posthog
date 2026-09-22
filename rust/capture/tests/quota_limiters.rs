@@ -151,6 +151,7 @@ async fn setup_router_with_limits(
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
+        None,             // capture_internal_signing_secret
         false,            // ai_events_overflow_enabled
         None,             // ingestion_warning_emitter
     );
@@ -1207,6 +1208,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
+        None,             // capture_internal_signing_secret
         false,            // ai_events_overflow_enabled
         None,             // ingestion_warning_emitter
     );
@@ -1301,6 +1303,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
+        None,             // capture_internal_signing_secret
         false,            // ai_events_overflow_enabled
         None,             // ingestion_warning_emitter
     );
@@ -1399,6 +1402,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
+        None,             // capture_internal_signing_secret
         false,            // ai_events_overflow_enabled
         None,             // ingestion_warning_emitter
     );
@@ -1834,6 +1838,7 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
+        None,             // capture_internal_signing_secret
         false,            // ai_events_overflow_enabled
         None,             // ingestion_warning_emitter
     );

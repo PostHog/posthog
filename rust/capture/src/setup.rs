@@ -417,6 +417,7 @@ pub async fn build_components(
         v1_sink_router.clone(),
         config.capture_v1_scatter_gather_min_batch,
         config.ai_gateway_signing_secret.clone(),
+        config.capture_internal_signing_secret.clone(),
         ai_events_overflow_enabled,
         ingestion_warning_emitter,
     );

@@ -138,6 +138,7 @@ fn setup_router_for_mode(
         None, // v1_sink_router
         8,    // capture_v1_scatter_gather_min_batch
         None, // ai_gateway_signing_secret
+        None, // capture_internal_signing_secret
         ai_events_overflow_enabled,
         None, // ingestion_warning_emitter
     );

@@ -384,6 +384,9 @@ pub struct Config {
     // (all $ai_gateway* props are stripped as untrusted).
     pub ai_gateway_signing_secret: Option<String>,
 
+    // HMAC-SHA256 key shared with Django's capture_internal. Signed requests get the internal_producer header.
+    pub capture_internal_signing_secret: Option<String>,
+
     // HTTP/1 header read timeout in milliseconds - closes connections that don't
     // send complete headers within this duration (slow loris protection).
     // Set env var to enable; unset to disable.

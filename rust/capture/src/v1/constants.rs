@@ -31,6 +31,12 @@ pub const POSTHOG_AI_GATEWAY_SIGNED_AT: &str = crate::gateway_provenance::SIGNED
 /// AI-gateway provenance: per-call request id; billing dedups exemptions by it.
 pub const POSTHOG_AI_GATEWAY_REQUEST_ID: &str = "PostHog-Ai-Gateway-Request-Id";
 
+/// HMAC-SHA256 over (token, request_id, signed_at), see `gateway_provenance::canonical`.
+pub const POSTHOG_INTERNAL_SIGNATURE: &str = "PostHog-Internal-Signature";
+
+/// RFC3339 timestamp the capture_internal request was signed at.
+pub const POSTHOG_INTERNAL_SIGNED_AT: &str = "PostHog-Internal-Signed-At";
+
 // ---------------------------------------------------------------------------
 // Supported content encodings
 // ---------------------------------------------------------------------------

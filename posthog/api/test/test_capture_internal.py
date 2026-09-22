@@ -30,6 +30,7 @@ from posthog.api.capture import (
     capture_batch_internal,
     capture_internal,
     prepare_capture_internal_batch,
+    sign_internal_request,
 )
 from posthog.settings.ingestion import (
     CAPTURE_AI_INTERNAL_URL,
@@ -447,6 +448,21 @@ class TestCaptureBatchInternal(SimpleTestCase):
         assert headers["PostHog-Attempt"] == "1"
         assert len(headers["PostHog-Request-Id"]) == 36
         assert "T" in headers["PostHog-Request-Timestamp"]
+        assert "PostHog-Internal-Signature" not in headers
+
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_SIGNING_SECRET", "s3cret")
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_signs_request_when_secret_configured(self, mock_session_fn: MagicMock) -> None:
+        uid = str(uuid4())
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
+
+        capture_batch_internal(events=[_make_event(event_uuid=uid)], token="phc_abc", event_source="hdr")
+
+        headers = spy.calls[0]["headers"]
+        assert headers["PostHog-Internal-Signed-At"] == headers["PostHog-Request-Timestamp"]
+        assert headers["PostHog-Internal-Signature"] == sign_internal_request(
+            "phc_abc", headers["PostHog-Request-Id"], headers["PostHog-Internal-Signed-At"]
+        )
 
     @patch("posthog.api.capture.internal_requests_session")
     def test_envelope_shape_on_wire(self, mock_session_fn: MagicMock) -> None:

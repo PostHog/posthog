@@ -51,6 +51,7 @@ REPLAY_RETENTION_DAYS_MAX = get_from_env("REPLAY_RETENTION_DAYS_MAX", type_cast=
 REPLAY_CAPTURE_ENDPOINT = os.getenv("REPLAY_CAPTURE_ENDPOINT", "/s/")
 
 CAPTURE_INTERNAL_URL = os.getenv("CAPTURE_INTERNAL_URL", "http://localhost:8010")
+CAPTURE_INTERNAL_SIGNING_SECRET = os.getenv("CAPTURE_INTERNAL_SIGNING_SECRET", "")
 CAPTURE_REPLAY_INTERNAL_URL = os.getenv("CAPTURE_REPLAY_INTERNAL_URL", "http://localhost:8010")
 # The AI lane is a different capture deployment (capture-ai), not just a different path:
 # `/i/v1/ai/events` is mounted only on CaptureMode::Ai, and capture-analytics refuses

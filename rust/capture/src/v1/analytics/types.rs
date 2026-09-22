@@ -24,7 +24,6 @@ impl io::Write for StringWriter<'_> {
 }
 
 use crate::ordering::{person_ordering, OrderingGuarantee};
-use crate::v1::analytics::constants::CAPTURE_V1_PATH;
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event as SinkEvent;
 use crate::v1::sinks::Destination;
@@ -303,7 +302,7 @@ impl SinkEvent for WrappedEvent {
             force_disable_person_processing,
             historical_migration,
             skip_heatmap_processing: None,
-            internal_producer: (ctx.path == CAPTURE_V1_PATH).then_some(true),
+            internal_producer: ctx.internal_producer.then_some(true),
             dlq_reason,
             dlq_step,
             dlq_timestamp,
@@ -1179,13 +1178,12 @@ mod tests {
     }
 
     #[test]
-    fn headers_mark_internal_producer_only_on_the_analytics_path() {
+    fn headers_mark_internal_producer_only_when_verified() {
         let mut ctx = test_utils::test_context();
         let ev = ok_wrapped("$recording_observed", "user-1");
-        ctx.path = CAPTURE_V1_PATH;
-        assert_eq!(ev.headers(&ctx).internal_producer, Some(true));
-        ctx.path = crate::v1::analytics::constants::CAPTURE_V1_AI_PATH;
         assert!(ev.headers(&ctx).internal_producer.is_none());
+        ctx.internal_producer = true;
+        assert_eq!(ev.headers(&ctx).internal_producer, Some(true));
     }
 
     #[test]
