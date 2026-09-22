@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
 
 from posthog.dataclasses import frozen
@@ -26,7 +26,7 @@ class DatadogFanOutConfig:
     max_parents: int = 2000
 
 
-@dataclass
+@frozen
 class DatadogEndpointConfig:
     name: str
     path: str
