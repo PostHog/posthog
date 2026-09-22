@@ -1827,6 +1827,7 @@ describe('llmPlaygroundLogic', () => {
                 output_type: 'numeric',
                 output_config: { min: 0, max: 100, allows_na: true, passing_rule: { operator: 'gte', threshold: 70 } },
             },
+            { output_type: 'sentiment', output_config: { aggregate: 'mean' } },
         ])('saveAsNewEvaluation preserves output settings: %j', async ({ output_type, output_config }) => {
             let createdBody: Record<string, unknown> | undefined
             useMocks({
@@ -1862,10 +1863,10 @@ describe('llmPlaygroundLogic', () => {
 
             expect(createdBody).toMatchObject({
                 evaluation_config: { prompt: 'Judge prompt' },
-                output_type,
+                output_type: output_type === 'sentiment' ? 'boolean' : output_type,
                 enabled: false,
             })
-            expect(createdBody?.output_config).toEqual(output_config)
+            expect(createdBody?.output_config).toEqual(output_type === 'sentiment' ? undefined : output_config)
             expect(router.values.searchParams).toHaveProperty('source_evaluation_id', 'eval-new')
             expect(router.values.searchParams).not.toHaveProperty('source_prompt_name')
         })

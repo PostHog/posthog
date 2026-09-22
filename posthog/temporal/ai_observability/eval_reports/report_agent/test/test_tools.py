@@ -363,6 +363,16 @@ class TestTargetAwareEvalResults(SimpleTestCase):
         self.assertNotIn("classifier reasoning", result)
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_numeric_list_preserves_small_scores(self, mock_execute_hogql):
+        mock_execute_hogql.side_effect = [[[1]], [[_VALID_GEN_ID, 0.00014, True, 0.00014, "cost"]]]
+        state = self._state("generation", "numeric")
+        state["output_config"] = {"passing_rule": {"operator": "lte", "threshold": 0.001}}
+
+        result = _list_all_eval_results_fn(state=state)
+
+        self.assertIn(f"pass (0.00014) | {_VALID_GEN_ID}", result)
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
     def test_sentiment_sample_orders_by_score_and_omits_reasoning(self, mock_execute_hogql):
         mock_execute_hogql.return_value = [[_VALID_GEN_ID, "negative", "identical classifier reasoning", None, 0.91]]
 

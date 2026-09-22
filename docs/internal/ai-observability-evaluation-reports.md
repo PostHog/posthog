@@ -29,6 +29,7 @@ If an evaluation loses report support before report generation starts, the workf
 Automatic attempts advance their schedule without advancing the successful data cursor. Manual attempts leave the schedule unchanged.
 
 Reports classify scores using the rule captured at the start of generation.
+The report agent receives raw score precision, including small values such as costs.
 Saving a changed passing rule updates live views of historical scores, while previously generated reports keep their saved metrics.
 Unsaved rules apply only to test previews; the runs table, summary, Reports tab, and Trend insight use the saved rule.
 Pass rates are unavailable when no runs have been graded.
@@ -49,12 +50,12 @@ Customized Hog code is kept, with a warning to update its return type and test i
 Hog preview requests include the passing rule for telemetry, while edits to the rule re-grade the existing preview without discarding it.
 API output settings must be an object. MCP validates supplied setting types and does not insert defaults for omitted settings.
 Boolean evaluations reject numeric-only settings instead of ignoring them.
-Clearing an optional bound removes it. A passing rule requires a finite threshold; clearing its threshold blocks saving until a number is entered or the rule is removed.
+Clearing an optional bound removes it. A passing rule requires a finite threshold; clearing its threshold leaves preview scores ungraded and blocks saving and testing until a number is entered or the rule is removed.
 
 ### Editing evaluation prompts in Playground
 
 Boolean and numeric LLM judge evaluations can open in Playground to edit their prompt and model.
 Saving back to the linked evaluation leaves its output settings unchanged.
 Saving as a new evaluation copies the linked evaluation's current output type and settings, including bounds, N/A, passing rules, and boolean polarity.
-Unlinked prompts create boolean evaluations by default.
+Unlinked prompts and sentiment sources create boolean evaluations by default.
 Playground completions do not apply the evaluation's structured response schema or output validation.

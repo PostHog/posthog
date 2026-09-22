@@ -1525,14 +1525,15 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     prompt.sourceType === 'evaluation' && prompt.sourceEvaluationId
                         ? await evaluationsRetrieve(String(teamId), prompt.sourceEvaluationId)
                         : null
+                const compatibleSource = sourceEvaluation?.output_type === 'sentiment' ? null : sourceEvaluation
                 // nosemgrep: prefer-codegen-api
                 const created = await api.create<EvaluationConfig>(`/api/environments/${teamId}/evaluations/`, {
                     name,
                     evaluation_type: 'llm_judge',
                     evaluation_config: { prompt: prompt.systemPrompt },
                     model_configuration: modelConfig,
-                    output_type: sourceEvaluation?.output_type ?? 'boolean',
-                    ...(sourceEvaluation ? { output_config: sourceEvaluation.output_config } : {}),
+                    output_type: compatibleSource?.output_type ?? 'boolean',
+                    ...(compatibleSource ? { output_config: compatibleSource.output_config } : {}),
                     conditions: [],
                     enabled: false,
                 })

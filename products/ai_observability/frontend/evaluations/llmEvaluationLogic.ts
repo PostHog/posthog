@@ -657,6 +657,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     if (!isTestableHogEvaluation(evaluation)) {
                         return null
                     }
+                    if (evaluation.output_type === 'numeric' && numericOutputConfigError(evaluation.output_config)) {
+                        return null
+                    }
 
                     const request = buildHogTestRequest(evaluation)
                     const requestFingerprint = JSON.stringify(buildHogTestRequest(evaluation, true))

@@ -11,7 +11,7 @@ import { urls } from '~/scenes/urls'
 
 import { EvaluationResultTag } from '../../components/EvaluationResultTag'
 import type { TestHogResultItemApi } from '../../generated/api.schemas'
-import { evaluationIsDetector, numericScorePasses } from '../constants'
+import { evaluationIsDetector, numericOutputConfigError, numericScorePasses } from '../constants'
 import { HOG_EVAL_EXAMPLES } from '../hogEvalExamples'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import type { EvaluationTarget } from '../types'
@@ -397,6 +397,11 @@ export function EvaluationCodeEditor(): JSX.Element {
                                 size="xsmall"
                                 loading={hogTestResultsLoading}
                                 disabled={!source.trim()}
+                                disabledReason={
+                                    evaluation.output_type === 'numeric'
+                                        ? numericOutputConfigError(evaluation.output_config)
+                                        : null
+                                }
                                 onClick={() => testHogOnSample()}
                                 data-attr="llma-evaluation-test-hog"
                             >

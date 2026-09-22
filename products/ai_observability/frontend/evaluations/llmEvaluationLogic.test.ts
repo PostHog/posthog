@@ -10,6 +10,7 @@ import { ActivityScope } from '~/types'
 
 import type { TestHogResponseApi } from '../generated/api.schemas'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { numericScorePasses } from './constants'
 import { evaluationReportLogic } from './evaluationReportLogic'
 import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
@@ -1534,6 +1535,26 @@ return result`,
     })
 
     describe('Hog sample testing', () => {
+        it.each([NaN, Infinity, -Infinity])('leaves scores ungraded for threshold %s', (threshold) => {
+            expect(numericScorePasses(7, { operator: 'gte', threshold })).toBeNull()
+        })
+
+        it('does not request a sample with an invalid numeric config', async () => {
+            const testSample = jest.fn(() => ({ results: [] }))
+            useMocks({ post: { '/api/projects/:teamId/evaluations/test_hog/': testSample } })
+            logic = llmEvaluationLogic({ evaluationId: 'new' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+            logic.actions.setEvaluationType('hog')
+            logic.actions.setOutputType('numeric')
+            logic.actions.patchOutputConfig({ passing_rule: { operator: 'gte', threshold: NaN } })
+
+            await expectLogic(logic, () => logic.actions.testHogOnSample()).toFinishAllListeners()
+
+            expect(testSample).not.toHaveBeenCalled()
+            expect(logic.values.hogTestResults).toBeNull()
+        })
+
         it.each(['boolean', 'numeric'] as const)(
             'sends %s output config and clears sample results after configuration changes',
             async (outputType) => {

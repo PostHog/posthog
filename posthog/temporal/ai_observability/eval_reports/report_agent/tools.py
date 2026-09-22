@@ -573,7 +573,7 @@ def list_all_eval_results(
     for row in rows:
         target_id = str(row[0]) if row[0] else "?"
         outcome = definition.label_for(row[1], row[2]) or "?"
-        score = f" ({row[3]:.2f})" if isinstance(row[3], int | float) else ""
+        score = f" ({row[3]})" if isinstance(row[3], int | float) else ""
         fields = [f"{outcome}{score}", target_id]
         if output_type != "sentiment":
             reasoning = (row[4] or "")[:max_reasoning_length]

@@ -91,7 +91,7 @@ export function numericScorePasses(
     score: number | null | undefined,
     rule: EvaluationOutputConfig['passing_rule']
 ): boolean | null {
-    if (score == null || !Number.isFinite(score) || !rule) {
+    if (score == null || !Number.isFinite(score) || !rule || !Number.isFinite(rule.threshold)) {
         return null
     }
     return rule.operator === 'gte' ? score >= rule.threshold : score <= rule.threshold
