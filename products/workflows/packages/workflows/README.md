@@ -88,7 +88,7 @@ A push from a path the workflow was not pushed from is refused, so a copied file
 Each push records the commit it came from, taken from GitHub Actions, GitLab CI, or the local checkout. Outside all three the push still works and says that the version will not name a commit.
 
 The recorded commit and the path guard both need a PostHog that stores the source fields. Until your PostHog does, it drops them: the commit is sent and not kept, and a copied file resolves the same workflow rather than being refused.
-Every push also claims the workflow as managed by code, which makes it read-only in the PostHog UI; an older PostHog drops that claim too, so the workflow stays editable there.
+Every push that writes also claims the workflow as managed by code, which makes it read-only in the PostHog UI; an older PostHog drops that claim too, so the workflow stays editable there.
 
 ## Common questions
 

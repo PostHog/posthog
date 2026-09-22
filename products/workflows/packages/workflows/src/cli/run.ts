@@ -182,9 +182,9 @@ function bodyFor(workflow: LoadedWorkflow, source: Source | null, forUpdate: boo
                   // when there is one.
                   ...((source.commit ?? source.ref) ? { source_ref: source.commit ?? source.ref } : {}),
               }
-    // Claimed on every write and not only on the create, so a push re-claims a workflow that was
-    // released in the UI. Code-owned means read-only there, and the next push wins.
-    const ownership = { managed_by: 'code' }
+    // Sent on every write and not only on the create, so a push that changes something re-claims a
+    // workflow released in the UI. An unchanged push writes nothing, so re-claiming alone takes --force.
+    const ownership = { managed_by: 'code' } as const
     return forUpdate ? { ...content, ...pointer, ...ownership } : { ...content, key, ...pointer, ...ownership }
 }
 
