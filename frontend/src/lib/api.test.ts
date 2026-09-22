@@ -414,15 +414,17 @@ describe('API helper', () => {
 
         // The snapshot blob is read as binary, so it misses the guard the text path applies unless
         // it classifies the read itself.
+        const failingSnapshotRead = (error: unknown): any => ({
+            ok: true,
+            status: 200,
+            arrayBuffer: () => Promise.reject(error),
+        })
+        const loadSnapshots = (): Promise<string[] | Uint8Array> =>
+            api.recordings.getSnapshots('rec-1', { source: 'blob_v2', decompress: false } as any)
+
         it('surfaces a snapshot blob that fails mid-read as a ResponseBodyReadError', async () => {
-            fakeFetch.mockResolvedValue({
-                ok: true,
-                status: 200,
-                arrayBuffer: () => Promise.reject(new TypeError('Failed to fetch')),
-            })
-            const error = await api.recordings
-                .getSnapshots('rec-1', { source: 'blob_v2', decompress: false } as any)
-                .catch((e) => e)
+            fakeFetch.mockResolvedValue(failingSnapshotRead(new TypeError('Failed to fetch')))
+            const error = await loadSnapshots().catch((e) => e)
             expect(error).toBeInstanceOf(ResponseBodyReadError)
             expect(shouldReportApiFailure(error)).toBe(false)
             expect(posthog.capture).toHaveBeenCalledWith(
@@ -438,14 +440,8 @@ describe('API helper', () => {
 
         it('propagates an aborted snapshot read instead of reporting a body read failure', async () => {
             const abortError = new DOMException('The operation was aborted', 'AbortError')
-            fakeFetch.mockResolvedValue({
-                ok: true,
-                status: 200,
-                arrayBuffer: () => Promise.reject(abortError),
-            })
-            await expect(
-                api.recordings.getSnapshots('rec-1', { source: 'blob_v2', decompress: false } as any)
-            ).rejects.toBe(abortError)
+            fakeFetch.mockResolvedValue(failingSnapshotRead(abortError))
+            await expect(loadSnapshots()).rejects.toBe(abortError)
             expect(posthog.capture).not.toHaveBeenCalledWith('client_request_failure', expect.anything())
         })
     })
