@@ -177,7 +177,6 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     PropertyGroupFilter,
-    QueryBasedInsightModel,
     QueryTabState,
     QuickFilter,
     RawAnnotationType,
@@ -233,18 +232,13 @@ import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
-import type { SignalUserAutonomyConfigCreateApi } from 'products/signals/frontend/generated/api.schemas'
 import {
     SignalReport,
     SignalReportArtefact,
     SignalReportArtefactResponse,
     SignalReportStateRequest,
-    SignalScoutEmission,
-    SignalScoutEmissionReportLink,
-    SignalScoutRunSummary,
     SignalSourceConfig,
     SignalTeamConfig,
-    SignalUserAutonomyConfig,
 } from 'products/signals/frontend/inbox/types'
 import type {
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
@@ -492,6 +486,9 @@ export class ApiConfig {
     }
 }
 
+/** A workflow's type: the surface that owns it, else what it does. */
+export type HogFlowListType = 'messaging' | 'automation' | 'loop' | 'broadcast'
+
 export class ApiRequest {
     private pathComponents: string[]
     private queryString: string | undefined
@@ -605,7 +602,7 @@ export class ApiRequest {
         return this.teamProjectDetail(teamId).addPathComponent('insights')
     }
 
-    public insight(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+    public insight(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.insights(teamId).addPathComponent(id)
     }
 
@@ -613,19 +610,15 @@ export class ApiRequest {
         return this.insights(teamId).addPathComponent('activity')
     }
 
-    public insightSharing(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+    public insightSharing(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.insight(id, teamId).addPathComponent('sharing')
     }
 
-    public insightSharingPasswords(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+    public insightSharingPasswords(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.insightSharing(id, teamId).addPathComponent('passwords')
     }
 
-    public insightSharingPassword(
-        id: QueryBasedInsightModel['id'],
-        passwordId: string,
-        teamId?: TeamType['id']
-    ): ApiRequest {
+    public insightSharingPassword(id: InsightModel['id'], passwordId: string, teamId?: TeamType['id']): ApiRequest {
         return this.insightSharingPasswords(id, teamId).addPathComponent(passwordId)
     }
 
@@ -749,19 +742,6 @@ export class ApiRequest {
 
     public link(id: LinkType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.links(teamId).addPathComponent(id)
-    }
-
-    // # MCP Store
-    public mcpServers(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('mcp_servers')
-    }
-
-    public mcpServerInstallations(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('mcp_server_installations')
-    }
-
-    public mcpServerInstallation(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.mcpServerInstallations(teamId).addPathComponent(id)
     }
 
     // # Actions
@@ -1250,11 +1230,6 @@ export class ApiRequest {
         return this.signalReports(teamId).addPathComponent(id)
     }
 
-    // Per-user signal autonomy config (singleton keyed by user). Not project-scoped.
-    public signalUserAutonomy(userId: string | '@me' = '@me'): ApiRequest {
-        return this.addPathComponent('users').addPathComponent(userId).addPathComponent('signal_autonomy')
-    }
-
     // # Signal Source Configs
     public signalSourceConfigs(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('signals').addPathComponent('source_configs')
@@ -1267,23 +1242,6 @@ export class ApiRequest {
     // # Signal Team Config (singleton per team)
     public signalTeamConfig(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('signals').addPathComponent('config')
-    }
-
-    // # Signal Report Artefacts (suggested_reviewers is the only writable type)
-    public signalReportArtefact(reportId: SignalReport['id'], artefactId: string, teamId?: TeamType['id']): ApiRequest {
-        return this.signalReport(reportId, teamId).addPathComponent('artefacts').addPathComponent(artefactId)
-    }
-
-    // # Signal Scouts
-    public signalScoutRuns(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId)
-            .addPathComponent('signals')
-            .addPathComponent('scout')
-            .addPathComponent('runs')
-    }
-
-    public signalScoutRun(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.signalScoutRuns(teamId).addPathComponent(id)
     }
 
     // # Tasks
@@ -3834,7 +3792,7 @@ const api = {
             notebookShortId,
         }: {
             dashboardId?: DashboardType['id']
-            insightId?: QueryBasedInsightModel['id']
+            insightId?: InsightModel['id']
             recordingId?: SessionRecordingType['id']
             notebookShortId?: NotebookType['short_id']
         }): Promise<SharingConfigurationType | null> {
@@ -3857,7 +3815,7 @@ const api = {
                 notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
-                insightId?: QueryBasedInsightModel['id']
+                insightId?: InsightModel['id']
                 recordingId?: SessionRecordingType['id']
                 notebookShortId?: NotebookType['short_id']
             },
@@ -3882,7 +3840,7 @@ const api = {
                 notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
-                insightId?: QueryBasedInsightModel['id']
+                insightId?: InsightModel['id']
                 recordingId?: SessionRecordingType['id']
                 notebookShortId?: NotebookType['short_id']
             },
@@ -3907,7 +3865,7 @@ const api = {
                 notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
-                insightId?: QueryBasedInsightModel['id']
+                insightId?: InsightModel['id']
                 recordingId?: SessionRecordingType['id']
                 notebookShortId?: NotebookType['short_id']
             },
@@ -4104,73 +4062,6 @@ const api = {
         },
         async delete(id: LinkType['id']): Promise<void> {
             await new ApiRequest().link(id).delete()
-        },
-    },
-
-    mcpServers: {
-        async list(): Promise<CountedPaginatedResponse<Record<string, any>>> {
-            return await new ApiRequest().mcpServers().get()
-        },
-    },
-
-    mcpServerInstallations: {
-        async list(): Promise<CountedPaginatedResponse<Record<string, any>>> {
-            return await new ApiRequest().mcpServerInstallations().get()
-        },
-        async update(id: string, data: Record<string, any>): Promise<Record<string, any>> {
-            return await new ApiRequest().mcpServerInstallation(id).update({ data })
-        },
-        async delete(id: string): Promise<void> {
-            await new ApiRequest().mcpServerInstallation(id).delete()
-        },
-        async share(id: string): Promise<Record<string, any>> {
-            return await new ApiRequest().mcpServerInstallation(id).withAction('share').create({ data: {} })
-        },
-        async unshare(id: string): Promise<Record<string, any>> {
-            return await new ApiRequest().mcpServerInstallation(id).withAction('unshare').create({ data: {} })
-        },
-        async installCustom(data: {
-            name: string
-            url: string
-            auth_type: string
-            api_key?: string
-            description?: string
-            client_id?: string
-            client_secret?: string
-            scope?: 'personal' | 'shared'
-        }): Promise<Record<string, any>> {
-            return await new ApiRequest().mcpServerInstallations().withAction('install_custom').create({ data })
-        },
-        async installTemplate(data: {
-            template_id: string
-            api_key?: string
-            scope?: 'personal' | 'shared'
-        }): Promise<Record<string, any>> {
-            return await new ApiRequest().mcpServerInstallations().withAction('install_template').create({ data })
-        },
-        async listTools(
-            id: string,
-            params?: { include_removed?: boolean }
-        ): Promise<{ results: Record<string, any>[] }> {
-            return await new ApiRequest()
-                .mcpServerInstallation(id)
-                .withAction('tools')
-                .withQueryString(params?.include_removed ? { include_removed: '1' } : undefined)
-                .get()
-        },
-        async updateToolApproval(
-            id: string,
-            toolName: string,
-            approvalState: 'approved' | 'needs_approval' | 'do_not_use'
-        ): Promise<Record<string, any>> {
-            return await new ApiRequest()
-                .mcpServerInstallation(id)
-                .withAction('tools')
-                .withAction(encodeURIComponent(toolName))
-                .update({ data: { approval_state: approvalState } })
-        },
-        async refreshTools(id: string): Promise<{ results: Record<string, any>[] }> {
-            return await new ApiRequest().mcpServerInstallation(id).withAction('tools/refresh').create({ data: {} })
         },
     },
 
@@ -5199,72 +5090,6 @@ const api = {
         // Backend exposes update via POST to the collection (singleton create-or-update, partial).
         async update(data: Partial<SignalTeamConfig>): Promise<SignalTeamConfig> {
             return await new ApiRequest().signalTeamConfig().create({ data })
-        },
-    },
-
-    // Scout runs still use the legacy client. Scout configs use the generated Signals client.
-    signalScout: {
-        runs: {
-            // Newest-first raw array (not paginated), capped at 100 server-side.
-            async list(params?: {
-                limit?: number
-                text?: string
-                emitted?: boolean
-                date_from?: string
-                date_to?: string
-            }): Promise<SignalScoutRunSummary[]> {
-                return await new ApiRequest().signalScoutRuns().withQueryString(params).get()
-            },
-            async get(runId: string): Promise<SignalScoutRunSummary> {
-                return await new ApiRequest().signalScoutRun(runId).get()
-            },
-            async emissions(runId: string): Promise<SignalScoutEmission[]> {
-                return await new ApiRequest().signalScoutRun(runId).withAction('emissions').get()
-            },
-            // Per-finding reverse lookup: which inbox report each emitted finding grouped into.
-            // `report` is null when a finding hasn't grouped, was deduped, or its signal was deleted.
-            async emissionReports(runId: string): Promise<SignalScoutEmissionReportLink[]> {
-                return await new ApiRequest().signalScoutRun(runId).withAction('emissions/reports').get()
-            },
-            // Batched form of `emissions`: every run's findings in one request, flat newest-first
-            // (each row carries its `run_id`). POST since the run-id set can be large.
-            async emissionsBatch(runIds: string[]): Promise<SignalScoutEmission[]> {
-                return await new ApiRequest()
-                    .signalScoutRuns()
-                    .withAction('emissions/batch')
-                    .create({ data: { run_ids: runIds } })
-            },
-            // Batched form of `emissionReports`: resolves every run's findings to their inbox report
-            // in a single ClickHouse round-trip, instead of one query per run.
-            async emissionReportsBatch(runIds: string[]): Promise<SignalScoutEmissionReportLink[]> {
-                return await new ApiRequest()
-                    .signalScoutRuns()
-                    .withAction('emissions/reports/batch')
-                    .create({ data: { run_ids: runIds } })
-            },
-        },
-    },
-
-    signalUserAutonomy: {
-        async get(userId: string | '@me' = '@me'): Promise<SignalUserAutonomyConfig | null> {
-            try {
-                return await new ApiRequest().signalUserAutonomy(userId).get()
-            } catch (error: any) {
-                // 404 = no config yet (user hasn't opted in). Treat as null.
-                if (error?.status === 404) {
-                    return null
-                }
-                throw error
-            }
-        },
-        async update(
-            data: SignalUserAutonomyConfigCreateApi,
-            userId: string | '@me' = '@me'
-        ): Promise<SignalUserAutonomyConfig> {
-            return await new ApiRequest().signalUserAutonomy(userId).create({ data })
-        },
-        async remove(userId: string | '@me' = '@me'): Promise<void> {
-            await new ApiRequest().signalUserAutonomy(userId).delete()
         },
     },
 
@@ -6610,13 +6435,18 @@ const api = {
             search?: string
             status?: HogFlow['status']
             created_by?: string
-            type?: 'messaging' | 'automation' | 'loop'
+            type?: HogFlowListType[]
             /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
             trigger?: string
             limit?: number
             offset?: number
         }): Promise<CountedPaginatedResponse<HogFlow>> {
-            return await new ApiRequest().hogFlows().withQueryString(params).get()
+            // The API reads one comma-separated value; toParams would send a repeated key.
+            const { type, ...rest } = params ?? {}
+            return await new ApiRequest()
+                .hogFlows()
+                .withQueryString({ ...rest, ...(type?.length ? { type: type.join(',') } : {}) })
+                .get()
         },
         async getHogFlow(hogFlowId: HogFlow['id']): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).get()
@@ -7037,56 +6867,8 @@ const api = {
             return await new ApiRequest().conversationsTicket(ticketId).get()
         },
 
-        async create(data: {
-            distinct_id: string
-            anonymous_traits?: Record<string, any>
-            channel_source?: string
-        }): Promise<any> {
-            return await new ApiRequest().conversationsTickets().create({ data })
-        },
-
-        async update(
-            ticketId: string,
-            data: Partial<{
-                status: string
-                escalation_reason: string
-                assignee: { type: 'user' | 'role'; id: string | number } | null
-            }>
-        ): Promise<any> {
-            return await new ApiRequest().conversationsTicket(ticketId).update({ data })
-        },
-
-        async delete(ticketId: string): Promise<void> {
-            return await new ApiRequest().conversationsTicket(ticketId).delete()
-        },
-
         async unreadCount(): Promise<{ count: number }> {
             return await new ApiRequest().conversationsTickets().withAction('unread_count').get()
-        },
-
-        async compose(data: {
-            message: string
-            recipient_email: string
-            email_config_id: string
-            recipient_distinct_id?: string
-            email_subject?: string
-            rich_content?: Record<string, unknown> | null
-        }): Promise<{ id: string; ticket_number: number }> {
-            return await new ApiRequest().conversationsTickets().withAction('compose').create({ data })
-        },
-
-        async bulkUpdateStatus(ids: string[], ticketStatus: string): Promise<{ updated: number; ids: string[] }> {
-            return await new ApiRequest()
-                .conversationsTickets()
-                .withAction('bulk_update_status')
-                .create({ data: { ids, status: ticketStatus } })
-        },
-
-        async submitAiFeedback(
-            ticketId: string,
-            data: { message_id: string; rating: 'good' | 'bad'; feedback_text?: string }
-        ): Promise<void> {
-            await new ApiRequest().conversationsTicket(ticketId).withAction('ai_feedback').create({ data })
         },
     },
 
