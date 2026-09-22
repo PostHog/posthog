@@ -537,8 +537,8 @@ class TestResolver(BaseTest):
                 "SELECT timestamp, total FROM (SELECT toStartOfDay(timestamp) AS day, count() AS total FROM events GROUP BY day)",
                 [
                     "Unable to resolve field: timestamp",
-                    "reads from an unnamed subquery",
-                    'The unnamed subquery can read "timestamp", but it does not select it',
+                    "reads from unnamed subquery 1",
+                    'The name "timestamp" exists inside unnamed subquery 1, which does not select it',
                     'Add "timestamp" to its SELECT list',
                 ],
             ),
@@ -561,7 +561,7 @@ class TestResolver(BaseTest):
         message = str(ctx.exception)
         self.assertIn("Field timestamp not found on query with alias d", message)
         self.assertIn("That subquery selects: day, total", message)
-        self.assertIn('Add "timestamp" to that subquery\'s SELECT list', message)
+        self.assertIn('Add "timestamp" to its SELECT list', message)
 
     def test_unresolved_field_suggests_close_matches(self):
         # user_id isn't on events, but distinct_id and person_id are close enough to suggest

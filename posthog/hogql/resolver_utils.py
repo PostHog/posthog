@@ -104,7 +104,7 @@ def _table_source_name(table: ast.TableOrSelectType, context: HogQLContext, *, a
 
 
 def _anonymous_table_source_name(_table: ast.SelectQueryType | ast.SelectSetQueryType, index: int) -> str:
-    return f"anonymous source {index}"
+    return f"unnamed subquery {index}"
 
 
 def _select_set_type_source_name(index: int) -> str:
@@ -168,45 +168,40 @@ def suggest_field_names(
     return difflib.get_close_matches(name, candidates, n=limit, cutoff=0.6)
 
 
-def _scope_source_names(scope: ast.SelectQueryType | ast.SelectSetQueryType, context: HogQLContext) -> list[str]:
-    if isinstance(scope, ast.SelectSetQueryType):
-        names: list[str] = []
-        for inner in scope.types:
-            names.extend(_scope_source_names(inner, context))
-        return names
-
-    return [_table_source_name(table, context, alias=alias) for alias, table in scope.tables.items()] + [
-        _unnamed_subquery_label(index, len(scope.anonymous_tables), "an")
-        for index in range(1, len(scope.anonymous_tables) + 1)
-    ]
-
-
-def _unnamed_subquery_label(index: int, total: int, article: str) -> str:
-    return f"{article} unnamed subquery" if total == 1 else f"unnamed subquery {index}"
-
-
-def _subquery_sources(
+def _scope_sources(
     scope: ast.SelectQueryType | ast.SelectSetQueryType, context: HogQLContext
-) -> Generator[tuple[str, ast.SelectQueryType | ast.SelectSetQueryType]]:
+) -> Generator[tuple[str, ast.TableOrSelectType]]:
+    """Every source the scope reads from, each with the name an error message can call it."""
     if isinstance(scope, ast.SelectSetQueryType):
         for inner in scope.types:
-            yield from _subquery_sources(inner, context)
+            yield from _scope_sources(inner, context)
         return
 
     for alias, table in scope.tables.items():
-        if isinstance(table, (ast.SelectQueryType, ast.SelectSetQueryType)):
-            yield f'the subquery "{_table_source_name(table, context, alias=alias)}"', table
-        elif isinstance(table, ast.SelectQueryAliasType):
-            yield f'the subquery "{table.alias}"', table.select_query_type
+        yield _table_source_name(table, context, alias=alias), table
     for index, table in enumerate(scope.anonymous_tables, start=1):
-        yield _unnamed_subquery_label(index, len(scope.anonymous_tables), "the"), table
+        yield _anonymous_table_source_name(table, index), table
+
+
+def _inner_scope(table: ast.TableOrSelectType) -> Optional[ast.SelectQueryType | ast.SelectSetQueryType]:
+    if isinstance(table, (ast.SelectQueryType, ast.SelectSetQueryType)):
+        return table
+    if isinstance(table, ast.SelectQueryAliasType):
+        return table.select_query_type
+    return None
+
+
+def format_field_names(names: Sequence[str], limit: int = 10) -> str:
+    """Names for an error message, cut to `limit` so one wide table cannot fill the message."""
+    shown = ", ".join(names[:limit])
+    return shown + (f", and {len(names) - limit} more" if len(names) > limit else "")
 
 
 def explain_unresolved_field(
     name: str,
     scope: ast.SelectQueryType | ast.SelectSetQueryType,
     outer_scopes: Sequence[ast.SelectQueryType | ast.SelectSetQueryType],
-    declared_aliases: set[str],
+    select_exprs: Sequence[ast.Expr],
     context: HogQLContext,
 ) -> str:
     """Say which scope failed to resolve `name` and how to rewrite the query.
@@ -215,36 +210,41 @@ def explain_unresolved_field(
     name, so every rewrite that could work is a guess. The sentences here name the scope, and add
     a rewrite when the name is readable in a scope that cannot reach this one.
     """
-    sources = _scope_source_names(scope, context)
-    sentences = (
-        [f"The query that reads from {', '.join(sources)} has no field or alias with that name."] if sources else []
+    sources = [label for label, _ in _scope_sources(scope, context)]
+    scope_sentence = (
+        f"The query that reads from {', '.join(sources)} has no field or alias with that name." if sources else ""
     )
 
-    if isinstance(scope, ast.SelectQueryType) and name in declared_aliases and name not in scope.aliases:
-        sentences.append(
+    declared_here = {expr.alias for expr in select_exprs if isinstance(expr, ast.Alias) and not expr.hidden}
+    if isinstance(scope, ast.SelectQueryType) and name in declared_here and name not in scope.aliases:
+        return _join_sentences(
+            scope_sentence,
             f'The SELECT list declares the alias "{name}" after this expression, and HogQL resolves aliases in the'
-            f' order they appear. Move the "{name}" column before this expression, or repeat its expression here.'
+            f' order they appear. Move the "{name}" column before this expression, or repeat its expression here.',
         )
-        return " ".join(sentences)
 
-    for label, inner_scope in _subquery_sources(scope, context):
-        if name in collect_available_field_names(inner_scope, context):
-            sentences.append(
-                f'{label[0].upper()}{label[1:]} can read "{name}", but it does not select it.'
-                f' Add "{name}" to its SELECT list.'
+    for label, table in _scope_sources(scope, context):
+        inner_scope = _inner_scope(table)
+        if inner_scope is not None and name in collect_available_field_names(inner_scope, context):
+            return _join_sentences(
+                scope_sentence,
+                f'The name "{name}" exists inside {label}, which does not select it. Add "{name}" to its SELECT list.',
             )
-            return " ".join(sentences)
 
     for outer_scope in reversed(outer_scopes):
         if name in collect_available_field_names(outer_scope, context):
-            sentences.append(
+            return _join_sentences(
+                scope_sentence,
                 f'The enclosing query can read "{name}", but HogQL resolves each subquery on its own, so a subquery'
                 f' cannot read a field of the query around it. Select "{name}" in this subquery, or move the'
-                " expression that uses it to the enclosing query."
+                " expression that uses it to the enclosing query.",
             )
-            return " ".join(sentences)
 
-    return " ".join(sentences)
+    return scope_sentence
+
+
+def _join_sentences(*sentences: str) -> str:
+    return " ".join(sentence for sentence in sentences if sentence)
 
 
 def suggested_field_fix(node: ast.Field, suggestion: str) -> Optional[str]:

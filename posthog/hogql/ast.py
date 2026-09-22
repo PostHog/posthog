@@ -498,11 +498,14 @@ class SelectQueryAliasType(Type):
             return FieldType(name=name, table_type=self)
 
         selected = list(self.select_query_type.columns.keys())
-        shown = ", ".join(selected[:10]) + (f", and {len(selected) - 10} more" if len(selected) > 10 else "")
-        selects = f"That subquery selects: {shown}." if selected else "That subquery selects nothing."
+        selects = (
+            f"That subquery selects: {resolver_utils.format_field_names(selected)}."
+            if selected
+            else "That subquery selects nothing."
+        )
         raise ResolutionError(
             f"Field {name} not found on query with alias {self.alias}. {selects} "
-            f'Add "{name}" to that subquery\'s SELECT list, or read one of the names it does select.'
+            f'Add "{name}" to its SELECT list, or read one of the names it does select.'
         )
 
     def has_child(self, name: str, context: HogQLContext) -> bool:

@@ -411,8 +411,8 @@ class Resolver(CloningVisitor):
         self.database = context.database
         self.cte_counter = 0
         self._scope_table_names: dict[int, dict[str, str]] = {}
-        # Aliases each SELECT list declares, keyed by scope. Read only to explain a resolution failure.
-        self._scope_declared_aliases: dict[int, set[str]] = {}
+        # The SELECT list of each scope. Read only to explain a resolution failure.
+        self._scope_select_exprs: dict[int, list[ast.Expr]] = {}
         self._scope_table_column_aliases: dict[int, dict[str, list[str]]] = {}
         self._synthetic_using_join_aliases: set[str] = set()
         # Re-entrancy guard for argument-duplicating bot-lookup macros (see _expand_duplicating_macro).
@@ -985,9 +985,7 @@ class Resolver(CloningVisitor):
                     raise QueryError(f"Cannot redefine an alias with the name: {key}")
                 node_type.aliases[key] = ast.FieldAliasType(alias=key, type=ast.UnknownType())
 
-        self._scope_declared_aliases[id(node_type)] = {
-            expr.alias for expr in node.select or [] if isinstance(expr, ast.Alias) and not expr.hidden
-        }
+        self._scope_select_exprs[id(node_type)] = node.select or []
 
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
         select_nodes = []
@@ -2477,7 +2475,7 @@ class Resolver(CloningVisitor):
             suggestions = suggest_field_names(scope, name, self.context)
             suggestion_suffix = f". Did you mean: {', '.join(suggestions)}?" if suggestions else ""
             explanation = explain_unresolved_field(
-                name, scope, self.scopes[:-1], self._scope_declared_aliases.get(id(scope), set()), self.context
+                name, scope, self.scopes[:-1], self._scope_select_exprs.get(id(scope), []), self.context
             )
             if explanation:
                 suggestion_suffix += f" {explanation}" if suggestion_suffix else f". {explanation}"
