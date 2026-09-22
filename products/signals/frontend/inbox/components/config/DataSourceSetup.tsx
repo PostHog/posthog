@@ -1,9 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
 
 import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
+import { AvailableSourcesError } from 'products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'
 import { sourceWizardLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic'
 import SourceForm from 'products/data_warehouse/frontend/shared/components/forms/SourceForm'
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
@@ -22,13 +25,22 @@ export function DataSourceSetup({
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { dwSourceType, requiredTables } = WAREHOUSE_SOURCE_SETUP[source]
 
-    if (availableSourcesLoading || availableSources === null) {
-        return <LemonSkeleton />
+    if (availableSourcesLoading) {
+        return <LemonSkeleton className="h-16" />
+    }
+
+    if (availableSources === null) {
+        return <AvailableSourcesError />
     }
 
     const sourceConfig = Object.values(availableSources).find((s: SourceConfigResponseApi) => s.name === dwSourceType)
     if (!sourceConfig) {
-        return <div>Source not found</div>
+        return (
+            <LemonBanner type="warning">
+                This data source isn't available to connect from here. You can{' '}
+                <Link to={urls.dataWarehouseSourceNew()}>add it in the data warehouse</Link>, then turn this source on.
+            </LemonBanner>
+        )
     }
 
     return (

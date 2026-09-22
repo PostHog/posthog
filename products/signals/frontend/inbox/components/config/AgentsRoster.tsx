@@ -647,6 +647,7 @@ export function AgentsRoster(): JSX.Element {
         enablingTool,
         sourceConfigsLoadFailed,
         sourceConfigsLoading,
+        sourceConfigsPending,
     } = useValues(signalSourcesLogic)
     const {
         toggleConversations,
@@ -700,7 +701,9 @@ export function AgentsRoster(): JSX.Element {
             const dwState = (config: SignalSourceConfig | null, loading: boolean): AgentSourceState => ({
                 ...base,
                 armed: !!config?.enabled,
-                loading,
+                // Config load counts as loading: a Connect button rendered before the configs
+                // resolve cannot act on the click, so it reads as a control that does nothing.
+                loading: loading || sourceConfigsPending,
                 // No config row yet → the source has never been connected; surface a Connect button.
                 requiresSetup: config === null,
                 syncStatus: config?.status,
@@ -810,6 +813,7 @@ export function AgentsRoster(): JSX.Element {
             ciSignalsConfigLoading,
             ciSignalsIsFullyEnabled,
             isCiSignalsToggling,
+            sourceConfigsPending,
         ]
     )
 
