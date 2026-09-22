@@ -6,6 +6,8 @@ import { useCallback, useRef, useState } from 'react'
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
+// DataVisualization renders the .InsightCard__viz wrapper whose styles live in InsightCard.scss.
+import 'lib/components/Cards/InsightCard/InsightCard.scss'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'

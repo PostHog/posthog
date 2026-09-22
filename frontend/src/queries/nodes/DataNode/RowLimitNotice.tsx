@@ -18,7 +18,7 @@ export function RowLimitNotice(): JSX.Element | null {
     }
 
     return (
-        <div className="sticky bottom-0 z-10 flex items-center gap-1 border-t bg-surface-primary px-2 py-1 text-xs text-secondary">
+        <div className="shrink-0 flex items-center gap-1 border-t bg-surface-primary px-2 py-1 text-xs text-secondary">
             <IconInfo className="shrink-0" />
             <span>{rowLimitReachedText(dataLimit)}</span>
         </div>
