@@ -70,6 +70,10 @@ describe('accountFeatureRequestsLogic', () => {
             logic.actions.setRequestSearch('')
             logic.actions.setSelectedRequestId(existingRequest.id)
         }).toFinishAllListeners()
+
+        expect(logic.values.selectedRequestId).toBe(existingRequest.id)
+        expect(logic.values.availableRequests).toEqual([existingRequest])
+
         await expectLogic(logic, () => logic.actions.linkSelectedRequest()).toFinishAllListeners()
 
         expect(updateSpy).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), existingRequest.id, {

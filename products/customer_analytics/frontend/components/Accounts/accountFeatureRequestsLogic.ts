@@ -176,7 +176,7 @@ export const accountFeatureRequestsLogic = kea<accountFeatureRequestsLogicType>(
             null as string | null,
             {
                 setSelectedRequestId: (_, { selectedRequestId }) => selectedRequestId,
-                setRequestSearch: () => null,
+                setRequestSearch: (selectedRequestId, { search }) => (search ? null : selectedRequestId),
                 openRequestPicker: () => null,
                 closeRequestPicker: () => null,
             },
