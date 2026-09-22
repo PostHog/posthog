@@ -1,5 +1,4 @@
 import re
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -8,13 +7,14 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.queries import VALIDATION_QUERY
 from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.settings import (
     DAGSTER_CLOUD_ENDPOINTS,
-    DAGSTER_CLOUD_MAX_PAGES_PER_PARENT,
     DAGSTER_CLOUD_PAGE_SIZE,
     REPOSITORIES_PARENT_CONFIG,
     DagsterCloudEndpointConfig,
@@ -37,7 +37,7 @@ class DagsterCloudRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class DagsterCloudResumeConfig:
     # Top-level endpoints: the next page cursor to request.
     cursor: str = ""
@@ -251,6 +251,7 @@ def _iter_cursor_pages(
     boundary is worth resume state — a parent walk replays from the start, a synced table does not.
     """
     variables = dict(variables)
+    previous_cursor: str | None = variables.get("cursor")
 
     while True:
         payload = _execute_query(sess, url, endpoint_config.query, variables)
@@ -268,6 +269,11 @@ def _iter_cursor_pages(
         yield rows, next_cursor
         if next_cursor is None:
             return
+        # A cursor that repeats would replay the same page forever, since nothing else bounds
+        # this walk.
+        if next_cursor == previous_cursor:
+            raise Exception(f"Dagster Cloud {endpoint_config.name}: pagination cursor did not advance")
+        previous_cursor = next_cursor
         variables["cursor"] = next_cursor
 
 
@@ -401,7 +407,6 @@ def _iter_child_pages(
     url: str,
     endpoint_config: DagsterCloudEndpointConfig,
     parent: dict[str, Any],
-    logger: FilteringBoundLogger,
     watermark_epoch: float | None,
     start_window: str,
 ) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
@@ -419,27 +424,18 @@ def _iter_child_pages(
     if before_variable is not None and start_window:
         variables[before_variable] = _window_to_wire(start_window, fan_out.window_unit)
 
-    pages = 0
+    previous_window = start_window
+
     while True:
         payload = _execute_query(sess, url, endpoint_config.query, variables)
         extracted = _extract_rows(payload, endpoint_config)
         if extracted is None:
             return
         _, rows = extracted
-        pages += 1
 
         next_window: str | None = None
         if before_variable is not None and len(rows) >= DAGSTER_CLOUD_PAGE_SIZE:
             next_window = _oldest_window_value(rows, fan_out)
-            if next_window is not None and pages >= DAGSTER_CLOUD_MAX_PAGES_PER_PARENT:
-                logger.warning(
-                    f"Dagster Cloud: {endpoint_config.name} reached the per-parent page cap "
-                    f"({DAGSTER_CLOUD_MAX_PAGES_PER_PARENT} pages); events older than "
-                    f"{next_window} were not read this sync",
-                    endpoint=endpoint_config.name,
-                    parent={key: parent.get(key) for key in sorted(fan_out.parent_variables.values())},
-                )
-                next_window = None
 
         yield (
             [_inject_parent_fields(_normalize_row(row, endpoint_config), parent, fan_out) for row in rows],
@@ -448,6 +444,13 @@ def _iter_child_pages(
 
         if next_window is None or before_variable is None:
             return
+        # The walk is otherwise unbounded, and only a strictly older bound guarantees it ends.
+        # Truncating a parent instead would be silent data loss: sort_mode is "desc", so the
+        # watermark commits at the top of this parent's history and the skipped events below it
+        # would never be requested again.
+        if next_window == previous_window:
+            raise Exception(f"Dagster Cloud {endpoint_config.name}: page window did not advance past {next_window}")
+        previous_window = next_window
         variables[before_variable] = _window_to_wire(next_window, fan_out.window_unit)
 
 
@@ -505,7 +508,7 @@ def _iter_fanout_rows(
         # Only the parent the saved state stopped inside resumes mid-window; the ones after it
         # start from their newest event.
         window = start_window if index == parents_done else ""
-        for page, next_window in _iter_child_pages(sess, url, endpoint_config, parent, logger, watermark_epoch, window):
+        for page, next_window in _iter_child_pages(sess, url, endpoint_config, parent, watermark_epoch, window):
             yield page
             # Save after yielding, so a crash re-reads the last page instead of skipping it.
             if next_window is not None:

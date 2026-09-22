@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.queries import (
@@ -20,11 +22,6 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # Dagster's runsOrError caps well below 100 in practice; 100 is a safe request size across the
 # runs/backfills/assets list resolvers.
 DAGSTER_CLOUD_PAGE_SIZE = 100
-
-# Fan-out children that page backwards through an event history are bounded per parent, so one
-# pathological asset or schedule can't hold a sync open indefinitely. At the page size above this
-# is 100k events per parent per sync; hitting it is logged.
-DAGSTER_CLOUD_MAX_PAGES_PER_PARENT = 1000
 
 # "row" -> next cursor is a field read off the last result row (runId / backfill id).
 # "connection" -> next cursor is the connection object's own `cursor` field (assetsOrError).
@@ -47,7 +44,7 @@ def _incremental_datetime_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@frozen
 class DagsterCloudFanOutConfig:
     parent_kind: ParentKind
     # GraphQL variable name -> parent descriptor key. One request per parent.
@@ -70,7 +67,7 @@ class DagsterCloudFanOutConfig:
     window_unit: WindowUnit | None = None
 
 
-@dataclass
+@frozen
 class DagsterCloudEndpointConfig:
     name: str
     query: str

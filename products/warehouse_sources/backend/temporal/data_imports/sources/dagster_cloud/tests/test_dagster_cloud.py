@@ -1,5 +1,6 @@
 import re
 from collections.abc import Iterable
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from typing import Any, cast
 
@@ -336,6 +337,12 @@ class TestEndpointCatalog:
             assert set(cfg.fan_out.include_from_parent) & set(cfg.primary_keys), name
 
 
+def _with_batch_size(endpoint_name: str, batch_size: int) -> Any:
+    endpoint_config = DAGSTER_CLOUD_ENDPOINTS[endpoint_name]
+    assert endpoint_config.fan_out is not None
+    return replace(endpoint_config, fan_out=replace(endpoint_config.fan_out, batch_size=batch_size))
+
+
 def _route(handlers: dict[str, Any]) -> tuple[Any, list[tuple[str, dict[str, Any]]]]:
     """Mock session.post, dispatching on the posted query's GraphQL operation name.
 
@@ -598,23 +605,23 @@ class TestAssetEventFanOut:
         ]
 
     @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
-    @patch(f"{MODULE}.DAGSTER_CLOUD_MAX_PAGES_PER_PARENT", 1)
     @patch(f"{MODULE}.make_tracked_session")
-    def test_per_parent_page_cap_stops_the_walk_and_warns(self, mock_session_cls: MagicMock) -> None:
+    def test_a_window_that_does_not_advance_fails_the_sync(self, mock_session_cls: MagicMock) -> None:
+        # An API that ignored beforeTimestampMillis would replay one page forever. Failing beats
+        # truncating: sort_mode is "desc", so a silently short parent still commits a watermark
+        # above the events it skipped, and no later sync would ask for them.
         session = MagicMock()
-        session.post.side_effect, calls = _route(
+        page = _materializations_response(["1700000001000", "1700000001000"])
+        session.post.side_effect, _ = _route(
             {
                 "PaginatedAssets": _assets_page(["a1"], cursor=None),
-                "AssetMaterializations": _materializations_response(["1700000002000", "1700000001000"]),
+                "AssetMaterializations": [page, page],
             }
         )
         mock_session_cls.return_value = session
-        logger = MagicMock()
 
-        list(_make_fanout_request("org", "prod", "tok", "asset_materializations", logger, _manager()))
-
-        assert len([v for op, v in calls if op == "AssetMaterializations"]) == 1
-        assert logger.warning.call_count == 1
+        with pytest.raises(Exception, match="page window did not advance"):
+            list(_make_fanout_request("org", "prod", "tok", "asset_materializations", MagicMock(), _manager()))
 
     @patch(f"{MODULE}.make_tracked_session")
     def test_incremental_sends_millis_string_watermark(self, mock_session_cls: MagicMock) -> None:
@@ -689,7 +696,7 @@ class TestAssetEventFanOut:
 
 class TestBatchedFanOut:
     @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
-    @patch.object(DAGSTER_CLOUD_ENDPOINTS["asset_nodes"].fan_out, "batch_size", 2)
+    @patch.dict(DAGSTER_CLOUD_ENDPOINTS, {"asset_nodes": _with_batch_size("asset_nodes", 2)})
     @patch(f"{MODULE}.make_tracked_session")
     def test_asset_nodes_batches_keys_and_reads_a_bare_root_list(self, mock_session_cls: MagicMock) -> None:
         # assetNodes returns [AssetNode!]! rather than an OrError union, and takes the keys in
@@ -728,3 +735,17 @@ class TestFanOutRouting:
     def test_unknown_fanout_endpoint_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown Dagster Cloud fan-out endpoint"):
             list(_make_fanout_request("org", "prod", "tok", "runs", MagicMock(), _manager()))
+
+
+class TestCursorProgress:
+    @patch(f"{MODULE}.DAGSTER_CLOUD_PAGE_SIZE", 2)
+    @patch(f"{MODULE}.make_tracked_session")
+    def test_a_cursor_that_does_not_advance_fails_the_sync(self, mock_session_cls: MagicMock) -> None:
+        # Nothing else bounds the cursor walk, so a repeated cursor would re-request one page
+        # until the activity timed out.
+        session = MagicMock()
+        session.post.return_value = _gql_response("runsOrError", _runs_container(["r1", "r1"]))
+        mock_session_cls.return_value = session
+
+        with pytest.raises(Exception, match="pagination cursor did not advance"):
+            list(_make_paginated_request("org", "prod", "tok", "runs", MagicMock(), _manager()))
