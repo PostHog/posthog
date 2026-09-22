@@ -85,7 +85,7 @@ export function DeliverySections({
                         />
                         <ScopeComparisonCard
                             title="Cost per push"
-                            tooltip="CI cost divided by pushes. A push is a new commit and the CI it started: the price of one iteration, so a high figure points at heavy workflows rather than many pushes."
+                            tooltip="CI cost of merged pull requests, merge queue runs included, divided by their pushes. A push is a new head commit and the CI it started. A high figure points at heavy workflows rather than many pushes."
                             scopeLabel={scopeLabel}
                             figure={summary?.cost_per_push_usd}
                             formatValue={compactUsd}
@@ -123,7 +123,7 @@ export function DeliverySections({
                         </div>
                         <ScopeComparisonCard
                             title="Pushes after approval"
-                            tooltip="Average new commits pushed after the first approval, per merged pull request that had an approval."
+                            tooltip="Average pushes after the first approval, per merged pull request that had an approval. A push is a new head commit that started CI."
                             scopeLabel={scopeLabel}
                             figure={summary?.pushes_after_approval_per_merged_pr}
                             formatValue={formatRatio}

@@ -206,7 +206,8 @@ export function WorkflowHealthTable({
             key: 'p50Seconds',
             width: 88,
             align: 'right',
-            tooltip: 'Median run duration (wall-clock) over successful runs.',
+            tooltip:
+                'Median duration over successful runs. Runs under 10 seconds are excluded when longer samples exist. All-fast workflows use every successful run.',
             sorter: (a, b) => (a.p50Seconds ?? -1) - (b.p50Seconds ?? -1),
             render: (_, row) => (
                 <span className="text-xs tabular-nums whitespace-nowrap">{formatSeconds(row.p50Seconds)}</span>
@@ -217,7 +218,8 @@ export function WorkflowHealthTable({
             key: 'p95Seconds',
             width: 88,
             align: 'right',
-            tooltip: '95th-percentile run duration (wall-clock) over successful runs.',
+            tooltip:
+                '95th-percentile duration over successful runs. Runs under 10 seconds are excluded when longer samples exist. All-fast workflows use every successful run.',
             sorter: (a, b) => (a.p95Seconds ?? -1) - (b.p95Seconds ?? -1),
             render: (_, row) => (
                 <span className="text-xs tabular-nums whitespace-nowrap text-secondary">
