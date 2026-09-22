@@ -48,13 +48,15 @@ describe('computeSankeyLayout', () => {
         expect(layout.total).toBe(40)
     })
 
-    it('keeps a flow that ends early in its own column under left alignment', () => {
+    it('places a flow that ends early by alignment: justify, left, and right', () => {
         const links: SankeyLinkInput[] = [...LINKS, { source: 'start', target: 'ended', value: 5 }]
         const nodes: SankeyNodeInput[] = [...NODES, { id: 'ended', label: 'Ended' }]
-        const justified = layoutOf({ nodes, links })
-        const left = layoutOf({ nodes, links, nodeAlign: 'left' })
-        expect(justified.nodes.find((n) => n.id === 'ended')?.column).toBe(2)
-        expect(left.nodes.find((n) => n.id === 'ended')?.column).toBe(1)
+        const columnOf = (align: 'justify' | 'left' | 'right', id: string): number | undefined =>
+            layoutOf({ nodes, links, nodeAlign: align }).nodes.find((n) => n.id === id)?.column
+        expect(columnOf('justify', 'ended')).toBe(2)
+        expect(columnOf('left', 'ended')).toBe(1)
+        // Right alignment counts from the sink, so the source stays first and the early end moves last.
+        expect([columnOf('right', 'start'), columnOf('right', 'a'), columnOf('right', 'ended')]).toEqual([0, 1, 2])
     })
 
     it('resolves node colors by label and defaults link color to the source node', () => {

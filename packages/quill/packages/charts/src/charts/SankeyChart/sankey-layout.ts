@@ -93,7 +93,7 @@ export function targetDepth(d: SankeyLink<{}, {}>): number {
 }
 
 export function sankeyRight(node: SankeyNode<{}, {}>, n: number): number {
-    return n - 1 - node.depth
+    return n - 1 - node.height
 }
 
 export function sankeyLeft(node: SankeyNode<{}, {}>): number {
