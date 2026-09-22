@@ -766,7 +766,7 @@ class SignalReportMergeRequestSerializer(serializers.Serializer):
 
 
 class SignalReportMergeSourceResultSerializer(serializers.Serializer):
-    id = serializers.UUIDField(help_text="The source report that was folded into the survivor.")
+    id = serializers.UUIDField(source="report_id", help_text="The source report that was folded into the survivor.")
     artefacts_moved = serializers.IntegerField(
         help_text=(
             "How many work-log artefacts moved to the survivor (notes, findings, pull requests, "
@@ -2517,18 +2517,10 @@ class SignalReportViewSet(
 
         survivor.refresh_from_db()
         return Response(
-            {
-                "report": SignalReportSerializer(survivor, context=self._enriched_report_context(survivor)).data,
-                "sources": [
-                    {
-                        "id": source.report_id,
-                        "artefacts_moved": source.artefacts_moved,
-                        "signals_moved": source.signals_moved,
-                        "released_claim": source.released_claim,
-                    }
-                    for source in result.sources
-                ],
-            }
+            SignalReportMergeResponseSerializer(
+                {"report": survivor, "sources": result.sources},
+                context=self._enriched_report_context(survivor),
+            ).data
         )
 
     @extend_schema(

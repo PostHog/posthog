@@ -49,15 +49,13 @@ logger = structlog.get_logger(__name__)
 MAX_MERGE_SOURCE_REPORTS = 10
 MAX_MERGE_REASON_LENGTH = 500
 
-# Written onto the source's dismissal artefact. Deliberately not in
-# `SIGNAL_REPORT_DISMISSAL_REASON_CHOICES`: like `refunded`, it is a code this server path writes,
-# never one a caller may pick. Grouping reads it to decide whether a `duplicate_of` link redirects
-# signals (see `merge_survivor`), so a caller that could set it by hand could redirect another
-# report's signals through the plain `state` endpoint.
+# Deliberately not in `SIGNAL_REPORT_DISMISSAL_REASON_CHOICES`. Like `refunded`, this server path
+# writes it and no caller may pick it, because `merge_survivor` reads it to decide whether a
+# `duplicate_of` link redirects signals.
 MERGE_DISMISSAL_REASON = "merged"
 
-# A source must still be live for a merge to mean anything: a resolved or already-archived report
-# has had its verdict, and folding it in would undo that verdict silently.
+# A resolved or already-archived report has had its verdict, and folding it in would undo that
+# verdict silently.
 MERGEABLE_SOURCE_STATUSES = frozenset(
     {
         SignalReport.Status.POTENTIAL,
@@ -69,18 +67,14 @@ MERGEABLE_SOURCE_STATUSES = frozenset(
     }
 )
 
-# Log artefacts describe work done on a report, so they follow the work to the survivor. Four log
-# types stay behind:
-#   - `report_link` and `related_to` state how *the source* relates to other reports. Moving a row
-#     that names the survivor would make the survivor link to itself, which the write path forbids,
-#     and moving the rest can close a cycle that `validate_report_link` would have refused.
-#   - `title_change` and `summary_change` record edits to the source's own text, which the merge
-#     never copies over. On the survivor they would claim its title changed to the source's.
-#   - `work_claim` and `work_release` decide who owns a report now. `active_claims` reads the
-#     newest claim per report, so moving an older report's claim history in can mask the
-#     survivor's own live claim and make a claimed report look unclaimed.
-# `signal_finding` is in neither artefact family, and it is the per-signal evidence, so it moves
-# with the signals.
+# Log artefacts describe work done on a report, so they follow the work to the survivor. Three
+# families stay behind, each because moving them corrupts the survivor:
+#   - `report_link` / `related_to` state how *the source* relates to other reports, so a moved row
+#     can make the survivor link to itself or close a cycle `validate_report_link` would refuse.
+#   - `title_change` / `summary_change` would claim the survivor's title changed to the source's.
+#   - `work_claim` / `work_release` decide ownership, and `active_claims` reads the newest claim per
+#     report, so a moved claim can mask the survivor's live claim.
+# `signal_finding` is in neither family and is the per-signal evidence, so it moves with them.
 _MOVED_ARTEFACT_TYPES = frozenset(SignalReportArtefact.LOG_ARTEFACT_TYPES) - {
     SignalReportArtefact.ArtefactType.REPORT_LINK,
     SignalReportArtefact.ArtefactType.RELATED_TO,
@@ -252,8 +246,8 @@ def _move_side_rows(source: SignalReport, survivor: SignalReport) -> None:
 
     SignalReportCheck.objects.for_team(source.team_id).filter(report_id=source.id).update(report_id=survivor.id)
 
-    # The task FK is the tasks product's own column, so it moves through the facade. Implementation
-    # runs are looked up through it, and the survivor now owns the source's implementation work.
+    # Implementation runs are looked up through the tasks product's own column, and the survivor
+    # owns the source's implementation work now.
     from products.tasks.backend.facade import (
         api as tasks_facade,  # noqa: PLC0415 — cross-product import kept off the module import path
     )
@@ -276,18 +270,17 @@ def _merge_source_into(
         SignalReportArtefact.objects.filter(
             team_id=source.team_id, report_id=source.id, type__in=sorted(_MOVED_ARTEFACT_TYPES)
         )
-        # An artefact's `claim` must name a claim on the same report, and claim history stays on
-        # the source, so the pointer is dropped rather than left dangling across two reports. The
-        # row's own actor attribution is what the work log renders, and that is preserved.
+        # An artefact's `claim` must name a claim on the same report and claim history stays on the
+        # source, so the pointer is dropped rather than left dangling. Actor attribution, which is
+        # what the work log renders, is preserved.
         .update(report_id=survivor.id, claim=None)
     )
 
     _move_side_rows(source, survivor)
 
-    # From the source's Postgres counters, not from a ClickHouse count: these are the numbers the
-    # pipeline maintains and the promotion gate reads, and taking them here keeps the survivor
-    # exact whatever the re-emit's lag turns out to be. The source keeps its own counters as the
-    # historical record of what it collected.
+    # From the source's Postgres counters rather than a ClickHouse count, because the pipeline
+    # maintains these and the promotion gate reads them, so the survivor stays exact whatever the
+    # re-emit's lag turns out to be. The source keeps its own as a historical record.
     SignalReport.objects.filter(id=survivor.id).update(
         signal_count=F("signal_count") + source.signal_count,
         total_weight=F("total_weight") + source.total_weight,
@@ -396,8 +389,7 @@ def merge_reports(
     ordered_ids = _requested_source_ids(source_ids, survivor_id=str(survivor.id))
 
     with transaction.atomic():
-        # Locked in id order, survivor included, so two merges naming overlapping reports queue
-        # instead of deadlocking.
+        # Locked in id order, survivor included, so overlapping merges queue instead of deadlocking.
         locked = {
             str(report.id): report
             for report in SignalReport.objects.select_for_update()
@@ -415,9 +407,8 @@ def merge_reports(
                 for source in sources
             ]
         except ArtefactContentValidationError as e:
-            # `add_log` enforces the `report_link` invariants: no self-link, same team, and no
-            # cycle within one kind. A merge that would close a duplicate_of cycle is a merge the
-            # caller cannot have, not a server fault.
+            # `add_log` enforces the `report_link` invariants, so a merge that would close a
+            # duplicate_of cycle is a merge the caller cannot have, not a server fault.
             raise ReportMergeError(str(e))
 
         SignalReportArtefact.add_log(
