@@ -243,6 +243,45 @@ class TestQueryRunner(BaseTest):
         assert any(w.get("table_name") == "paid_bills" for w in warnings)
         assert any(w.get("resources") == ["insight"] for w in warnings)
 
+    def test_a_finished_query_survives_an_unbuilt_response_serializer(self):
+        # A row class that pydantic never finished building has no serializer, and the dump of a
+        # result ClickHouse already returned was the first thing to reach for it.
+        class ResultRow(BaseModel):
+            label: str = "row"
+
+        ResultRow.__pydantic_serializer__ = None  # type: ignore[assignment] # ty: ignore[invalid-assignment]
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        with mock.patch.object(
+            TestQueryRunner,
+            "_calculate",
+            autospec=True,
+            side_effect=lambda _self: TheTestBasicQueryResponse(results=[ResultRow()]),
+        ):
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        assert response.results == [{"label": "row"}]
+
+    def test_an_unserializable_response_names_its_class(self):
+        # A class that references an undefined type cannot be rebuilt, so the result is lost either
+        # way. The failure must say which response class is affected.
+        class UnbuiltRow(BaseModel):
+            value: "NeverDefinedType"  # type: ignore[name-defined] # noqa: F821
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        with (
+            mock.patch.object(
+                TestQueryRunner,
+                "_calculate",
+                autospec=True,
+                side_effect=lambda _self: TheTestBasicQueryResponse(results=[UnbuiltRow.model_construct(value=1)]),
+            ),
+            pytest.raises(TypeError, match=r"Cannot serialize TestBasicQueryResponse:"),
+        ):
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
     @parameterized.expand(
         [
             ("flag on for a real user", _QUERY_SCAN_FLAG_SHOW, True, True, True),
