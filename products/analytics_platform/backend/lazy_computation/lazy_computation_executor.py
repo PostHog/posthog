@@ -1443,11 +1443,9 @@ class LazyComputationExecutor:
                 except Exception:
                     pass
 
-        # The pass that broke out proved that `served` covers the range and holds no
-        # PENDING job, so it is the answer. Reading the jobs again here would reopen
-        # that proof: a peer that rebuilds one window in between wins the overlap
-        # filter and evicts the broader job it replaces, so the read loses the other
-        # days only that job covered.
+        # `served` is the set the coverage proof accepted. Reading the jobs again here
+        # would let a peer's narrower rebuild win the overlap filter and evict the
+        # broader job it replaces, dropping the other days only that job covered.
         result = LazyComputationResult(
             ready=True,
             job_ids=[j.id for j in served],

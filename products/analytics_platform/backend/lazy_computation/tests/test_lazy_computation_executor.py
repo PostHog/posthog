@@ -2418,8 +2418,7 @@ class TestComputationExecutorExecute(BaseTest):
             if not peer_has_rebuilt:
                 peer_has_rebuilt = True
                 # A peer refreshing Jan 2 lands right after the coverage proof. Its row
-                # is newer, so it wins the overlap filter and evicts the broad job that
-                # also covers Jan 1 and Jan 3.
+                # is newer, so it wins the overlap filter and evicts the broad job.
                 narrow = PreaggregationJob.objects.create(
                     team=self.team,
                     query_hash=query_hash,
