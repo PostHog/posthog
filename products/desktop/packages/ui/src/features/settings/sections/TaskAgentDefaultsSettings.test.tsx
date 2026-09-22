@@ -94,7 +94,7 @@ vi.mock("@posthog/ui/features/task-detail/hooks/usePreviewConfig", () => ({
             { name: "GPT-5.6 Terra", value: "gpt-5.6-terra" },
           ]
         : [
-            { name: "Claude Opus 5", value: "claude-opus-5" },
+            { name: "Claude Opus 5.5", value: "claude-opus-5-5" },
             { name: "Claude Fable 5", value: "claude-fable-5" },
           ];
     return {

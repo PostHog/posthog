@@ -32,6 +32,7 @@ jest.mock('~/lib/api', () => {
     const actual = jest.requireActual('~/lib/api')
     return {
         __esModule: true,
+        ApiConfig: actual.ApiConfig,
         default: {
             ...actual.default,
             createResponse: jest.fn(),
@@ -45,10 +46,7 @@ jest.mock('~/lib/api', () => {
             },
             conversationsTickets: {
                 ...actual.default?.conversationsTickets,
-                submitAiFeedback: jest.fn().mockResolvedValue(undefined),
-                submitAiHumanOutcome: jest.fn().mockResolvedValue(undefined),
                 get: jest.fn(),
-                update: jest.fn(),
                 list: jest.fn().mockResolvedValue({ results: [] }),
             },
             tags: {
@@ -60,6 +58,7 @@ jest.mock('~/lib/api', () => {
 })
 
 jest.mock('products/conversations/frontend/generated/api', () => ({
+    conversationsTicketsAiFeedbackCreate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsAiHumanOutcomeCreate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsMessagesFullEmailRetrieve: jest.fn().mockResolvedValue({ content: 'Full email body' }),
     conversationsTicketsNotesPartialUpdate: jest.fn().mockResolvedValue(undefined),
@@ -70,13 +69,14 @@ jest.mock('products/conversations/frontend/generated/api', () => ({
 import api from '~/lib/api'
 
 import {
+    conversationsTicketsAiFeedbackCreate,
     conversationsTicketsAiHumanOutcomeCreate,
     conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesPartialUpdate,
     conversationsTicketsPartialUpdate,
 } from 'products/conversations/frontend/generated/api'
 
-const submitAiFeedbackMock = api.conversationsTickets.submitAiFeedback as jest.Mock
+const submitAiFeedbackMock = conversationsTicketsAiFeedbackCreate as jest.Mock
 const submitAiHumanOutcomeMock = conversationsTicketsAiHumanOutcomeCreate as jest.Mock
 const fullEmailRetrieveMock = conversationsTicketsMessagesFullEmailRetrieve as jest.Mock
 
@@ -164,7 +164,7 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
             })
 
         expect(submitAiFeedbackMock).toHaveBeenCalledTimes(1)
-        expect(submitAiFeedbackMock).toHaveBeenCalledWith('ticket-1', {
+        expect(submitAiFeedbackMock).toHaveBeenCalledWith('997', 'ticket-1', {
             message_id: 'msg-ai-1',
             rating: 'good',
         })
@@ -180,7 +180,7 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
             })
 
         expect(submitAiFeedbackMock).toHaveBeenCalledTimes(1)
-        expect(submitAiFeedbackMock).toHaveBeenCalledWith('ticket-1', {
+        expect(submitAiFeedbackMock).toHaveBeenCalledWith('997', 'ticket-1', {
             message_id: 'msg-ai-1',
             rating: 'bad',
         })
@@ -193,7 +193,7 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
         await new Promise((r) => setTimeout(r, 10))
 
         expect(submitAiFeedbackMock).toHaveBeenCalledTimes(1)
-        expect(submitAiFeedbackMock).toHaveBeenCalledWith('ticket-1', {
+        expect(submitAiFeedbackMock).toHaveBeenCalledWith('997', 'ticket-1', {
             message_id: 'msg-ai-1',
             rating: 'bad',
             feedback_text: 'Wrong answer',
@@ -302,6 +302,34 @@ describe('supportTicketSceneLogic chatMessages mapping', () => {
                 citations: ['https://example.com/docs/sdk'],
                 clarifyingQuestions: ['Which SDK?'],
             })
+        )
+    })
+
+    it('selects the latest applicable AI draft', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: true })
+        logic.actions.setMessages([
+            { ...makeAiComment('new-draft'), created_at: '2026-01-01T00:02:00Z' },
+            { ...makeAiComment('not-a-draft', false), created_at: '2026-01-01T00:01:00Z' },
+            { ...makeAiComment('old-draft'), created_at: '2026-01-01T00:00:00Z' },
+        ])
+
+        expect(logic.values.latestAiDraftId).toBe('new-draft')
+    })
+
+    it('selects widget delivery statuses for public team messages', () => {
+        logic.actions.setTicket({ ...makeTicket(), unread_customer_count: 1 })
+        logic.actions.setMessages([
+            makeSupportComment({ id: 'read', created_at: '2026-01-01T00:00:00Z' }),
+            makeCustomerComment('customer'),
+            makeSupportComment({ id: 'private', item_context: { author_type: 'support', is_private: true } }),
+            makeSupportComment({ id: 'sent', created_at: '2026-01-01T00:03:00Z' }),
+        ])
+
+        expect(logic.values.deliveryStatusByMessageId).toEqual(
+            new Map([
+                ['read', 'read'],
+                ['sent', 'sent'],
+            ])
         )
     })
 })

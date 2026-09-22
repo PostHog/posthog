@@ -118,6 +118,7 @@ PRODUCTS_APPS = [
     "products.pulse.backend.apps.PulseConfig",
     "products.data_catalog.backend.apps.DataCatalogConfig",
     "products.data_quality.backend.apps.DataQualityConfig",
+    "products.security.backend.apps.SecurityConfig",
 ]
 
 INSTALLED_APPS = [
@@ -1328,6 +1329,8 @@ try:
     )
 except ValueError:
     MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM = {}
+
+MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS = get_list(get_from_env("MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS", ""))
 
 # AEO citation-tracking POC (products/aeo). The scheduled runner only covers
 # teams in this allowlist AND with the `aeo-citation-tracking` flag enabled.

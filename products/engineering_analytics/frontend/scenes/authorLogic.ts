@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
@@ -26,6 +26,7 @@ export interface authorLogicValues {
     handle: string
     sourceId: string | null
     workflowCosts: WorkflowCostApi[]
+    workflowCostsFailed: boolean
     workflowCostsLoading: boolean
 }
 
@@ -77,6 +78,10 @@ export const authorLogic = kea<authorLogicType>([
             },
         ],
     })),
+
+    reducers({
+        workflowCostsFailed: [false, { loadWorkflowCosts: () => false, loadWorkflowCostsFailure: () => true }],
+    }),
 
     listeners(({ actions }) => ({
         [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
