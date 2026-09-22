@@ -44,7 +44,17 @@ class TestHogFlowKey(APIBaseTest):
         assert first.json()["key"] is None
         assert second.json()["key"] is None
 
-    @parameterized.expand([("foo?bar=baz",), ("foo/bar",), ("foo\\bar",), ("foo.bar",), ("foo bar",)])
+    @parameterized.expand(
+        [
+            ("foo?bar=baz",),
+            ("foo/bar",),
+            ("foo\\bar",),
+            ("foo.bar",),
+            ("foo bar",),
+            ("foo ",),
+            ("foo\n",),
+        ]
+    )
     def test_create_with_an_invalid_charset_key_is_refused(self, key):
         response = self._create(key=key)
 
@@ -178,6 +188,14 @@ class TestHogFlowKey(APIBaseTest):
         HogFlow.objects.create(team=self.team, name="Mine", created_by=self.user, key="onboarding-welcome")
 
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?key=not-here")
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["results"] == []
+
+    def test_list_filter_by_an_empty_key_returns_nothing(self):
+        HogFlow.objects.create(team=self.team, name="Mine", created_by=self.user, key="onboarding-welcome")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?key=")
 
         assert response.status_code == 200, response.json()
         assert response.json()["results"] == []
