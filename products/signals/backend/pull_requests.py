@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from datetime import datetime
 from enum import StrEnum
 from functools import partial
 from typing import TYPE_CHECKING
@@ -211,7 +212,9 @@ def import_report_pull_requests(report: SignalReport, *, notify_reviewers: bool 
             ).update(actor_kind=assignment.actor_kind, actor_agent=assignment.actor_agent)
 
 
-def update_pull_request_state(*, team_id: int, repository: str, number: int, state: str) -> int:
+def update_pull_request_state(
+    *, team_id: int, repository: str, number: int, state: str, merged_at: datetime | None = None
+) -> int:
     report_ids = SignalReportArtefact.objects.filter(
         team_id=team_id,
         pull_request__team_id=team_id,
@@ -235,8 +238,24 @@ def update_pull_request_state(*, team_id: int, repository: str, number: int, sta
             return 0
         if pr.state != SignalReportPullRequest.State.MERGED:
             pr.state = state
+        update_fields = ["state", "checked_at", "updated_at"]
+        if merged_at is not None:
+            pr.merged_at = merged_at
+            update_fields.append("merged_at")
         pr.checked_at = timezone.now()
-        pr.save(update_fields=["state", "checked_at", "updated_at"])
+        pr.save(update_fields=update_fields)
         for report in reports:
             apply_report_completion(report)
         return len(reports)
+
+
+def update_pull_request_review_decision(
+    *, team_id: int, repository: str, number: int, review_decision: str | None
+) -> int:
+    if review_decision is not None and review_decision not in SignalReportPullRequest.ReviewDecision.values:
+        return 0
+    return (
+        SignalReportPullRequest.objects.for_team(team_id)
+        .filter(repository=repository.lower(), number=number)
+        .update(review_decision=review_decision, updated_at=timezone.now())
+    )

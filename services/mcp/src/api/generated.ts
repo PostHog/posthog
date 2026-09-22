@@ -64601,6 +64601,20 @@ export namespace Schemas {
       Merged: 'merged',
     } as const;
 
+    /**
+     * * `approved` - Approved
+     * * `changes_requested` - Changes requested
+     * * `review_required` - Review required
+     */
+    export type SignalReportPullRequestReviewDecisionEnum = typeof SignalReportPullRequestReviewDecisionEnum[keyof typeof SignalReportPullRequestReviewDecisionEnum];
+
+
+    export const SignalReportPullRequestReviewDecisionEnum = {
+      Approved: 'approved',
+      ChangesRequested: 'changes_requested',
+      ReviewRequired: 'review_required',
+    } as const;
+
     export interface SignalReportPullRequestAttachedBy {
       /** Kind of actor who attached the PR. Null when legacy attribution is unknown.
        *
@@ -64641,6 +64655,17 @@ export namespace Schemas {
       state: SignalReportAssignmentPrStateEnum;
       /** Whether this PR merged. */
       merged: boolean;
+      /** Current GitHub code review decision: approved, changes_requested, or review_required. Null when GitHub does not provide a review decision.
+       *
+       * * `approved` - Approved
+       * * `changes_requested` - Changes requested
+       * * `review_required` - Review required */
+      review_decision: SignalReportPullRequestReviewDecisionEnum | null;
+      /**
+         * When GitHub reports that this pull request merged. Null when it has not merged or the time is unavailable.
+         * @nullable
+         */
+      merged_at: string | null;
       /** Who first attached this PR to the report, not necessarily its GitHub author. Task-output links identify the originating task. */
       readonly attached_by: SignalReportPullRequestAttachedBy | null;
       /**
