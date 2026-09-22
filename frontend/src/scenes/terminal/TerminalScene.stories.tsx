@@ -1,14 +1,48 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { useValues } from 'kea'
+import { router } from 'kea-router'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { Command } from 'lib/components/Command/Command'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+
+import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
 import { useStorybookMocks } from '~/mocks/browser'
 
+import { TerminalDock } from './TerminalDock'
 import { TerminalScene } from './TerminalScene'
+
+function DockedTerminalPreview(): JSX.Element {
+    const { location } = useValues(router)
+    return (
+        <>
+            <div className="app-layout">
+                <div className="left-nav flex flex-col gap-2 p-4">
+                    <LemonButton to="/notebooks/demo-note">Notebook page</LemonButton>
+                    <LemonButton to="/terminal">Full terminal</LemonButton>
+                </div>
+                <div className="main-content-container flex min-h-0 flex-col p-4">
+                    {removeProjectIdIfPresent(location.pathname) === '/terminal' ? (
+                        <TerminalScene />
+                    ) : (
+                        <p>Press Ctrl+backtick or use Toggle terminal in Cmd+K.</p>
+                    )}
+                </div>
+            </div>
+            <GlobalShortcuts />
+            <Command />
+            <TerminalDock />
+        </>
+    )
+}
 
 const meta: Meta<typeof TerminalScene> = {
     title: 'Scenes-App/Terminal',
     component: TerminalScene,
     parameters: { layout: 'padded' },
-    render: () => {
+    render: (_, { parameters }) => {
         const notebook = {
             id: '01900000-0000-7000-8000-000000000002',
             short_id: 'demo-note',
@@ -220,7 +254,9 @@ const meta: Meta<typeof TerminalScene> = {
                 },
             },
         })
-        return (
+        return parameters.docked ? (
+            <DockedTerminalPreview />
+        ) : (
             <div className="h-[calc(100vh-2rem)]">
                 <TerminalScene />
             </div>
@@ -230,6 +266,22 @@ const meta: Meta<typeof TerminalScene> = {
 export default meta
 
 export const Default: StoryObj<typeof TerminalScene> = {}
+export const Docked: StoryObj<typeof TerminalScene> = {
+    parameters: {
+        docked: true,
+        pageUrl: '/notebooks/demo-note',
+        layout: 'fullscreen',
+        featureFlags: [FEATURE_FLAGS.POSTHOG_TERMINAL],
+    },
+}
+export const DockDisabled: StoryObj<typeof TerminalScene> = {
+    parameters: {
+        docked: true,
+        pageUrl: '/notebooks/demo-note',
+        layout: 'fullscreen',
+        featureFlags: { [FEATURE_FLAGS.POSTHOG_TERMINAL]: false },
+    },
+}
 export const Narrow: StoryObj<typeof TerminalScene> = {
     decorators: [
         (Story) => (

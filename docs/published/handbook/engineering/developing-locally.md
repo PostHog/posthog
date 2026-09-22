@@ -9,7 +9,12 @@ showTitle: true
 
 ## Browser terminal experiment
 
-Open `/project/<project-id>/terminal` and select **Start Linux** to boot a Linux VM in your browser.
+Enable the `posthog-terminal` feature flag to use the persistent terminal panel.
+Press Ctrl+backtick or choose **Toggle terminal** in the Cmd+K menu to show or hide it.
+The full Terminal scene shares the same session; hiding the panel or navigating keeps Linux running.
+Stopping Linux, reloading PostHog, or switching projects ends the session.
+
+Open `/project/<project-id>/terminal` to boot a Linux VM in your browser.
 The terminal uses xterm.js and v86, with a 9P filesystem that connects Linux file operations to the existing authenticated PostHog APIs.
 The first start loads the bundled, checksum-verified Linux image from PostHog and pinned firmware from the v86 GitHub repository.
 The image lives at `frontend/public/terminal/buildroot-bzimage.bin` and retains the pinned SHA-256 checksum in `terminalRuntime.ts`.
@@ -54,7 +59,7 @@ Pipes, redirection, completion, terminal colors, Ctrl+C, and scrollback use the 
 The terminal uses a black background in both app themes and fills the available page height.
 Scrolling to the bottom returns to the current prompt without typing.
 The guest clock and local timezone offset follow your browser, with synchronization every 30 seconds and when you return to the tab.
-Selecting text copies it automatically. **Copy selection** also copies selected text, and **Paste** inserts clipboard text into the terminal.
+Selecting text copies it automatically. **Copy** also copies selected text, and **Paste** inserts clipboard text into the terminal.
 Keyboard shortcuts are ⌘C/⌘V on macOS and Ctrl+Shift+C/V on Linux and Windows; Ctrl+C still interrupts the running command.
 If the browser denies clipboard access, focus the terminal and use its native paste shortcut or context menu.
 The toolbar's **Examples** menu contains commands for files, PostHog tools, and JSON filtering.
@@ -114,7 +119,7 @@ mv /posthog/files/Research/Archive /posthog/files/Research/Reviewed
 ```
 
 For editors that save by renaming temporary files, edit a copy in `/tmp`, then use `cat /tmp/edited.md > '/posthog/files/Research/Notes.md'`.
-Local Linux files and recovery copies disappear when you stop the VM or leave the page.
+Local Linux files and recovery copies disappear when you stop the VM, reload PostHog, or switch projects.
 
 Browser agents can send input to the same terminal and read its recent output:
 

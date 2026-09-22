@@ -1,4 +1,5 @@
 import { useMountedLogic, useValues } from 'kea'
+import { lazy, Suspense } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
 import { Command } from 'lib/components/Command/Command'
@@ -21,6 +22,10 @@ import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
 
 import { sceneLogic } from './sceneLogic'
 
+const TerminalDock = lazy(() =>
+    import('./terminal/TerminalDock').then(({ TerminalDock }) => ({ default: TerminalDock }))
+)
+
 export default function AuthenticatedShell({ children }: { children: React.ReactNode }): JSX.Element {
     useMountedLogic(apiStatusLogic)
     useMountedLogic(eventIngestionRestrictionLogic)
@@ -38,6 +43,11 @@ export default function AuthenticatedShell({ children }: { children: React.React
                 <Navigation sceneConfig={sceneConfig}>{children}</Navigation>
                 <GlobalModals />
                 <GlobalShortcuts />
+                {featureFlags[FEATURE_FLAGS.POSTHOG_TERMINAL] && (
+                    <Suspense fallback={null}>
+                        <TerminalDock />
+                    </Suspense>
+                )}
                 <Command />
                 <ImpersonationNotice />
                 <WizardSyncFab />
