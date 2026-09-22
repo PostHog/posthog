@@ -130,14 +130,22 @@ export function checkRunDisplayName(
 const SECONDS_PER_MINUTE = 60
 const DURATION_UNITS = 2
 
-export interface ObservedValueCell {
+const FAILING_ROW_NOUNS: Partial<Record<CheckTypeEnumApi, [string, string]>> = {
+    [CheckTypeEnumApi.NotNull]: ['null row', 'null rows'],
+    [CheckTypeEnumApi.Unique]: ['duplicate value', 'duplicate values'],
+    [CheckTypeEnumApi.AcceptedValues]: ['row outside the set', 'rows outside the set'],
+    [CheckTypeEnumApi.Relationships]: ['row with no match', 'rows with no match'],
+    [CheckTypeEnumApi.CustomSql]: ['row returned', 'rows returned'],
+}
+
+export interface RunResultCell {
     label: string
     tooltip: string | null
 }
 
-export function observedValueCell(
+export function runResultCell(
     run: Pick<DataQualityCheckRunApi, 'check_type' | 'observed_value' | 'check_config'>
-): ObservedValueCell {
+): RunResultCell {
     if (run.observed_value === null) {
         return { label: '-', tooltip: null }
     }
@@ -147,10 +155,14 @@ export function observedValueCell(
     if (run.check_type === CheckTypeEnumApi.RowCount) {
         return rowCountCell(run.observed_value, run.check_config)
     }
-    return { label: humanFriendlyNumber(run.observed_value), tooltip: null }
+    const nouns = FAILING_ROW_NOUNS[run.check_type]
+    if (!nouns) {
+        return { label: humanFriendlyNumber(run.observed_value), tooltip: null }
+    }
+    return { label: pluralize(run.observed_value, nouns[0], nouns[1]), tooltip: null }
 }
 
-function freshnessCell(stalenessSeconds: number, config: DataQualityCheckRunApi['check_config']): ObservedValueCell {
+function freshnessCell(stalenessSeconds: number, config: DataQualityCheckRunApi['check_config']): RunResultCell {
     const maxAgeMinutes = config?.max_age_minutes
     const limit =
         typeof maxAgeMinutes === 'number'
@@ -164,8 +176,8 @@ function freshnessCell(stalenessSeconds: number, config: DataQualityCheckRunApi[
     }
 }
 
-function rowCountCell(rowCount: number, config: DataQualityCheckRunApi['check_config']): ObservedValueCell {
-    const label = `${humanFriendlyNumber(rowCount)} rows`
+function rowCountCell(rowCount: number, config: DataQualityCheckRunApi['check_config']): RunResultCell {
+    const label = pluralize(rowCount, 'row')
     const limit = rowCountLimit(config?.min, config?.max)
     return { label, tooltip: limit ? `${label}. The limit is ${limit}.` : null }
 }
