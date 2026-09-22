@@ -27,7 +27,7 @@ from django.core.cache import cache
 import structlog
 
 from products.tasks.backend import model_catalog
-from products.tasks.backend.model_catalog import display_name_for_model  # noqa: F401 — re-exported
+from products.tasks.backend.model_catalog import COST_BASELINE_MODEL, display_name_for_model  # noqa: F401 — re-exported
 
 if TYPE_CHECKING:
     from posthog.llm.gateway_client import Product
@@ -75,12 +75,17 @@ class ModelChoice:
     `supported_efforts` is empty for a model with no effort control — that is a real
     answer, not missing metadata, so a picker should render the model with no effort
     dropdown rather than hiding it.
+
+    `cost_multiplier` is what this model costs per token against the catalog's baseline,
+    already rendered (`2.5×`, `≈0.55×`). `None` where the catalog quotes no rate, and a
+    picker then offers the model with no cost beside it.
     """
 
     runtime_adapter: str
     model: str
     label: str
     supported_efforts: tuple[str, ...]
+    cost_multiplier: str | None = None
 
 
 @dataclass(frozen=True)
@@ -191,6 +196,7 @@ def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
                 model=model.id,
                 label=model_catalog.display_name_for_model(model.id),
                 supported_efforts=tuple(e.value for e in get_supported_reasoning_efforts(runtime_adapter, model.id)),
+                cost_multiplier=model_catalog.cost_multiplier_label(model.id),
             )
         )
     return tuple(choices)
@@ -211,6 +217,7 @@ def catalog_model_choices() -> tuple[ModelChoice, ...]:
             model=entry.id,
             label=model_catalog.display_name_for_model(entry.id),
             supported_efforts=entry.reasoning_efforts,
+            cost_multiplier=model_catalog.cost_multiplier_label(entry.id),
         )
         for entry in model_catalog.MODELS
     )

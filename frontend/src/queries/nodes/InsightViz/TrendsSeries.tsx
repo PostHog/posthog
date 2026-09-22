@@ -18,10 +18,11 @@ import { LifecycleQuery, NodeKind, StickinessQuery, TrendsQuery } from '~/querie
 import { isInsightQueryNode } from '~/queries/utils'
 import { ChartDisplayType, FilterType } from '~/types'
 
-import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
+import { LifecycleSeriesHeader } from 'products/product_analytics/frontend/insights/lifecycle/LifecycleSeriesHeader'
+import { TrendsFormula } from 'products/product_analytics/frontend/insights/trends/filters/TrendsFormula'
+
+import { actionsAndEventsToSeries } from '../InsightQuery/utils/actionsAndEventsToSeries'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
-import { LifecycleSeriesHeader } from './LifecycleSeriesHeader'
-import { TrendsFormula } from './TrendsFormula'
 
 const lifecycleDataWarehousePopoverFields: DataWarehousePopoverField[] = [
     { key: 'timestamp_field', label: 'Timestamp', allowHogQL: true },

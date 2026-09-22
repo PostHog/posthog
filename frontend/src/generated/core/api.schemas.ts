@@ -4285,6 +4285,21 @@ export interface LeakedKeyReportResponseApi {
 }
 
 /**
+ * Whether the current organization has each toolbar plan entitlement, keyed by feature name.
+ */
+export type ToolbarEntitlementsApiEntitlements = { [key: string]: boolean }
+
+export interface ToolbarEntitlementsApi {
+    /** Whether the current organization has each toolbar plan entitlement, keyed by feature name. */
+    entitlements: ToolbarEntitlementsApiEntitlements
+}
+
+export interface ToolbarEntitlementsErrorApi {
+    /** Why toolbar entitlements could not be retrieved. */
+    error: string
+}
+
+/**
  * * `disabled` - disabled
  * * `toolbar` - toolbar
  */
@@ -5336,6 +5351,13 @@ export type FileSystemListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type FileSystemDestroyParams = {
+    /**
+     * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
+     */
+    recursive?: boolean
 }
 
 export type FileSystemShortcutListParams = {

@@ -44,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc import metrics
 from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import (
     cdc_supported_source_types,
     get_cdc_adapter,
+    source_type_supports_cdc,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_SEQ_COLUMN,
@@ -929,6 +930,14 @@ class CDCExtractActivity:
             self._delete_own_schedule()
             return False
 
+        if not source_type_supports_cdc(self.source.source_type):
+            # No adapter means no change stream to read, so every tick of this schedule can only
+            # fail. Delete it instead of reporting the same failure once per interval for as long
+            # as the source lives. `sync_cdc_extraction_schedule` refuses to create it again.
+            self.log.info("source_type_does_not_support_cdc_deleting_schedule", source_type=self.source.source_type)
+            self._delete_own_schedule()
+            return False
+
         self.cdc_schemas = self._get_cdc_schemas()
         if not self.cdc_schemas:
             self.log.info("no_active_cdc_schemas_deleting_schedule")
@@ -1316,6 +1325,7 @@ class CDCExtractActivity:
                     #   (b) on crash-replay the already-flushed prefix of the in-flight
                     #       transaction is re-delivered — incremental_merge dedups by PK,
                     #       scd2_append may create duplicate history rows. Accepted vs. loss.
+                    #       The buffer lane trims that prefix in cleanup_superseded_files.
                     if (
                         self.last_complete_txn_end_lsn is not None
                         and self.last_complete_txn_end_lsn != self.last_confirmed_lsn

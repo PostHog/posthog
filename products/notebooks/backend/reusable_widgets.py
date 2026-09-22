@@ -1,6 +1,7 @@
 import json
 from collections.abc import Callable
 from datetime import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, Protocol, cast
 from uuid import UUID
 
@@ -134,6 +135,7 @@ class ReusableWidgetVersionDetail:
     security_review: WidgetSecurityReviewState | None
     has_demo_data: bool
     created_at: datetime
+    generation_cost_usd: Decimal | None = None
 
 
 @frozen
@@ -246,6 +248,7 @@ def _version_detail(
         security_review=_security_review_state(version),
         has_demo_data=bool(version.demo_data),
         created_at=version.created_at,
+        generation_cost_usd=version.generation_cost_usd,
     )
 
 

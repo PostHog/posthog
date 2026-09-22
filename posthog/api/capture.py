@@ -358,9 +358,10 @@ def _validate_event(ev: dict[str, Any], *, event_source: str, ai_lane: bool) -> 
             f"{fn} ({event_source}): '{event_name}' is a replay event; use the replay capture path"
         )
 
-    # The `$ai_` prefix, matching capture's own v1 rule. A prefixed name capture
-    # does not recognise still reaches the AI endpoint and is reported there as
-    # `misrouted_event`, so the authority stays server-side.
+    # The `$ai_` prefix, matching what billing's `is_llm_event` already keys on.
+    # Capture's AI endpoint admits a narrower allowlist, so a prefixed name it
+    # does not recognise is refused there as `non_ai_event`, which keeps the
+    # authority server-side.
     is_ai_event_name = event_name.startswith(AI_EVENT_NAME_PREFIX)
     if ai_lane and not is_ai_event_name:
         raise CaptureInternalError(
@@ -398,10 +399,9 @@ def prepare_capture_internal_batch(
     results map.
 
     ``ai_lane`` selects which lane the batch is bound for and, with it, which
-    event names are admissible.  The two lanes are mutually exclusive: capture's
-    v1 endpoints each refuse the other's traffic, so sending an event to the
-    wrong one earns a per-event ``misrouted_event`` drop.  Catching it here
-    turns that into an immediate, actionable error at the call site instead.
+    event names are admissible.  Capture's v1 AI endpoint refuses analytics
+    traffic with a per-event ``non_ai_event`` drop.  Catching it here turns that
+    into an immediate, actionable error at the call site instead.
     """
     _validate_batch_inputs(events, token=token, event_source=event_source, ai_lane=ai_lane)
 

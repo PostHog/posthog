@@ -11,6 +11,7 @@ from unittest import TestCase
 from unittest.mock import MagicMock, PropertyMock, patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 from django.utils.timezone import now
 
 import jwt
@@ -19,11 +20,12 @@ from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 from requests import Response, get
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_instance_license
 from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -1256,6 +1258,60 @@ class TestBillingUsageRequestSerializer(TestCase):
         self.assertIsNone(serializer.validated_data.get("end_date"))
 
 
+class TestBillingUpstreamValidationErrors(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("start_date", "required", "This field is required."),
+            ("usage_types", "invalid_input", "Invalid value. Check this parameter's format and allowed values."),
+            ("interval", "invalid_choice", "Select a valid option for this parameter."),
+        ]
+    )
+    def test_preserves_safe_field_and_code(self, field: str, code: str, detail: str) -> None:
+        error = Exception(
+            "Billing service returned bad status code: 400",
+            "body:",
+            {
+                "type": "validation_error",
+                "code": code,
+                "attr": field,
+                "detail": "Rejected private-input@example.com",
+                "extra": {"private": "upstream context"},
+            },
+        )
+
+        with self.assertRaises(ValidationError) as raised:
+            BillingViewset._raise_billing_error(error, Organization(id=uuid4()))
+
+        self.assertEqual(raised.exception.detail, {field: [detail]})
+        self.assertEqual(raised.exception.get_codes(), {field: [code]})
+
+    @parameterized.expand(
+        [
+            ("unknown_field", "validation_error", "private_field", "invalid_input"),
+            ("unknown_code", "validation_error", "start_date", "private_code"),
+            ("wrong_type", "server_error", "start_date", "required"),
+            ("missing_field", "validation_error", None, "invalid_input"),
+            ("malformed_field", "validation_error", ["start_date"], "required"),
+            ("malformed_code", "validation_error", "start_date", ["required"]),
+        ]
+    )
+    def test_masks_unrecognized_validation_errors(
+        self, _name: str, error_type: str, field: object, code: object
+    ) -> None:
+        error = Exception(
+            "Billing service returned bad status code: 400",
+            "body:",
+            {"type": error_type, "code": code, "attr": field, "detail": "Private upstream context"},
+        )
+
+        with self.assertRaises(BillingQueryRejected) as raised:
+            BillingViewset._raise_billing_error(error, Organization(id=uuid4()))
+
+        self.assertEqual(
+            str(raised.exception.detail), "Billing could not answer this request. Adjust the filters and try again."
+        )
+
+
 class TestBillingUsageAndSpendAPI(APILicensedTest):
     MOCK_USAGE_DATA = {"results": [{"data": [1, 2], "count": 2}]}
     MOCK_SPEND_DATA = {"results": [{"spend": 100.0, "usage": 10000}]}
@@ -1419,6 +1475,28 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(response.json()["code"], "billing_query_rejected")
         self.assertEqual(response.json()["detail"], BillingQueryRejected.default_detail)
         self.assertNotIn("managers.py", response.content.decode())
+
+    @parameterized.expand([("usage",), ("spend",)])
+    def test_billing_validation_errors_use_standard_response(self, endpoint: str) -> None:
+        with patch(f"ee.billing.billing_manager.BillingManager.get_{endpoint}_data") as mock_fetch:
+            mock_fetch.side_effect = self._billing_refusal(
+                400,
+                {
+                    "type": "validation_error",
+                    "code": "required",
+                    "attr": "start_date",
+                    "detail": "Rejected private-input@example.com",
+                    "extra": {"private": "upstream context"},
+                },
+            )
+
+            response = self.client.get(f"/api/billing/{endpoint}/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {"type": "validation_error", "code": "required", "attr": "start_date", "detail": "This field is required."},
+        )
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
     def test_a_failure_inside_billing_is_a_502_without_its_body(self, mock_get_usage_data):

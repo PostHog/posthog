@@ -34,6 +34,10 @@ _GITHUB_REF_RE = re.compile(r"^[A-Za-z0-9._\-/]+$")
 
 _GITHUB_COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
+# GitHub's own login rule: alphanumerics and single hyphens, never leading or trailing. Keeps a
+# crafted login out of the collaborator-permission URL path.
+_GITHUB_LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$")
+
 # Upper bound on the diff text we return, to keep a pathological diff (generated/vendored
 # files) from bloating the JSON response and worker memory. ~1 MB of text.
 _MAX_DIFF_CHARS = 1_000_000
@@ -416,6 +420,56 @@ class GitHubIntegration(GitHubIntegrationBase):
                 status_code=response.status_code,
             )
 
+    def get_collaborator_permission(self, repository: str, username: str) -> str:
+        """The user's effective permission on the repo: ``admin``, ``write``, ``read`` or ``none``.
+
+        GitHub's legacy ``permission`` field folds ``maintain`` into ``write`` and ``triage`` into
+        ``read``, which is the granularity a "can this person change the repo" gate needs. A 404
+        means no access at all. Every other non-200 raises, so a caller can fail closed rather than
+        read a blank response as a denial.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        if not _is_safe_github_repo_path(repo_path) or not _GITHUB_LOGIN_RE.fullmatch(username):
+            raise GitHubIntegrationError(f"GitHubIntegration: unsafe collaborator lookup for {repo_path}")
+
+        response = self.api_request(
+            "GET",
+            f"/repos/{repo_path}/collaborators/{username}/permission",
+            endpoint="/repos/{owner}/{repo}/collaborators/{username}/permission",
+        )
+        if response.status_code == 404:
+            return "none"
+        if response.status_code != 200:
+            raise GitHubIntegrationError(
+                f"GitHubIntegration: failed to read {username} permission on {repo_path}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+        return response.json().get("permission") or "none"
+
+    def _get_issue_by_number(self, repo_path: str, repository_name: str, issue_number: int) -> dict[str, Any] | None:
+        response = self.api_request(
+            "GET",
+            f"/repos/{repo_path}/issues/{issue_number}",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}",
+        )
+        if response.status_code not in {200, 404}:
+            raise GitHubIntegrationError(
+                f"GitHubIntegration: failed to retrieve issue {repo_path}#{issue_number}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+        if response.status_code == 404:
+            return None
+
+        issue = response.json()
+        if issue.get("pull_request"):
+            return None
+        return {
+            "id": str(issue_number),
+            "title": issue.get("title") or f"#{issue_number}",
+            "url": issue.get("html_url") or "",
+            "external_context": {"repository": repository_name, "number": issue_number},
+        }
+
     def search_issues(self, repository: str, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
         """Search existing GitHub issues in a repository for the link-existing flow."""
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
@@ -425,6 +479,12 @@ class GitHubIntegration(GitHubIntegrationBase):
         # `repository` is stored bare in external_context so build_external_issue_url can re-prefix
         # the org, matching what create_issue persists.
         repository_name = repo_path.split("/", 1)[1]
+
+        issue_number_match = re.fullmatch(r"#?([1-9][0-9]{0,9})", query.strip())
+        if issue_number_match:
+            issue = self._get_issue_by_number(repo_path, repository_name, int(issue_number_match.group(1)))
+            if issue:
+                return [issue]
 
         # Quote the user's text so search syntax in it (qualifiers like repo:, operators like OR)
         # is matched literally instead of rewriting the query, which would fill the result page
