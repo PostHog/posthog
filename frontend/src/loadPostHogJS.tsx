@@ -190,6 +190,9 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
     } else {
         posthog.init('fake_token', {
             autocapture: false,
+            // Pages without a project key only need `posthog` calls to be safe no-ops. Without this, the
+            // placeholder token still fetches remote config and flags from PostHog Cloud.
+            advanced_disable_flags: true,
             loaded: function (ph) {
                 ph.opt_out_capturing()
             },
