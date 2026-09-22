@@ -1,69 +1,23 @@
-"""Parity between Kev's own inference path and the vLLM port.
+"""Check an exported checkpoint against Kev's own inference path, on this machine, before any GPU is rented.
 
-    kev-vllm-parity reference --run jaredpalmer/kev-4b --records evals/public-pool-v6/test.jsonl --limit 32 --out ref.jsonl
     kev-vllm-parity local --checkpoint build/kev-4b --reference ref.jsonl --device mps
-    kev-vllm-parity compare --base-url http://gpu-box:8000 --reference ref.jsonl
 
-`local` runs the exported checkpoint through transformers on this machine, one row per question exactly as the
-vLLM plugin builds them, so an export problem (weight names, dtype, head, tokenizer) shows up before a GPU is rented.
-`reference` needs the `export` extra (it runs `kev` itself) and writes one line per record with the full-precision
-probabilities. `compare` posts the same records to a vLLM server running this plugin and reports the largest
-probability difference and any argmax flip. Kev's own bf16-versus-fp32 gap is 0.017 on its development rows, which
-is the bar a bf16 vLLM deployment has to meet.
+`local` runs the exported directory through transformers, one row per question exactly as the vLLM plugin builds
+them, so an export problem (weight names, dtype, head, tokenizer) shows up here. The reference file comes from the
+MLHog repo's `models/kev/parity.py reference`, which runs `kev` itself at full precision; the same repo's `compare`
+posts the records to a served model. Kev's own bf16-versus-fp32 gap is 0.017 on its development rows, which is the
+bar a bf16 deployment has to meet.
 """
 
 import argparse
 import json
 import sys
 import time
-import urllib.request
 from pathlib import Path
 
-from kev_vllm.kev_compat import SystemOneRequest, encode, rows_of, to_answers, to_record
+from kev_vllm.kev_compat import SystemOneRequest, encode, rows_of, to_record
 
 INFER_MAX_STATE, INFER_MAX_BRANCH = 8192, 8192
-
-
-def read_requests(path: Path, limit: int | None) -> list[dict]:
-    requests = []
-    with path.open() as f:
-        for line in f:
-            if not line.strip():
-                continue
-            requests.append(SystemOneRequest.model_validate(json.loads(line)).model_dump())
-            if limit and len(requests) >= limit:
-                break
-    return requests
-
-
-def reference(args: argparse.Namespace) -> None:
-    from kev.checkpoint import Checkpoint, LoadOptions
-    from kev.device import default_device, sync
-
-    device = args.device or default_device()
-    tokenizer, model = Checkpoint(args.run).load(device, LoadOptions.from_env())
-    requests = read_requests(args.records, args.limit)
-    with args.out.open("w") as out:
-        for i, request in enumerate(requests):
-            record, meta = to_record(SystemOneRequest.model_validate(request))
-            enc = model.encode(tokenizer, record, max_state=INFER_MAX_STATE, max_branch=INFER_MAX_BRANCH)
-            sync(device)
-            start = time.time()
-            probs = [p.tolist() for p in model.probs(enc)]
-            sync(device)
-            out.write(
-                json.dumps(
-                    {
-                        "request": request,
-                        "probs": probs,
-                        "answers": to_answers(probs, meta),
-                        "input_tokens": len(enc["ids"]),
-                        "latency_ms": round((time.time() - start) * 1000, 1),
-                    }
-                )
-                + "\n"
-            )
-            print(f"{i + 1}/{len(requests)} {len(enc['ids'])} tokens {(time.time() - start) * 1000:.0f} ms", file=sys.stderr)
 
 
 def report(pairs: list[tuple[list[float], list[float]]], tolerance: float, extra: dict) -> None:
@@ -115,51 +69,9 @@ def local(args: argparse.Namespace) -> None:
     report(pairs, args.tolerance, {"p50_ms": round(latencies[len(latencies) // 2], 1), "dtype": args.dtype, "device": args.device})
 
 
-def post_json(url: str, payload: dict) -> dict:
-    req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
-    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected the URL comes from the --base-url flag
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        return json.load(resp)
-
-
-def served_model(base_url: str) -> str:
-    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected the URL comes from the --base-url flag
-    with urllib.request.urlopen(f"{base_url}/v1/models", timeout=30) as resp:
-        return json.load(resp)["data"][0]["id"]
-
-
-def compare(args: argparse.Namespace) -> None:
-    model = args.model or served_model(args.base_url)
-    pairs, latencies = [], []
-    with args.reference.open() as f:
-        for line in f:
-            ref = json.loads(line)
-            start = time.time()
-            data = post_json(f"{args.base_url}/pooling", {"model": model, "data": ref["request"]})["data"]
-            latencies.append((time.time() - start) * 1000)
-            if data["usage"]["input_tokens"] != ref["input_tokens"]:
-                raise SystemExit(
-                    f"tokenization differs: vLLM counted {data['usage']['input_tokens']} tokens, reference {ref['input_tokens']}"
-                )
-            pairs.extend(zip(ref["probs"], data["probabilities_raw"], strict=True))
-    latencies.sort()
-    report(
-        pairs,
-        args.tolerance,
-        {"p50_ms": round(latencies[len(latencies) // 2], 1), "p95_ms": round(latencies[int(len(latencies) * 0.95)], 1)},
-    )
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
-    ref = sub.add_parser("reference")
-    ref.add_argument("--run", default="jaredpalmer/kev-4b")
-    ref.add_argument("--records", type=Path, required=True, help="jsonl of /v1/systemone requests, for example a Kev eval split")
-    ref.add_argument("--limit", type=int, default=32)
-    ref.add_argument("--device", default=None)
-    ref.add_argument("--out", type=Path, required=True)
-    ref.set_defaults(func=reference)
     loc = sub.add_parser("local")
     loc.add_argument("--checkpoint", type=Path, required=True, help="directory written by kev-vllm-export")
     loc.add_argument("--reference", type=Path, required=True)
@@ -167,12 +79,6 @@ def main() -> None:
     loc.add_argument("--dtype", choices=["bf16", "fp32"], default="bf16")
     loc.add_argument("--tolerance", type=float, default=0.02)
     loc.set_defaults(func=local)
-    cmp_ = sub.add_parser("compare")
-    cmp_.add_argument("--base-url", required=True)
-    cmp_.add_argument("--reference", type=Path, required=True)
-    cmp_.add_argument("--model", default=None)
-    cmp_.add_argument("--tolerance", type=float, default=0.02)
-    cmp_.set_defaults(func=compare)
     args = parser.parse_args()
     args.func(args)
 

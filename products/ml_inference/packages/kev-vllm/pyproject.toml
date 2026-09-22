@@ -5,10 +5,9 @@ build-backend = "hatchling.build"
 [project]
 name = "kev-vllm"
 version = "0.1.0"
-description = "Kev decision models served on vLLM: model plugin, /v1/systemone IO processor, export and parity tools"
+description = "Kev decision models served on vLLM: model plugin, /v1/systemone IO processor, checkpoint export and verification"
 requires-python = "==3.12.*"
 dependencies = [
-    "boto3>=1.35",
     "pydantic>=2.9",
     "torch>=2.6",
     "transformers>=5.10",
@@ -17,12 +16,11 @@ dependencies = [
 [project.optional-dependencies]
 # The serving image. vLLM ships Linux CUDA wheels only.
 serve = ["vllm==0.29.0; sys_platform == 'linux'"]
-# Export and reference parity run Kev itself, whose torch pin conflicts with vLLM's, hence the separate extra.
+# Export runs Kev itself, whose torch pin conflicts with vLLM's, hence the separate extra.
 export = ["kev", "peft>=0.21", "accelerate>=1.15", "safetensors>=0.5", "huggingface_hub>=0.30"]
 
 [project.scripts]
 kev-vllm-export = "kev_vllm.export:main"
-kev-vllm-upload = "kev_vllm.upload:main"
 kev-vllm-parity = "kev_vllm.parity:main"
 
 [project.entry-points."vllm.general_plugins"]

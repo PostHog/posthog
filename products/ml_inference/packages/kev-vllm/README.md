@@ -6,7 +6,9 @@ Three parts:
 
 - `kev_vllm.model`: `KevForDecision`, a vLLM pooling model on the stock Qwen3.5 class. Its pooler reads the option-end and decide token hidden states of each row and applies the head, so vLLM batches rows across requests.
 - `kev_vllm.io_processor`: a vLLM IO-processor plugin that accepts a TypeSafe `/v1/systemone` request on the `/pooling` endpoint, encodes it exactly as Kev does (one causal row per question), and returns Kev's answer shape plus `probabilities_raw`.
-- `kev_vllm.export`, `kev_vllm.upload`, `kev_vllm.parity`: turn a Kev checkpoint into a vLLM-loadable directory, publish it to the ML training account's base-models bucket, and check the served probabilities against Kev's own path.
+- `kev_vllm.export`, `kev_vllm.checkpoint`, `kev_vllm.parity`: turn a Kev checkpoint into a vLLM-loadable directory, verify one against its manifest, and check an export against Kev's own path on this machine.
+
+Publishing a version, measuring parity against a served model, load testing and the evals live in the MLHog repo under `models/kev`. This package downloads weights and runs inference; it never writes to a bucket.
 
 `kev_vllm/kev_compat.py` is vendored from Kev (Apache-2.0) because the `kev` package pins a torch version vLLM cannot use.
 
@@ -17,20 +19,6 @@ uv run --extra export kev-vllm-export --run jaredpalmer/kev-4b --out build/kev-4
 ```
 
 Downloads the base model and adapter, merges the LoRA in fp32 the way `kev.serve` does, casts to bf16, and writes `config.json`, `model.safetensors`, the tokenizer, and `manifest.json` with every hash. About 16 GB of RAM and 20 GB of disk.
-
-## Publish it
-
-```bash
-uv run kev-vllm-upload --src build/kev-4b --profile ml-prod-us-write
-```
-
-Writes to `s3://<base-models bucket>/posthog/kev-4b-vllm/<kev Hub revision>/` (the bucket comes from `--bucket` or `KEV_VLLM_BASE_MODELS_BUCKET`) and a `checksums.tsv` under `_provenance/`. It refuses a prefix that already has content, so a new export is a new version. The profile needs write access to the ML training account.
-
-When the export sits on a GPU box with a fast pipe and no AWS credentials, `bin/upload_via_box.py` publishes it from there: this machine creates the multipart upload, presigns one URL per part and per small file, the box PUTs them in parallel over ssh-delivered URLs, and this machine completes the upload and writes the provenance file. The 8.4 GB Kev-4B checkpoint took 37 seconds from a Lambda instance. The URLs must be SigV4; SigV2 signs the content type and fails with `SignatureDoesNotMatch`.
-
-```bash
-uv run python bin/upload_via_box.py --host ubuntu@<ip> --key ~/.ssh/<key> --remote-src /home/ubuntu/kev-vllm/build/kev-4b --profile ml-prod-us-write
-```
 
 ## Serve
 
@@ -52,24 +40,13 @@ The answer is under `data.answers`, in Kev's format, with `data.probabilities_ra
 
 Prefix caching is off for this model: vLLM does not enable it for pooling models on hybrid backbones, so every row recomputes its state. Batching across rows and requests still applies.
 
-## GPU smoke test
-
-`bin/gpu-smoke.sh` does the whole loop on a fresh CUDA box: installs the `serve` environment, fetches and checksums the checkpoint, starts the server, sends one request, and runs the parity comparison.
-
-```bash
-CHECKPOINT=s3://<base-models bucket>/posthog/kev-4b-vllm/<version> REFERENCE=reference-fp32.jsonl bin/gpu-smoke.sh
-```
-
 ## Parity
 
 ```bash
-uv run --extra export kev-vllm-parity reference --run jaredpalmer/kev-4b --records <kev repo>/evals/public-pool-v6/test.jsonl --limit 32 --out ref.jsonl
-uv run kev-vllm-parity compare --base-url http://<gpu box>:8000 --reference ref.jsonl
+uv run kev-vllm-parity local --checkpoint build/kev-4b --reference ref.jsonl --device mps
 ```
 
-The comparison fails above a 0.02 maximum probability difference, just past Kev's own measured bf16-versus-fp32 gap of 0.017.
-
-`local` runs the exported directory through transformers on this machine instead of a server, which checks the export itself before any GPU is involved. Measured 2026-09-21 for `jaredpalmer/kev-4b` at Hub revision `485ace87`, 32 records from `evals/public-pool-v6/test.jsonl` (one 77-way choice each, median 762 tokens), against Kev's fp32 path on the same Mac:
+`local` runs the exported directory through transformers on this machine, which checks the export itself before any GPU is involved. The reference file is Kev's own full-precision output for the same records, written by MLHog's `models/kev/parity.py reference`; the same script's `compare` posts the records to a served model. Both fail above a 0.02 maximum probability difference, just past Kev's own measured bf16-versus-fp32 gap of 0.017. Measured 2026-09-21 for `jaredpalmer/kev-4b` at Hub revision `485ace87`, 32 records from `evals/public-pool-v6/test.jsonl` (one 77-way choice each, median 762 tokens), against Kev's fp32 path on the same Mac:
 
 | Export check                    | Max probability difference | Argmax flips                                         |
 | ------------------------------- | -------------------------- | ---------------------------------------------------- |
@@ -87,7 +64,7 @@ Measured 2026-09-22 on a Lambda 2x H100 SXM instance (one GPU used), vLLM 0.29.0
 | Prefix cache reads                                                   | 0 (the plugin task skips the cache, and vLLM would not serve one for a hybrid pooling model anyway) |
 | Engine start after weights are on disk                               | 31 s                                                                                                |
 
-`bin/load_generator.py` produced the throughput row: a closed loop of N workers over the parity records, stdlib only.
+MLHog's `models/kev/load_generator.py` produced the throughput row: a closed loop of N workers over the parity records.
 
 ## Tests
 
