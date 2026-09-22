@@ -118,6 +118,25 @@ describe('SkillCatalog and exec learn', () => {
         expect(catalog.searchResults('support')[0]?.identifier).toBe('support')
     })
 
+    it('bounds token expansion while preserving informative matches', () => {
+        const catalog = SkillCatalog.fromZip(
+            makeArchive({
+                'first-token-match/SKILL.md': makeSkill('first-token-match', 'Contains alpha.', '# First'),
+                'overflow-match/SKILL.md': makeSkill(
+                    'overflow-match',
+                    'Only the final token matches.',
+                    '# Overflow\n\nninthtoken'
+                ),
+            })
+        )
+
+        expect(
+            catalog
+                .searchResults('a alpha bravo charlie delta echo foxtrot golf hotel ninthtoken')
+                .map((result) => result.identifier)
+        ).toEqual(['first-token-match'])
+    })
+
     it('returns the rendered skill with a manifest and supports scoped reads', async () => {
         const catalog = makeCatalog()
         const learn = new ExecLearnCatalog([], { posthog: catalog })

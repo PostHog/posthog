@@ -166,6 +166,8 @@ SKILL_SEARCH_MATCH_LIMIT = 2
 SKILL_SEARCH_EXCERPT_LENGTH = 300
 SKILL_SEARCH_TIMEOUT_MS = 5_000
 SKILL_SEARCH_EXACT_NAME_BONUS = 5_000
+SKILL_SEARCH_MAX_TOKENS = 8
+SKILL_SEARCH_MIN_TOKEN_LENGTH = 2
 SKILL_SEARCH_MIN_STEM_LENGTH = 5
 SKILL_SEARCH_STEM_SUFFIXES = ("ations", "ation", "tions", "tion", "ings", "ing", "es", "ed", "s")
 SkillSearchField = Literal["name", "description", "body", "path", "content"]
@@ -207,8 +209,10 @@ def _content_search_match(content: str, query: str, *, matched_field: str, path:
 
 
 def _skill_search_tokens(query: str) -> list[tuple[str, ...]]:
-    raw_tokens = dict.fromkeys(re.findall(r"[^\W_]+", query.lower()))
-    return [_skill_search_variants(token) for token in raw_tokens]
+    raw_tokens = list(dict.fromkeys(re.findall(r"[^\W_]+", query.lower())))
+    informative_tokens = [token for token in raw_tokens if len(token) >= SKILL_SEARCH_MIN_TOKEN_LENGTH]
+    bounded_tokens = informative_tokens[:SKILL_SEARCH_MAX_TOKENS] or raw_tokens[:1]
+    return [_skill_search_variants(token) for token in bounded_tokens]
 
 
 def _skill_search_variants(token: str) -> tuple[str, ...]:
@@ -479,12 +483,12 @@ class SkillBundleSustainedThrottle(_SkillUserThrottle):
 
 class SkillSearchBurstThrottle(_SkillUserThrottle):
     scope = "skills_search_burst"
-    rate = BurstRateThrottle.rate
+    rate = "60/minute"
 
 
 class SkillSearchSustainedThrottle(_SkillUserThrottle):
     scope = "skills_search_sustained"
-    rate = SustainedRateThrottle.rate
+    rate = "600/hour"
 
 
 class SkillListBurstThrottle(_SkillUserThrottle):

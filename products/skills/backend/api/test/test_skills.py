@@ -694,6 +694,19 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"][0]["name"] == "support"
 
+    def test_search_skills_bounds_token_expansion(self):
+        self.create_skill(name="first-token-match", description="Contains alpha.", body="# First")
+        self.create_skill(
+            name="overflow-match", description="Only the final token matches.", body="# Overflow\nninthtoken"
+        )
+
+        response = self.client.get(
+            self._url("search?query=a%20alpha%20bravo%20charlie%20delta%20echo%20foxtrot%20golf%20hotel%20ninthtoken")
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["name"] for result in response.json()["results"]] == ["first-token-match"]
+
     def test_search_skills_does_not_remove_distinct_final_stem_character(self):
         self.create_skill(name="statistics", description="Analyze numerical data.", body="# Statistics")
 
