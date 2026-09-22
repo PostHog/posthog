@@ -50,11 +50,14 @@ class EvaluationBackfill(TeamScopedRootMixin, UUIDModel):
         default=0, help_text="Units whose child workflow already existed, so the live path had them."
     )
     remaining_count = models.PositiveIntegerField(
-        default=0,
-        db_default=0,
+        null=True,
+        blank=True,
+        default=None,
         help_text=(
             "Units in the window still holding no result when the run finished, counted then "
-            "rather than inferred. Children this run started may not have landed yet."
+            "rather than inferred. Null means nothing counted it, so coverage is unknown: a run "
+            "from before this was recorded, or one that ended without the count. Children this "
+            "run started may not have landed when it runs."
         ),
     )
 

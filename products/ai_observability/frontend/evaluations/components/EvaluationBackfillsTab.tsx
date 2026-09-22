@@ -51,9 +51,12 @@ const BACKFILL_STATUS_TAG: Record<EvaluationBackfillStatusEnumApi, { label: stri
 
 const WINDOW_TIME_FORMAT = { formatDate: 'MMM D, YYYY', formatTime: 'HH:mm' }
 
-function backfillRemainderLabel(backfill: EvaluationBackfillApi): string {
-    // Counted when the run ended, so it says whether the window came out covered, by this run or
-    // by the evaluation's own live grading.
+function backfillRemainderLabel(backfill: EvaluationBackfillApi): string | null {
+    // Null means nothing counted the window, so the row says nothing about coverage rather than
+    // claiming it. Runs from before this was recorded read that way.
+    if (backfill.remaining_count === null) {
+        return null
+    }
     if (backfill.remaining_count === 0) {
         return `every ${backfill.target} in this range has a result`
     }
@@ -261,14 +264,14 @@ export function EvaluationBackfillsTab({
                 // the live path had the unit already. Once it ends, the measured remainder is the
                 // truer number, because a unit the live path judged mid-run is covered too and the
                 // walk never saw it.
-                const covered =
-                    backfill.status === 'completed'
-                        ? backfill.total_count - backfill.remaining_count
-                        : Math.min(backfill.dispatched_count + backfill.skipped_count, backfill.total_count)
+                const measured = backfill.status === 'completed' && backfill.remaining_count !== null
+                const covered = measured
+                    ? backfill.total_count - (backfill.remaining_count ?? 0)
+                    : Math.min(backfill.dispatched_count + backfill.skipped_count, backfill.total_count)
                 return (
                     <Tooltip
                         title={
-                            backfill.status === 'completed'
+                            measured
                                 ? `How many ${backfillUnitPlural(backfill)} hold a result, counted when the run ended. The evaluation grades new data on its own, so it covers some of them without this run.`
                                 : 'How many units this backfill has started evaluating. It does not track which of them have finished.'
                         }
@@ -479,7 +482,7 @@ export function EvaluationBackfillsTab({
                                         {pluralize(backfill.total_count, backfill.target)}
                                         {backfill.rerun_existing ? ' in range' : ' without a result'}
                                     </span>
-                                    {backfill.status === 'completed' && (
+                                    {backfillRemainderLabel(backfill) && (
                                         <>
                                             <span>·</span>
                                             <span>{backfillRemainderLabel(backfill)}</span>

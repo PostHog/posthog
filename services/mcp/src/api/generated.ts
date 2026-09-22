@@ -36464,8 +36464,11 @@ export namespace Schemas {
       readonly dispatched_count: number;
       /** Units the live path had already covered, so nothing was dispatched. */
       readonly skipped_count: number;
-      /** Units still holding no result when the run finished, counted at that moment. Zero means the window is covered, whoever graded it. */
-      readonly remaining_count: number;
+      /**
+         * Units still holding no result when the run finished, counted at that moment. Zero means the window is covered, whoever graded it.
+         * @nullable
+         */
+      readonly remaining_count: number | null;
       /** User who started the backfill. */
       readonly created_by: UserBasic | null;
       /** When the backfill was created. */
