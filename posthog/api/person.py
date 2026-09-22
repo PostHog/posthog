@@ -1536,10 +1536,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _message_assets_person_uuid(self) -> str:
         """Person uuid to read message assets for, without requiring a Postgres person row.
 
-        Message assets live in ClickHouse and are keyed by person uuid. Personless events produce
-        a deterministic person uuid that never gets a Postgres row, so resolving the URL id through
-        ``get_object`` would answer a valid profile with 404. A uuid in the URL is already the key,
-        so use it directly. A numeric pk carries no uuid of its own and still needs the lookup.
+        Message assets live in ClickHouse and are keyed by person uuid, so a uuid in the URL is
+        already the key. Personless events produce a person uuid that never gets a Postgres row,
+        and resolving it through ``get_object`` would answer a valid profile with 404.
+        A numeric pk carries no uuid of its own, so it still needs the lookup.
         """
         person_id = str(self.kwargs[self.lookup_field])
         try:
