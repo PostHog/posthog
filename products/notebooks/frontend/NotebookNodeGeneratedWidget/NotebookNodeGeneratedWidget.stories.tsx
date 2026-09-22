@@ -73,11 +73,3 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const BeforeGeneration: Story = {}
-
-export const BeforeGenerationNarrow: Story = {
-    parameters: {
-        testOptions: {
-            viewport: { width: 520, height: 900 },
-        },
-    },
-}
