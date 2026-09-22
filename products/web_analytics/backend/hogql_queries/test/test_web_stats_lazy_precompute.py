@@ -249,18 +249,25 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             (
                 "channel_filtered",
                 [SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)],
+                False,
             ),
-            ("unfiltered", []),
+            ("unfiltered", [], False),
+            ("with_compare_period", [], True),
         ]
     )
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
-    def test_year_long_range_stays_admitted(self, _name: str, props: list):
-        # The gate check the year-long dashboards depend on. Both shapes reach
+    def test_year_long_range_stays_admitted(self, _name: str, props: list, compare: bool):
+        # The gate check the year-long dashboards depend on. Every shape reaches
         # MAX_PRECOMPUTE_DAYS (366), so a narrower cap would send a "this year"
         # tile back to the live path through DateRangeOverMax.
+        #
+        # The compare case guards the span the gate measures. The previous
+        # period gets its own `ensure_web_stats_precomputed` call, so a
+        # year-to-date range with compare on must stay eligible even though the
+        # two periods together cover about two years of buckets.
         runner = WebStatsTableQueryRunner(
             team=self.team,
-            query=self._build_query(properties=props, date_from="2023-06-01", date_to="2024-01-07"),
+            query=self._build_query(properties=props, date_from="2023-06-01", date_to="2024-01-07", compare=compare),
         )
         with self._enable_lazy():
             assert can_use_stats_lazy_precompute(runner)
