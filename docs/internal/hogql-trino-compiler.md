@@ -144,6 +144,11 @@ queries = [compiler.compile(query) for query in batch]
 
 Create a new compiler when the batch needs fresh control-plane placement or team-table mappings. The one-shot `compile_hogql_to_trino_sql(...)` API prepares and compiles in one call. Django expansion stays one-shot because its schema and semantic expansion depend on query-specific team and user state.
 
+Both managed compilation modes preserve the source query's limits and offsets in the generated SQL and diagnostic HogQL.
+They do not add an implicit row limit or cap an explicit limit at the interactive query maximum.
+For example, an unbounded query stays unbounded, and `LIMIT 75000` stays `LIMIT 75000`.
+After deploying this behavior, rerun saved-view translation for queries compiled with the implicit cap; previously stored SQL is not rewritten automatically.
+
 Pass `expansion_mode=TrinoExpansionMode.DJANGO` when a query requires actions, cohorts, saved queries, filters, variables, access-controlled warehouse discovery, or other Django-backed semantic expansion. This compatibility mode builds the full database and maps:
 
 - `events` and `persons` to the project's provisioned tables in the `posthog` schema;

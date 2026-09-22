@@ -16,12 +16,15 @@ from products.actions.backend.models.action import Action
 from products.autoresearch.backend.dataset.templates import TEMPLATES
 from products.autoresearch.backend.dataset.validation import ValidationResult, ValidationWarning
 from products.autoresearch.backend.models import (
+    AutoresearchIteration,
     AutoresearchModel,
     AutoresearchPipeline,
     AutoresearchRun,
     AutoresearchTrainingRun,
 )
 from products.autoresearch.backend.presentation.views.serializers import (
+    _POPULATION_KIND_REQUIRED_DAYS,
+    POPULATION_KINDS,
     VALIDATION_WARNING_CODES,
     AutoresearchPipelineCreateSerializer,
     PopulationDefinitionField,
@@ -416,10 +419,23 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
 
     def test_list_training_runs_for_pipeline(self):
         pipeline = self._make_pipeline()
-        AutoresearchTrainingRun.objects.create(pipeline=pipeline, status="completed", iteration_count=1)
+        run = AutoresearchTrainingRun.objects.create(pipeline=pipeline, status="completed", iteration_count=1)
+        AutoresearchIteration.objects.create(
+            pipeline=pipeline,
+            training_run=run,
+            iteration_number=0,
+            recipe_hash="abc",
+            recipe_snapshot={"feature_sql": "SELECT 1"},
+            model_spec={"model_class": "m"},
+            status="kept",
+        )
         resp = self.client.get(f"{self.base_url}/{pipeline.id}/training_runs/")
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["count"] == 1
+        # The list carries the trail without recipes; history is where a recipe is read back.
+        trail_entry = resp.json()["results"][0]["iterations"][0]
+        assert trail_entry["model_spec"] == {"model_class": "m"}
+        assert "recipe_snapshot" not in trail_entry
 
     def test_list_runs_for_pipeline(self):
         pipeline = self._make_pipeline()
@@ -555,6 +571,11 @@ class TestValidationWarningSerializer(SimpleTestCase):
 class TestPipelineCreateSerializerValidation(SimpleTestCase):
     # Field- and target-shape validation runs in memory, so these cases never need a DB.
     # The endpoint wiring (bad body -> 400) is covered by the APIBaseTest create tests above.
+
+    def test_required_key_table_covers_every_population_kind(self) -> None:
+        # POPULATION_KINDS is derived from the compiler registry in dataset/labeling.py, so a kind
+        # registered there reaches this table unannounced. A gap is a 500 on create, not a 400.
+        self.assertEqual(set(_POPULATION_KIND_REQUIRED_DAYS), set(POPULATION_KINDS))
 
     def _serializer(self, **overrides: Any) -> AutoresearchPipelineCreateSerializer:
         data: dict[str, Any] = {"name": "Pipeline", "target_event": "$pageview", **overrides}

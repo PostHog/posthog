@@ -9,14 +9,20 @@ import typing
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.escape_sql import escape_clickhouse_identifier
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
-from posthog.hogql.printer import prepare_ast_for_printing
+from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.visitor import CloningVisitor
+
+from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
 
 if typing.TYPE_CHECKING:
     from posthog.models import Team
+
+    from products.batch_exports.backend.service import BatchExportField, BatchExportSchema
 
 
 class UnsupportedHogQLQueryError(Exception):
@@ -110,3 +116,96 @@ def validate_hogql_query_for_batch_export(hogql_query: str, team: "Team") -> Non
         prepare_ast_for_printing(parsed, context=context, dialect="clickhouse", stack=[])
     except ExposedHogQLError as e:
         raise UnsupportedHogQLQueryError(f"Invalid HogQL query: {e}") from e
+
+
+class SerializedExportProperties(CloningVisitor):
+    """Rebind event fields while preserving property access restrictions."""
+
+    def __init__(self, table_alias: str, context: HogQLContext) -> None:
+        super().__init__()
+        self.table_alias = table_alias
+
+        from products.access_control.backend.facade.api import (  # noqa: PLC0415 — keeps Django access-control imports off the batch worker import path
+            split_restricted_property_names,
+        )
+
+        restrictions = context.restricted_properties or set()
+        restricted_names = split_restricted_property_names(restrictions)
+        self.event_restrictions = set(restricted_names.event)
+        self.person_restrictions = set(restricted_names.person)
+        if restrictions and context.uses_new_events_schema():
+            self.event_restrictions.add(UNPARSEABLE_PROPERTIES_KEY)
+            self.person_restrictions.add(UNPARSEABLE_PROPERTIES_KEY)
+
+    def visit_field(self, node: ast.Field) -> ast.Expr:
+        node = super().visit_field(node)
+        if node.chain[0] == self.table_alias:
+            node.chain[0] = "events"
+        index = 1 if node.chain[0] == "events" else 0
+        if len(node.chain) <= index:
+            return node
+        if node.chain[index : index + 2] == ["person", "properties"]:
+            # `poe.properties` is the events table's own copy of the person properties.
+            node.chain[index : index + 2] = ["poe", "properties"]
+        if node.chain[index : index + 2] == ["poe", "properties"]:
+            restrictions, property_chain = self.person_restrictions, node.chain[index + 2 :]
+        elif str(node.chain[index]) == "properties":
+            restrictions, property_chain = self.event_restrictions, node.chain[index + 1 :]
+        else:
+            return node
+        if restrictions:
+            property_path = ".".join(str(part) for part in property_chain)
+            if not property_path:
+                raise QueryError("Batch export queries cannot select a restricted properties object")
+            if any(
+                property_path == key or property_path.startswith(key + ".") or key.startswith(property_path + ".")
+                for key in restrictions
+            ):
+                return ast.Constant(value=None)
+        return node
+
+
+def prepare_serialized_export_query(query: ast.SelectQuery, context: HogQLContext) -> ast.SelectQuery:
+    """Resolve a HogQL query the way the export SQL reads it."""
+    assert query.select_from is not None
+    query = SerializedExportProperties(query.select_from.alias or "events", context).visit(query)
+    assert query.select_from is not None
+    # The export SQL names its source `events`, so a user alias must not reach the printed fields.
+    query.select_from.alias = None
+    # Every export template hands the fields a String `properties`, the native source included, so
+    # the legacy shape is the one form valid on both. Resolving against the events table rather than
+    # a subquery is also what lets the swapper keep the cast a typed property needs.
+    context.use_new_events_schema = False
+    return typing.cast(ast.SelectQuery, prepare_ast_for_printing(query, context=context, dialect="clickhouse"))
+
+
+def serialize_batch_export_query(query: ast.SelectQuery, context: HogQLContext) -> "BatchExportSchema":
+    """Compile a HogQL query into stable ClickHouse expressions and aliases."""
+    if context.uses_new_events_schema():
+        hogql = print_prepared_ast(query, context=context, dialect="hogql")
+        query = prepare_serialized_export_query(typing.cast(ast.SelectQuery, parse_select(hogql)), context)
+        stack = [query]
+    else:
+        print_prepared_ast(query, context=context, dialect="clickhouse")
+        context = HogQLContext(
+            team_id=context.team_id,
+            enable_select_queries=True,
+            limit_top_select=False,
+            use_new_events_schema=False,
+        )
+        stack = []
+        hogql = print_prepared_ast(query, context=context, dialect="hogql")
+    fields: list[BatchExportField] = []
+    for field in query.select:
+        if isinstance(field, ast.Alias):
+            expression = print_prepared_ast(field.expr, context=context, dialect="clickhouse", stack=stack)
+            alias = escape_clickhouse_identifier(field.alias)
+        else:
+            expression = print_prepared_ast(field, context=context, dialect="clickhouse", stack=stack)
+            # String constants get parameterized by the ClickHouse printer (e.g., 'hello' becomes
+            # %(hogql_val_0)s), which escape_clickhouse_identifier rejects. Use the raw value instead.
+            alias = escape_clickhouse_identifier(
+                field.value if isinstance(field, ast.Constant) and isinstance(field.value, str) else expression
+            )
+        fields.append({"expression": expression, "alias": alias})
+    return {"fields": fields, "values": context.values, "hogql_query": hogql}

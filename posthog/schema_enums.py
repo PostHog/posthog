@@ -1259,6 +1259,12 @@ class StartHandling(StrEnum):
     LAST_SEEN = "last_seen"
 
 
+class Kind2(StrEnum):
+    EVENTS_NODE = "EventsNode"
+    ACTIONS_NODE = "ActionsNode"
+    EXPERIMENT_EXPOSURE_NODE = "ExperimentExposureNode"
+
+
 class ConversionRateInputType(StrEnum):
     MANUAL = "manual"
     AUTOMATIC = "automatic"
