@@ -42,6 +42,7 @@ import {
 import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
 import type { TriggerAction } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
+import type { HogFlowEditorMode } from '../../hogFlowEditorLogic'
 import { isSlackMessageTriggerConfig } from '../../registry/triggers/slackTriggerFilters'
 import { HogflowTestResult } from '../../steps/types'
 import { createExampleEvent, createExampleEventForTrigger } from '../../testEventFactory'
@@ -144,6 +145,7 @@ export const createGlobalsFromResponse = (
 export interface hogFlowEditorTestLogicValues {
     groupsEnabled: boolean // groupsAccessLogic
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
+    mode: HogFlowEditorMode // hogFlowEditorLogic
     selectedNodeId: string | null // hogFlowEditorLogic
     triggerAction: TriggerAction | null // workflowLogic
     workflow: HogFlow // workflowLogic
@@ -163,6 +165,7 @@ export interface hogFlowEditorTestLogicValues {
     sampleGlobals: CyclotronJobInvocationGlobals | null
     sampleGlobalsError: string | null
     sampleGlobalsLoading: boolean
+    sampleGlobalsStale: boolean
     shouldFilterTestAccounts: boolean
     shouldLoadSampleGlobals: boolean
     showTestInvocationErrors: boolean
@@ -243,8 +246,14 @@ export interface hogFlowEditorTestLogicActions {
             extendedSearch: boolean | undefined
         }
     }
+    markSampleGlobalsStale: () => {
+        value: true
+    }
     receiveExampleGlobals: (globals: object | null) => {
         globals: object | null
+    }
+    reloadSampleGlobalsOrDefer: () => {
+        value: true
     }
     resetAccumulatedVariables: () => {
         value: true
@@ -731,7 +740,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             workflowLogic(props),
             ['workflow', 'workflowSanitized', 'triggerAction'],
             hogFlowEditorLogic,
-            ['selectedNodeId'],
+            ['selectedNodeId', 'mode'],
             groupsModel,
             ['groupTypes'],
             groupsAccessLogic,
@@ -741,6 +750,8 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     })),
     actions({
         setTestResult: (testResult: HogflowTestResult | null) => ({ testResult }),
+        reloadSampleGlobalsOrDefer: true,
+        markSampleGlobalsStale: true,
         setTestResultMode: (mode: 'raw' | 'diff') => ({ mode }),
         loadSampleGlobals: (payload?: { eventId?: string; extendedSearch?: boolean }) => ({
             eventId: payload?.eventId,
@@ -773,6 +784,13 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             'raw' as 'raw' | 'diff',
             {
                 setTestResultMode: (_, { mode }) => mode,
+            },
+        ],
+        sampleGlobalsStale: [
+            false,
+            {
+                markSampleGlobalsStale: () => true,
+                loadSampleGlobals: () => false,
             },
         ],
         sampleGlobalsError: [
@@ -1197,6 +1215,13 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         },
     })),
     listeners(({ values, actions }) => ({
+        reloadSampleGlobalsOrDefer: () => {
+            if (values.mode === 'test') {
+                actions.loadSampleGlobals()
+                return
+            }
+            actions.markSampleGlobalsStale()
+        },
         setTestResult: ({ testResult }) => {
             if (testResult?.nextActionId && values.selectedNodeId) {
                 actions.setAnimatingEdgePair(values.selectedNodeId, testResult.nextActionId)
@@ -1222,11 +1247,19 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     })),
 
     subscriptions(({ actions, values }) => ({
+        // Build mounts this panel too, because the output mapping UI reads the sample event. A
+        // reload there would spend a query for someone who may never open Test, so it waits.
+        mode: (mode, previousMode) => {
+            if (mode !== 'test' || mode === previousMode || !values.sampleGlobalsStale) {
+                return
+            }
+            actions.loadSampleGlobals()
+        },
         shouldFilterTestAccounts: (value, previousValue) => {
             if (previousValue === undefined || value === previousValue || !values.shouldLoadSampleGlobals) {
                 return
             }
-            actions.loadSampleGlobals()
+            actions.reloadSampleGlobalsOrDefer()
         },
         matchingFilters: (filters, previousFilters) => {
             // The panel renders the pick-an-event-by-name selector only while this is false, so
@@ -1239,7 +1272,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             if (JSON.stringify(filters) === JSON.stringify(previousFilters)) {
                 return
             }
-            actions.loadSampleGlobals()
+            actions.reloadSampleGlobalsOrDefer()
         },
     })),
 
