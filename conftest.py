@@ -237,6 +237,7 @@ def pytest_runtestloop() -> None:
 
 
 def pytest_unconfigure() -> None:
+    # Control run for a CI timing experiment; no behavior change.
     # Frozen objects skip the final cyclic collections of interpreter shutdown, so their
     # finalizers run in the late teardown phase where extension modules may already be
     # gone — observed as exit code 139 (SIGSEGV) on the Temporal CI shards. Restore the
