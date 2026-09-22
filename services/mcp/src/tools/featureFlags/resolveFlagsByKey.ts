@@ -8,7 +8,9 @@ import type { Context } from '@/tools/types'
  * thrown: each caller words them differently (a miss is data for the by-key lookups).
  *
  * The list hides archived flags unless `archived` is passed, and archiving an experiment
- * archives its flag, so a first-pass miss is retried against archived flags before it counts.
+ * archives its flag, so archived flags are searched whenever the active list has no
+ * exact-case match. A case-insensitive active match alone must not settle the lookup,
+ * because an exact-case archived flag would then lose to a wrong-case active one.
  */
 export async function resolveFlagsByKey(
     context: Context,
@@ -23,10 +25,14 @@ export async function resolveFlagsByKey(
         })
         return page.results ?? []
     }
-    let results = await list(false)
-    if (results.length === 0) {
-        results = await list(true)
+    const exactCase = (flags: Schemas.FeatureFlag[]): Schemas.FeatureFlag[] => flags.filter((flag) => flag.key === key)
+
+    const active = await list(false)
+    const activeExact = exactCase(active)
+    if (activeExact.length > 0) {
+        return activeExact
     }
-    const exact = results.filter((flag) => flag.key === key)
-    return exact.length > 0 ? exact : results
+    const archived = await list(true)
+    const archivedExact = exactCase(archived)
+    return archivedExact.length > 0 ? archivedExact : [...active, ...archived]
 }

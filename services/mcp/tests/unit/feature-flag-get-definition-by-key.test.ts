@@ -48,12 +48,29 @@ describe('feature-flag-get-definition-by-key', () => {
         expect(result).toMatchObject({ id: 7, key: 'checkout', found: true })
     })
 
-    it('resolves a key case-insensitively when no exact-case match exists', async () => {
-        const request = vi.fn().mockResolvedValue({ results: [flag(7, 'New-Checkout')] })
+    it('resolves a key case-insensitively when neither list has an exact-case match', async () => {
+        const request = vi
+            .fn()
+            .mockResolvedValueOnce({ results: [flag(7, 'New-Checkout')] })
+            .mockResolvedValueOnce({ results: [] })
 
         const result = await tool.handler(createMockContext(request), { key: 'new-checkout' })
 
+        // A case-insensitive active match no longer settles the lookup on its own, so the
+        // archived list is consulted before falling back to it.
+        expect(request).toHaveBeenCalledTimes(2)
         expect(result).toMatchObject({ id: 7, key: 'New-Checkout', found: true })
+    })
+
+    it('prefers an exact-case archived flag over a case-insensitive active one', async () => {
+        const request = vi
+            .fn()
+            .mockResolvedValueOnce({ results: [flag(8, 'Old-Checkout')] })
+            .mockResolvedValueOnce({ results: [{ ...flag(9, 'old-checkout'), archived: true }] })
+
+        const result = await tool.handler(createMockContext(request), { key: 'old-checkout' })
+
+        expect(result).toMatchObject({ id: 9, key: 'old-checkout', archived: true, found: true })
     })
 
     it('raises a validation error when a key matches multiple flags only case-insensitively', async () => {

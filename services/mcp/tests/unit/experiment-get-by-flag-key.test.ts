@@ -186,7 +186,10 @@ describe('experiment-get-by-flag-key', () => {
     })
 
     it('raises a validation error when a key matches multiple flags only case-insensitively', async () => {
-        const request = vi.fn().mockResolvedValueOnce({ results: [flag(7, 'Checkout', [1]), flag(8, 'CHECKOUT', [2])] })
+        const request = vi
+            .fn()
+            .mockResolvedValueOnce({ results: [flag(7, 'Checkout', [1]), flag(8, 'CHECKOUT', [2])] })
+            .mockResolvedValueOnce({ results: [] })
 
         await expect(tool.handler(createMockContext(request), { feature_flag_key: 'checkout' })).rejects.toBeInstanceOf(
             ToolInputValidationError
