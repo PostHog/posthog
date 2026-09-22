@@ -30,6 +30,8 @@ interface ObjectTagsPropsBase {
     maxVisibleTags?: number
     /** Adds "more" to the overflow tag count. */
     showOverflowLabel?: boolean
+    /** Keeps visible long tags on one line and truncates their labels. */
+    truncateTags?: boolean
     /**
      * Let a long tag wrap and shrink rather than overflow its container. For narrow containers like a
      * sidebar column — off by default, since it lowers the min-content width and so shifts how much
@@ -80,6 +82,7 @@ export function ObjectTags({
     onTagClick,
     maxVisibleTags,
     showOverflowLabel = false,
+    truncateTags = false,
     wrap = false,
 }: ObjectTagsProps): JSX.Element {
     const objectTagId = useId()
@@ -103,7 +106,12 @@ export function ObjectTags({
         <div
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
-            className={clsx(className, 'inline-flex flex-wrap gap-0.5 items-center', wrap && 'min-w-0 max-w-full')}
+            className={clsx(
+                className,
+                'inline-flex gap-0.5 items-center',
+                truncateTags ? 'flex-nowrap max-w-full' : 'flex-wrap',
+                wrap && 'min-w-0 max-w-full'
+            )}
             data-attr={dataAttr}
         >
             {editingTags ? (
@@ -133,10 +141,13 @@ export function ObjectTags({
                                       key={index}
                                       type={COLOR_OVERRIDES[tag] || colorForString(tag)}
                                       onClick={onTagClick ? () => onTagClick(tag) : undefined}
-                                      className={wrap ? 'max-w-full' : undefined}
+                                      className={clsx(
+                                          wrap && 'max-w-full',
+                                          truncateTags && 'min-w-0 max-w-32 overflow-hidden'
+                                      )}
                                       wrap={wrap}
                                   >
-                                      {tag}
+                                      <span className={truncateTags ? 'truncate' : undefined}>{tag}</span>
                                   </LemonTag>
                               )
                           })}

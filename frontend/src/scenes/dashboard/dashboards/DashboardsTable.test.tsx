@@ -183,8 +183,10 @@ describe('DashboardsTable move to folder', () => {
             />
         )
 
-        expect(screen.getByText('+5 more')).toBeInTheDocument()
-        fireEvent.click(screen.getByText('+5 more'))
+        expect(screen.getByText('alpha')).toBeInTheDocument()
+        expect(screen.getByText('beta')).toBeInTheDocument()
+        expect(screen.getByText('+4 more')).toBeInTheDocument()
+        fireEvent.click(screen.getByText('+4 more'))
         fireEvent.click(screen.getByText('zeta'))
 
         expect(setFilters).toHaveBeenCalledWith({ tags: ['zeta'] })

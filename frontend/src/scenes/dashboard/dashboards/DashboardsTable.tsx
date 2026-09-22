@@ -170,14 +170,15 @@ export function DashboardsTable({
         {
             title: 'Tags',
             dataIndex: 'tags' as keyof DashboardType,
-            width: 240,
+            width: 320,
             render: function Render(tags: DashboardType['tags']) {
                 return tags ? (
                     <ObjectTags
                         tags={[...tags].sort()}
                         staticOnly
-                        maxVisibleTags={1}
+                        maxVisibleTags={2}
                         showOverflowLabel
+                        truncateTags
                         data-attr="dashboard-tags"
                         onTagClick={(tag) => setFilters({ tags: [tag] })}
                     />
@@ -337,6 +338,7 @@ export function DashboardsTable({
                 rowKey="id"
                 rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
                 tableLayout="fixed"
+                tableStyle={{ minWidth: '1800px' }}
                 columns={columns}
                 loading={dashboardsLoading}
                 defaultSorting={effectiveTableSorting}
