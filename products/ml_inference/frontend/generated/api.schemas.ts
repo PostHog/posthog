@@ -39,14 +39,14 @@ export interface DecisionQuestionApi {
 }
 
 /**
- * The questions to ask, keyed by an id of your choice. Answers come back under the same ids.
+ * The questions to ask, keyed by an id of your choice, at most 32 per request. Answers come back under the same ids.
  */
 export type DecideRequestApiQuestions = { [key: string]: DecisionQuestionApi }
 
 export interface DecideRequestApi {
     /** The text the questions are about, for example a support ticket or a session summary. */
     state: string
-    /** The questions to ask, keyed by an id of your choice. Answers come back under the same ids. */
+    /** The questions to ask, keyed by an id of your choice, at most 32 per request. Answers come back under the same ids. */
     questions: DecideRequestApiQuestions
     /** The decision model to ask, as a gateway model id. */
     model?: string

@@ -38,7 +38,9 @@ export const MlInferenceDecisionsDecideCreateBody = /* @__PURE__ */ zod.object({
                     ),
             })
         )
-        .describe('The questions to ask, keyed by an id of your choice. Answers come back under the same ids.'),
+        .describe(
+            'The questions to ask, keyed by an id of your choice, at most 32 per request. Answers come back under the same ids.'
+        ),
     model: zod
         .string()
         .default(mlInferenceDecisionsDecideCreateBodyModelDefault)
