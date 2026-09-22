@@ -11,8 +11,13 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
 import { useStorybookMocks } from '~/mocks/browser'
 
+import { spyOn } from 'storybook/test'
+
 import { TerminalDock } from './TerminalDock'
+import { terminalLogic } from './terminalLogic'
+import { TerminalRuntime } from './terminalRuntime'
 import { TerminalScene } from './TerminalScene'
+import type { TerminalSession } from './TerminalSession'
 
 function DockedTerminalPreview(): JSX.Element {
     const { location } = useValues(router)
@@ -42,6 +47,26 @@ const meta: Meta<typeof TerminalScene> = {
     title: 'Scenes-App/Terminal',
     component: TerminalScene,
     parameters: { layout: 'padded' },
+    beforeEach: () => {
+        // Visual snapshots must not depend on firmware downloads or Linux boot timing.
+        const start = spyOn(TerminalRuntime.prototype, 'start').mockImplementation(
+            async (_server, _signal, onReady) => {
+                const { view } = terminalLogic.cache.session as TerminalSession
+                view.options.cursorBlink = false
+                await new Promise<void>((resolve) =>
+                    view.write(
+                        'PostHog terminal\r\n\r\n' +
+                            '\x1b[32mposthog\x1b[0m:\x1b[34m/posthog/files\x1b[0m $ ls\r\n' +
+                            'Objects  Research\r\n' +
+                            '\x1b[32mposthog\x1b[0m:\x1b[34m/posthog/files\x1b[0m $ ',
+                        resolve
+                    )
+                )
+                onReady()
+            }
+        )
+        return () => start.mockRestore()
+    },
     render: (_, { parameters }) => {
         const notebook = {
             id: '01900000-0000-7000-8000-000000000002',
