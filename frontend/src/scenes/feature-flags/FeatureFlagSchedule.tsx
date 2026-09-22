@@ -493,10 +493,14 @@ export default function FeatureFlagSchedule(): JSX.Element {
 
     // Release condition sets are OR'd, and the sets that bucket on one identifier share a hash, so
     // a condition at or below a rollout the flag already serves to everyone reaches nobody new.
+    const scheduledAggregationTarget = sharedAggregationTarget(
+        schedulePayload.filters?.groups,
+        aggregationGroupTypeIndex
+    )
     const servedToEveryone = maxUntargetedRolloutPercentage(
         featureFlag.filters.groups,
         aggregationGroupTypeIndex,
-        sharedAggregationTarget(schedulePayload.filters?.groups, aggregationGroupTypeIndex)
+        scheduledAggregationTarget
     )
     const scheduledConditionRollout = maxRolloutPercentage(schedulePayload.filters?.groups)
     const conditionReachesNobodyNew =
@@ -986,11 +990,12 @@ export default function FeatureFlagSchedule(): JSX.Element {
                     {/* Warning when the added condition is already covered by what the flag serves */}
                     {conditionReachesNobodyNew && (
                         <LemonBanner type="warning">
-                            {/* Both percentages move while the banner stays up, so each is its own element rather
+                            {/* These values move while the banner stays up, so each is its own element rather
                                 than a bare text node among siblings. A page-translation extension swaps such a node
-                                for a <font>, and React then writes the new number to the detached one. */}
-                            This flag already serves <span translate="no">{`${servedToEveryone}%`}</span> of everyone,
-                            and release conditions are combined with OR. A condition at{' '}
+                                for a <font>, and React then writes the new value to the detached one. */}
+                            This flag already serves <span translate="no">{`${servedToEveryone}%`}</span> of all{' '}
+                            <span>{aggregationLabel(scheduledAggregationTarget, true).plural}</span>, and release
+                            conditions are combined with OR. A condition at{' '}
                             <span translate="no">{`${scheduledConditionRollout}%`}</span> will not change who sees the
                             flag when this change runs. To stage a rollout, lower the existing condition first, then
                             schedule the increases.

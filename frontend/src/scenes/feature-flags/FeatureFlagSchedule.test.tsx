@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+import { MOCK_DEFAULT_PROJECT, MOCK_GROUP_TYPES } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
@@ -8,6 +8,7 @@ import { BindLogic, Provider } from 'kea'
 import { dayjs } from 'lib/dayjs'
 
 import { useMocks } from '~/mocks/jest'
+import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
 import {
     AnyPropertyFilter,
@@ -47,11 +48,13 @@ function buildFeatureFlag({
     active,
     rolloutPercentage,
     aggregationGroupTypeIndex,
+    flagAggregationGroupTypeIndex,
     properties = [],
 }: {
     active: boolean
     rolloutPercentage: number | null
     aggregationGroupTypeIndex?: number | null
+    flagAggregationGroupTypeIndex?: number | null
     properties?: AnyPropertyFilter[]
 }): FeatureFlagType {
     return {
@@ -60,6 +63,7 @@ function buildFeatureFlag({
         active,
         filters: {
             ...NEW_FLAG.filters,
+            aggregation_group_type_index: flagAggregationGroupTypeIndex,
             groups: [
                 {
                     properties,
@@ -236,6 +240,36 @@ describe('FeatureFlagSchedule', () => {
 
             const warning = screen.queryByText(/This flag already serves/)
             expect(!!warning).toEqual(expectWarning)
+        }
+    )
+
+    // The measured rollout follows the aggregation target, so a flag that buckets on a group type
+    // serves a share of groups. Naming users there overstates who the flag reaches.
+    it.each([
+        { name: 'persons', flagAggregationGroupTypeIndex: undefined, expectedTarget: 'users' },
+        { name: 'a group type', flagAggregationGroupTypeIndex: 0, expectedTarget: 'organizations' },
+    ])(
+        'condition add warning on a flag aggregating on $name counts $expectedTarget',
+        ({ flagAggregationGroupTypeIndex, expectedTarget }) => {
+            renderSchedule(
+                buildFeatureFlag({ active: true, rolloutPercentage: 100, flagAggregationGroupTypeIndex }),
+                ScheduledChangeOperationType.AddReleaseCondition
+            )
+
+            act(() => {
+                groupsModel.actions.loadAllGroupTypesSuccess(MOCK_GROUP_TYPES)
+                featureFlagLogic(logicProps).actions.setSchedulePayload(
+                    {
+                        groups: [{ properties: [], rollout_percentage: 25, variant: null }],
+                        multivariate: null,
+                    },
+                    null
+                )
+            })
+
+            expect(screen.getByText(/This flag already serves/)).toHaveTextContent(
+                `This flag already serves 100% of all ${expectedTarget},`
+            )
         }
     )
 
