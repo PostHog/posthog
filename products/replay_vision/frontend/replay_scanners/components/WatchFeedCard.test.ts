@@ -1,5 +1,5 @@
 import type { ReplayObservationApi, WatchFeedReasonApi } from '../../generated/api.schemas'
-import { observationClipRange, watchReasonCopy } from './WatchFeedCard'
+import { observationClipRange, watchCardHeadline, watchReasonCopy } from './WatchFeedCard'
 
 describe('WatchFeedCard helpers', () => {
     describe('watchReasonCopy', () => {
@@ -127,13 +127,13 @@ describe('WatchFeedCard helpers', () => {
         })
     })
 
-    describe('observationClipRange', () => {
-        const observation = (scannerType: string | undefined, output: Record<string, unknown>): ReplayObservationApi =>
-            ({
-                scanner_snapshot: scannerType ? { scanner_type: scannerType } : undefined,
-                scanner_result: { model_output: output },
-            }) as unknown as ReplayObservationApi
+    const observation = (scannerType: string | undefined, output: Record<string, unknown>): ReplayObservationApi =>
+        ({
+            scanner_snapshot: scannerType ? { scanner_type: scannerType } : undefined,
+            scanner_result: { model_output: output },
+        }) as unknown as ReplayObservationApi
 
+    describe('observationClipRange', () => {
         it('reads the summary citation when the snapshot type is summarizer, even if the result omits scanner_type', () => {
             const range = observationClipRange(
                 observation('summarizer', {
@@ -147,6 +147,51 @@ describe('WatchFeedCard helpers', () => {
         it('reads the reasoning citation for a non-summarizer type', () => {
             const range = observationClipRange(observation('monitor', { reasoning: 'Retried (t 45) twice.' }))
             expect(range).toEqual({ startMs: 45_000, endMs: 45_000 })
+        })
+    })
+
+    describe('watchCardHeadline', () => {
+        it.each<{
+            name: string
+            scannerType: string
+            output: Record<string, unknown>
+            expected: ReturnType<typeof watchCardHeadline>
+        }>([
+            {
+                name: 'keeps the authored summarizer title and rides the summary along as the body',
+                scannerType: 'summarizer',
+                output: { title: 'Quick bug report', summary: 'Filed feedback (t 30) from the toast.' },
+                expected: {
+                    title: 'Quick bug report',
+                    body: { text: 'Filed feedback (t 30) from the toast.', segments: undefined },
+                },
+            },
+            {
+                name: 'promotes the first reasoning sentence with citations stripped, rest becomes the body',
+                scannerType: 'monitor',
+                output: { reasoning: 'Retried the form (t 45) twice. The submit then failed.' },
+                expected: { title: 'Retried the form twice.', body: { text: 'The submit then failed.' } },
+            },
+            {
+                name: 'leaves the body empty when the reasoning is a single sentence',
+                scannerType: 'monitor',
+                output: { reasoning: 'Retried the form twice.' },
+                expected: { title: 'Retried the form twice.', body: null },
+            },
+            {
+                name: 'never splits the headline inside a decimal',
+                scannerType: 'scorer',
+                output: { reasoning: 'Scored 9.5 on intent. Opened billing after.' },
+                expected: { title: 'Scored 9.5 on intent.', body: { text: 'Opened billing after.' } },
+            },
+            {
+                name: 'leaves no floating punctuation where a mid-sentence citation was stripped',
+                scannerType: 'monitor',
+                output: { reasoning: 'Compares plans at (t 30), then upgrades. Leaves happy.' },
+                expected: { title: 'Compares plans at, then upgrades.', body: { text: 'Leaves happy.' } },
+            },
+        ])('$name', ({ scannerType, output, expected }) => {
+            expect(watchCardHeadline(observation(scannerType, output))).toEqual(expected)
         })
     })
 })
