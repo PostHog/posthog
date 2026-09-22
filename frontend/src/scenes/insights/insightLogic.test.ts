@@ -270,10 +270,6 @@ describe('insightLogic', () => {
                     )
                     return [200, response]
                 },
-                '/api/projects/:team/insights/:id': async ({ request, params }) => {
-                    const payload = (await request.json()) as Record<string, any>
-                    return [200, { ...payload, id: params.id }]
-                },
             },
         })
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
@@ -913,7 +909,7 @@ describe('insightLogic', () => {
             const mockCreateCalls = (api.create as jest.Mock).mock.calls
             expect(mockCreateCalls).toEqual([
                 [
-                    `api/environments/${MOCK_TEAM_ID}/insights`,
+                    `api/projects/${MOCK_TEAM_ID}/insights`,
                     expect.objectContaining({
                         derived_name: '* from events',
                         query: {

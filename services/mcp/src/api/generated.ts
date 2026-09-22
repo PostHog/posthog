@@ -47389,12 +47389,14 @@ export namespace Schemas {
 
     /**
      * * `loops` - Loops
+     * * `broadcasts` - Broadcasts
      */
     export type HogFlowOriginProductEnum = typeof HogFlowOriginProductEnum[keyof typeof HogFlowOriginProductEnum];
 
 
     export const HogFlowOriginProductEnum = {
       Loops: 'loops',
+      Broadcasts: 'broadcasts',
     } as const;
 
     export interface HogFlowMasking {
@@ -47706,7 +47708,8 @@ export namespace Schemas {
       status?: HogFlowStateEnum;
       /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
        *
-       * * `loops` - Loops */
+       * * `loops` - Loops
+       * * `broadcasts` - Broadcasts */
       origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -48174,7 +48177,8 @@ export namespace Schemas {
       status?: HogFlowStateEnum;
       /** Product surface that owns this workflow. This value cannot change after creation.
        *
-       * * `loops` - Loops */
+       * * `loops` - Loops
+       * * `broadcasts` - Broadcasts */
       readonly origin_product: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -54225,6 +54229,37 @@ export namespace Schemas {
     export interface LinearTeamsResponse {
       /** Linear teams available to this integration. */
       teams: LinearTeam[];
+    }
+
+    export interface Link {
+      readonly id: string;
+      /**
+         * Destination the short link redirects to.
+         * @maxLength 2048
+         */
+      redirect_url: string;
+      /**
+         * Domain the short link is hosted on. Only phog.gg is accepted.
+         * @maxLength 255
+         */
+      short_link_domain: string;
+      /**
+         * The unique code/path that identifies the short link, e.g. 'abc123'
+         * @maxLength 255
+         */
+      short_code: string;
+      /**
+         * Free-form note about what the link is for.
+         * @nullable
+         */
+      description?: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** User who created the link. Null when that user was deleted. */
+      readonly created_by: UserBasic | null;
+      /** Folder path to file the link under in the project tree. */
+      _create_in_folder?: string;
     }
 
     /**
@@ -61626,6 +61661,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LegalDocumentDTO[];
+    }
+
+    export interface PaginatedLinkList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Link[];
     }
 
     export interface PaginatedListOutputList {
@@ -70961,7 +71005,8 @@ export namespace Schemas {
       status?: HogFlowStateEnum;
       /** Product surface that owns this workflow. This value cannot change after creation.
        *
-       * * `loops` - Loops */
+       * * `loops` - Loops
+       * * `broadcasts` - Broadcasts */
       readonly origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -71542,6 +71587,37 @@ export namespace Schemas {
          * @maxLength 400
          */
       version_description?: string;
+    }
+
+    export interface PatchedLink {
+      readonly id?: string;
+      /**
+         * Destination the short link redirects to.
+         * @maxLength 2048
+         */
+      redirect_url?: string;
+      /**
+         * Domain the short link is hosted on. Only phog.gg is accepted.
+         * @maxLength 255
+         */
+      short_link_domain?: string;
+      /**
+         * The unique code/path that identifies the short link, e.g. 'abc123'
+         * @maxLength 255
+         */
+      short_code?: string;
+      /**
+         * Free-form note about what the link is for.
+         * @nullable
+         */
+      description?: string | null;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+      /** User who created the link. Null when that user was deleted. */
+      readonly created_by?: UserBasic | null;
+      /** Folder path to file the link under in the project tree. */
+      _create_in_folder?: string;
     }
 
     export interface PatchedLiveDebuggerBreakpoint {
@@ -106819,9 +106895,9 @@ export namespace Schemas {
      */
     trigger?: string;
     /**
-     * Filter by workflow type. `loop` returns workflows owned by a Desktop loop; `messaging` returns the remaining workflows with an email, SMS, or push action; `automation` returns the rest.
+     * Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.
      */
-    type?: HogFlowsListType;
+    type?: string;
     updated_at?: string;
     };
 
@@ -106829,6 +106905,7 @@ export namespace Schemas {
 
 
     export const HogFlowsListOriginProduct = {
+      Broadcasts: 'broadcasts',
       Loops: 'loops',
     } as const;
 
@@ -106839,15 +106916,6 @@ export namespace Schemas {
       Active: 'active',
       Archived: 'archived',
       Draft: 'draft',
-    } as const;
-
-    export type HogFlowsListType = typeof HogFlowsListType[keyof typeof HogFlowsListType];
-
-
-    export const HogFlowsListType = {
-      Automation: 'automation',
-      Loop: 'loop',
-      Messaging: 'messaging',
     } as const;
 
     export type HogFlowsAssetsRetrieveParams = {
@@ -108141,6 +108209,17 @@ export namespace Schemas {
     export type JsSnippetVersionRetrieve200 = { [key: string]: unknown };
 
     export type JsSnippetVersionPartialUpdate200 = { [key: string]: unknown };
+
+    export type LinksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type LiveDebuggerBreakpointsListParams = {
     filename?: string;
