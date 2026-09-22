@@ -80,6 +80,7 @@ class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
                 "total": 0,
                 "succeeded": 0,
                 "failed": 0,
+                "recalculations_synced": 0,
             }
 
         # Step 2: Calculate each metric with limited concurrency
@@ -167,6 +168,7 @@ class ExperimentSavedMetricsWorkflow(PostHogWorkflow):
                 "total": 0,
                 "succeeded": 0,
                 "failed": 0,
+                "recalculations_synced": 0,
             }
 
         # Step 2: Calculate each metric with limited concurrency
