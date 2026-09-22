@@ -254,29 +254,38 @@ export function EvaluationBackfillsTab({
             },
         },
         {
-            title: 'Started',
+            title: 'Covered',
             key: 'progress',
             render: (_, backfill) => {
-                // The walk has handled a unit once it started it, or skipped it because the live
-                // path had covered it already. A rerun over a window that keeps growing can hand
-                // back more than the total it started from, so the bar stops at that total.
-                const handled = Math.min(backfill.dispatched_count + backfill.skipped_count, backfill.total_count)
+                // While the walk runs, coverage is what it has handled: started, or skipped because
+                // the live path had the unit already. Once it ends, the measured remainder is the
+                // truer number, because a unit the live path judged mid-run is covered too and the
+                // walk never saw it.
+                const covered =
+                    backfill.status === 'completed'
+                        ? backfill.total_count - backfill.remaining_count
+                        : Math.min(backfill.dispatched_count + backfill.skipped_count, backfill.total_count)
                 return (
-                    <Tooltip title="How many units this backfill has started evaluating. It does not track which of them have finished.">
+                    <Tooltip
+                        title={
+                            backfill.status === 'completed'
+                                ? `How many ${backfillUnitPlural(backfill)} hold a result, counted when the run ended. The evaluation grades new data on its own, so it covers some of them without this run.`
+                                : 'How many units this backfill has started evaluating. It does not track which of them have finished.'
+                        }
+                    >
                         <div className="min-w-24">
                             <span className="whitespace-nowrap" translate="no">
-                                {backfill.dispatched_count.toLocaleString('en-US')} /{' '}
-                                {backfill.total_count.toLocaleString('en-US')}
+                                {covered.toLocaleString('en-US')} / {backfill.total_count.toLocaleString('en-US')}
                             </span>
-                            {backfill.skipped_count > 0 && (
+                            {backfill.dispatched_count > 0 && (
                                 <span className="text-muted whitespace-nowrap">
                                     {' '}
-                                    · {backfill.skipped_count.toLocaleString('en-US')} skipped
+                                    · {backfill.dispatched_count.toLocaleString('en-US')} started
                                 </span>
                             )}
                             <LemonProgress
                                 className="mt-1"
-                                percent={backfill.total_count > 0 ? (handled / backfill.total_count) * 100 : 0}
+                                percent={backfill.total_count > 0 ? (covered / backfill.total_count) * 100 : 0}
                                 strokeColor={backfill.status === 'running' ? undefined : 'var(--border)'}
                             />
                         </div>
