@@ -67,7 +67,7 @@ class _HourlySeriesMatcher:
             and not expr.args[0].args
         )
 
-    def _row_local(self, expr: ast.Expr) -> bool:
+    def _row_local(self, expr: ast.Expr, *, allow_now: bool = False) -> bool:
         if isinstance(expr, ast.Constant):
             return True
         if isinstance(expr, ast.Field):
@@ -85,18 +85,21 @@ class _HourlySeriesMatcher:
                     ast.CompareOperationOp.In,
                     ast.CompareOperationOp.NotIn,
                 )
-                and self._row_local(expr.left)
-                and self._row_local(expr.right)
+                and self._row_local(expr.left, allow_now=allow_now)
+                and self._row_local(expr.right, allow_now=allow_now)
             )
         if isinstance(expr, ast.And | ast.Or):
-            return all(self._row_local(part) for part in expr.exprs)
+            return all(self._row_local(part, allow_now=allow_now) for part in expr.exprs)
         if isinstance(expr, ast.Not):
-            return self._row_local(expr.expr)
+            return self._row_local(expr.expr, allow_now=allow_now)
         if isinstance(expr, ast.Tuple):
-            return all(self._row_local(part) for part in expr.exprs)
-        if self._end(expr):
+            return all(self._row_local(part, allow_now=allow_now) for part in expr.exprs)
+        # A now()-anchored bound is sound in WHERE, where narrowing only removes older rows. Inside
+        # an aggregate argument it makes the bucket value depend on evaluation time, so a cached
+        # bucket and a full scan would disagree about the same hour.
+        if allow_now and self._end(expr):
             return True
-        if isinstance(expr, ast.ArithmeticOperation) and expr.op == ast.ArithmeticOperationOp.Sub:
+        if allow_now and isinstance(expr, ast.ArithmeticOperation) and expr.op == ast.ArithmeticOperationOp.Sub:
             return self._end(expr.left) and self._hours(expr.right) is not None
         return False
 
@@ -178,7 +181,7 @@ class _HourlySeriesMatcher:
     def _window_hours(self) -> int | None:
         """The number of hourly buckets the query asks for, when its bounds pin one."""
         query = self.query
-        if not isinstance(query.where, ast.And) or not self._row_local(query.where):
+        if not isinstance(query.where, ast.And) or not self._row_local(query.where, allow_now=True):
             return None
         row_limit = get_default_limit_for_context(LimitContext.QUERY_ASYNC)
         if query.limit is not None:
