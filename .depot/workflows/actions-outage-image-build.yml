@@ -53,6 +53,52 @@ jobs:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+            # Same step as in container-images-cd.yml, so an image built during an outage links
+            # backend exceptions to its release like a normal build does. The CLI reads the git
+            # metadata for the release from GITHUB_* variables, which Depot CI may not export, so
+            # they are set here from the context. Never blocks the build: the script turns the
+            # expected failures into an empty id with a warning, and continue-on-error plus the
+            # timeout cover the rest. An empty id is fine: the SDK treats a blank value as unset.
+            - name: Resolve error tracking release
+              id: release
+              continue-on-error: true
+              timeout-minutes: 5
+              env:
+                  POSTHOG_CLI_TOKEN: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
+                  POSTHOG_CLI_ENV_ID: '2'
+                  POSTHOG_CLI_INSTALL_DIR: ${{ runner.temp }}/posthog-cli
+                  POSTHOG_CLI_NO_MODIFY_PATH: '1'
+                  GITHUB_ACTIONS: 'true'
+                  GITHUB_SHA: ${{ github.sha }}
+                  GITHUB_REF_NAME: ${{ github.ref_name }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  GITHUB_SERVER_URL: ${{ github.server_url }}
+                  RELEASE_VERSION: ${{ github.sha }}
+              run: |
+                  release_id=""
+                  if [ -n "$POSTHOG_CLI_TOKEN" ]; then
+                      release_id="$(
+                          set -euo pipefail
+                          version="$(sed -n 's/^ARG POSTHOG_CLI_VERSION=//p' Dockerfile)"
+                          checksum="$(sed -n 's/^ARG POSTHOG_CLI_INSTALLER_SHA256=//p' Dockerfile)"
+                          [ -n "$version" ]
+                          [ -n "$checksum" ]
+                          installer="$RUNNER_TEMP/posthog-cli-installer.sh"
+                          curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
+                              -o "$installer" \
+                              "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv${version}/posthog-cli-installer.sh"
+                          echo "${checksum}  ${installer}" | sha256sum -c - >&2
+                          sh "$installer" >&2
+                          "$POSTHOG_CLI_INSTALL_DIR/posthog-cli" release resolve \
+                              --release-name posthog \
+                              --release-version "$RELEASE_VERSION"
+                      )" || release_id=""
+                  fi
+                  if [ -z "$release_id" ]; then
+                      echo "::warning::No error tracking release resolved; the image ships without POSTHOG_RELEASE_ID"
+                  fi
+                  echo "release-id=$release_id" >> "$GITHUB_OUTPUT"
+
             - name: Build and push
               id: build
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
@@ -61,10 +107,12 @@ jobs:
                   tags: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud-prs:${{ github.sha }}
                   platforms: linux/amd64,linux/arm64
                   # The GITHUB_* args become the git metadata on the error tracking release the
-                  # sourcemap upload stage creates. That stage builds in a container with no .git
-                  # directory, so the workflow has to hand them in (see Dockerfile).
+                  # sourcemap upload stage resolves, and creates when the release step above could
+                  # not. That stage builds in a container with no .git directory, so the workflow
+                  # has to hand them in (see Dockerfile).
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
+                      POSTHOG_RELEASE_ID=${{ steps.release.outputs.release-id }}
                       GITHUB_ACTIONS=true
                       GITHUB_SHA=${{ github.sha }}
                       GITHUB_REF_NAME=${{ github.ref_name }}
