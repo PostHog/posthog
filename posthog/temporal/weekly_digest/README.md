@@ -17,9 +17,10 @@ A body that runs on the event loop also trips Django's async-unsafe guard as soo
 Every team range and report generator must finish before organization aggregation starts.
 A Temporal patch marker preserves the activity scheduling behavior when replaying older histories.
 
-Generation has a four-hour run timeout and an eight-hour execution timeout shared across its two allowed attempts.
-Sending starts only after generation succeeds and has separate two-hour run and four-hour execution timeouts.
-Organizations are paged by id range, like teams; a second patch marker keeps offset paging for histories recorded before it.
+Generation has a 15-hour run timeout and a 15-hour execution timeout shared across its two allowed attempts.
+A healthy run can use the full generation budget without restarting and regenerating completed batches after six hours.
+Sending starts only after generation succeeds and has separate six-hour run and 15-hour execution timeouts.
+Organizations are paged by id range, like teams; a history without the second patch marker keeps offset paging.
 
 ## Redis Storage Structure
 

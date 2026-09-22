@@ -74,7 +74,7 @@ _test_state: _TestState = {"generate_called": False, "send_called": False, "capt
 class MockGenerateDigestDataWorkflow:
     @workflow.run
     async def run(self, input: GenerateDigestDataInput) -> None:
-        await workflow.sleep(timedelta(hours=3))
+        await workflow.sleep(timedelta(hours=7))
         _test_state["generate_called"] = True
 
 
@@ -188,13 +188,13 @@ class LegacySendWeeklyDigestWorkflow:
 
 ORGANIZATION_ID_RANGES = [
     OrganizationIdRange(start=uuid.UUID(int=1), end=uuid.UUID(int=2)),
-    OrganizationIdRange(start=uuid.UUID(int=2), end=None),
+    OrganizationIdRange(start=uuid.UUID(int=2), end=uuid.UUID(int=3)),
 ]
 
 
 @pytest.mark.asyncio
 async def test_weekly_digest_workflow():
-    """Generation can take three hours and still complete before sending starts."""
+    """Generation can take seven hours and still complete before sending starts."""
     _test_state["generate_called"] = False
     _test_state["send_called"] = False
 
@@ -632,8 +632,7 @@ async def test_send_weekly_digest_workflow():
 
 @pytest.mark.asyncio
 async def test_send_weekly_digest_replays_pre_patch_history() -> None:
-    # A send that started before the organization id range patch must finish on the new code,
-    # so its offset batches and count-organizations call have to replay unchanged.
+    # A history without the patch marker must replay through count-organizations and offset batches.
     @activity.defn(name="count-organizations")
     async def count_organizations_mocked() -> int:
         return 5

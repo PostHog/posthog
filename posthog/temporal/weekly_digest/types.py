@@ -55,17 +55,17 @@ class GenerateDigestDataBatchInput(BaseModel):
 
 
 class OrganizationIdRange(BaseModel):
-    """A half-open [start, end) range of organization ids. `end=None` runs to the last organization."""
+    """A half-open [start, end) range of organization ids."""
 
     start: UUID
-    end: UUID | None = None
+    end: UUID
 
 
 class GenerateOrganizationDigestInput(BaseModel):
     digest: Digest
     common: CommonInput
     organization_id_range: OrganizationIdRange | None = None
-    # Offset batch, kept for histories recorded before organizations were paged by id.
+    # Offset batch for histories without the organization id range patch marker.
     batch: tuple[int, int] | None = None
 
 
@@ -82,7 +82,7 @@ class SendWeeklyDigestBatchInput(BaseModel):
     digest: Digest
     common: CommonInput
     organization_id_range: OrganizationIdRange | None = None
-    # Offset batch, kept for histories recorded before organizations were paged by id.
+    # Offset batch for histories without the organization id range patch marker.
     batch: tuple[int, int] | None = None
 
 
