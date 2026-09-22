@@ -626,8 +626,8 @@ class TestLLMSkillAPI(APIBaseTest):
     def test_search_skills_ranks_multi_token_project_workflow_before_generic_matches(self):
         self.create_skill(
             name="self-driving-support-hero",
-            description="Run the prioritized support queue for tickets by SLA and priority.",
-            body="# Support hero\nSort tickets by SLA.",
+            description="Run the prioritized support inbox for tickets by SLA and priority.",
+            body="# Support hero\nWork the queue without missing tickets.",
         )
         for index in range(12):
             self.create_skill(
@@ -641,7 +641,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
         assert results[0]["name"] == "self-driving-support-hero"
-        assert results[0]["score"] == 395
+        assert results[0]["score"] == 213
         assert len(results) == SKILL_SEARCH_RESULT_LIMIT
 
     def test_search_skills_ranks_exact_name_before_substring_matches(self):
