@@ -57,9 +57,9 @@ DRAIN_METRICS_JOB = "person_pg_cleanup_drain"
 # Server-side cap on DeleteTombstonedPersonsRequest.person_uuids.
 RPC_MAX_UUIDS = 1000
 
-# personhog-router caps every backend call at BACKEND_TIMEOUT_MS whatever the client deadline. The
-# replica deletes at most REPLICA_CHUNK_SIZE persons per call (its BULK_CHUNK_SIZE) and clamps the
-# row budget to REPLICA_MAX_ROWS (its TOMBSTONED_DELETE_MAX_ROWS).
+# tonic takes min(client deadline, personhog-router's BACKEND_TIMEOUT_MS), which is 15 s, so this
+# deadline is what bounds a request. The replica deletes at most REPLICA_CHUNK_SIZE persons per call
+# and clamps the row budget to REPLICA_MAX_ROWS.
 ROUTER_BACKEND_TIMEOUT_SECONDS = 5.0
 REPLICA_CHUNK_SIZE = 100
 REPLICA_MAX_ROWS = 5000
@@ -70,6 +70,9 @@ REPLICA_MAX_ROWS = 5000
 STEP_START_ROWS = 500
 STEP_FLOOR_ROWS = 100
 STEP_GROWTH_SUCCESSES = 20
+
+# Short enough that a daily run always ends before the next one fires.
+SCHEDULED_MAX_RUNTIME_SECONDS = 20 * 3600
 
 RETRY_BACKOFF_CAP_SECONDS = 60.0
 PG_RETRY_BACKOFF_SECONDS = 1.0
@@ -898,12 +901,51 @@ def publish_drain_metrics(context: dagster.OpExecutionContext, totals: DrainTota
 @dagster.job(
     tags={
         "owner": JobOwners.TEAM_INGESTION.value,
-        # The sweep's run-queue tag (limit 1 in charts argocd/dagster/deployment_settings), so a
-        # drain never runs alongside a sweep or another drain.
-        "clickhouse_deletion_sweep_concurrency": "v1",
+        # Limit 1 in charts (argocd/dagster/deployment_settings), so a second drain queues rather
+        # than doubling the load on the persons writer.
+        "person_pg_cleanup_drain_concurrency": "v1",
+        # Catches a run that stops progressing without reaching its own max_runtime_seconds check.
+        # Safe to kill: every deleted row stays deleted.
+        "dagster/max_runtime": SCHEDULED_MAX_RUNTIME_SECONDS + 3600,
     },
     executor_def=dagster.in_process_executor,
 )
 def person_pg_cleanup_drain_job():
     """Hard-delete the Postgres rows of persons the ClickHouse sweep has already removed."""
     publish_drain_metrics(drain_person_pg_cleanup_queue())
+
+
+# Every DrainConfig field is pinned: dry_run defaults to true, so a field left out would drain
+# nothing forever.
+SCHEDULED_RUN_CONFIG = {
+    "ops": {
+        "drain_person_pg_cleanup_queue": {
+            "config": {
+                "dry_run": False,
+                "max_persons": 0,
+                "page_size": RPC_MAX_UUIDS,
+                "rpc_batch_size": REPLICA_CHUNK_SIZE,
+                "max_rows_per_request": 1000,
+                "pause_ms": 200,
+                "latency_multiplier": 1.0,
+                "rpc_timeout_seconds": ROUTER_BACKEND_TIMEOUT_SECONDS,
+                "max_runtime_seconds": SCHEDULED_MAX_RUNTIME_SECONDS,
+                "retry_backoff_seconds": 2.0,
+                "rpc_retry_window_seconds": 3600.0,
+                "pg_retry_window_seconds": 1800.0,
+                "blocked_retry_hours": 24,
+                "max_blocked": 1000,
+            }
+        }
+    }
+}
+
+person_pg_cleanup_drain_schedule = dagster.ScheduleDefinition(
+    job=person_pg_cleanup_drain_job,
+    cron_schedule="0 2 * * *",
+    execution_timezone="UTC",
+    name="person_pg_cleanup_drain_schedule",
+    run_config=SCHEDULED_RUN_CONFIG,
+    # The first scheduled run in a region needs watching, so an operator turns it on.
+    default_status=dagster.DefaultScheduleStatus.STOPPED,
+)

@@ -846,3 +846,18 @@ def test_publishes_every_measurement_the_run_took():
 def test_config_rejects_out_of_range_values(overrides, message):
     with pytest.raises(ValueError, match=message):
         drain.DrainConfig(**overrides)
+
+
+def test_the_scheduled_config_pins_every_setting_the_drain_reads():
+    pinned = set(drain.SCHEDULED_RUN_CONFIG["ops"]["drain_person_pg_cleanup_queue"]["config"])
+    assert set(drain.DrainConfig.model_fields) == pinned
+    assert (
+        drain.DrainConfig(**drain.SCHEDULED_RUN_CONFIG["ops"]["drain_person_pg_cleanup_queue"]["config"]).dry_run
+        is False
+    )
+
+
+def test_the_job_carries_the_tags_that_bound_a_run():
+    tags = drain.person_pg_cleanup_drain_job.tags
+    assert tags["person_pg_cleanup_drain_concurrency"] == "v1"
+    assert int(tags["dagster/max_runtime"]) > drain.SCHEDULED_MAX_RUNTIME_SECONDS
