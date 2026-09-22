@@ -211,6 +211,43 @@ describe('PostHog terminal commands', () => {
         await expect(commands.execute(['notebooks-list', '--limti', '10'], cwd)).rejects.toThrow('Unknown argument')
     })
 
+    it('keeps notebook search text in step with a content update', async () => {
+        const markdown = '# Notes\n\nrewritten body'
+        const content = {
+            type: 'doc',
+            content: [{ type: 'ph-markdown-notebook', attrs: { nodeId: 'markdown-notebook-v2', markdown } }],
+        }
+        await commands.execute(['notebook-update', '--json', JSON.stringify({ short_id: 'shortnote', content })], cwd)
+        expect(notebooksPartialUpdate).toHaveBeenLastCalledWith(
+            '42',
+            'shortnote',
+            { content, text_content: markdown },
+            expect.anything()
+        )
+        await commands.execute(
+            ['notebook-update', '--json', JSON.stringify({ short_id: 'shortnote', content, text_content: 'chosen' })],
+            cwd
+        )
+        expect(notebooksPartialUpdate).toHaveBeenLastCalledWith(
+            '42',
+            'shortnote',
+            { content, text_content: 'chosen' },
+            expect.anything()
+        )
+        jest.mocked(notebooksPartialUpdate).mockClear()
+        await expect(
+            commands.execute(
+                [
+                    'notebook-update',
+                    '--json',
+                    JSON.stringify({ short_id: 'shortnote', content: { type: 'doc', content: [{ type: 'p' }] } }),
+                ],
+                cwd
+            )
+        ).rejects.toThrow('Include text_content')
+        expect(notebooksPartialUpdate).not.toHaveBeenCalled()
+    })
+
     it('resolves argument types through references, unions and type arrays', async () => {
         await commands.execute(
             ['example/convert', '--dry-run', '--force', '--limit', '10', '--query', '{"kind":"events"}'],

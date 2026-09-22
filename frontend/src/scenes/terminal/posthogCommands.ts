@@ -15,7 +15,7 @@ import {
 import { NotebooksPartialUpdateBody } from 'products/notebooks/frontend/generated/api.zod'
 import { insightsList, insightsRetrieve } from 'products/product_analytics/frontend/generated/api'
 
-import { PosthogFilesystem, terminalFilename } from './posthogFilesystem'
+import { markdownNode, PosthogFilesystem, terminalFilename } from './posthogFilesystem'
 import { TerminalCommands } from './terminalCommands'
 
 interface Command {
@@ -80,6 +80,19 @@ function object(value: unknown): Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value)
         ? (value as Record<string, unknown>)
         : {}
+}
+
+// Notebook search reads text_content, and the API keeps the stored value when an update omits it,
+// so a content change has to carry the matching text the way every other writer does.
+function notebookUpdate<T extends { content?: unknown; text_content?: string | null }>(body: T): T {
+    if (body.content === undefined || body.text_content !== undefined) {
+        return body
+    }
+    const node = markdownNode(body.content)
+    if (!node) {
+        throw new Error('Include text_content when updating content that is not a markdown notebook.')
+    }
+    return { ...body, text_content: node.attrs.markdown }
 }
 
 const jsonTypes = ['number', 'integer', 'boolean', 'object', 'array']
@@ -176,7 +189,7 @@ export class PosthogCommands {
                 'notebooks-partial-update',
                 'Update a notebook. Include version when changing its contents.',
                 NotebooksPartialUpdateBody.extend(shortId.shape).strict(),
-                ({ short_id, ...body }) => notebooksPartialUpdate(projectId, short_id, body, options),
+                ({ short_id, ...body }) => notebooksPartialUpdate(projectId, short_id, notebookUpdate(body), options),
                 { readOnly: false, reference: notebook }
             ),
             command(

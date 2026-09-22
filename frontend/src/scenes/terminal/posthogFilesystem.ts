@@ -52,7 +52,7 @@ export function terminalFilename(name: string): string {
     return safe === '.' || safe === '..' ? safe.replace(/\./g, '%2E') : safe || 'Untitled'
 }
 
-function markdownNode(
+export function markdownNode(
     content: unknown
 ): { attrs: { markdown: string; [key: string]: unknown }; [key: string]: unknown } | null {
     if (!content || typeof content !== 'object' || !('content' in content) || !Array.isArray(content.content)) {
