@@ -262,13 +262,18 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             "Update your filters at: SETTINGS_URL#internal-user-filtering"
         )
 
-        # The destination's own filters keep the plain message, so a person is sent to the right place.
+        # A bad field in the destination on top of the project's names both sources, so a person
+        # knows there are two places to fix.
         own = compile_filters_bytecode(
             {"filter_test_accounts": True, "properties": [{"type": "hogql", "key": "$virt_traffic_type = 'y'"}]},
             self.team,
         )
-        assert "$virt_traffic_type" in own["bytecode_error"]
-        assert "$virt_is_bot" in own["bytecode_error"]
+        assert _normalize_error(own["bytecode_error"]) == (
+            "Your internal/test user filters read $virt_is_bot, which real-time filters cannot read. "
+            "Those exist when a query runs, not while an event is being processed. "
+            "This destination's own filters also read $virt_traffic_type. "
+            "Update your filters at: SETTINGS_URL#internal-user-filtering"
+        )
 
         # Both sources reading the same field must still name both, or the next save fails the same way.
         shared = compile_filters_bytecode(
