@@ -427,6 +427,7 @@ def roll_up_plan_parents_when_report_closes(
     receiver stops on its own writes instead of starting a second walk per level.
     """
     if instance.status not in (
+        SignalReport.Status.READY,
         SignalReport.Status.RESOLVED,
         SignalReport.Status.SUPPRESSED,
         SignalReport.Status.DELETED,
@@ -442,14 +443,21 @@ def roll_up_plan_parents_when_report_closes(
     report_id = str(instance.id)
     # After commit, so a rolled-back close never closes a plan, and best-effort: the step's own
     # verdict is the outcome that matters, and a plan left open is recoverable by hand.
-    transaction.on_commit(partial(_roll_up_plan_parents_safely, team_id=team_id, report_id=report_id))
+    transaction.on_commit(
+        partial(
+            _roll_up_plan_parents_safely,
+            team_id=team_id,
+            report_id=report_id,
+            include_report=instance.status == SignalReport.Status.READY,
+        )
+    )
 
 
-def _roll_up_plan_parents_safely(*, team_id: int, report_id: str) -> None:
+def _roll_up_plan_parents_safely(*, team_id: int, report_id: str, include_report: bool = False) -> None:
     from products.signals.backend.plan_rollup import roll_up_plan_parents  # noqa: PLC0415
 
     try:
-        roll_up_plan_parents(team_id=team_id, report_id=report_id)
+        roll_up_plan_parents(team_id=team_id, report_id=report_id, include_report=include_report)
     except Exception:
         logger.exception("signals.plan_rollup.failed", report_id=report_id, team_id=team_id)
 
