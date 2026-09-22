@@ -1,15 +1,9 @@
-"""Curated query: delivery and CI friction for one scope (an author or a GitHub team) against the repository.
+"""Curated query: delivery and CI friction for one scope against the repository. The SQL returns one
+row of facts per merged PR, and ``scope_repo_figure`` folds them into medians and shares in Python.
 
-Every figure is measured twice over the same window: over the scope's merged pull requests, and over
-every merged pull request in the repository (bots and drafts excluded, the scope included). The
-comparison is against the repository, not against the previous window: the question is "is this
-friction unusual here", and a trend over time says nothing about that.
-
-The SQL returns one row per merged PR and a handful of per-PR facts (ready time, approvals, pushes,
-merge-queue attempts, cost); the medians and shares are computed in Python. A window of merged PRs
-is small (thousands of rows at most), and folding in Python keeps the scope and repo figures on
-exactly one definition.
-"""
+The comparison is against the repository, not against the previous window: the question is "is this
+friction unusual here", and a trend over time says nothing about that. A window of merged pull
+requests is small, so folding in Python keeps the scope and the repo figures on one definition."""
 
 import math
 import statistics
@@ -30,21 +24,18 @@ from products.engineering_analytics.backend.facade.contracts import (
     ScopeRepoFigure,
 )
 from products.engineering_analytics.backend.logic.cost import PRCostAggregate
-from products.engineering_analytics.backend.logic.delivery_scope import DeliveryScope
-from products.engineering_analytics.backend.logic.merge_queue import GATE_RUN_LOOKBACK, gate_attempt_expr
+from products.engineering_analytics.backend.logic.delivery_scope import CI_LOOKBACK, DeliveryScope, SummaryScope
+from products.engineering_analytics.backend.logic.merge_queue import GATE_RUN_LOOKBACK, GateAttempt, gate_attempts_sql
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     DECISIVE_FAILURE_CONCLUSIONS_SQL,
     UNPAGED_SCAN_LIMIT,
+    date_to_filter_clause,
     run_started_floor_constant,
 )
 from products.engineering_analytics.backend.logic.queries.dora import DeployedPR, query_deployed_prs
-from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_costs_since
+from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_costs
 from products.engineering_analytics.backend.logic.views.reviews import APPROVED_STATE
-
-# How far before the window a merged PR's CI is still counted. A PR merged in the window usually
-# ran its CI days before; older runs are left out so the runs and jobs scans stay bounded.
-CI_LOOKBACK = timedelta(days=30)
 
 _MERGED_SELECT = f"""
     SELECT
@@ -93,29 +84,9 @@ _PUSHES_SELECT = f"""
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
-_GATE_ATTEMPTS_SELECT = f"""
-    SELECT
-        r.pr_number AS pr_number,
-        __GATE_ATTEMPT__ AS attempt,
-        min(r.run_started_at) AS started_at,
-        max(r.status = 'completed' AND r.conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) AS failed
-    FROM __RUNS_SOURCE__ AS r
-    WHERE r.is_merge_queue AND r.pr_number IN {{pr_numbers}} AND r.run_started_at >= {{gate_from}}
-    GROUP BY pr_number, attempt
-    LIMIT {UNPAGED_SCAN_LIMIT}
-"""
-
-
-@dataclass(frozen=True, kw_only=True)
-class _GateAttempt:
-    started_at: datetime
-    failed: bool
-
 
 @dataclass(frozen=True, kw_only=True)
 class MergedPRFacts:
-    """The per-PR facts behind every scope and repo figure."""
-
     number: int
     author: str
     in_scope: bool
@@ -124,7 +95,7 @@ class MergedPRFacts:
     ready_to_merge_seconds: int | None
     approved_at: list[datetime]
     pushed_at: list[datetime]
-    gate_attempts: list[_GateAttempt]
+    gate_attempts: list[GateAttempt]
     cost: PRCostAggregate | None
 
     @property
@@ -148,11 +119,6 @@ class MergedPRFacts:
     @property
     def pushes(self) -> int:
         return sum(1 for at in self.pushed_at if at <= self.merged_at)
-
-    @property
-    def landing_gate_attempts(self) -> list[_GateAttempt]:
-        # Bisection probes after the merge are not attempts to land it.
-        return [gate for gate in self.gate_attempts if gate.started_at <= self.merged_at]
 
 
 def quantile(values: list[float], q: float) -> float | None:
@@ -200,6 +166,14 @@ def _ready_seconds(facts: list[MergedPRFacts]) -> list[float]:
     return [float(f.ready_to_merge_seconds) for f in facts if f.ready_to_merge_seconds is not None]
 
 
+def _median_ready_to_merge(facts: list[MergedPRFacts]) -> float | None:
+    return quantile(_ready_seconds(facts), 0.5)
+
+
+def _p90_ready_to_merge(facts: list[MergedPRFacts]) -> float | None:
+    return quantile(_ready_seconds(facts), 0.9)
+
+
 @dataclass(frozen=True, kw_only=True)
 class _ApprovalSplit:
     before_seconds: float
@@ -217,11 +191,11 @@ def _approval_splits(facts: list[MergedPRFacts]) -> list[_ApprovalSplit]:
     return splits
 
 
-def _median_before_approval(facts: list[MergedPRFacts]) -> float | None:
+def _median_ready_to_first_approval(facts: list[MergedPRFacts]) -> float | None:
     return quantile([split.before_seconds for split in _approval_splits(facts)], 0.5)
 
 
-def _median_after_approval(facts: list[MergedPRFacts]) -> float | None:
+def _median_first_approval_to_merge(facts: list[MergedPRFacts]) -> float | None:
     return quantile([split.after_seconds for split in _approval_splits(facts)], 0.5)
 
 
@@ -236,8 +210,8 @@ def ready_to_merge_medians(facts: list[MergedPRFacts]) -> ReadyToMergeMedians:
         merged_pr_count=len(facts),
         ready_to_merge_seconds=quantile(_ready_seconds(facts), 0.5),
         p90_ready_to_merge_seconds=quantile(_ready_seconds(facts), 0.9),
-        ready_to_first_approval_seconds=_median_before_approval(facts),
-        first_approval_to_merge_seconds=_median_after_approval(facts),
+        ready_to_first_approval_seconds=_median_ready_to_first_approval(facts),
+        first_approval_to_merge_seconds=_median_first_approval_to_merge(facts),
         before_first_approval_share=_before_approval_share(facts),
     )
 
@@ -264,67 +238,31 @@ def _pushes_after_approval(facts: list[MergedPRFacts]) -> float | None:
 
 
 def _queue_attempts(facts: list[MergedPRFacts]) -> float | None:
-    counts = [len(f.landing_gate_attempts) for f in facts if f.landing_gate_attempts]
+    counts = [len(f.gate_attempts) for f in facts if f.gate_attempts]
     return statistics.fmean(counts) if counts else None
 
 
 def _failed_queue_share(facts: list[MergedPRFacts]) -> float | None:
-    queued = [f for f in facts if f.landing_gate_attempts]
+    queued = [f for f in facts if f.gate_attempts]
     if not queued:
         return None
-    return sum(1 for f in queued if any(gate.failed for gate in f.landing_gate_attempts)) / len(queued)
+    return sum(1 for f in queued if any(gate.failed for gate in f.gate_attempts)) / len(queued)
 
 
-class DeliverySummaryAggregator:
-    """Folds the per-PR facts into scope and repo figures. Every figure applies one measure to both
-    populations, so the scope and the repo can never be measured two different ways."""
-
-    def __init__(self, facts: list[MergedPRFacts]) -> None:
-        self._repo = facts
-        self._scope = [fact for fact in facts if fact.in_scope]
-
-    @property
-    def scope_facts(self) -> list[MergedPRFacts]:
-        return self._scope
-
-    def _figure(self, measure: Callable[[list[MergedPRFacts]], float | None]) -> ScopeRepoFigure:
-        return ScopeRepoFigure(scope=measure(self._scope), repo=measure(self._repo))
-
-    def cost_per_merged_pr(self) -> ScopeRepoFigure:
-        return self._figure(_median_cost)
-
-    def billable_minutes_per_merged_pr(self) -> ScopeRepoFigure:
-        return self._figure(_median_billable_minutes)
-
-    def cost_per_push(self) -> ScopeRepoFigure:
-        return self._figure(_cost_per_push)
-
-    def ready_to_merge(self, q: float) -> ScopeRepoFigure:
-        return self._figure(lambda facts: quantile(_ready_seconds(facts), q))
-
-    def median_ready_to_first_approval(self) -> ScopeRepoFigure:
-        return self._figure(_median_before_approval)
-
-    def median_first_approval_to_merge(self) -> ScopeRepoFigure:
-        return self._figure(_median_after_approval)
-
-    def before_first_approval_share(self) -> ScopeRepoFigure:
-        return self._figure(_before_approval_share)
-
-    def pushes_after_approval(self) -> ScopeRepoFigure:
-        return self._figure(_pushes_after_approval)
-
-    def merge_queue_attempts(self) -> ScopeRepoFigure:
-        return self._figure(_queue_attempts)
-
-    def failed_merge_queue_share(self) -> ScopeRepoFigure:
-        return self._figure(_failed_queue_share)
+def scope_repo_figure(
+    scope_facts: list[MergedPRFacts],
+    facts: list[MergedPRFacts],
+    measure: Callable[[list[MergedPRFacts]], float | None],
+) -> ScopeRepoFigure:
+    """Applies one measure to the PRs in scope and to every PR, so the scope and the repo can never be
+    measured two different ways."""
+    return ScopeRepoFigure(scope=measure(scope_facts), repo=measure(facts))
 
 
 def _lead_time(
     curated: CuratedGitHubSource,
     *,
-    scope: DeliveryScope,
+    scope: SummaryScope,
     date_from: datetime,
     date_to: datetime | None,
     scope_merged_count: int,
@@ -333,7 +271,7 @@ def _lead_time(
         curated=curated,
         date_from=date_from,
         date_to=date_to,
-        scope_predicate=scope.pr_predicate(members_source=curated.members_source(), prefix=""),
+        scope_predicate=scope.pr_predicate(curated, prefix=""),
         scope_placeholders=scope.placeholders(),
     )
     empty = duration_distribution([])
@@ -371,9 +309,9 @@ def _lead_time(
             for row in deployed.rows
             if row.in_scope and in_window(row.merged_at) and (date_to is None or row.deployed_at <= date_to)
         ),
-        open_to_deploy=pair(lambda row: (row.deployed_at - row.created_at).total_seconds()),
-        open_to_merge=pair(lambda row: (row.merged_at - row.created_at).total_seconds()),
-        merge_to_deploy=pair(lambda row: (row.deployed_at - row.merged_at).total_seconds()),
+        open_to_deploy=pair(lambda row: row.open_to_deploy_seconds),
+        open_to_merge=pair(lambda row: row.open_to_merge_seconds),
+        merge_to_deploy=pair(lambda row: row.merge_to_deploy_seconds),
     )
 
 
@@ -391,16 +329,12 @@ def _query_merged_rows(
     curated: CuratedGitHubSource, *, scope: DeliveryScope, date_from: datetime, date_to: datetime | None
 ) -> list[_MergedRow]:
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from), **scope.placeholders()}
-    date_to_clause = ""
-    if date_to is not None:
-        placeholders["date_to"] = ast.Constant(value=date_to)
-        date_to_clause = "AND pr.merged_at <= {date_to}"
     ready = curated.ready_to_merge_sql()
     sql = ready.with_clause + (
-        _MERGED_SELECT.replace("__SCOPE__", scope.pr_predicate(members_source=curated.members_source()))
+        _MERGED_SELECT.replace("__SCOPE__", scope.pr_predicate(curated))
         .replace("__READY_TO_MERGE__", ready.expr)
         .replace("__READY_JOIN__", ready.join)
-        .replace("__DATE_TO__", date_to_clause)
+        .replace("__DATE_TO__", date_to_filter_clause(date_to, placeholders, column="pr.merged_at"))
         .replace("__PR_SOURCE__", curated.pr_source())
     )
     response = curated.run(sql, query_type="engineering_analytics.delivery_summary_merged", placeholders=placeholders)
@@ -435,7 +369,7 @@ def _merged_facts(
     *,
     approved_at: list[datetime],
     pushed_at: list[datetime] | None = None,
-    gate_attempts: list[_GateAttempt] | None = None,
+    gate_attempts: list[GateAttempt] | None = None,
     cost: PRCostAggregate | None = None,
 ) -> MergedPRFacts:
     return MergedPRFacts(
@@ -464,7 +398,7 @@ def query_ready_to_merge_facts(
 
 
 def _query_merged_facts(
-    curated: CuratedGitHubSource, *, scope: DeliveryScope, date_from: datetime, date_to: datetime | None
+    curated: CuratedGitHubSource, *, scope: SummaryScope, date_from: datetime, date_to: datetime | None
 ) -> list[MergedPRFacts]:
     rows = _query_merged_rows(curated, scope=scope, date_from=date_from, date_to=date_to)
     pr_numbers = sorted({row.number for row in rows})
@@ -489,9 +423,13 @@ def _query_merged_facts(
 
     gate_from = date_from - GATE_RUN_LOOKBACK
     gates_response = curated.run(
-        _GATE_ATTEMPTS_SELECT.replace("__RUNS_SOURCE__", runs_source).replace(
-            "__GATE_ATTEMPT__", gate_attempt_expr("r.head_branch")
-        ),
+        gate_attempts_sql(
+            runs_source=runs_source,
+            pull_requests_source=curated.pr_source(),
+            pull_request_filter="pr.number IN {pr_numbers} AND pr.merged_at IS NOT NULL",
+            decisive_failure_conclusions_sql=DECISIVE_FAILURE_CONCLUSIONS_SQL,
+        )
+        + f"\nLIMIT {UNPAGED_SCAN_LIMIT}",
         query_type="engineering_analytics.delivery_summary_gate_attempts",
         placeholders={
             "pr_numbers": numbers,
@@ -499,12 +437,24 @@ def _query_merged_facts(
             "run_started_floor": run_started_floor_constant(gate_from),
         },
     )
-    gates: dict[int, list[_GateAttempt]] = defaultdict(list)
-    for number, _attempt, started_at, failed in gates_response.results or []:
+    gates: dict[int, list[GateAttempt]] = defaultdict(list)
+    for number, attempt, started_at, completed_at, unfinished, failed, _merged_at in gates_response.results or []:
         if started_at is not None:
-            gates[int(number)].append(_GateAttempt(started_at=started_at, failed=bool(failed)))
+            gates[int(number)].append(
+                GateAttempt(
+                    started_at=started_at,
+                    completed_at=None if unfinished else completed_at,
+                    attempt=attempt or "",
+                    failed=bool(failed),
+                )
+            )
 
-    costs = query_pr_costs_since(curated=curated, pr_numbers=pr_numbers, run_from=run_from)
+    # A resolved source is one repository's tables, so dropping the owner and name cannot collide two
+    # pull requests. The timelines read keeps the full key, because it shows the repository per row.
+    costs = {
+        number: cost
+        for (_, _, number), cost in query_pr_costs(curated=curated, pr_numbers=pr_numbers, run_from=run_from).items()
+    }
 
     return [
         _merged_facts(
@@ -519,20 +469,15 @@ def _query_merged_facts(
 
 
 def query_delivery_summary(
-    *, curated: CuratedGitHubSource, scope: DeliveryScope, date_from: datetime, date_to: datetime | None
+    *, curated: CuratedGitHubSource, scope: SummaryScope, date_from: datetime, date_to: datetime | None
 ) -> DeliverySummary:
     facts = _query_merged_facts(curated, scope=scope, date_from=date_from, date_to=date_to)
-    aggregator = DeliverySummaryAggregator(facts)
-    scope_facts = aggregator.scope_facts
+    scope_facts = [fact for fact in facts if fact.in_scope]
 
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from), **scope.placeholders()}
-    date_to_clause = ""
-    if date_to is not None:
-        placeholders["date_to"] = ast.Constant(value=date_to)
-        date_to_clause = "AND pr.created_at <= {date_to}"
     counts = curated.run(
-        _SCOPE_COUNTS_SELECT.replace("__SCOPE__", scope.pr_predicate(members_source=curated.members_source()))
-        .replace("__DATE_TO__", date_to_clause)
+        _SCOPE_COUNTS_SELECT.replace("__SCOPE__", scope.pr_predicate(curated))
+        .replace("__DATE_TO__", date_to_filter_clause(date_to, placeholders, column="pr.created_at"))
         .replace("__PR_SOURCE__", curated.pr_source()),
         query_type="engineering_analytics.delivery_summary_counts",
         placeholders=placeholders,
@@ -552,9 +497,9 @@ def query_delivery_summary(
         merged_pr_count=len(scope_facts),
         open_pr_count=int(open_now or 0),
         draft_pr_count=int(drafts or 0),
-        cost_per_merged_pr_usd=aggregator.cost_per_merged_pr(),
-        billable_minutes_per_merged_pr=aggregator.billable_minutes_per_merged_pr(),
-        cost_per_push_usd=aggregator.cost_per_push(),
+        cost_per_merged_pr_usd=scope_repo_figure(scope_facts, facts, _median_cost),
+        billable_minutes_per_merged_pr=scope_repo_figure(scope_facts, facts, _median_billable_minutes),
+        cost_per_push_usd=scope_repo_figure(scope_facts, facts, _cost_per_push),
         total_cost_usd=sum(cost.estimated_cost_usd for cost in costed if cost.estimated_cost_usd is not None)
         if costed
         else None,
@@ -562,14 +507,14 @@ def query_delivery_summary(
         if jobs_available
         else None,
         push_count=sum(f.pushes for f in scope_facts),
-        median_ready_to_merge_seconds=aggregator.ready_to_merge(0.5),
-        p90_ready_to_merge_seconds=aggregator.ready_to_merge(0.9),
-        median_ready_to_first_approval_seconds=aggregator.median_ready_to_first_approval(),
-        median_first_approval_to_merge_seconds=aggregator.median_first_approval_to_merge(),
-        before_first_approval_share=aggregator.before_first_approval_share(),
-        pushes_after_approval_per_merged_pr=aggregator.pushes_after_approval(),
-        merge_queue_attempts_per_merged_pr=aggregator.merge_queue_attempts(),
-        failed_merge_queue_share=aggregator.failed_merge_queue_share(),
+        median_ready_to_merge_seconds=scope_repo_figure(scope_facts, facts, _median_ready_to_merge),
+        p90_ready_to_merge_seconds=scope_repo_figure(scope_facts, facts, _p90_ready_to_merge),
+        median_ready_to_first_approval_seconds=scope_repo_figure(scope_facts, facts, _median_ready_to_first_approval),
+        median_first_approval_to_merge_seconds=scope_repo_figure(scope_facts, facts, _median_first_approval_to_merge),
+        before_first_approval_share=scope_repo_figure(scope_facts, facts, _before_approval_share),
+        pushes_after_approval_per_merged_pr=scope_repo_figure(scope_facts, facts, _pushes_after_approval),
+        merge_queue_attempts_per_merged_pr=scope_repo_figure(scope_facts, facts, _queue_attempts),
+        failed_merge_queue_share=scope_repo_figure(scope_facts, facts, _failed_queue_share),
         lead_time=_lead_time(
             curated, scope=scope, date_from=date_from, date_to=date_to, scope_merged_count=len(scope_facts)
         ),

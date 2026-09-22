@@ -1712,7 +1712,7 @@ def test_unreadable_owners_registry_posts_nothing(team, stamphog_chain: Stamphog
     assert fakes.FakeSlackIntegration.posted_messages == []
 
 
-# posthog_owners validates the whole document, so the registry has to arrive inside a real one.
+# owners_yaml validates the whole document, so the registry has to arrive inside a real one.
 _OWNERS_YAML_HEAD = "version: 1\nowners: []\n"
 
 

@@ -439,14 +439,15 @@ def _render_resolved_report_context(resolved_title: str | None, resolved_summary
         return ""
 
     parts = [
-        "\n---\n\n## Previously resolved report",
+        "\n---\n\n## Previously closed report",
         "",
-        "A very similar issue was covered by an earlier report that has already been **resolved** — its fix was "
-        "shipped. This signal is a recurrence, so it's a fresh report rather than a reopening of that one. Take the "
-        "prior resolution into account: figure out whether this is a regression of that fix, a new dimension of the "
-        "same underlying issue, or a genuinely distinct problem, and say which in your findings.",
+        "A very similar issue was covered by an earlier report that was marked as **fixed**. "
+        "Verify this claim: it does not prove that a fix shipped. This signal is a recurrence, so it's a fresh report rather than a "
+        "reopening of that one. Take the prior fix into account: figure out whether this is a regression of that "
+        "fix, a new dimension of the same underlying issue, or a genuinely distinct problem, and say which in your "
+        "findings.",
         "",
-        "The resolved report was:",
+        "The closed report was:",
     ]
     if resolved_title:
         parts.append(f"- **Title:** {resolved_title}")
@@ -551,7 +552,7 @@ _REPORT_CHARTS_GUIDANCE = f"""## Attaching charts
 - **Place it from the summary.** A markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — draws the chart at that point in the body; reference it once. A chart you never reference still renders, after the prose. Two references in one paragraph sit side by side.
 - **Prose must stand on its own.** The report is also delivered to Slack, where nothing draws a chart and a reference degrades to its plain label. State the finding in words and let the chart corroborate it — never "the chart below shows the drop".
 - **Let the chart carry the series.** The prose keeps the finding and the one or two numbers that size it, so a Slack reader still gets it; what the chart takes over is the interval-by-interval recital. "Step-2 conversion fell from 62% to 48% over the week" beside a chart beats a sentence listing every day.
-- **Pin the window** to absolute dates wherever the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to days later.
+- **Pin the window** to absolute dates wherever the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to days later. This holds for charts alone. A metric and a follow-up check measure the period before each run, so each one needs a relative `dateRange.date_from` and an empty `date_to`. An absolute window is refused there.
 - **At most {MAX_REPORT_CHARTS} per report**, far more than any report should use — three charts a reader studies beat a dozen they scroll past.
 - **`charts` is the report's whole set.** It replaces whatever the report showed before, the way title and summary do. To keep a chart across a re-research, send it again; drop one by leaving it out."""
 

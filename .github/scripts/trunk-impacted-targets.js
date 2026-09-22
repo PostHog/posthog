@@ -608,6 +608,10 @@ const TRIPWIRE_RULES = [
     ['Dockerfile*', APP_IMAGE],
     ['.dockerignore', APP_IMAGE],
     ['proto/**', PROTO],
+    // The checked-in python stubs. They sit under packages/, which the
+    // directory rules read as frontend, but every importer is python under
+    // posthog/.
+    ['packages/personhog-proto/**', PYTHON],
     ['frontend/src/queries/schema.json', PRODUCT_SURFACE],
     ['posthog/schema.py', PRODUCT_SURFACE],
     // A manifest publishes its product's urls, routes, and tree items into
@@ -648,6 +652,9 @@ const TRIPWIRE_RULES = [
     // owners.yaml is the fallback every path resolves through when no nearer
     // file claims it. A product's own owners.yaml is not here: it keeps its
     // product lane.
+    ['packages/owners-yaml/**', OWNERSHIP],
+    // Transitional: branches that predate the move still carry the resolver at tools/owners,
+    // where the tools/ fallback rule would give it the Python lanes only.
     ['tools/owners/**', OWNERSHIP],
     ['owners.yaml', OWNERSHIP],
     // The quarantine list covers the pytest, jest, and playwright suites at
@@ -683,6 +690,7 @@ const TRIPWIRE_RULES = [
     ['bin/posthog-node', APP_IMAGE],
     ['bin/temporal-django-worker', APP_IMAGE],
     ['bin/granian_metrics.py', APP_IMAGE],
+    ['bin/granian_shared_socket.py', APP_IMAGE],
     ['bin/start-backend', APP_IMAGE],
     ['bin/start-frontend', APP_IMAGE],
     // The schema and taxonomy codegen pipeline, which turns
@@ -1748,8 +1756,8 @@ function addAppImageLanes(targets, context) {
 // The nodejs half takes the node domain rather than the javascript one because
 // the stubs land only in nodejs/src/common/generated; no frontend or services
 // package imports them. The python half cannot narrow below every python lane:
-// the stubs are checked into posthog/, which is py:core, and py:core covers
-// every product lane by construction.
+// posthog/personhog_client imports the stubs, that is py:core, and py:core
+// covers every product lane by construction.
 // stubDir names the checked-in stub directory when it differs from the tree
 // name; the consistency test reads it. ingestion's node stubs land in
 // nodejs/src/common/generated/ingestion-worker, not .../ingestion.

@@ -860,6 +860,9 @@ class TestPromptBuilder(BaseTest):
         # scout would otherwise pay on a fresh team.
         assert "Then: orient on this project" in prompt
         assert "scout-project-profile-get" in prompt
+        assert "summary.emit_eligibility.can_emit" in prompt
+        assert "For `scout_emit_disabled`, continue the investigation without emitting findings or reports." in prompt
+        assert "Do not close out early because of this dry-run setting." in prompt
         # The base prompt teaches the agent to call the harness MCP tools by name.
         assert "scout-emit-signal" in prompt
         assert "scout-scratchpad-search" in prompt
@@ -1325,6 +1328,8 @@ class TestPromptBuilder(BaseTest):
         # whose skill does not list `edit_report`, so only such a scout is pointed at them.
         if "edit_report" in allowed_tools:
             assert "scout-report-check-create" in section.split("# ")[0]
+            # A check written in error stays on the report unless the scout knows it can withdraw it.
+            assert "scout-report-check-cancel" in section.split("# ")[0]
         else:
             assert "scout-report-check" not in prompt
 

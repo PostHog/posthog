@@ -26,6 +26,7 @@ import {
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
+    isExperimentExposureNode,
     isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
@@ -880,7 +881,12 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
 
     const source: ExperimentMetricSource | null = match(metric)
         .when(isExperimentRatioMetric, (ratioMetric) => ratioMetric.numerator)
-        .when(isExperimentRetentionMetric, (retentionMetric) => retentionMetric.start_event)
+        // An exposure-anchored start has no literal event to preview, so show completion-event activity
+        .when(isExperimentRetentionMetric, (retentionMetric) =>
+            isExperimentExposureNode(retentionMetric.start_event)
+                ? retentionMetric.completion_event
+                : retentionMetric.start_event
+        )
         .when(isExperimentMeanMetric, (meanMetric) => meanMetric.source)
         .otherwise(() => null)
 

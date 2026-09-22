@@ -2522,7 +2522,7 @@ export const getUserCustomerAnalyticsConfigRetrieveUrl = (projectId: string, id:
 }
 
 /**
- * Get the requesting user's account sidebar configuration for this project. The first read creates an empty configuration row.
+ * Get the requesting user's account sidebar and task digest configuration for this project. The first read creates an empty configuration row.
  * @summary Get account sidebar configuration
  */
 export const userCustomerAnalyticsConfigRetrieve = async (
@@ -2541,7 +2541,7 @@ export const getUserCustomerAnalyticsConfigPartialUpdateUrl = (projectId: string
 }
 
 /**
- * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided. Omitting pinned_properties leaves the configuration unchanged. At most 50 account custom properties and relationships can be pinned.
+ * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, and change the task digest email preferences when task_digest is provided. Anything omitted keeps its current value. At most 50 account custom properties and relationships can be pinned.
  * @summary Update account sidebar configuration
  */
 export const userCustomerAnalyticsConfigPartialUpdate = async (

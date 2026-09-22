@@ -58,6 +58,45 @@ DEFAULT_REVIEW_ARM = ReviewArm(
 )
 
 
+# REVIEW MODE
+# What a single turn runs on, chosen per trigger and carried in the workflow input, never persisted on
+# the report: a flash turn must not change what the PR's next normal review runs on. Plain strings so
+# Temporal payloads stay forward/backward-compatible across deploys, like the trigger sources.
+REVIEW_MODE_FULL = "full"
+REVIEW_MODE_FLASH = "flash"
+
+# Share the arm so Flash's reviewer and validator use the same cost and reasoning budget.
+FLASH_ARM = ReviewArm(
+    runtime_adapter=RuntimeAdapter.CODEX,
+    model="gpt-5.6-luna",
+    reasoning_effort=ReasoningEffort.MEDIUM,
+    initial_permission_mode="full-access",
+)
+
+# Every GitHub message a flash turn writes (status comment, promo, review body, inline comments)
+# starts with this, so a reader can tell a flash review from a full one at a glance.
+FLASH_MODE_MESSAGE_PREFIX = "FLASH MODE\n"
+
+
+def message_prefix_for_mode(review_mode: str) -> str:
+    return FLASH_MODE_MESSAGE_PREFIX if review_mode == REVIEW_MODE_FLASH else ""
+
+
+def flash_arm_for_effort(reasoning_effort: str) -> ReviewArm:
+    if reasoning_effort == ReasoningEffort.XHIGH.value:
+        return replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH)
+    if reasoning_effort != ReasoningEffort.MEDIUM.value:
+        logger.warning("Unknown Flash reasoning effort %s; using medium", reasoning_effort)
+    return FLASH_ARM
+
+
+def review_arm_for_mode(
+    review_mode: str, persisted: ReviewArm, *, flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
+) -> ReviewArm:
+    """The arm a turn's review units run on: the flash arm for a flash turn, else the report's own."""
+    return flash_arm_for_effort(flash_reasoning_effort) if review_mode == REVIEW_MODE_FLASH else persisted
+
+
 class ReviewTier(StrEnum):
     """The routing bucket a report's reviewer arm is chosen from; persisted as `ReviewReport.review_tier`.
 
@@ -104,8 +143,8 @@ _TIER_BY_PRIORITY: dict[ReportPriority, ReviewTier] = {
 
 # The trigger sources (`temporal/types.py`) that carry an explicit ask for a review: a label, the
 # CLI, or the Code review scene and its MCP tool (both stamped `ui`, so an agent driving the MCP
-# tool on someone's behalf counts as that person asking). Only the inbox trigger fires with nobody
-# asking, and a trigger from this set on an inbox-created report lifts its tier
+# tool on someone's behalf counts as that person asking). Inbox and automatic authored-PR triggers
+# fire without a per-PR request. A trigger from this set on an inbox-created report lifts its tier
 # (`upsert_review_report`). Spelled out here because persistence cannot import the temporal
 # package (its `__init__` imports the activities, which import persistence); `test_constants.py`
 # locks the set to the trigger constants.
@@ -183,12 +222,27 @@ def resolve_review_arm(
 
 
 # VALIDATION MODEL
-# Pins for the per-chunk warm validation sessions. All-None = the agent server's default model at its
-# default effort (the behavior before this knob existed); set all three to pin, like the review pins.
-VALIDATION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
-VALIDATION_MODEL: str | None = "claude-opus-5"
-VALIDATION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
+# Pins for the per-chunk warm validation sessions, bundled like the review arm so a mode can swap
+# the whole seat at once.
+VALIDATION_RUNTIME_ADAPTER = RuntimeAdapter.CLAUDE
+VALIDATION_MODEL = "claude-opus-5"
+VALIDATION_REASONING_EFFORT = ReasoningEffort.XHIGH
 VALIDATION_INITIAL_PERMISSION_MODE: str | None = None
+
+DEFAULT_VALIDATION_ARM = ReviewArm(
+    runtime_adapter=VALIDATION_RUNTIME_ADAPTER,
+    model=VALIDATION_MODEL,
+    reasoning_effort=VALIDATION_REASONING_EFFORT,
+    initial_permission_mode=VALIDATION_INITIAL_PERMISSION_MODE,
+)
+
+
+def validation_arm_for_mode(
+    review_mode: str, *, flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
+) -> ReviewArm:
+    """The arm a turn's validation sessions run on: the flash arm for a flash turn, else the pins."""
+    return flash_arm_for_effort(flash_reasoning_effort) if review_mode == REVIEW_MODE_FLASH else DEFAULT_VALIDATION_ARM
+
 
 # RESOLUTION MODEL
 # Pins for the resolution stage's warm per-PR session (assess + implement, one thread per turn).
