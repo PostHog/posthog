@@ -25,10 +25,6 @@ export const HogFlowsListQueryParams = () => zod.object({
         ),
     created_at: zod.iso.datetime({ offset: true }).optional(),
     created_by: zod.string().optional().describe('Filter to workflows created by the user with this uuid.'),
-    exclude_origin_product: zod
-        .enum(['broadcasts', 'loops'])
-        .optional()
-        .describe('Drop workflows owned by this product surface, e.g. `broadcasts` for a list that has its own.'),
     id: zod.string().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -53,10 +49,10 @@ export const HogFlowsListQueryParams = () => zod.object({
             'Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {\"type\": \"event\"}.'
         ),
     type: zod
-        .enum(['automation', 'loop', 'messaging'])
+        .string()
         .optional()
         .describe(
-            'Filter by workflow type. `loop` returns workflows owned by a Desktop loop; `messaging` returns the remaining workflows with an email, SMS, or push action; `automation` returns the rest.'
+            'Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.'
         ),
     updated_at: zod.iso.datetime({ offset: true }).optional(),
 })

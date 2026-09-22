@@ -14,11 +14,6 @@
             "description": "Filter to workflows created by the user with this uuid.",
             "type": "string"
         },
-        "exclude_origin_product": {
-            "description": "Drop workflows owned by this product surface, e.g. `broadcasts` for a list that has its own.",
-            "enum": ["broadcasts", "loops"],
-            "type": "string"
-        },
         "id": {
             "type": "string"
         },
@@ -49,8 +44,7 @@
             "type": "string"
         },
         "type": {
-            "description": "Filter by workflow type. `loop` returns workflows owned by a Desktop loop; `messaging` returns the remaining workflows with an email, SMS, or push action; `automation` returns the rest.",
-            "enum": ["automation", "loop", "messaging"],
+            "description": "Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.",
             "type": "string"
         },
         "updated_at": {

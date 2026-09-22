@@ -226,6 +226,10 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                     const apiStatus =
                         status === 'draft' || status === 'archived' ? status : status === 'all' ? undefined : 'active'
                     return await hogFlowsList(String(values.currentProjectId), {
+                        // Testing phase only: this returns broadcasts plus the workflows already
+                        // shaped like one, so a team can see what would move here. Drop this line
+                        // and the `broadcast_eligible` filter behind it to go back to
+                        // `type: 'broadcast'`, which is what this list means.
                         broadcast_eligible: true,
                         limit: 100,
                         ...(search ? { search } : {}),
