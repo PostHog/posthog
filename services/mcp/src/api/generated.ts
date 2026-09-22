@@ -54227,6 +54227,37 @@ export namespace Schemas {
       teams: LinearTeam[];
     }
 
+    export interface Link {
+      readonly id: string;
+      /**
+         * Destination the short link redirects to.
+         * @maxLength 2048
+         */
+      redirect_url: string;
+      /**
+         * Domain the short link is hosted on. Only phog.gg is accepted.
+         * @maxLength 255
+         */
+      short_link_domain: string;
+      /**
+         * The unique code/path that identifies the short link, e.g. 'abc123'
+         * @maxLength 255
+         */
+      short_code: string;
+      /**
+         * Free-form note about what the link is for.
+         * @nullable
+         */
+      description?: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** User who created the link. Null when that user was deleted. */
+      readonly created_by: UserBasic | null;
+      /** Folder path to file the link under in the project tree. */
+      _create_in_folder?: string;
+    }
+
     /**
      * Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
      * for the scout UI to render a clickable chip and deep-link into the inbox, which loads
@@ -61626,6 +61657,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LegalDocumentDTO[];
+    }
+
+    export interface PaginatedLinkList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Link[];
     }
 
     export interface PaginatedListOutputList {
@@ -71542,6 +71582,37 @@ export namespace Schemas {
          * @maxLength 400
          */
       version_description?: string;
+    }
+
+    export interface PatchedLink {
+      readonly id?: string;
+      /**
+         * Destination the short link redirects to.
+         * @maxLength 2048
+         */
+      redirect_url?: string;
+      /**
+         * Domain the short link is hosted on. Only phog.gg is accepted.
+         * @maxLength 255
+         */
+      short_link_domain?: string;
+      /**
+         * The unique code/path that identifies the short link, e.g. 'abc123'
+         * @maxLength 255
+         */
+      short_code?: string;
+      /**
+         * Free-form note about what the link is for.
+         * @nullable
+         */
+      description?: string | null;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+      /** User who created the link. Null when that user was deleted. */
+      readonly created_by?: UserBasic | null;
+      /** Folder path to file the link under in the project tree. */
+      _create_in_folder?: string;
     }
 
     export interface PatchedLiveDebuggerBreakpoint {
@@ -108141,6 +108212,17 @@ export namespace Schemas {
     export type JsSnippetVersionRetrieve200 = { [key: string]: unknown };
 
     export type JsSnippetVersionPartialUpdate200 = { [key: string]: unknown };
+
+    export type LinksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type LiveDebuggerBreakpointsListParams = {
     filename?: string;
