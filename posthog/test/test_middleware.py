@@ -1095,6 +1095,7 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             ("tracing_trace_by_id", "tracing/spans/trace/zzz/", {}),
             ("metrics_query", "metrics/query/", {}),
             ("metrics_explain", "metrics/explain/", {}),
+            ("experiments_setup_context", "experiments/setup_context/", {}),
         ]
     )
     def test_read_only_impersonation_allows_allowlisted_post(self, _name, path_suffix, body):
@@ -1119,6 +1120,7 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
                 "warehouse_saved_query_materialize",
                 "warehouse_saved_queries/00000000-0000-0000-0000-000000000000/materialize/",
             ),
+            ("experiments_create", "experiments/"),
         ]
     )
     def test_read_only_impersonation_blocks_mutating_siblings(self, _name, path_suffix):
@@ -2182,11 +2184,30 @@ class TestCSPMiddleware(APIBaseTest):
         response = self.client.get("/")
         assert "frame-src 'self' https:" in response["Content-Security-Policy-Report-Only"]
 
-    def test_app_policy_lets_firefox_preload_the_app_bundle(self):
+    @parameterized.expand(
+        [
+            ("local", {}, "default-src 'self' http://localhost:8234;"),
+            # The bundle host alone. The rest of the policy names every PostHog subdomain, and a
+            # fallback that broad admits whatever a new directive forgets to restrict.
+            (
+                "cloud",
+                {
+                    "TEST": False,
+                    "DEBUG": False,
+                    "CLOUD_DEPLOYMENT": "US",
+                    "SITE_URL": "https://us.posthog.com",
+                    "JS_URL": "https://app-static-prod.posthog.com",
+                },
+                "default-src 'self' https://app-static-prod.posthog.com;",
+            ),
+        ]
+    )
+    def test_app_policy_lets_firefox_preload_the_app_bundle(self, _name, overrides, expected):
         # Firefox judges <link rel="modulepreload"> by default-src, not script-src. A default-src of
         # 'self' alone refuses every preload index.html emits for the boot chain.
-        response = self.client.get("/")
-        assert "default-src 'self' http://localhost:8234" in response["Content-Security-Policy-Report-Only"]
+        with override_settings(**overrides):
+            response = self.client.get("/")
+        assert expected in response["Content-Security-Policy-Report-Only"]
 
     def test_replay_player_frame_serves_the_mount_node_without_a_session(self):
         # Shared recordings render the player for logged-out viewers.

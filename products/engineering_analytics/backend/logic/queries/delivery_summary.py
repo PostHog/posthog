@@ -26,7 +26,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.logic.cost import PRCostAggregate
 from products.engineering_analytics.backend.logic.delivery_scope import CI_LOOKBACK, DeliveryScope, SummaryScope
 from products.engineering_analytics.backend.logic.merge_queue import GATE_RUN_LOOKBACK, GateAttempt, gate_attempts_sql
-from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, push_rows_select
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     DECISIVE_FAILURE_CONCLUSIONS_SQL,
     UNPAGED_SCAN_LIMIT,
@@ -70,16 +70,9 @@ _APPROVALS_SELECT = f"""
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
-# A push is a distinct head commit that triggered CI; gate runs are the queue's rebases, not pushes.
-# The run's creation time is when the commit arrived: a queued run starts later.
 _PUSHES_SELECT = f"""
     SELECT pr_number, groupArray(pushed_at) AS pushed_at
-    FROM (
-        SELECT pr_number, head_sha, min(created_at) AS pushed_at
-        FROM __RUNS_SOURCE__ AS r
-        WHERE pr_number IN {{pr_numbers}} AND NOT is_merge_queue AND run_started_at >= {{run_from}}
-        GROUP BY pr_number, head_sha
-    )
+    FROM (__PUSH_ROWS__)
     GROUP BY pr_number
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
@@ -290,7 +283,9 @@ def _lead_time(
     def in_window(at: datetime) -> bool:
         return at >= date_from and (date_to is None or at <= date_to)
 
-    repo_rows = [row for row in deployed.rows if in_window(row.deployed_at)]
+    repo_rows = [
+        row for row in deployed.rows if in_window(row.merged_at) and (date_to is None or row.deployed_at <= date_to)
+    ]
     scope_rows = [row for row in repo_rows if row.in_scope]
 
     def pair(stage: Callable[[DeployedPR], float]) -> ScopeRepoDistribution:
@@ -303,12 +298,7 @@ def _lead_time(
         deploy_data_available=True,
         environment_scope=deployed.environment_scope,
         merged_pr_count=scope_merged_count,
-        # A deploy after the window end had not happened yet in the selected horizon.
-        deployed_merged_pr_count=sum(
-            1
-            for row in deployed.rows
-            if row.in_scope and in_window(row.merged_at) and (date_to is None or row.deployed_at <= date_to)
-        ),
+        deployed_merged_pr_count=len(scope_rows),
         open_to_deploy=pair(lambda row: row.open_to_deploy_seconds),
         open_to_merge=pair(lambda row: row.open_to_merge_seconds),
         merge_to_deploy=pair(lambda row: row.merge_to_deploy_seconds),
@@ -410,8 +400,12 @@ def _query_merged_facts(
     approvals = _query_approvals(curated, numbers)
 
     runs_source = curated.run_source(started_floor=True)
+    push_rows = push_rows_select(
+        runs_source=runs_source,
+        run_filter="pr_number IN {pr_numbers} AND run_started_at >= {run_from}",
+    )
     pushes_response = curated.run(
-        _PUSHES_SELECT.replace("__RUNS_SOURCE__", runs_source),
+        _PUSHES_SELECT.replace("__PUSH_ROWS__", push_rows),
         query_type="engineering_analytics.delivery_summary_pushes",
         placeholders={
             "pr_numbers": numbers,
