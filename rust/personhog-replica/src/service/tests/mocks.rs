@@ -52,7 +52,7 @@ impl storage::PersonLookup for FailingStorage {
         &self,
         _team_id: i64,
         _person_ids: &[i64],
-        _include_properties: bool,
+        _property_columns: storage::PersonPropertyColumns,
     ) -> storage::StorageResult<Vec<storage::Person>> {
         Err(self.error.clone())
     }
@@ -61,7 +61,7 @@ impl storage::PersonLookup for FailingStorage {
         &self,
         _team_id: i64,
         _uuids: &[Uuid],
-        _include_properties: bool,
+        _property_columns: storage::PersonPropertyColumns,
     ) -> storage::StorageResult<Vec<storage::Person>> {
         Err(self.error.clone())
     }
@@ -78,7 +78,7 @@ impl storage::PersonLookup for FailingStorage {
         &self,
         _team_id: i64,
         _distinct_ids: &[String],
-        _include_properties: bool,
+        _property_columns: storage::PersonPropertyColumns,
     ) -> storage::StorageResult<Vec<(String, Option<storage::Person>)>> {
         Err(self.error.clone())
     }
@@ -86,7 +86,7 @@ impl storage::PersonLookup for FailingStorage {
     async fn get_persons_by_distinct_ids_cross_team(
         &self,
         _team_distinct_ids: &[(i64, String)],
-        _include_properties: bool,
+        _property_columns: storage::PersonPropertyColumns,
     ) -> storage::StorageResult<Vec<((i64, String), Option<storage::Person>)>> {
         Err(self.error.clone())
     }
@@ -433,7 +433,7 @@ impl storage::PersonLookup for SuccessStorage {
         &self,
         _team_id: i64,
         _person_ids: &[i64],
-        _include_properties: bool,
+        _property_columns: storage::PersonPropertyColumns,
     ) -> storage::StorageResult<Vec<storage::Person>> {
         Ok(Vec::new())
     }
@@ -442,7 +442,7 @@ impl storage::PersonLookup for SuccessStorage {
         &self,
         _team_id: i64,
         _uuids: &[Uuid],
-        _include_properties: bool,
+        _property_columns: storage::PersonPropertyColumns,
     ) -> storage::StorageResult<Vec<storage::Person>> {
         Ok(Vec::new())
     }
@@ -459,7 +459,7 @@ impl storage::PersonLookup for SuccessStorage {
         &self,
         _team_id: i64,
         distinct_ids: &[String],
-        _include_properties: bool,
+        _property_columns: storage::PersonPropertyColumns,
     ) -> storage::StorageResult<Vec<(String, Option<storage::Person>)>> {
         Ok(distinct_ids.iter().map(|d| (d.clone(), None)).collect())
     }
@@ -467,7 +467,7 @@ impl storage::PersonLookup for SuccessStorage {
     async fn get_persons_by_distinct_ids_cross_team(
         &self,
         team_distinct_ids: &[(i64, String)],
-        _include_properties: bool,
+        _property_columns: storage::PersonPropertyColumns,
     ) -> storage::StorageResult<Vec<((i64, String), Option<storage::Person>)>> {
         Ok(team_distinct_ids
             .iter()
@@ -873,7 +873,7 @@ impl storage::PersonLookup for PopulatedStorage {
         &self,
         _team_id: i64,
         _person_ids: &[i64],
-        _include_properties: bool,
+        _property_columns: storage::PersonPropertyColumns,
     ) -> storage::StorageResult<Vec<storage::Person>> {
         Ok(vec![Self::person()])
     }
@@ -882,7 +882,7 @@ impl storage::PersonLookup for PopulatedStorage {
         &self,
         _team_id: i64,
         _uuids: &[Uuid],
-        _include_properties: bool,
+        _property_columns: storage::PersonPropertyColumns,
     ) -> storage::StorageResult<Vec<storage::Person>> {
         Ok(vec![Self::person()])
     }
@@ -899,7 +899,7 @@ impl storage::PersonLookup for PopulatedStorage {
         &self,
         _team_id: i64,
         distinct_ids: &[String],
-        _include_properties: bool,
+        _property_columns: storage::PersonPropertyColumns,
     ) -> storage::StorageResult<Vec<(String, Option<storage::Person>)>> {
         Ok(distinct_ids
             .iter()
@@ -910,7 +910,7 @@ impl storage::PersonLookup for PopulatedStorage {
     async fn get_persons_by_distinct_ids_cross_team(
         &self,
         team_distinct_ids: &[(i64, String)],
-        _include_properties: bool,
+        _property_columns: storage::PersonPropertyColumns,
     ) -> storage::StorageResult<Vec<((i64, String), Option<storage::Person>)>> {
         Ok(team_distinct_ids
             .iter()
@@ -1295,7 +1295,7 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         &self,
         _team_id: i64,
         _person_ids: &[i64],
-        _include_properties: bool,
+        _property_columns: storage::PersonPropertyColumns,
     ) -> storage::StorageResult<Vec<storage::Person>> {
         Ok(Vec::new())
     }
@@ -1304,7 +1304,7 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         &self,
         _team_id: i64,
         _uuids: &[Uuid],
-        _include_properties: bool,
+        _property_columns: storage::PersonPropertyColumns,
     ) -> storage::StorageResult<Vec<storage::Person>> {
         Ok(Vec::new())
     }
@@ -1321,7 +1321,7 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         &self,
         _team_id: i64,
         distinct_ids: &[String],
-        _include_properties: bool,
+        _property_columns: storage::PersonPropertyColumns,
     ) -> storage::StorageResult<Vec<(String, Option<storage::Person>)>> {
         Ok(distinct_ids.iter().map(|d| (d.clone(), None)).collect())
     }
@@ -1329,7 +1329,7 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
     async fn get_persons_by_distinct_ids_cross_team(
         &self,
         team_distinct_ids: &[(i64, String)],
-        _include_properties: bool,
+        _property_columns: storage::PersonPropertyColumns,
     ) -> storage::StorageResult<Vec<((i64, String), Option<storage::Person>)>> {
         Ok(team_distinct_ids
             .iter()

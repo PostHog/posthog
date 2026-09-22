@@ -2,6 +2,31 @@ use uuid::Uuid;
 
 pub use personhog_common::persons::Person;
 
+/// Which of the person jsonb property columns a read must load from Postgres.
+///
+/// Each column is detoasted separately, and a row may hold hundreds of kilobytes, so a read
+/// that wants `properties` must not also pull the two audit columns off disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PersonPropertyColumns {
+    pub properties: bool,
+    pub properties_last_updated_at: bool,
+    pub properties_last_operation: bool,
+}
+
+impl PersonPropertyColumns {
+    pub const ALL: Self = Self {
+        properties: true,
+        properties_last_updated_at: true,
+        properties_last_operation: true,
+    };
+
+    pub const NONE: Self = Self {
+        properties: false,
+        properties_last_updated_at: false,
+        properties_last_operation: false,
+    };
+}
+
 #[derive(Debug, Clone)]
 pub struct DistinctIdMapping {
     pub person_id: i64,

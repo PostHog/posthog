@@ -7,8 +7,8 @@ pub use error::{StorageError, StorageResult};
 
 pub use types::{
     CohortMembership, DistinctIdMapping, DistinctIdWithVersion, Group, GroupIdentifier, GroupKey,
-    GroupTypeMapping, HashKeyOverride, HashKeyOverrideContext, Person, SplitResult,
-    TombstonedDeleteOutcome,
+    GroupTypeMapping, HashKeyOverride, HashKeyOverrideContext, Person, PersonPropertyColumns,
+    SplitResult, TombstonedDeleteOutcome,
 };
 
 pub use traits::{CohortStorage, DistinctIdLookup, FeatureFlagStorage, GroupStorage, PersonLookup};
