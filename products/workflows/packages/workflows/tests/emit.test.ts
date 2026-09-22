@@ -15,7 +15,15 @@ import {
     webhook,
     workflow,
 } from '../src/index.js'
-import type { Action, Duration, Path, Step, WorkflowErrorFields, WorkflowVariable } from '../src/index.js'
+import type {
+    Action,
+    Duration,
+    EmailSenderOptions,
+    Path,
+    Step,
+    WorkflowErrorFields,
+    WorkflowVariable,
+} from '../src/index.js'
 
 const notifyCrm = webhook({
     name: 'Tell the CRM to follow up',
@@ -26,6 +34,7 @@ const notifyCrm = webhook({
 
 const welcomeEmail = email({
     name: 'Welcome the paid customer',
+    from: { integrationIds: [12], name: 'The Example team' },
     to: '{person.properties.email}',
     subject: 'Welcome aboard',
     text: 'Thanks for upgrading.',
@@ -167,12 +176,56 @@ describe('@posthog/workflows', () => {
                         template_id: 'template-email',
                         inputs: {
                             email: {
+                                // The stored shape: `from` as the runtime reads it, and the html
+                                // body again inside the design PostHog would otherwise build on
+                                // write, so a second push finds nothing changed.
                                 value: {
-                                    from: {},
+                                    from: { integrationId: 12, integrationIds: [12], name: 'The Example team' },
                                     to: { email: '{person.properties.email}' },
                                     subject: 'Welcome aboard',
                                     text: 'Thanks for upgrading.',
                                     html: '<p>Thanks for upgrading.</p>',
+                                    design: {
+                                        counters: { u_row: 1, u_column: 1, u_content_html: 1 },
+                                        schemaVersion: 16,
+                                        body: {
+                                            id: 'html-wrap-body',
+                                            headers: [],
+                                            footers: [],
+                                            rows: [
+                                                {
+                                                    id: 'html-wrap-row',
+                                                    cells: [1],
+                                                    columns: [
+                                                        {
+                                                            id: 'html-wrap-column',
+                                                            contents: [
+                                                                {
+                                                                    id: 'html-wrap-content',
+                                                                    type: 'html',
+                                                                    values: {
+                                                                        html: '<p>Thanks for upgrading.</p>',
+                                                                        _meta: {
+                                                                            htmlID: 'u_content_html_1',
+                                                                            htmlClassNames: 'u_content_html',
+                                                                        },
+                                                                    },
+                                                                },
+                                                            ],
+                                                            values: {
+                                                                _meta: {
+                                                                    htmlID: 'u_column_1',
+                                                                    htmlClassNames: 'u_column',
+                                                                },
+                                                            },
+                                                        },
+                                                    ],
+                                                    values: { _meta: { htmlID: 'u_row_1', htmlClassNames: 'u_row' } },
+                                                },
+                                            ],
+                                            values: {},
+                                        },
+                                    },
                                 },
                             },
                         },
@@ -304,6 +357,7 @@ describe('@posthog/workflows', () => {
             'on an email field',
             email({
                 name: 'Welcome',
+                from: { integrationIds: [12] },
                 to: 'someone@example.com',
                 subject: secret('CRM_TOKEN') as unknown as string,
                 text: 'Hello',
@@ -313,6 +367,41 @@ describe('@posthog/workflows', () => {
     ] as const) {
         test(`refuses a secret ${label}, which would send the variable name`, () => {
             assert.strictEqual(refusal(around(path(step)).emit).status, 'nested_secret')
+        })
+    }
+
+    const emailFrom = (from: EmailSenderOptions): Step =>
+        email({ name: 'Welcome', from, to: 'someone@example.com', subject: 'Hi', text: 'Hello', html: '<p>Hello</p>' })
+
+    // PostHog refuses these on write, or the runtime fails the send, and neither says why in
+    // terms of the file.
+    for (const [label, from, status] of [
+        [
+            'no sender id, which the type refuses but a cast lets through',
+            { integrationIds: [] },
+            'invalid_email_sender',
+        ],
+        ['more than ten sender ids', { integrationIds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] }, 'invalid_email_sender'],
+        ['a sender id that is not an integer', { integrationIds: [1.5] }, 'invalid_email_sender'],
+        [
+            'a sender address that is not an address',
+            { integrationIds: [12], email: 'the team' },
+            'invalid_sender_address',
+        ],
+    ] as const) {
+        test(`refuses an email with ${label}`, () => {
+            const bad = around(path(emailFrom(from as unknown as EmailSenderOptions)))
+
+            assert.strictEqual(refusal(bad.emit).status, status)
+        })
+    }
+
+    for (const [label, address] of [
+        ['a literal address', 'team@example.com'],
+        ['hog templating, which resolves at send time', '{person.properties.owner_email}'],
+    ] as const) {
+        test(`accepts ${label} as the sender address`, () => {
+            assert.doesNotThrow(around(path(emailFrom({ integrationIds: [12], email: address }))).emit)
         })
     }
 

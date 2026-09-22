@@ -19,6 +19,8 @@ const notifyCrm = webhook({
 
 const welcomeEmail = email({
   name: 'Welcome the paid customer',
+  // The id of a verified sender under Workflows, Channels, in your project.
+  from: { integrationIds: [12] },
   to: '{person.properties.email}',
   subject: 'Welcome aboard',
   text: 'Thanks for upgrading. Here is how to get started.',

@@ -6,6 +6,7 @@ import type {
     BranchCondition,
     Duration,
     Edge,
+    EmailSender,
     ExitCondition,
     FunctionInputs,
     TriggerConfig,
@@ -39,6 +40,10 @@ const DURATION_PATTERN = /^([0-9]+(?:\.[0-9]+)?|\.[0-9]+)([dhms])$/
 /** `MAX_VALUE_FOR_DURATION_UNIT` in `nodejs/src/cdp/services/hogflows/actions/delay.ts`. */
 const MAX_VALUE_FOR_DURATION_UNIT = { d: 30, h: 24, m: 60, s: 60 } as const
 const NEXT_LARGER_UNIT = { s: 'm', m: 'h', h: 'd' } as const
+
+/** `MAX_WORKFLOW_EMAIL_SENDERS` and `FROM_OVERRIDE_EMAIL_REGEX` in `posthog/cdp/validation.py`. */
+const MAX_EMAIL_SENDERS = 10
+const SENDER_ADDRESS_PATTERN = /^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$/
 
 type DurationUnit = keyof typeof MAX_VALUE_FOR_DURATION_UNIT
 
@@ -366,6 +371,45 @@ function resolveInputs(step: Step & { kind: 'function' }, actionId: string, cont
     return resolved
 }
 
+// The type already requires one sender id, but a cast gets past it, and PostHog refuses
+// the push or fails the send rather than reporting a clear reason.
+function checkSender(sender: EmailSender, step: Step): void {
+    const ids = sender.integrationIds
+    const refuse = (message: string, fix: string): never => {
+        throw new WorkflowError({
+            status: 'invalid_email_sender',
+            message: `Step "${step.name}" ${message}`,
+            why: "PostHog sends an email from one of the project's email integrations, named by id, and refuses to save a step that names none, more than ten, or one that is not an integer.",
+            fix,
+        })
+    }
+    if (ids.length === 0) {
+        refuse('names no sender.', 'Put at least one email integration id in from.integrationIds.')
+    }
+    if (ids.length > MAX_EMAIL_SENDERS) {
+        refuse(`names ${ids.length} senders, and the limit is ${MAX_EMAIL_SENDERS}.`, 'Keep at most ten ids.')
+    }
+    const wrong = ids.find((id) => !Number.isInteger(id))
+    if (wrong !== undefined) {
+        refuse(
+            `names the sender ${String(wrong)}, which is not an integration id.`,
+            'Use the integer id of an email integration.'
+        )
+    }
+
+    const address = sender.email?.trim() ?? ''
+    // A brace is hog templating, which only resolves at send time, so it is left alone.
+    if (address === '' || address.includes('{') || SENDER_ADDRESS_PATTERN.test(address)) {
+        return
+    }
+    throw new WorkflowError({
+        status: 'invalid_sender_address',
+        message: `Step "${step.name}" sends from "${address}", which is not an email address.`,
+        why: 'PostHog refuses a literal sender address that is not one address, and at send time it also has to sit on the verified domain of the selected sender.',
+        fix: "Write one address such as sender@example.com, or hog templating that resolves to one, or omit from.email to send from the integration's own address.",
+    })
+}
+
 // Assigns an id to every placement, depth first, so the order matches the order a
 // reader walks the graph. Allocating a whole path before its branches would let a step
 // appended to the trunk take the id of a placement inside an earlier branch.
@@ -416,6 +460,7 @@ function emitPath(placements: readonly Placement[], continuation: string, contex
         if (step.kind === 'email') {
             // `template-email` has no secret input, so a secret here can only be a mistake.
             refuseNestedSecret(step.email, 'the email', step)
+            checkSender(step.email.from, step)
             context.actions.push({
                 id,
                 name: step.name,
@@ -456,8 +501,9 @@ function emitPath(placements: readonly Placement[], continuation: string, contex
  * @throws {WorkflowError} The first rule the workflow breaks. The statuses are
  * `duplicate_action_id`, `reserved_action_id`, `invalid_action_id`,
  * `action_id_too_long`, `unnamed_action_id`, `step_name_too_long`, `invalid_duration`,
- * `duration_over_unit_cap`, `empty_path`, `missing_secret`, `nested_secret`,
- * `duplicate_variable_key` and `variables_too_large`.
+ * `duration_over_unit_cap`, `empty_path`, `invalid_email_sender`,
+ * `invalid_sender_address`, `missing_secret`, `nested_secret`, `duplicate_variable_key`
+ * and `variables_too_large`.
  * @example
  * ```ts
  * import { compile, delay, onSchedule, path } from '@posthog/workflows'

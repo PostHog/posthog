@@ -1,4 +1,11 @@
-import type { Duration, EmailMessage, PropertyCondition, PropertyOperator, PropertyType } from './definition.js'
+import type {
+    Duration,
+    EmailDesign,
+    EmailMessage,
+    PropertyCondition,
+    PropertyOperator,
+    PropertyType,
+} from './definition.js'
 
 /**
  * A named environment variable, standing in for a value the repository must not hold.
@@ -232,34 +239,100 @@ export function webhook(options: {
 }
 
 /**
+ * The sender of an email step: which of the project's verified senders to send from, and
+ * an optional address and name to show.
+ */
+export interface EmailSenderOptions {
+    /**
+     * The ids of the project's email integrations to send from, at least one and at
+     * most ten. With several, PostHog picks one per run. The ids are listed under
+     * Workflows, Channels, in the project.
+     */
+    readonly integrationIds: readonly [number, ...number[]]
+    /**
+     * The address to send from. It sits on the verified domain of every sender in
+     * `integrationIds`, or is hog templating that resolves to such an address. Omit it
+     * to send from the integration's own address.
+     */
+    readonly email?: string
+    /** The sender name shown beside the address. */
+    readonly name?: string
+}
+
+// The same wrap PostHog builds in `posthog/cdp/validation.py` for an html body that
+// arrives without a design. Its ids are fixed there so the wrap is deterministic, and the
+// SDK copies them so the design it sends is the design PostHog stores.
+function htmlWrapDesign(html: string): EmailDesign {
+    return {
+        counters: { u_row: 1, u_column: 1, u_content_html: 1 },
+        schemaVersion: 16,
+        body: {
+            id: 'html-wrap-body',
+            headers: [],
+            footers: [],
+            rows: [
+                {
+                    id: 'html-wrap-row',
+                    cells: [1],
+                    columns: [
+                        {
+                            id: 'html-wrap-column',
+                            contents: [
+                                {
+                                    id: 'html-wrap-content',
+                                    type: 'html',
+                                    values: {
+                                        html,
+                                        _meta: { htmlID: 'u_content_html_1', htmlClassNames: 'u_content_html' },
+                                    },
+                                },
+                            ],
+                            values: { _meta: { htmlID: 'u_column_1', htmlClassNames: 'u_column' } },
+                        },
+                    ],
+                    values: { _meta: { htmlID: 'u_row_1', htmlClassNames: 'u_row' } },
+                },
+            ],
+            values: {},
+        },
+    }
+}
+
+/**
  * A step that sends an email, emitted as a `function_email` action.
  *
  * The content is inline, and there is no way to reference a saved library template,
  * because PostHog copies a referenced template into the workflow when it saves and
- * every later push would then report a change. An email needs no credential: PostHog
- * resolves the project's email integration with a verified domain when it sends.
+ * every later push would then report a change. The sender is one of the project's
+ * email integrations, named by id: PostHog refuses to save an email step without one,
+ * and the runtime sends from nothing else.
  *
  * @param options - The message to send.
  * @param options.name - The label, which also gives the action id its slug.
  * @param options.id - Pins the action id, so a rename keeps the id a live run is on.
+ * @param options.from - Which verified senders to send from, and the address and name
+ * to show. See `EmailSenderOptions`.
  * @param options.to - The recipient. Usually hog templating such as
  * `{person.properties.email}`.
  * @param options.subject - The subject line.
  * @param options.text - The plain-text body, which every client can show.
- * @param options.html - The HTML body.
+ * @param options.html - The HTML body. The step also carries it as the design the
+ * visual editor opens, built the way PostHog builds it, so the stored message is the
+ * pushed message.
  * @param options.preheader - The preview line some clients show beside the subject.
- * @param options.fromIntegrationId - Pins one sender by integration id. Omit it to let
- * PostHog resolve the project's verified sender, which keeps one file usable in two
- * projects.
  * @returns A step value to place with `path`.
- * @throws {WorkflowError} At emit, `nested_secret` when a secret reaches any field,
- * because an email step takes no credential.
+ * @throws {WorkflowError} At emit, `invalid_email_sender` when `from.integrationIds`
+ * is empty, holds more than ten ids, or holds a value that is not an integer;
+ * `invalid_sender_address` when `from.email` is a literal that is not an address; and
+ * `nested_secret` when a secret reaches any field, because an email step takes no
+ * credential.
  * @example
  * ```ts
  * import { email } from '@posthog/workflows'
  *
  * const welcome = email({
  *     name: 'Welcome the paid customer',
+ *     from: { integrationIds: [12], name: 'The Example team' },
  *     to: '{person.properties.email}',
  *     subject: 'Welcome aboard',
  *     text: 'Thanks for upgrading. Here is how to get started.',
@@ -270,19 +343,25 @@ export function webhook(options: {
 export function email(options: {
     name: string
     id?: string
+    from: EmailSenderOptions
     to: string
     subject: string
     text: string
     html: string
     preheader?: string
-    fromIntegrationId?: number
 }): Step {
     const message: EmailMessage = {
-        from: options.fromIntegrationId === undefined ? {} : { integrationId: options.fromIntegrationId },
+        from: {
+            integrationId: options.from.integrationIds[0],
+            integrationIds: [...options.from.integrationIds],
+            ...(options.from.email === undefined ? {} : { email: options.from.email }),
+            ...(options.from.name === undefined ? {} : { name: options.from.name }),
+        },
         to: { email: options.to },
         subject: options.subject,
         text: options.text,
         html: options.html,
+        design: htmlWrapDesign(options.html),
         ...(options.preheader === undefined ? {} : { preheader: options.preheader }),
     }
     return withId(options, { kind: 'email' as const, name: options.name, email: message })

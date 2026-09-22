@@ -39,12 +39,33 @@ path()
 // definition would never match the one we sent.
 email({
     name: 'Welcome',
+    from: { integrationIds: [12] },
     to: 'someone@example.com',
     subject: 'Welcome',
     text: 'Hello',
     html: '<p>Hello</p>',
     // @ts-expect-error - the SDK has no `templateUuid`
     templateUuid: '0199d0c0-0000-7000-8000-000000000000',
+})
+
+// An email names its sender. PostHog refuses to save a step without one, and the runtime
+// sends from nothing else.
+// @ts-expect-error - `from` is required
+email({
+    name: 'Welcome',
+    to: 'someone@example.com',
+    subject: 'Welcome',
+    text: 'Hello',
+    html: '<p>Hello</p>',
+})
+email({
+    name: 'Welcome',
+    // @ts-expect-error - the sender list is a non-empty tuple
+    from: { integrationIds: [] },
+    to: 'someone@example.com',
+    subject: 'Welcome',
+    text: 'Hello',
+    html: '<p>Hello</p>',
 })
 
 // The workflow carries its own identity.

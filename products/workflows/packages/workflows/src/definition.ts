@@ -103,16 +103,47 @@ export type FunctionInputs = Readonly<Record<string, { readonly value: unknown }
  * differ from the one that was pushed, and every later push would report a change.
  */
 export interface EmailMessage {
-    /** Pins one sender by integration id. Empty lets PostHog resolve the project's verified sender. */
-    readonly from: { readonly integrationId?: number }
+    readonly from: EmailSender
     readonly to: { readonly email: string }
     readonly subject: string
     /** The plain-text body, which every client can show. */
     readonly text: string
     readonly html: string
+    /**
+     * The visual editor's copy of `html`, as one custom HTML block. `email` builds it the
+     * same way PostHog does for an email that arrives without one, so the stored message
+     * is the pushed message and a second push reports no change.
+     */
+    readonly design: EmailDesign
     /** The preview line some clients show beside the subject. */
     readonly preheader?: string
 }
+
+/**
+ * The sender of an email step, as PostHog stores it.
+ *
+ * PostHog sends from one of the email integrations in `integrationIds`, which are the
+ * ids of the project's verified senders. `integrationId` is the first of them, kept
+ * because the runtime reads it when the list is absent. `email` writes both from one
+ * list, so they cannot disagree.
+ */
+export interface EmailSender {
+    readonly integrationId: number
+    /** One to ten sender ids. With several, PostHog picks one per run. */
+    readonly integrationIds: readonly number[]
+    /** A sender address on the verified domain, or hog templating that resolves to one. */
+    readonly email?: string
+    /** The sender name shown beside the address. */
+    readonly name?: string
+}
+
+/**
+ * An Unlayer design, which is what the visual email editor opens.
+ *
+ * The SDK never lays an email out visually, so the only design it writes is the one
+ * `email` builds around the `html` body.
+ */
+export type EmailDesign = Readonly<Record<string, unknown>>
 
 interface ActionBase {
     readonly id: string
