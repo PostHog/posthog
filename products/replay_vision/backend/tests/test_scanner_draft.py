@@ -983,6 +983,18 @@ class TestMeasuredEvents(_VisionAPITestCase):
 
         assert measured == [_CandidateEvent(name="survey sent", sessions=7)]
 
+    def test_two_events_differing_only_in_case_keep_their_own_counts(self):
+        # Definitions are unique on the name itself, so both can be real, live events. Folding them
+        # together would credit the retired one with the live one's volume -- and which one won
+        # would depend on the order ClickHouse happened to emit the rows in.
+        with patch(f"{_MODULE}.recent_event_sessions", return_value={"Signup": 0, "signup": 500}):
+            measured = _measured_events(self.team, ["Signup", "signup"])
+
+        assert measured == [
+            _CandidateEvent(name="Signup", sessions=0),
+            _CandidateEvent(name="signup", sessions=500),
+        ]
+
     def test_a_failed_measurement_keeps_every_candidate_uncounted(self):
         # Losing the counts must cost the ranking hint, not the grounding: a briefing with no
         # events sends the model back to drafting filters it invents.

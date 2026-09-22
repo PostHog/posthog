@@ -1435,11 +1435,15 @@ def _measured_events(team: Team, names: Sequence[str]) -> list[_CandidateEvent]:
     except Exception:
         logger.warning("replay_vision.scanner_draft.event_volume_failed", team_id=team.id, exc_info=True)
         return [_CandidateEvent(name=name) for name in names]
-    # Resolved case-insensitively, the way _grounded_events resolves names. Callers pass the team's
-    # own spelling, so this only catches a definition that outlived a casing change, where a zero
-    # would read as dead and drop the event.
-    measured = {name.lower(): count for name, count in sessions.items()}
-    return [_CandidateEvent(name=name, sessions=measured.get(name.lower(), 0)) for name in names]
+    # The exact name first: event definitions are unique on the name itself, so a team can hold both
+    # "Signup" and "signup" as separate live events, and folding their counts together would credit
+    # one with the other's volume. The case-insensitive fallback is for a definition that outlived a
+    # casing change, and only when one measured name claims that spelling.
+    by_lower: dict[str, list[int]] = {}
+    for measured_name, count in sessions.items():
+        by_lower.setdefault(measured_name.lower(), []).append(count)
+    unambiguous = {lowered: counts[0] for lowered, counts in by_lower.items() if len(counts) == 1}
+    return [_CandidateEvent(name=name, sessions=sessions.get(name, unambiguous.get(name.lower(), 0))) for name in names]
 
 
 def _page_filter_regex(pathname: str) -> str | None:
