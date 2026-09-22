@@ -237,7 +237,9 @@ export const SlowExpansionCount: Story = {
 }
 
 export const LargeProjectCappedCount: Story = {
-    render: Properties.render,
+    // The category rail is unpinned by default since #99815, and the count badge only renders in the
+    // pinned column, so this story pins it the same way `CategoryRailPinned` does.
+    render: CategoryRailStoryRender,
     args: {
         taxonomicFilterLogicKey: 'large-project-capped-count',
         taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties],
