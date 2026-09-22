@@ -1628,10 +1628,15 @@ class CSPMiddleware:
                         f"{POSTHOG_JS_CLOUD_HOST}/array/{POSTHOG_JS_CLOUD_TOKEN}/config.js",
                     ],
                     # liveEventsHostOrigin() in the frontend streams from live.<region host>.
+                    #
+                    # useAdblockDetection() probes the public US ingestion host from every region,
+                    # because an adblocker passes internal-j and blocks that host. Refusing the
+                    # probe would tell the user an adblocker is running when none is.
                     "connect-src": [
                         *bundle,
                         POSTHOG_JS_CLOUD_HOST,
                         f"https://live.{urlsplit(settings.SITE_URL).hostname}",
+                        PH_US_HOST,
                     ],
                 }
                 shadow_uri = csp_report_endpoint(sample_rate=sample_rate, v=NARROWED_APP_POLICY_REPORT_VERSION)

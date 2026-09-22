@@ -2407,6 +2407,8 @@ class TestCSPMiddleware(APIBaseTest):
             assert "*.posthog.com" not in shadow
             assert "https://internal-j.posthog.com/array/sTMFPsFhdP1Ssg/config.js" in shadow
             assert "https://live.us.posthog.com" in shadow
+            # useAdblockDetection() probes this host, and a refusal reads to the user as an adblocker.
+            assert "https://us.i.posthog.com" in shadow
             assert "&v=3&" in shadow
 
 
