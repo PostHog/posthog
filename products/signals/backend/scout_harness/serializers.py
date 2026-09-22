@@ -316,15 +316,11 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
     description = serializers.CharField(
         help_text="The emitted finding prose — the signal's `description` as surfaced to the inbox.",
     )
-    weight = serializers.FloatField(
-        min_value=0.0,
-        max_value=1.0,
-        help_text="Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.",
-    )
     confidence = serializers.FloatField(
         min_value=0.0,
         max_value=1.0,
-        help_text="Agent's confidence the finding is real in [0, 1].",
+        allow_null=True,
+        help_text="Deprecated and no longer set on new findings. Null unless the run supplied one.",
     )
     severity = serializers.ChoiceField(
         choices=[(p.value, p.value) for p in Priority],
@@ -347,7 +343,6 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
             "run_id",
             "finding_id",
             "description",
-            "weight",
             "confidence",
             "severity",
             "tags",
@@ -1322,7 +1317,9 @@ class EmitFindingRequestSerializer(serializers.Serializer):
     confidence = serializers.FloatField(
         min_value=0.0,
         max_value=1.0,
-        help_text="Agent's confidence the finding is real in [0, 1]. Persisted in `extra`.",
+        required=False,
+        allow_null=True,
+        help_text="Deprecated and ignored. Nothing reads it; omit it. Still range-checked when supplied.",
     )
     evidence = serializers.ListField(
         child=EvidenceEntrySerializer(),
@@ -3299,6 +3296,14 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "about once a day; a successful retry resumes it, and so does setting `enabled=true`."
         ),
     )
+    status_changed_by = serializers.SerializerMethodField(
+        help_text=(
+            "Who last moved `status`, when a person did it through this API. Null for a system "
+            "transition such as an automatic pause, for a row whose status never changed, and for "
+            "a caller that may not read member identities. Pair it with `status` to say who turned "
+            "a scout off, instead of only when it went off."
+        ),
+    )
     status_changed_at = serializers.DateTimeField(
         read_only=True,
         allow_null=True,
@@ -3366,6 +3371,15 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         info = (self.context.get("skill_info") or {}).get(obj.skill_name)
         return info.role if info else "specialist"
 
+    @extend_schema_field(UserBasicSerializer(allow_null=True))
+    def get_status_changed_by(self, obj: SignalScoutConfig) -> dict[str, Any] | None:
+        # Member PII, so it rides the same gate `owners` does: a scout sandbox token reads the
+        # roster through `scout-members-list`, and never learns who switched a scout off here.
+        if not self.context.get("may_read_member_identities", False):
+            return None
+        actor = obj.status_changed_by
+        return dict(UserBasicSerializer(actor).data) if actor else None
+
     @extend_schema_field(UserBasicSerializer(many=True))
     def get_owners(self, obj: SignalScoutConfig) -> list[dict[str, Any]]:
         # A scout joins to its skill by name, which is also the key `LLMSkillOwner` uses, so the
@@ -3401,6 +3415,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "last_run_at",
             "consecutive_failure_count",
             "status_changed_at",
+            "status_changed_by",
             "auto_pause_exempt",
             "tags",
             "source_product",

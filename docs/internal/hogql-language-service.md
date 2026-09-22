@@ -32,6 +32,9 @@ Django remains authoritative for authentication, team membership, entitlements, 
 resolution. The Go service does not read PostHog permission tables or accept browser-selected identity without an
 authenticated internal request.
 
+The shared catalog excludes direct-connection table rows because those rows belong only to an explicit `connectionId` database.
+This keeps a direct table's raw dotted name from replacing a synced table that resolves to the same catalog key.
+
 Django adds resolver-confirmed `tableAliases` to the same permission-filtered catalog snapshot.
 For example, a catalog can map `demo_postgres_orders` to `postgres.demo.orders` when both names resolve to the same visible warehouse table.
 Aliases from another project or hidden tables are not published.
@@ -296,6 +299,10 @@ The retry must return an alias-capable revision, but a concurrent publication fo
 If publication fails or a catalog cannot represent the resolver result, Django uses the Python autocomplete or validation path.
 Malformed HTTP payloads, incompatible revisions after refresh, and malformed autocomplete or validation mappings also use the Python path.
 Malformed service responses produce a sanitized Error Tracking event without the SQL text, response body, user context, or original exception.
+
+Full-query HogQL autocomplete can use the language service when `sourceQuery` is absent or is a `HogQLQuery`; only the current editor SQL and cursor position are sent.
+Metadata requests still require `sourceQuery` to be absent.
+Both operations continue to use Python when `connectionId`, `globals`, `filters`, or `modifiers` is not null.
 
 For authenticated requests that have the service configured and the feature flag enabled, the Prometheus counter `hogql_editor_assist_responses_total` counts the backend that produced the final successful editor response.
 Its bounded attributes are the operation, backend, and routing reason.

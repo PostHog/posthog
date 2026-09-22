@@ -34,6 +34,7 @@ class TestKnowledgeSourceAPI(APIBaseTest):
                 analysis_version="post_resolution_v1",
                 title="Refund policy",
                 content="Refunds are available within 30 days.",
+                evidence_revision_at=timezone.now(),
             )
         )
         return str(result.source_id)

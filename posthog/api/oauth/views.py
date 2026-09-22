@@ -2377,6 +2377,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
                 "active": True,
                 "token_type": "access_token",
                 "scope": access_token.scope,
+                "is_impersonated": access_token.impersonated_by_id is not None,
                 "scoped_teams": access_token.scoped_teams or [],
                 "scoped_organizations": access_token.scoped_organizations or [],
                 "exp": int(calendar.timegm(access_token.expires.timetuple())),
