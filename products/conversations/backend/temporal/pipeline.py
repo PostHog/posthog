@@ -317,6 +317,11 @@ class SupportReplyWorkflow:
                     "validator_confidence": validate.confidence,
                     "coverage": validate.coverage,
                     "grounded": validate.grounded,
+                    "citations": list(draft.citations),
+                    "investigation_summary": draft.investigation_summary,
+                    "unknowns": list(draft.unknowns),
+                    "clarifying_questions": list(draft.clarifying_questions),
+                    "missing": list(validate.missing),
                 }
 
             for attempt in range(max_attempts):
