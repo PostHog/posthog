@@ -860,4 +860,4 @@ def test_the_scheduled_config_pins_every_setting_the_drain_reads():
 def test_the_job_carries_the_tags_that_bound_a_run():
     tags = drain.person_pg_cleanup_drain_job.tags
     assert tags["person_pg_cleanup_drain_concurrency"] == "v1"
-    assert int(tags["dagster/max_runtime"]) > drain.SCHEDULED_MAX_RUNTIME_SECONDS
+    assert int(tags["dagster/max_runtime"]) > drain.DrainConfig().max_runtime_seconds

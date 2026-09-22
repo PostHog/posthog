@@ -76,6 +76,10 @@ STEP_GROWTH_SUCCESSES = 20
 # Short enough that a daily run always ends before the next one fires.
 SCHEDULED_MAX_RUNTIME_SECONDS = 20 * 3600
 
+# Above the op's own 24 h default, so a manual run reaches its cap and publishes rather than being
+# killed short of it.
+JOB_MAX_RUNTIME_SECONDS = 25 * 3600
+
 RETRY_BACKOFF_CAP_SECONDS = 60.0
 PG_RETRY_BACKOFF_SECONDS = 1.0
 LOG_EVERY_PAGES = 10
@@ -233,6 +237,7 @@ class DrainTotals:
     step_rows_min: int = 0
     step_rows_max: int = 0
     pg_reconnects: int = 0
+    pg_queue_conflict_retries: int = 0
     rpc_seconds_total: float = 0.0
     rpc_seconds_max: float = 0.0
     rpc_seconds_last: float = 0.0
@@ -263,6 +268,7 @@ class DrainTotals:
             "step_rows_min": dagster.MetadataValue.int(self.step_rows_min),
             "step_rows_max": dagster.MetadataValue.int(self.step_rows_max),
             "pg_reconnects": dagster.MetadataValue.int(self.pg_reconnects),
+            "pg_queue_conflict_retries": dagster.MetadataValue.int(self.pg_queue_conflict_retries),
             "rpc_seconds_total": dagster.MetadataValue.float(round(self.rpc_seconds_total, 3)),
             "rpc_seconds_max": dagster.MetadataValue.float(round(self.rpc_seconds_max, 3)),
             "rpc_seconds_mean": dagster.MetadataValue.float(round(self.rpc_seconds_mean(), 3)),
@@ -529,6 +535,8 @@ class _Drain:
                     ) from exc
                 if recovery == "reconnect":
                     self.close()
+                else:
+                    self.totals.pg_queue_conflict_retries += 1
                 if self.out_of_time():
                     raise _OutOfTime from exc
                 pause = backoff_seconds(PG_RETRY_BACKOFF_SECONDS, failures)
@@ -717,6 +725,12 @@ class _Drain:
             after.rpc_calls - before.rpc_calls,
         )
         _emit(self.metrics, "person_pg_cleanup_drain_pg_reconnects", {}, after.pg_reconnects - before.pg_reconnects)
+        _emit(
+            self.metrics,
+            "person_pg_cleanup_drain_pg_queue_conflict_retries",
+            {},
+            after.pg_queue_conflict_retries - before.pg_queue_conflict_retries,
+        )
 
     def snapshot(self) -> DrainTotals:
         return DrainTotals(
@@ -728,6 +742,7 @@ class _Drain:
             queue_rows_deleted=self.totals.queue_rows_deleted,
             rpc_calls=self.totals.rpc_calls,
             pg_reconnects=self.totals.pg_reconnects,
+            pg_queue_conflict_retries=self.totals.pg_queue_conflict_retries,
         )
 
     def run(self) -> DrainTotals:
@@ -873,6 +888,11 @@ def _drain_gauges(totals: DrainTotals, completed_at: float) -> list[PublishedGau
             value=totals.pg_reconnects,
         ),
         PublishedGauge(
+            name=f"{prefix}pg_queue_conflict_retries",
+            help_text="Queue statements retried after a lock or serialization conflict, mostly with the sweep",
+            value=totals.pg_queue_conflict_retries,
+        ),
+        PublishedGauge(
             name=f"{prefix}rpc_seconds_max",
             help_text="Slowest successful personhog request",
             value=totals.rpc_seconds_max,
@@ -908,7 +928,7 @@ def publish_drain_metrics(context: dagster.OpExecutionContext, totals: DrainTota
         "person_pg_cleanup_drain_concurrency": "v1",
         # Catches a run that stops progressing without reaching its own max_runtime_seconds check.
         # Safe to kill: every deleted row stays deleted.
-        "dagster/max_runtime": SCHEDULED_MAX_RUNTIME_SECONDS + 3600,
+        "dagster/max_runtime": JOB_MAX_RUNTIME_SECONDS,
     },
     executor_def=dagster.in_process_executor,
 )
