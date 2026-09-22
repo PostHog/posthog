@@ -4122,18 +4122,18 @@ jobs:
                               depot_url=$(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" "$latest_run"' | .details_url // ""' /tmp/relay-gate)
                               depot_workflow=${depot_url#*/workflows/}
                               depot_workflow=${depot_workflow%%\?*}
-                              echo "::error::Backend tests failed on Depot CI ($gate). This step's log lists the commands to retry them."
+                              echo "::error::Backend tests failed on Depot CI ($gate). This step's log lists the retry options."
                               printf '%s\n' \
                                   "Backend tests for $SHA ran on Depot CI, not GitHub Actions. Re-running this job alone reads the same failed result." \
                                   "Depot run: ${depot_url:-not found}" \
                                   "" \
-                                  "Retry with the Depot CLI (needs access to the Depot org ntsdt08fpt):" \
+                                  "Retry through the Depot CLI (needs access to the Depot org ntsdt08fpt):" \
                                   "  depot ci diagnose --org ntsdt08fpt --workflow $depot_workflow   # the failures, and the run ID on the 'Run:' line" \
                                   "  depot ci retry <run ID> --org ntsdt08fpt --workflow $depot_workflow --failed" \
                                   "  depot ci status <run ID> --org ntsdt08fpt   # repeat until the run finishes" \
                                   "  gh run rerun $GITHUB_RUN_ID --repo $REPO --failed   # relays the new Depot result" \
                                   "" \
-                                  "Retry without Depot access: push a new commit." \
+                                  "Retry without Depot access: a new commit starts a fresh run." \
                                   "  git commit --allow-empty -m 'chore: retry backend ci' && git push"
                               exit 1
                               ;;
