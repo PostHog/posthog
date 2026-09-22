@@ -233,6 +233,9 @@ class MarketingAnalyticsAggregatedQueryRunner(
 
         previous_period_query = previous_runner.to_query()
         current_period_query = self.to_query()
+        # Both periods are on screen, so the response's freshness is the older of the two. `to_query`
+        # resets this per build, so fold the previous period in only after the current one has run.
+        self.note_precompute_computed_at(previous_runner._precompute_computed_at)
 
         join_expr = ast.JoinExpr(
             table=current_period_query,

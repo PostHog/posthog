@@ -85,8 +85,8 @@ ResponseType = TypeVar("ResponseType", bound=AnalyticsQueryResponseProtocol)
 class PrecomputeMetadataResponse(Protocol):
     """The precompute-serving fields the conversion-goal responses carry.
 
-    Only the table, aggregated and non-integrated responses declare them; retention and
-    session-breakdown responses don't, and pydantic rejects unknown attributes.
+    Only the table and aggregated responses declare them; retention and session-breakdown responses
+    don't, and pydantic rejects unknown attributes.
     """
 
     precomputeNotReady: Optional[bool]
@@ -438,6 +438,8 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 )
                 s3_fallback_adapters.append(adapter)
                 continue
+            # This source's cost rows are on screen, so their age bounds the response's freshness too.
+            self.note_precompute_computed_at(result.computed_at)
             # The ensure_precomputed call above materialized this source. We read by source, not by
             # result.job_ids, because the `marketing_costs_precomputed` view already collapses each cell to its latest job.
             materialized_source_ids.append(adapter.get_source_id())
@@ -1130,12 +1132,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 self.timings.timings.update(processor.timings.timings)
                 if processor.precompute_stale:
                     self._precompute_stale = True
-                # Oldest across goals bounds how old the whole read's data is — surfaced as "data as of X".
-                if processor.precompute_computed_at is not None and (
-                    self._precompute_computed_at is None
-                    or processor.precompute_computed_at < self._precompute_computed_at
-                ):
-                    self._precompute_computed_at = processor.precompute_computed_at
+                self.note_precompute_computed_at(processor.precompute_computed_at)
 
             if unified_cte:
                 ctes[UNIFIED_CONVERSION_GOALS_CTE_ALIAS] = unified_cte
@@ -1195,6 +1192,18 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         level = getattr(self.query, "drillDownLevel", None)
         if level is not None:
             self.config.drill_down_level = level
+
+    def note_precompute_computed_at(self, computed_at: Optional[datetime]) -> None:
+        """Fold one served precompute's `computed_at` into the read's freshness.
+
+        The oldest across every dataset the response displays — costs, each conversion goal, and the
+        previous period when comparing — bounds how old the numbers on screen can be. Taking anything
+        newer would understate staleness on the freshness badge.
+        """
+        if computed_at is None:
+            return
+        if self._precompute_computed_at is None or computed_at < self._precompute_computed_at:
+            self._precompute_computed_at = computed_at
 
     def to_query(self) -> ast.SelectQuery:
         try:
@@ -1453,7 +1462,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
     def _build_not_ready_response(self) -> ResponseType:
         """Empty typed response with `precomputeNotReady=True`, for when a goal's window is not warmed.
 
-        Only runners that build conversion-goal CTEs (table, aggregated, non-integrated) can raise
+        Only runners that build conversion-goal CTEs (table, aggregated) can raise
         `MarketingPrecomputeNotReady`, so only they override this. Others never reach it.
         """
         raise NotImplementedError(f"{type(self).__name__} cannot serve a not-ready response")
