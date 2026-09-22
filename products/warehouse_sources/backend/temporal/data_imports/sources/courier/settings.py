@@ -61,6 +61,9 @@ class CourierEndpointConfig:
     # Page-size param the fan-out sends to both its parent and child listing. None for a parent
     # that documents no page-size param at all; the child then carries its own in `child_params`.
     fanout_page_size_param: str | None = "limit"
+    # Where a fan-out child finds its own next-page cursor, when that differs from the parent's
+    # `cursor_path`. One paginator config is shared by both halves of a fan-out otherwise.
+    child_cursor_path: str | None = None
     # Parent field percent-encoded into the fan-out's `resolve_field` before the child path is
     # bound, for an id that can contain a literal "/".
     encode_parent_field: str | None = None
@@ -265,11 +268,10 @@ ENDPOINTS_CONFIG: dict[str, CourierEndpointConfig] = {
         primary_keys=("journey_id", "version"),
         partition_key="created",
         timestamp_fields=("created", "published"),
-        # Set for the parent /journeys walk; the child takes no cursor param.
+        # The parent /journeys walk finds its cursor at the top level; this endpoint nests its
+        # own under `paging`.
         cursor_path="cursor",
-        # Courier documents no cursor param on this endpoint, so only the first page of versions
-        # is reachable.
-        paginated=False,
+        child_cursor_path="paging.cursor",
         fanout=DependentEndpointConfig(
             parent_name="Journeys",
             resolve_param="templateId",

@@ -52,6 +52,15 @@ def _page(endpoint: str, rows: list[dict[str, Any]], cursor: str | None) -> Resp
     return _make_http_response(body)
 
 
+def _versions_page(rows: list[dict[str, Any]], cursor: str | None) -> Response:
+    """Build a journey-versions response, whose cursor nests under `paging`.
+
+    The endpoint's parent listing carries its cursor at the response's top level instead, so
+    `_page` builds the wrong shape for this one.
+    """
+    return _make_http_response({"results": rows, "paging": {"more": cursor is not None, "cursor": cursor}})
+
+
 def _preferences_page(schedules: list[dict[str, Any]] | None) -> Response:
     """Build a `/preferences/sections` response with `schedules` nested where Courier puts them.
 
@@ -437,6 +446,37 @@ class TestCourierFanout:
         assert rows[0]["journey_id"] == "jry-1"
         # The table partitions on `created`, which arrives as epoch millis.
         assert rows[0]["created"] == datetime.fromtimestamp(1_700_000_000_000 / 1000, tz=UTC)
+
+    def test_journey_versions_page_on_their_own_nested_cursor(self) -> None:
+        # The parent /journeys walk finds its cursor at the top level, so a child that reused it
+        # would stop after one page and drop most of a journey's publish history.
+        paths, params, rows = self._drive(
+            "JourneyVersions",
+            [
+                _page("Journeys", [{"id": "jry-1"}], cursor=None),
+                _versions_page([{"version": "v2"}], cursor="cursor-1"),
+                _versions_page([{"version": "v1"}], cursor=None),
+            ],
+        )
+
+        assert paths == ["/journeys", "/journeys/jry-1/versions", "/journeys/jry-1/versions"]
+        assert [p.get("cursor") for p in params] == [None, None, "cursor-1"]
+        assert [row["version"] for row in rows] == ["v2", "v1"]
+
+    def test_journey_versions_stop_when_the_cursor_repeats(self) -> None:
+        # Courier documents no cursor param on this endpoint. If it ignores the one we send, the
+        # same page and cursor come back forever, so a repeated cursor has to end the walk.
+        paths, _, rows = self._drive(
+            "JourneyVersions",
+            [
+                _page("Journeys", [{"id": "jry-1"}], cursor=None),
+                _versions_page([{"version": "v1"}], cursor="stuck"),
+                _versions_page([{"version": "v1"}], cursor="stuck"),
+            ],
+        )
+
+        assert paths == ["/journeys", "/journeys/jry-1/versions", "/journeys/jry-1/versions"]
+        assert [row["version"] for row in rows] == ["v1", "v1"]
 
     def test_digest_instances_flatten_schedule_ids_out_of_the_preferences_response(self) -> None:
         # Courier exposes no listing of digest schedules, so the ids come from the schedules

@@ -4,7 +4,9 @@ from datetime import UTC, datetime
 from typing import Any, Optional, cast
 from urllib.parse import quote
 
+import structlog
 from dateutil import parser as date_parser
+from requests import Response
 
 from posthog.dataclasses import frozen
 
@@ -17,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     build_dependent_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponseCursorPaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
@@ -42,6 +45,28 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.courier.se
 AUTH_ERROR_MESSAGE = "Invalid or missing authentication credentials"
 
 DEFAULT_INCREMENTAL_START = "1970-01-01T00:00:00Z"
+
+logger = structlog.get_logger(__name__)
+
+
+class CourierCursorPaginator(JSONResponseCursorPaginator):
+    """Cursor paginator that stops once the cursor stops advancing.
+
+    Courier's journey-versions endpoint returns a `paging.cursor` and its reference calls the
+    endpoint cursor-paged, but it documents no `cursor` request param. An API that ignores the
+    param returns the same page and the same cursor forever, so a repeated cursor ends the walk
+    here the way a repeated next URL ends it in `BaseNextUrlPaginator`.
+    """
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        previous_cursor = self._cursor_value
+        super().update_state(response, data)
+        if self._has_next_page and self._cursor_value == previous_cursor:
+            logger.warning(
+                "Pagination is not advancing (repeated cursor); treating as last page",
+                paginator=str(self),
+            )
+            self._has_next_page = False
 
 
 @frozen
@@ -245,6 +270,10 @@ def _fanout_resource(
     }
     if not config.paginated:
         child_endpoint_extra["paginator"] = SinglePagePaginator()
+    elif config.child_cursor_path:
+        child_endpoint_extra["paginator"] = CourierCursorPaginator(
+            cursor_path=config.child_cursor_path, cursor_param="cursor"
+        )
 
     def no_child_time_filter(_field: str) -> IncrementalConfig | None:
         # No Courier fan-out child accepts a timestamp filter of its own; an incremental run is
