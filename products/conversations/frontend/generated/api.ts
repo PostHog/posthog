@@ -32,6 +32,7 @@ import type {
     TicketFullEmailApi,
     TicketMessageApi,
     TicketReplyRequestApi,
+    TicketUnreadCountResponseApi,
     TicketUpdateRequestApi,
     TicketViewApi,
     ZendeskImportJobApi,
@@ -468,12 +469,13 @@ export const getConversationsTicketsUnreadCountRetrieveUrl = (projectId: string)
  * callers without object-level ticket restrictions, since it holds one unscoped total
  * per team - serving it to a restricted member would leak counts for tickets they can't
  * see.
+ * @summary Count unread tickets
  */
 export const conversationsTicketsUnreadCountRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<TicketApi> => {
-    return apiMutator<TicketApi>(getConversationsTicketsUnreadCountRetrieveUrl(projectId), {
+): Promise<TicketUnreadCountResponseApi> => {
+    return apiMutator<TicketUnreadCountResponseApi>(getConversationsTicketsUnreadCountRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

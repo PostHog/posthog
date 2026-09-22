@@ -37106,6 +37106,13 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    export interface EvaluationRunEvaluation {
+      /** UUID of the evaluation being run. */
+      id: string;
+      /** Display name of the evaluation being run. */
+      name: string;
+    }
+
     export interface EvaluationRunRequest {
       /** UUID of the evaluation to run. */
       evaluation_id: string;
@@ -37120,6 +37127,17 @@ export namespace Schemas {
          * @nullable
          */
       distinct_id?: string | null;
+    }
+
+    export interface EvaluationRunResponse {
+      /** Temporal workflow ID of the enqueued run. */
+      workflow_id: string;
+      /** Workflow status at the time of the response. */
+      status: string;
+      /** Evaluation selected for this run. */
+      evaluation: EvaluationRunEvaluation;
+      /** UUID of the event being evaluated. */
+      target_event_id: string;
     }
 
     export interface EventDefinitionBasic {
@@ -95770,6 +95788,14 @@ export namespace Schemas {
       rich_content?: unknown;
     }
 
+    export interface TicketUnreadCountResponse {
+      /**
+         * Unread messages across the non-resolved tickets the caller can see.
+         * @minimum 0
+         */
+      count: number;
+    }
+
     /**
      * Fields accepted when updating a ticket.
      */
@@ -105183,8 +105209,6 @@ export namespace Schemas {
       Valid: 'valid',
       Invalid: 'invalid',
     } as const;
-
-    export type EvaluationRunsCreate200 = { [key: string]: unknown };
 
     export type EvaluationsListParams = {
     /**
