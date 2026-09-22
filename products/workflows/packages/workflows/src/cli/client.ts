@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url'
 import { WorkflowError } from '../errors.js'
 import type { Credentials } from './credentials.js'
 
+const REQUEST_TIMEOUT_MS = 30_000
+
 export interface StoredWorkflow extends Record<string, unknown> {
     readonly id: string
     readonly version?: number
@@ -121,8 +123,19 @@ export class Client {
                     'User-Agent': userAgent(),
                 },
                 ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+                // A host that accepts the connection and never answers would otherwise hold a
+                // CI job until the runner's own timeout kills it, with no line saying why.
+                signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
             })
         } catch (error) {
+            if (error instanceof Error && error.name === 'TimeoutError') {
+                throw new WorkflowError({
+                    status: 'timeout',
+                    message: `${this.credentials.host} did not answer within ${REQUEST_TIMEOUT_MS / 1000} seconds.`,
+                    why: `The ${method} to ${path} was sent and no response came back in time.`,
+                    fix: 'Check that the host is the right PostHog and that it is up, then run the command again.',
+                })
+            }
             throw new WorkflowError({
                 status: 'network_error',
                 message: `Could not reach ${this.credentials.host}.`,
