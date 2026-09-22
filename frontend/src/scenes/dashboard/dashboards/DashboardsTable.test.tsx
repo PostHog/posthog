@@ -174,7 +174,7 @@ describe('DashboardsTable move to folder', () => {
                         {
                             id: 1,
                             name: 'Dashboard 1',
-                            tags: ['alpha', 'beta', 'gamma', 'delta', 'epsilon', '', 'zeta'],
+                            tags: ['analytics-platform', 'beta', 'gamma', 'delta', 'epsilon', '', 'zeta'],
                             user_access_level: AccessControlLevel.Editor,
                         },
                     ] as any
@@ -183,7 +183,8 @@ describe('DashboardsTable move to folder', () => {
             />
         )
 
-        expect(screen.getByText('alpha')).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="dashboard-tags"]')).toHaveClass('max-w-full')
+        expect(screen.getByText('analytics-platform')).toHaveClass('LemonTag--wrap')
         expect(screen.getByText('beta')).toBeInTheDocument()
         expect(screen.getByText('+4 more')).toBeInTheDocument()
         fireEvent.click(screen.getByText('+4 more'))
