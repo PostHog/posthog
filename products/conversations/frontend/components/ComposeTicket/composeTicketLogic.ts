@@ -4,8 +4,7 @@ import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import api, { ApiConfig } from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import { conversationsTicketsComposeCreate } from '../../generated/api'
@@ -218,7 +217,7 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
             }
 
             try {
-                const result = await conversationsTicketsComposeCreate(String(getCurrentTeamId()), {
+                const result = await conversationsTicketsComposeCreate(String(ApiConfig.getCurrentProjectId()), {
                     message,
                     recipient_email: recipientEmail,
                     email_config_id: emailConfigId,

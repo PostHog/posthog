@@ -32,6 +32,7 @@ jest.mock('~/lib/api', () => {
     const actual = jest.requireActual('~/lib/api')
     return {
         __esModule: true,
+        ApiConfig: actual.ApiConfig,
         default: {
             ...actual.default,
             createResponse: jest.fn(),
