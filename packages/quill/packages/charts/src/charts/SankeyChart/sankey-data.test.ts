@@ -103,20 +103,13 @@ describe('sankeyHitAt', () => {
         expect(sankeyHitAt(layout, { x: -50, y: -50 })).toBeNull()
     })
 
-    it('detects a zero-value node whose drawn height is floored at 1px', () => {
-        // A node with only empty inflow/outflow gets y1 === y0 from the layout engine.
-        // The draw code floors its height at Math.max(1, y1 - y0), so it paints as 1px.
-        // The hit box must match: floor the height here too.
-        const layoutWithZeroNode = layoutOf({
-            nodes: [...NODES, { id: 'orphan' }],
-            links: LINKS,
-        })
-        const zeroNode = layoutWithZeroNode.nodes.find((n) => n.id === 'orphan')!
-        // Even though the node has zero layout height, it can still be hit.
-        const hit = sankeyHitAt(layoutWithZeroNode, {
-            x: (zeroNode.x0 + zeroNode.x1) / 2,
-            y: zeroNode.y0,
-        })
-        expect(hit).toEqual({ kind: 'node', index: layoutWithZeroNode.nodes.indexOf(zeroNode) })
+    it('hits a zero-value node across the 1px the draw code floors it to', () => {
+        const withOrphan = layoutOf({ nodes: [...NODES, { id: 'orphan' }], links: LINKS })
+        const orphan = withOrphan.nodes.find((n) => n.id === 'orphan')!
+        expect(orphan.y1 - orphan.y0).toBe(0)
+
+        // Probe inside the floored band but outside the raw box, so dropping the floor fails here.
+        const hit = sankeyHitAt(withOrphan, { x: (orphan.x0 + orphan.x1) / 2, y: orphan.y0 + 0.5 })
+        expect(hit).toEqual({ kind: 'node', index: withOrphan.nodes.indexOf(orphan) })
     })
 })
