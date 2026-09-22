@@ -79,6 +79,7 @@ export interface userLogicValues {
     optimisticThemeMode: UserTheme | null
     otherOrganizations: OrganizationBasicType[]
     showUserDetailsErrors: boolean
+    switchingToOrganizationId: string | null
     themeMode: UserTheme
     user: UserType | null
     userDetails: UserDetailsFormType
@@ -115,6 +116,9 @@ export interface userLogicActions {
         payload?: {
             value: true
         }
+    }
+    cancelOrganizationSwitch: () => {
+        value: true
     }
     credentialReviewDismissed: () => {
         value: true
@@ -420,6 +424,7 @@ export const userLogic = kea<userLogicType>([
     actions(() => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
+        cancelOrganizationSwitch: true,
         logout: (preserveLocation = false) => ({ preserveLocation }),
         upgradeImpersonation: (reason: string) => ({ reason }),
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({
@@ -591,6 +596,16 @@ export const userLogic = kea<userLogicType>([
                 upgradeImpersonationFailure: () => false,
             },
         ],
+        // Held until the browser leaves the page, so a switcher can keep the row it is switching
+        // to in a loading state for the whole of the request plus the navigation. It lives here
+        // rather than with the menu because the listener below owns the request and its failure.
+        switchingToOrganizationId: [
+            null as string | null,
+            {
+                updateCurrentOrganization: (_, { organizationId }) => organizationId,
+                cancelOrganizationSwitch: () => null,
+            },
+        ],
         optimisticThemeMode: [
             null as UserTheme | null,
             {
@@ -754,10 +769,17 @@ export const userLogic = kea<userLogicType>([
         },
         updateCurrentOrganization: async ({ organizationId, destination }, breakpoint) => {
             if (values.user?.organization?.id === organizationId) {
+                actions.cancelOrganizationSwitch()
                 return
             }
             await breakpoint(10)
-            await api.update('api/users/@me/', { set_current_organization: organizationId })
+            try {
+                await api.update('api/users/@me/', { set_current_organization: organizationId })
+            } catch (error: any) {
+                actions.cancelOrganizationSwitch()
+                lemonToast.error(error?.detail || 'Could not switch organization. Please try again.')
+                return
+            }
 
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
 

@@ -1,14 +1,17 @@
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
+import { useActions } from 'kea'
+import { useEffect } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
+import { newAccountMenuLogic } from './newAccountMenuLogic'
 import { ProjectSwitcher } from './ProjectSwitcher'
 
-type StoryProps = { hasPendingInvite: boolean; hasDataFreshness?: boolean }
+type StoryProps = { hasPendingInvite: boolean; hasDataFreshness?: boolean; switchingToTeamId?: number }
 
 const PENDING_INVITE = {
     id: '018f0000-0000-0000-0000-000000000001',
@@ -79,7 +82,7 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
         layout: 'centered',
         viewMode: 'story',
     },
-    render: ({ hasPendingInvite, hasDataFreshness }: StoryProps) => {
+    render: ({ hasPendingInvite, hasDataFreshness, switchingToTeamId }: StoryProps) => {
         const organization = hasDataFreshness
             ? { ...MOCK_DEFAULT_ORGANIZATION, teams: [MOCK_DEFAULT_TEAM, ...FRESHNESS_TEAMS] }
             : MOCK_DEFAULT_ORGANIZATION
@@ -104,6 +107,16 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
             },
         })
 
+        const { startProjectSwitch, closeProjectSwitcher } = useActions(newAccountMenuLogic)
+        useEffect(() => {
+            if (!switchingToTeamId) {
+                return
+            }
+            startProjectSwitch(switchingToTeamId)
+            // The store outlives one story, so leave no target behind for the next one.
+            return () => closeProjectSwitcher()
+        }, [switchingToTeamId, startProjectSwitch, closeProjectSwitcher])
+
         return (
             <div className="w-[340px] border border-primary rounded bg-surface-primary">
                 <ProjectSwitcher dialog />
@@ -125,4 +138,8 @@ export const WithPendingInvite: Story = {
 
 export const WithDataFreshness: Story = {
     args: { hasPendingInvite: false, hasDataFreshness: true },
+}
+
+export const SwitchingProject: Story = {
+    args: { hasPendingInvite: false, hasDataFreshness: true, switchingToTeamId: 1002 },
 }
