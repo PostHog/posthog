@@ -1968,7 +1968,7 @@ class TestReconcileFailedRuns:
 
     @pytest.mark.asyncio
     async def test_orphan_drain_failure_does_not_starve_later_runs(self):
-        consumer = _make_consumer()
+        adapter = DeltaBatchConsumerAdapter()
         conn = _make_healthy_conn()
         refs = [_make_orphaned_run_ref(run_uuid="run-1"), _make_orphaned_run_ref(run_uuid="run-2")]
         drained_before = ORPHANED_BATCHES_DRAINED_TOTAL._value.get()
@@ -1985,7 +1985,7 @@ class TestReconcileFailedRuns:
             ) as mock_fail_run,
             patch(f"{consumer_module.__name__}.capture_exception") as mock_capture,
         ):
-            await consumer._drain_orphaned_batches(conn, limit=2)
+            await adapter._drain_orphaned_batches(conn, limit=2)
 
         assert [call.kwargs["run_uuid"] for call in mock_fail_run.await_args_list] == ["run-1", "run-2"]
         mock_capture.assert_called_once()
