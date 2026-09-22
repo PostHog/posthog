@@ -1,8 +1,8 @@
 """What the @PostHog bot needs an install to have granted, and whether a given install has it.
 
-The scope set is the Slack app's own contract with a workspace, so it lives with the app. Other
-products read it through ``facade.api``, which re-exports ``bot_is_ready`` for the surfaces that
-decide whether to invite a mention.
+The scope set is the Slack app's own contract with a workspace, so it lives with the app. No
+product outside slack_app reads it: the follow-up invite resolves readiness itself, and the
+fixtures that need the scope string take it from ``facade.testing``.
 """
 
 from collections.abc import Iterable

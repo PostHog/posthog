@@ -20,6 +20,14 @@ def build_followup_invite_text(integration: Integration | None, *, utm_tags: str
     Returns ``None`` when there's no Slack install or the org hasn't approved AI data processing —
     we don't nudge people toward the AI bot when their org hasn't opted into AI. Plain-text variant
     used where Slack only accepts mrkdwn (e.g. a gallery upload's ``initial_comment``).
+
+    The caller resolves ``ai_enabled`` rather than this function reading it off the integration,
+    for two reasons. Reading it costs two foreign-key traversals, which would raise
+    ``SynchronousOnlyOperation`` on the async delivery path in products/exports. And a caller that
+    enforces the consent earlier can say so instead of paying the lookup again.
+
+    ``utm_tags`` attributes an install that starts from the setup link, so each caller passes the
+    campaign that names its own surface.
     """
     if integration is None or not ai_enabled:
         return None

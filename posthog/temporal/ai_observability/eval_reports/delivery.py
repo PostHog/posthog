@@ -34,8 +34,6 @@ _LEADING_HEADING_RE = re.compile(r"^\s*#{1,6}\s+(.+?)\s*(?:\r?\n|$)")
 _md = MarkdownIt("commonmark", {"html": False}).enable("table")
 _slack_converter = SlackMarkdownConverter()
 
-# Every caller of the shared invite passes its own campaign, so a bot install that starts from an
-# evaluation report is attributable to eval reports rather than to the other reports carrying the line.
 _INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=eval_report&utm_medium=slack"
 
 # Inline styles for email-safe HTML (many clients strip <style> blocks)
@@ -388,7 +386,11 @@ def deliver_slack_report(
             continue
 
         try:
-            integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="slack")
+            # The organization comes along because the follow-up invite below reads its AI consent
+            # flag, and this query already runs once per target.
+            integration = Integration.objects.select_related("team__organization").get(
+                id=integration_id, team_id=team_id, kind="slack"
+            )
             client = SlackIntegration(integration).client
 
             # Main message: header + context + metrics grid + first section (if any)
@@ -416,8 +418,7 @@ def deliver_slack_report(
                     }
                 )
 
-            # Read from the organization rather than assumed, because nothing on this path
-            # establishes that a report only reaches an organization that approved AI processing.
+            # Read rather than assumed: nothing on this path enforces consent before generation.
             ai_enabled = bool(integration.team.organization.is_ai_data_processing_approved)
             if invite := slack_followup_invite(integration, utm_tags=_INVITE_UTM_TAGS, ai_enabled=ai_enabled):
                 blocks.append(invite)

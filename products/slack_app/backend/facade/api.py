@@ -10,6 +10,11 @@ answering whether a channel has been approved for PostHog to speak in, and
 telling a product that posts a report whether the bot can answer a follow-up.
 All are stable re-exports so the implementations can move around inside
 slack_app without breaking their callers.
+
+This module's import graph must not reach ``products.signals``. That product now imports this
+facade, and ``products.slack_app`` imports signals' facade in turn, so a module-level edge from
+here back into signals closes the loop and breaks Django startup. Reach signals from a function
+body instead, the way the handlers under ``backend/`` already do.
 """
 
 from __future__ import annotations

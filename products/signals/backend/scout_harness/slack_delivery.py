@@ -81,8 +81,6 @@ DELIVERABLE_REPORT_STATUSES = frozenset((SignalReport.Status.READY, SignalReport
 # way.
 MAX_SLACK_NOTE_SNAPSHOT_LEN = 6000
 
-# Every caller of the shared invite passes its own campaign, so a bot install that starts from a
-# scout report is attributable to scouts rather than to the other reports carrying the same line.
 _SCOUT_INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=scout_report&utm_medium=slack"
 
 
@@ -176,9 +174,8 @@ def _post_scout_slack_reply(
         return
     if not isinstance(thread_ts, str) or not thread_ts:
         return
-    # Passed as enabled rather than read from the organization, unlike the subscription callers.
-    # An organization receives a scout report only after it approves AI data processing, so the
-    # report this reply hangs under is already the nudge that gate exists to withhold.
+    # Consent is enforced before a scout report is generated, so the report this reply hangs under
+    # is already the nudge the AI gate exists to withhold.
     hint = slack_followup_invite_text(integration, utm_tags=_SCOUT_INVITE_UTM_TAGS, ai_enabled=True)
     if hint is None:
         return

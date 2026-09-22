@@ -64,8 +64,6 @@ logger = logging.getLogger(__name__)
 
 _SUMMARY_EXCERPT_MAX_LEN = 600
 _SLACK_HEADER_MAX_LEN = 150
-# Every caller of the shared invite passes its own campaign, so a bot install that starts from an
-# inbox notification is attributable to the inbox rather than to the other reports carrying the line.
 _INBOX_INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=signals_inbox&utm_medium=slack"
 # Bound message size / avoid pinging a crowd.
 _MAX_REVIEWER_MENTIONS = 5
@@ -692,8 +690,7 @@ def _deliver_route_notification(
             repository=repository,
         )
         # Added here rather than inside the block builder, which stays free of the integration so it
-        # can be tested without one. Passed as AI-enabled for the reason scout delivery gives: a
-        # report only reaches an organization that approved AI data processing.
+        # can be tested without one. Consent is enforced before a report is generated.
         if invite := slack_followup_invite(route.integration, utm_tags=_INBOX_INVITE_UTM_TAGS, ai_enabled=True):
             blocks.append(invite)
         response = slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=text)
