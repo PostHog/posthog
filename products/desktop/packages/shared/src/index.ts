@@ -197,6 +197,7 @@ export {
   buildDiscussReportPrompt,
   buildLocalCodeSnapshotPrompt,
   CODE_CONTEXT_DISCLOSURE,
+  NO_CHECKOUT_DISCLOSURE,
 } from "./inbox-prompts";
 export type {
   AvailableSuggestedReviewer,
