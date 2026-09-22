@@ -26,6 +26,7 @@ import { urls } from 'scenes/urls'
 
 import { FeatureFlagEvaluationRuntime, FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
 
+import { describeConfigActivity } from 'products/feature_flags/frontend/configActivityDescriber'
 import { FeatureFlagReleaseConditionsChange } from 'products/feature_flags/frontend/FeatureFlagReleaseConditionsChange'
 import {
     ConditionSetAspect,
@@ -283,6 +284,10 @@ const featureFlagActionsMapping: Record<
         }
     },
     filters: function onChangedFilter(change, logItem) {
+        const configDescription = change ? describeConfigActivity(change, logItem) : null
+        if (configDescription) {
+            return configDescription
+        }
         const filtersBefore = change?.before as FeatureFlagFilters | undefined
         const filtersAfter = change?.after as FeatureFlagFilters
 

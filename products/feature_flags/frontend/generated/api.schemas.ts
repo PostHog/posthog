@@ -1493,6 +1493,8 @@ export interface FeatureFlagVersionResponseApi {
     readonly created_by: number | null
     /** False for the current version; true for reconstructed historical versions. */
     readonly is_historical: boolean
+    /** Tags at this version, when available for config version 2 history. */
+    tags?: string[]
     /** @nullable */
     readonly version_timestamp: string | null
     /**

@@ -4,6 +4,8 @@ Activity logging is the audit trail of PostHog.
 A row in `posthog_activitylog` records who changed what, when, and how.
 Users read it in the Activity side panel, on an item's history tab, and on the advanced activity logs page.
 Notification destinations and workflows react to it through the `$activity_log_entry_created` internal event.
+Products may mask reconstruction-only values in that event: feature flags retain complete non-v1 configurations in authorized history while destinations receive value-free change summaries.
+See [feature flag activity and version history](feature-flags/api-writes.md#activity-and-version-history) for that contract.
 
 This doc says how a change becomes an activity row, where the code for a new model goes, and which writes the automatic path cannot see.
 The skill `.agents/skills/adding-activity-logging/SKILL.md` carries the step-by-step workflow.
