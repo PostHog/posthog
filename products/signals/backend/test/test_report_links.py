@@ -163,10 +163,10 @@ class TestReportLinkReaders(BaseTest):
             ("draft", True),
             ("merged", True),
             ("closed", False),
-            ("unknown", False),
+            ("unknown", True),
         ]
     )
-    def test_only_a_live_or_landed_pull_request_counts_as_work(self, pr_state: str, expected: bool):
+    def test_a_pull_request_counts_as_work_until_it_is_known_closed(self, pr_state: str, expected: bool):
         from products.signals.backend.artefact_schemas import PullRequestLink
         from products.signals.backend.models import SignalReportPullRequest
 

@@ -161,10 +161,13 @@ def linked_reports(*, team_id: int, report_ids: Collection[str]) -> dict[str, Si
 
 
 def has_open_or_merged_pull_request(*, team_id: int, report_ids: Collection[str]) -> set[str]:
-    """Which of these reports carry a pull request that is open, draft, or already merged.
+    """Which of these reports carry a pull request that is not known to be closed.
 
-    "Work exists for it" is the question every link gate asks. A closed pull request answers no,
-    because nothing landed and nothing is in flight.
+    "Work exists for it" is the question every link gate asks. Only a verified `closed` answers no,
+    because nothing landed and nothing is in flight. `unknown` counts as work like everywhere else
+    in the product: it is the column default and the state an attach keeps when the GitHub lookup
+    fails, so reading it as "no pull request" would open a second one against work already in
+    flight.
     """
     from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 
@@ -172,6 +175,7 @@ def has_open_or_merged_pull_request(*, team_id: int, report_ids: Collection[str]
         SignalReportPullRequest.State.OPEN,
         SignalReportPullRequest.State.DRAFT,
         SignalReportPullRequest.State.MERGED,
+        SignalReportPullRequest.State.UNKNOWN,
     }
     prs_by_report = fetch_implementation_prs_for_reports(list(report_ids), team_id=team_id)
     return {report_id for report_id, prs in prs_by_report.items() if any(pr.state in live_states for pr in prs)}
