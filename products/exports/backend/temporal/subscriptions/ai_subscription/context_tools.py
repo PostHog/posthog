@@ -44,6 +44,11 @@ CONTEXT_NAME_MAX_LENGTH = 120
 CONTEXT_DESCRIPTION_MAX_LENGTH = 300
 
 ReportContextStatus = Literal["success", "failed", "truncated"]
+# (dashboard_id, insight_id), with dashboard_id None for a standalone fetch. The same insight can be
+# registered both standalone and as a dashboard tile, and each registration applies different
+# dashboard filters/overrides, so a bare insight_id key would let a memoized standalone result stand
+# in for the tile's filtered one (or vice versa).
+_RegistrationKey = tuple[int | None, int]
 
 _TRUNCATED_CONTEXT_MARKER = "\n\n…(context evidence truncated)"
 _CONTEXT_UNAVAILABLE_ERROR = {"error": "context unavailable"}
@@ -194,8 +199,8 @@ class ContextToolRuntime:
         self._load_failed_insight_ids: set[int] = set()
         self._load_failed_dashboard_ids: set[int] = set()
 
-        self._memo: dict[int, str] = {}
-        self._insight_fetch_status: dict[int, ReportContextStatus] = {}
+        self._memo: dict[_RegistrationKey, str] = {}
+        self._insight_fetch_status: dict[_RegistrationKey, ReportContextStatus] = {}
         self._schema_parts: list[str] = []
 
     async def dispatch(self, tool_name: str, args: dict[str, Any]) -> str:
@@ -206,37 +211,45 @@ class ContextToolRuntime:
                     self._loaded = True
 
         if self._load_error:
-            return json.dumps(_CONTEXT_UNAVAILABLE_ERROR)
+            result = json.dumps(_CONTEXT_UNAVAILABLE_ERROR)
+        elif tool_name == "list_selected_contexts":
+            result = self._list_selected_contexts()
+        elif tool_name == "fetch_insight":
+            result = await self._fetch_insight(args["insight_id"])
+        elif tool_name == "fetch_dashboard":
+            result = await self._fetch_dashboard(args["dashboard_id"], args.get("insight_ids"))
+        else:
+            result = json.dumps({"error": f"unknown tool {tool_name}"})
 
-        if tool_name == "list_selected_contexts":
-            return self._list_selected_contexts()
-        if tool_name == "fetch_insight":
-            return await self._fetch_insight(args["insight_id"])
-        if tool_name == "fetch_dashboard":
-            return await self._fetch_dashboard(args["dashboard_id"], args.get("insight_ids"))
-        return json.dumps({"error": f"unknown tool {tool_name}"})
+        # The per-insight memo already caps each tile at CONTEXT_RESULT_MAX_CHARS, but
+        # fetch_dashboard concatenates several tiles into one JSON payload with no aggregate bound,
+        # so every dispatch return gets the same cap applied once more here.
+        return _truncate_content(result, CONTEXT_RESULT_MAX_CHARS)[0]
 
     def tool_schemas(self) -> list[type[BaseModel]]:
         return [ListSelectedContextsArgs, FetchInsightArgs, FetchDashboardArgs]
 
     @property
     def fetched_refs(self) -> tuple[str, ...]:
-        refs: list[str] = []
+        # An insight that is both a standalone selection and a tile of an attached dashboard
+        # contributes one insight ref regardless of which registration(s) actually succeeded, so
+        # refs are deduplicated through dict keys rather than a list.
+        refs: dict[str, None] = {}
         for insight_id in self._selection.insight_ids:
-            if self._insight_fetch_status.get(insight_id) == "success":
-                refs.append(f"insight:{insight_id}")
+            if self._insight_fetch_status.get((None, insight_id)) == "success":
+                refs[f"insight:{insight_id}"] = None
         for dashboard_id in self._selection.dashboard_ids:
             meta = self._dashboard_meta.get(dashboard_id)
             if meta is None:
                 continue
             dashboard_succeeded = False
             for tile_id in meta[2]:
-                if self._insight_fetch_status.get(tile_id) == "success":
-                    refs.append(f"insight:{tile_id}")
+                if self._insight_fetch_status.get((dashboard_id, tile_id)) == "success":
+                    refs[f"insight:{tile_id}"] = None
                     dashboard_succeeded = True
             if dashboard_succeeded:
-                refs.append(f"dashboard:{dashboard_id}")
-        return tuple(refs)
+                refs[f"dashboard:{dashboard_id}"] = None
+        return tuple(refs.keys())
 
     @property
     def statuses(self) -> AiReportContexts:
@@ -256,7 +269,7 @@ class ContextToolRuntime:
             tile_statuses = tuple(
                 AiReportInsightContext(id=tile_id, name=self._insight_meta[tile_id][0], status=status)
                 for tile_id in tile_ids
-                if (status := self._insight_fetch_status.get(tile_id)) is not None
+                if (status := self._insight_fetch_status.get((dashboard_id, tile_id))) is not None
             )
             if not tile_statuses:
                 continue
@@ -272,7 +285,7 @@ class ContextToolRuntime:
             if insight_id in self._load_failed_insight_ids:
                 insights.append(AiReportInsightContext(id=insight_id, name="Unavailable insight", status="failed"))
                 continue
-            status = self._insight_fetch_status.get(insight_id)
+            status = self._insight_fetch_status.get((None, insight_id))
             if status is None:
                 continue
             insights.append(
@@ -302,7 +315,7 @@ class ContextToolRuntime:
     @property
     def relevant_events(self) -> tuple[str, ...]:
         events: dict[str, None] = {}
-        for insight_id, status in self._insight_fetch_status.items():
+        for (_, insight_id), status in self._insight_fetch_status.items():
             if status != "success":
                 continue
             for event in self._insight_events.get(insight_id, ()):
@@ -419,14 +432,14 @@ class ContextToolRuntime:
             tuple(tile_ids),
         )
 
-    def _context_for_insight(self, insight_id: int) -> InsightContext | None:
-        context = self._standalone_contexts.get(insight_id)
-        if context is not None:
-            return context
-        for tile_contexts in self._dashboard_tile_contexts.values():
-            context = tile_contexts.get(insight_id)
-            if context is not None:
-                return context
+    def _resolve_insight(self, insight_id: int) -> tuple[_RegistrationKey, InsightContext] | None:
+        standalone_context = self._standalone_contexts.get(insight_id)
+        if standalone_context is not None:
+            return (None, insight_id), standalone_context
+        for dashboard_id, tile_contexts in self._dashboard_tile_contexts.items():
+            tile_context = tile_contexts.get(insight_id)
+            if tile_context is not None:
+                return (dashboard_id, insight_id), tile_context
         return None
 
     def _list_selected_contexts(self) -> str:
@@ -456,10 +469,11 @@ class ContextToolRuntime:
         return json.dumps({"remaining_budget": self._remaining_budget, "dashboards": dashboards, "insights": insights})
 
     async def _fetch_insight(self, insight_id: int) -> str:
-        context = self._context_for_insight(insight_id)
-        if context is None:
+        resolved = self._resolve_insight(insight_id)
+        if resolved is None:
             return json.dumps({"error": f"insight {insight_id} is not attached to this subscription"})
-        outcome = await self._fetch_one(insight_id, context)
+        key, context = resolved
+        outcome = await self._fetch_one(key, context)
         if outcome.error is not None:
             return json.dumps({"error": outcome.error})
         assert outcome.content is not None
@@ -501,7 +515,7 @@ class ContextToolRuntime:
             if context is None:
                 return {"insight_id": target_id, "error": f"insight {target_id} is not attached to this subscription"}
             async with semaphore:
-                outcome = await self._fetch_one(target_id, context)
+                outcome = await self._fetch_one((dashboard_id, target_id), context)
             if outcome.error is not None:
                 return {"insight_id": target_id, "error": outcome.error}
             return {"insight_id": target_id, "content": outcome.content}
@@ -509,25 +523,26 @@ class ContextToolRuntime:
         results = await asyncio.gather(*(fetch_tile(target_id) for target_id in targets))
         return json.dumps({"dashboard_id": dashboard_id, "tiles": results})
 
-    async def _fetch_one(self, insight_id: int, context: InsightContext) -> _FetchOutcome:
-        memoized = self._memo.get(insight_id)
+    async def _fetch_one(self, key: _RegistrationKey, context: InsightContext) -> _FetchOutcome:
+        memoized = self._memo.get(key)
         if memoized is not None:
             return _FetchOutcome(content=memoized)
         if self._remaining_budget <= 0:
             return _FetchOutcome(error="read budget exhausted")
 
+        insight_id = key[1]
         self._remaining_budget -= 1
         try:
             raw = await context.execute_and_format(include_prompt_framing=False)
         except Exception as err:
             capture_exception(err)
-            self._insight_fetch_status[insight_id] = "failed"
+            self._insight_fetch_status[key] = "failed"
             return _FetchOutcome(error=f"insight {insight_id} failed to execute")
 
         cleaned = strip_llm_framing_markers(raw, max_len=len(raw))
         bounded = cleaned[:CONTEXT_RESULT_MAX_CHARS]
-        self._memo[insight_id] = bounded
-        self._insight_fetch_status[insight_id] = "success"
+        self._memo[key] = bounded
+        self._insight_fetch_status[key] = "success"
 
         schema_text = await context.format_schema()
         self._schema_parts.append(strip_llm_framing_markers(schema_text, max_len=len(schema_text)))
