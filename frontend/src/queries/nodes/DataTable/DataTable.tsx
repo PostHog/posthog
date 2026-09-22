@@ -1109,6 +1109,8 @@ export function DataTable({
                                         ) : (
                                             <InsightErrorState
                                                 query={query}
+                                                queryId={responseErrorObject?.queryId ?? queryId}
+                                                titleStatus={responseErrorObject?.status}
                                                 onRetry={() => loadData('force_blocking')}
                                             />
                                         )

@@ -208,6 +208,7 @@ export interface insightVizDataLogicValues {
     display: ChartDisplayType | null | undefined
     enabledIntervals: Intervals
     erroredQueryId: any
+    erroredQueryStatus: number | null
     formula: string | null | undefined
     formulaNodes: TrendsFormulaNode[]
     formulas: string[] | null | undefined
@@ -1231,6 +1232,7 @@ export interface insightVizDataLogicMeta {
             featureFlags: FeatureFlagsSet
         ) => Intervals
         erroredQueryId: (insightDataError: Record<string, any> | null) => any
+        erroredQueryStatus: (insightDataError: Record<string, any> | null) => number | null
         validationError: (insightDataError: Record<string, any> | null) => string | null
         validationErrorCode: (insightDataError: Record<string, any> | null) => string | null
         timezone: (insightData: Record<string, any>) => any
@@ -2481,6 +2483,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (insightDataError: Record<string, any> | null) => {
                 return insightDataError?.queryId || null
             },
+        ],
+        erroredQueryStatus: [
+            (s) => [s.insightDataError],
+            (insightDataError: Record<string, any> | null): number | null => insightDataError?.status ?? null,
         ],
         validationError: [
             (s) => [s.insightDataError],

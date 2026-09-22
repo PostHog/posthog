@@ -525,6 +525,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                     <MemoizedDashboardErrorTileItem
                                         key={tile.id}
                                         tile={tile}
+                                        dashboardId={dashboard?.id}
                                         onRetry={retryFailedDashboardTile}
                                         retryLoading={dashboardLoading}
                                         placement={placement}
