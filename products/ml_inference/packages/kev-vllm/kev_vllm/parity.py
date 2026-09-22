@@ -123,6 +123,7 @@ def post_json(url: str, payload: dict) -> dict:
 
 
 def served_model(base_url: str) -> str:
+    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected the URL comes from the --base-url flag
     with urllib.request.urlopen(f"{base_url}/v1/models", timeout=30) as resp:
         return json.load(resp)["data"][0]["id"]
 
