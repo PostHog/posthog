@@ -85,19 +85,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
-                    "created_via",
-                    models.CharField(
-                        choices=[
-                            ("web", "Web"),
-                            ("api", "API"),
-                            ("mcp", "MCP"),
-                            ("self_driving", "Self-driving"),
-                        ],
-                        help_text="How the proposal was created. Derived from the request, never set by the caller.",
-                        max_length=20,
-                    ),
-                ),
-                (
                     "source_id",
                     models.CharField(
                         blank=True,
@@ -114,16 +101,6 @@ class Migration(migrations.Migration):
                         blank=True,
                         help_text="Workflow version the approved change went live as.",
                         null=True,
-                    ),
-                ),
-                (
-                    "created_by",
-                    models.ForeignKey(
-                        blank=True,
-                        db_constraint=False,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
                 (

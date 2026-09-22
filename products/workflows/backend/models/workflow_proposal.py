@@ -12,10 +12,9 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDTModel):
     Approving one stages its content into the workflow's `draft` — the same move as restoring a
     revision — so nothing here can reach the live config without a human publishing it.
 
-    Behind the `self-optimising-workflows` flag. `created_via` says how a suggestion arrived (a
-    PostHog-run agent, an MCP client, the API, the web app) and is set by the server, so the page
-    can label it truthfully; `source_id` names the run or finding it came from, so a retry lands
-    on the row it already made.
+    Behind the `self-optimising-workflows` flag. Only PostHog's own scout files one, so the row
+    records no author; `source_id` names the run or finding it came from, so a retry lands on the
+    row it already made.
     """
 
     class Status(models.TextChoices):
@@ -23,14 +22,6 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDTModel):
         APPROVED = "approved", "Approved"
         REJECTED = "rejected", "Rejected"
         APPLIED = "applied", "Applied"
-
-    class CreatedVia(models.TextChoices):
-        """How the proposal reached us. Values mirror `ExternalDataSource.CreatedVia`."""
-
-        WEB = "web", "Web"
-        API = "api", "API"
-        MCP = "mcp", "MCP"
-        SELF_DRIVING = "self_driving", "Self-driving"
 
     OPEN_STATUSES = (Status.SUGGESTED,)
 
@@ -49,7 +40,7 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDTModel):
             models.Index(fields=["team", "hog_flow", "status"], name="workflow_proposal_status_idx"),
         ]
 
-    # db_constraint=False on team/created_by/resolved_by: a real FK constraint to a hot table
+    # db_constraint=False on team/resolved_by: a real FK constraint to a hot table
     # (posthog_team, posthog_user) takes a parent-table lock on creation; enforcement stays app-level.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     hog_flow = models.ForeignKey("workflows.HogFlow", on_delete=models.CASCADE, related_name="proposals")
@@ -89,11 +80,6 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDTModel):
     )
 
     status = models.CharField(max_length=20, choices=Status, default=Status.SUGGESTED)
-    created_via = models.CharField(
-        max_length=20,
-        choices=CreatedVia,
-        help_text="How the proposal was created. Derived from the request, never set by the caller.",
-    )
     source_id = models.CharField(
         max_length=200,
         null=True,
@@ -101,9 +87,6 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDTModel):
         help_text="Stable id of the producing agent run or finding, e.g. 'run:<run id>:finding:<finding id>'.",
     )
 
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
-    )
     created_at = models.DateTimeField(auto_now_add=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
     resolved_by = models.ForeignKey(

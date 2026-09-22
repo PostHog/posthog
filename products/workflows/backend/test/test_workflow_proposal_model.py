@@ -19,7 +19,6 @@ class TestWorkflowProposalSourceFence(BaseTest):
             rationale="Opens are low.",
             content={"exit_condition": "exit_only_at_end"},
             base_version=1,
-            created_via=WorkflowProposal.CreatedVia.API,
             source_id=source_id,
         )
 

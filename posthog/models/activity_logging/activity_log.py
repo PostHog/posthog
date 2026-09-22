@@ -315,6 +315,9 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
         # `before` against the stripped `after`, leaking the secret. Record that actions changed, never
         # the contents — the per-version content audit lives in the revisions feature instead.
         "actions",
+        # Reverse FK into WorkflowProposal's fail-closed manager, and a suggestion filed or resolved
+        # is not a workflow edit.
+        "proposals",
     ],
     "OrganizationDomain": [
         "_scim_bearer_token",
@@ -884,8 +887,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Reads through UserFacetSettings' own fail-closed TeamScopedManager, which has no
         # ambient team scope at signal-handling time (same reason Loop excludes triggers/fires).
         "facet_settings",
-        # Same fail-closed manager, on the two WorkflowProposal relations a user can author or resolve.
-        "workflowproposal_set",
+        # Same fail-closed manager, on the WorkflowProposal relation a user can resolve.
         "resolved_workflow_proposals",
     ],
     "AlertConfiguration": [
