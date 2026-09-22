@@ -11,6 +11,14 @@ recognizable across runs. This store keeps the ids a view produced and suppresse
 The record is one Redis set per view, replaced on each run. It holds the ids this run produced plus
 the ids this run suppressed, so a row that keeps coming back stays suppressed for as long as it
 does, and a row that stops coming back drops out after one run.
+
+Two runs of the same view can overlap, because the producer workflow is keyed on the job rather
+than the view, and only same-schedule runs take ``ScheduleOverlapPolicy.SKIP``. Both then read the
+same record and the later commit replaces the earlier one's ids. That costs a repeat trigger on a
+later run, which is the behavior this store removes, and never a dropped one: an id is only ever
+suppressed because an earlier run produced it. Serializing the load through the commit would mean
+holding a lock across the whole produce loop, which runs for as long as the rows take to reach
+Kafka, and a lock that expires under that would give the same interleaving with more to go wrong.
 """
 
 from itertools import batched
