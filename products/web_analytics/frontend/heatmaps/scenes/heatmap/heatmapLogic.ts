@@ -162,6 +162,7 @@ export interface heatmapLogicValues {
     pageUrlDraft: string
     pageUrlDraftIsPattern: boolean
     previewError: string | JSX.Element | null
+    previewScale: number
     previewType: HeatmapType
     previewUnavailable: boolean
     previewVersion: number
@@ -365,7 +366,8 @@ export interface heatmapLogicMeta {
         pageUrlDraftIsPattern: (pageUrlDraft: string) => boolean
         desiredNumericWidth: (widthOverride: number, containerWidth: number | null) => number
         effectiveWidth: (desiredNumericWidth: number) => number
-        scalePercent: (widthOverride: number, containerWidth: number | null) => number
+        previewScale: (widthOverride: number, containerWidth: number | null) => number
+        scalePercent: (previewScale: number) => number
     }
 }
 
@@ -915,13 +917,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
         effectiveWidth: [(s) => [s.desiredNumericWidth], (desiredNumericWidth: number) => desiredNumericWidth],
-        scalePercent: [
+        previewScale: [
             (s) => [s.widthOverride, s.containerWidth],
-            (widthOverride: number, containerWidth: number | null) => {
-                const scale = containerWidth ? Math.min(1, containerWidth / widthOverride) : 1
-                return Math.round(scale * 100)
-            },
+            (widthOverride: number, containerWidth: number | null) =>
+                containerWidth && widthOverride > 0 ? Math.min(1, containerWidth / widthOverride) : 1,
         ],
+        scalePercent: [(s) => [s.previewScale], (previewScale: number) => Math.round(previewScale * 100)],
     }),
     selectors(({ props }) => ({
         [SIDE_PANEL_CONTEXT_KEY]: [
