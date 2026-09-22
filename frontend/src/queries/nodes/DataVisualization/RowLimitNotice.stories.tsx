@@ -13,13 +13,9 @@ const query: DataVisualizationNode = {
     display: ChartDisplayType.ActionsTable,
 }
 
-function buildResults(rowCount: number): string[][] {
-    return Array.from({ length: rowCount }, (_, index) => [`Country ${index + 1}`, String(1000 - index)])
-}
-
 function buildResponse(rowCount: number, hasMore: boolean): HogQLQueryResponse<string[][]> {
     return {
-        results: buildResults(rowCount),
+        results: Array.from({ length: rowCount }, (_, index) => [`Country ${index + 1}`, String(1000 - index)]),
         columns: ['country', 'visitors'],
         types: [
             ['country', 'String'],
@@ -27,7 +23,7 @@ function buildResponse(rowCount: number, hasMore: boolean): HogQLQueryResponse<s
         ],
         hasMore,
         limit: 100,
-    } as HogQLQueryResponse<string[][]>
+    }
 }
 
 const meta: Meta<typeof DataTableVisualization> = {

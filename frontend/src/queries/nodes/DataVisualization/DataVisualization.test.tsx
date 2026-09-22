@@ -86,10 +86,10 @@ describe('DataTableVisualization', () => {
         { name: 'the backend cut the result', hasMore: true, limit: 100, expectNotice: true },
         { name: 'the result fits under the default limit', hasMore: false, limit: 100, expectNotice: false },
         { name: 'the query declares its own limit', hasMore: undefined, limit: undefined, expectNotice: false },
-    ])('embedded tile tells the reader when $name', async ({ hasMore, limit, expectNotice }) => {
+    ])('embedded tile tells the reader when $name', async ({ name, hasMore, limit, expectNotice }) => {
         render(
             <DataTableVisualization
-                uniqueKey={`data-visualization-limit-${String(hasMore)}-${String(limit)}`}
+                uniqueKey={`data-visualization-limit-${name}`}
                 query={query}
                 setQuery={jest.fn()}
                 cachedResults={{ ...cachedResults, hasMore, limit }}
