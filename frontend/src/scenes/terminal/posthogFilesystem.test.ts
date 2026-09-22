@@ -195,9 +195,9 @@ describe('PostHog filesystem projection', () => {
             format === 'markdown'
                 ? fs.root.children!.get('files')!.children!.get('Research')!.children!.get('Notes.md')!
                 : fs.root.children!.get('api')!.children!.get('notebook')!.children!.get('note1.json')!
-        const result = await expect(node.open!(read.signal)).rejects.toThrow('Read canceled')
+        const result = node.open!(read.signal)
         ;(aborted === 'read' ? read : session).abort()
-        await result
+        await expect(result).rejects.toThrow('Read canceled')
     })
 
     it('removes project references and empty folders only after the API succeeds, without loading bodies', async () => {
