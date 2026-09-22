@@ -22,7 +22,7 @@ from posthog.schema import (
 
 from ee.hogai.utils.types.base import AssistantMessageUnion
 
-from ..compaction_manager import AnthropicConversationCompactionManager
+from ..compaction_manager import TOKEN_COUNT_ESTIMATE_FALLBACK_COUNTER, AnthropicConversationCompactionManager
 
 
 class TestAnthropicConversationCompactionManager(BaseTest):
@@ -186,6 +186,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
         [
             [TypeError("got an unexpected keyword argument 'thinking'")],
             [NotImplementedError("unknown model")],
+            [RuntimeError("upstream token counting request failed")],
         ]
     )
     async def test_calculate_token_count_falls_back_when_counter_raises(self, error):
@@ -199,6 +200,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
         ]
 
         mock_model = MagicMock()
+        fallbacks_before = TOKEN_COUNT_ESTIMATE_FALLBACK_COUNTER._value.get()
         with (
             patch.object(self.window_manager, "_get_token_count", new_callable=AsyncMock, side_effect=error),
             patch("ee.hogai.core.agent_modes.compaction_manager.capture_exception") as mock_capture,
@@ -207,6 +209,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
 
         self.assertEqual(result, 125)
         mock_capture.assert_called_once()
+        self.assertEqual(TOKEN_COUNT_ESTIMATE_FALLBACK_COUNTER._value.get(), fallbacks_before + 1)
 
     def test_get_estimated_assistant_message_tokens_human_message(self):
         """Test token estimation for human messages"""

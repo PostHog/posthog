@@ -15,6 +15,7 @@ from langchain_core.messages import (
 from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from posthoganalytics import capture_exception
+from prometheus_client import Counter
 from pydantic import BaseModel, ValidationError
 
 from posthog.schema import (
@@ -40,6 +41,11 @@ logger = structlog.get_logger(__name__)
 T = TypeVar("T", bound=AssistantMessageUnion)
 
 LangchainTools = Sequence[dict[str, Any] | type | Callable | BaseTool]
+
+TOKEN_COUNT_ESTIMATE_FALLBACK_COUNTER = Counter(
+    "posthog_ai_token_count_estimate_fallback_total",
+    "Conversation token counts that fell back to the local estimate because the model counter failed",
+)
 
 
 class InsertionResult(BaseModel):
@@ -127,7 +133,9 @@ class ConversationCompactionManager(ABC):
         try:
             return await self._get_token_count(model, messages, tools, **kwargs)
         except Exception as e:
-            # A model-specific counter only supports the models it knows. The estimate keeps the turn alive.
+            # A model-specific counter only supports the models it knows, and the Anthropic one counts
+            # over the network, so it can also fail on an upstream error. The estimate keeps the turn alive.
+            TOKEN_COUNT_ESTIMATE_FALLBACK_COUNTER.inc()
             logger.exception("Model token counting failed, falling back to an estimate")
             capture_exception(e)
             return self._get_estimated_token_count(messages, tools)
