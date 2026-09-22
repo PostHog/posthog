@@ -4,6 +4,13 @@ from dataclasses import dataclass
 from posthog.schema import HogQLNotice
 
 from posthog.hogql import ast
+from posthog.hogql.visitor import TraversingVisitor
+
+# Some SDKs used to send the event time as a client-side property as well as on the event itself.
+# Both names live in the JSON blob rather than in the `timestamp` column the `events` table is
+# partitioned and sorted by, so a range filter on one prunes nothing and the query reads every
+# event ever ingested while still looking date-bounded to whoever wrote it.
+DEPRECATED_TIMESTAMP_PROPERTIES = frozenset({"$time", "$timestamp"})
 
 
 @dataclass(frozen=True)
@@ -53,8 +60,32 @@ class SimilarSubqueryHeuristic(MetadataHeuristic):
         return warnings
 
 
+class DeprecatedTimestampPropertyHeuristic(MetadataHeuristic):
+    def run(self, query: ast.SelectQuery | ast.SelectSetQuery) -> list[HogQLNotice]:
+        warnings: list[HogQLNotice] = []
+
+        for select_query in _collect_select_queries(query):
+            if "events" not in _collect_table_names_from_join(select_query.select_from):
+                continue
+
+            for name, node in _deprecated_timestamp_references(select_query):
+                warnings.append(
+                    HogQLNotice(
+                        start=node.start,
+                        end=node.end,
+                        message=(
+                            f"'properties.{name}' is a deprecated property, not the event timestamp. "
+                            "A filter on it does not reduce the data the query reads, so the query "
+                            "scans your full event history. Filter on the 'timestamp' column instead."
+                        ),
+                    )
+                )
+
+        return warnings
+
+
 def run_metadata_heuristics(query: ast.SelectQuery | ast.SelectSetQuery) -> list[HogQLNotice]:
-    heuristics: list[MetadataHeuristic] = [SimilarSubqueryHeuristic()]
+    heuristics: list[MetadataHeuristic] = [SimilarSubqueryHeuristic(), DeprecatedTimestampPropertyHeuristic()]
     warnings: list[HogQLNotice] = []
 
     for heuristic in heuristics:
@@ -95,3 +126,63 @@ def _collect_table_names_from_join(join: ast.JoinExpr | None) -> tuple[str, ...]
         join = join.next_join
 
     return tuple(sorted(table_names))
+
+
+class _SelectQueryCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        self.select_queries: list[ast.SelectQuery] = []
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        self.select_queries.append(node)
+        super().visit_select_query(node)
+
+
+class _DeprecatedTimestampReferenceVisitor(TraversingVisitor):
+    def __init__(self) -> None:
+        self.references: list[tuple[str, ast.Expr]] = []
+
+    def visit_field(self, node: ast.Field) -> None:
+        chain = node.chain
+        if (
+            len(chain) >= 2
+            and chain[-2] == "properties"
+            and isinstance(chain[-1], str)
+            and chain[-1] in DEPRECATED_TIMESTAMP_PROPERTIES
+        ):
+            self.references.append((chain[-1], node))
+        super().visit_field(node)
+
+    def visit_array_access(self, node: ast.ArrayAccess) -> None:
+        if (
+            isinstance(node.array, ast.Field)
+            and node.array.chain
+            and node.array.chain[-1] == "properties"
+            and isinstance(node.property, ast.Constant)
+            and node.property.value in DEPRECATED_TIMESTAMP_PROPERTIES
+        ):
+            self.references.append((node.property.value, node))
+        super().visit_array_access(node)
+
+
+def _collect_select_queries(query: ast.SelectQuery | ast.SelectSetQuery) -> list[ast.SelectQuery]:
+    collector = _SelectQueryCollector()
+    collector.visit(query)
+    return collector.select_queries
+
+
+def _deprecated_timestamp_references(query: ast.SelectQuery) -> list[tuple[str, ast.Expr]]:
+    """The deprecated names a query filters on, at most one reference per name.
+
+    Only the filter clauses are read, because the cost this warns about comes from a predicate that
+    prunes nothing. A range filter usually names the same property twice, so marking every reference
+    would put two identical warnings on one line.
+    """
+    visitor = _DeprecatedTimestampReferenceVisitor()
+    for clause in (query.where, query.prewhere):
+        if clause is not None:
+            visitor.visit(clause)
+
+    first_by_name: dict[str, tuple[str, ast.Expr]] = {}
+    for name, node in visitor.references:
+        first_by_name.setdefault(name, (name, node))
+    return list(first_by_name.values())
