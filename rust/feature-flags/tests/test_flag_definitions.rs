@@ -3025,17 +3025,28 @@ async fn test_cache_miss_enqueues_rebuild_on_dedicated_redis() {
     );
 }
 
+#[rstest::rstest]
+#[case(false, false, false)]
+#[case(true, true, false)]
+#[case(true, true, true)]
 #[tokio::test]
-async fn test_cache_miss_does_not_enqueue_rebuild_when_self_heal_disabled() {
+async fn test_definitions_failure_does_not_enqueue_when_disabled_or_storage_unavailable(
+    #[case] self_heal: bool,
+    #[case] storage_unavailable: bool,
+    #[case] require_provenance: bool,
+) {
+    use common_s3::{MockS3Client, S3Error};
     use feature_flags::{
-        config::Config,
+        config::{Config, FlexBool},
         utils::test_utils::{dummy_s3_client, read_flag_definitions_rebuild_requests, TestContext},
     };
     use reqwest;
+    use std::sync::Arc;
     use tokio::time::{sleep, Duration};
 
-    // default_test_config leaves flag_definitions_self_heal_enabled = false.
-    let config = Config::default_test_config();
+    let mut config = Config::default_test_config();
+    config.flag_definitions_self_heal_enabled = FlexBool(self_heal);
+    config.flag_definitions_require_provenance = FlexBool(require_provenance);
     let context = TestContext::new(Some(&config)).await;
 
     let (team, secret_token, _) = context
@@ -3043,10 +3054,16 @@ async fn test_cache_miss_does_not_enqueue_rebuild_when_self_heal_disabled() {
         .await
         .unwrap();
 
-    // Inject a NotFound S3 so this is a genuine cache_miss: the only reason no enqueue
-    // happens is the flag being off, not the miss classifying as s3_error.
-    let server =
-        common::ServerHandle::for_config_with_s3(config.clone(), Some(dummy_s3_client())).await;
+    let s3 = if storage_unavailable {
+        let mut s3 = MockS3Client::new();
+        s3.expect_get_string().returning(|_, _| {
+            Box::pin(async { Err(S3Error::OperationFailed("storage unavailable".to_string())) })
+        });
+        Arc::new(s3)
+    } else {
+        dummy_s3_client()
+    };
+    let server = common::ServerHandle::for_config_with_s3(config.clone(), Some(s3)).await;
     let response = reqwest::Client::new()
         .get(format!(
             "http://{}/flags/definitions?token={}",
@@ -3057,14 +3074,14 @@ async fn test_cache_miss_does_not_enqueue_rebuild_when_self_heal_disabled() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), 503, "expected a cache-miss 503");
+    assert_eq!(response.status(), 503);
 
     // Give any (erroneous) background enqueue time to land, then assert it did not.
     sleep(Duration::from_millis(500)).await;
     let members = read_flag_definitions_rebuild_requests(&config.redis_url).await;
     assert!(
         !members.contains(&team.id.to_string()),
-        "team {} must not be enqueued when self-heal is disabled",
+        "team {} must not be enqueued when self-heal is disabled or storage is unavailable",
         team.id
     );
 }

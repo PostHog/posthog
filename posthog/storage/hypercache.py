@@ -265,10 +265,26 @@ class HyperCache:
         data, _ = self.get_from_cache_with_source(key)
         return data
 
+    def _read_redis_payload(self, key: KeyType) -> dict | None | HyperCacheStoreMissing:
+        raw = self.cache_client.get(self.get_cache_key(key))
+        if raw == _HYPER_CACHE_EMPTY_VALUE:
+            return HyperCacheStoreMissing()
+        return json.loads(raw) if raw else None
+
+    def _read_s3_payload(self, key: KeyType) -> dict | None:
+        raw = object_storage.read(self.get_cache_key(key), missing_ok=True)
+        if not raw:
+            return None
+        payload = json.loads(raw)
+        self._set_cache_value_redis(key, payload)
+        return payload
+
+    def _load_payload(self, key: KeyType) -> dict | None | HyperCacheStoreMissing:
+        return self.load_fn(key)
+
     def get_from_cache_with_source(self, key: KeyType) -> tuple[dict | None, str]:
-        cache_key = self.get_cache_key(key)
         try:
-            data = self.cache_client.get(cache_key)
+            data = self._read_redis_payload(key)
         except _REDIS_READ_ERRORS as e:
             # A Redis outage on the primary read must degrade to the S3/DB tiers below, never
             # bubble a 500 up to the request handler. Capture it for visibility, the way the S3
@@ -276,21 +292,19 @@ class HyperCache:
             capture_exception(e)
             data = None
 
-        if data:
+        if data is not None:
             HYPERCACHE_CACHE_COUNTER.labels(result="hit_redis", namespace=self.namespace, value=self.value).inc()
 
-            if data == _HYPER_CACHE_EMPTY_VALUE:
+            if isinstance(data, HyperCacheStoreMissing):
                 return None, "redis"
             else:
-                return json.loads(data), "redis"
+                return data, "redis"
 
         try:
             if self.s3_enabled:
-                data = object_storage.read(cache_key, missing_ok=True)
-                if data:
-                    response = json.loads(data)
+                response = self._read_s3_payload(key)
+                if response is not None:
                     HYPERCACHE_CACHE_COUNTER.labels(result="hit_s3", namespace=self.namespace, value=self.value).inc()
-                    self._set_cache_value_redis(key, response)
                     return response, "s3"
         except (ObjectStorageError, BotoCoreError, ClientError, ValueError) as e:
             # Any storage-layer failure here (including a misconfigured S3 endpoint that
@@ -302,7 +316,7 @@ class HyperCache:
 
         # NOTE: This only applies to the django version - the dedicated service will rely entirely on the cache
         try:
-            data = self.load_fn(key)
+            data = self._load_payload(key)
         except HyperCacheDependencyUnavailable:
             # Return a miss without caching a sentinel, so the next read retries. The
             # distinct "dependency_unavailable" source lets etag-aware callers fail
@@ -318,7 +332,9 @@ class HyperCache:
             HYPERCACHE_CACHE_COUNTER.labels(result="missing", namespace=self.namespace, value=self.value).inc()
             return None, "db"
 
-        self._set_cache_value_redis(key, data)
+        self._set_cache_value_redis(
+            key, data, json_data=json.dumps(data, sort_keys=True) if isinstance(data, dict) else None
+        )
         HYPERCACHE_CACHE_COUNTER.labels(result="hit_db", namespace=self.namespace, value=self.value).inc()
         return data, "db"
 
@@ -479,6 +495,8 @@ class HyperCache:
         ttl: Optional[int] = None,
         should_skip_write: Optional[Callable[[KeyType, dict], bool]] = None,
         data: dict | None = None,
+        *,
+        publish_provenance: bool = True,
     ) -> bool:
         """
         Load (or accept a pre-built) value, write it to all tiers, and emit sync metrics.
@@ -499,7 +517,7 @@ class HyperCache:
                 # value (e.g. it would overwrite good data with a degraded one). Keep
                 # the existing entry; the predicate owns its own metric/logging.
                 return False
-            size = self.set_cache_value(key, value, ttl=ttl)
+            size = self.set_cache_value(key, value, ttl=ttl, publish_provenance=publish_provenance)
             success = True
             return True
         except HyperCacheDependencyUnavailable:
@@ -530,6 +548,8 @@ class HyperCache:
         data: dict | None | HyperCacheStoreMissing,
         ttl: Optional[int] = None,
         skip_if_unchanged: bool = False,
+        *,
+        publish_provenance: bool = True,
     ) -> int | None:
         """
         Set cache value in Redis and S3, returning the serialized size in bytes.
@@ -548,9 +568,8 @@ class HyperCache:
                 "set_cache_value(skip_if_unchanged=True) requires expiry tracking "
                 "(expiry_sorted_set_key) with a scheduled refresh that re-stamps the TTL"
             )
-        json_data: str | None = None
-        if skip_if_unchanged and self.enable_etag and isinstance(data, dict):
-            json_data = json.dumps(data, sort_keys=True)
+        json_data = json.dumps(data, sort_keys=True) if isinstance(data, dict) else None
+        if skip_if_unchanged and self.enable_etag and json_data is not None:
             etag = self._compute_etag(json_data)
             # Skip only when every tier is current. A failed mirror write leaves the
             # secondary on the old payload, and a primary-only ETag comparison would then
@@ -558,9 +577,11 @@ class HyperCache:
             if etag == self.get_etag(key) and self._secondary_etag_matches(key, etag):
                 HYPERCACHE_WRITE_SKIPPED_UNCHANGED_COUNTER.labels(namespace=self.namespace, value=self.value).inc()
                 return len(json_data)
-        size = self._set_cache_value_redis(key, data, ttl=ttl, json_data=json_data)
+        size = self._set_cache_value_redis(
+            key, data, ttl=ttl, json_data=json_data, publish_provenance=publish_provenance
+        )
         if self.s3_enabled:
-            self._set_cache_value_s3(key, data, ttl=ttl)
+            self._set_cache_value_s3(key, data, ttl=ttl, json_data=json_data, publish_provenance=publish_provenance)
         # Only track expiry when we have a Team object (avoids DB lookup)
         if isinstance(key, Team):
             self._track_expiry(key, data, ttl=ttl)
@@ -647,6 +668,8 @@ class HyperCache:
         data: dict | None | HyperCacheStoreMissing,
         ttl: Optional[int] = None,
         json_data: str | None = None,
+        *,
+        publish_provenance: bool = True,
     ) -> int | None:
         """
         Set cache value in Redis and return the serialized size in bytes.
@@ -686,7 +709,15 @@ class HyperCache:
                 self.cache_client.delete(etag_key)
             return len(json_data)
 
-    def _set_cache_value_s3(self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None):
+    def _set_cache_value_s3(
+        self,
+        key: KeyType,
+        data: dict | None | HyperCacheStoreMissing,
+        ttl: Optional[int] = None,
+        json_data: str | None = None,
+        *,
+        publish_provenance: bool = True,
+    ) -> None:
         """
         Write cache value to S3.
 
@@ -699,7 +730,7 @@ class HyperCache:
             object_storage.delete(key)
         else:
             # Use sort_keys for deterministic serialization (consistent ETags)
-            object_storage.write(key, json.dumps(data, sort_keys=True))
+            object_storage.write(key, json_data if json_data is not None else json.dumps(data, sort_keys=True))
 
     def _remove_expiry_tracking(self, key: KeyType) -> None:
         """

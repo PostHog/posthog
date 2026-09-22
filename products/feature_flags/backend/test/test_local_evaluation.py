@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -975,7 +977,8 @@ class TestLocalEvaluationBatch(BaseTest):
         assert results[team.id]["flags"] == []
         assert results[team.id]["group_type_mapping"] == {"0": "company"}
 
-    def test_batch_cohort_isolation_across_projects(self):
+    @parameterized.expand([("valid", False), ("malformed", True)])
+    def test_batch_cohort_isolation_across_projects(self, _name: str, malformed: bool) -> None:
         team_a = self._create_team_with_project("Project A")
         team_b = self._create_team_with_project("Project B")
 
@@ -1000,10 +1003,22 @@ class TestLocalEvaluationBatch(BaseTest):
             name="cohort-b",
         )
 
+        if malformed:
+            Cohort.objects.filter(pk=cohort_b.pk).update(filters={"properties": {"values": [None]}})
+
         FeatureFlag.objects.create(
             team=team_a,
             key="flag-with-cohort-a",
-            filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort_a.pk}]}]},
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "id", "type": "cohort", "value": cohort_a.pk},
+                            {"key": "id", "type": "cohort", "value": cohort_b.pk},
+                        ]
+                    }
+                ]
+            },
         )
         FeatureFlag.objects.create(
             team=team_b,
@@ -1019,8 +1034,9 @@ class TestLocalEvaluationBatch(BaseTest):
         assert str(cohort_a.pk) in cohort_ids_a
         assert str(cohort_b.pk) not in cohort_ids_a
 
-        assert str(cohort_b.pk) in cohort_ids_b
-        assert str(cohort_a.pk) not in cohort_ids_b
+        assert [flag["key"] for flag in results[team_a.id]["flags"]] == ["flag-with-cohort-a"]
+        assert cohort_ids_b == (set() if malformed else {str(cohort_b.pk)})
+        assert [flag["key"] for flag in results[team_b.id]["flags"]] == ([] if malformed else ["flag-with-cohort-b"])
 
     def test_batch_only_loads_referenced_cohorts(self):
         """Cohorts not referenced by any flag filter should not appear in the response."""
@@ -1306,7 +1322,8 @@ class TestLocalEvaluationBatch(BaseTest):
             },
         )
 
-    def test_batch_reads_explicit_config_version_1_like_absent(self):
+    @parameterized.expand([("string", False), ("integer", True)])
+    def test_batch_reads_explicit_config_version_1_like_absent(self, _name: str, integer_reference: bool) -> None:
         team = self._create_team_with_project("Explicit version 1")
         cohort = self._create_cohort(team, "referenced")
         target = FeatureFlag.objects.create(
@@ -1320,7 +1337,12 @@ class TestLocalEvaluationBatch(BaseTest):
                 {
                     "properties": [
                         {"key": "id", "type": "cohort", "value": cohort.pk},
-                        {"key": str(target.pk), "type": "flag", "value": True, "operator": "flag_evaluates_to"},
+                        {
+                            "key": target.pk if integer_reference else str(target.pk),
+                            "type": "flag",
+                            "value": True,
+                            "operator": "flag_evaluates_to",
+                        },
                     ],
                     "rollout_percentage": 100,
                 }
@@ -1349,11 +1371,14 @@ class TestLocalEvaluationBatch(BaseTest):
             (3, True, False, True),
             (2, True, False, False, "encrypted"),
             (2, True, False, True, "survey"),
+            (1, True, True, True),
+            (1, True, False, True, "encrypted"),
+            (1, True, False, False, "survey"),
         ]
     )
-    def test_batch_drops_unsupported_config_format_and_keeps_siblings(
-        self, version, active, deleted, dependency_value, exclusion=None
-    ):
+    def test_batch_excludes_unsupported_targets_and_preserves_supported_missing_dependencies(
+        self, version: object, active: bool, deleted: bool, dependency_value: bool, exclusion: str | None = None
+    ) -> None:
         team = self._create_team_with_project("Unsupported format")
         cohort = self._create_cohort(team, "sibling-cohort")
         FeatureFlag.objects.create(
@@ -1402,24 +1427,38 @@ class TestLocalEvaluationBatch(BaseTest):
         results = _get_flags_response_for_local_evaluation_batch([team])
 
         flags_by_key = {f["key"]: f for f in results[team.id]["flags"]}
-        assert set(flags_by_key) == {"v1-sibling"}
+        expected = {"v1-sibling"}
+        if version == 1 and not isinstance(version, bool):
+            expected.add("depends-on-unsupported")
+            prop = flags_by_key["depends-on-unsupported"]["filters"]["groups"][0]["properties"][0]
+            assert prop["dependency_chain"] == []
+        assert set(flags_by_key) == expected
         assert set(results[team.id]["cohorts"]) == {str(cohort.pk)}
         assert FLAG_PROCESSING_ERROR_COUNTER._value.get() == dropped_before
         unsupported.refresh_from_db()
         assert unsupported.filters == unsupported_filters
 
-    @parameterized.expand([([],), ({"groups": [None]},), ({"groups": [{"properties": {}}]},)])
-    def test_batch_malformed_stored_root_keeps_other_teams(self, filters):
+    @parameterized.expand(
+        [
+            ([], False),
+            ([], True),
+            ({"groups": [None]}, False),
+            ({"groups": [None]}, True),
+            ({"groups": [{"properties": {}}]}, False),
+            ({"groups": [{"properties": {}}]}, True),
+        ]
+    )
+    def test_batch_malformed_stored_root_keeps_other_teams(self, filters: Any, deleted: bool) -> None:
         other = self._create_team_with_project("Independent")
         bad = FeatureFlag.objects.create(team=self.team, key="malformed", filters={})
-        FeatureFlag.objects.filter(pk=bad.pk).update(filters=filters)
+        FeatureFlag.objects.filter(pk=bad.pk).update(filters=filters, deleted=deleted)
         FeatureFlag.objects.create(team=self.team, key="healthy", filters={"groups": []})
         FeatureFlag.objects.create(team=other, key="other", filters={"groups": []})
         dropped_before = FLAG_PROCESSING_ERROR_COUNTER._value.get()
         result = _get_flags_response_for_local_evaluation_batch([self.team, other])
         assert [flag["key"] for flag in result[self.team.id]["flags"]] == ["healthy"]
         assert [flag["key"] for flag in result[other.id]["flags"]] == ["other"]
-        assert FLAG_PROCESSING_ERROR_COUNTER._value.get() == dropped_before + 1
+        assert FLAG_PROCESSING_ERROR_COUNTER._value.get() == dropped_before + (not deleted)
 
     @parameterized.expand([(None,), ([],), ([{"type": "person", "key": "tier", "value": "example"}],)])
     def test_batch_preserves_legacy_cohort_property_forms(self, properties):
@@ -1435,14 +1474,31 @@ class TestLocalEvaluationBatch(BaseTest):
         assert [flag["key"] for flag in result["flags"]] == ["healthy"]
         assert result["cohorts"][str(cohort.pk)] == cohort.properties.to_dict()
 
-    def test_batch_malformed_nested_cohort_keeps_independent_flags(self):
+    @parameterized.expand(
+        [
+            ("null_leaf", {"values": [None]}),
+            (
+                "mixed_group",
+                {
+                    "type": "AND",
+                    "values": [
+                        {"type": "AND", "values": []},
+                        {"type": "person", "key": "tier", "value": "example"},
+                    ],
+                },
+            ),
+        ]
+    )
+    def test_batch_malformed_nested_cohort_keeps_independent_flags(
+        self, _name: str, properties: dict[str, Any]
+    ) -> None:
         child = self._create_cohort(self.team, "Malformed child")
         parent = Cohort.objects.create(
             team=self.team,
             name="Parent",
             filters={"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": child.pk}]}},
         )
-        Cohort.objects.filter(pk=child.pk).update(filters={"properties": {"values": [None]}})
+        Cohort.objects.filter(pk=child.pk).update(filters={"properties": properties})
         FeatureFlag.objects.create(
             team=self.team,
             key="affected",

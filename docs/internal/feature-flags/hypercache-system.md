@@ -198,6 +198,10 @@ The internal `flags.json` producer keeps its separate rejection and inactive-fil
 Each Redis tier and object storage receive a companion `flags_with_cohorts.provenance.json` object containing the hash of the guarded body.
 The legacy body, ETag algorithm, keys, TTLs, and public JSON shape remain unchanged.
 The companion is written after its body; with enforcement enabled, a partial write or mismatched pair causes a retry instead of serving an unverified value.
+Keeping the body key lets existing readers consume guarded publications while producers and readers deploy independently.
+A versioned body key is another option, but would require dual publication and a coordinated reader migration.
+It would still need an upstream attestation before an EU mirror could publish a body fetched from an older US reader under the new name.
+The companion binds that attestation to the body while retaining the existing key.
 
 `FLAG_DEFINITIONS_REQUIRE_PROVENANCE` defaults to `false` in both Rust and Django.
 While it is false, Rust retains the legacy `get_with_source` and ETag paths, Python can read existing cache entries without provenance, and responses do not advertise `x-posthog-legacy-definitions: 1`.
@@ -225,6 +229,9 @@ The Django setting also controls the EU sync's requirement for this header.
 While it is false, the sync accepts older upstream responses but writes them without provenance and clears any previous provenance.
 Python repairs from unverified object storage also remain unverified.
 The sync sends an ETag only for a verified mirror, so an old entry must receive a full guarded response before it becomes trusted.
+Until the upstream reader advertises provenance, each 30-second tick downloads a full response and rewrites both cache tiers, even when definitions are unchanged.
+Those full responses also record definitions usage for the upstream team.
+This warmup cost lets the mirror become verified before Django enforcement starts; using an unverified ETag could keep returning 304 throughout warmup.
 With enforcement enabled, a mirror ignores an upstream response without the header and waits for a later sync.
 The mirror's cold-cache behavior remains retryable; it does not create a database miss sentinel.
 

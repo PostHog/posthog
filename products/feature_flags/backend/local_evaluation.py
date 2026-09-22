@@ -30,6 +30,7 @@ from django.dispatch import receiver
 import structlog
 from posthoganalytics import capture_exception
 from prometheus_client import Counter
+from rest_framework.exceptions import ValidationError
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.dataclasses import frozen
@@ -62,6 +63,7 @@ from products.feature_flags.backend.flags_cache import (
 )
 from products.feature_flags.backend.legacy_definitions import (
     cohort_references,
+    flag_references,
     sanitize_legacy_definitions,
     validate_legacy_filters,
 )
@@ -103,7 +105,7 @@ def _resolve_flag_dependency_key(flag_prop: FlagProperty, flag_id_to_key: dict[s
     Convert flag property reference to flag key.
     Handles both flag IDs and flag keys as references.
     """
-    flag_reference = flag_prop.get("key", "")
+    flag_reference = str(flag_prop.get("key", ""))
     return flag_id_to_key.get(flag_reference, flag_reference)
 
 
@@ -546,7 +548,8 @@ class _LegacyCohortDefinition:
 
 
 def _serialize_legacy_cohort(cohort: Cohort) -> _LegacyCohortDefinition:
-    """Raise for malformed properties before model normalization can hide them.
+    """Validate raw properties because Filter can turn untyped groups into empty
+    AND groups and drop unparseable properties, hiding malformed cohort data.
 
     Keep the serialized properties with their references so all flags sharing a
     cohort use the same validated definition without repeating model conversion.
@@ -561,6 +564,25 @@ def _serialize_legacy_cohort(cohort: Cohort) -> _LegacyCohortDefinition:
     if references is None:
         references = cohort_references(serialized)
     return _LegacyCohortDefinition(properties=serialized, dependencies={int(reference) for reference in references})
+
+
+def _flag_cohort_ids(
+    filters: dict[str, Any],
+    project_cohorts: dict[int, Cohort],
+    definitions: dict[int, _LegacyCohortDefinition],
+    malformed: set[int],
+) -> set[int]:
+    cohort_ids: set[int] = set()
+    pending = list(referenced_cohort_ids(filters))
+    while pending:
+        cid = pending.pop()
+        if cid not in project_cohorts or cid in cohort_ids:
+            continue
+        if cid in malformed:
+            raise ValueError("Malformed cohort in legacy flag definition")
+        cohort_ids.add(cid)
+        pending.extend(definitions[cid].dependencies)
+    return cohort_ids
 
 
 def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[int, dict[str, Any]]:
@@ -613,8 +635,10 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
     for flag_id, key, team_id, filters in flag_queryset.filter(ineligible).values_list(
         "id", "key", "team_id", "filters"
     ):
-        if not _is_supported_legacy_flag(filters):
-            excluded_by_team[team_id].update((str(flag_id), key))
+        try:
+            validate_legacy_filters(filters)
+        except (ConfigFormatError, TypeError, ValueError):
+            excluded_by_team[team_id].update(flag_references({"id": flag_id, "key": key}))
 
     # Preserve ordering for groupby and ETag stability.
     # Materializing allows two passes: first to extract cohort IDs, then to
@@ -636,7 +660,7 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
     eligible_flags: list[FeatureFlag] = []
     for flag in all_flags:
         if not _is_supported_legacy_flag(flag.filters):
-            excluded_by_team[flag.team_id].update((str(flag.pk), flag.key))
+            excluded_by_team[flag.team_id].update(flag_references({"id": flag.pk, "key": flag.key}))
             continue
         flag._evaluation_tag_names = flag.evaluation_tag_names_agg or []
         flag._has_experiment = flag.has_experiment_agg
@@ -675,7 +699,7 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
                 definition = _serialize_legacy_cohort(cohort)
                 cohort_definitions[cohort.pk] = definition
                 nested_ids.update(definition.dependencies)
-            except (AttributeError, TypeError, ValueError, KeyError, RecursionError):
+            except (AttributeError, TypeError, ValueError, KeyError, RecursionError, ValidationError):
                 malformed_cohort_ids.add(cohort.pk)
 
         ids_to_load = nested_ids - loaded_ids
@@ -703,15 +727,7 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
             try:
                 filters = feature_flag.get_filters()
 
-                cohort_ids: set[int] = set()
-                pending_cohorts = list(referenced_cohort_ids(filters))
-                while pending_cohorts:
-                    cid = pending_cohorts.pop()
-                    if cid in malformed_cohort_ids and cid in project_cohorts:
-                        raise ValueError("Malformed cohort in legacy flag definition")
-                    if cid in project_cohorts and cid not in cohort_ids:
-                        cohort_ids.add(cid)
-                        pending_cohorts.extend(cohort_definitions[cid].dependencies)
+                cohort_ids = _flag_cohort_ids(filters, project_cohorts, cohort_definitions, malformed_cohort_ids)
                 flag_cohorts: dict[str, Any] = {}
                 for cohort_id in cohort_ids:
                     str_id = str(cohort_id)
@@ -722,8 +738,8 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
                 cohorts.update(flag_cohorts)
                 flag_id_to_key[str(feature_flag.id)] = feature_flag.key
 
-            except (AttributeError, TypeError, ValueError, KeyError, RecursionError):
-                excluded_by_team[tid].update((str(feature_flag.pk), feature_flag.key))
+            except (AttributeError, TypeError, ValueError, KeyError, RecursionError, ValidationError):
+                excluded_by_team[tid].update(flag_references({"id": feature_flag.pk, "key": feature_flag.key}))
                 logger.warning("Malformed feature flag omitted from legacy definitions")
                 FLAG_PROCESSING_ERROR_COUNTER.inc()
                 continue

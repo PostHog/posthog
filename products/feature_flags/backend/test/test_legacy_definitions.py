@@ -7,6 +7,8 @@ from unittest.mock import Mock, patch
 from django.core.cache import cache, caches
 from django.test import SimpleTestCase, override_settings
 
+import redis.exceptions
+from django_redis.exceptions import ConnectionInterrupted
 from parameterized import parameterized
 
 from posthog.models.team import Team
@@ -14,7 +16,7 @@ from posthog.storage.hypercache import HYPERCACHE_MIRROR_FAILURE_COUNTER, HyperC
 
 from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
 from products.feature_flags.backend.cross_region_flag_sync import sync_cross_region_flags
-from products.feature_flags.backend.legacy_definitions import sanitize_legacy_definitions
+from products.feature_flags.backend.legacy_definitions import retain_legacy_flags, sanitize_legacy_definitions
 from products.feature_flags.backend.legacy_definitions_cache import LegacyDefinitionsHyperCache
 from products.feature_flags.backend.local_evaluation import _apply_flag_dependency_transformation
 from products.feature_flags.backend.sdk_cache_provider import HyperCacheFlagProvider
@@ -39,24 +41,46 @@ class TestLegacyDefinitions(SimpleTestCase):
             ("group", {"groups": [None]}),
             ("properties", {"groups": [{"properties": [None]}]}),
         ]
+        + [
+            (f"dependency_{key}", {"groups": [{"properties": [{"type": "flag", "key": key}]}]})
+            for key in (None, True, False, 7.0, [], {})
+        ]
     )
     def test_excludes_invalid_targets_and_transitive_dependents(self, _name: str, filters: Any) -> None:
         flags = [
             definition("healthy", {"groups": []}),
             definition("unsupported", filters, id=7, active=False, deleted=True),
         ]
-        for value in (True, False):
-            key = f"dependent-{value}"
-            flags.append(definition(key, {"groups": [{"properties": [{"type": "flag", "key": "7", "value": value}]}]}))
-            flags.append(
-                definition(
-                    f"transitive-{value}", {"groups": [{"properties": [{"type": "flag", "key": key, "value": value}]}]}
+        for reference in ("7", 7, "unsupported"):
+            for value in (True, False):
+                key = f"dependent-{type(reference).__name__}-{reference}-{value}"
+                flags.append(
+                    definition(key, {"groups": [{"properties": [{"type": "flag", "key": reference, "value": value}]}]})
                 )
-            )
+                flags.append(
+                    definition(
+                        f"transitive-{key}",
+                        {"groups": [{"properties": [{"type": "flag", "key": key, "value": value}]}]},
+                    )
+                )
         original = feed(flags)
         before = copy.deepcopy(original)
         assert sanitize_legacy_definitions(original)["flags"] == [flags[0]]
         assert original == before
+
+    @parameterized.expand([("7",), ("excluded",)])
+    def test_seed_excludes_the_flag_itself_and_transitive_dependents(self, reference: str) -> None:
+        flags = [
+            definition("healthy"),
+            definition("excluded", id=7),
+            definition("dependent", {"groups": [{"properties": [{"type": "flag", "key": 7, "value": False}]}]}),
+            definition(
+                "transitive", {"groups": [{"properties": [{"type": "flag", "key": "dependent", "value": True}]}]}
+            ),
+        ]
+        before = copy.deepcopy(flags)
+        assert retain_legacy_flags(flags, {reference}) == [flags[0]]
+        assert flags == before
 
     @parameterized.expand(
         [
@@ -136,6 +160,47 @@ class TestLegacyDefinitionsCache(SimpleTestCase):
         if self.unavailable:
             raise HyperCacheDependencyUnavailable()
         return self.payload
+
+    @parameterized.expand(
+        [
+            (name, error, source)
+            for name, error in (
+                ("connection_interrupted", ConnectionInterrupted(connection=None)),
+                ("connection_error", redis.exceptions.ConnectionError("redis down")),
+                ("timeout", redis.exceptions.TimeoutError()),
+            )
+            for source in ("s3", "db")
+        ]
+    )
+    def test_redis_read_error_falls_back_to_verified_storage_or_loader(
+        self, _name: str, error: Exception, source: str
+    ) -> None:
+        objects: dict[str, str] = {}
+        self.hypercache.s3_enabled = True
+        with (
+            patch("posthog.storage.object_storage.write", side_effect=lambda key, value: objects.update({key: value})),
+            patch("posthog.storage.object_storage.read", side_effect=lambda key, **kwargs: objects.get(key)),
+        ):
+            if source == "s3":
+                self.hypercache.set_cache_value(1, self.payload)
+            with patch.object(self.hypercache.cache_client, "get_many", side_effect=error):
+                assert self.hypercache.get_from_cache_with_source(1) == (self.payload, source)
+        assert self.loads == (source == "db")
+
+    @parameterized.expand(
+        [
+            ("connection_interrupted", ConnectionInterrupted(connection=None)),
+            ("connection_error", redis.exceptions.ConnectionError("redis down")),
+            ("timeout", redis.exceptions.TimeoutError()),
+        ]
+    )
+    def test_batch_redis_read_error_returns_misses_without_loading(self, _name: str, error: Exception) -> None:
+        with patch.object(self.hypercache.cache_client, "get_many", side_effect=error):
+            assert self.hypercache.batch_get_from_cache([Team(id=1), Team(id=2)]) == {
+                1: (None, "miss", None),
+                2: (None, "miss", None),
+            }
+        assert self.loads == 0
 
     def test_batch_verification_preserves_missing_etag_and_isolates_corrupt_entries(self) -> None:
         self.hypercache.set_cache_value(1, self.payload)

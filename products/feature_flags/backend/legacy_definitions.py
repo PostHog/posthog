@@ -26,7 +26,8 @@ def validate_legacy_filters(filters: object) -> None:
                 if not isinstance(properties, list) or any(not isinstance(prop, dict) for prop in properties):
                     raise ValueError("Invalid legacy flag properties")
                 for prop in properties:
-                    if prop.get("type") == "flag" and not isinstance(prop.get("key"), str):
+                    key = prop.get("key") if prop.get("type") == "flag" else ""
+                    if isinstance(key, bool) or not isinstance(key, str | int):
                         raise ValueError("Invalid legacy flag dependency")
     for field in ("payloads", "holdout"):
         if filters.get(field) is not None and not isinstance(filters[field], dict):
@@ -42,14 +43,17 @@ def validate_legacy_filters(filters: object) -> None:
             raise ValueError("Invalid legacy flag variants")
 
 
+def flag_references(flag: Mapping[str, object]) -> set[str]:
+    return {str(flag[field]) for field in ("id", "key") if field in flag}
+
+
 def retain_legacy_flags(
     flags: list[dict[str, Any]], excluded_references: set[str] | None = None
 ) -> list[dict[str, Any]]:
     """Exclude invalid flags and their transitive dependents without modifying the input.
 
-    Seed ``excluded_references`` with both the string id and key of each excluded
-    flag, because dependencies can use either. Seeds exclude dependents only;
-    callers must remove the seeded flags themselves if they are still in ``flags``.
+    Use ``flag_references`` to seed exclusions by both id and key, since dependencies
+    can use either. Seeds exclude the named flags and their transitive dependents.
     """
     excluded = set(excluded_references or ())
     dependents: dict[str, set[int]] = defaultdict(set)
@@ -58,23 +62,25 @@ def retain_legacy_flags(
         try:
             if not isinstance(flag, dict) or not isinstance(flag.get("key"), str):
                 raise ValueError("Invalid legacy flag definition")
+            if excluded.intersection(flag_references(flag)):
+                raise ValueError("Excluded legacy flag")
             validate_legacy_filters(flag.get("filters"))
             for prop in flag_dependency_properties(flag.get("filters")):
-                dependents[prop["key"]].add(index)
+                dependents[str(prop["key"])].add(index)
         except (AttributeError, KeyError, TypeError, ValueError):
             invalid.add(index)
     queue = deque(excluded)
     for index in invalid:
         flag = flags[index]
         if isinstance(flag, dict):
-            queue.extend(str(flag[field]) for field in ("id", "key") if field in flag)
+            queue.extend(flag_references(flag))
     while queue:
         reference = queue.popleft()
         for index in dependents.get(reference, ()):
             if index not in invalid:
                 invalid.add(index)
                 flag = flags[index]
-                queue.extend(str(flag[field]) for field in ("id", "key") if field in flag)
+                queue.extend(flag_references(flag))
     return [flag for index, flag in enumerate(flags) if index not in invalid]
 
 
@@ -115,8 +121,7 @@ def sanitize_legacy_definitions(payload: dict[str, Any], excluded_references: se
     """Remove unsafe definitions, preserving the caller's object when nothing is excluded.
 
     Does not mutate the input. Raises ``ValueError`` for an invalid envelope.
-    ``excluded_references`` follows ``retain_legacy_flags``: include both the
-    string id and key of each excluded flag so either reference excludes dependents.
+    Use ``flag_references`` for exclusions so either id or key excludes dependents.
     """
     validate_legacy_definitions_envelope(payload)
     flags = retain_legacy_flags(payload["flags"], excluded_references)
@@ -139,10 +144,8 @@ def sanitize_legacy_definitions(payload: dict[str, Any], excluded_references: se
     excluded: set[str] = set()
     for flag in flags:
         if malformed_cohorts.intersection(str(cid) for cid in referenced_cohort_ids(flag.get("filters"))):
-            excluded.update(str(flag[field]) for field in ("id", "key") if field in flag)
+            excluded.update(flag_references(flag))
     if excluded:
-        # Seeds exclude dependents, so remove the flags with malformed cohorts first.
-        flags = [flag for flag in flags if flag["key"] not in excluded]
         flags = retain_legacy_flags(flags, excluded)
     if len(flags) == len(payload["flags"]) and not malformed_cohorts:
         return payload

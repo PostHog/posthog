@@ -47,8 +47,9 @@ def sync_cross_region_flags() -> None:
     """Refresh EU's mirror of US team 2's flag definitions from the US region.
 
     No-op outside EU or when the PSAK isn't configured. Uses the endpoint's ETag
-    support: sends `If-None-Match` with the locally cached ETag, so an unchanged
-    upstream is a 304 with no payload transferred and no local write.
+    support once the mirror has provenance. Unverified mirrors fetch a full body
+    on each tick so a guarded response can warm the cache before enforcement starts.
+    After verification, unchanged definitions return 304 without a local write.
     """
     # Defense in depth: the beat registration in scheduled.py is also EU-gated.
     # This keeps direct invocation (shell, tests) safe outside EU.
@@ -113,13 +114,11 @@ def sync_cross_region_flags() -> None:
 
     # update_cache (not bare set_cache_value) for parity with the signal-driven write
     # path: it emits the cache-sync metrics dashboards watch, and its info log only
-    # fires when flags actually changed, since unchanged upstreams 304 above. The
-    # write is unconditional (no skip_if_unchanged): a 200 already means the content
-    # changed, and a non-Team key isn't tracked in the expiry sorted set, so this
+    # fires on full responses, including unverified warmup reads. The write is
+    # unconditional: a non-Team key isn't tracked in the expiry sorted set, so this
     # write is what re-stamps the Redis TTL. On a long run of 304s the entry can
     # still expire; that self-heals within one tick, because the etag expires with
     # it, so the next poll sends no If-None-Match and gets a full 200.
-    if verified:
-        flag_definitions_hypercache.update_cache(EU_CROSS_REGION_MIRROR_CACHE_KEY, data=payload)
-    else:
-        flag_definitions_hypercache.update_unverified_mirror(payload)
+    flag_definitions_hypercache.update_cache(
+        EU_CROSS_REGION_MIRROR_CACHE_KEY, data=payload, publish_provenance=verified
+    )

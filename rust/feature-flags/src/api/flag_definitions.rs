@@ -32,7 +32,7 @@ use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{info, warn};
 
-const PROVENANCE_OBJECT: &str = "flags_with_cohorts.provenance.json";
+pub(crate) const PROVENANCE_OBJECT: &str = "flags_with_cohorts.provenance.json";
 const PROVENANCE_HEADER: &str = "x-posthog-legacy-definitions";
 
 const ALLOWLIST_TTL_SECS: u64 = 60;
@@ -313,8 +313,7 @@ async fn read_proven_etag_from_redis(
     team_key: &KeyType,
 ) -> Result<Option<String>, HyperCacheError> {
     let provenance = state
-        .flags_with_cohorts_hypercache_reader
-        .companion(PROVENANCE_OBJECT)
+        .flags_with_cohorts_provenance_reader
         .get_typed_from_redis::<Value>(team_key)
         .await?;
     Ok(provenance.as_ref().and_then(proven_etag).map(str::to_owned))
@@ -326,8 +325,7 @@ async fn read_proven_etag_from_s3(
     team_key: &KeyType,
 ) -> Result<String, HyperCacheError> {
     let provenance = state
-        .flags_with_cohorts_hypercache_reader
-        .companion(PROVENANCE_OBJECT)
+        .flags_with_cohorts_provenance_reader
         .get_typed_from_s3::<Value>(team_key)
         .await?;
     proven_etag(&provenance)
