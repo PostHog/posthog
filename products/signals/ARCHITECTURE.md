@@ -1284,6 +1284,14 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 2. `record_implementation_task` writes the legacy `SignalReportTask` implementation gate row (in the same transaction) and appends an `implementation` `task_run` artefact
 3. Errors are caught and logged but do not fail the report workflow
 
+**Origin section per pull request** (`backend/pr_origin.py`, always on).
+
+A reviewer needs to know where a self-driving pull request came from, not only the problem it fixes. The backend writes an `## Origin` section below the Problem section, so the agent cannot paraphrase it. The section lists the source types with PostHog entity links, the scout when it ships with PostHog, the first signal date, the inbox report, the likely cause commit from the newest `signal_finding` (linked only when the suggested reviewers carry it under the pull request's repository), and whether auto-start or a person started the run.
+
+Pull requests are often public, so the section renders an allowlist only. Signal content, ticket text, counts, sequential ticket numbers, custom scout names, and issue URLs outside the pull request's own repository never reach it. `fetch_origin_sources_for_report` aggregates in ClickHouse, so a large report returns a bounded result.
+
+The write edits only a pull request that the GitHub webhook confirmed in the run's `verified_pr_urls`, because a run's `output.pr_url` is writable through the API. An unconfirmed URL retries. HTML-comment markers per report let a retry replace the section in place, and an unmarked `## Origin` from a repository template stays untouched.
+
 **Tracker issue per pull request** (`backend/tracker_issues.py`, off by default).
 
 Some teams cannot merge a pull request unless a tracked work item points at it. `SignalTeamConfig.issue_tracking_integration` names the tracker (GitHub, GitLab, Linear, or Jira) and `issue_tracking_config` names the target inside it; a null integration means the team wants no tracker issues, so one field is both the switch and the target.
@@ -1292,7 +1300,7 @@ Some teams cannot merge a pull request unless a tracked work item points at it. 
 
 The create never raises. A provider failure is stored on the row as `status=failed` with a short reason, which the report surfaces next to the pull request, and the run opens its pull request either way.
 
-Once the pull request exists, `link_report_tracker_issues` (scheduled from the task-run PR sync receiver) appends the reference to the pull request body, behind an HTML-comment marker so the append happens once. GitHub gets `Closes #n`; the other providers get the issue link. A Linear issue also gets the pull request as an attachment, best effort, because the scope for it may not be granted.
+Once the pull request exists, `link_report_tracker_issues` (scheduled from the task-run PR sync receiver) writes the Origin section and then appends the reference to the pull request body, behind an HTML-comment marker so the append happens once. Both edits go through `edit_pull_request_body` in `backend/pull_request_body.py`, one after the other, so they never race on the body's etag. GitHub gets `Closes #n`; the other providers get the issue link. A Linear issue also gets the pull request as an attachment, best effort, because the scope for it may not be granted.
 
 An irreversible end closes the tracker issue: a resolve asked for through the state API, a merged pull request (closed as done), or a deleted report. A suppressed or snoozed report keeps its issue open, because both come back, and so does a failed run, because its report stays in the inbox and the work item is still real.
 
