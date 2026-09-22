@@ -504,6 +504,23 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
+    def last_full_run(self) -> datetime | None:
+        """`last_full_run_at` as a timestamp that can be compared against now.
+
+        The stamp is free-form JSON written from more than one place, so an unparseable or naive
+        value is dropped instead of guessed at: picking a zone for it would invent freshness the
+        schema may not have.
+        """
+        raw = self.last_full_run_at
+        if raw is None:
+            return None
+        try:
+            stamped = datetime.fromisoformat(raw)
+        except (TypeError, ValueError):
+            return None
+        return stamped if stamped.tzinfo is not None else None
+
+    @property
     def incremental_field_lookback_seconds(self) -> int | None:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_lookback_seconds", None)

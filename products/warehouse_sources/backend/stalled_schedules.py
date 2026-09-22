@@ -138,6 +138,9 @@ def stalled_schema_queryset(
     The window scales with `sync_frequency_interval` because a fixed one cannot serve both a
     five-minute schema and a daily one. A daily schema therefore needs days of silence to
     qualify, which is the cost of not flagging every schema that merely ran slowly.
+
+    A candidate set: `find_stalled_schemas` drops the rows whose `last_full_run_at` shows a run
+    inside the same window, which cannot be compared in SQL against a timestamp column.
     """
     stall_window = ExpressionWrapper(
         Greatest(
@@ -214,6 +217,14 @@ def find_stalled_schemas(
         # nullable, so the subtraction below has no other way to know.
         if schema.last_synced_at is None:
             continue
+        # A run that extracts nothing advances `last_full_run_at` and deliberately leaves
+        # `last_synced_at` alone, so a schema whose source is simply quiet keeps an old sync
+        # stamp while its schedule fires on time. This predicate reports schedules that stopped
+        # running, so the later of the two stamps is what answers it. The window comes off the
+        # annotation rather than being recomputed, so both stamps are judged the same way.
+        last_run_at = max(filter(None, (schema.last_synced_at, schema.last_full_run)))
+        if now - last_run_at <= schema.stalled_after - schema.last_synced_at:
+            continue
         # Streaming CDC and cdc_halted are excluded here rather than in the queryset (see the
         # comment there): a paused per-schema schedule is streaming CDC's steady state, and
         # cdc_halted exists precisely to keep everything else off the schedule until repair_cdc
@@ -232,7 +243,7 @@ def find_stalled_schemas(
                 source_id=str(schema.source_id),
                 source_type=schema.source.source_type,
                 kind="stuck_job" if schema.id in schemas_with_running_jobs else "no_runs",
-                stalled_for=now - schema.last_synced_at,
+                stalled_for=now - last_run_at,
                 cdc_ingest_mode=(schema.source.job_inputs or {}).get("cdc_ingest_mode", "legacy"),
                 admin_paused=bool((schema.sync_type_config or {}).get("admin_unpause_schedule_after_run")),
                 has_sync_interval=schema.sync_frequency_interval is not None,

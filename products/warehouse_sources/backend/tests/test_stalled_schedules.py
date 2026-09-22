@@ -107,6 +107,43 @@ class TestStalledSchedules(BaseTest):
 
         assert str(schema.id) not in found
 
+    def test_a_schema_whose_runs_found_nothing_to_import_is_not_stalled(self) -> None:
+        # A run that extracts nothing advances only `last_full_run_at`, so a quiet schema keeps
+        # an old `last_synced_at` while its schedule fires on time. Reporting it here both raises
+        # a false alert and lets the repair rewrite a schedule that never stopped.
+        schema = self._schema(
+            synced_ago=timedelta(days=5),
+            sync_type_config={"last_full_run_at": (timezone.now() - timedelta(hours=1)).isoformat()},
+        )
+
+        assert str(schema.id) not in {s.schema_id for s in find_stalled_schemas()}
+
+    def test_a_schema_whose_runs_also_stopped_is_still_stalled(self) -> None:
+        # The run stamp must not become a way to never report anything: once it is as old as the
+        # sync stamp, nothing says the schedule fired, and the silence is measured from it.
+        schema = self._schema(
+            synced_ago=timedelta(days=5),
+            sync_type_config={"last_full_run_at": (timezone.now() - timedelta(days=4)).isoformat()},
+        )
+
+        stalled = [s for s in find_stalled_schemas() if s.schema_id == str(schema.id)]
+
+        assert len(stalled) == 1
+        assert timedelta(days=4) <= stalled[0].stalled_for < timedelta(days=5)
+
+    @parameterized.expand(
+        [
+            ("unparseable", "whenever"),
+            # A naive stamp cannot be compared against an aware now, and picking a zone for it
+            # would invent freshness. `sync_type_config` is free-form JSON, so both can arrive.
+            ("naive", "2026-01-01T11:00:00"),
+        ]
+    )
+    def test_an_unusable_run_stamp_falls_back_to_the_sync_stamp(self, _name: str, stamp: str) -> None:
+        schema = self._schema(synced_ago=timedelta(days=5), sync_type_config={"last_full_run_at": stamp})
+
+        assert str(schema.id) in {s.schema_id for s in find_stalled_schemas()}
+
     def test_a_schema_with_a_running_job_is_a_wedged_run_not_a_stalled_schedule(self) -> None:
         schema = self._schema(synced_ago=timedelta(days=5))
         ExternalDataJob.objects.create(
