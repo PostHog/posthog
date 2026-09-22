@@ -6,7 +6,11 @@ The Cloudflare account ID owns the model request limit. It is a non-secret accou
 
 ## Budget
 
-The default is 20 requests per minute per account. Cloudflare documents 20 requests per minute for paid models under standard Workers AI billing and 50 with prepaid AI Gateway credits. The `SIGNALS_TYPESAFE_CLOUDFLARE_REQUESTS_PER_MINUTE` setting can be raised only after confirming the account's billing and model limit. Calls use the sheddable `BATCH` lane. An exhausted budget leaves the traditional verdict in control in either shadow mode; the TypeSafe-only mode fails the decision.
+The default is an operator ceiling of 20 requests per minute per account, not a published Jev limit.
+The direct transport does not use Cloudflare AI Gateway, so AI Gateway prepaid-credit limits do not apply automatically.
+Change `SIGNALS_TYPESAFE_CLOUDFLARE_REQUESTS_PER_MINUTE` only after confirming the `typesafe/jev` limit for the configured billing path.
+Calls use the sheddable `BATCH` lane.
+An exhausted budget leaves the traditional verdict in control in either shadow mode; the TypeSafe-only mode fails the decision.
 
 ## Lanes and callers
 
