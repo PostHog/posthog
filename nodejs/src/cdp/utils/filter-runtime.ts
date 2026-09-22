@@ -1,0 +1,107 @@
+import { ASYNC_STL, BYTECODE_STL, STL } from '@posthog/hogvm'
+
+import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent } from '../../types'
+import { HogFunctionInvocationGlobals } from '../types'
+import { convertClickhouseRawEventToFilterGlobals, convertToHogFunctionFilterGlobal } from './hog-function-filtering'
+
+/** Where Django reads the result. Relative to the repository root. */
+export const FILTER_GLOBALS_RELATIVE_PATH = 'posthog/cdp/filter_globals.json'
+
+export type FilterRuntime = {
+    /** Data globals every filter compiled by compile_filters_bytecode is evaluated with. */
+    roots: string[]
+    /** Standard-library names GET_GLOBAL hands back as values, so a filter can pass them as callbacks. */
+    callables: string[]
+}
+
+// These stand for the callers of compile_filters_bytecode: hog function filters, evaluated by the two
+// builders below. A new caller with a different globals shape has to be added here, or Django will
+// validate against the wrong set. Every input is populated so a builder that only sets a key when its
+// input is present still sets it.
+const invocationGlobals: Pick<HogFunctionInvocationGlobals, 'event' | 'person' | 'groups' | 'variables'> = {
+    event: {
+        uuid: '00000000-0000-0000-0000-000000000001',
+        event: '$pageview',
+        distinct_id: 'distinct-id',
+        elements_chain: 'a:href="https://example.com"',
+        properties: { $current_url: 'https://example.com' },
+        timestamp: '2026-01-01T00:00:00.000Z',
+        url: 'https://example.com/events/1',
+    },
+    person: {
+        id: '00000000-0000-0000-0000-000000000002',
+        name: 'example',
+        url: 'https://example.com/persons/1',
+        properties: { email: 'person@example.com' },
+    },
+    groups: {
+        organization: { id: 'org-1', type: 'organization', index: 0, url: '', properties: { plan: 'pro' } },
+    },
+    variables: { threshold: 10 },
+}
+
+const rawEvent: RawClickHouseEvent = {
+    uuid: '00000000-0000-0000-0000-000000000001',
+    event: '$pageview',
+    team_id: 1,
+    project_id: 1 as ProjectId,
+    distinct_id: 'distinct-id',
+    timestamp: '2026-01-01 00:00:00.000000' as ClickHouseTimestamp,
+    created_at: '2026-01-01 00:00:00.000000' as ClickHouseTimestamp,
+    properties: JSON.stringify({ $current_url: 'https://example.com' }),
+    elements_chain: 'a:href="https://example.com"',
+    person_id: '00000000-0000-0000-0000-000000000002',
+    person_properties: JSON.stringify({ email: 'person@example.com' }),
+    group0_properties: JSON.stringify({ plan: 'pro' }),
+    person_mode: 'full',
+    historical_migration: false,
+}
+
+// Below these the builders have almost certainly thrown inside and been swallowed; a near-empty
+// file would otherwise pass the staleness check and reject every filter.
+const MIN_ROOTS = 20
+const MIN_CALLABLES = 100
+
+/** Asks the runtime what it resolves, rather than transcribing a type or a table by hand. */
+export function describeFilterRuntime(): FilterRuntime {
+    const fromInvocation = Object.keys(convertToHogFunctionFilterGlobal(invocationGlobals)).sort()
+    const fromRawEvent = Object.keys(convertClickhouseRawEventToFilterGlobals(rawEvent)).sort()
+    if (JSON.stringify(fromInvocation) !== JSON.stringify(fromRawEvent)) {
+        throw new Error(
+            `The two filter-globals builders disagree.\n  invocation: ${fromInvocation.join(', ')}\n  raw event:  ${fromRawEvent.join(', ')}`
+        )
+    }
+
+    // ASYNC_STL is a separate table today, so this removes nothing. It stays because GET_GLOBAL checks
+    // ASYNC_STL first: a name added to both would be async at runtime, and the filter path allows no
+    // async steps, so it must not be offered as a callable.
+    const callables = [...new Set([...Object.keys(STL), ...Object.keys(BYTECODE_STL)])]
+        .filter((name) => !Object.hasOwn(ASYNC_STL, name))
+        .sort()
+
+    if (fromInvocation.length < MIN_ROOTS || callables.length < MIN_CALLABLES) {
+        throw new Error(
+            `Suspiciously small runtime description: ${fromInvocation.length} roots, ${callables.length} callables`
+        )
+    }
+    return { roots: fromInvocation, callables }
+}
+
+export function renderFilterGlobalsFile(runtime: FilterRuntime): string {
+    return (
+        JSON.stringify(
+            {
+                $comment:
+                    'Generated. Do not edit: run `pnpm --filter=@posthog/plugin-server run build:filter-globals`. ' +
+                    'roots are the data globals the CDP filter runtime builds for a hog function. callables are ' +
+                    'the standard-library names GET_GLOBAL hands back as values, minus the async ones the filter ' +
+                    'path cannot run. Django reads this to refuse a filter the runtime could not evaluate.',
+                roots: runtime.roots,
+                callables: runtime.callables,
+            },
+            null,
+            // Matches what the pre-commit hook (bin/hogli format:yaml) writes, so a regenerate is a no-op.
+            4
+        ) + '\n'
+    )
+}
