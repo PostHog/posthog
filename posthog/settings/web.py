@@ -892,6 +892,11 @@ PROXY_USE_GATEWAY_API = get_from_env("PROXY_USE_GATEWAY_API", False, type_cast=s
 PROXY_TARGET_CNAME = get_from_env("PROXY_TARGET_CNAME", "")
 PROXY_BASE_CNAME = get_from_env("PROXY_BASE_CNAME", "")
 
+# Organizations allowed to register reserved, PostHog-owned proxy domains (e.g. internal
+# proxies on posthog.com). Set per-region to PostHog's own internal org id; empty by default
+# so the reserved-domain guard in ProxyRecord applies to every org unless explicitly listed.
+PROXY_RESERVED_DOMAIN_ALLOWED_ORG_IDS = get_list(get_from_env("PROXY_RESERVED_DOMAIN_ALLOWED_ORG_IDS", ""))
+
 # Cloudflare for SaaS proxy settings
 CLOUDFLARE_PROXY_ENABLED = get_from_env("CLOUDFLARE_PROXY_ENABLED", False, type_cast=str_to_bool)
 CLOUDFLARE_API_TOKEN = get_from_env("CLOUDFLARE_API_TOKEN", "")

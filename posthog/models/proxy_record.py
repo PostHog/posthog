@@ -93,6 +93,20 @@ def is_reserved_proxy_domain(domain: str) -> bool:
     return any(domain == reserved or domain.endswith(f".{reserved}") for reserved in RESERVED_PROXY_DOMAINS)
 
 
+def org_may_register_reserved_domain(organization_id) -> bool:
+    """Whether `organization_id` is one of PostHog's own orgs, allowlisted per environment via
+    `PROXY_RESERVED_DOMAIN_ALLOWED_ORG_IDS`, and may therefore register a reserved,
+    PostHog-owned proxy domain (for example an internal proxy on posthog.com).
+
+    This is the only exception to `is_reserved_proxy_domain`: every org not in the allowlist is
+    still refused, so the hostnames other tenants' and PostHog's own traffic depend on stay
+    unclaimable. The allowlist is empty by default, which keeps the guard on everywhere.
+    """
+    from django.conf import settings
+
+    return str(organization_id) in settings.PROXY_RESERVED_DOMAIN_ALLOWED_ORG_IDS
+
+
 class ProxyRecord(UUIDTModel):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="proxy_records")
     domain = models.CharField(max_length=64, unique=True)
