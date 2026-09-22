@@ -9,8 +9,6 @@ import { DashboardType, InsightShortId } from '~/types'
 
 import { insightsList } from 'products/product_analytics/frontend/generated/api'
 
-import type { InsightModel } from '../../../../frontend/src/types'
-
 /** How many saved insights the picker offers before the user narrows them by search. */
 const INSIGHT_OPTIONS_LIMIT = 100
 
@@ -69,10 +67,10 @@ export interface newSubscriptionTargetLogicActions {
         errorObject?: any
     }
     loadDashboardSuccess: (
-        dashboard: DashboardType<InsightModel>,
+        dashboard: DashboardType,
         payload?: number
     ) => {
-        dashboard: DashboardType<InsightModel>
+        dashboard: DashboardType
         payload?: number
     }
     loadInsightOptions: (_: any) => any

@@ -39,13 +39,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    ActivityScope,
-    QueryBasedInsightModel,
-    SavedInsightsTabs,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ActivityScope, InsightModel, SavedInsightsTabs } from '~/types'
 
 import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
 
@@ -68,13 +62,7 @@ export const scene: SceneExport = {
     emptyState: productAnalyticsEmptyState,
 }
 
-export function InsightIcon({
-    insight,
-    className,
-}: {
-    insight: QueryBasedInsightModel
-    className?: string
-}): JSX.Element | null {
+export function InsightIcon({ insight, className }: { insight: InsightModel; className?: string }): JSX.Element | null {
     let Icon: ComponentType<any> | null = null
 
     if ('query' in insight && isNonEmptyObject(insight.query)) {
