@@ -24,7 +24,6 @@ from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async
 
 from products.exports.backend.models.subscription import AIQueryPlanStatus
-from products.exports.backend.models.subscription_context import MAX_SELECTED_CONTEXTS
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
     SPEC_INVALID_DROP_REASONS,
     ChartFailureReason,
@@ -33,6 +32,12 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.charts impo
     charts_enabled,
     render_charts,
     validate_chart,
+)
+from products.exports.backend.temporal.subscriptions.ai_subscription.context_tools import (
+    AiReportContext,
+    AiReportContexts,
+    AiReportDashboardContext,
+    AiReportInsightContext,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
     AI_SUBSCRIPTION_SYNTHESIS_PROMPT,
@@ -44,11 +49,8 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     resolve_prompt,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
-    CONTEXT_NAME_MAX_LENGTH,
-    MAX_DASHBOARD_INSIGHTS,
     ReportContextEvidence,
     ReportContextSchema,
-    ReportContextStatus,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
     MAX_CHART_TITLE_LENGTH,
@@ -221,54 +223,6 @@ class PlanExecution:
     failed_count: int
     diagnostics: list[QueryStepDiagnostic]
     charts: list[ValidatedChart]
-
-
-@frozen
-class AiReportInsightContext:
-    id: int
-    name: str
-    status: ReportContextStatus
-
-    def __post_init__(self) -> None:
-        if self.status not in ("success", "failed", "truncated"):
-            raise ValueError(f"Unknown AI report context status: {self.status}")
-        if len(self.name) > CONTEXT_NAME_MAX_LENGTH:
-            raise ValueError("AI report context name exceeds its bound")
-
-
-@frozen
-class AiReportDashboardContext:
-    id: int
-    name: str
-    status: ReportContextStatus
-    insights: tuple[AiReportInsightContext, ...]
-
-    def __post_init__(self) -> None:
-        if self.status not in ("success", "failed", "truncated"):
-            raise ValueError(f"Unknown AI report context status: {self.status}")
-        if len(self.name) > CONTEXT_NAME_MAX_LENGTH:
-            raise ValueError("AI report dashboard name exceeds its bound")
-        if len(self.insights) > MAX_DASHBOARD_INSIGHTS:
-            raise ValueError("AI report dashboard context exceeds its insight bound")
-
-
-@frozen
-class AiReportContexts:
-    dashboards: tuple[AiReportDashboardContext, ...] = ()
-    insights: tuple[AiReportInsightContext, ...] = ()
-
-    def __post_init__(self) -> None:
-        if len(self.dashboards) + len(self.insights) > MAX_SELECTED_CONTEXTS:
-            raise ValueError("AI report contexts exceed the selection bound")
-
-    @property
-    def has_selection(self) -> bool:
-        return bool(self.dashboards or self.insights)
-
-
-@frozen
-class AiReportContext:
-    contexts: AiReportContexts = field(default_factory=AiReportContexts)
 
 
 def compact_report_context(evidence: ReportContextEvidence) -> AiReportContexts:
@@ -926,10 +880,6 @@ async def _arequest_hogql_fix(
 __all__ = [
     "generate_ai_report",
     "AiReportResult",
-    "AiReportContext",
-    "AiReportContexts",
-    "AiReportDashboardContext",
-    "AiReportInsightContext",
     "compact_report_context",
     "QueryStepDiagnostic",
     "AiReportStageError",

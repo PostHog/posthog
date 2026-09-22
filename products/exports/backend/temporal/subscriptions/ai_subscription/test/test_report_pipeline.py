@@ -20,6 +20,10 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.charts impo
     RenderedChart,
     ValidatedChart,
 )
+from products.exports.backend.temporal.subscriptions.ai_subscription.context_tools import (
+    AiReportContexts,
+    AiReportInsightContext,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
     InsightReportEvidence,
     ReportContextEvidence,
@@ -28,8 +32,6 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_cont
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     _MAX_CONCURRENT_STEPS,
     QUERY_FAILED_PREFIX,
-    AiReportContexts,
-    AiReportInsightContext,
     AiReportStageError,
     PlanExecution,
     QueryStepDiagnostic,

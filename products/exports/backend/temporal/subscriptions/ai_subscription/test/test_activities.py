@@ -17,11 +17,13 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.activities 
     _snapshot_diagnostic_counts,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import RenderedChart
-from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
+from products.exports.backend.temporal.subscriptions.ai_subscription.context_tools import (
     AiReportContext,
     AiReportContexts,
     AiReportDashboardContext,
     AiReportInsightContext,
+)
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
     QueryStepDiagnostic,
 )
