@@ -93,6 +93,8 @@ describe('PostHog filesystem projection', () => {
         expect(decoder.decode(opened.bytes)).toBe('# Hello 🦔')
         read.abort()
         expect(jest.mocked(notebooksRetrieve).mock.calls[0][2]?.signal).not.toBe(session.signal)
+        await opened.save!(opened.bytes)
+        expect(notebooksPartialUpdate).not.toHaveBeenCalled()
         jest.mocked(notebooksPartialUpdate).mockResolvedValue({ ...notebook, version: 8 })
         await opened.save!(new TextEncoder().encode('# Updated'))
         expect(notebooksPartialUpdate).toHaveBeenCalledWith(
@@ -108,6 +110,8 @@ describe('PostHog filesystem projection', () => {
             },
             expect.objectContaining({ signal: session.signal })
         )
+        await opened.save!(new TextEncoder().encode('# Updated'))
+        expect(notebooksPartialUpdate).toHaveBeenCalledTimes(1)
         jest.mocked(notebooksPartialUpdate).mockRejectedValue(new Error('Version conflict'))
         await expect(opened.save!(new TextEncoder().encode('Conflict'))).rejects.toThrow('Version conflict')
         expect(jest.mocked(notebooksPartialUpdate).mock.calls[1][2]?.version).toBe(8)

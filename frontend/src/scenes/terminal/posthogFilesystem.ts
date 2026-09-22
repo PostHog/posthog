@@ -487,10 +487,17 @@ export class PosthogFilesystem extends TerminalFilesystem {
         if (!node) {
             throw new Error('Notebook format changed. Restart the terminal to refresh the filename.')
         }
+        let saved = node.attrs.markdown
         return {
-            bytes: bytes(node.attrs.markdown),
+            bytes: bytes(saved),
             save: async (data) => {
                 const markdown = decoder.decode(data)
+                // Editors rewrite the whole file on save, so a save that changed nothing would
+                // otherwise bump the version and reattribute the last edit to the person who
+                // only looked at the notebook.
+                if (markdown === saved) {
+                    return
+                }
                 notebook = await notebooksPartialUpdate(
                     this.projectId,
                     entry.ref!,
@@ -504,6 +511,7 @@ export class PosthogFilesystem extends TerminalFilesystem {
                     },
                     { signal: this.signal }
                 )
+                saved = markdown
             },
         }
     }
