@@ -1,3 +1,4 @@
+import inspect
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
@@ -1834,13 +1835,21 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         Prints against the shared database so the printer does not build a second one."""
         return to_printed_hogql(query, self.team, database=self.shared_database)
 
+    def _class_annotation(self, name: str) -> Any:
+        # Python 3.14 instances no longer expose their class's `__annotations__` (PEP 649).
+        for cls in type(self).__mro__:
+            annotations = inspect.get_annotations(cls)
+            if name in annotations:
+                return annotations[name]
+        raise KeyError(name)
+
     @property
     def query_type(self) -> Any:
-        return self.__annotations__["query"]  # Enforcing the type annotation of `query` at runtime
+        return self._class_annotation("query")  # Enforcing the type annotation of `query` at runtime
 
     @property
     def cached_response_type(self) -> type[CR]:
-        return self.__annotations__["cached_response"]
+        return self._class_annotation("cached_response")
 
     def is_query_node(self, data) -> TypeGuard[Q]:
         query_type: Any = self.query_type
