@@ -54,6 +54,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.constants import (
+    FILE_FORMAT_EXTENSIONS,
     S3_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS,
 )
 from products.batch_exports.backend.temporal.destinations.utils import (
@@ -108,19 +109,6 @@ NON_RETRYABLE_ERROR_TYPES = (
     # The linked Integration is the wrong kind or has invalid/missing credentials
     "IntegrationError",
 )
-
-FILE_FORMAT_EXTENSIONS = {
-    "Parquet": "parquet",
-    "JSONLines": "jsonl",
-}
-
-COMPRESSION_EXTENSIONS = {
-    "gzip": "gz",
-    "snappy": "sz",
-    "brotli": "br",
-    "zstd": "zst",
-    "lz4": "lz4",
-}
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
@@ -226,6 +214,9 @@ class S3InsertInputs(BatchExportInsertInputs):
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
     use_virtual_style_addressing: bool = False
+    # Defaults to the legacy naming: an activity input recorded before this field existed has no
+    # value for it, so the missing field uses this default and the export keeps its existing names.
+    legacy_parquet_extension: bool = True
 
 
 def get_s3_key_from_inputs(inputs: S3InsertInputs, file_number: int = 0) -> str:
@@ -234,8 +225,9 @@ def get_s3_key_from_inputs(inputs: S3InsertInputs, file_number: int = 0) -> str:
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
         batch_export_model=inputs.batch_export_model,
-        file_extension=FILE_FORMAT_EXTENSIONS[inputs.file_format],
-        compression_extension=COMPRESSION_EXTENSIONS[inputs.compression] if inputs.compression is not None else None,
+        file_format=inputs.file_format,
+        compression=inputs.compression,
+        legacy_parquet_extension=inputs.legacy_parquet_extension,
         file_number=file_number,
         include_file_number=bool(inputs.max_file_size_mb),
     )
@@ -379,6 +371,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
             use_virtual_style_addressing=inputs.use_virtual_style_addressing,
+            legacy_parquet_extension=inputs.legacy_parquet_extension,
             # TODO: Remove after updating existing batch exports.
             batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
@@ -847,6 +840,7 @@ class ConcurrentS3Consumer(Consumer):
         compression: str | None = None,
         encryption: str | None = None,
         use_virtual_style_addressing: bool = False,
+        legacy_parquet_extension: bool = True,
         part_size: int = 50 * 1024 * 1024,  # 50MB parts
         max_concurrent_uploads: int = 5,
     ):
@@ -865,6 +859,7 @@ class ConcurrentS3Consumer(Consumer):
         self.file_format = file_format
         self.compression = compression
         self.encryption = encryption
+        self.legacy_parquet_extension = legacy_parquet_extension
         # This is only needed to obtain a file key. It's very easy to confuse it with
         # the transformer's `max_file_size_bytes` which actually does the file splitting.
         # TODO: Remove this from here, figure out a different way to obtain an S3 key.
@@ -919,6 +914,7 @@ class ConcurrentS3Consumer(Consumer):
             max_file_size_mb=s3_inputs.max_file_size_mb,
             kms_key_id=s3_inputs.kms_key_id,
             use_virtual_style_addressing=s3_inputs.use_virtual_style_addressing,
+            legacy_parquet_extension=s3_inputs.legacy_parquet_extension,
             part_size=part_size,
             max_concurrent_uploads=max_concurrent_uploads,
         )
@@ -1121,8 +1117,9 @@ class ConcurrentS3Consumer(Consumer):
             data_interval_start=self.data_interval_start,
             data_interval_end=self.data_interval_end,
             batch_export_model=self.batch_export_model,
-            file_extension=FILE_FORMAT_EXTENSIONS[self.file_format],
-            compression_extension=COMPRESSION_EXTENSIONS[self.compression] if self.compression is not None else None,
+            file_format=self.file_format,
+            compression=self.compression,
+            legacy_parquet_extension=self.legacy_parquet_extension,
             file_number=self.current_file_index,
             include_file_number=bool(self.max_file_size_mb),
         )

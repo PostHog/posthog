@@ -11,6 +11,91 @@ import {
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  it.each(["implementation", "discussion"] as const)(
+    "creates a report %s without client repository credentials",
+    async (relationship) => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ id: "task-1" }), { status: 201 }),
+        );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await client.createSignalReportTask({
+        reportId: "report-1",
+        relationship,
+        description: "Read the report evidence",
+        title: "Review report",
+        question: "  What caused this?  ",
+      });
+
+      expect(fetch).toHaveBeenCalledOnce();
+      const [url, request] = fetch.mock.calls[0];
+      expect((url as URL).pathname).toBe("/api/projects/42/tasks/");
+      expect(request.method).toBe("POST");
+      expect(JSON.parse(request.body)).toEqual({
+        description: "Read the report evidence",
+        title: "Review report",
+        origin_product: "signal_report",
+        signal_report: "report-1",
+        signal_report_task_relationship: relationship,
+        ...(relationship === "discussion"
+          ? { signal_report_discussion_question: "What caused this?" }
+          : {}),
+      });
+    },
+  );
+
+  describe("Desktop beta terms", () => {
+    it.each([
+      [
+        "checks acceptance",
+        "get",
+        (client: PostHogAPIClient) => client.areDesktopBetaTermsAccepted(),
+      ],
+      [
+        "accepts terms",
+        "post",
+        (client: PostHogAPIClient) => client.acceptDesktopBetaTerms(),
+      ],
+    ] as const)(
+      "%s through the selected project",
+      async (_name, method, request) => {
+        const fetch = vi
+          .fn()
+          .mockResolvedValue(
+            new Response(
+              JSON.stringify({ is_desktop_beta_terms_accepted: true }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            ),
+          );
+        const client = new PostHogAPIClient(
+          "https://app.posthog.test",
+          async () => "token",
+          async () => "token",
+          42,
+          { fetch },
+        );
+
+        await request(client);
+
+        expect(fetch).toHaveBeenCalledOnce();
+        expect((fetch.mock.calls[0][0] as URL).pathname).toBe(
+          "/api/projects/42/desktop_beta_terms/",
+        );
+        expect(fetch.mock.calls[0][1]).toMatchObject({
+          method: method.toUpperCase(),
+        });
+      },
+    );
+  });
+
   it("sends the selected scout to the runs endpoint", async () => {
     const fetch = vi
       .fn()
@@ -2235,6 +2320,25 @@ describe("PostHogAPIClient", () => {
         method: "post",
         path: `${SUMMARIES_PATH}?limit=100&offset=0`,
       });
+    });
+
+    it.each([
+      {},
+      { pr_url: null, pr_state: null },
+      {
+        pr_url: "https://github.com/example/project/pull/1",
+        pr_state: "merged",
+      },
+    ])("preserves optional PR fields in task summaries: %j", async (fields) => {
+      const summary = {
+        id: "task-1",
+        latest_run: { id: "run-1", status: "completed", ...fields },
+      };
+      const fetch = buildFetchForPages(page([summary]));
+      const summaries = await buildClient(fetch).getTaskSummaries([summary.id]);
+      expect(summaries).toEqual([summary]);
+      expect(summaries[0].latest_run?.pr_url).toBe(fields.pr_url);
+      expect(summaries[0].latest_run?.pr_state).toBe(fields.pr_state);
     });
 
     it("fetches remaining pages by offset from count, not by walking next", async () => {

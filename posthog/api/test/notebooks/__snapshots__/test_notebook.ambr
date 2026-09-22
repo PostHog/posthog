@@ -333,7 +333,8 @@
          "posthog_project"."name",
          "posthog_project"."created_at",
          "posthog_project"."product_description",
-         "posthog_project"."is_pending_deletion"
+         "posthog_project"."is_pending_deletion",
+         "posthog_project"."deletion_scheduled_at"
   FROM "posthog_project"
   WHERE "posthog_project"."id" = 99999
   LIMIT 21
@@ -1193,7 +1194,8 @@
          "posthog_project"."name",
          "posthog_project"."created_at",
          "posthog_project"."product_description",
-         "posthog_project"."is_pending_deletion"
+         "posthog_project"."is_pending_deletion",
+         "posthog_project"."deletion_scheduled_at"
   FROM "posthog_project"
   WHERE "posthog_project"."id" = 99999
   LIMIT 21
@@ -1441,7 +1443,8 @@
          "posthog_project"."name",
          "posthog_project"."created_at",
          "posthog_project"."product_description",
-         "posthog_project"."is_pending_deletion"
+         "posthog_project"."is_pending_deletion",
+         "posthog_project"."deletion_scheduled_at"
   FROM "posthog_project"
   WHERE "posthog_project"."id" = 99999
   LIMIT 21

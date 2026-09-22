@@ -18,6 +18,7 @@ import {
   isFatalSessionError,
   promptReferencesAbsoluteFolder,
   selectEchoedOptimisticItemIds,
+  selectEchoedOptimisticItemIdsAfterRebuild,
   selectUnseededPendingFollowups,
 } from "./sessionEvents";
 
@@ -323,6 +324,79 @@ describe("selectEchoedOptimisticItemIds", () => {
         [tailItem("o1", "yes"), tailItem("o2", "yes")],
         promptLog("yes"),
         0,
+      ),
+    ).toEqual(["o1"]);
+  });
+});
+
+describe("selectEchoedOptimisticItemIdsAfterRebuild", () => {
+  const promptLog = (
+    texts: string[],
+    options: { taskRunId?: string; startEntryIndex?: number } = {},
+  ): AcpMessage[] =>
+    convertStoredEntriesToEvents(
+      texts.map((text) => ({
+        type: "notification",
+        notification: {
+          id: 1,
+          method: "session/prompt",
+          params: { prompt: [{ type: "text", text }] },
+        },
+      })) as StoredLogEntry[],
+      undefined,
+      {
+        taskRunId: options.taskRunId ?? "run-1",
+        startEntryIndex: options.startEntryIndex ?? 0,
+      },
+    );
+  const tailItem = (id: string, content: string): OptimisticItem => ({
+    type: "user_message",
+    id,
+    content,
+    timestamp: 1,
+    pinToTop: false,
+  });
+
+  it("drops a bubble the rebuild echoes beyond what the committed events carry", () => {
+    expect(
+      selectEchoedOptimisticItemIdsAfterRebuild(
+        [tailItem("o1", "yes")],
+        promptLog(["carry on", "yes"]),
+        promptLog(["carry on"]),
+        { taskRunId: "run-1", firstEntryIndex: 0 },
+      ),
+    ).toEqual(["o1"]);
+  });
+
+  it("keeps a bubble whose echo the committed events already carry", () => {
+    expect(
+      selectEchoedOptimisticItemIdsAfterRebuild(
+        [tailItem("o1", "yes")],
+        promptLog(["carry on", "yes"]),
+        promptLog(["carry on", "yes"]),
+        { taskRunId: "run-1", firstEntryIndex: 0 },
+      ),
+    ).toEqual([]);
+  });
+
+  it("drops a bubble an ancestor run's matching prompt would otherwise consume", () => {
+    expect(
+      selectEchoedOptimisticItemIdsAfterRebuild(
+        [tailItem("o1", "yes")],
+        promptLog(["yes"]),
+        promptLog(["yes"], { taskRunId: "ancestor-run" }),
+        { taskRunId: "run-1", firstEntryIndex: 0 },
+      ),
+    ).toEqual(["o1"]);
+  });
+
+  it("drops a bubble a prompt below the rebuilt window would otherwise consume", () => {
+    expect(
+      selectEchoedOptimisticItemIdsAfterRebuild(
+        [tailItem("o1", "yes")],
+        promptLog(["yes"], { startEntryIndex: 40 }),
+        promptLog(["yes"]),
+        { taskRunId: "run-1", firstEntryIndex: 40 },
       ),
     ).toEqual(["o1"]);
   });

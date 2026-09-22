@@ -267,6 +267,32 @@ describe('integrationsLogic', () => {
             document.cookie = 'ph_oauth_state=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
         })
 
+        // The data warehouse source wizard shows the reason beside its connect button, so both a
+        // provider rejection and an expired state reach it in the URL rather than as a toast that
+        // is gone before the user retries.
+        it.each([
+            ['a rejected connect', { error: 'access_denied' }, 'access_denied'],
+            ['an expired state', { code: 'oauth-code' }, 'posthog_state_expired'],
+        ])('carries %s back to the source wizard', async (_name, extraParams, expectedError) => {
+            const errorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
+            document.cookie = 'ph_oauth_state=a-different-token'
+
+            await expectLogic(logic, () => {
+                logic.actions.handleOauthCallback('meta-ads' as IntegrationKind, {
+                    state: 'next=%2Fdata-warehouse%2Fnew-source%3Fkind%3Dmeta-ads&token=csrf-tok',
+                    ...extraParams,
+                })
+            }).toFinishAllListeners()
+
+            expect(createSpy).not.toHaveBeenCalled()
+            expect(router.values.location.pathname).toBe(`/project/${MOCK_TEAM_ID}/data-warehouse/new-source`)
+            expect(router.values.searchParams.integration_error).toBe(expectedError)
+            expect(router.values.searchParams.kind).toBe('meta-ads')
+            expect(errorSpy).not.toHaveBeenCalled()
+
+            document.cookie = 'ph_oauth_state=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+        })
+
         describe('integration create team scoping', () => {
             let requestedTeamIds: string[]
 

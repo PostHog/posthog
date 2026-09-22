@@ -4,6 +4,25 @@ import { z } from 'zod'
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
 
+export const CanvasStateReadLimitSchema = z.number().int().min(1).max(100).default(20)
+export const CanvasStateKeysOnlySchema = z.boolean().default(true)
+export const WikiPageReadLimitSchema = z.number().int().min(1).max(12000).default(12000)
+
+// Mirrors the Django serializer's `validate` rule so a continuation without the revision
+// fails here instead of at the API with a 400.
+export function validateCanvasStateValueContinuation(
+    data: { offset?: number | undefined; revision?: string | undefined },
+    ctx: z.RefinementCtx
+): void {
+    if ((data.offset ?? 0) > 0 && !data.revision) {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['revision'],
+            message: 'Read the first chunk and pass its revision to continue.',
+        })
+    }
+}
+
 export const ChannelInstructionsBaseVersionSchema = z
     .number()
     .int()
@@ -653,6 +672,24 @@ export const PathCleaningRulesUpdateSchema = z.object({
 export const ProjectSetActiveSchema = z.object({
     projectId: z.number().int().positive(),
 })
+
+export const TaskAgentCreateSchema = z
+    .object({
+        title: z.string().max(255).optional(),
+        description: z.string().min(1).describe('Instructions for the agent.'),
+        repository: z.string().nullish().describe('Repository in organization/repo format.'),
+        branch: z.string().min(1).max(255).nullish().describe('Base branch for the run.'),
+    })
+    .transform((input) => ({ ...input, start_run: true as const }))
+
+export const TaskAgentRunCreateSchema = z
+    .object({
+        id: z.string().uuid().describe('Task ID.'),
+        branch: z.string().max(255).nullish().describe('Git branch to check out in the sandbox.'),
+        resume_from_run_id: z.string().uuid().optional().describe('ID of a previous run to resume from.'),
+        pending_user_message: z.string().optional().describe('Initial or follow-up message for the run.'),
+    })
+    .transform((input) => ({ ...input, mode: 'background' as const, run_source: 'agent' as const }))
 
 // Debug MCP UI Apps
 export const DebugMcpUiAppsSchema = z.object({

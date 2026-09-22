@@ -54,6 +54,11 @@ it('reuses source suggestions, remembers collapse and opens their review in Setu
     const unmountSetup = setupPlanLogic.mount()
     const view = render(<NewMarketingAnalyticsDashboard />)
     try {
+        await screen.findByText('Suggested ad sources (1)')
+        expect(
+            screen.getByText('Suggested ad sources (1)').closest('[aria-expanded]')?.getAttribute('aria-expanded')
+        ).toBe('false')
+        fireEvent.click(screen.getByText('Suggested ad sources (1)'))
         await screen.findByText('Connect Google Ads')
         fireEvent.click(screen.getByText('Suggested ad sources (1)'))
         expect(localStorage.getItem('marketing-source-suggestions-expanded')).toBe('false')

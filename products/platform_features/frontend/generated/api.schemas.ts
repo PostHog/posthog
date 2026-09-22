@@ -152,6 +152,11 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly is_pending_deletion: boolean | null
+    /**
+     * When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.
+     * @nullable
+     */
+    readonly uses_most_specific_access_resolution: boolean | null
 }
 
 export interface PaginatedOrganizationListApi {
@@ -260,6 +265,11 @@ export interface PatchedOrganizationApi {
      * @nullable
      */
     readonly is_pending_deletion?: boolean | null
+    /**
+     * When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.
+     * @nullable
+     */
+    readonly uses_most_specific_access_resolution?: boolean | null
 }
 
 export interface OrganizationRemoveBlockedMembersResponseApi {
@@ -794,7 +804,7 @@ export interface ActivityLogApi {
     /** @nullable */
     is_system?: boolean | null
     /**
-     * @maxLength 32
+     * @maxLength 256
      * @nullable
      */
     client?: string | null
@@ -842,7 +852,7 @@ export interface StaticFiltersApi {
     scopes: StaticFiltersApiScopesItem[]
     /** Available activity types. */
     activities: StaticFiltersApiActivitiesItem[]
-    /** API clients that have generated activity (from x-posthog-client header). */
+    /** API clients that have generated activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run). */
     clients: StaticFiltersApiClientsItem[]
 }
 
@@ -1689,7 +1699,7 @@ export type AdvancedActivityLogsListParams = {
      */
     activities?: string[]
     /**
-     * Filter by API clients that generated the activity (from x-posthog-client header).
+     * Filter by API clients that generated the activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run).
      */
     clients?: string[]
     /**

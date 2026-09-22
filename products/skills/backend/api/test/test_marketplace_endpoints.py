@@ -963,11 +963,12 @@ class TestImportAndCreateValidation(APIBaseTest):
         [
             ("malformed", "Bad_Name", "cannot be a skill directory name"),
             ("reserved", "community", "is a reserved name"),
+            ("bundled_skill", "signals-scout-logs", "already ships a skill"),
         ]
     )
     def test_import_reports_one_message_per_name_problem(self, _label: str, name: str, expected: str):
-        # The shared spec rules cover the name shape and the import adds the reserved-name rule on
-        # top, so a name that breaks one rule must not be reported by both.
+        # The shared spec rules cover the name shape and the import adds the reserved-name and
+        # bundled-name rules on top, so a name that breaks one rule must not be reported by both.
         export = SkillExport(name=name, description="A skill.", body="# skill\n", version=1)
         upload = SimpleUploadedFile("skill.zip", build_skill_zip(export), content_type="application/zip")
 

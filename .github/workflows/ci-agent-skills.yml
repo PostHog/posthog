@@ -58,7 +58,7 @@ jobs:
 
     check-skills:
         name: Check agent skills
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 30
         needs: changes
         if: needs.changes.outputs.skills == 'true'
@@ -278,7 +278,7 @@ jobs:
 
     current-master:
         name: Check current master
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         needs: check-skills
         if: github.repository_owner == 'PostHog' && github.ref == 'refs/heads/master'
@@ -305,7 +305,7 @@ jobs:
 
     release-skills:
         name: Release agent skills
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
         needs: [check-skills, current-master]
         if: github.repository_owner == 'PostHog' && github.ref == 'refs/heads/master' && needs.current-master.outputs.is-current == 'true'

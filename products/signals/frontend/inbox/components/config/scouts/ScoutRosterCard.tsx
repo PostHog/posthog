@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { memo } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
 
@@ -8,7 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { nextRunAt, SCOUT_GROUP_LABEL, ScoutRosterRow, scoutSubtitle } from '../../../utils/scoutGroups'
-import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
+import { runStripEmptyLabel, scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import { inboxCardRowClassName } from '../../cards/inboxCardRowClassName'
 import { ScoutExemptionBadge, ScoutLifecycleBadge } from './ScoutBadges'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
@@ -34,13 +35,17 @@ function MetaSeparator(): JSX.Element {
  * last checked, and its cadence on the left; the recent-run strip and the on/off switch on the
  * right. The body links to the scout page. The run boxes and the switch sit outside that link, so
  * a run box opens its task and the switch flips the scout without opening it.
+ *
+ * Memoized: a roster row keeps its identity while the search box narrows the list, so typing
+ * re-renders only the cards that entered or left it.
  */
-export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
+export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
     const { config, group } = row
     const {
         rollups,
         updatingScoutIds,
         scoutRunsLoadedOnce,
+        scoutRunsCoverFleet,
         scoutRunCosts,
         scoutCostRollups,
         expensiveRunCostThreshold,
@@ -108,8 +113,14 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
                         <ScoutRunBoxes runs={runs} costs={scoutRunCosts} costThreshold={expensiveRunCostThreshold} />
                     ) : (
                         // Until the runs request has landed once, an empty rollup means "not
-                        // loaded", not "never ran"; the poll retries a failed load on its own.
-                        <span className="text-xs text-muted">{scoutRunsLoadedOnce ? 'No runs yet' : '…'}</span>
+                        // loaded", not "never ran"; the poll retries a failed load on its own. Past
+                        // the fleet the response covers it means neither, so the card says so.
+                        <span className="text-xs text-muted">
+                            {runStripEmptyLabel({
+                                loadedOnce: scoutRunsLoadedOnce,
+                                coversFleet: scoutRunsCoverFleet,
+                            })}
+                        </span>
                     )}
                 </div>
                 <ScoutEnabledSwitch
@@ -120,4 +131,4 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
             </div>
         </div>
     )
-}
+})

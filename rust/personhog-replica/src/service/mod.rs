@@ -19,15 +19,16 @@ use personhog_proto::personhog::types::v1::{
     DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
     DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
     DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
-    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
-    DeletePersonsResponse, DistinctIdWithVersion, GetDistinctIdsForPersonRequest,
-    GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
-    GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
-    GetGroupTypeMappingByDashboardIdRequest, GetGroupTypeMappingByDashboardIdResponse,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
-    GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse,
+    DeletePersonsMode as ProtoDeletePersonsMode, DeletePersonsRequest, DeletePersonsResponse,
+    DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse, DistinctIdWithVersion,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
+    GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
+    GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
+    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupKey, GroupTypeMapping, GroupTypeMappingCount,
@@ -40,13 +41,14 @@ use personhog_proto::personhog::types::v1::{
     PersonsResponse, SetPersonDistinctIdVersionFloorRequest,
     SetPersonDistinctIdVersionFloorResponse, SetPersonVersionFloorRequest,
     SetPersonVersionFloorResponse, SplitPersonRequest, SplitPersonResponse,
-    SplitResult as ProtoSplitResult, TeamDistinctId, UpdateGroupRequest, UpdateGroupResponse,
-    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    SplitResult as ProtoSplitResult, TeamDistinctId, TombstonedDistinctId, TombstonedPerson,
+    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
+use crate::storage::types::DeletePersonsMode;
 use crate::storage::{self, FullStorage};
 
 const MAX_BATCH_LOOKUP_SIZE: usize = 250;
@@ -63,6 +65,9 @@ use field_mask::{
     apply_group_field_mask, apply_person_field_mask, build_field_mask, group_needs_properties,
     person_needs_properties,
 };
+
+/// Dependent rows one DeleteTombstonedPersons call deletes when the request leaves max_rows at 0.
+const DELETE_TOMBSTONED_DEFAULT_ROWS: i64 = 1000;
 
 pub struct PersonHogReplicaService {
     storage: Arc<dyn FullStorage>,
@@ -315,12 +320,23 @@ impl PersonHogReplica for PersonHogReplicaService {
         let req = request.into_inner();
         let consistency = to_storage_consistency(&req.read_options);
         let limit = req.limit.filter(|&l| l > 0);
+        let cursor_id = req.cursor_id;
 
         let distinct_ids = self
             .storage
-            .get_distinct_ids_for_person(req.team_id, req.person_id, consistency, limit)
+            .get_distinct_ids_for_person(req.team_id, req.person_id, consistency, limit, cursor_id)
             .await
             .map_err(|e| log_and_convert_error(e, "get_distinct_ids_for_person"))?;
+
+        let next_cursor_id = if let Some(l) = limit {
+            if distinct_ids.len() as i64 >= l {
+                distinct_ids.last().map(|d| d.id)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         Ok(Response::new(GetDistinctIdsForPersonResponse {
             distinct_ids: distinct_ids
@@ -328,8 +344,10 @@ impl PersonHogReplica for PersonHogReplicaService {
                 .map(|d| DistinctIdWithVersion {
                     distinct_id: d.distinct_id,
                     version: d.version,
+                    id: Some(d.id),
                 })
                 .collect(),
+            next_cursor_id,
         }))
     }
 
@@ -361,6 +379,7 @@ impl PersonHogReplica for PersonHogReplicaService {
                 .push(DistinctIdWithVersion {
                     distinct_id: mapping.distinct_id,
                     version: mapping.version,
+                    id: None,
                 });
         }
 
@@ -400,13 +419,48 @@ impl PersonHogReplica for PersonHogReplicaService {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?;
 
-        let deleted_count = self
+        let mode = match ProtoDeletePersonsMode::try_from(req.mode) {
+            Ok(ProtoDeletePersonsMode::Unspecified) => DeletePersonsMode::Hard,
+            Ok(ProtoDeletePersonsMode::Hard) => DeletePersonsMode::Hard,
+            Ok(ProtoDeletePersonsMode::Tombstone) => DeletePersonsMode::Tombstone,
+            Err(_) => {
+                return Err(Status::invalid_argument(format!(
+                    "Unknown DeletePersonsMode {}",
+                    req.mode
+                )))
+            }
+        };
+
+        let outcome = self
             .storage
-            .delete_persons(req.team_id, &uuids)
+            .delete_persons(req.team_id, &uuids, mode)
             .await
             .map_err(|e| log_and_convert_error(e, "delete_persons"))?;
 
-        Ok(Response::new(DeletePersonsResponse { deleted_count }))
+        let tombstoned = outcome.tombstones.is_some();
+        let tombstones = outcome
+            .tombstones
+            .unwrap_or_default()
+            .into_iter()
+            .map(|person| TombstonedPerson {
+                person_uuid: person.uuid.to_string(),
+                version: person.version,
+                distinct_ids: person
+                    .distinct_ids
+                    .into_iter()
+                    .map(|did| TombstonedDistinctId {
+                        distinct_id: did.distinct_id,
+                        version: did.version,
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        Ok(Response::new(DeletePersonsResponse {
+            deleted_count: outcome.deleted,
+            tombstoned,
+            tombstones,
+        }))
     }
 
     async fn delete_persons_batch_for_team(
@@ -429,6 +483,56 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         Ok(Response::new(DeletePersonsBatchForTeamResponse {
             deleted_count,
+        }))
+    }
+
+    async fn delete_tombstoned_persons(
+        &self,
+        request: Request<DeleteTombstonedPersonsRequest>,
+    ) -> Result<Response<DeleteTombstonedPersonsResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.person_uuids.len() > 1000 {
+            return Err(Status::invalid_argument(
+                "Maximum 1000 person UUIDs per request",
+            ));
+        }
+
+        let uuids: Vec<Uuid> = req
+            .person_uuids
+            .iter()
+            .map(|s| Uuid::parse_str(s))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?;
+        if req.max_rows < 0 {
+            return Err(Status::invalid_argument("max_rows must not be negative"));
+        }
+        let max_rows = if req.max_rows == 0 {
+            DELETE_TOMBSTONED_DEFAULT_ROWS
+        } else {
+            req.max_rows
+        };
+
+        let outcome = self
+            .storage
+            .delete_tombstoned_persons(req.team_id, &uuids, max_rows)
+            .await
+            .map_err(|e| log_and_convert_error(e, "delete_tombstoned_persons"))?;
+
+        Ok(Response::new(DeleteTombstonedPersonsResponse {
+            deleted_count: outcome.deleted,
+            skipped_live_count: outcome.skipped_live,
+            blocked_person_uuids: outcome
+                .blocked_uuids
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            pending_person_uuids: outcome
+                .pending_uuids
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            rows_deleted: outcome.rows_deleted,
         }))
     }
 

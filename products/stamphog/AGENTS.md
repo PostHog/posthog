@@ -1,6 +1,7 @@
 # stamphog — invariants for agents
 
-Read [README.md](README.md) for the product shape first. This file is the contract: the
+Read [README.md](README.md) for the product shape first, and [docs/digest.md](docs/digest.md) for
+the digest design. This file is the contract: the
 invariants below were each earned through a real review finding — do not relax one without
 understanding what it closes, and hold new code to all of them.
 

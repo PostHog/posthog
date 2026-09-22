@@ -55,7 +55,7 @@ export interface CloudTaskModePreset {
 
 export const DEFAULT_GATEWAY_MODEL = "claude-opus-4-8";
 
-export const DEFAULT_CODEX_MODEL = "gpt-5.5";
+export const DEFAULT_CODEX_MODEL = "gpt-6-sol";
 
 export const BLOCKED_GATEWAY_MODEL_IDS = [
   "gpt-5-mini",
@@ -198,18 +198,6 @@ export function isCloudflareModelId(modelId: string): boolean {
   return modelId.startsWith("@cf/");
 }
 
-export function isGlmModelId(modelId: string): boolean {
-  return modelId.toLowerCase().includes("glm");
-}
-
-export function isGlm53ModelId(modelId: string): boolean {
-  return modelId.toLowerCase() === "zai-org/glm-5.3";
-}
-
-export function isGlm53FlashModelId(modelId: string): boolean {
-  return modelId.toLowerCase() === "zai-org/glm-5.3-flash";
-}
-
 export function isCloudflareModel(model: GatewayModel): boolean {
   return isCloudflareModelId(model.id) || model.owned_by === "cloudflare";
 }
@@ -349,11 +337,6 @@ export function adapterForModelId(modelId: string): Adapter {
     ? "codex"
     : "claude";
 }
-
-export const HARNESS_DISPLAY_NAMES: Record<Adapter, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-};
 
 function buildModelSelectOptions(
   models: readonly GatewayModel[],

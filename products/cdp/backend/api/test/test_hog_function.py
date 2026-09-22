@@ -13,6 +13,7 @@ from rest_framework import status
 from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.helpers import mock_transpile
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.models.integration import Integration
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.hog_function import (
@@ -31,7 +32,7 @@ webhook_template = MOCK_NODE_TEMPLATES[0]
 geoip_template = MOCK_NODE_TEMPLATES[2]
 
 
-EXAMPLE_FULL = {
+EXAMPLE_FULL: dict[str, Any] = {
     "name": "HogHook",
     "hog": "fetch(inputs.url, {\n  'headers': inputs.headers,\n  'body': inputs.payload,\n  'method': inputs.method\n});",
     "type": "destination",
@@ -557,7 +558,16 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_uncompilable_filters_only_block_saves_that_leave_function_enabled(
         self, _name, initial_enabled, patch, expected
     ):
-        cohort = Cohort.objects.create(team=self.team, name="Test users", is_static=True)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test users",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@example.com"}],
+                }
+            },
+        )
         self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk}]
         self.team.save()
         fn = HogFunction.objects.create(
@@ -570,6 +580,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             hog="return event",
             filters={"filter_test_accounts": True},
         )
+        # Static only after the save: a save leaving the function enabled and uncompilable is refused.
+        cohort.is_static = True
+        cohort.save()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/{fn.id}/",
             data=patch,
@@ -582,7 +595,16 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # A client may send the boolean as a JSON string ("false"). The enable-guard reads the raw
         # value before field coercion, so it must coerce rather than rely on truthiness - otherwise
         # "false" is truthy and the disable is wrongly rejected with the filter error.
-        cohort = Cohort.objects.create(team=self.team, name="Test users", is_static=True)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test users",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@example.com"}],
+                }
+            },
+        )
         self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk}]
         self.team.save()
         fn = HogFunction.objects.create(
@@ -595,6 +617,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             hog="return event",
             filters={"filter_test_accounts": True},
         )
+        # Static only after the save: a save leaving the function enabled and uncompilable is refused.
+        cohort.is_static = True
+        cohort.save()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/{fn.id}/",
             data={"enabled": "false"},
@@ -2245,6 +2270,30 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "order": 0,
                 "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
             }
+
+    def test_test_invocation_rejects_a_posthog_connection_input(self):
+        connection = Integration.objects.create(team=self.team, kind="posthog", created_by=self.user)
+
+        with patch(
+            "products.cdp.backend.api.hog_function.create_hog_invocation_test"
+        ) as mock_create_hog_invocation_test:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/new/invocations/",
+                data={
+                    "configuration": {
+                        **EXAMPLE_FULL,
+                        "inputs_schema": [
+                            *EXAMPLE_FULL["inputs_schema"],
+                            {"key": "connection", "type": "integration", "integration": "slack"},
+                        ],
+                        "inputs": {**EXAMPLE_FULL["inputs"], "connection": {"value": connection.id}},
+                    },
+                },
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "PostHog connection" in json.dumps(response.json())
+        mock_create_hog_invocation_test.assert_not_called()
 
     @parameterized.expand(
         [

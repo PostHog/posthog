@@ -6,7 +6,7 @@
             "type": "boolean"
         },
         "display_name": {
-            "description": "Name shown in the UI. Does not change the skill name. Leave blank to use the default name.",
+            "description": "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.",
             "maxLength": 200,
             "type": "string"
         },

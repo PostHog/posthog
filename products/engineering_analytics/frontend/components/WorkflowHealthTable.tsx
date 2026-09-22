@@ -109,19 +109,13 @@ export function WorkflowHealthTable({
     compact = false,
 }: WorkflowHealthTableProps): JSX.Element {
     const { searchParams } = useValues(router)
-    // Each row opens the workflow's runs page, carrying the active window, run scope, and source so the
-    // drill-down reports the same group of runs.
     const rowUrl = (row: WorkflowHealthRow): string =>
         withScope(
             urls.engineeringAnalyticsWorkflowRuns(row.repoOwner, row.repoName, row.workflowName),
             searchParams,
             sourceId
         )
-    // Workflows the merge queue runs come first, because they gate every merge. Failing workflows stay
-    // findable through the Status tag and its sorter, so they need no pass of their own.
     const orderedRows = orderWorkflowHealthRows(rows)
-    // Computed once for the whole table: without a gating row there is nothing to rank against, so a repo
-    // with no merge queue mutes nothing.
     const hasGatingRow = orderedRows.some(isGatingWorkflow)
     const columns: LemonTableColumns<WorkflowHealthRow> = [
         {
@@ -212,7 +206,8 @@ export function WorkflowHealthTable({
             key: 'p50Seconds',
             width: 88,
             align: 'right',
-            tooltip: 'Median run duration (wall-clock) over successful runs.',
+            tooltip:
+                'Median duration over successful runs. Runs under 10 seconds are excluded when longer samples exist. All-fast workflows use every successful run.',
             sorter: (a, b) => (a.p50Seconds ?? -1) - (b.p50Seconds ?? -1),
             render: (_, row) => (
                 <span className="text-xs tabular-nums whitespace-nowrap">{formatSeconds(row.p50Seconds)}</span>
@@ -223,7 +218,8 @@ export function WorkflowHealthTable({
             key: 'p95Seconds',
             width: 88,
             align: 'right',
-            tooltip: '95th-percentile run duration (wall-clock) over successful runs.',
+            tooltip:
+                '95th-percentile duration over successful runs. Runs under 10 seconds are excluded when longer samples exist. All-fast workflows use every successful run.',
             sorter: (a, b) => (a.p95Seconds ?? -1) - (b.p95Seconds ?? -1),
             render: (_, row) => (
                 <span className="text-xs tabular-nums whitespace-nowrap text-secondary">

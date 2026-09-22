@@ -375,7 +375,8 @@ function HighlightList({
 /** The toggle alone, so it can sit in the tab's filter row while the shelves render below it. */
 export function ExperimentBehaviorComparisonToggle({ experiment }: { experiment: Experiment }): JSX.Element | null {
     const logic = experimentReplayTabLogic({ experiment })
-    const { behaviorComparisonAvailable, behaviorComparisonOpen } = useValues(logic)
+    const { behaviorComparisonAvailable, behaviorComparisonOpen, behaviorComparisonUnavailableReason } =
+        useValues(logic)
     const { toggleBehaviorComparison } = useActions(logic)
 
     if (!behaviorComparisonAvailable) {
@@ -391,6 +392,13 @@ export function ExperimentBehaviorComparisonToggle({ experiment }: { experiment:
             icon={<IconChevronDown className={cn('transition-transform', !behaviorComparisonOpen && '-rotate-90')} />}
             onClick={() => toggleBehaviorComparison()}
             aria-expanded={behaviorComparisonOpen}
+            // Kept visible rather than hidden, so the tab still says the shelf exists and why this
+            // experiment cannot have it.
+            disabledReason={
+                behaviorComparisonUnavailableReason === 'group_aggregated'
+                    ? "Not available for experiments that split by group. What to watch compares people's recordings."
+                    : undefined
+            }
             tooltip="Groups of recordings worth watching: behavior one variant shows more of, friction, and your metric events happening on screen."
             data-attr="experiment-behavior-comparison-toggle"
         >
@@ -414,6 +422,7 @@ export function ExperimentBehaviorComparison({
         sessionEventDeltas,
         sessionEventDeltasLoading,
         sessionEventDeltasError,
+        sessionEventDeltasErrorStatus,
         selectedWatchCard,
         loadedRecordingsById,
     } = useValues(logic)
@@ -427,7 +436,12 @@ export function ExperimentBehaviorComparison({
 
     return (
         <div className="mb-4">
-            {sessionEventDeltasError !== null ? (
+            {/* A 400 is the backend stating that this experiment cannot have a comparison, so it is
+                shown as an answer. Every other failure could pass on a second attempt, so it keeps
+                the retry. */}
+            {sessionEventDeltasError !== null && sessionEventDeltasErrorStatus === 400 ? (
+                <div className="text-xs text-secondary">{sessionEventDeltasError}</div>
+            ) : sessionEventDeltasError !== null ? (
                 <div className="flex items-center gap-2 text-xs text-secondary">
                     <span>Couldn't pick recordings to watch: {sessionEventDeltasError}</span>
                     <LemonButton size="xsmall" type="secondary" onClick={() => loadSessionEventDeltas()}>

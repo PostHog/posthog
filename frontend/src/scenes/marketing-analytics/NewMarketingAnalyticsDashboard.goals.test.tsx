@@ -12,7 +12,10 @@ import { initKeaTests } from '~/test/init'
 
 import { NewMarketingAnalyticsDashboard } from 'products/marketing_analytics/frontend/dashboard/NewMarketingAnalyticsDashboard'
 
-jest.mock('scenes/web-analytics/tiles/WebAnalyticsTile', () => ({ webAnalyticsDataTableQueryContext: {} }))
+jest.mock('scenes/web-analytics/tiles/WebAnalyticsTile', () => ({
+    VariationCell: () => () => null,
+    webAnalyticsDataTableQueryContext: {},
+}))
 jest.mock('~/queries/Query/Query', () => ({ Query: () => null }))
 jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTable', () => ({
     AttributionTable: () => null,
@@ -59,6 +62,14 @@ describe('Dashboard goal suggestions', () => {
         const unmountSetup = setupPlanLogic.mount()
         const view = render(<NewMarketingAnalyticsDashboard />)
         try {
+            await screen.findByText('Suggested conversion goals (1)')
+            expect(
+                screen
+                    .getByText('Suggested conversion goals (1)')
+                    .closest('[aria-expanded]')
+                    ?.getAttribute('aria-expanded')
+            ).toBe('false')
+            fireEvent.click(screen.getByText('Suggested conversion goals (1)'))
             await screen.findByText('Mark a revenue goal')
             fireEvent.click(screen.getByText('Suggested conversion goals (1)'))
             expect(localStorage.getItem('marketing-goal-suggestions-expanded')).toBe('false')

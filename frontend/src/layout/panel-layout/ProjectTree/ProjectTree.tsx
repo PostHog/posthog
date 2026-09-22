@@ -45,6 +45,7 @@ interface ProjectTreeBaseProps {
     showRecents?: boolean // whether to show recents in the tree
     searchPlaceholder?: string
     treeSize?: LemonTreeSize
+    disableScroll?: boolean
     /** Override the select mode from the internal logic */
     selectModeOverride?: LemonTreeSelectMode
     /** Override the checked items from the internal logic */
@@ -110,6 +111,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
         logicKey,
         root,
         onlyTree = false,
+        disableScroll = onlyTree,
         searchPlaceholder,
         treeSize = 'default',
         showRecents,
@@ -122,7 +124,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems, shortcutEntryIdMap } = useValues(projectTreeDataLogic)
     const { reorderShortcutByDrag } = useActions(projectTreeDataLogic)
-    const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
+    const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root, isActiveInPanel }
     const {
         fullFileSystemFiltered,
         lastViewedId,
@@ -239,7 +241,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
             size={treeSize}
             onItemChecked={onItemChecked}
             checkedItemCount={checkedItemCountNumeric}
-            disableScroll={onlyTree ? true : false}
+            disableScroll={disableScroll}
             onItemClick={(item, event) => {
                 event.preventDefault()
                 if (item?.type === 'empty-folder' || item?.type === 'loading-indicator') {
@@ -396,7 +398,14 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
 
                 return (
                     <ContextMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
-                        <MenuItems item={item} type="context" root={root} onlyTree={onlyTree} logicKey={logicKey} />
+                        <MenuItems
+                            item={item}
+                            type="context"
+                            root={root}
+                            onlyTree={onlyTree}
+                            logicKey={logicKey}
+                            isActiveInPanel={isActiveInPanel}
+                        />
                     </ContextMenuGroup>
                 )
             }}
@@ -410,7 +419,14 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
 
                 return (
                     <DropdownMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
-                        <MenuItems item={item} type="dropdown" root={root} onlyTree={onlyTree} logicKey={logicKey} />
+                        <MenuItems
+                            item={item}
+                            type="dropdown"
+                            root={root}
+                            onlyTree={onlyTree}
+                            logicKey={logicKey}
+                            isActiveInPanel={isActiveInPanel}
+                        />
                     </DropdownMenuGroup>
                 )
             }}

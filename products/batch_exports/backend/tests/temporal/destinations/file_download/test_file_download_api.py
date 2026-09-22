@@ -20,8 +20,9 @@ from rest_framework import status
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.models.event.util import bulk_create_events
 from posthog.models.scoping import team_scope
-from posthog.temporal.tests.utils.events import generate_test_events, insert_event_values_in_clickhouse
+from posthog.temporal.tests.utils.events import generate_test_events
 
 from products.batch_exports.backend.api.file_download import (
     COUNT_ROWS_TIMEOUT_MESSAGE,
@@ -38,13 +39,17 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportSource,
 )
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
+from products.batch_exports.backend.tests.temporal.destinations.s3.utils import has_valid_credentials
 
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.django_db,
 ]
 
+requires_aws_credentials = pytest.mark.requires_vendor_credentials(check=has_valid_credentials)
 
+
+@requires_aws_credentials
 async def test_can_generate_s3_pre_signed_url(s3_client, s3_bucket, aws_role_arn):
     """Test we can generate a S3 pre signed URL for some test data."""
     key = f"batch-exports/{str(uuid.uuid4())}"
@@ -265,7 +270,6 @@ async def test_file_download_retrieve_returns_empty_when_no_data_exported(
     assert data["files"] == []
 
 
-@pytest.mark.usefixtures("override_file_download_settings")
 @pytest.mark.django_db(transaction=True)
 async def test_file_download_download_fails_when_not_completed(
     async_client: AsyncClient, temporal_client, team, user, data_interval_start, data_interval_end, generate_test_data
@@ -297,6 +301,7 @@ async def test_file_download_download_fails_when_not_completed(
             assert b"still in progress" in response.content
 
 
+@requires_aws_credentials
 @pytest.mark.usefixtures("override_file_download_settings")
 @pytest.mark.django_db(transaction=True)
 async def test_file_download_download(
@@ -497,6 +502,7 @@ async def test_file_download_list_returns_run_ids_and_statuses(
     ]
 
 
+@requires_aws_credentials
 @pytest.mark.usefixtures("override_file_download_settings")
 @pytest.mark.django_db(transaction=True)
 async def test_file_download_end_to_end(
@@ -625,7 +631,7 @@ class TestFileDownloadHogQL:
             yield
 
     @pytest.fixture
-    async def hogql_export_test_events(self, clickhouse_client, team):
+    async def hogql_export_test_events(self, clickhouse_client, team, truncate_clickhouse_tables):
         """Insert events for this and another team directly into the events table.
 
         A hogql export reads the main (sharded) events table with no interval filter, so
@@ -647,8 +653,11 @@ class TestFileDownloadHogQL:
             event_name="test-{i}",
             properties={"$browser": "Chrome"},
         )
-        await insert_event_values_in_clickhouse(
-            client=clickhouse_client, events=events + events_from_other_team, table="sharded_events"
+        await sync_to_async(bulk_create_events)(
+            [
+                {**event, "event_uuid": event["uuid"], "person_properties": event["person_properties"] or {}}
+                for event in events + events_from_other_team
+            ]
         )
         return events
 
@@ -812,6 +821,7 @@ class TestFileDownloadHogQL:
         assert batch_export_model.hogql_query == hogql_query
         assert mock_start_file_download_export.call_args.kwargs["max_size_mb"] == DEFAULT_MAX_SIZE_MB
 
+    @requires_aws_credentials
     @pytest.mark.usefixtures("override_file_download_settings", "enable_hogql_flag")
     @pytest.mark.django_db(transaction=True)
     async def test_end_to_end(self, async_client: AsyncClient, temporal_client, team, user, hogql_export_test_events):

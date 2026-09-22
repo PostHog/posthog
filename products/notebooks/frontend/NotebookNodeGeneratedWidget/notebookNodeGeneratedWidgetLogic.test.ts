@@ -929,6 +929,79 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         })
     })
 
+    it.each<{ frameName: string; inputBindings: WidgetStatusApi['input_bindings'] }>([
+        { frameName: 'insight_df', inputBindings: {} },
+        { frameName: 'widget_input', inputBindings: { widget_input: { source: 'insight_df' } } },
+    ])(
+        'prepares $frameName before refreshing widget data and ignores repeated clicks',
+        async ({ frameName, inputBindings }) => {
+            let content: JSONContent = {
+                type: 'doc',
+                content: [{ type: NotebookNodeType.Query, attrs: { nodeId: 'insight', returnVariable: 'insight_df' } }],
+            }
+            let finishPreparation: () => void = () => undefined
+            const preparation = new Promise<void>((resolve) => {
+                finishPreparation = resolve
+            })
+            const prepareInsightDataframes = jest.fn(async () => {
+                await preparation
+                content = {
+                    type: 'doc',
+                    content: [
+                        {
+                            type: NotebookNodeType.Query,
+                            attrs: { nodeId: 'insight', returnVariable: 'insight_df', dataframeQuery: 'SELECT 1' },
+                        },
+                    ],
+                }
+            })
+            jest.mocked(notebooksWidgetStatus).mockResolvedValue(
+                status({
+                    lifecycle_status: 'ready',
+                    frame_names: [frameName],
+                    input_bindings: inputBindings,
+                    has_versions: true,
+                })
+            )
+            logic = notebookNodeGeneratedWidgetLogic({ ...props, getContent: () => content, prepareInsightDataframes })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.runDataDependencies()
+            logic.actions.runDataDependencies()
+            expect(logic.values.dataRefreshInFlight).toBe(true)
+            expect(prepareInsightDataframes).toHaveBeenCalledTimes(1)
+            expect(prepareInsightDataframes).toHaveBeenCalledWith(['insight_df'])
+            expect(notebooksWidgetStatus).toHaveBeenCalledTimes(1)
+
+            finishPreparation()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(props.persistNotebook).toHaveBeenCalledTimes(1)
+            expect(notebooksWidgetStatus).toHaveBeenCalledTimes(2)
+            expect(logic.values.runtimeError).toBeNull()
+            expect(logic.values.dataRefreshInFlight).toBe(false)
+        }
+    )
+
+    it('allows retrying widget data refresh after insight preparation fails', async () => {
+        const prepareInsightDataframes = jest.fn().mockRejectedValue(new Error('Preparation failed. Try again.'))
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(
+            status({ lifecycle_status: 'ready', frame_names: ['insight_df'], has_versions: true })
+        )
+        logic = notebookNodeGeneratedWidgetLogic({ ...props, prepareInsightDataframes })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const toastError = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+
+        await logic.asyncActions.runDataDependencies()
+        expect(logic.values.runtimeError).toBe('Preparation failed. Try again.')
+        expect(toastError).toHaveBeenCalledWith('Preparation failed. Try again.')
+        expect(logic.values.dataRefreshInFlight).toBe(false)
+        expect(props.persistNotebook).not.toHaveBeenCalled()
+        await logic.asyncActions.runDataDependencies()
+        expect(prepareInsightDataframes).toHaveBeenCalledTimes(2)
+    })
+
     it('uses notebook-local dataframe names when resolving reusable widget dependencies', () => {
         expect(
             getWidgetSourceFrameNames(['customers', 'revenue'], {
@@ -967,8 +1040,15 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
 
     it('loads the selected version source and queues an improvement from it', async () => {
         const versionId = '00000000-0000-0000-0000-000000000009'
+        const prepareInsightDataframes = jest.fn().mockResolvedValue(undefined)
         jest.mocked(notebooksWidgetStatus).mockResolvedValue(
-            status({ lifecycle_status: 'ready', current_version_id: versionId, has_versions: true })
+            status({
+                lifecycle_status: 'ready',
+                current_version_id: versionId,
+                has_versions: true,
+                frame_names: ['points'],
+                input_bindings: { points: { source: 'insight_df' } },
+            })
         )
         jest.mocked(notebooksWidgetVersions).mockResolvedValue({
             results: [
@@ -994,7 +1074,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         })
         jest.mocked(notebooksWidgetSource).mockResolvedValue({ source: 'export default function Widget() {}' })
         jest.mocked(notebooksWidgetGenerate).mockResolvedValue(status({ lifecycle_status: 'generating' }))
-        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic = notebookNodeGeneratedWidgetLogic({ ...props, prepareInsightDataframes })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -1028,6 +1108,25 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             expect.objectContaining({ signal: expect.anything() })
         )
         expect(logic.values.sourceModalOpen).toBe(false)
+        expect(prepareInsightDataframes.mock.calls).toEqual([[['insight_df']], []])
+    })
+
+    it('stops an improvement when a required insight cannot be prepared', async () => {
+        const versionId = '00000000-0000-0000-0000-000000000009'
+        const prepareInsightDataframes = jest.fn().mockRejectedValue(new Error('Preparation failed. Try again.'))
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(
+            status({ current_version_id: versionId, frame_names: ['insight_df'], has_versions: true })
+        )
+        logic = notebookNodeGeneratedWidgetLogic({ ...props, prepareInsightDataframes })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await logic.asyncActions.generateWidget('Use a darker background', 'claude-sonnet-4-6', 'improve', versionId)
+
+        expect(prepareInsightDataframes).toHaveBeenCalledWith(['insight_df'])
+        expect(notebooksWidgetGenerate).not.toHaveBeenCalled()
+        expect(logic.values.generationRequestLoading).toBe(false)
+        expect(logic.values.generationError).toBe('Preparation failed. Try again.')
     })
 
     it('waits for immutable version metadata before improving source', async () => {
@@ -1145,7 +1244,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         logic.actions.generateWidget('Render a globe', 'claude-sonnet-4-6', 'initial')
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(props.persistNotebook).toHaveBeenCalledTimes(1)
+        expect(props.persistNotebook).toHaveBeenCalledTimes(2)
         expect(notebooksWidgetGenerate).toHaveBeenCalledTimes(2)
         expect(jest.mocked(notebooksWidgetGenerate).mock.calls[1][3].generation_id).toBe(
             jest.mocked(notebooksWidgetGenerate).mock.calls[0][3].generation_id

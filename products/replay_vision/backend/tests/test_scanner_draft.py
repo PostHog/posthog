@@ -17,6 +17,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.posthog_ai.backend.models.assistant import CoreMemory
+from products.replay_vision.backend.api.scanners import _goal_flow_enabled
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import MIN_SAMPLING_RATE
 from products.replay_vision.backend.queries.scanner_volume_estimate import ScannerVolumeEstimate
@@ -45,6 +46,7 @@ from products.replay_vision.backend.scanner_draft import (
     _MatchedSurvey,
     _solve_budget,
     _v2_query,
+    draft_scanner_from_goal,
     draft_scanner_from_goal_v2,
 )
 from products.replay_vision.backend.tag_suggestions import _ProductTaxonomy
@@ -281,7 +283,12 @@ class TestFinalize:
         assert [p["value"] for p in result.query["properties"]] == [["/checkout"]]
 
     def test_dropping_proposed_filter_values_emits_a_structured_warning(self):
-        with patch("products.replay_vision.backend.scanner_draft.logger.warning") as warn:
+        # The definition fallback is stubbed out because this class takes no database; its own
+        # behavior is covered by TestGroundedEventFallback.
+        with (
+            patch("products.replay_vision.backend.scanner_draft.logger.warning") as warn,
+            patch(f"{_MODULE}._event_names_by_lower", return_value={}),
+        ):
             grounded = _finalize(
                 _draft(filter_screens=["/checkout"], filter_events=["checkout_started"]),
                 allowed_screens=["/checkout"],
@@ -315,6 +322,50 @@ class TestFinalize:
         assert result.query is not None
         assert [p["value"] for p in result.query["properties"]] == [["/alpha"]]
         assert [e["id"] for e in result.query["events"]] == ["e1", "e2"]
+
+
+class TestGroundedEventFallback(_VisionAPITestCase):
+    def _event(self, name: str, *, seen: bool = True):
+        return EventDefinition.objects.create(team=self.team, name=name, last_seen_at=timezone.now() if seen else None)
+
+    def test_a_real_event_missing_from_the_briefing_survives_with_canonical_casing(self):
+        # The regression: the goal names a real event verbatim, the model copies it, and
+        # list-membership grounding drops it because the briefing's sample missed it.
+        self._event("plan upgraded")
+
+        result = _finalize(
+            _draft(filter_events=["Plan Upgraded"]), allowed_events=["checkout_started"], team_id=self.team.id
+        )
+
+        assert result.query is not None
+        assert result.query["events"] == [
+            {"id": "plan upgraded", "name": "plan upgraded", "type": "events", "order": 0}
+        ]
+
+    def test_events_the_team_does_not_emit_still_drop(self):
+        # Invented, internal, and no-longer-firing names must not survive the definition lookup.
+        self._event("$internal_thing")
+        self._event("stale event", seen=False)
+
+        result = _finalize(
+            _draft(filter_events=["ghost event", "$internal_thing", "stale event"]),
+            allowed_events=["checkout_started"],
+            team_id=self.team.id,
+        )
+
+        assert result.query is None
+
+    def test_v2_grounding_accepts_a_real_event_the_briefing_missed(self):
+        self._event("plan upgraded")
+
+        result = _finalize_v2(
+            _draft_v2(filter_events=["plan upgraded"]), allowed_pages=[], allowed_events=[], team_id=self.team.id
+        )
+
+        assert result.query is not None
+        assert result.query["events"] == [
+            {"id": "plan upgraded", "name": "plan upgraded", "type": "events", "order": 0}
+        ]
 
 
 class TestDraftGrounding(_VisionAPITestCase):
@@ -679,6 +730,37 @@ class TestEventsForGoal(_VisionAPITestCase):
         events = _events_for_goal(self.team, "understand the zzzz nonexistent flow")
 
         assert events == ["checkout_started"]
+
+    def test_a_quoted_event_name_is_looked_up_directly_and_leads_the_briefing(self):
+        # "cta hit" is invisible to the term heuristics: both words sit under the term length
+        # cutoff. Quoting it in the goal must still put it in front of the model, first, and in the
+        # team's canonical casing.
+        self._event("cta hit")
+        self._event("checkout_started")
+
+        events = _events_for_goal(self.team, 'watch what people do around "CTA Hit"')
+
+        assert events[0] == "cta hit"
+
+    def test_the_legacy_briefing_carries_events_the_goal_quotes(self):
+        # The legacy taxonomy is a recency sample with no goal matching, so the quoted lookup is
+        # the only way a named event reaches that briefing and survives grounding.
+        self._event("cta hit")
+
+        with patch(_GENERATE_PATH, return_value=_draft(filter_events=["cta hit"])) as generate:
+            draft = draft_scanner_from_goal(
+                team=self.team,
+                user=self.user,
+                goal='watch what people do around "cta hit"',
+                user_access_control=_access_control(allow=True),
+                include_business_context=False,
+            )
+
+        assert "- cta hit" in generate.call_args.kwargs["user_content"]
+        assert draft.query == {
+            "kind": "RecordingsQuery",
+            "events": [{"id": "cta hit", "name": "cta hit", "type": "events", "order": 0}],
+        }
 
 
 def _launched_experiment(team, user, name: str, *, launched: bool = True):
@@ -1475,6 +1557,16 @@ class TestDraftEndpointGoalFlow(_VisionAPITestCase):
         assert body["model"] is None
         assert body["credit_limit"] is None
         assert body["estimated_monthly_observations"] is None
+
+    def test_flag_evaluation_carries_the_person_properties_the_flag_reads(self):
+        # Server-side evaluation is local and cannot read stored person properties. Without the
+        # email, an email-based variant override falls through to the rollout hash, the server
+        # disagrees with the browser that showed the goal flow, and the request silently degrades
+        # to a legacy draft.
+        with patch(f"{_API_MODULE}.get_feature_flag_or_none", return_value="test") as flag:
+            assert _goal_flow_enabled(self.user, self.team) is True
+
+        assert flag.call_args.kwargs["person_properties"] == {"email": self.user.email}
 
     def test_no_budget_never_consults_the_flag(self):
         with (

@@ -3,6 +3,7 @@ import {
     MakeLogicType,
     actions,
     afterMount,
+    beforeUnmount,
     connect,
     kea,
     key,
@@ -20,6 +21,7 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { createElement } from 'react'
+import { toast } from 'react-toastify'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { isAccessDeniedError } from 'lib/api-error'
@@ -77,7 +79,6 @@ import {
     ProjectTreeRef,
     PropertyFilterType,
     PropertyOperator,
-    QueryBasedInsightModel,
     RecordingUniversalFilters,
     RecurrenceInterval,
     ScheduledChangeOperationType,
@@ -819,6 +820,13 @@ function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
     }
 }
 
+// Key the agent-change notice to one flag. The default id hashes the message, and the message names
+// no flag, so a notice still open for another flag would swallow this one as a duplicate and leave
+// its button reloading that flag.
+function agentChangeToastId(id: FeatureFlagLogicProps['id']): string {
+    return `feature-flag-agent-change-${id}`
+}
+
 // Shape a freshly-loaded server flag into the `originalFeatureFlag` baseline the dirty check
 // compares against. Callers must pass server-authoritative state — never the in-progress
 // working copy — or an unsaved edit would be folded into the baseline and read as clean.
@@ -983,6 +991,7 @@ export interface featureFlagLogicValues {
         ValidationErrorType
     >
     flagIntent: FlagIntent | null
+    flagMutationCount: number
     flagStatus: FeatureFlagStatusResponseApi | null
     flagStatusLoading: boolean
     flagType: 'boolean' | 'multivariate' | 'remote_config'
@@ -1022,7 +1031,7 @@ export interface featureFlagLogicValues {
     props: any
     recordingFilterForFlag: Partial<RecordingUniversalFilters>
     recurrenceInterval: RecurrenceInterval | null
-    relatedInsights: QueryBasedInsightModel[]
+    relatedInsights: InsightModel[]
     relatedInsightsLoading: boolean
     repeatsValue: RecurrenceInterval | 'cron' | 'none'
     roleBasedAccessEnabled: boolean
@@ -1313,10 +1322,10 @@ export interface featureFlagLogicActions {
         errorObject?: any
     }
     loadRelatedInsightsSuccess: (
-        relatedInsights: QueryBasedInsightModel<Node<Record<string, any>>>[],
+        relatedInsights: InsightModel<Node<Record<string, any>>>[],
         payload?: any
     ) => {
-        relatedInsights: QueryBasedInsightModel<Node<Record<string, any>>>[]
+        relatedInsights: InsightModel<Node<Record<string, any>>>[]
         payload?: any
     }
     loadScheduledChanges: () => any
@@ -1356,7 +1365,12 @@ export interface featureFlagLogicActions {
         flagId: number
         teamId: number
     }
-    refreshFeatureFlag: () => any
+    refreshFeatureFlag: (_payload?: { afterAgentChange?: boolean }) => {
+        afterAgentChange?: boolean
+    }
+    refreshFeatureFlagAfterAgentChange: () => {
+        value: true
+    }
     refreshFeatureFlagFailure: (
         error: string,
         errorObject?: any
@@ -1366,10 +1380,14 @@ export interface featureFlagLogicActions {
     }
     refreshFeatureFlagSuccess: (
         featureFlagRefresh: FeatureFlagType | null,
-        payload?: any
+        payload?: {
+            afterAgentChange?: boolean
+        }
     ) => {
         featureFlagRefresh: FeatureFlagType | null
-        payload?: any
+        payload?: {
+            afterAgentChange?: boolean
+        }
     }
     removeVariant: (index: number) => {
         index: number
@@ -2162,6 +2180,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         // Re-establishes the saved-state baseline the unsaved-changes guard diffs against.
         // Only dispatch with server-authoritative state, so in-progress edits stay dirty.
         setOriginalFeatureFlag: (featureFlag: FeatureFlagType | null) => ({ featureFlag }),
+        refreshFeatureFlagAfterAgentChange: true,
         setFeatureFlagFilters: (filters: FeatureFlagType['filters'], errors: any) => ({ filters, errors }),
         setSelectedTab: (tab: FeatureFlagsTab) => ({ tab }),
         setFeatureFlagMissing: true,
@@ -2293,6 +2312,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
     })),
     reducers({
+        // Read by the refresh loader, which samples it around its request to tell whether newer
+        // state landed while the request was open.
+        flagMutationCount: [
+            0,
+            {
+                // loadFeatureFlagSuccess re-baselines in the reducer below rather than dispatching
+                // setOriginalFeatureFlag, so it has to be counted separately.
+                loadFeatureFlagSuccess: (state) => state + 1,
+                setOriginalFeatureFlag: (state) => state + 1,
+            },
+        ],
         originalFeatureFlag: [
             null as FeatureFlagType | null,
             {
@@ -3225,32 +3255,51 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         // cache on mount. Has its own loading key so it never triggers the page skeleton,
         // while reconciling the flag (notably `active`) with the server — otherwise a stale
         // cached `active` can make the toggle and its confirmation dialog contradict the
-        // flag's real state.
+        // flag's real state. `refreshFeatureFlagAfterAgentChange` also dispatches it.
+        // That path is not silent: it replaces the whole flag when the form is clean, and shows a
+        // notice when the form is dirty.
         featureFlagRefresh: [
             null as FeatureFlagType | null,
             {
-                refreshFeatureFlag: async () => {
+                // `afterAgentChange` is unused here; refreshFeatureFlagSuccess reads it off the payload.
+                // The `= {}` default keeps the generated action's payload optional now that
+                // `breakpoint` follows it, so the mount-path `refreshFeatureFlag()` call still
+                // typechecks once kea-typegen regenerates this logic's types.
+                refreshFeatureFlag: async (_payload: { afterAgentChange?: boolean } = {}, breakpoint) => {
                     if (!props.id || props.id === 'new' || props.id === 'link') {
                         return null
                     }
+                    const mutationsBefore = values.flagMutationCount
+                    let retrievedFlag: FeatureFlagType
                     try {
-                        const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
-                        return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
+                        retrievedFlag = await api.featureFlags.get(props.id)
                     } catch {
                         // Swallow errors — this is a silent background reconciliation, so a
                         // transient failure shouldn't surface a toast or get reported.
                         return null
                     }
+                    // A second mutation can start a newer refresh while this one is open. Discard this
+                    // response if so, or a slow earlier request would overwrite the newer flag, its
+                    // baseline and its list entry, as the status loader below does for its verdict.
+                    // The breakpoint sits after the catch, which would otherwise swallow it.
+                    breakpoint()
+                    // `breakpoint` only supersedes another refresh. A mutation that lands while this
+                    // request is open leaves newer state that this response would roll back,
+                    // `version` included, which makes the next save read as a stale write.
+                    if (values.flagMutationCount !== mutationsBefore) {
+                        return null
+                    }
+                    return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
                 },
             },
         ],
         relatedInsights: [
-            [] as QueryBasedInsightModel[],
+            [] as InsightModel[],
             {
                 loadRelatedInsights: async () => {
                     if (props.id && props.id !== 'new' && values.featureFlag.key) {
                         const response = await api.get<PaginatedResponse<InsightModel>>(
-                            `api/environments/${values.currentProjectId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
+                            `api/projects/${values.currentProjectId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
                         )
                         return response.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
                     }
@@ -3759,6 +3808,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
+            // Plain toast.dismiss, not lemonToast.dismiss, because the latter marks the id
+            // cancelled and would swallow the notice for the next agent change on this flag.
+            toast.dismiss(agentChangeToastId(props.id))
             actions.setFeatureFlag(featureFlag)
             // Whole flag just persisted — the baseline is now the saved state, so the form reads clean.
             actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlag))
@@ -3886,28 +3938,58 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.loadFeatureFlagStatus()
             }
         },
-        refreshFeatureFlagSuccess: ({ featureFlagRefresh }) => {
-            // Reconcile the cache-painted flag with the freshly fetched server state, and keep
-            // the list cache in sync so the two views agree.
-            if (featureFlagRefresh) {
-                if (values.originalFeatureFlag) {
-                    // This refresh exists to correct a stale cached `active`, and it lands while the
-                    // page is already interactive (its own loader key means no skeleton). Replacing
-                    // the whole flag here would discard an edit made during the request and
-                    // re-baseline over it, so the guard would read clean and lose it silently.
-                    const persisted = {
-                        active: featureFlagRefresh.active,
-                        archived: featureFlagRefresh.archived,
-                        version: featureFlagRefresh.version,
-                    }
-                    actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
-                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...persisted })
-                } else {
-                    actions.setFeatureFlag(featureFlagRefresh)
-                    actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagRefresh))
-                }
-                actions.updateFlag(featureFlagRefresh)
+        refreshFeatureFlagAfterAgentChange: () => {
+            actions.refreshFeatureFlag({ afterAgentChange: true })
+            // The stale banner is a server verdict, so it outlives the change without this.
+            actions.loadFeatureFlagStatus()
+        },
+        refreshFeatureFlagSuccess: ({ featureFlagRefresh, payload }) => {
+            if (!featureFlagRefresh) {
+                return
             }
+            const afterAgentChange = !!payload?.afterAgentChange
+            const baseline = values.originalFeatureFlag
+            // Replacing the whole flag would discard an edit made during the request and re-baseline
+            // over it, leaving the guard clean. An agent change on a clean form is the one refresh
+            // safe to take whole, and it has to be: it can have rewritten any field.
+            if (!baseline || (afterAgentChange && !values.isFormDirty)) {
+                actions.setFeatureFlag(featureFlagRefresh)
+                actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagRefresh))
+            } else {
+                // Keep the loaded `version` after an agent change. The server runs its stale-write
+                // check only when the submitted version is behind the stored row, and that check is
+                // what stops these unsaved edits from overwriting the fields the agent rewrote.
+                // `active` and `archived` are form fields, so fold one only where the reader has not
+                // edited it. Folding over a local edit drops it, and when it is the only edit the
+                // form goes clean again while the notice below says the edits were kept.
+                const isEditedLocally = (field: 'active' | 'archived'): boolean =>
+                    values.featureFlag[field] !== baseline[field]
+                const persisted = {
+                    ...(isEditedLocally('active') ? {} : { active: featureFlagRefresh.active }),
+                    ...(isEditedLocally('archived') ? {} : { archived: featureFlagRefresh.archived }),
+                    ...(afterAgentChange ? {} : { version: featureFlagRefresh.version }),
+                }
+                actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
+                actions.setOriginalFeatureFlag({ ...baseline, ...persisted })
+                if (afterAgentChange) {
+                    lemonToast.info(
+                        'PostHog AI changed this flag. The page kept your unsaved edits, so it does not show the saved version.',
+                        {
+                            // This notice is the only signal that the page and the server disagree,
+                            // so it waits to be acted on instead of closing on the container's timer.
+                            autoClose: false,
+                            toastId: agentChangeToastId(props.id),
+                            button: {
+                                label: 'Discard edits and reload',
+                                action: () => actions.loadFeatureFlag(),
+                                dataAttr: 'feature-flag-agent-change-reload',
+                            },
+                        }
+                    )
+                }
+            }
+            // Keep the list cache in sync with the server state either way, so the two views agree.
+            actions.updateFlag(featureFlagRefresh)
         },
         updateFeatureFlagArchivedSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {
@@ -3994,6 +4076,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         loadFeatureFlagSuccess: async ({ featureFlag }) => {
+            toast.dismiss(agentChangeToastId(props.id))
             // A ?tab=schedule deep link selects the tab before this load finishes, so the
             // schedule form's default was computed against the NEW_FLAG placeholder. Correct
             // it once against the loaded flag; only on the first load, so a later reload (e.g.
@@ -5078,5 +5161,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // Load default evaluation contexts for new flags
             actions.loadFeatureFlag()
         }
+    }),
+
+    beforeUnmount(({ props }) => {
+        // A notice that survives navigation has a button that reloads an unmounted logic.
+        toast.dismiss(agentChangeToastId(props.id))
     }),
 ])

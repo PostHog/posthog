@@ -43,8 +43,10 @@ STAMPHOG_BOT_REVIEW_MAX_POLLS = 10  # ~300s budget at 30s per poll, matching the
 # bot-labeler-skip) to the ReviewHog trigger endpoint. Kept here so the activity references the same
 # scalar the workflow gates on.
 STAMPHOG_REVIEWHOG_LABEL = "reviewhog"
-# The posthog-owners resolver package, expected by the engine as a sibling of its own dir
-# (gates.py resolves `../owners` for the hogli-resolver ownership format).
+# The owners-yaml resolver package, expected by the engine as a sibling of its own dir
+# (gates.py resolves `../owners` for the hogli-resolver ownership format). This stays a sibling of
+# the engine dir although the monorepo source moved to packages/owners-yaml, because downstream repos
+# vendor the engine with the resolver beside it and the engine resolves the two layouts by offset.
 STAMPHOG_SANDBOX_OWNERS_DIR = f"{STAMPHOG_SANDBOX_REPO_DIR}/tools/owners"
 STAMPHOG_SANDBOX_CONTEXT_PATH = f"{STAMPHOG_SANDBOX_REPO_DIR}/.stamphog_review_context.json"
 
@@ -98,9 +100,13 @@ class SandboxPhaseError(Exception):
     """
 
 
-# One attempt. The activity setup costs nothing and is safe to repeat, and the activity marks its
-# paid phase and records a claim. A higher count belongs in a later change, after this one is on
-# every worker: workflow and activity tasks share one unversioned queue, so a rolling deploy lets a
-# new workflow worker schedule against an old activity worker that writes no claim. A paid-phase
-# failure would then bill a second review.
-SANDBOX_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
+# Two attempts. The free phase — context load, token mint, sandbox config — costs nothing and is
+# safe to repeat, so a refusal there must not burn the whole review. The paid phase is fenced twice:
+# it raises SandboxPhaseError, which this policy excludes, and it records a claim that stops a
+# second sandbox when Temporal retries a lost worker instead. Both fences are on every worker, so
+# the rolling-deploy hole that held this at one attempt is closed.
+SANDBOX_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=2,
+    initial_interval=timedelta(seconds=10),
+    non_retryable_error_types=["SandboxPhaseError"],
+)
