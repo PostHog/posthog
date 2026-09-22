@@ -157,6 +157,7 @@ def record_outcomes(
             return 0
         alerts = _alerts_for_write(team_id, configurations)
 
+        unblocked: dict[tuple[datetime, tuple | None], datetime | None] = {}
         for configuration in configurations:
             outcome = by_id[str(configuration.id)]
             alert = alerts[str(configuration.id)]
@@ -176,9 +177,14 @@ def record_outcomes(
                 ),
             )
             windows = parse_blocked_windows_tuples(configuration.schedule_restriction)
-            configuration.next_check_at = (
-                scan_next_unblocked_utc(next_check_at, team_timezone, windows) or next_check_at
-            )
+            # `scan_next_unblocked_utc` walks a minute at a time, and a held check's next slot is
+            # inside the window by construction, so it walks the rest of it. Checks sharing a
+            # cadence and a restriction land on the same minute, so the walk is done once per
+            # distinct answer rather than once per configuration.
+            unblocked_key = (next_check_at, tuple(windows) if windows else None)
+            if unblocked_key not in unblocked:
+                unblocked[unblocked_key] = scan_next_unblocked_utc(next_check_at, team_timezone, windows)
+            configuration.next_check_at = unblocked[unblocked_key] or next_check_at
 
         PlatformAlert.objects.for_team(team_id).bulk_update(list(alerts.values()), ["state", "last_notified_at"])
         PlatformAlertConfiguration.objects.for_team(team_id).bulk_update(

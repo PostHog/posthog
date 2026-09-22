@@ -520,12 +520,16 @@ def _minute_of_local_datetime(dt_local: datetime) -> int:
     return dt_local.hour * 60 + dt_local.minute
 
 
+def local_minute_of(dt_utc: datetime, tz_name: str) -> int:
+    """The minute of the local day, for a caller testing many windows against one instant."""
+    local = dt_utc.astimezone(pytz.timezone(tz_name)).replace(second=0, microsecond=0)
+    return _minute_of_local_datetime(local)
+
+
 def is_utc_datetime_blocked(dt_utc: datetime, tz_name: str, windows: list[BlockedWindow] | None) -> bool:
     if not windows:
         return False
-    tz = pytz.timezone(tz_name)
-    local = dt_utc.astimezone(tz).replace(second=0, microsecond=0)
-    return is_local_minute_blocked(_minute_of_local_datetime(local), windows)
+    return is_local_minute_blocked(local_minute_of(dt_utc, tz_name), windows)
 
 
 def scan_next_unblocked_utc(
