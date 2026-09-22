@@ -440,7 +440,7 @@ export class RoutingPersonsStore implements PersonsStore {
             () => this.personhog.mergePersons(request, batchId),
             {
                 shadow: (abandoned) => this.shadowMerge(request, batchId, abandoned),
-                compare: (authoritative, shadow) => this.compareMerge(authoritative, shadow),
+                compare: (authoritative, shadow) => this.compareMerge(request, authoritative, shadow),
                 after: (authoritative, shadow, abandoned) =>
                     this.redriveShadowFoldPairs(request, batchId, authoritative, shadow, abandoned),
             }
@@ -554,10 +554,30 @@ export class RoutingPersonsStore implements PersonsStore {
      * disagreement is the most consequential divergence; the vocabularies
      * differ between backends, so a difference is a finding, not an alarm.
      */
-    private compareMerge(authoritative: unknown, shadow: unknown): void {
+    private compareMerge(request: MergePersonsRequest, authoritative: unknown, shadow: unknown): void {
         const left = authoritative as MergePersonsResult
         const right = shadow as MergePersonsResult
         personhogStoreShadowComparedCounter.labels({ verb: 'mergePersons' }).inc()
+        const verdicts = (result: MergePersonsResult): string =>
+            result.foldAborted !== undefined
+                ? `aborted:${result.foldAborted}`
+                : result.results.map((source) => `${source.sourceDistinctId}=${source.outcome}`).join(',')
+        const disagree =
+            (left.foldAborted === undefined) !== (right.foldAborted === undefined) ||
+            (left.survivor?.uuid ?? null) !== (right.survivor?.uuid ?? null) ||
+            verdicts(left) !== verdicts(right)
+        if (disagree) {
+            logger.info('personhog shadow merge verdicts differ', {
+                team_id: request.teamId,
+                target_distinct_id: request.targetDistinctId,
+                trigger_source_distinct_id: request.triggerSourceDistinctId,
+                sources: request.sources.map((source) => source.distinctId),
+                pg_survivor: left.survivor?.uuid ?? null,
+                pg: verdicts(left),
+                personhog_survivor: right.survivor?.uuid ?? null,
+                personhog: verdicts(right),
+            })
+        }
         // An aborted fold carries no verdicts, so the disposition itself is
         // what the backends can disagree on: one record when only one side
         // aborted, nothing when both did.
