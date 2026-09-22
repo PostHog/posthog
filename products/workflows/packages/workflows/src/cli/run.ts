@@ -23,7 +23,6 @@ export interface RunOptions {
     readonly path: string
     readonly force: boolean
     readonly allowMove: boolean
-    /** From `--project` and `--host`, which win over the environment and the credentials file. */
     readonly project?: string | undefined
     readonly host?: string | undefined
     readonly env: Readonly<Record<string, string | undefined>>
@@ -207,13 +206,19 @@ function resolvedSecrets(file: LoadedFile, env: Readonly<Record<string, string |
     return [...values]
 }
 
+// `why` and `fix` both carry text PostHog sent back, so both are scrubbed.
 function redacted(error: unknown, secrets: readonly string[]): unknown {
-    const fields = (error as { fields?: { why?: unknown } } | null)?.fields
-    if (typeof fields?.why !== 'string') {
+    const fields = (error as { fields?: { why?: unknown; fix?: unknown } } | null)?.fields
+    if (typeof fields?.why !== 'string' || typeof fields.fix !== 'string') {
         return error
     }
-    const why = secrets.reduce((text, secret) => text.split(secret).join('[redacted]'), fields.why)
-    return why === fields.why ? error : new WorkflowError({ ...(fields as WorkflowError['fields']), why })
+    const scrub = (text: string): string =>
+        secrets.reduce((left, secret) => left.split(secret).join('[redacted]'), text)
+    const why = scrub(fields.why)
+    const fix = scrub(fields.fix)
+    return why === fields.why && fix === fields.fix
+        ? error
+        : new WorkflowError({ ...(fields as WorkflowError['fields']), why, fix })
 }
 
 export async function runFileCommand(options: RunOptions): Promise<number> {

@@ -153,6 +153,24 @@ describe('push', () => {
         )
     })
 
+    it('redacts a resolved secret out of every field of a refusal PostHog sends back', async (t) => {
+        const standIn = await startStandIn({
+            refuseWrites: {
+                status: 400,
+                body: { detail: 'Bad signing secret hunter2.', extra: { fix: 'Do not use hunter2 as a secret.' } },
+            },
+        })
+        t.after(() => standIn.close())
+        const workspace = makeWorkspace({ 'flows/onboarding.ts': workflowFile({ secret: true }) })
+
+        const result = await push(workspace, standIn, [], { CRM_WEBHOOK_SECRET: 'hunter2' })
+
+        assert.equal(result.code, 1)
+        assert.match(result.stderr, /^why: Bad signing secret \[redacted\]\.$/m)
+        assert.match(result.stderr, /^fix: Do not use \[redacted\] as a secret\.$/m)
+        assert.doesNotMatch(result.stderr, /hunter2/)
+    })
+
     it('refuses a push from a path the workflow was not pushed from', async (t) => {
         const standIn = await startStandIn()
         t.after(() => standIn.close())

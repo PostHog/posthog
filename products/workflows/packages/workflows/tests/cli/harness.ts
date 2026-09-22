@@ -101,6 +101,8 @@ export interface StandInOptions {
     readonly inject?: (row: StoredRow) => void
     /** A PostHog that does not know `?key=` yet, and answers with every workflow in the project. */
     readonly ignoreKeyFilter?: boolean
+    /** A PostHog that refuses every write with this status and body, as a validation error does. */
+    readonly refuseWrites?: { readonly status: number; readonly body: unknown }
 }
 
 /** A PostHog stand-in that serves the three calls `push` makes. */
@@ -144,6 +146,10 @@ export async function startStandIn(options: StandInOptions = {}): Promise<StandI
                 send(200, {
                     results: options.ignoreKeyFilter === true ? rows : rows.filter((row) => row.key === key),
                 })
+                return
+            }
+            if (options.refuseWrites !== undefined && (request.method === 'POST' || request.method === 'PATCH')) {
+                send(options.refuseWrites.status, options.refuseWrites.body)
                 return
             }
             if (request.method === 'POST' && body !== null) {
