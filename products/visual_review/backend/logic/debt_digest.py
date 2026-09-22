@@ -705,7 +705,7 @@ def thread_messages(repo: Repo, digest: TeamDigest, now: datetime) -> list[Slack
         ),
         ReplyGroup(
             heading=_heading_part(_PILEUP_HEADING),
-            items=[_item_part(repo, item, "Reset baseline") for item in digest.variant_pileups],
+            items=[_item_part(repo, item, "Fix or quarantine") for item in digest.variant_pileups],
         ),
     ]
     return _split_into_messages(groups, _footer_parts(now))

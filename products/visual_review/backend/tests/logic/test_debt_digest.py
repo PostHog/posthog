@@ -160,7 +160,7 @@ class TestThreadReplies:
         messages = debt_digest.thread_messages(_repo(), _team_digest(expiring=1, pileups=1), _MONDAY)
 
         buttons = _all_buttons(messages)
-        assert [button["text"]["text"] for button in buttons] == ["Extend or fix", "Reset baseline"]
+        assert [button["text"]["text"] for button in buttons] == ["Extend or fix", "Fix or quarantine"]
         assert all(
             button["url"] == f"{settings.SITE_URL}/project/7/visual_review/repos/abc/storybook/snapshots/{_IDENTIFIER}"
             for button in buttons
