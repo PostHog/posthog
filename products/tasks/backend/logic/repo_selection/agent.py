@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING
 
 from django.db.models import Case, IntegerField, Q, Value, When
@@ -260,12 +260,36 @@ def _routing_rules_block(team_id: int, candidate_repos: list[str]) -> str | None
     return "\n".join(lines)
 
 
+def _visibility_label(private: bool | None) -> str:
+    if private is None:
+        return "visibility unknown"
+    return "private" if private else "public"
+
+
+def _candidate_visibility(github: GitHubIntegrationBase, candidate_repos: list[str]) -> dict[str, bool | None]:
+    """The `private` flag of each candidate from the light cache, or None when the cached entry lacks it.
+
+    A pure cache read: `_list_candidate_repos` already refreshed the cache when it was stale, so a
+    second refresh would only cost another GitHub round trip. Entries synced before the flag was
+    stored stay None until their next refresh, which the prompt renders as unknown visibility.
+    """
+    cached: dict[str, bool | None] = {}
+    for repo in github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS, allow_refresh=False):
+        full_name = repo.get("full_name")
+        if not full_name:
+            continue
+        private = repo.get("private")
+        cached[full_name.lower()] = private if isinstance(private, bool) else None
+    return {repo: cached.get(repo) for repo in candidate_repos}
+
+
 def _build_repo_selection_prompt(
     context_block: str,
     candidate_repos: list[str],
     *,
     past_corrections: str | None = None,
     routing_rules: str | None = None,
+    visibility: Mapping[str, bool | None] | None = None,
 ) -> str:
     """Build the prompt for the sandbox agent to select the most relevant repository.
 
@@ -282,6 +306,10 @@ def _build_repo_selection_prompt(
     (see `_routing_rules_block`). Unlike corrections these are not caller-rendered: the rules
     live in a selection-domain model keyed only by team, so `select_repository` loads them
     itself and every caller gets them without wiring.
+
+    `visibility` maps each candidate to its GitHub `private` flag (see `_candidate_visibility`).
+    A candidate missing from it, or the whole argument left None, renders as unknown visibility,
+    which the source privacy rule treats as unconfirmed.
     """
     schema = RepoSelectionResult.model_json_schema()
     # `task_id` is system-set after the run — keep it out of the agent's output contract.
@@ -290,7 +318,10 @@ def _build_repo_selection_prompt(
     # not the model's. Offering it would let untrusted context talk the model into vetoing autostart.
     schema.get("properties", {}).pop("autostart_eligible", None)
     schema_json = json.dumps(schema, indent=2)
-    repo_list = "\n".join(f"{i + 1}. `{repo}`" for i, repo in enumerate(candidate_repos))
+    visibility = visibility or {}
+    repo_list = "\n".join(
+        f"{i + 1}. `{repo}` ({_visibility_label(visibility.get(repo))})" for i, repo in enumerate(candidate_repos)
+    )
 
     rules_section = (
         f"""
@@ -340,15 +371,16 @@ Only consider rows whose `full_name` is in the candidate list below.
 If it comes from a private repository or another explicitly private source, avoid selecting a public
 repo. Prefer a relevant private candidate; do not choose an unrelated repo just because it is private.
 Repository access and topic relevance are not permission to publish private information.
-When visibility is unclear, check GitHub metadata with `gh api repos/<owner>/<repo> --jq '.private'`;
-do not infer visibility from the repo name. If no relevant private candidate exists, or its visibility
-cannot be confirmed, return `null` and explain the privacy concern without repeating private content.
+Each candidate below carries its visibility from GitHub metadata: `private`, `public`, or
+`visibility unknown`. Trust that label, not the repo name, and do not look visibility up yourself.
+If no relevant private candidate exists, or the relevant candidate's visibility is unknown, return
+`null` and explain the privacy concern without repeating private content.
 
 ## Context
 
 {context_block}
 
-## Candidate repositories (lowercased; full_name format is `owner/repo`)
+## Candidate repositories (lowercased; full_name format is `owner/repo`; visibility in parentheses)
 
 {repo_list}
 {rules_section}{corrections_section}
@@ -570,8 +602,13 @@ async def select_repository(
     if output_fn:
         output_fn(f"Selecting repository from {len(candidate_repos)} candidates...")
     routing_rules = await database_sync_to_async(_routing_rules_block, thread_sensitive=False)(team_id, candidate_repos)
+    visibility = await database_sync_to_async(_candidate_visibility, thread_sensitive=False)(github, candidate_repos)
     prompt = _build_repo_selection_prompt(
-        context, candidate_repos, past_corrections=past_corrections, routing_rules=routing_rules
+        context,
+        candidate_repos,
+        past_corrections=past_corrections,
+        routing_rules=routing_rules,
+        visibility=visibility,
     )
     sandbox_context = CustomPromptSandboxContext(
         team_id=team_id,
