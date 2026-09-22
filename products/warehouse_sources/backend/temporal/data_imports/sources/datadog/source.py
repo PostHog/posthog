@@ -78,6 +78,9 @@ Create an API key and an application key in your [Datadog organization settings]
 - `slos_read`
 - `synthetics_read`
 - `user_access_read`
+- `metrics_read`
+- `teams_read`
+- `usage_read` and `billing_read` (usage and cost tables)
 
 Logs, audit logs, and events read access is governed by your Datadog account's data retention.""",
             iconPath="/static/services/datadog.svg",
