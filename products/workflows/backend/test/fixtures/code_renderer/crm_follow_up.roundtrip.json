@@ -1,0 +1,139 @@
+{
+    "key": "crm-follow-up",
+    "name": "CRM follow up",
+    "description": "",
+    "status": "draft",
+    "exit_condition": "exit_only_at_end",
+    "variables": [],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Trigger",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "checkout completed",
+                            "name": "checkout completed",
+                            "type": "events",
+                            "order": 0,
+                            "properties": [
+                                {
+                                    "key": "total",
+                                    "operator": "gt",
+                                    "value": [100],
+                                    "type": "event"
+                                }
+                            ]
+                        }
+                    ],
+                    "properties": [],
+                    "filter_test_accounts": false
+                }
+            }
+        },
+        {
+            "id": "tell_the_crm",
+            "name": "Tell the CRM",
+            "type": "function",
+            "config": {
+                "template_id": "template-webhook",
+                "inputs": {
+                    "url": { "value": "https://example.com/hooks/crm" },
+                    "method": { "value": "POST" },
+                    "body": {
+                        "value": {
+                            "distinct_id": "{event.distinct_id}",
+                            "plan": "{person.properties.plan}"
+                        }
+                    },
+                    "signing_secret": { "value": "value of TELL_THE_CRM_SIGNING_SECRET" }
+                }
+            }
+        },
+        {
+            "id": "which_plan",
+            "name": "Which plan?",
+            "type": "conditional_branch",
+            "config": {
+                "conditions": [
+                    {
+                        "name": "Paid plan",
+                        "filters": {
+                            "properties": [
+                                {
+                                    "key": "plan",
+                                    "operator": "exact",
+                                    "value": ["pro"],
+                                    "type": "person"
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "Came from pricing",
+                        "filters": {
+                            "properties": [
+                                {
+                                    "key": "$current_url",
+                                    "operator": "icontains",
+                                    "value": ["/pricing"],
+                                    "type": "event"
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "id": "give_sales_a_day",
+            "name": "Give sales a day",
+            "type": "delay",
+            "config": { "delay_duration": "1d" }
+        },
+        {
+            "id": "tell_the_crm_2",
+            "name": "Tell the CRM",
+            "type": "function",
+            "config": {
+                "template_id": "template-webhook",
+                "inputs": {
+                    "url": { "value": "https://example.com/hooks/crm" },
+                    "method": { "value": "POST" },
+                    "body": {
+                        "value": {
+                            "distinct_id": "{event.distinct_id}",
+                            "plan": "{person.properties.plan}"
+                        }
+                    },
+                    "signing_secret": { "value": "value of TELL_THE_CRM_SIGNING_SECRET" }
+                }
+            }
+        },
+        {
+            "id": "wait_a_week",
+            "name": "Wait a week",
+            "type": "delay",
+            "config": { "delay_duration": "7d" }
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "type": "exit",
+            "config": { "reason": "Handed to sales" }
+        }
+    ],
+    "edges": [
+        { "from": "trigger_node", "to": "tell_the_crm", "type": "continue" },
+        { "from": "tell_the_crm", "to": "which_plan", "type": "continue" },
+        { "from": "which_plan", "to": "exit_node", "type": "continue" },
+        { "from": "give_sales_a_day", "to": "tell_the_crm_2", "type": "continue" },
+        { "from": "tell_the_crm_2", "to": "exit_node", "type": "continue" },
+        { "from": "which_plan", "to": "give_sales_a_day", "type": "branch", "index": 0 },
+        { "from": "wait_a_week", "to": "exit_node", "type": "continue" },
+        { "from": "which_plan", "to": "wait_a_week", "type": "branch", "index": 1 }
+    ]
+}
