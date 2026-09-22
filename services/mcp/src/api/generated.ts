@@ -35183,9 +35183,58 @@ export namespace Schemas {
       type: AssigneeTypeEnum;
     }
 
+    /**
+     * * `set_status` - set_status
+     * * `assign` - assign
+     */
+    export type ErrorTrackingIssueBulkRequestActionEnum = typeof ErrorTrackingIssueBulkRequestActionEnum[keyof typeof ErrorTrackingIssueBulkRequestActionEnum];
+
+
+    export const ErrorTrackingIssueBulkRequestActionEnum = {
+      SetStatus: 'set_status',
+      Assign: 'assign',
+    } as const;
+
+    /**
+     * * `active` - active
+     * * `resolved` - resolved
+     * * `suppressed` - suppressed
+     */
+    export type ErrorTrackingIssueWritableStatusEnum = typeof ErrorTrackingIssueWritableStatusEnum[keyof typeof ErrorTrackingIssueWritableStatusEnum];
+
+
+    export const ErrorTrackingIssueWritableStatusEnum = {
+      Active: 'active',
+      Resolved: 'resolved',
+      Suppressed: 'suppressed',
+    } as const;
+
+    export interface ErrorTrackingIssueBulkRequest {
+      /** Which mutation to apply to every listed issue.
+       *
+       * * `set_status` - set_status
+       * * `assign` - assign */
+      action: ErrorTrackingIssueBulkRequestActionEnum;
+      /** IDs of the issues to update. */
+      ids: string[];
+      /** Status to set. Required when action is set_status.
+       *
+       * * `active` - active
+       * * `resolved` - resolved
+       * * `suppressed` - suppressed */
+      status?: ErrorTrackingIssueWritableStatusEnum;
+      /** Assignment target. Required when action is assign; null unassigns. */
+      assignee?: ErrorTrackingIssueAssigneeWrite | null;
+    }
+
     export interface ErrorTrackingIssueCohortRead {
       id: number;
       name: string;
+    }
+
+    export interface ErrorTrackingIssueCohortRequest {
+      /** ID of the cohort to attach to the issue. */
+      cohortId: number;
     }
 
     export type ErrorTrackingIssueSeverity = typeof ErrorTrackingIssueSeverity[keyof typeof ErrorTrackingIssueSeverity];
@@ -35427,6 +35476,11 @@ export namespace Schemas {
       nextOffset?: number;
     }
 
+    export interface ErrorTrackingIssueExistsResponse {
+      /** Whether the project has recorded any issue at all. */
+      exists: boolean;
+    }
+
     export interface ErrorTrackingIssueListItem {
       /** Error tracking issue ID. */
       id: string;
@@ -35534,6 +35588,11 @@ export namespace Schemas {
       cohort: ErrorTrackingIssueCohortRead | null;
     }
 
+    export interface ErrorTrackingIssueRedirectResponse {
+      /** Issue the requested fingerprint now belongs to. */
+      issue_id: string;
+    }
+
     export interface ErrorTrackingIssueRelease {
       build?: string | null;
       /** Occurrences per bucket, aligned with the response's `buckets`. */
@@ -35602,19 +35661,22 @@ export namespace Schemas {
       All: 'all',
     } as const;
 
-    /**
-     * * `active` - active
-     * * `resolved` - resolved
-     * * `suppressed` - suppressed
-     */
-    export type ErrorTrackingIssueWriteStatusEnum = typeof ErrorTrackingIssueWriteStatusEnum[keyof typeof ErrorTrackingIssueWriteStatusEnum];
+    export interface ErrorTrackingIssueSuccessResponse {
+      /** Whether the update completed successfully. */
+      success: boolean;
+    }
 
+    export interface ErrorTrackingIssueValue {
+      /** One distinct value of the requested property. */
+      name: string;
+    }
 
-    export const ErrorTrackingIssueWriteStatusEnum = {
-      Active: 'active',
-      Resolved: 'resolved',
-      Suppressed: 'suppressed',
-    } as const;
+    export interface ErrorTrackingIssueValuesResponse {
+      /** Distinct values, for the taxonomic filter. */
+      results: ErrorTrackingIssueValue[];
+      /** Always false. Kept for the taxonomic filter's shared shape. */
+      refreshing: boolean;
+    }
 
     export interface ErrorTrackingIssueWrite {
       /** Issue status to set. Deprecated archived and pending_release values are rejected.
@@ -35622,7 +35684,7 @@ export namespace Schemas {
        * * `active` - active
        * * `resolved` - resolved
        * * `suppressed` - suppressed */
-      status?: ErrorTrackingIssueWriteStatusEnum;
+      status?: ErrorTrackingIssueWritableStatusEnum;
       /** Issue severity to set, or null to remove the assigned severity. */
       severity?: ErrorTrackingIssueSeverity | null;
       /**
@@ -69396,22 +69458,13 @@ export namespace Schemas {
     }
 
     /**
-     * @nullable
+     * Mapping from assignment rule UUID to its new evaluation order.
      */
-    export type PatchedErrorTrackingAssignmentRuleAssignee = {
-      readonly type?: 'user' | 'role';
-      readonly id?: number | string;
-    } | null;
+    export type PatchedErrorTrackingAssignmentRuleReorderRequestOrders = {[key: string]: number};
 
-    export interface PatchedErrorTrackingAssignmentRule {
-      readonly id?: string;
-      filters?: unknown;
-      /** @nullable */
-      readonly assignee?: PatchedErrorTrackingAssignmentRuleAssignee;
-      order_key?: number;
-      disabled_data?: unknown;
-      readonly created_at?: string;
-      readonly updated_at?: string;
+    export interface PatchedErrorTrackingAssignmentRuleReorderRequest {
+      /** Mapping from assignment rule UUID to its new evaluation order. */
+      orders?: PatchedErrorTrackingAssignmentRuleReorderRequestOrders;
     }
 
     export interface PatchedErrorTrackingAssignmentRuleUpdateRequest {
@@ -69421,19 +69474,14 @@ export namespace Schemas {
       assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
     }
 
-    export interface PatchedErrorTrackingBypassRule {
-      /** Unique identifier of the bypass rule. */
-      readonly id?: string;
-      /** Property-group filters that define which incoming error events bypass rate limiting. */
-      filters?: unknown;
-      /** Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order. */
-      order_key?: number;
-      /** Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active. */
-      disabled_data?: unknown;
-      /** When the rule was created. */
-      readonly created_at?: string;
-      /** When the rule was last updated. */
-      readonly updated_at?: string;
+    /**
+     * Mapping from bypass rule UUID to its new evaluation order.
+     */
+    export type PatchedErrorTrackingBypassRuleReorderRequestOrders = {[key: string]: number};
+
+    export interface PatchedErrorTrackingBypassRuleReorderRequest {
+      /** Mapping from bypass rule UUID to its new evaluation order. */
+      orders?: PatchedErrorTrackingBypassRuleReorderRequestOrders;
     }
 
     export interface PatchedErrorTrackingBypassRuleUpdateRequest {
@@ -69442,35 +69490,13 @@ export namespace Schemas {
     }
 
     /**
-     * @nullable
+     * Mapping from grouping rule UUID to its new evaluation order.
      */
-    export type PatchedErrorTrackingGroupingRuleAssignee = {
-      readonly type?: 'user' | 'role';
-      readonly id?: number | string;
-    } | null;
+    export type PatchedErrorTrackingGroupingRuleReorderRequestOrders = {[key: string]: number};
 
-    /**
-     * Issue linked to this rule
-     * @nullable
-     */
-    export type PatchedErrorTrackingGroupingRuleIssue = {[key: string]: string} | null;
-
-    export interface PatchedErrorTrackingGroupingRule {
-      readonly id?: string;
-      filters?: unknown;
-      /** @nullable */
-      readonly assignee?: PatchedErrorTrackingGroupingRuleAssignee;
-      /** @nullable */
-      description?: string | null;
-      /**
-         * Issue linked to this rule
-         * @nullable
-         */
-      readonly issue?: PatchedErrorTrackingGroupingRuleIssue;
-      order_key?: number;
-      disabled_data?: unknown;
-      readonly created_at?: string;
-      readonly updated_at?: string;
+    export interface PatchedErrorTrackingGroupingRuleReorderRequest {
+      /** Mapping from grouping rule UUID to its new evaluation order. */
+      orders?: PatchedErrorTrackingGroupingRuleReorderRequestOrders;
     }
 
     export interface PatchedErrorTrackingGroupingRuleUpdateRequest {
@@ -69489,7 +69515,7 @@ export namespace Schemas {
        * * `active` - active
        * * `resolved` - resolved
        * * `suppressed` - suppressed */
-      status?: ErrorTrackingIssueWriteStatusEnum;
+      status?: ErrorTrackingIssueWritableStatusEnum;
       /** Issue severity to set, or null to remove the assigned severity. */
       severity?: ErrorTrackingIssueSeverity | null;
       /**
@@ -69601,14 +69627,14 @@ export namespace Schemas {
       threshold?: number;
     }
 
-    export interface PatchedErrorTrackingSuppressionRule {
-      readonly id?: string;
-      filters?: unknown;
-      order_key?: number;
-      disabled_data?: unknown;
-      sampling_rate?: number;
-      readonly created_at?: string;
-      readonly updated_at?: string;
+    /**
+     * Mapping from suppression rule UUID to its new evaluation order.
+     */
+    export type PatchedErrorTrackingSuppressionRuleReorderRequestOrders = {[key: string]: number};
+
+    export interface PatchedErrorTrackingSuppressionRuleReorderRequest {
+      /** Mapping from suppression rule UUID to its new evaluation order. */
+      orders?: PatchedErrorTrackingSuppressionRuleReorderRequestOrders;
     }
 
     export interface PatchedErrorTrackingSuppressionRuleUpdateRequest {
@@ -105111,6 +105137,10 @@ export namespace Schemas {
 
     export type ErrorTrackingFingerprintsListParams = {
     /**
+     * Return only the fingerprints of this issue.
+     */
+    issue_id?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -105184,6 +105214,24 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ErrorTrackingIssuesRetrieveParams = {
+    /**
+     * Resolve the issue that currently owns this fingerprint first.
+     */
+    fingerprint?: string;
+    };
+
+    export type ErrorTrackingIssuesValuesRetrieveParams = {
+    /**
+     * Issue property to list values for.
+     */
+    key: string;
+    /**
+     * Substring the returned values must contain.
+     */
+    value?: string;
+    };
+
     export type ErrorTrackingRecommendationsListParams = {
     /**
      * Number of results to return per page.
@@ -105193,6 +105241,17 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * True reads the current state without scheduling a refresh.
+     */
+    poll?: boolean;
+    };
+
+    export type ErrorTrackingRecommendationsRefreshCreateParams = {
+    /**
+     * False skips the recompute when the current result is still fresh. Defaults to true.
+     */
+    force?: boolean;
     };
 
     export type ErrorTrackingReleasesListParams = {
@@ -105208,6 +105267,18 @@ export namespace Schemas {
 
     export type ErrorTrackingSpikeEventsListParams = {
     /**
+     * Include spikes detected at or after this time.
+     */
+    date_from?: string;
+    /**
+     * Include spikes detected at or before this time.
+     */
+    date_to?: string;
+    /**
+     * Comma-separated issue UUIDs to include.
+     */
+    issue_ids?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -105215,6 +105286,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Field to order by. Prefix with a hyphen for descending.
+     */
+    order_by?: string;
     };
 
     export type ErrorTrackingStackFramesListParams = {
