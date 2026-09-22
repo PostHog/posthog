@@ -232,7 +232,9 @@ export const accountFeatureRequestsLogic = kea<accountFeatureRequestsLogicType>(
         },
         setRequestSearch: async (_, breakpoint) => {
             await breakpoint(300)
-            actions.loadAvailableRequests()
+            if (!values.selectedRequestId) {
+                actions.loadAvailableRequests()
+            }
         },
         linkSelectedRequest: async () => {
             if (!values.selectedRequestId || values.linkingRequest) {
