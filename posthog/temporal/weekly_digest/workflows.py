@@ -64,8 +64,8 @@ async def _organization_batches(
 ) -> list[tuple[OrganizationIdRange | None, tuple[int, int] | None]]:
     """One (organization_id_range, offset_batch) pair per batch; exactly one of the two is set.
 
-    Histories recorded before the patch page organizations by offset, so replaying them must
-    still schedule count-organizations and pass offsets.
+    A history without the patch marker pages organizations by offset, so its replay must
+    schedule count-organizations and pass offsets.
     """
     if workflow.patched(_PATCH_ORGANIZATION_ID_RANGES):
         organization_id_ranges = await workflow.execute_activity(
@@ -114,8 +114,8 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
                     common=input.common,
                 ),
                 parent_close_policy=workflow.ParentClosePolicy.REQUEST_CANCEL,
-                execution_timeout=timedelta(hours=8),
-                run_timeout=timedelta(hours=4),
+                execution_timeout=timedelta(hours=15),
+                run_timeout=timedelta(hours=15),
                 retry_policy=common.RetryPolicy(
                     maximum_attempts=2,
                     initial_interval=timedelta(minutes=10),
@@ -131,8 +131,8 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
                 common=input.common,
             ),
             parent_close_policy=workflow.ParentClosePolicy.REQUEST_CANCEL,
-            execution_timeout=timedelta(hours=4),
-            run_timeout=timedelta(hours=2),
+            execution_timeout=timedelta(hours=15),
+            run_timeout=timedelta(hours=6),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
                 initial_interval=timedelta(minutes=10),

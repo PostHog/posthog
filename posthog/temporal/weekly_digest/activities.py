@@ -831,11 +831,17 @@ def _team_digest(team: Team, raw_values: list[str | None]) -> TeamDigest:
 
 
 def _cut_organization_id_ranges(organization_ids: list[UUID], batch_size: int) -> list[OrganizationIdRange]:
-    """Cut ordered organization ids into [start, end) ranges of at most `batch_size` organizations each."""
+    """Cut ordered organization ids into [start, end) ranges of at most `batch_size` organizations each.
+
+    The last range closes just past the last id seen, so an organization created after this
+    listing does not join the batch.
+    """
     return [
         OrganizationIdRange(
             start=organization_ids[start],
-            end=organization_ids[start + batch_size] if start + batch_size < len(organization_ids) else None,
+            end=organization_ids[start + batch_size]
+            if start + batch_size < len(organization_ids)
+            else UUID(int=organization_ids[-1].int + 1),
         )
         for start in range(0, len(organization_ids), batch_size)
     ]
@@ -852,10 +858,7 @@ def list_organization_id_ranges(input: CommonInput) -> list[OrganizationIdRange]
 def _organizations_for_batch(input: GenerateOrganizationDigestInput | SendWeeklyDigestBatchInput) -> QuerySet:
     organizations = query_orgs_for_digest()
     if input.organization_id_range is not None:
-        organizations = organizations.filter(id__gte=input.organization_id_range.start)
-        if input.organization_id_range.end is not None:
-            organizations = organizations.filter(id__lt=input.organization_id_range.end)
-        return organizations
+        return organizations.filter(id__gte=input.organization_id_range.start, id__lt=input.organization_id_range.end)
     if input.batch is None:
         raise ValueError("Batch input needs an organization_id_range or an offset batch")
     batch_start, batch_end = input.batch

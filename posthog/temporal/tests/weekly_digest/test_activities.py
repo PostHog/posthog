@@ -4,7 +4,7 @@ import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import _create_event, flush_persons_and_events
@@ -184,6 +184,8 @@ def test_organization_id_ranges_page_every_digest_organization_exactly_once(dige
 
     paged: list = []
     ranges = _cut_organization_id_ranges(list(query_orgs_for_digest().values_list("id", flat=True)), common.batch_size)
+    # Created after the ranges were cut, so it must wait for the next digest.
+    Organization.objects.create(name="late org")
     for organization_id_range in ranges:
         organization_ids = [
             organization.id
@@ -196,7 +198,6 @@ def test_organization_id_ranges_page_every_digest_organization_exactly_once(dige
         assert len(organization_ids) <= common.batch_size
         paged.extend(organization_ids)
 
-    assert ranges[-1].end is None
     assert paged == expected
 
 
@@ -473,6 +474,11 @@ def _make_team(organization: Organization, name: str) -> Team:
     return Team.objects.create(organization=organization, name=name)
 
 
+def _organization_range(*organizations: Organization) -> OrganizationIdRange:
+    ids = sorted(organization.id for organization in organizations)
+    return OrganizationIdRange(start=ids[0], end=UUID(int=ids[-1].int + 1))
+
+
 @pytest.mark.django_db
 def test_generate_user_notification_lookup_respects_settings_and_organization_locks(
     organization, team, redis_servers, common_input, digest
@@ -579,7 +585,9 @@ def test_generate_organization_digest_batch_defaults_missing_team_data(
     run_sync(
         generate_organization_digest_batch,
         GenerateOrganizationDigestInput(
-            organization_id_range=OrganizationIdRange(start=organization.id), digest=digest, common=common_input
+            organization_id_range=_organization_range(organization, broken_organization),
+            digest=digest,
+            common=common_input,
         ),
     )
 
