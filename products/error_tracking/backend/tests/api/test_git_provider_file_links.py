@@ -54,7 +54,7 @@ class _SourceLinksTestMixin(APIBaseTest):
         assert response.status_code == 200, response.content
         return {link["raw_id"]: link for link in response.json()["results"]}
 
-    def _release(self, git: dict[str, str] | None) -> ErrorTrackingRelease:
+    def _release(self, git: dict[str, Any] | None) -> ErrorTrackingRelease:
         return ErrorTrackingRelease.objects.create(
             team=self.team,
             hash_id=str(uuid7()),
@@ -70,17 +70,29 @@ class _SourceLinksTestMixin(APIBaseTest):
         )
 
     def _frame(
-        self, symbol_set: ErrorTrackingSymbolSet, raw_id: str, source: str, line: int = 3, with_context: bool = True
+        self,
+        symbol_set: ErrorTrackingSymbolSet,
+        raw_id: str,
+        source: str,
+        line: int = 3,
+        with_context: bool = True,
+        resolved: bool = True,
     ) -> str:
-        # Mirrors what cymbal stores for a source map frame: the token line counts from zero, and
-        # the context holds the line as the stack trace shows it.
+        # Mirrors what cymbal stores: a source map token line counts from zero, an unresolved frame
+        # keeps the SDK's one-based line, and the context holds the line as the stack trace shows it.
         ErrorTrackingStackFrame.objects.create(
             team=self.team,
             raw_id=raw_id,
             part=0,
             symbol_set=symbol_set,
-            resolved=True,
-            contents={"source": source, "line": line - 1, "lang": "javascript", "in_app": True, "resolved": True},
+            resolved=resolved,
+            contents={
+                "source": source,
+                "line": line - 1 if resolved else line,
+                "lang": "javascript",
+                "in_app": True,
+                "resolved": resolved,
+            },
             context={"before": [], "line": {"number": line, "line": "run()"}, "after": []} if with_context else None,
         )
         return f"{raw_id}/0"
@@ -122,8 +134,15 @@ class TestGitProviderFileLinksResolve(_SourceLinksTestMixin):
         }
         assert self.api.calls == [f"/repos/acme/app/git/trees/{COMMIT}?recursive=1"]
 
-    def test_uses_the_default_branch_when_the_release_has_no_commit(self) -> None:
-        release = self._release({"remote_url": "https://github.com/acme/app"})
+    @parameterized.expand(
+        [
+            ("no_commit", {}),
+            ("commit_not_a_string", {"commit_id": ["0" * 40]}),
+            ("commit_not_a_sha", {"commit_id": "v1.0.0"}),
+        ]
+    )
+    def test_uses_the_default_branch_when_the_release_has_no_usable_commit(self, _name: str, git: dict) -> None:
+        release = self._release({"remote_url": "https://github.com/acme/app", **git})
         two = self._frame(self._symbol_set(), "frame-two", "../src/two.ts", line=7)
 
         links = self._resolve(str(release.id), [two])
@@ -133,13 +152,18 @@ class TestGitProviderFileLinksResolve(_SourceLinksTestMixin):
 
     @parameterized.expand(
         [
-            ("with_context", True),
-            ("without_context", False),
+            ("with_context", True, True),
+            ("without_context", False, True),
+            ("unresolved_without_context", False, False),
         ]
     )
-    def test_anchors_the_link_at_the_line_the_stack_trace_shows(self, _name: str, with_context: bool) -> None:
+    def test_anchors_the_link_at_the_line_the_stack_trace_shows(
+        self, _name: str, with_context: bool, resolved: bool
+    ) -> None:
         release = self._release({"remote_url": "https://github.com/acme/app", "commit_id": COMMIT})
-        three = self._frame(self._symbol_set(), "frame-three", "../src/three.ts", line=5, with_context=with_context)
+        three = self._frame(
+            self._symbol_set(), "frame-three", "../src/three.ts", line=5, with_context=with_context, resolved=resolved
+        )
 
         assert self._resolve(str(release.id), [three])[three]["url"].endswith("/packages/web/src/three.ts#L5")
 
@@ -178,14 +202,22 @@ class TestGitProviderFileLinksResolve(_SourceLinksTestMixin):
 
     @parameterized.expand(
         [
-            ("unknown_release", False),
-            ("release_without_repository", True),
+            ("unknown_release", None),
+            ("release_without_git", {}),
+            ("remote_url_not_a_string", {"git": {"remote_url": 1}}),
+            ("git_not_an_object", {"git": "https://github.com/acme/app"}),
         ]
     )
     def test_a_release_without_a_repository_gives_no_links_and_no_github_request(
-        self, _name: str, release_exists: bool
+        self, _name: str, metadata: dict | None
     ) -> None:
-        release_id = str(self._release(git=None).id) if release_exists else str(uuid7())
+        release_id = str(uuid7())
+        if metadata is not None:
+            release_id = str(
+                ErrorTrackingRelease.objects.create(
+                    team=self.team, hash_id=str(uuid7()), version="1.0.0", project="app", metadata=metadata
+                ).id
+            )
         three = self._frame(self._symbol_set(), "frame-three", "../src/three.ts")
 
         assert self._resolve(release_id, [three]) == {}

@@ -819,9 +819,23 @@ class SourceLink:
     path: str
 
 
-def _release_git(metadata: object) -> dict:
+@frozen
+class ReleaseGit:
+    """What a release recorded about its checkout. Metadata is free-form JSON, so either may be absent."""
+
+    remote_url: str | None
+    commit_id: str | None
+
+
+def _release_git(metadata: object) -> ReleaseGit:
     git = metadata.get("git") if isinstance(metadata, dict) else None
-    return git if isinstance(git, dict) else {}
+    git = git if isinstance(git, dict) else {}
+    remote_url = git.get("remote_url")
+    commit_id = git.get("commit_id")
+    return ReleaseGit(
+        remote_url=remote_url if isinstance(remote_url, str) else None,
+        commit_id=commit_id if isinstance(commit_id, str) else None,
+    )
 
 
 def _frame_raw_id(frame: ErrorTrackingStackFrame) -> str:
@@ -833,6 +847,7 @@ def frame_line_number(frame: ErrorTrackingStackFrame) -> int | None:
 
     The context carries the line as the UI shows it. A frame resolved through a source map stores
     the token's line in ``contents``, which counts from zero, so a frame without context adds one.
+    An unresolved frame keeps the one-based line the SDK sent.
     """
     context = frame.context if isinstance(frame.context, dict) else {}
     context_line = context.get("line")
@@ -842,7 +857,7 @@ def frame_line_number(frame: ErrorTrackingStackFrame) -> int | None:
     line = frame.contents.get("line")
     if not isinstance(line, int) or line < 0:
         return None
-    return (line + 1 if frame.contents.get("lang") == "javascript" else line) or None
+    return (line + 1 if frame.contents.get("lang") == "javascript" and frame.resolved else line) or None
 
 
 def _blob_url(target: SourceTarget, path: str, line: int | None) -> str:
@@ -858,8 +873,8 @@ def resolve_source_links(team_id: int, release_id: str, raw_ids: list[str]) -> l
     release is the one that was deployed. An event without a release gets no links.
     """
     release = ErrorTrackingRelease.objects.filter(team_id=team_id, id=release_id).first()
-    git = _release_git(release.metadata) if release else {}
-    repository = parse_repository(git.get("remote_url"))
+    git = _release_git(release.metadata if release else None)
+    repository = parse_repository(git.remote_url)
     if repository is None:
         return []
 
@@ -876,7 +891,7 @@ def resolve_source_links(team_id: int, release_id: str, raw_ids: list[str]) -> l
     api = github_api_for(team_id, repository)
     if api is None:
         return []
-    target = github_target(api, repository, git.get("commit_id"))
+    target = github_target(api, repository, git.commit_id)
     if target is None:
         return []
 
