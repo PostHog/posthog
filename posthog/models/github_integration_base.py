@@ -785,16 +785,13 @@ class GitHubIntegrationBase:
         *,
         endpoint: str,
         json_body: Mapping[str, object],
-        headers: dict[str, str] | None = None,
         timeout: int = 10,
     ) -> requests.Response | None:
         """PATCH with installation token via :meth:`api_request`; ``None`` instead of raising, for the
         success/error-dict verbs built on top."""
         path = url.removeprefix("https://api.github.com")
         try:
-            return self.api_request(
-                "PATCH", path, endpoint=endpoint, json_body=json_body, headers=headers, timeout=timeout
-            )
+            return self.api_request("PATCH", path, endpoint=endpoint, json_body=json_body, timeout=timeout)
         except GitHubIntegrationError:
             logger.warning("GitHubIntegration: installation PATCH failed", url=url, exc_info=True)
             return None
@@ -1180,7 +1177,6 @@ class GitHubIntegrationBase:
             "additions": pr.get("additions", 0),
             "deletions": pr.get("deletions", 0),
             "changed_files": pr.get("changed_files", 0),
-            "etag": response.headers.get("ETag"),
         }
 
     def get_pull_request_from_url(self, pr_url: str) -> dict[str, Any]:
@@ -1219,17 +1215,17 @@ class GitHubIntegrationBase:
 
         return {"success": True, "number": pr.get("number", pr_number), "state": pr.get("state")}
 
-    def update_pull_request_body(
-        self, repository: str, pr_number: int, body: str, *, expected_etag: str | None = None
-    ) -> dict[str, Any]:
-        """Replace a pull request's description. ``repository`` is ``owner/repo`` or a bare repo."""
+    def update_pull_request_body(self, repository: str, pr_number: int, body: str) -> dict[str, Any]:
+        """Replace a pull request's description. ``repository`` is ``owner/repo`` or a bare repo.
+
+        GitHub rejects ``If-Match`` on this endpoint with a 400, so the write cannot be conditional.
+        """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
         response = self._installation_authenticated_patch(
             f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}",
             endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
             json_body={"body": body},
-            headers={"If-Match": expected_etag} if expected_etag else None,
         )
         if response is None:
             return {"success": False, "error": "Network error updating pull request"}
@@ -1950,6 +1946,7 @@ class GitHubIntegrationBase:
           id
           isDraft
           state
+          headRefOid
           labels(first: 100) { nodes { name } }
           timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT], first: 1) {
             nodes { __typename }
@@ -1968,7 +1965,12 @@ class GitHubIntegrationBase:
     """
 
     def mark_pull_request_ready_for_review(
-        self, repository: str, pr_number: int, *, skip_labels: Collection[str] = ()
+        self,
+        repository: str,
+        pr_number: int,
+        *,
+        skip_labels: Collection[str] = (),
+        expected_head_sha: str | None = None,
     ) -> dict[str, Any]:
         """Take a draft pull request out of draft. ``repository`` is ``owner/repo`` or a bare repo.
 
@@ -2003,6 +2005,8 @@ class GitHubIntegrationBase:
             return {"success": True, "changed": False, "reason": "closed"}
         if not pr.get("isDraft"):
             return {"success": True, "changed": False, "reason": "not_draft"}
+        if expected_head_sha is not None and pr.get("headRefOid") != expected_head_sha:
+            return {"success": True, "changed": False, "reason": "head_changed"}
         # Somebody already moved this pull request between draft and ready, so its current draft
         # state is a decision rather than the state it opened in. Reading the timeline is what makes
         # that durable: a caller that queues this work cannot otherwise tell a pull request that was
@@ -2097,9 +2101,10 @@ class GitHubIntegrationBase:
     query($owner: String!, $repo: String!, $number: Int!) {
       repository(owner: $owner, name: $repo) {
         pullRequest(number: $number) {
-          url state isDraft mergeable headRefOid
+          url state isDraft mergeable headRefOid headRefName reviewDecision
           author { login }
           reviewThreads(first: 100) {
+            pageInfo { hasNextPage }
             nodes {
               id isResolved path
               comments(last: 1) {
@@ -2233,13 +2238,20 @@ class GitHubIntegrationBase:
         failing_checks = self._extract_failing_checks(rollup)
         if not failing_checks and (rollup or {}).get("state") in self._FAILING_ROLLUP_STATES:
             failing_checks.append({"key": self._ROLLUP_FAILING_CHECK_KEY, "details_url": f"{html_url}/checks"})
+        mergeable = self._map_mergeable(pr.get("mergeable"))
 
         return {
             "success": True,
             "url": html_url,
             "state": self._map_pr_state(pr.get("state"), bool(pr.get("isDraft"))),
             "head_sha": pr.get("headRefOid") or "",
-            "has_conflict": self._map_mergeable(pr.get("mergeable")) is False,
+            "has_conflict": mergeable is False,
+            "mergeable": mergeable is True,
+            "ci_status": self._map_ci_status((rollup or {}).get("state")),
+            "review_decision": pr.get("reviewDecision"),
+            "review_threads_complete": ((pr.get("reviewThreads") or {}).get("pageInfo") or {}).get("hasNextPage")
+            is False,
+            "head_ref": pr.get("headRefName"),
             "author_login": author_login,
             "failing_checks": failing_checks,
             "unresolved_threads": unresolved_threads,

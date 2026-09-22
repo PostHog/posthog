@@ -91,6 +91,7 @@ def test_can_get_exports_for_your_organizations(
         "bucket_name": "my-production-s3-bucket",
         "region": "us-east-1",
         "prefix": "posthog-events/",
+        "legacy_parquet_extension": False,
     }
 
 

@@ -11,6 +11,10 @@ from posthog.slo.types import SloConfig
 # has no persisted details. The type still lands in diagnostics, logs, and error tracking.
 UNDISCLOSED_QUERY_ERROR_TYPES = frozenset({"ClickHouseQueryMemoryLimitExceeded"})
 
+# The snapshot builder sets this query_error type when an insight stores no query at all. The
+# summary step reads it to tell an insight that cannot run apart from one that ran and failed.
+MISSING_QUERY_ERROR_TYPE = "missing_query"
+
 
 class QueryErrorDetails(typing.TypedDict):
     """A failed query's type paired with its optional safe code and message."""

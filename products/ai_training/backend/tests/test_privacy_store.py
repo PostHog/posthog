@@ -1,10 +1,9 @@
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
-from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -99,19 +98,37 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
             )
         client.query.assert_not_called()
 
-    def test_completion_waits_for_reader_leases_then_sweeps_the_team_once_more(self) -> None:
-        request = MagicMock(kind="team", team_id=7, cursor={"work": []}, completed_at=None)
+    def test_team_deletion_closes_every_month_a_later_session_could_still_open(self) -> None:
         client = MagicMock()
-        client.query.return_value = {"Items": []}
         store = AITrainingPrivacyStore(client, "table")
-        now = timezone.now()
-        with patch("products.ai_training.backend.privacy.store.timezone.now", return_value=now):
-            self.assertFalse(store.apply(request, time.monotonic() + 1))
-        self.assertIsNone(request.completed_at)
-        client.query.assert_not_called()
         with patch(
-            "products.ai_training.backend.privacy.store.timezone.now", return_value=now + timedelta(seconds=301)
+            "products.ai_training.backend.privacy.store.timezone.now",
+            return_value=datetime.fromisoformat("2025-12-31T23:59:00+00:00"),
         ):
-            self.assertTrue(store.apply(request, time.monotonic() + 1))
+            store.initialize(MagicMock(kind="team", team_id=7, identifiers=[]))
+        updates = client.transact_write_items.call_args.kwargs["TransactItems"]
+        self.assertEqual(
+            [update["Update"]["Key"] for update in updates],
+            [
+                item_key("team:7", "image:2025-11"),
+                item_key("team:7", "image:2025-12"),
+                item_key("team:7", "image:2026-01"),
+            ],
+        )
+
+    def test_team_deletion_completes_in_one_pass_and_shreds_every_shard_it_sweeps(self) -> None:
+        request = MagicMock(kind="team", team_id=7, identifiers=[], cursor={}, completed_at=None)
+        late_write = session_key(7, "01a09f92-e780-7000-8000-000000000003")
+        client = MagicMock()
+        client.query.side_effect = [{"Items": []}, {"Items": [late_write]}, *({"Items": []} for _ in range(31))]
+        store = AITrainingPrivacyStore(client, "table")
+        self.assertTrue(store.apply(request, time.monotonic() + 1))
         self.assertEqual(client.query.call_count, 33)
+        shredded = [
+            update["Update"]["Key"]
+            for call in client.transact_write_items.call_args_list
+            for update in call.kwargs["TransactItems"]
+        ]
+        self.assertIn(late_write, shredded)
+        self.assertIsNotNone(request.completed_at)
         self.assertEqual(request.identifiers, [])

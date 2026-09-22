@@ -12,8 +12,6 @@ from django.template.loader import render_to_string
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
-from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
-
 from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription, SubscriptionDelivery
 from products.exports.backend.models.subscription_context import ReportContextSelection
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import _deliver_ai_subscription
@@ -49,6 +47,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     DeliverSubscriptionResult,
     SubscriptionTriggerType,
 )
+from products.slack_app.backend.facade.testing import REQUIRED_SLACK_SCOPES
 
 from ee.tasks.subscriptions.slack_subscriptions import SlackMessage
 from ee.tasks.subscriptions.teams_subscriptions import TEAMS_CARD_TEXT_BUDGET

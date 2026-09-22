@@ -145,14 +145,25 @@ pub fn build_person_scan_globals(
     person_id: Uuid,
     properties: &str,
 ) -> Result<Value, GlobalsError> {
-    // Quiet parse: a seeder scan failure must not increment the stream processor's Stage 1
-    // counter — the seeder meters its own skipped rows.
-    let person_properties = parse_optional_json_quiet(Some(properties), "person_properties")?;
-    Ok(person_scope_globals(
-        team_id.0,
-        &person_id.to_string(),
-        person_properties,
+    Ok(person_scan_globals(
+        team_id,
+        person_id,
+        parse_person_scan_properties(properties)?,
     ))
+}
+
+/// The parse half of [`build_person_scan_globals`], for a caller that reads the parsed blob before
+/// deciding whether any condition needs the globals at all.
+///
+/// Quiet: a seeder scan failure must not increment the stream processor's Stage 1 counter — the
+/// seeder meters its own skipped rows.
+pub fn parse_person_scan_properties(properties: &str) -> Result<Value, GlobalsError> {
+    parse_optional_json_quiet(Some(properties), "person_properties")
+}
+
+/// The build half of [`build_person_scan_globals`], taking the already-parsed blob.
+pub fn person_scan_globals(team_id: TeamId, person_id: Uuid, properties: Value) -> Value {
+    person_scope_globals(team_id.0, &person_id.to_string(), properties)
 }
 
 /// The one constructor of the `{"person":{"id","properties"},"project":{"id"}}` shape.
@@ -470,10 +481,16 @@ mod tests {
             e.person_properties = Some(properties.to_string());
             let from_event = build_person_property_globals(&e).unwrap();
             let from_scan = build_person_scan_globals(TeamId(42), person_id, properties).unwrap();
-            assert_eq!(
-                serde_json::to_string(&from_scan).unwrap(),
-                serde_json::to_string(&from_event).unwrap(),
+            // The halves are held to the same oracle as the whole, because the seeder reads the
+            // parsed blob before deciding whether it needs globals and so calls them separately.
+            let from_halves = person_scan_globals(
+                TeamId(42),
+                person_id,
+                parse_person_scan_properties(properties).unwrap(),
             );
+            let expected = serde_json::to_string(&from_event).unwrap();
+            assert_eq!(serde_json::to_string(&from_scan).unwrap(), expected);
+            assert_eq!(serde_json::to_string(&from_halves).unwrap(), expected);
         }
         assert_eq!(
             build_person_scan_globals(TeamId(42), person_id, "").unwrap()["person"]["properties"],
