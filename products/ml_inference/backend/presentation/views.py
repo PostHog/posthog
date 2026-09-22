@@ -6,6 +6,7 @@ Validate JSON via serializers, call facade methods, return serialized responses.
 
 from typing import Any
 
+import structlog
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -18,9 +19,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.llm.gateway_client import GatewayNotConfiguredError
 
 from ..facade import api, contracts
-from ..facade.contracts import DecisionGatewayError, DecisionsDisabledError
+from ..facade.contracts import DecisionGatewayError, DecisionGatewayUnreachableError, DecisionsDisabledError
 from ..facade.enums import DecisionQuestionType
 from .serializers import DecideRequestSerializer, DecideResponseSerializer
+
+logger = structlog.get_logger(__name__)
 
 
 class DecisionGatewayUnavailable(APIException):
@@ -68,10 +71,18 @@ class DecisionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             result = api.decide(decision)
         except DecisionsDisabledError as error:
             raise NotFound() from error
-        except GatewayNotConfiguredError as error:
+        except (GatewayNotConfiguredError, DecisionGatewayUnreachableError) as error:
+            logger.warning("ml_inference_decision_gateway_unavailable", team_id=self.team_id, reason=str(error))
             raise DecisionGatewayUnavailable() from error
         except DecisionGatewayError as error:
-            raise DecisionGatewayRefused(detail=f"{DecisionGatewayRefused.default_detail} ({error.detail})") from error
+            # The gateway's body stays in the log: it can carry upstream diagnostics the caller should not see.
+            logger.warning(
+                "ml_inference_decision_gateway_refused",
+                team_id=self.team_id,
+                status_code=error.status_code,
+                detail=error.detail,
+            )
+            raise DecisionGatewayRefused() from error
         return Response(DecideResponseSerializer(_wire_result(result)).data)
 
 

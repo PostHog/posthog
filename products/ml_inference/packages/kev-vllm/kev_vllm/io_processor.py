@@ -4,6 +4,7 @@
 across requests. `post_process` maps each row's probability vector back onto the question it came from.
 """
 
+import time
 from collections import deque
 from collections.abc import Sequence
 
@@ -18,6 +19,8 @@ from kev_vllm.kev_compat import SystemOneRequest, encode, output_tokens, rows_of
 
 # Serving limits, as kev.serve: the per-branch cap mirrors Jev's window and the base model bounds both.
 INFER_MAX_STATE, INFER_MAX_BRANCH = 8192, 8192
+# A request aborted between pre_process and post_process never collects its entry, so old ones are swept.
+PENDING_SWEEP_SIZE, PENDING_MAX_AGE_SECONDS = 1000, 600
 
 
 class KevIOProcessor(IOProcessor[SystemOneRequest, dict]):
@@ -26,8 +29,9 @@ class KevIOProcessor(IOProcessor[SystemOneRequest, dict]):
         model_config = vllm_config.model_config
         self.tokenizer = AutoTokenizer.from_pretrained(model_config.tokenizer, revision=model_config.tokenizer_revision)
         self.served_model = model_config.served_model_name
-        # request_id -> (question metadata, input token count); vLLM calls pre_process and post_process with the same id
-        self._pending: dict[str | None, deque[tuple[list[dict], int]]] = {}
+        # request_id -> (question metadata, input token count, enqueued at); vLLM calls pre_process and post_process
+        # with the same id
+        self._pending: dict[str | None, deque[tuple[list[dict], int, float]]] = {}
 
     def parse_data(self, data: object) -> SystemOneRequest:
         return SystemOneRequest.model_validate(data)
@@ -36,11 +40,13 @@ class KevIOProcessor(IOProcessor[SystemOneRequest, dict]):
         record, meta = to_record(prompt)
         enc = encode(self.tokenizer, record, max_state=INFER_MAX_STATE, max_branch=INFER_MAX_BRANCH)
         state_ids, _, rows = rows_of(enc)
-        self._pending.setdefault(request_id, deque()).append((meta, len(enc["ids"])))
+        if len(self._pending) > PENDING_SWEEP_SIZE:
+            self._sweep_pending()
+        self._pending.setdefault(request_id, deque()).append((meta, len(enc["ids"]), time.monotonic()))
         return [TokensPrompt(prompt_token_ids=state_ids + row["ids"]) for row in rows]
 
     def post_process(self, model_output: Sequence[PoolingRequestOutput], request_id: str | None = None, **kwargs) -> dict:
-        meta, input_tokens = self._pending[request_id].popleft()
+        meta, input_tokens, _ = self._pending[request_id].popleft()
         if not self._pending[request_id]:
             del self._pending[request_id]
         probs = [out.outputs.data.tolist() for out in model_output]
@@ -53,3 +59,8 @@ class KevIOProcessor(IOProcessor[SystemOneRequest, dict]):
             "probabilities_raw": probs,
             "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens(self.tokenizer, answers)},
         }
+
+    def _sweep_pending(self) -> None:
+        cutoff = time.monotonic() - PENDING_MAX_AGE_SECONDS
+        for request_id in [rid for rid, entries in self._pending.items() if entries[0][2] < cutoff]:
+            del self._pending[request_id]

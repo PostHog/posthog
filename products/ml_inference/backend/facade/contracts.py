@@ -19,6 +19,10 @@ class DecisionsDisabledError(Exception):
         self.team_id = team_id
 
 
+class DecisionGatewayUnreachableError(Exception):
+    """The gateway did not answer at all: a timeout, a refused connection, a DNS failure."""
+
+
 class DecisionGatewayError(Exception):
     """The gateway answered, but not with a decision."""
 

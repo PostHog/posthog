@@ -19,6 +19,8 @@ from ..facade.contracts import (
     ChoiceAnswer,
     DecisionAnswer,
     DecisionGatewayError,
+    DecisionGatewayUnreachableError,
+    DecisionQuestion,
     DecisionRequest,
     DecisionResult,
     NoulAnswer,
@@ -81,15 +83,18 @@ def decide(
         raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
     headers = {"Authorization": f"Bearer {config.api_key}"}
     headers.update(ai_gateway_headers(ai_product="ml_inference", distinct_id=team_distinct_id(request.team_id)) or {})
-    with httpx.Client(trust_env=False, timeout=timeout_seconds, transport=transport) as client:
-        response = client.post(decision_url(config.url), json=_wire_body(request), headers=headers)
+    try:
+        with httpx.Client(trust_env=False, timeout=timeout_seconds, transport=transport) as client:
+            response = client.post(decision_url(config.url), json=_wire_body(request), headers=headers)
+    except httpx.RequestError as error:
+        raise DecisionGatewayUnreachableError(f"decision gateway unreachable: {error.__class__.__name__}") from error
     if response.status_code != 200:
         raise DecisionGatewayError(response.status_code, response.text[:500])
     try:
         payload = response.json()
     except ValueError as error:
         raise DecisionGatewayError(200, "decision response is not JSON") from error
-    return parse_result(payload)
+    return parse_result(payload, request.questions)
 
 
 def _wire_body(request: DecisionRequest) -> dict[str, Any]:
@@ -102,7 +107,7 @@ def _wire_body(request: DecisionRequest) -> dict[str, Any]:
     return {"model": request.model, "state": request.state, "questions": questions}
 
 
-def parse_result(payload: Any) -> DecisionResult:
+def parse_result(payload: Any, questions: dict[str, DecisionQuestion]) -> DecisionResult:
     """A 200 that is not a decision is a contract break, not an empty decision, so it fails like a refusal."""
     if not isinstance(payload, dict):
         raise DecisionGatewayError(200, "decision response is not a JSON object")
@@ -114,8 +119,14 @@ def parse_result(payload: Any) -> DecisionResult:
     input_tokens = usage.get("input_tokens")
     if not isinstance(input_tokens, int):
         raise DecisionGatewayError(200, "decision response usage has no input_tokens")
+    if set(answers) != set(questions):
+        raise DecisionGatewayError(
+            200, f"decision response answers {sorted(answers)} do not match the questions {sorted(questions)}"
+        )
     try:
-        parsed = {question_id: _parse_answer(answer) for question_id, answer in answers.items()}
+        parsed = {
+            question_id: _parse_answer(answer, questions[question_id].type) for question_id, answer in answers.items()
+        }
         return DecisionResult(
             model=model, answers=parsed, input_tokens=input_tokens, latency_ms=payload.get("latency_ms")
         )
@@ -123,17 +134,22 @@ def parse_result(payload: Any) -> DecisionResult:
         raise DecisionGatewayError(200, f"decision response has an unreadable answer: {error}") from error
 
 
-def _parse_answer(answer: Any) -> DecisionAnswer:
+def _parse_answer(answer: Any, question_type: DecisionQuestionType) -> DecisionAnswer:
     if not isinstance(answer, dict):
         raise ValueError(f"answer is not an object: {answer!r}")
-    if DecisionQuestionType.NOUL.value in answer:
-        return NoulAnswer(probability=answer["noul"])
-    if DecisionQuestionType.CHOICE.value in answer:
-        return ChoiceAnswer(
-            choice=answer["choice"], confidence=answer["confidence"], probabilities=answer["probabilities"]
-        )
-    if DecisionQuestionType.SCORE.value in answer:
-        return ScoreAnswer(
-            score=answer["score"], confidence=answer["confidence"], probabilities=answer["probabilities"]
-        )
-    raise ValueError(f"decision answer has no recognised type: {sorted(answer)}")
+    variants = {variant.value for variant in DecisionQuestionType} & set(answer)
+    if variants != {question_type.value}:
+        raise ValueError(f"answer to a {question_type.value} question carries {sorted(variants) or 'no variant'}")
+    match question_type:
+        case DecisionQuestionType.NOUL:
+            return NoulAnswer(probability=answer["noul"])
+        case DecisionQuestionType.CHOICE:
+            return ChoiceAnswer(
+                choice=answer["choice"], confidence=answer["confidence"], probabilities=answer["probabilities"]
+            )
+        case DecisionQuestionType.SCORE:
+            return ScoreAnswer(
+                score=answer["score"], confidence=answer["confidence"], probabilities=answer["probabilities"]
+            )
+        case _:
+            raise ValueError(f"unknown question type {question_type!r}")

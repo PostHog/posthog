@@ -9,6 +9,7 @@ from rest_framework import status
 from products.ml_inference.backend.facade.contracts import (
     ChoiceAnswer,
     DecisionGatewayError,
+    DecisionGatewayUnreachableError,
     DecisionResult,
     DecisionsDisabledError,
     NoulAnswer,
@@ -107,7 +108,17 @@ class TestDecideEndpoint(APIBaseTest):
         response = self.client.post(self._url(), {"state": "text", "questions": QUESTIONS}, format="json")
 
         assert response.status_code == status.HTTP_502_BAD_GATEWAY
-        assert "bad state" in response.json()["detail"]
+        assert "bad state" not in response.json()["detail"]
+
+    @patch(
+        "products.ml_inference.backend.presentation.views.api.decide",
+        side_effect=DecisionGatewayUnreachableError("decision gateway unreachable: ConnectError"),
+    )
+    @patch("products.ml_inference.backend.presentation.views.api.decisions_enabled", return_value=True)
+    def test_reports_an_unreachable_gateway_as_unavailable(self, _enabled, _decide) -> None:
+        response = self.client.post(self._url(), {"state": "text", "questions": QUESTIONS}, format="json")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
     def test_rejects_a_malformed_body_before_calling_the_model(self) -> None:
         response = self.client.post(self._url(), {"state": "text"}, format="json")

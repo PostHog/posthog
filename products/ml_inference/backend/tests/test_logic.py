@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 import pytest
 from unittest.mock import patch
@@ -12,6 +13,7 @@ from posthog.llm.gateway_client import GatewayNotConfiguredError
 from products.ml_inference.backend.facade.contracts import (
     ChoiceAnswer,
     DecisionGatewayError,
+    DecisionGatewayUnreachableError,
     DecisionQuestion,
     DecisionRequest,
     NoulAnswer,
@@ -22,7 +24,7 @@ from products.ml_inference.backend.logic import decisions
 
 GATEWAY = {"AI_GATEWAY_URL": "https://gateway.example.com/v1", "AI_GATEWAY_API_KEY": "phs_test"}
 
-ANSWERS = {
+ANSWERS: dict[str, Any] = {
     "model": "kev-latest",
     "answers": {
         "urgent": {"noul": 0.91},
@@ -34,19 +36,19 @@ ANSWERS = {
 }
 
 
+QUESTIONS = {
+    "urgent": DecisionQuestion(type=DecisionQuestionType.NOUL, instructions="Is it urgent?"),
+    "route": DecisionQuestion(
+        type=DecisionQuestionType.CHOICE,
+        instructions="Which queue?",
+        criteria={"billing": "money", "bug": "broken"},
+    ),
+    "mood": DecisionQuestion(type=DecisionQuestionType.SCORE, instructions="Mood?", criteria=["1", "2", "3"]),
+}
+
+
 def _request() -> DecisionRequest:
-    return DecisionRequest(
-        team_id=42,
-        state="ticket text",
-        questions={
-            "urgent": DecisionQuestion(type=DecisionQuestionType.NOUL, instructions="Is it urgent?"),
-            "route": DecisionQuestion(
-                type=DecisionQuestionType.CHOICE,
-                instructions="Which queue?",
-                criteria={"billing": "money", "bug": "broken"},
-            ),
-        },
-    )
+    return DecisionRequest(team_id=42, state="ticket text", questions=QUESTIONS)
 
 
 class TestDecide:
@@ -78,7 +80,7 @@ class TestDecide:
         assert result.latency_ms == 31
 
     def test_parses_every_answer_type(self) -> None:
-        result = decisions.parse_result(ANSWERS)
+        result = decisions.parse_result(ANSWERS, QUESTIONS)
 
         assert result.answers["urgent"] == NoulAnswer(probability=0.91)
         assert result.answers["route"] == ChoiceAnswer(
@@ -96,13 +98,24 @@ class TestDecide:
             {"model": "kev-latest", "answers": {}, "usage": {}},
             {"model": "kev-latest", "answers": {"q": {"verdict": "maybe"}}, "usage": {"input_tokens": 1}},
             {"model": "kev-latest", "answers": {"q": "yes"}, "usage": {"input_tokens": 1}},
+            {**ANSWERS, "answers": {**ANSWERS["answers"], "extra": {"noul": 0.5}}},
+            {**ANSWERS, "answers": {k: v for k, v in ANSWERS["answers"].items() if k != "mood"}},
+            {**ANSWERS, "answers": {**ANSWERS["answers"], "urgent": {"noul": 0.9, "choice": "billing"}}},
+            {**ANSWERS, "answers": {**ANSWERS["answers"], "urgent": ANSWERS["answers"]["route"]}},
         ],
     )
     def test_rejects_a_200_that_is_not_a_decision(self, payload: object) -> None:
         with pytest.raises(DecisionGatewayError) as raised:
-            decisions.parse_result(payload)
+            decisions.parse_result(payload, QUESTIONS)
 
         assert raised.value.status_code == 200
+
+    def test_reports_a_transport_failure_as_the_gateway_being_unreachable(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("refused", request=request)
+
+        with override_settings(**GATEWAY), pytest.raises(DecisionGatewayUnreachableError):
+            decisions.decide(_request(), transport=httpx.MockTransport(handler))
 
     def test_surfaces_a_gateway_refusal_with_its_status(self) -> None:
         transport = httpx.MockTransport(lambda _request: httpx.Response(404, json={"error": {"code": "not_found"}}))

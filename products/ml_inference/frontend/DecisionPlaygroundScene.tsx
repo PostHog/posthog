@@ -51,6 +51,7 @@ export function DecisionPlaygroundScene(): JSX.Element {
         questionsView,
         questionsJson,
         questionsJsonError,
+        askedQuestions,
         decision,
         decisionLoading,
         askDisabledReason,
@@ -70,7 +71,7 @@ export function DecisionPlaygroundScene(): JSX.Element {
 
     const answerRows = decision
         ? Object.entries(decision.answers).map(([key, answer]) => {
-              const question = questions.find((candidate) => candidate.key === key)
+              const question = askedQuestions.find((candidate) => candidate.key === key)
               return {
                   key,
                   question: question?.instructions ?? key,

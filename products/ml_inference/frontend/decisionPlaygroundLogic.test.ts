@@ -75,6 +75,8 @@ describe('decisionPlaygroundLogic request building', () => {
         ['{"urgent": {"type": "noul"}}', 'needs instructions'],
         ['{"queue": {"type": "choice", "instructions": "?", "criteria": ["a"]}}', 'criteria must be an object'],
         ['{"tone": {"type": "score", "instructions": "?", "criteria": {"a": "b"}}}', 'criteria must be a list'],
+        ['{"tone": {"type": "score", "instructions": "?", "criteria": ["calm", null]}}', 'scale label 2 must be text'],
+        ['{"queue": {"type": "choice", "instructions": "?", "criteria": {"a": {"b": 1}}}}', 'option "a" must be text'],
     ])('rejects %s with a message naming the problem', (text, message) => {
         expect(() => questionsFromJson(text)).toThrow(message)
     })
