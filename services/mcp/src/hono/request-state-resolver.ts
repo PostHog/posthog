@@ -42,6 +42,7 @@ export interface ResolvedState {
     useSingleExec: boolean
     toolFeatureFlags: EvaluatedFlags | undefined
     apiKeyScopes: string[]
+    isImpersonated?: boolean
     oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
@@ -227,6 +228,7 @@ export class RequestStateResolver {
             ...switchToolsToExclude({ organizationId }),
             ...tasksContextToolsToExclude(clientProfile, props.taskId),
             ...(apiKeyScopes.includes('internal_run:read') ? ['tasks-run-create', 'tasks-create-and-run'] : []),
+            ...(props.excludeTools ?? []),
         ]
 
         const filterOptions = {
@@ -267,6 +269,7 @@ export class RequestStateResolver {
             useSingleExec,
             toolFeatureFlags,
             apiKeyScopes,
+            isImpersonated: _apiKey?.is_impersonated === true,
             oauthClientId,
             clientProfile,
             requestContext,

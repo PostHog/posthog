@@ -100,6 +100,10 @@ from products.tasks.backend.presentation.serializers import (
 from products.tasks.backend.presentation.views import api as views_api
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
+# The catalog gates no model behind a rollout flag now, so the write paths that re-check
+# entitlement are exercised with a stand-in rather than with whichever model is mid-rollout.
+GATED_MODEL_FLAG = "tasks-test-model-gate"
+
 
 def _grant_user_github_access(user: User, *, refresh_ttl_seconds: int = 15897600) -> UserIntegration:
     now = int(time.time())
@@ -1899,6 +1903,7 @@ class TestTaskAPI(BaseTaskAPITest):
             sandbox_environment_id=None,
             custom_image_id=None,
             initial_permission_mode=None,
+            signal_report_id=None,
         )
 
         update = self.client.patch(
@@ -2236,17 +2241,18 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("allowed", tasks_access.DesktopAccessDecision.ALLOWED, "acme/web"),
-            ("refused", tasks_access.DesktopAccessDecision.STARTUP_PLAN, None),
-            ("unresolvable", DesktopAccessResolutionError("cannot verify"), None),
+            ("allowed", tasks_access.DesktopAccessDecision.ALLOWED, True),
+            ("refused", tasks_access.DesktopAccessDecision.STARTUP_PLAN, False),
+            ("unresolvable", DesktopAccessResolutionError("cannot verify"), False),
         ]
     )
-    def test_discussion_repository_and_credential_follow_the_desktop_gate(self, _name, decision, expected_repository):
-        # A "Discuss" kickoff is repo-less and credential-less for a caller the gate refuses, so the
+    def test_discussion_starts_repo_less_and_credential_follows_the_desktop_gate(self, _name, decision, entitled):
+        # A "Discuss" kickoff never clones: the sandbox boots repo-less so the first answer is not
+        # held behind a checkout. It is also credential-less for a caller the gate refuses, so the
         # generally-available Inbox never 403s on the click this path exists to unblock. An
         # unverifiable gate degrades to that same shape rather than failing the click. An entitled
-        # caller gets a repository and the team credential instead, which is what lets the sandbox
-        # clone a private repository and update the report's pull request.
+        # caller carries the team credential instead, which is what lets the agent clone a private
+        # repository on demand and update the report's pull request.
         from products.signals.backend.models import SignalReport, SignalReportArtefact
 
         Integration.objects.create(
@@ -2282,8 +2288,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
-        self.assertEqual(data["repository"], expected_repository)
-        entitled = expected_repository is not None
+        self.assertIsNone(data["repository"])
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.github_integration is not None, entitled)
         self.assertEqual(tasks_facade.task_exempt_from_code_access(data["id"], self.team.id), not entitled)
@@ -4056,6 +4061,23 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_start_run_endpoint_rejects_scheduled_run(self, mock_workflow):
+        task = self.create_task()
+        task_run = task.create_run(
+            environment=TaskRun.Environment.CLOUD,
+            scheduled_at=django_timezone.now() + timedelta(days=1),
+        )
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{task_run.id}/start/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {"error": "This run is scheduled to start automatically. Wait for it to start, or create a new run."},
+        )
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_start_run_endpoint_rolls_back_pending_state_when_workflow_trigger_fails(self, mock_workflow):
         mock_workflow.side_effect = RuntimeError("workflow start failed")
         task = self.create_task()
@@ -4329,8 +4351,11 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @override_settings(DEBUG=False)
     @patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False)
+    @patch("products.tasks.backend.feature_flags.get_required_model_flag", return_value=GATED_MODEL_FLAG)
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_rejects_a_gated_model_the_caller_cannot_access(self, mock_workflow, mock_feature_enabled):
+    def test_run_endpoint_rejects_a_gated_model_the_caller_cannot_access(
+        self, mock_workflow, _mock_required_flag, mock_feature_enabled
+    ):
         # The Desktop picker hides gated models, but a stored preference or a direct API
         # call reaches this endpoint without one, so the entitlement is re-checked here.
         task = self.create_task()
@@ -4347,7 +4372,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "model"
-        assert mock_feature_enabled.call_args.args[0] == "tasks-kimi-k3"
+        assert mock_feature_enabled.call_args.args[0] == GATED_MODEL_FLAG
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -4998,8 +5023,12 @@ class TestTaskAPI(BaseTaskAPITest):
         "products.tasks.backend.feature_flags.posthoganalytics.feature_enabled",
         side_effect=lambda flag, *_args, **_kwargs: flag == "tasks",
     )
+    @patch("products.tasks.backend.feature_flags.get_required_model_flag", return_value=GATED_MODEL_FLAG)
+    @patch("products.tasks.backend.facade.api.get_required_model_flag", return_value=GATED_MODEL_FLAG)
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_resume_rejects_inherited_gated_model(self, mock_workflow, mock_feature_enabled):
+    def test_run_endpoint_resume_rejects_inherited_gated_model(
+        self, mock_workflow, _mock_facade_required_flag, _mock_required_flag, mock_feature_enabled
+    ):
         # A resume omits `model`, so the serializer sees None and passes. The inherited
         # model is the one that actually runs, so entitlement is re-checked after it lands.
         task = self.create_task()
@@ -5018,7 +5047,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "model"
-        assert mock_feature_enabled.call_args.args[0] == "tasks-kimi-k3"
+        assert mock_feature_enabled.call_args.args[0] == GATED_MODEL_FLAG
         mock_workflow.assert_not_called()
 
     def test_run_endpoint_rejects_invalid_sandbox_environment_id(self):
@@ -9286,10 +9315,16 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["stream_base_url"], "https://agent-proxy.example.com")
 
+    @parameterized.expand(
+        [
+            ("resync_capable_client", "?resync=true", "https://agent-proxy.example.com", "proxy", True),
+            ("legacy_client", "", None, "thin_tail_withheld", False),
+        ]
+    )
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    def test_stream_token_omits_proxy_url_for_thin_tail_run(self):
-        # Only the Django read leg serves the durable backlog, so a thin-tail run must
-        # never be routed to the agent-proxy even with the proxy flag enabled.
+    def test_stream_token_routes_thin_tail_run_by_client_resync_support(
+        self, _name, query, expected_base_url, expected_route, expected_resync_requested
+    ):
         reset_sandbox_jwt_key_cache()
 
         task = self.create_task()
@@ -9300,11 +9335,13 @@ class TestTaskRunAPI(BaseTaskAPITest):
         with (
             self.settings(TASKS_AGENT_PROXY_PUBLIC_URL="https://agent-proxy.example.com", DEBUG=False),
             patch("products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True),
+            patch("products.tasks.backend.presentation.views.api.observe_stream_token_routed") as observe_routed,
         ):
-            response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream_token/")
+            response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream_token/{query}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNone(response.json()["stream_base_url"])
+        self.assertEqual(response.json()["stream_base_url"], expected_base_url)
+        observe_routed.assert_called_once_with(task.origin_product, expected_route, expected_resync_requested)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_stream_token_omits_proxy_url_when_flag_disabled(self):
@@ -9324,11 +9361,13 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "products.tasks.backend.facade.api.posthoganalytics.feature_enabled",
                 side_effect=flag_enabled,
             ),
+            patch("products.tasks.backend.presentation.views.api.observe_stream_token_routed") as observe_routed,
         ):
             response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream_token/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNone(response.json()["stream_base_url"])
+        observe_routed.assert_called_once_with(task.origin_product, "django", False)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_stream_token_returns_proxy_url_for_pi_when_flag_disabled(self):
@@ -14231,8 +14270,9 @@ class TestCloudUsageGate(BaseTaskAPITest):
     @patch("products.tasks.backend.facade.api.warm_task_sandbox")
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
     @patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False)
+    @patch("products.tasks.backend.feature_flags.get_required_model_flag", return_value=GATED_MODEL_FLAG)
     def test_warm_rejects_a_gated_model_the_caller_cannot_access(
-        self, mock_feature_enabled, _mock_warm_enabled, mock_warm
+        self, _mock_required_flag, mock_feature_enabled, _mock_warm_enabled, mock_warm
     ):
         # Warming boots a sandbox and starts the agent on this model, so it bills like a run.
         response = self.client.post(
@@ -14243,12 +14283,13 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "model"
-        assert mock_feature_enabled.call_args.args[0] == "tasks-kimi-k3"
+        assert mock_feature_enabled.call_args.args[0] == GATED_MODEL_FLAG
         mock_warm.assert_not_called()
 
     @override_settings(DEBUG=False)
     @patch("products.tasks.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False)
-    def test_create_rejects_a_gated_model_hint(self, mock_feature_enabled):
+    @patch("products.tasks.backend.feature_flags.get_required_model_flag", return_value=GATED_MODEL_FLAG)
+    def test_create_rejects_a_gated_model_hint(self, _mock_required_flag, mock_feature_enabled):
         # The create hint is write-only, but it is what selects a warm Run to activate,
         # so a gated value here would run the gated model without ever reaching run_task.
         response = self.client.post(
@@ -14264,7 +14305,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "model"
-        assert mock_feature_enabled.call_args.args[0] == "tasks-kimi-k3"
+        assert mock_feature_enabled.call_args.args[0] == GATED_MODEL_FLAG
         assert not Task.objects.filter(title="Gated").exists()
 
     def _inbox_task(self, origin: Task.OriginProduct) -> Task:
