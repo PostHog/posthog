@@ -197,7 +197,9 @@ Their absence means no token was minted, so the agent falls back to deriving the
 product from the task run it fetches at boot, which is the path that fails quietly.
 
 ReviewHog Flash uses `gpt-5.6-luna` for review, blind-spot checks, and validation.
-The **Flash strength** setting on the Code review page selects **Medium** (`medium`, the default) or **Extra high** (`xhigh`) for all of your Flash reviews, including automatic, UI, and CLI requests.
+The **ReviewHog Flash - Experimental** subsection under **What gets reviewed** on the Code review page groups the automatic Flash review toggle and **Flash strength** setting.
+These settings apply only to Flash reviews.
+**Flash strength** selects **Medium** (`medium`, the default) or **Extra high** (`xhigh`) for all of your Flash reviews, including automatic, UI, and CLI requests.
 Each turn saves the effort it starts with, so a settings change applies to later turns.
 The shared `FLASH_ARM` and `flash_arm_for_effort` in `products/review_hog/backend/reviewer/constants.py` pin the Codex runtime and `full-access` permission mode.
 Flash uses the existing `review_hog` model allowance.

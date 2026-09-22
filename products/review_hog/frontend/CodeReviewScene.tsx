@@ -1243,6 +1243,12 @@ function TriggersSection(): JSX.Element {
                         disabledReason={switchDisabledReason}
                     />
                 </div>
+            </LemonCard>
+            <div className="mt-2">
+                <h4 className="mb-1 text-sm font-semibold">ReviewHog Flash - Experimental</h4>
+                <p className="m-0 text-xs text-secondary">These settings apply only to Flash reviews.</p>
+            </div>
+            <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
                 <div className="flex items-center gap-4 p-4">
                     <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
                         <IconBolt className="size-5" />
