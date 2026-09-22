@@ -3417,7 +3417,13 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         # Partition only by the access-controlled tables this query reads that the user is restricted
         # from - so queries on events, persons and other non-access-controlled tables share one cache
         # entry (incl. userless cache warming).
-        queried_resources = queried_access_controlled_resources(self.query, self.team)
+        # Service tokens and shared-link viewers bypass warehouse access control (see Database.create_for),
+        # so the source scope a synced table falls back to must not partition their key. It still does
+        # when a system table carries that scope directly, which is why only the fallback is dropped.
+        is_synthetic_principal = self.user is not None and not isinstance(self.user, User)
+        queried_resources = queried_access_controlled_resources(
+            self.query, self.team, with_fallback_parents=not is_synthetic_principal
+        )
 
         if isinstance(self.user, User) and not self.team.organization.is_feature_available(
             AvailableFeature.ACCESS_CONTROL

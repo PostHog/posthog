@@ -57,14 +57,24 @@ _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
 }
 
 
-def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str]]:
+def queried_access_controlled_resources(
+    query, team: "Team", *, with_fallback_parents: bool = True
+) -> Optional[set[str]]:
     """The set of access-control scope names a query reads, e.g. "notebook", "warehouse_table".
     Empty when the query reads no access-controlled table.
     None when the query is malformed or unparseable.
 
     This drives query-cache partitioning: a denied object the query reads must change the cache key,
     otherwise a denied user could be served an allowed user's cached rows on a cache hit (the hit
-    short-circuits the schema strip that would otherwise raise "You don't have access to table")."""
+    short-circuits the schema strip that would otherwise raise "You don't have access to table").
+
+    `with_fallback_parents=False` leaves out the parent scope a child falls back to through
+    `RESOURCE_FALLBACK_MAP`. A principal that bypasses the child's access control never reaches the
+    parent's rules, so for it the parent only partitions the cache when a table carries that scope
+    directly."""
+
+    def finish(scopes: set[str]) -> set[str]:
+        return _with_fallback_parents(scopes) if with_fallback_parents else scopes
 
     # Deferred to break the query_runner -> this module -> hogql import cycle.
     from posthog.hogql.database.database import get_data_warehouse_table_name  # noqa: PLC0415
@@ -78,7 +88,7 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
     from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
 
     if getattr(query, "kind", None) == "AccountsTableQuery":
-        return _with_fallback_parents({"account"})
+        return finish({"account"})
 
     if getattr(query, "kind", None) == "AccountsQuery":
         expressions = [
@@ -98,7 +108,7 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
         account_scopes = {"account"}
         if any(any(str(segment) in _ACCOUNT_COMMUNICATION_LAZY_FIELDS for segment in field.chain) for field in fields):
             account_scopes.add("ticket")
-        return _with_fallback_parents(account_scopes)
+        return finish(account_scopes)
 
     # Raw HogQL is the only query that references system.* and warehouse tables by name
     if getattr(query, "kind", None) == "HogQLQuery":
@@ -200,11 +210,11 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
                 # otherwise a user denied an underlying table could be served a cached view result.
                 scopes.add("warehouse_table")
 
-        return _with_fallback_parents(scopes)
+        return finish(scopes)
 
     # Structured insight queries (Trends/Funnels/Lifecycle/...) read warehouse data via a
     # DataWarehouseNode in their tree rather than by table name.
-    return _with_fallback_parents({"warehouse_table", "warehouse_view"}) if _references_data_warehouse(query) else set()
+    return finish({"warehouse_table", "warehouse_view"}) if _references_data_warehouse(query) else set()
 
 
 def _with_fallback_parents(scopes: set[str]) -> set[str]:
