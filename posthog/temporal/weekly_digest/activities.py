@@ -414,6 +414,10 @@ def _expiring_recording_start_windows(now: datetime) -> list[tuple[datetime, dat
     started between `now - retention` and `now - retention + TTL_THRESHOLD`. A day of slack on each
     side covers the day truncation. The ClickHouse retention column is null for the 30-day default,
     which the 30-day window covers.
+
+    Ingestion writes that column only from RetentionPeriodToDaysMap in
+    nodejs/src/ingestion/pipelines/sessionreplay/shared/constants.ts. A period added there but not to
+    RETENTION_PERIOD_DAYS gets no window, so its recordings drop out of the count. Update both maps.
     """
     return [
         (now - timedelta(days=retention + 1), now - timedelta(days=retention - TTL_THRESHOLD - 1))
