@@ -4978,6 +4978,11 @@ export interface AggregatedSpanRow {
     p99_duration_nano: number
     p999_duration_nano: number
     error_count: integer
+    /** Set only when the query asked for `includeImpact`. `sessions` and `users` are uniq() estimates; the two span counts are exact. */
+    sessions?: integer
+    users?: integer
+    spans_with_session_id?: integer
+    spans_with_distinct_id?: integer
 }
 
 export interface TraceSpansAggregationQuery extends DataNode<TraceSpansAggregationQueryResponse> {
@@ -4987,6 +4992,8 @@ export interface TraceSpansAggregationQuery extends DataNode<TraceSpansAggregati
     compareFilter?: CompareFilter
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
+    /** Also aggregate sessions and people per operation. Off by default: it reads the attribute maps. */
+    includeImpact?: boolean
 }
 
 export interface TraceSpansAggregationQueryResponse extends AnalyticsQueryResponseBase {
