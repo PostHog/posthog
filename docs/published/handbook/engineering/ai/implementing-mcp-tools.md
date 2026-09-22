@@ -447,12 +447,6 @@ for instructions on running the MCP server locally and verifying tools end-to-en
 
 ### Structured data for native tool widgets
 
-MCP list response text contains the `results` array instead of the Django pagination object in both optimized and JSON output.
-This applies to objects with `results`, `next`, and `previous`, plus an optional `count`, and no other fields.
-Only the current page is returned; the server does not fetch more pages.
-Widget data keeps the original pagination object.
-Responses with additional fields keep their full structure.
-
 For the `posthog_ai` consumer, tool responses carry the handler's returned data in
 `_meta["com.posthog.mcp/app_data"]`, including tools without an MCP UI resource.
 This applies to direct calls and calls through `exec`. The metadata excludes the
