@@ -2,7 +2,7 @@ import re
 import uuid
 import datetime
 from datetime import timedelta
-from typing import cast
+from typing import Any, cast
 from urllib.parse import quote, unquote, urlparse
 
 import pytest
@@ -986,12 +986,13 @@ class TestUserAPI(APIBaseTest):
             ("invalid_email", {"email": "not-an-email"}, 403),
             ("same_email_in_other_case", {"email": "ALPHA@example.com"}, 200),
             ("profile_field", {"first_name": "Newname"}, 200),
+            ("non_object_body", ["email", "password"], 400),
         ]
     )
     @patch("posthog.api.email_verification.send_email_verification_code")
     @patch("posthog.api.user.is_email_available", return_value=True)
     def test_token_auth_cannot_change_email_or_password(
-        self, _name: str, payload: dict, expected_status: int, _mock_is_email_available, mock_send_code
+        self, _name: str, payload: Any, expected_status: int, _mock_is_email_available, mock_send_code
     ):
         self.user.email = "alpha@example.com"
         self.user.save()

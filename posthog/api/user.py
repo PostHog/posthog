@@ -6,6 +6,7 @@ import secrets
 import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, NoReturn, Optional, cast
 
@@ -1066,7 +1067,8 @@ class UserViewSet(
         # API key or OAuth token must not reset either of them. This check runs before serializer
         # validation, because an email validation error would tell a token holder which addresses have
         # an account.
-        if isinstance(request.successful_authenticator, SessionAuthentication):
+        # A body that is not an object cannot carry either field, and the serializer rejects it with a 400.
+        if isinstance(request.successful_authenticator, SessionAuthentication) or not isinstance(request.data, Mapping):
             return
         email = request.data.get("email")
         keeps_email = "email" not in request.data or (
