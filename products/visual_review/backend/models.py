@@ -296,7 +296,13 @@ class RunSnapshot(ProductTeamModel):
             # identifier) are index-only scans instead of reads of the whole table.
             models.Index(
                 fields=["run", "result"],
-                include=["classification_reason", "identifier", "diff_percentage", "tolerated_hash_match"],
+                include=[
+                    "classification_reason",
+                    "review_state",
+                    "identifier",
+                    "diff_percentage",
+                    "tolerated_hash_match",
+                ],
                 name="snapshot_run_result_covering",
             ),
             models.Index(fields=["run", "review_state"], name="snapshot_run_review_state"),

@@ -17,7 +17,13 @@ class Migration(migrations.Migration):
             model_name="runsnapshot",
             index=models.Index(
                 fields=["run", "result"],
-                include=["classification_reason", "identifier", "diff_percentage", "tolerated_hash_match"],
+                include=[
+                    "classification_reason",
+                    "review_state",
+                    "identifier",
+                    "diff_percentage",
+                    "tolerated_hash_match",
+                ],
                 name="snapshot_run_result_covering",
             ),
         ),
