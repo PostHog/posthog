@@ -911,9 +911,12 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             const requestedScopes = searchParams['scope']?.split(' ')?.filter((scope: string) => scope.length) ?? []
             const oauthMcpConsent = getAppContext()?.oauth_mcp_consent
             const scopeResolution = getAppContext()?.oauth_scope_resolution
-            // When the server resolved the request to nothing, the URL's tokens are what it
-            // refused, so they are no fallback either. An empty list renders a consent
-            // screen with no permissions whose Authorize button posts a blank scope.
+            // The screen needs a set it can submit, because an empty one renders no
+            // permissions and posts a blank scope the API rejects. An empty server
+            // resolution therefore falls back to the identity-only DEFAULT_OAUTH_SCOPES,
+            // which is safe: it grants no resource access, so the person consents to
+            // nothing they did not see. The URL's own tokens are deliberately not reused,
+            // since those are what the server resolved to nothing.
             const fallbackScopes = scopeResolution || !requestedScopes.length ? DEFAULT_OAUTH_SCOPES : requestedScopes
 
             const scopesWereDefaulted = scopeResolution?.was_defaulted ?? requestedScopes.length === 0
