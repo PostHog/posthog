@@ -51,6 +51,10 @@ class AdvancedActivityLogFieldDiscovery:
         return result
 
     def _get_static_filters(self, queryset: QuerySet) -> dict[str, list[dict[str, str]]]:
+        # The viewset always orders the queryset, and Django folds ordering columns into the
+        # DISTINCT key, so the ordering has to go before the helpers can dedupe in Postgres.
+        queryset = queryset.order_by()
+
         return {
             "users": self._get_available_users(queryset),
             "scopes": self._get_available_scopes(queryset),
@@ -59,18 +63,16 @@ class AdvancedActivityLogFieldDiscovery:
         }
 
     def _get_distinct_values(self, queryset: QuerySet, column: str) -> list[str]:
-        """Distinct non-empty values of one column, deduped by Postgres instead of in Python.
-
-        The viewset always orders the queryset, and Django folds ordering columns into the
-        DISTINCT key, so the ordering has to be cleared for the dedupe to reach the database.
-        """
-        values = queryset.order_by().filter(**{f"{column}__isnull": False}).values_list(column, flat=True).distinct()
-        return sorted(value for value in values if value)
+        return sorted(
+            queryset.exclude(**{f"{column}__isnull": True})
+            .exclude(**{column: ""})
+            .values_list(column, flat=True)
+            .distinct()
+        )
 
     def _get_available_users(self, queryset: QuerySet) -> list[dict[str, str]]:
         users_query = (
-            queryset.order_by()
-            .filter(user__isnull=False)
+            queryset.filter(user__isnull=False)
             .values("user__uuid", "user__first_name", "user__last_name", "user__email")
             .distinct()
             .order_by("user__email")
