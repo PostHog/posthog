@@ -25,7 +25,6 @@ kev-vllm-export = "kev_vllm.export:main"
 kev-vllm-upload = "kev_vllm.upload:main"
 kev-vllm-parity = "kev_vllm.parity:main"
 kev-vllm-checkpoint = "kev_vllm.checkpoint:main"
-kev-vllm-eval = "kev_vllm.evals:main"
 
 [project.entry-points."vllm.general_plugins"]
 kev = "kev_vllm.plugin:register"

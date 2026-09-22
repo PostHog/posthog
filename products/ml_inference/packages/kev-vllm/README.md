@@ -109,27 +109,11 @@ Measured 2026-09-22 on a Lambda 2x H100 SXM instance (one GPU used), vLLM 0.29.0
 
 ## Date facts
 
-Kev cannot subtract dates, so its author ships an opt-in preprocessor that appends the day count between any two absolute dates in the state ("July 4, 2026 is 8 days after June 26, 2026."). `kev_compat.with_date_facts` is that function, and the IO processor applies it to every request when the server runs with `KEV_DATE_FACTS=1`. It is off by default so the served numbers match Kev's published ones.
+Kev cannot subtract dates, so its author ships an opt-in preprocessor that appends the day count between any two absolute dates in the state ("July 4, 2026 is 8 days after June 26, 2026."). `kev_compat.with_date_facts` is that function, made idempotent so a client that already applied it is not doubled up, and the IO processor applies it to every request when the server runs with `KEV_DATE_FACTS=1`. It is off by default so the served numbers match Kev's published ones.
 
 ## Evals
 
-`kev-vllm-eval` scores a served model on a labelled suite in Kev's frozen format (`state`, `questions` with `label` and `src`, `_meta`), one row per question, correct when the served argmax is the label. `--date-facts` applies the preprocessor on the client side, so one server answers both arms:
-
-```bash
-uv run kev-vllm-eval --base-url http://localhost:8000 --suite evals/v4/transfer-v4/development.jsonl --out plain.json
-uv run kev-vllm-eval --base-url http://localhost:8000 --suite evals/v4/transfer-v4/development.jsonl --date-facts --out date-facts.json
-```
-
-Measured 2026-09-22 on the H100 server above, `jaredpalmer/kev-4b` at Hub revision `485ace87`, Kev's development splits at its source commit `35566d7`. "Two dates" is the subset of questions whose state mentions two or more absolute dates, which is where the preprocessor can act.
-
-| Suite, questions              | Arm        | Overall | Two dates    | `contrastive_deadline` |
-| ----------------------------- | ---------- | ------- | ------------ | ---------------------- |
-| transfer-v4 development, 764  | plain      | 0.787   | 0.681 (n=72) | 0.600 (n=40)           |
-| transfer-v4 development, 764  | date facts | 0.806   | 0.889 (n=72) | 0.850 (n=40)           |
-| decision-v7 development, 1468 | plain      | 0.882   | 0.844 (n=45) | not in this suite      |
-| decision-v7 development, 1468 | date facts | 0.886   | 1.000 (n=45) | not in this suite      |
-
-Kev's own numbers for the same change on 4B are 0.60 to 0.82 on the deadline questions, so the served model reproduces the effect. Each full run takes under six seconds at concurrency 32.
+The eval runner that scores a served model on Kev's labelled suites, with and without date facts, lives in the MLHog repository under `models/kev/`, next to the other model work. Measured there on 2026-09-22 against this server on an H100: date facts move the deadline questions of Kev's transfer-v4 development split from 0.60 to 0.85 and change nothing else by more than half a point.
 
 ## Tests
 
