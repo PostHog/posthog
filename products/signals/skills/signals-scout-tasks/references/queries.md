@@ -14,9 +14,9 @@ Conventions used throughout:
   `t.created_at` is when someone asked; `r.created_at` is when a run executed.
   A task created months ago can run today, so an origin mix computed on task creation will not match one computed on run time.
   Pick the anchor that matches the question — lens A anchors on `r.created_at`, lens B on `t.created_at`.
-- **`stage` may be unpopulated.**
-  Probe `countIf(stage != '')` over the window before you rely on it.
-  When it reads null across runs, never group or filter on it.
+- **Measure a field's coverage before you group on it.**
+  Probe `countIf(stage != '')` — and the same for any other optional column — over the window before you rely on it.
+  A field that reads empty across the window carries no signal for that window: do not group or filter on it, and say so rather than reporting a gap as a finding.
 - **`error_message` presence is not failure.**
   Far more runs carry a message than are in `failed` status.
   Always pair it with `status = 'failed'` when measuring failures.
@@ -50,8 +50,8 @@ SELECT
     uniq(t.created_by_id)                                        AS creators,
     uniq(t.repository)                                           AS repos,
     countIf(r.status = 'failed')                                 AS failed,
-    countIf(isNotNull(r.error_message))                          AS with_error_msg,
-    countIf(isNotNull(r.branch))                                 AS with_branch
+    countIf(r.error_message != '')                               AS with_error_msg,
+    countIf(r.branch != '')                                      AS with_branch
 FROM system.task_runs AS r
 JOIN system.tasks AS t ON r.task_id = t.id
 WHERE r.created_at > now() - interval 14 day

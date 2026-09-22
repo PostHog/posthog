@@ -154,7 +154,7 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
 - `display_name`: the name the UI shows for the scout. Leave blank to use the default derived from the skill name; it never changes `skill_name`, which stays fixed.
   The only setting here the nested `config` on `scout-create` does not take: set it with a `-config-update` after creation.
 - `model`: pins the model the scout's runs use. Leave unset to follow the fleet default, which is what most scouts should do; set it when a scout's job needs a stronger model (long research) or a cheaper one (a frequent, mechanical probe) and say why in the body.
-  Early access: on a project not enrolled in the `scouts-model-config` preview, any non-null value is rejected with "Choosing a scout model is not available on this project yet.", so only recommend pinning where that flag is on.
+  Not every project can pin a model: where the capability is off, a non-null value is rejected with "Choosing a scout model is not available on this project yet." Read that error as the answer and leave the field unset rather than probing for it.
 - `mcp_gateway_server_ids`: MCP store servers (by id) this scout's runs may mount, chosen from the connections members have shared with the whole team.
   Empty (the default) mounts none of the shared servers. The intent is that only team-shared connections back a scout run, so runs behave the same whoever edits the scout; where MCP gateway enforcement is not yet active on the project, the launch path may still mount the acting user's personal connections, so check the run's mounted servers in its transcript when that matters.
   Treat it like `network_access`: it hands the scout third-party tools with whatever access the shared connection carries, changes are activity-logged, and the body should name what the scout uses each server for.
@@ -266,5 +266,6 @@ Keep the two in sync when the scout config / run / scratchpad surfaces change.
 - A **Decide** section calibrated against the report contract — author 1:1 only for a finding the scout would own end-to-end, set `suggested_reviewers`, and write memory instead when a candidate is below the bar.
 - **Save-memory** guidance using the scratchpad prefixes so the scout gets smarter each run.
 - A lean body (push depth into `references/`) — every line is a recurring token cost on every run.
+- **Product behavior, not the state of your project on the day you wrote it.** A body that names a feature flag, says "when available" or "isn't registered yet", or hardcodes a table only your project has, goes stale the moment either changes — and a shared scout carries that stale line into every project. Say how the scout discovers a capability or a table at run time, and what it does when the discovery comes back empty.
 - A **tight frontmatter `description`** — a sentence or two naming the surface and the shapes it watches.
   Every scout's description loads into the caller's AI plugin together, so wordy descriptions waste token budget and get truncated; skip the fleet-wide boilerplate (report bar, durable memory, self-contained peer).
