@@ -10,6 +10,19 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { PiModelSelector } from "./PiSessionControls";
 
+const piSubscriptionMock = vi.hoisted(() => ({
+  models: [] as {
+    id: string;
+    name: string;
+  }[],
+}));
+
+vi.mock("@posthog/ui/features/settings/piSubscription", () => ({
+  usePiSubscription: () => ({ flagEnabled: true, loggedIn: true }),
+  usePiSubscriptionModels: () => piSubscriptionMock.models,
+  applyPiModelAccess: vi.fn(),
+}));
+
 // Menu open/close and submenu reveals ride animations that starve under
 // parallel suite load; the default 1s async timeout flakes.
 configure({ asyncUtilTimeout: 5000 });
@@ -102,6 +115,7 @@ describe("PiModelSelector", () => {
   });
 
   it("uses the ChatGPT model instead of the PostHog catalog", async () => {
+    piSubscriptionMock.models = [];
     const onChange = vi.fn();
     const onGatewayModelSelect = vi.fn();
     const user = userEvent.setup({ pointerEventsCheck: 0 });
@@ -133,6 +147,53 @@ describe("PiModelSelector", () => {
       provider: "openai-codex",
       id: "gpt-5.6-terra",
       name: "GPT-5.6 Terra",
+    });
+    expect(onGatewayModelSelect).not.toHaveBeenCalled();
+  });
+
+  it("derives the ChatGPT model list from the subscription provider", async () => {
+    piSubscriptionMock.models = [
+      { id: "gpt-5.6-terra", name: "GPT-5.6 Terra" },
+      { id: "gpt-5.6-sol", name: "GPT-5.6 Sol" },
+      { id: "gpt-5.6-luna", name: "GPT-5.6 Luna" },
+    ];
+    const onChange = vi.fn();
+    const onGatewayModelSelect = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <PiModelSelector
+        models={piModels}
+        currentModel={{
+          provider: "openai-codex",
+          id: "gpt-5.6-terra",
+          name: "GPT-5.6 Terra",
+        }}
+        onChange={onChange}
+        modelOption={groupedModelOption()}
+        onGatewayModelSelect={onGatewayModelSelect}
+        subscriptionProvider="openai-codex"
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Model: GPT-5.6 Terra" }),
+    );
+    await openSub(user, /^Model/);
+
+    expect(
+      await screen.findByRole("menuitemradio", { name: "GPT-5.6 Terra" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("menuitemradio", { name: "GPT-5.6 Sol" }));
+    expect(screen.getByRole("menuitemradio", { name: "GPT-5.6 Luna" }));
+    expect(screen.queryByText("GPT-5.5")).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("menuitemradio", { name: "GPT-5.6 Luna" }),
+    );
+    expect(onChange).toHaveBeenCalledWith({
+      provider: "openai-codex",
+      id: "gpt-5.6-luna",
+      name: "GPT-5.6 Luna",
     });
     expect(onGatewayModelSelect).not.toHaveBeenCalled();
   });

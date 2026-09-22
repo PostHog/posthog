@@ -46,6 +46,7 @@ import {
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
 import {
   type PiSubscriptionLoginSession,
+  piSubscriptionModels as piNativeSubscriptionModels,
   piSubscriptionLoginState,
   signOutPiSubscription as signOutPiNativeSubscription,
   startPiSubscriptionLogin as startPiNativeSubscriptionLogin,
@@ -141,6 +142,7 @@ import {
   type Credentials,
   type EffortLevel,
   type InterruptReason,
+  type PiSubscriptionModels,
   type PiSubscriptionStatus,
   type PromptOutput,
   type ReconnectSessionInput,
@@ -634,6 +636,10 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       return { loginState: "logged-out" };
     }
     return { loginState: await piSubscriptionLoginState() };
+  }
+
+  async getPiSubscriptionModels(): Promise<PiSubscriptionModels> {
+    return { models: await piNativeSubscriptionModels() };
   }
 
   async startPiSubscriptionLogin(): Promise<{ authUrl: string }> {

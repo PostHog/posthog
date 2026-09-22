@@ -65,7 +65,7 @@ function exitError(host: HostProcess, code: number | null): Error {
 
 function sendRequest<T>(
   host: HostProcess,
-  type: "status" | "login" | "logout" | "cancel",
+  type: "status" | "login" | "logout" | "cancel" | "models",
   timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<T> {
   const id = randomUUID();
@@ -128,6 +128,27 @@ export async function signOutPiSubscription(): Promise<void> {
   const host = spawnHost();
   try {
     await sendRequest(host, "logout");
+  } finally {
+    host.kill();
+  }
+}
+
+export interface PiSubscriptionModelInfo {
+  id: string;
+  name: string;
+}
+
+export async function piSubscriptionModels(): Promise<
+  PiSubscriptionModelInfo[]
+> {
+  const host = spawnHost();
+  try {
+    const { models } = await sendRequest<{
+      models: PiSubscriptionModelInfo[];
+    }>(host, "models");
+    return models;
+  } catch {
+    return [];
   } finally {
     host.kill();
   }

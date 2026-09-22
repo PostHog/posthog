@@ -29,6 +29,12 @@ vi.mock("./usePiModelCatalog", () => ({
   usePiModelCatalog: () => ({ data: catalog.models, isPending: false }),
 }));
 
+vi.mock("@posthog/ui/features/settings/piSubscription", () => ({
+  usePiSubscription: () => ({ flagEnabled: true, loggedIn: true }),
+  usePiSubscriptionModels: () => [],
+  applyPiModelAccess: vi.fn(),
+}));
+
 function piSession(
   models: Array<{ provider: string; id: string }>,
   currentModelId: string,

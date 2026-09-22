@@ -295,6 +295,12 @@ export const piSubscriptionStatusOutput = z.object({
 
 export type PiSubscriptionStatus = z.infer<typeof piSubscriptionStatusOutput>;
 
+export const piSubscriptionModelsOutput = z.object({
+  models: z.array(z.object({ id: z.string(), name: z.string() })),
+});
+
+export type PiSubscriptionModels = z.infer<typeof piSubscriptionModelsOutput>;
+
 export const piSubscriptionLoginOutput = z.object({
   authUrl: z.string(),
 });

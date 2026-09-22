@@ -18,6 +18,11 @@ export interface PiSubscription {
   loggedIn: boolean;
 }
 
+export interface PiSubscriptionModel {
+  id: string;
+  name: string;
+}
+
 export function usePiSubscription(): PiSubscription {
   const flagEnabled =
     useFeatureFlag(CODEX_OWN_SUBSCRIPTION_FLAG) || import.meta.env.DEV;
@@ -30,6 +35,18 @@ export function usePiSubscription(): PiSubscription {
   });
 
   return { flagEnabled, loggedIn: status?.loginState === "logged-in" };
+}
+
+export function usePiSubscriptionModels(
+  enabled: boolean,
+): PiSubscriptionModel[] {
+  const hostTRPC = useHostTRPC();
+  const { data } = useQuery({
+    ...hostTRPC.agent.piSubscriptionModels.queryOptions(),
+    enabled,
+    staleTime: 60_000,
+  });
+  return data?.models ?? [];
 }
 
 export function effectivePiSubscriptionProvider(input: {

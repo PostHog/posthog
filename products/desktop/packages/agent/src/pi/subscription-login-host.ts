@@ -1,13 +1,14 @@
 import type { PiSubscriptionLoginSession } from "./subscription-login";
 import {
   piSubscriptionLoginState,
+  piSubscriptionModels,
   signOutPiSubscription,
   startPiSubscriptionLogin,
 } from "./subscription-login";
 
 interface HostRequest {
   id: string;
-  type: "status" | "login" | "logout" | "cancel";
+  type: "status" | "login" | "logout" | "cancel" | "models";
 }
 
 let activeLogin: PiSubscriptionLoginSession | undefined;
@@ -34,6 +35,11 @@ async function handleRequest(request: HostRequest): Promise<void> {
     case "logout": {
       await signOutPiSubscription();
       reply(request.id, {});
+      return;
+    }
+    case "models": {
+      const models = await piSubscriptionModels();
+      reply(request.id, { models });
       return;
     }
     case "cancel": {

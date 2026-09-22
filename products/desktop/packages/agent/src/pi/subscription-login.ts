@@ -45,6 +45,23 @@ export async function signOutPiSubscription(): Promise<void> {
   await runtime.logout(PI_SUBSCRIPTION_PROVIDER);
 }
 
+export interface PiSubscriptionModelInfo {
+  id: string;
+  name: string;
+}
+
+export async function piSubscriptionModels(): Promise<
+  PiSubscriptionModelInfo[]
+> {
+  try {
+    const runtime = await getSharedModelRuntime();
+    const models = await runtime.getAvailable(PI_SUBSCRIPTION_PROVIDER);
+    return models.map((model) => ({ id: model.id, name: model.name }));
+  } catch {
+    return [];
+  }
+}
+
 function pickLoginMethod(
   prompt: Extract<AuthPrompt, { type: "select" }>,
 ): string {

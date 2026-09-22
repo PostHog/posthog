@@ -44,6 +44,7 @@ import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSetting
 import {
   applyPiModelAccess,
   usePiSubscription,
+  usePiSubscriptionModels,
 } from "@posthog/ui/features/settings/piSubscription";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
@@ -214,12 +215,24 @@ export function PiModelSelector({
     (currentModel?.provider === PI_SUBSCRIPTION_PROVIDER
       ? PI_SUBSCRIPTION_PROVIDER
       : undefined);
-  const subscriptionModel = activeSubscriptionProvider
-    ? PI_SUBSCRIPTION_MODEL
-    : undefined;
-  const availableModels = subscriptionModel ? [subscriptionModel] : models;
+  const subscriptionModels = usePiSubscriptionModels(
+    Boolean(activeSubscriptionProvider),
+  );
+  const subscriptionModelList: PiModelOption[] =
+    subscriptionModels.length > 0
+      ? subscriptionModels.map((model) => ({
+          provider: PI_SUBSCRIPTION_PROVIDER,
+          id: model.id,
+          name: model.name,
+        }))
+      : [PI_SUBSCRIPTION_MODEL];
+  const availableModels = activeSubscriptionProvider
+    ? subscriptionModelList
+    : models;
   const gatewayModelSelect =
-    !subscriptionModel && modelOption?.type === "select" && onGatewayModelSelect
+    !activeSubscriptionProvider &&
+    modelOption?.type === "select" &&
+    onGatewayModelSelect
       ? modelOption
       : undefined;
 
@@ -270,7 +283,11 @@ export function PiModelSelector({
     return null;
   }
 
-  const selectedModel = subscriptionModel ?? currentModel;
+  const selectedModel =
+    activeSubscriptionProvider &&
+    currentModel?.provider !== activeSubscriptionProvider
+      ? subscriptionModelList[0]
+      : currentModel;
   const currentValue = selectedModel ? modelKey(selectedModel) : "";
   const currentLabel = modelLabel(selectedModel);
   const thinkingLabel = thinkingLevel

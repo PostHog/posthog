@@ -22,6 +22,7 @@ import {
   listSessionsOutput,
   notifySessionContextInput,
   piSubscriptionLoginOutput,
+  piSubscriptionModelsOutput,
   piSubscriptionStatusOutput,
   promptInput,
   promptOutput,
@@ -132,6 +133,12 @@ export const agentRouter = router({
     .output(piSubscriptionStatusOutput)
     .query(({ ctx }) =>
       ctx.container.get<AgentService>(AGENT_SERVICE).getPiSubscriptionStatus(),
+    ),
+
+  piSubscriptionModels: publicProcedure
+    .output(piSubscriptionModelsOutput)
+    .query(({ ctx }) =>
+      ctx.container.get<AgentService>(AGENT_SERVICE).getPiSubscriptionModels(),
     ),
 
   piSubscriptionLoginStart: publicProcedure

@@ -6,7 +6,10 @@ import {
   createRuntimeMcpServers,
   type PiRpcClient,
 } from "@posthog/agent/pi/rpc-client";
-import { piSubscriptionLoginState } from "@posthog/agent/pi/subscription-login-client";
+import {
+  piSubscriptionLoginState,
+  piSubscriptionModels,
+} from "@posthog/agent/pi/subscription-login-client";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import {
@@ -89,9 +92,13 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     const subscription = await this.resolveSubscriptionProvider(
       input.piSubscriptionProvider,
     );
+    const model = await this.resolveSubscriptionModel(
+      subscription,
+      input.model,
+    );
 
     return createPiRpcClient({
-      model: subscription ? PI_SUBSCRIPTION_DEFAULT_MODEL_ID : input.model,
+      model,
       sessionFile: input.sessionFile,
       taskContext,
       enrichment: {
@@ -130,6 +137,29 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
       return undefined;
     }
     return PI_SUBSCRIPTION_PROVIDER;
+  }
+
+  private async resolveSubscriptionModel(
+    subscription: PiSubscriptionProvider | undefined,
+    model: string | undefined,
+  ): Promise<string | undefined> {
+    if (!subscription) {
+      return model;
+    }
+    if (!model) {
+      return PI_SUBSCRIPTION_DEFAULT_MODEL_ID;
+    }
+    const known = await piSubscriptionModels();
+    if (known.some((entry) => entry.id === model)) {
+      return model;
+    }
+    this.rootLogger
+      .scope("pi-rpc-client-factory")
+      .warn(
+        "Pi own-subscription model is not in the provider catalog; using the default",
+        { model },
+      );
+    return PI_SUBSCRIPTION_DEFAULT_MODEL_ID;
   }
 
   private registerMcpAppsServers(servers: McpServerConnection[]): void {
