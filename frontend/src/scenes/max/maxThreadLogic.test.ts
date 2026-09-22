@@ -2222,13 +2222,14 @@ describe('maxThreadLogic', () => {
             const { onEventImplementation } = await import('./maxThreadLogic')
             const dashboardModel = insightsModel()
             dashboardModel.mount()
+            const cache = {}
             const emit = async (message: object): Promise<void> =>
                 onEventImplementation(AssistantEventType.Message, JSON.stringify(message), {
                     actions: logic.actions,
                     values: logic.values,
                     props: logic.props,
                     agentMode: null,
-                    cache: {},
+                    cache,
                 })
             const saved = {
                 id: 'save-result',
@@ -2240,6 +2241,7 @@ describe('maxThreadLogic', () => {
             await expectLogic(dashboardModel, () => emit(saved)).toDispatchActions([
                 dashboardModel.actionCreators.insightSaved('saved-chart' as InsightShortId),
             ])
+            await expectLogic(dashboardModel, () => emit(saved)).toNotHaveDispatchedActions(['insightSaved'])
             dashboardModel.unmount()
         })
 

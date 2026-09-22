@@ -30,7 +30,7 @@ from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.chat_agent.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.create_insight import INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT, CreateInsightTool
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantNodeName, NodePath
@@ -193,9 +193,6 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_saved_update_requires_object_edit_permission(self):
         tool = await self._create_tool()
         insight = await Insight.objects.acreate(team=self.team, query={"kind": "TrendsQuery", "series": []})
-        with patch.object(tool.user_access_control, "check_access_level_for_object", return_value=False):
-            with self.assertRaises(MaxToolAccessDeniedError):
-                await tool._get_insight(insight.short_id)
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}
         ]

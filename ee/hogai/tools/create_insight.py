@@ -1,16 +1,10 @@
 import json
 from typing import Any, Literal, Self, cast
 
-from django.db import transaction
-from django.http import HttpRequest
-
 import jsonpatch
 from jsonpointer import JsonPointerException
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field, ValidationError
-from rest_framework.authentication import BaseAuthentication
-from rest_framework.exceptions import APIException
-from rest_framework.request import ForcedAuthentication, Request
 
 from posthog.schema import (
     ArtifactContentType,
@@ -23,10 +17,9 @@ from posthog.schema import (
 
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
-from posthog.user_permissions import UserPermissions
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.api import save_saved_insight_query, saved_insight_for_update
+from products.product_analytics.backend.facade.contracts import SavedInsightDefinition
 
 from ee.hogai.artifacts.utils import is_visualization_artifact_message
 from ee.hogai.chat_agent.insights_graph.graph import InsightsGraph
@@ -571,15 +564,14 @@ class CreateInsightTool(MaxTool):
         """Creating an insight requires editor-level access to insights."""
         return [("insight", "editor")]
 
-    async def _get_insight(self, insight_id: str) -> Insight:
-        insight = await Insight.objects.filter(team=self._team, short_id=insight_id, deleted=False).afirst()
+    async def _get_insight(self, insight_id: str) -> SavedInsightDefinition:
+        insight = await database_sync_to_async(saved_insight_for_update)(team_id=self._team.id, short_id=insight_id)
         if insight is None:
             raise MaxToolRetryableError(
                 "Insight not found. insight_id must be the short ID of a saved insight in this project. "
                 "For an unsaved chart from this conversation, omit insight_id and query_patch and provide a revised "
                 "structured plan. For a saved insight, use search or read_data to confirm its short ID before retrying."
             )
-        await self.check_object_access(insight, "editor", action="edit")
         return insight
 
     async def is_dangerous_operation(self, insight_id: str | None = None, **kwargs: Any) -> bool:
@@ -603,7 +595,8 @@ class CreateInsightTool(MaxTool):
             return await super()._check_dangerous_operation(kwargs)
 
         insight = await self._get_insight(insight_id)
-        kwargs["expected_query"] = insight.query
+        if kwargs.get("expected_query") is None:
+            kwargs["expected_query"] = insight.query
         preview = f"Update insight **{insight.name or insight.short_id}**. This changes every dashboard that uses this insight."
         if query_patch := kwargs.get("query_patch"):
             self._updated_insight_query(insight, query_patch)
@@ -611,7 +604,7 @@ class CreateInsightTool(MaxTool):
         return self._handle_dangerous_operation(kwargs, preview=preview)
 
     @staticmethod
-    def _updated_insight_query(insight: Insight, query_patch: str) -> dict[str, Any]:
+    def _updated_insight_query(insight: SavedInsightDefinition, query_patch: str) -> dict[str, Any]:
         try:
             operations = json.loads(query_patch)
             if not isinstance(operations, list) or not operations:
@@ -647,44 +640,12 @@ class CreateInsightTool(MaxTool):
                 f"Could not apply the query edits. Read the saved query and retry: {error}"
             ) from error
 
-    @database_sync_to_async
-    @transaction.atomic
-    def _save_insight_query(self, insight: Insight, query: dict[str, Any]) -> None:
-        # Keep API validation, sharing restrictions, activity logging, and cache invalidation on the save path.
-        from products.product_analytics.backend.presentation.insight import (  # noqa: PLC0415 -- keeps the heavy serializer off the tool import path
-            InsightSerializer,
+    async def _save_insight_query(self, insight: SavedInsightDefinition, query: dict[str, Any]) -> None:
+        error = await database_sync_to_async(save_saved_insight_query)(
+            team=self._team, user=self._user, insight_id=insight.id, expected_query=insight.query, query=query
         )
-
-        current = Insight.objects.select_for_update().get(team=self._team, pk=insight.pk, deleted=False)
-        if current.query != insight.query:
-            raise MaxToolRetryableError("This insight changed while generating the update. Read it again and retry.")
-        access_control = UserAccessControl(
-            user=User.objects.get(pk=self._user.pk), team=self._team, organization_id=str(self._team.organization_id)
-        )
-        if not access_control.check_access_level_for_resource(
-            "insight", "editor"
-        ) or not access_control.check_access_level_for_object(current, "editor"):
-            raise MaxToolRetryableError("You no longer have permission to edit this insight.")
-        request = Request(
-            HttpRequest(), authenticators=[cast(BaseAuthentication, ForcedAuthentication(self._user, None))]
-        )
-        serializer = InsightSerializer(
-            current,
-            data={"query": query},
-            partial=True,
-            context={
-                "request": request,
-                "team_id": self._team.id,
-                "get_team": lambda: self._team,
-                "user_permissions": UserPermissions(self._user),
-                "user_access_control": access_control,
-            },
-        )
-        try:
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-        except APIException as error:
-            raise MaxToolRetryableError(str(error.detail)) from error
+        if error:
+            raise MaxToolRetryableError(error)
 
     @classmethod
     async def create_tool_class(
