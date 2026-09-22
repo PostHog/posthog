@@ -113,7 +113,7 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     PropertyFilterType,
-    QueryBasedInsightModel,
+    InsightModel,
     SessionRecordingPlaylistType,
     TeamType,
 } from '~/types'
@@ -1965,8 +1965,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         endpoint: combineUrl(`api/projects/${teamId}/insights/`, {
                             saved: true,
                         }).url,
-                        getName: (insight: QueryBasedInsightModel) => insight.name,
-                        getValue: (insight: QueryBasedInsightModel) => insight.short_id,
+                        getName: (insight: InsightModel) => insight.name,
+                        getValue: (insight: InsightModel) => insight.short_id,
                         getPopoverHeader: () => `Insights`,
                     },
                     {
