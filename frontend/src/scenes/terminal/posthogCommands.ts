@@ -280,7 +280,10 @@ export class PosthogCommands {
                     name: `${namespace}/${tool.name}`,
                     description: `${tool.description}${tool.approval_state === 'needs_approval' ? '\nNeeds approval in Settings → MCP servers.' : ''}`,
                     inputSchema: tool.input_schema,
-                    readOnly: tool.annotations.readOnlyHint === true,
+                    // Upstream MCP annotations are advisory, so readOnlyHint cannot prove that a
+                    // connected tool only reads. Report every connected tool as a writer until the
+                    // gateway returns its own classification.
+                    readOnly: false,
                     invoke: async (args) => {
                         const result = await mcpServerInstallationsCallToolCreate(
                             this.projectId,
