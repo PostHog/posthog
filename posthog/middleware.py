@@ -1617,7 +1617,7 @@ class CSPMiddleware:
 
             report_uri = csp_report_endpoint(sample_rate=sample_rate)
             shadow_parts: list[str] = []
-            if report_uri and resource_url == "https://*.posthog.com" and not settings.E2E_TESTING:
+            if report_uri and is_cloud() and resource_url == "https://*.posthog.com" and not settings.E2E_TESTING:
                 bundle = [bundle_origin] if bundle_origin else []
                 replacements = {
                     # posthog-js loads its extensions from /static/ and our project's remote config. The

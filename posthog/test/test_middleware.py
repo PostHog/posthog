@@ -2366,25 +2366,46 @@ class TestCSPMiddleware(APIBaseTest):
             assert "report-to" not in policy
             assert "Reporting-Endpoints" not in response
 
-    @override_settings(
-        TEST=False,
-        DEBUG=False,
-        CLOUD_DEPLOYMENT="US",
-        SITE_URL="https://us.posthog.com",
-        JS_URL="https://app-static-prod.posthog.com",
+    @parameterized.expand(
+        [
+            (
+                "cloud",
+                {
+                    "CLOUD_DEPLOYMENT": "US",
+                    "SITE_URL": "https://us.posthog.com",
+                    "JS_URL": "https://app-static-prod.posthog.com",
+                },
+                True,
+            ),
+            # An operator can turn reporting on for their own install, but the shadow names PostHog
+            # Cloud's hosts and token, so its reports would tell that operator nothing they can act on.
+            (
+                "self_hosted_with_reporting_on",
+                {
+                    "CLOUD_DEPLOYMENT": None,
+                    "SITE_URL": "https://posthog.example.com",
+                    "CSP_REPORT_ENDPOINT": "https://posthog.example.com/report/?token=phc_test&v=2",
+                },
+                False,
+            ),
+        ]
     )
-    def test_cloud_pages_carry_a_report_only_shadow_without_the_wildcards(self):
+    def test_only_cloud_pages_carry_a_report_only_shadow_without_the_wildcards(self, _name, overrides, expects_shadow):
         # The shadow is the evidence for dropping the wildcards, so it must report on its own version
         # and must not quietly keep a wildcard.
-        response = self.client.get("/")
+        with override_settings(TEST=False, DEBUG=False, **overrides):
+            response = self.client.get("/")
 
-        app_policy, shadow = response["Content-Security-Policy-Report-Only"].split(", ")
+        app_policy, *shadows = response["Content-Security-Policy-Report-Only"].split(", ")
         assert "https://*.posthog.com" in app_policy
         assert "&v=2&" in app_policy
-        assert "*.posthog.com" not in shadow
-        assert "https://internal-j.posthog.com/array/sTMFPsFhdP1Ssg/config.js" in shadow
-        assert "https://live.us.posthog.com" in shadow
-        assert "&v=3&" in shadow
+        assert len(shadows) == (1 if expects_shadow else 0)
+        if expects_shadow:
+            shadow = shadows[0]
+            assert "*.posthog.com" not in shadow
+            assert "https://internal-j.posthog.com/array/sTMFPsFhdP1Ssg/config.js" in shadow
+            assert "https://live.us.posthog.com" in shadow
+            assert "&v=3&" in shadow
 
 
 class TestSocialAuthExceptionMiddleware(APIBaseTest):
