@@ -50,7 +50,12 @@ from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
 from posthog.models import Organization, Team, User
-from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_HEADER, activity_storage, client_from_header
+from posthog.models.activity_logging.utils import (
+    ACTIVITY_LOG_CLIENT_HEADER,
+    activity_storage,
+    client_from_header,
+    record_agent_intent,
+)
 from posthog.models.utils import generate_random_token
 from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
@@ -1254,6 +1259,7 @@ class ActivityLoggingMiddleware:
         if request.user.is_authenticated:
             activity_storage.set_user(request.user)
             activity_storage.set_was_impersonated(is_impersonated_session(request))
+            record_agent_intent(request)
 
         client_header = request.headers.get(ACTIVITY_LOG_CLIENT_HEADER)
         if client_header:
