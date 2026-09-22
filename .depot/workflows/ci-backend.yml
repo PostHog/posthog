@@ -20,14 +20,10 @@
 #   canonical: Depot resolves ./.github/actions/<x> from .depot/actions/<x>, so a missing
 #   mirror fails the step at setup with "action manifest not found".
 # - permissions: read-only in every job, so the ambient token never writes. Canonical grants
-#   handle-snapshots' github.token pull-requests:write for its CI report section; here the
-#   section posts with a posthog-tests token scoped to pull-requests:write (see the header of
+#   handle-snapshots' and backend-coverage-report's github.token pull-requests:write for their
+#   CI report sections; here those sections post with a posthog-tests token scoped to pull-requests:write (see the header of
 #   .depot/actions/commit-snapshots). Migration reports cross an artifact boundary into the
-#   base-controlled ci-backend-report.yml workflow before any write token is minted. Coverage
-#   generation stays read-only; ci-backend-coverage-report.yml publishes its inert artifact
-#   from base context.
-# - backend-coverage-report links to its Depot job and gives Depot CLI artifact instructions.
-#   It sets up Node from .nvmrc, which canonical takes from the GitHub-hosted image.
+#   base-controlled ci-backend-report.yml workflow before any write token is minted.
 # - Stripped side effects: posthog-github-action telemetry (including the
 #   capture-test-selection job — turbo-discover still emits its telemetry outputs to
 #   stay apples-to-apples, they just have no consumer here; canonical mints the
@@ -1442,7 +1438,6 @@ jobs:
                       product=$(basename "$(dirname "$f")")
                       cp "$f" "cov-staging/${product}.xml"
                   done
-                  git rev-parse HEAD > cov-staging/source-commit.txt
 
             - name: Upload product coverage
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -1450,9 +1445,7 @@ jobs:
               if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request') }}
               with:
                   name: coverage-xml-${{ strategy.job-index }}
-                  path: |
-                      cov-staging/*.xml
-                      cov-staging/source-commit.txt
+                  path: cov-staging/*.xml
                   if-no-files-found: ignore
                   retention-days: 2
                   overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
@@ -3217,19 +3210,12 @@ jobs:
                   path: posthog/tasks/test/__emails__
                   retention-days: 1
 
-            - name: Stage core coverage commit
-              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && matrix.segment == 'Core') }}
-              shell: bash
-              run: git rev-parse HEAD > source-commit.txt
-
             - name: Upload core coverage
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && matrix.segment == 'Core') }}
               with:
                   name: coverage-core-${{ strategy.job-index }}
-                  path: |
-                      coverage-core.xml
-                      source-commit.txt
+                  path: coverage-core.xml
                   if-no-files-found: ignore
                   retention-days: 2
                   overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
@@ -3674,28 +3660,16 @@ jobs:
                   check_required_result "Snapshot commit job" "${{ needs.handle-snapshots.result }}"
 
                   echo "All backend and product checks passed."
-    # calculate-running-time is omitted so Depot runs are not recorded as canonical CI data.
     backend-coverage-report:
         name: Backend coverage report
-        needs: [wait-for-handoff, changes, turbo-tests, django_tests, turbo-discover]
+        needs: [changes, turbo-tests, django_tests, turbo-discover]
         runs-on: depot-ubuntu-24.04
-        continue-on-error: true # report-only, never block a PR
+        continue-on-error: true
         timeout-minutes: 10
-        # Pinned job-level to read-only grants. This PR-controlled job only produces data;
-        # ci-backend-coverage-report.yml validates and publishes it from base context.
         permissions:
             contents: read
-            pull-requests: read
-        # In-repo PRs only. Runs when either
-        # the product (turbo-tests) or core (django_tests) suite ran, so a core-only PR still
-        # gets a comment; both skip on drafts, leaving nothing to report.
-        # A narrowed run measures only the selected tests, so patch coverage would report
-        # gaps that the full suite covers. Report only when the Django matrix ran full.
-        # Security invariant: this job runs PR-head-controlled scripts. It receives no write
-        # credential and uploads only structured data for the trusted publisher to re-render.
         if: >-
             !cancelled() &&
-            needs.wait-for-handoff.outputs.handed_off == 'true' &&
             github.event_name == 'pull_request' &&
             github.event.pull_request.draft == false &&
             needs.turbo-discover.outputs.mode != 'selected' &&
@@ -3704,9 +3678,6 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  # Default pull_request checkout = the synthetic merge ref — the same tree the
-                  # coverage runs measured, so diff line numbers match. Full history for diff-cover;
-                  # blob:none keeps it light (commit graph only, blobs fetched on demand).
                   fetch-depth: 0
                   filter: blob:none
             - name: Check for coverage reporter
@@ -3721,14 +3692,14 @@ jobs:
                   fi
             - name: Download coverage artifacts
               if: steps.reporter.outputs.available == 'true'
-              continue-on-error: true # a run where no shard emitted coverage.xml is not a failure
+              continue-on-error: true
               uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
               with:
                   path: ./cov-artifacts
                   pattern: coverage-xml-*
             - name: Download core coverage artifacts
               if: steps.reporter.outputs.available == 'true'
-              continue-on-error: true # core coverage only present once the Core segment ran with --cov
+              continue-on-error: true
               uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
               with:
                   path: ./core-artifacts
@@ -3738,33 +3709,39 @@ jobs:
                   enable-cache: false
               if: steps.reporter.outputs.available == 'true'
             - name: Build coverage report
-              # diff-cover is declared inline (PEP 723) in coverage_report.py; uv provisions it.
               if: steps.reporter.outputs.available == 'true'
-              env:
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-                  # The django job checks out the PR head, not the merge ref this job checks out.
-                  PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
                   mkdir -p cov-artifacts core-artifacts
+                  git fetch --no-tags --filter=blob:none --quiet origin master
                   uv run --script .github/scripts/coverage_report.py \
                       --artifacts cov-artifacts \
                       --core-artifacts core-artifacts \
                       --combined-out combined-coverage.xml \
-                      --compare-branch HEAD^1 \
-                      --source-commit "$(git rev-parse HEAD)" \
-                      --core-source-commit "$PR_HEAD_SHA" \
+                      --compare-branch origin/master \
                       --patch-json-out patch-coverage.json \
-                      --report-data-out coverage-report-data.json \
                       --out coverage-comment.md
-            - name: Upload inert coverage report data
-              if: ${{ always() && steps.reporter.outputs.available == 'true' }}
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+            - name: Get app token for CI report
+              if: steps.reporter.outputs.available == 'true'
+              id: ci-report-app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  name: coverage-report-data
-                  path: coverage-report-data.json
-                  if-no-files-found: ignore
-                  retention-days: 2
-                  overwrite: true
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  permission-pull-requests: write
+            - name: Set up Node.js
+              if: steps.reporter.outputs.available == 'true'
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ steps.ci-report-app-token.outputs.token }}
+            - name: Post to CI report comment
+              if: steps.reporter.outputs.available == 'true'
+              env:
+                  GITHUB_TOKEN: ${{ steps.ci-report-app-token.outputs.token }}
+              run: |
+                  if [ -f .github/scripts/post-coverage-section.mjs ]; then
+                      node .github/scripts/post-coverage-section.mjs coverage-comment.md patch-coverage.json
+                  fi
             - name: Upload patch coverage payload
               if: ${{ always() && steps.reporter.outputs.available == 'true' }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -3776,4 +3753,6 @@ jobs:
                       coverage-comment.md
                   if-no-files-found: ignore
                   retention-days: 2
-                  overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
+                  overwrite: true
+
+    # calculate-running-time is omitted so Depot runs are not recorded as canonical CI data.

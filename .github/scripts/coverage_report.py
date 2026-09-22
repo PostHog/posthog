@@ -43,11 +43,6 @@ from xml.etree import ElementTree
 import defusedxml.ElementTree as DefusedElementTree
 
 BAR_WIDTH = 20
-MAX_REPORT_DATA_BYTES = 2 * 1024 * 1024
-MAX_REPORT_PRODUCTS = 500
-MAX_REPORT_FILES = 10_000
-MAX_REPORT_VIOLATIONS = 100_000
-SOURCE_COMMIT_FILENAME = "source-commit.txt"
 
 
 def sanitize_path(path: str) -> str:
@@ -126,24 +121,6 @@ def aggregate(artifacts_dir: Path) -> tuple[LineMap, LineMap]:
             continue
         parse_xml(xml_path, covered[product], valid[product])
     return covered, valid
-
-
-def artifacts_match_commit(artifacts_dir: Path, expected_commit: str) -> bool:
-    """Verify that every downloaded coverage artifact was produced from the expected source tree."""
-    artifact_dirs = {xml_path.parent for xml_path in artifacts_dir.rglob("*.xml")}
-    for artifact_dir in sorted(artifact_dirs):
-        marker = artifact_dir / SOURCE_COMMIT_FILENAME
-        try:
-            actual_commit = marker.read_text().strip()
-        except OSError:
-            actual_commit = ""
-        if actual_commit != expected_commit:
-            sys.stderr.write(
-                f"::warning::rejecting coverage artifact {artifact_dir}: "
-                f"expected source commit {expected_commit}, got {actual_commit or 'no commit marker'}\n"
-            )
-            return False
-    return True
 
 
 def collect(covered: LineMap, valid: LineMap) -> list[ProductCoverage]:
@@ -374,18 +351,7 @@ def build_agent_hint() -> str:
     server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     run_id = os.environ.get("GITHUB_RUN_ID", "")
-    depot_job_url = os.environ.get("DEPOT_JOB_URL", "")
-    pr_number = os.environ.get("PR_NUMBER", "")
-    if depot_job_url.startswith("https://depot.dev/") and repo and pr_number.isdecimal():
-        list_workflow = (
-            f"depot ci workflow list --repo {repo} --pr {pr_number} --name 'Backend CI on Depot' -n 1 -o json"
-        )
-        payload = (
-            f"the **patch-coverage** artifact from [this Depot job]({depot_job_url}) "
-            f"(`depot ci artifacts list \"$({list_workflow} | jq -r '.[0].run_id')\" -o json`, "
-            "then `depot ci artifacts download <artifact-id>`)"
-        )
-    elif repo and run_id:
+    if repo and run_id:
         payload = f"the **patch-coverage** artifact on [this run]({server}/{repo}/actions/runs/{run_id}) (`gh run download {run_id} -n patch-coverage`)"
     else:
         payload = "the **patch-coverage** artifact"
@@ -445,169 +411,51 @@ def render_markdown(results: list[ProductCoverage], patch_data: dict | None) -> 
 
     lines += [
         "",
-        "_Report-only. Patch coverage measures changed backend lines for this run. Sorted lowest first._",
-        # The Django Temporal segment runs without coverage instrumentation, so "uncovered" is not exact.
-        "_Known gaps: lines covered only by Temporal tests show as uncovered. Coverage artifacts from another source commit are ignored when commit metadata is available._",
+        "_Report-only. Patch coverage = changed backend lines covered vs `origin/master`. Sorted lowest first._",
+        # Known blind spots, so "uncovered" isn't read as gospel: the Django Temporal segment runs
+        # without coverage instrumentation, and core XMLs come from the PR-head tree while the diff
+        # is computed on the merge ref (line drift when master touched the same core file).
+        "_Known gaps: lines covered only by Temporal tests show as uncovered; core line numbers may drift if `master` changed the same file._",
     ]
     if patch_data is not None:
         lines += ["", build_machine_block(patch_data, results)]
     return "\n".join(lines)
 
 
-def write_report_data(path: Path, results: list[ProductCoverage], patch_data: dict | None) -> None:
-    """Write inert data that a trusted-base workflow can validate and render."""
-    data = {
-        "version": 1,
-        "products": [
-            {"product": result.product, "covered": result.covered, "valid": result.valid} for result in results
-        ],
-        "patch": patch_data,
-    }
-    path.write_text(json.dumps(data, separators=(",", ":")))
-
-
-def _bounded_int(value: object, *, minimum: int = 0, maximum: int = 2**53 - 1) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
-        raise ValueError("coverage report contains an invalid integer")
-    return value
-
-
-def _bounded_percentage(value: object) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError("coverage report contains an invalid percentage")
-    percentage = float(value)
-    if not 0 <= percentage <= 100:
-        raise ValueError("coverage report contains an invalid percentage")
-    return percentage
-
-
-def read_report_data(path: Path) -> tuple[list[ProductCoverage], dict | None]:
-    """Validate PR-produced report data before trusted code renders it."""
-    if path.stat().st_size > MAX_REPORT_DATA_BYTES:
-        raise ValueError("coverage report data is too large")
-    data = json.loads(path.read_text())
-    if not isinstance(data, dict) or data.get("version") != 1:
-        raise ValueError("coverage report data has an unsupported version")
-
-    raw_products = data.get("products")
-    if not isinstance(raw_products, list) or len(raw_products) > MAX_REPORT_PRODUCTS:
-        raise ValueError("coverage report contains an invalid product list")
-    results: list[ProductCoverage] = []
-    for raw_product in raw_products:
-        if not isinstance(raw_product, dict) or not isinstance(raw_product.get("product"), str):
-            raise ValueError("coverage report contains an invalid product")
-        product = sanitize_path(raw_product["product"][:200])
-        covered = _bounded_int(raw_product.get("covered"))
-        valid = _bounded_int(raw_product.get("valid"))
-        if covered > valid:
-            raise ValueError("coverage report contains impossible product totals")
-        results.append(ProductCoverage(product=product, covered=covered, valid=valid))
-
-    raw_patch = data.get("patch")
-    if raw_patch is None:
-        return results, None
-    if not isinstance(raw_patch, dict):
-        raise ValueError("coverage report contains an invalid patch")
-
-    total_lines = _bounded_int(raw_patch.get("total_num_lines"))
-    total_violations = _bounded_int(raw_patch.get("total_num_violations"))
-    if total_violations > total_lines:
-        raise ValueError("coverage report contains impossible patch totals")
-    patch: dict = {
-        "total_num_lines": total_lines,
-        "total_num_violations": total_violations,
-        "total_percent_covered": _bounded_percentage(raw_patch.get("total_percent_covered")),
-        "src_stats": {},
-    }
-
-    raw_src_stats = raw_patch.get("src_stats", {})
-    if not isinstance(raw_src_stats, dict) or len(raw_src_stats) > MAX_REPORT_FILES:
-        raise ValueError("coverage report contains invalid file statistics")
-    violation_count = 0
-    for raw_path, raw_stats in raw_src_stats.items():
-        if not isinstance(raw_path, str) or not isinstance(raw_stats, dict):
-            raise ValueError("coverage report contains invalid file statistics")
-        raw_lines = raw_stats.get("violation_lines", [])
-        if not isinstance(raw_lines, list):
-            raise ValueError("coverage report contains invalid uncovered lines")
-        violation_count += len(raw_lines)
-        if violation_count > MAX_REPORT_VIOLATIONS:
-            raise ValueError("coverage report contains too many uncovered lines")
-        path_key = sanitize_path(raw_path[:500])
-        patch["src_stats"][path_key] = {
-            "percent_covered": _bounded_percentage(raw_stats.get("percent_covered", 0)),
-            "violation_lines": [_bounded_int(line, minimum=1) for line in raw_lines],
-        }
-    return results, patch
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--artifacts", type=Path, help="dir holding downloaded coverage-xml-* artifacts")
+    parser.add_argument("--artifacts", required=True, type=Path, help="dir holding downloaded coverage-xml-* artifacts")
     parser.add_argument("--out", type=Path, help="also write the markdown to this path")
     parser.add_argument(
         "--combined-out", type=Path, help="write a repo-relative combined Cobertura XML here (enables patch coverage)"
     )
     parser.add_argument("--compare-branch", default="origin/master", help="diff-cover compare branch")
     parser.add_argument("--patch-json-out", type=Path, help="path for diff-cover's JSON report (machine payload)")
-    parser.add_argument("--report-data-in", type=Path, help="validate and render inert report data")
-    parser.add_argument("--report-data-out", type=Path, help="write inert report data for a trusted publisher")
     parser.add_argument(
         "--core-artifacts", type=Path, help="dir of core (posthog/ee) coverage-core-* artifacts to include"
     )
-    parser.add_argument("--source-commit", help="exact commit that every coverage artifact must have measured")
-    parser.add_argument(
-        "--core-source-commit", help="exact commit the core coverage artifacts measured (default: --source-commit)"
-    )
     args = parser.parse_args()
 
-    if args.report_data_in is not None:
-        if (
-            args.artifacts is not None
-            or args.core_artifacts is not None
-            or args.combined_out is not None
-            or args.report_data_out is not None
-        ):
-            parser.error("--report-data-in cannot be combined with coverage artifact inputs")
-        results, patch_data = read_report_data(args.report_data_in)
-        if args.patch_json_out is not None and patch_data is not None:
-            args.patch_json_out.write_text(json.dumps(patch_data, separators=(",", ":")))
-    else:
-        if args.artifacts is None:
-            parser.error("--artifacts is required unless --report-data-in is used")
+    covered, valid = aggregate(args.artifacts)
 
-        def from_source_commit(artifacts_dir: Path, expected_commit: str | None) -> bool:
-            return expected_commit is None or artifacts_match_commit(artifacts_dir, expected_commit)
+    core_covered: dict[str, set[int]] = {}
+    core_valid: dict[str, set[int]] = {}
+    if args.core_artifacts is not None and args.core_artifacts.exists():
+        core_covered, core_valid = aggregate_core(args.core_artifacts)
 
-        covered, valid = (
-            aggregate(args.artifacts) if from_source_commit(args.artifacts, args.source_commit) else ({}, {})
-        )
+    results = collect(covered, valid)  # per-product table is products only; core feeds patch coverage
 
-        core_covered: dict[str, set[int]] = {}
-        core_valid: dict[str, set[int]] = {}
-        if (
-            args.core_artifacts is not None
-            and args.core_artifacts.exists()
-            and from_source_commit(args.core_artifacts, args.core_source_commit or args.source_commit)
-        ):
-            core_covered, core_valid = aggregate_core(args.core_artifacts)
-
-        results = collect(covered, valid)  # per-product table is products only; core feeds patch coverage
-
-        patch_data = None
-        if args.combined_out is not None and (results or core_valid):
-            write_combined_cobertura(covered, valid, core_covered, core_valid, args.combined_out)
-            patch_data = run_diff_cover(args.combined_out, args.compare_branch, args.patch_json_out)
-        elif not results and not core_valid and diff_touches_backend(args.compare_branch) is False:
-            # No coverage collected because nothing measured changed (e.g. a PR that dropped its
-            # backend changes) — emit an explicit zero-line payload so a stale warning section
-            # from an earlier run gets cleared rather than left standing.
-            patch_data = empty_patch_data()
-            if args.patch_json_out is not None:
-                args.patch_json_out.write_text(json.dumps(patch_data))
-
-        if args.report_data_out is not None:
-            write_report_data(args.report_data_out, results, patch_data)
+    patch_data: dict | None = None
+    if args.combined_out is not None and (results or core_valid):
+        write_combined_cobertura(covered, valid, core_covered, core_valid, args.combined_out)
+        patch_data = run_diff_cover(args.combined_out, args.compare_branch, args.patch_json_out)
+    elif not results and not core_valid and diff_touches_backend(args.compare_branch) is False:
+        # No coverage collected because nothing measured changed (e.g. a PR that dropped its
+        # backend changes) — emit an explicit zero-line payload so a stale warning section
+        # from an earlier run gets cleared rather than left standing.
+        patch_data = empty_patch_data()
+        if args.patch_json_out is not None:
+            args.patch_json_out.write_text(json.dumps(patch_data))
 
     markdown = render_markdown(results, patch_data)
 

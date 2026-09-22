@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sys
-import json
 import importlib.util
 from pathlib import Path
 
@@ -30,24 +29,6 @@ SPEC.loader.exec_module(coverage_report)
 )
 def test_product_from_path(xml_path: Path, expected: str | None) -> None:
     assert coverage_report.product_from_path(xml_path) == expected
-
-
-@pytest.mark.parametrize(
-    "marker,expected",
-    [("merge-sha\n", True), ("head-sha\n", False), (None, False)],
-    ids=["matching commit", "different commit", "missing marker"],
-)
-def test_artifacts_match_the_exact_source_commit(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], marker: str | None, expected: bool
-) -> None:
-    artifact = tmp_path / "coverage-xml-0"
-    artifact.mkdir()
-    (artifact / "product.xml").touch()
-    if marker is not None:
-        (artifact / coverage_report.SOURCE_COMMIT_FILENAME).write_text(marker)
-
-    assert coverage_report.artifacts_match_commit(tmp_path, "merge-sha") is expected
-    assert ("::warning::rejecting coverage artifact" in capsys.readouterr().err) is not expected
 
 
 # ---------- repo_path_for ----------
@@ -178,115 +159,3 @@ def test_diff_touches_backend_is_undetermined_when_git_fails(monkeypatch: pytest
 
     monkeypatch.setattr(coverage_report.subprocess, "run", fake_run)
     assert coverage_report.diff_touches_backend("origin/master") is None
-
-
-@pytest.mark.parametrize(
-    "environment,expected",
-    [
-        (
-            {"GITHUB_RUN_ID": "123"},
-            "https://github.com/PostHog/posthog/actions/runs/123) (`gh run download 123 -n patch-coverage`)",
-        ),
-        (
-            {"DEPOT_JOB_URL": "https://depot.dev/orgs/org/workflows/workflow?job=job", "PR_NUMBER": "102277"},
-            'depot ci artifacts list "$(depot ci workflow list --repo PostHog/posthog --pr 102277 '
-            "--name 'Backend CI on Depot' -n 1 -o json "
-            "| jq -r '.[0].run_id')\" -o json",
-        ),
-    ],
-    ids=["github actions", "depot ci"],
-)
-def test_build_agent_hint_links_to_the_engine_artifact(
-    monkeypatch: pytest.MonkeyPatch, environment: dict[str, str], expected: str
-) -> None:
-    monkeypatch.setenv("GITHUB_SERVER_URL", "https://github.com")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "PostHog/posthog")
-    monkeypatch.delenv("GITHUB_RUN_ID", raising=False)
-    monkeypatch.delenv("DEPOT_JOB_URL", raising=False)
-    monkeypatch.delenv("PR_NUMBER", raising=False)
-    for name, value in environment.items():
-        monkeypatch.setenv(name, value)
-
-    hint = coverage_report.build_agent_hint()
-
-    assert expected in hint
-
-
-def test_report_data_round_trip_sanitizes_untrusted_fields(tmp_path: Path) -> None:
-    data_path = tmp_path / "coverage-report-data.json"
-    data_path.write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "products": [{"product": "bad|product", "covered": 4, "valid": 5}],
-                "patch": {
-                    "total_num_lines": 2,
-                    "total_num_violations": 1,
-                    "total_percent_covered": 50,
-                    "src_stats": {
-                        "posthog/bad<!--.py": {"percent_covered": 50, "violation_lines": [7]},
-                    },
-                },
-            }
-        )
-    )
-
-    results, patch = coverage_report.read_report_data(data_path)
-
-    assert results == [coverage_report.ProductCoverage(product="bad_product", covered=4, valid=5)]
-    assert patch is not None
-    assert list(patch["src_stats"]) == ["posthog/bad__-.py"]
-    assert "bad<!--" not in coverage_report.render_markdown(results, patch)
-
-
-def test_generated_report_data_renders_identically(tmp_path: Path) -> None:
-    results = [coverage_report.ProductCoverage(product="alerts", covered=4, valid=5)]
-    patch = {
-        "total_num_lines": 2,
-        "total_num_violations": 1,
-        "total_percent_covered": 50.0,
-        "src_stats": {"products/alerts/backend/api.py": {"percent_covered": 50.0, "violation_lines": [7]}},
-    }
-    data_path = tmp_path / "coverage-report-data.json"
-
-    coverage_report.write_report_data(data_path, results, patch)
-    restored_results, restored_patch = coverage_report.read_report_data(data_path)
-
-    assert coverage_report.render_markdown(restored_results, restored_patch) == coverage_report.render_markdown(
-        results, patch
-    )
-
-
-@pytest.mark.parametrize(
-    "invalid_field",
-    [
-        "version",
-        "product_totals",
-        "patch_totals",
-        "percentage",
-    ],
-)
-def test_report_data_rejects_invalid_totals(tmp_path: Path, invalid_field: str) -> None:
-    data = {
-        "version": 1,
-        "products": [{"product": "alerts", "covered": 4, "valid": 5}],
-        "patch": {
-            "total_num_lines": 2,
-            "total_num_violations": 1,
-            "total_percent_covered": 50,
-            "src_stats": {},
-        },
-    }
-    if invalid_field == "version":
-        data["version"] = 2
-    elif invalid_field == "product_totals":
-        data["products"][0]["covered"] = 6
-    elif invalid_field == "patch_totals":
-        data["patch"]["total_num_violations"] = 3
-    else:
-        data["patch"]["total_percent_covered"] = 101
-    data_path = tmp_path / "coverage-report-data.json"
-    data_path.write_text(json.dumps(data))
-
-    with pytest.raises(ValueError):
-        coverage_report.read_report_data(data_path)
