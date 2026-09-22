@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from products.customer_analytics.backend.logic.custom_property_source_health import (
     MAX_CONSECUTIVE_SYNC_FAILURES,
     record_sync_failure,
@@ -75,13 +77,13 @@ class TestCustomPropertySourceHealth(TeamScopedTestMixin, BaseTest):
         self.source.last_sync_error = "boom"
         self.source.save()
 
-        finished_at = self.source.created_at
+        finished_at = timezone.now()
         record_sync_success(self.source, finished_at=finished_at)
 
-        self.source.refresh_from_db()
-        assert self.source.consecutive_failures == 0
-        assert self.source.last_sync_error is None
-        assert self.source.last_synced_at == finished_at
+        stored = CustomPropertySource.objects.for_team(self.team.id).get(id=self.source.id)
+        assert stored.consecutive_failures == 0
+        assert stored.last_sync_error is None
+        assert stored.last_synced_at == finished_at
 
     def test_a_later_disablement_after_re_enabling_tells_the_owner_again(self, mock_notify) -> None:
         self.source.consecutive_failures = MAX_CONSECUTIVE_SYNC_FAILURES - 1
