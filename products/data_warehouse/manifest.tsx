@@ -167,8 +167,8 @@ export const manifest: ProductManifest = {
             iconType: 'data_warehouse',
             iconColor: ['var(--color-product-data-warehouse-light)'],
             sceneKey: 'DataOps',
-            // 'Models' and 'NodeDetail' live in the data modeling product now. They stay listed
-            // here so these rows keep highlighting on /models, which is what they did before the move.
+            // Covers the data modeling scene keys too, so these rows stay highlighted on /models.
+            // The generated list otherwise follows product membership and leaves them out.
             sceneKeys: [
                 'DataOps',
                 'Models',
@@ -208,8 +208,8 @@ export const manifest: ProductManifest = {
             iconType: 'managed_viewsets',
             href: urls.dataWarehouseManagedViewsets(),
             flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
-            // 'Models' and 'NodeDetail' live in the data modeling product now. They stay listed
-            // here so these rows keep highlighting on /models, which is what they did before the move.
+            // Covers the data modeling scene keys too, so these rows stay highlighted on /models.
+            // The generated list otherwise follows product membership and leaves them out.
             sceneKeys: [
                 'DataOps',
                 'Models',
