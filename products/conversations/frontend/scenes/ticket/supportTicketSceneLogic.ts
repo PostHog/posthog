@@ -1219,11 +1219,18 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
         latestAiDraftId: [
             (s) => [s.chatMessages],
-            (chatMessages: ChatMessage[]): string | null =>
-                chatMessages
-                    .filter((message) => aiDraftAction(message) !== null)
-                    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-                    .at(-1)?.id ?? null,
+            (chatMessages: ChatMessage[]): string | null => {
+                let latestDraft: ChatMessage | null = null
+                for (const message of chatMessages) {
+                    if (
+                        aiDraftAction(message) !== null &&
+                        (!latestDraft || new Date(message.createdAt) >= new Date(latestDraft.createdAt))
+                    ) {
+                        latestDraft = message
+                    }
+                }
+                return latestDraft?.id ?? null
+            },
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
