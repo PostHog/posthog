@@ -451,7 +451,7 @@ class TestDirectlyResponsibleIndividual:
         return github
 
     def _team_x(self, github: MagicMock) -> None:
-        github.list_team_members.return_value = {"success": True, "logins": ["bob", "dave", "stranger"]}
+        github.list_team_members.return_value = {"success": True, "logins": ["Bob", "dave", "stranger"]}
 
     def _claim(
         self, team, report, users: dict, *, kind: str, login: str, automation_branch: str | None = "auto"
@@ -567,7 +567,7 @@ class TestDirectlyResponsibleIndividual:
         ("reviewers", "team_by_path", "members", "claimant", "expected_owner"),
         [
             (["alice"], {"a.py": "team-x", "b.py": "team-x", "c.py": "team-y"}, {"success": True}, None, "stranger"),
-            (["bob"], {"a.py": "team-x"}, {"success": True}, None, "bob"),
+            (["bob"], {"a.py": "team-x"}, {"success": True}, None, "stranger"),
             (["alice"], {"a.py": "team-x"}, {"success": True}, ("task", "carol"), "stranger"),
             (["alice"], {"a.py": "team-x"}, {"success": True}, ("task", "bob"), "stranger"),
             (["alice"], {"a.py": "team-x"}, {"success": True}, ("user", "carol"), "carol"),
@@ -578,7 +578,7 @@ class TestDirectlyResponsibleIndividual:
         ],
         ids=[
             "random_member_of_the_majority_team_without_a_posthog_account",
-            "a_suggested_member_comes_before_a_random_one",
+            "a_suggested_member_gets_no_priority_in_the_team",
             "a_task_claim_outside_the_team_does_not_rank",
             "a_task_claim_inside_the_team_does_not_reorder_it",
             "a_person_who_chose_the_work_outranks_the_team",
