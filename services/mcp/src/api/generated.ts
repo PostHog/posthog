@@ -9809,7 +9809,12 @@ export namespace Schemas {
       p999_duration_nano: number;
       p99_duration_nano: number;
       service_name: string;
+      /** Set only when the query asked for `includeImpact`. `sessions` and `users` are uniq() estimates; the two span counts are exact. */
+      sessions?: number | null;
+      spans_with_distinct_id?: number | null;
+      spans_with_session_id?: number | null;
       total_duration_nano: number;
+      users?: number | null;
     }
 
     /**
@@ -50716,6 +50721,8 @@ export namespace Schemas {
       compareFilter?: CompareFilter | null;
       dateRange: DateRange;
       filterGroup?: PropertyGroupFilter | null;
+      /** Also aggregate sessions and people per operation. Off by default: it reads the attribute maps. */
+      includeImpact?: boolean | null;
       kind?: 'TraceSpansAggregationQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -63534,6 +63541,7 @@ export namespace Schemas {
 
     /**
      * * `self_driving` - SELF_DRIVING
+     * * `manual` - MANUAL
      * * `label` - LABEL
      * * `all` - ALL
      */
@@ -63542,6 +63550,7 @@ export namespace Schemas {
 
     export const ReviewRunTriggerEnum = {
       SelfDriving: 'self_driving',
+      Manual: 'manual',
       Label: 'label',
       All: 'all',
     } as const;
@@ -63605,14 +63614,40 @@ export namespace Schemas {
      * Allowlisted, non-sensitive slice of ``ReviewRun.output``.
      *
      * The raw ``output`` blob also holds the reviewer's stdout, the full PR payload, changed-file patches,
-     * and default-branch policy file contents — repository content a project member without repo access
-     * must never read. Only these derived, content-free fields are exposed.
+     * and default-branch policy file contents, none of which the API returns. The reviewer's reasoning,
+     * the text stamphog posts on GitHub, is parsed out of the stdout and returned as ``reasoning``.
      */
     export interface _ReviewOutputSummary {
       /** Version of the stamphog engine that produced this review, if it reported one. */
       readonly stamphog_version: string;
       /** Exit code of the reviewer process in the sandbox, if the run reached the sandbox stage. */
       readonly reviewer_exit_code: number;
+    }
+
+    /**
+     * The reviewer's reasoning for one run, the same text stamphog posts as its GitHub review.
+     */
+    export interface _ReviewReasoning {
+      /**
+         * The reviewer's explanation of its verdict.
+         * @nullable
+         */
+      readonly reasoning: string | null;
+      /**
+         * Issues the reviewer found that block approval.
+         * @nullable
+         */
+      readonly showstoppers: readonly string[] | null;
+      /**
+         * The review text stamphog posts on GitHub: the reasoning, the judgment points, and the gate outcome.
+         * @nullable
+         */
+      readonly review_body: string | null;
+      /**
+         * A plain-language summary of what the change does.
+         * @nullable
+         */
+      readonly change_summary: string | null;
     }
 
     export interface ReviewRun {
@@ -63638,9 +63673,10 @@ export namespace Schemas {
          * @nullable
          */
       readonly delivery_id: string | null;
-      /** What caused this run to exist: self-driving inbox provenance, the repo's trigger label, or the repo reviewing every PR event.
+      /** What caused this run to exist: self-driving inbox provenance, a manual request through the API, the repo's trigger label, or the repo reviewing every PR event.
        *
        * * `self_driving` - SELF_DRIVING
+       * * `manual` - MANUAL
        * * `label` - LABEL
        * * `all` - ALL */
       readonly trigger: ReviewRunTriggerEnum;
@@ -63664,8 +63700,10 @@ export namespace Schemas {
       readonly verdict: ReviewRunVerdictEnum;
       /** Allowlisted deterministic gate outcome (gate_blocked, final_verdict). The nested gate, classification, and policy sub-objects are excluded — they carry changed-file paths and policy scopes, repository content a project member without repo access must not read. */
       readonly gate_result: _GateResultSummary;
-      /** Allowlisted, non-sensitive subset of the reviewer output blob (stamphog version, reviewer exit code). The raw reviewer stdout, PR payload, changed-file patches, and policy file contents are deliberately excluded — they carry repository content a project member without repo access must not read. */
+      /** Allowlisted subset of the reviewer output blob (stamphog version, reviewer exit code). The raw reviewer stdout, PR payload, changed-file patches, and policy file contents are excluded. The reviewer's reasoning, the text stamphog posts on GitHub, is in `reasoning` instead. */
       readonly output: _ReviewOutputSummary;
+      /** The reviewer's reasoning, the same text stamphog posts as its GitHub review. Returned only when retrieving a single run, and null in list results. Its fields are null until the reviewer has run. */
+      readonly reasoning: _ReviewReasoning | null;
       /** Error message if the run failed, blank otherwise. */
       readonly error: string;
       /**
@@ -85392,6 +85430,29 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    /**
+     * Request body for asking stamphog to review one pull request.
+     */
+    export interface ReviewRequest {
+      /** Full name of the GitHub repository, e.g. 'PostHog/posthog'. It must be connected and enabled in Stamphog. */
+      repository: string;
+      /**
+         * Pull request number on GitHub.
+         * @minimum 1
+         */
+      pr_number: number;
+    }
+
+    /**
+     * The review run a request points at.
+     */
+    export interface ReviewRequestResponse {
+      /** The review run for the pull request's current head. Poll it by id until status is terminal (completed, gated, failed, or superseded). */
+      readonly run: ReviewRun;
+      /** True when this request queued a new run. False when a queued, running, or finished run already covered the current head, which is returned instead. */
+      readonly created: boolean;
+    }
+
     export interface ReviewResolutionConfig {
       /** Name of the `review-hog-resolution-*` skill this row represents (the criteria's identity). */
       skill_name: string;
@@ -96866,6 +96927,39 @@ export namespace Schemas {
       tags?: string[];
     }
 
+    export interface TolerationPileupEntry {
+      /** Snapshot identifier, for example a Storybook story id plus theme. */
+      identifier: string;
+      /** Run type the snapshot belongs to, for example `storybook`. */
+      run_type: string;
+      /** Tolerations a person or agent recorded for this snapshot in the window, across every baseline. Each one accepted a different exact rendering, so a high count means the snapshot renders differently from run to run. */
+      intentional_count: number;
+      /** Automatic tolerations in the window: renderings that came in under both diff thresholds. */
+      automatic_count: number;
+      /** Whether an active quarantine already covers this snapshot, so it no longer blocks pull requests. */
+      is_quarantined: boolean;
+    }
+
+    export interface TolerationPileups {
+      /** Matching snapshots, most manual tolerations first. */
+      entries: TolerationPileupEntry[];
+      /** Length of the counting window in days that was applied. */
+      window_days: number;
+      /** Manual toleration threshold that was applied. */
+      min_tolerations: number;
+      /**
+         * Automatic toleration threshold that was applied, or null when none was.
+         * @nullable
+         */
+      min_automatic_tolerations: number | null;
+      /** How many snapshots matched before `limit` was applied. */
+      total: number;
+      /** True when `limit` cut the list short. */
+      truncated: boolean;
+      /** When the list was computed. */
+      generated_at: string;
+    }
+
     /**
      * Whether the current organization has each toolbar plan entitlement, keyed by feature name.
      */
@@ -99263,6 +99357,26 @@ export namespace Schemas {
       p999_duration_nano: number;
       /** Spans with OTel status code Error (status_code = 2). */
       error_count: number;
+      /**
+         * Estimated unique session IDs across this group's spans (HyperLogLog, about 1-2% error). Null unless the query set `includeImpact`.
+         * @nullable
+         */
+      sessions: number | null;
+      /**
+         * Estimated unique person distinct IDs across this group's spans (HyperLogLog, about 1-2% error). Null unless the query set `includeImpact`.
+         * @nullable
+         */
+      users: number | null;
+      /**
+         * How many of this group's spans carry a session ID under the team's configured or conventional attribute keys. Null unless the query set `includeImpact`.
+         * @nullable
+         */
+      spans_with_session_id: number | null;
+      /**
+         * How many of this group's spans carry a person distinct ID under the team's configured or conventional attribute keys. Null unless the query set `includeImpact`.
+         * @nullable
+         */
+      spans_with_distinct_id: number | null;
     }
 
     export interface _CompareFilter {
@@ -101021,6 +101135,8 @@ export namespace Schemas {
          * @minimum 0
          */
       offset?: number;
+      /** Also return the sessions and people behind each operation. Off by default because it reads the span and resource attribute maps, which the rest of the aggregation never touches. */
+      includeImpact?: boolean;
     }
 
     export interface _TracingAggregationRequest {
@@ -101137,6 +101253,21 @@ export namespace Schemas {
       count: number;
     }
 
+    /**
+     * Property filters for the count. Either a flat list of filters or a nested filter group.
+     */
+    export type _TracingCountBodyFilterGroup = _SpanPropertyFilter[] | {
+      /** How the inner groups combine. */
+      type: 'AND' | 'OR';
+      /** The inner filter groups. */
+      values: ({
+      /** How the filters in this group combine. */
+      type: 'AND' | 'OR';
+      /** The property filters in this group. */
+      values: _SpanPropertyFilter[];
+    })[];
+    };
+
     export interface _TracingCountBody {
       /** Date range for the count. Defaults to last hour. */
       dateRange?: _TracingDateRange;
@@ -101144,8 +101275,8 @@ export namespace Schemas {
       serviceNames?: string[];
       /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
       statusCodes?: number[];
-      /** Property filters for the count. */
-      filterGroup?: _SpanPropertyFilter[];
+      /** Property filters for the count. Either a flat list of filters or a nested filter group. */
+      filterGroup?: _TracingCountBodyFilterGroup;
     }
 
     export interface _TracingCountRequest {
@@ -101176,6 +101307,35 @@ export namespace Schemas {
     export interface _TracingDurationHistogramRequest {
       /** The duration-histogram query to execute. */
       query: _TracingDurationHistogramQueryBody;
+    }
+
+    export interface _TracingImpactRequest {
+      /** The impact query to execute. Takes the same filters as the count query. */
+      query: _TracingCountBody;
+    }
+
+    export interface _TracingImpactTopValue {
+      /** The session ID or person distinct ID. */
+      value: string;
+      /** Approximate number of matching spans that carry this value (topK estimate). */
+      count: number;
+    }
+
+    export interface _TracingImpactResponse {
+      /** Number of spans matching the filters. */
+      total: number;
+      /** How many of the matching spans carry a session ID under the team's configured or conventional attribute keys. */
+      spansWithSessionId: number;
+      /** Estimated number of unique session IDs across the matching spans (HyperLogLog, about 1-2% error). */
+      sessions: number;
+      /** How many of the matching spans carry a person distinct ID under the team's configured or conventional attribute keys. */
+      spansWithDistinctId: number;
+      /** Estimated number of unique distinct IDs across the matching spans (HyperLogLog, about 1-2% error). */
+      users: number;
+      /** Top session IDs on the matching spans, ordered by span count descending (topK, at most 5). */
+      topSessions: _TracingImpactTopValue[];
+      /** Top person distinct IDs on the matching spans, ordered by span count descending (topK, at most 5). */
+      topUsers: _TracingImpactTopValue[];
     }
 
     export interface _TracingLatencyHeatmapCell {
@@ -111984,7 +112144,7 @@ export namespace Schemas {
      */
     status?: string;
     /**
-     * Filter by what caused the run: self_driving, label, or all.
+     * Filter by what caused the run: self_driving, manual, label, or all.
      */
     trigger?: StamphogReviewRunsListTrigger;
     };
@@ -111995,6 +112155,7 @@ export namespace Schemas {
     export const StamphogReviewRunsListTrigger = {
       All: 'all',
       Label: 'label',
+      Manual: 'manual',
       SelfDriving: 'self_driving',
     } as const;
 
@@ -113551,6 +113712,43 @@ export namespace Schemas {
      * Narrow the lookup to one run type. The same identifier under two run types is two different images, so omit this only when the caller shows one run type.
      */
     run_type?: string;
+    };
+
+    export type VisualReviewReposTolerationPileupsRetrieveParams = {
+    /**
+     * Keep snapshots that an active quarantine already covers. They are marked with `is_quarantined`. Set to false to see only piles nobody has acted on yet.
+     */
+    include_quarantined?: boolean;
+    /**
+     * Maximum number of snapshots to return. `total` and `truncated` say whether more matched.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Also list a snapshot when it collected at least this many automatic tolerations in the window. An automatic toleration is a rendering under both diff thresholds, so it never blocked anybody; many of them still mean the story is unstable. Omit to ignore automatic tolerations when deciding what to list. With 10, the list matches the Tolerate dialog's quarantine suggestion.
+     * @minimum 1
+     * @maximum 10000
+     */
+    min_automatic_tolerations?: number;
+    /**
+     * List a snapshot when a person or agent tolerated it at least this many times in the window. The default, 3, is the weekly debt digest's rule. Lower it to see snapshots that are starting to pile up, raise it to see only the worst ones.
+     * @minimum 1
+     * @maximum 100
+     */
+    min_tolerations?: number;
+    /**
+     * Only list snapshots of this run type, for example `storybook` or `playwright`.
+     * @minLength 1
+     * @maxLength 64
+     */
+    run_type?: string;
+    /**
+     * How many days back to count tolerations. Defaults to 30.
+     * @minimum 1
+     * @maximum 90
+     */
+    window_days?: number;
     };
 
     export type VisualReviewReposRunsListParams = {
