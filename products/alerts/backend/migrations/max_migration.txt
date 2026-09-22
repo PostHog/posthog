@@ -1,1 +1,1 @@
-0007_platformalertconfiguration_platformalert_and_more
+0008_alert_series_point
