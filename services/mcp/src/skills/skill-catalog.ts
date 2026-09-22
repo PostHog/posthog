@@ -11,6 +11,7 @@ const SEARCH_CONTEXT_LINES = 2
 const MAX_ARCHIVE_FILES = 5_000
 const MAX_ARCHIVE_FILE_BYTES = 8 * 1024 * 1024
 const MAX_ARCHIVE_UNCOMPRESSED_BYTES = 64 * 1024 * 1024
+const EXACT_NAME_SCORE_BONUS = 5_000
 
 type SkillFileKind = 'markdown' | 'script' | 'other'
 
@@ -423,45 +424,23 @@ export function formatLearnSearchResults(results: readonly LearnSearchResult[]):
     return fitLearnOutput(sections.join('\n\n'))
 }
 
-// Per-match tier bonuses mirroring `rankSkill`'s content weights, keyed by the
-// backend's `matched_field`. Name and description already score via their own
-// text below, so they add no tier bonus here.
-const MATCHED_FIELD_TIER_BONUS: Record<string, number> = {
-    body: 80,
-    file_path: 120,
-    file_content: 40,
-}
-
-/**
- * Client-side relevance score for a project search result, comparable to `SkillCatalog`'s
- * `rankSkill` scores so both sources can merge into one ranked list. The project body/file
- * text is not available client-side, so per-match tier bonuses derived from `matched_field`
- * stand in for content scoring.
- */
-export function scoreProjectSearchResult(
-    query: string,
-    name: string,
-    description: string,
-    matchedFields: readonly string[]
-): number {
-    const normalizedQuery = normalizeQuery(query)
-    let score = scoreText(name, normalizedQuery, 1_000) + scoreText(description, normalizedQuery, 300)
-    for (const field of matchedFields) {
-        score += MATCHED_FIELD_TIER_BONUS[field] ?? 0
-    }
-    return score
-}
-
 function rankSkill(skill: SkillDefinition, query: NormalizedQuery): RankedSkill | null {
-    let score = scoreText(skill.name, query, 1_000) + scoreText(skill.description, query, 300)
+    let score =
+        (skill.name.toLowerCase() === query.phrase ? EXACT_NAME_SCORE_BONUS : 0) +
+        scoreText(skill.name, query, 1_000) +
+        scoreText(skill.description, query, 300)
+    let filePathScore = 0
+    let fileContentScore = 0
     const snippets: LearnSearchSnippet[] = []
 
     for (const file of skill.files) {
-        score += scoreText(file.path, query, 120)
+        const isSkillFile = file.path === 'SKILL.md'
+        if (!isSkillFile) {
+            filePathScore = Math.max(filePathScore, scoreText(file.path, query, 120))
+        }
         if (file.kind !== 'markdown') {
             continue
         }
-        const isSkillFile = file.path === 'SKILL.md'
         // Exclude the YAML frontmatter from SKILL.md scoring and snippets: the
         // description already scores via `skill.description` (avoid double-counting)
         // and its snippet would just repeat the description line already printed.
@@ -469,7 +448,12 @@ function rankSkill(skill: SkillDefinition, query: NormalizedQuery): RankedSkill 
         const contentWeight = isSkillFile ? 80 : 40
         const scoredContent =
             frontmatterLines > 0 ? splitLines(file.content).slice(frontmatterLines).join('\n') : file.content
-        score += scoreText(scoredContent, query, contentWeight)
+        const contentScore = scoreText(scoredContent, query, contentWeight)
+        if (isSkillFile) {
+            score += contentScore
+        } else {
+            fileContentScore = Math.max(fileContentScore, contentScore)
+        }
         if (snippets.length < MAX_GLOBAL_SNIPPETS) {
             const snippet = findSnippet(file, query, frontmatterLines)
             if (snippet) {
@@ -477,6 +461,8 @@ function rankSkill(skill: SkillDefinition, query: NormalizedQuery): RankedSkill 
             }
         }
     }
+
+    score += filePathScore + fileContentScore
 
     return score > 0 ? { skill, score, snippets } : null
 }

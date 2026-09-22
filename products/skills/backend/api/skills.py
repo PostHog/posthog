@@ -1,3 +1,4 @@
+import re
 import hashlib
 from collections.abc import Sequence
 from difflib import get_close_matches
@@ -6,7 +7,8 @@ from urllib.parse import urlencode
 from uuid import UUID
 
 from django.db import IntegrityError, OperationalError, transaction
-from django.db.models import Case, Exists, IntegerField, OuterRef, Q, QuerySet, Value, When
+from django.db.models import Case, IntegerField, OuterRef, Q, QuerySet, Subquery, Value, When
+from django.db.models.functions import Coalesce
 from django.http import HttpResponse, HttpResponseBase
 from django.utils.cache import get_conditional_response, patch_cache_control, patch_vary_headers
 
@@ -163,6 +165,9 @@ SKILL_SEARCH_RESULT_LIMIT = 10
 SKILL_SEARCH_MATCH_LIMIT = 2
 SKILL_SEARCH_EXCERPT_LENGTH = 300
 SKILL_SEARCH_TIMEOUT_MS = 5_000
+SKILL_SEARCH_EXACT_NAME_BONUS = 5_000
+SKILL_SEARCH_MIN_STEM_LENGTH = 5
+SKILL_SEARCH_STEM_SUFFIXES = ("ations", "ation", "tions", "tion", "ings", "ing", "es", "ed", "s")
 # A 404 offers a few near-miss names, not a listing: `skill-list` is still the way to browse.
 MAX_SKILL_NAME_SUGGESTIONS = 3
 SKILL_NAME_SUGGESTION_CUTOFF = 0.6
@@ -191,6 +196,83 @@ def _content_search_match(content: str, query: str, *, matched_field: str, path:
         "line": line,
         "excerpt": excerpt[:SKILL_SEARCH_EXCERPT_LENGTH],
     }
+
+
+def _skill_search_tokens(query: str) -> list[tuple[str, ...]]:
+    raw_tokens = dict.fromkeys(re.findall(r"[^\W_]+", query.lower()))
+    return [_skill_search_variants(token) for token in raw_tokens]
+
+
+def _skill_search_variants(token: str) -> tuple[str, ...]:
+    if len(token) < 6 or not token.isascii() or not token.isalpha():
+        return (token,)
+
+    suffix = next(
+        (
+            candidate
+            for candidate in SKILL_SEARCH_STEM_SUFFIXES
+            if len(token) > len(candidate) and token.endswith(candidate)
+        ),
+        None,
+    )
+    if suffix is None:
+        return (token,)
+
+    stem = token[: -len(suffix)]
+    return tuple(dict.fromkeys(variant for variant in (token, stem, stem[:-1]) if len(variant) >= 5))
+
+
+def _skill_search_variant_query(field: str, variants: Sequence[str]) -> Q:
+    query = Q()
+    for variant in variants:
+        query |= Q(**{f"{field}__icontains": variant})
+    return query
+
+
+def _skill_search_all_tokens_query(field: str, tokens: Sequence[Sequence[str]]) -> Q:
+    query = Q()
+    for variants in tokens:
+        query &= _skill_search_variant_query(field, variants)
+    return query
+
+
+def _skill_search_any_token_query(field: str, tokens: Sequence[Sequence[str]]) -> Q:
+    query = Q()
+    for variants in tokens:
+        query |= _skill_search_variant_query(field, variants)
+    return query
+
+
+def _skill_search_field_score(field: str, phrase: str, tokens: Sequence[Sequence[str]], weight: int) -> Any:
+    phrase_score = Case(
+        When(**{f"{field}__icontains": phrase}, then=Value(weight * 2)),
+        default=Value(0),
+        output_field=IntegerField(),
+    )
+    if not tokens:
+        return phrase_score
+
+    partial_weight = max(1, weight // len(tokens) // 4)
+    partial_score: Any = Value(0, output_field=IntegerField())
+    for variants in tokens:
+        partial_score += Case(
+            When(_skill_search_variant_query(field, variants), then=Value(partial_weight)),
+            default=Value(0),
+            output_field=IntegerField(),
+        )
+    token_score = Case(
+        When(_skill_search_all_tokens_query(field, tokens), then=Value(weight)),
+        default=partial_score,
+        output_field=IntegerField(),
+    )
+    return phrase_score + token_score
+
+
+def _skill_search_match_term(content: str, phrase: str, tokens: Sequence[Sequence[str]]) -> str | None:
+    lowered = content.lower()
+    if phrase.lower() in lowered:
+        return phrase
+    return next((variant for variants in tokens for variant in variants if variant in lowered), None)
 
 
 def _is_markdown_file_query() -> Q:
@@ -691,47 +773,63 @@ class LLMSkillViewSet(
 
     def _get_search_queryset(self, query: str) -> QuerySet[LLMSkill]:
         skill_files = LLMSkillFile.objects.filter(skill_id=OuterRef("pk"))
+        tokens = _skill_search_tokens(query)
+        file_path_score = Coalesce(
+            Subquery(
+                skill_files.annotate(score=_skill_search_field_score("path", query, tokens, 120))
+                .order_by("-score")
+                .values("score")[:1],
+                output_field=IntegerField(),
+            ),
+            Value(0),
+        )
+        file_content_score = Coalesce(
+            Subquery(
+                skill_files.filter(_is_markdown_file_query())
+                .annotate(score=_skill_search_field_score("content", query, tokens, 40))
+                .order_by("-score")
+                .values("score")[:1],
+                output_field=IntegerField(),
+            ),
+            Value(0),
+        )
+
         queryset = LLMSkill.objects.filter(
             team=self.team,
             deleted=False,
             is_latest=True,
             category="",
-        ).annotate(
-            search_file_path_match=Exists(skill_files.filter(path__icontains=query)),
-            search_file_content_match=Exists(skill_files.filter(_is_markdown_file_query(), content__icontains=query)),
         )
         queryset = self.user_access_control.filter_queryset_by_access_level(queryset, resource="llm_skill")
+
+        exact_name_score = Case(
+            When(name__iexact=query, then=Value(SKILL_SEARCH_EXACT_NAME_BONUS)),
+            default=Value(0),
+            output_field=IntegerField(),
+        )
+        score = (
+            exact_name_score
+            + _skill_search_field_score("name", query, tokens, 1_000)
+            + _skill_search_field_score("description", query, tokens, 300)
+            + _skill_search_field_score("body", query, tokens, 80)
+            + file_path_score
+            + file_content_score
+        )
         return (
-            queryset.filter(
-                Q(name__icontains=query)
-                | Q(description__icontains=query)
-                | Q(body__icontains=query)
-                | Q(search_file_path_match=True)
-                | Q(search_file_content_match=True)
-            )
-            .annotate(
-                search_rank=Case(
-                    When(name__iexact=query, then=Value(0)),
-                    When(name__icontains=query, then=Value(1)),
-                    When(description__icontains=query, then=Value(2)),
-                    When(body__icontains=query, then=Value(3)),
-                    When(search_file_path_match=True, then=Value(4)),
-                    When(search_file_content_match=True, then=Value(5)),
-                    default=Value(6),
-                    output_field=IntegerField(),
-                )
-            )
-            .order_by("search_rank", "name", "id")[:SKILL_SEARCH_RESULT_LIMIT]
+            queryset.annotate(search_score=score)
+            .filter(search_score__gt=0)
+            .order_by("-search_score", "name", "id")[:SKILL_SEARCH_RESULT_LIMIT]
         )
 
     def _get_search_matches(self, skill: LLMSkill, query: str) -> list[dict[str, Any]]:
         matches: list[dict[str, Any]] = []
-        lowered_query = query.lower()
+        tokens = _skill_search_tokens(query)
 
-        if lowered_query in skill.name.lower():
+        if _skill_search_match_term(skill.name, query, tokens) is not None:
             matches.append({"matched_field": "name", "excerpt": skill.name})
-        if lowered_query in skill.description.lower():
-            match_index = skill.description.lower().find(lowered_query)
+        description_match = _skill_search_match_term(skill.description, query, tokens)
+        if description_match is not None:
+            match_index = skill.description.lower().find(description_match.lower())
             excerpt_start = max(0, match_index - SKILL_SEARCH_EXCERPT_LENGTH // 2)
             matches.append(
                 {
@@ -739,14 +837,19 @@ class LLMSkillViewSet(
                     "excerpt": skill.description[excerpt_start : excerpt_start + SKILL_SEARCH_EXCERPT_LENGTH],
                 }
             )
-        body_match = _content_search_match(skill.body, query, matched_field="body", path="SKILL.md")
+        body_match_term = _skill_search_match_term(skill.body, query, tokens)
+        body_match = (
+            _content_search_match(skill.body, body_match_term, matched_field="body", path="SKILL.md")
+            if body_match_term is not None
+            else None
+        )
         if body_match is not None:
             matches.append(body_match)
 
         if len(matches) < SKILL_SEARCH_MATCH_LIMIT:
             remaining_match_count = SKILL_SEARCH_MATCH_LIMIT - len(matches)
             matching_paths = (
-                skill.files.filter(path__icontains=query)
+                skill.files.filter(Q(path__icontains=query) | _skill_search_any_token_query("path", tokens))
                 .order_by("path")
                 .values_list("path", flat=True)[:remaining_match_count]
             )
@@ -755,15 +858,21 @@ class LLMSkillViewSet(
 
         if len(matches) < SKILL_SEARCH_MATCH_LIMIT:
             remaining_match_count = SKILL_SEARCH_MATCH_LIMIT - len(matches)
+            file_content_query = Q(content__icontains=query)
+            for variants in tokens:
+                file_content_query |= _skill_search_variant_query("content", variants)
             content_files = (
-                skill.files.filter(_is_markdown_file_query(), content__icontains=query)
+                skill.files.filter(_is_markdown_file_query(), file_content_query)
                 .order_by("path")
                 .values_list("path", "content")
             )[:remaining_match_count]
             for path, content in content_files:
+                match_term = _skill_search_match_term(content, query, tokens)
+                if match_term is None:
+                    continue
                 match = _content_search_match(
                     content,
-                    query,
+                    match_term,
                     matched_field="file_content",
                     path=path,
                 )
@@ -799,6 +908,7 @@ class LLMSkillViewSet(
                     {
                         "name": skill.name,
                         "description": skill.description,
+                        "score": cast(Any, skill).search_score,
                         "matches": self._get_search_matches(skill, query),
                     }
                     for skill in self._get_search_queryset(query)

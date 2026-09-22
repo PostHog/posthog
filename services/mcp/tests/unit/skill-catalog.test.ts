@@ -6,6 +6,7 @@ import {
     formatLearnFile,
     LEARN_OUTPUT_CHAR_LIMIT,
     makeSkillFile,
+    MAX_GLOBAL_SKILLS,
     readLearnLines,
     searchLearnFile,
     SkillCatalog,
@@ -87,6 +88,34 @@ describe('SkillCatalog and exec learn', () => {
         expect(() => catalog.searchFile('retention-analysis', 'scripts/run.ts', 'const')).toThrow(
             'Only Markdown contents are searchable'
         )
+    })
+
+    it('uses the best companion file match for each scoring tier', () => {
+        const catalog = SkillCatalog.fromZip(
+            makeArchive({
+                'team-guide/SKILL.md': makeSkill('team-guide', 'Internal workflow.', '# Team guide'),
+                'team-guide/references/needle-one.md': '# Needle one',
+                'team-guide/references/needle-two.md': '# Needle two',
+            })
+        )
+
+        expect(catalog.searchResults('needle')[0]?.score).toBe(480)
+    })
+
+    it('ranks an exact name before substring matches at the result limit', () => {
+        const names = [
+            ...Array.from({ length: MAX_GLOBAL_SKILLS }, (_, index) => `${String.fromCharCode(97 + index)}-support`),
+            'support',
+        ]
+        const catalog = SkillCatalog.fromZip(
+            makeArchive(
+                Object.fromEntries(
+                    names.map((name) => [`${name}/SKILL.md`, makeSkill(name, 'Internal workflow.', '# Guide')])
+                )
+            )
+        )
+
+        expect(catalog.searchResults('support')[0]?.identifier).toBe('support')
     })
 
     it('returns the rendered skill with a manifest and supports scoped reads', async () => {

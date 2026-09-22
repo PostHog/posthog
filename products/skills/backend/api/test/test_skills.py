@@ -45,6 +45,7 @@ from ...api.skill_services import (
     resolve_skill_owners,
     set_skill_owners,
 )
+from ...api.skills import SKILL_SEARCH_RESULT_LIMIT
 from ...marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH, parse_skill_md
 from ...models.skills import LLMSkill, LLMSkillFile
 
@@ -606,20 +607,56 @@ class TestLLMSkillAPI(APIBaseTest):
             "needle",
             "needle-name",
             "description-skill",
-            "body-skill",
             "file-path-skill",
+            "body-skill",
             "file-content-skill",
         ]
         assert [result["matches"][0]["matched_field"] for result in results] == [
             "name",
             "name",
             "description",
-            "body",
             "file_path",
+            "body",
             "file_content",
         ]
-        assert results[3]["matches"][0]["path"] == "SKILL.md"
+        assert [result["score"] for result in results] == [8000, 3000, 900, 360, 240, 120]
+        assert results[4]["matches"][0]["path"] == "SKILL.md"
         assert results[5]["matches"][0]["line"] == 2
+
+    def test_search_skills_ranks_multi_token_project_workflow_before_generic_matches(self):
+        self.create_skill(
+            name="self-driving-support-hero",
+            description="Run the prioritized support queue for tickets by SLA and priority.",
+            body="# Support hero\nSort tickets by SLA.",
+        )
+        for index in range(12):
+            self.create_skill(
+                name=f"generic-support-queue-{index:02d}",
+                description="Generic project workflow.",
+                body="# Generic\nLook up tickets.",
+            )
+
+        response = self.client.get(self._url("search?query=support%20queue%20tickets"))
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert results[0]["name"] == "self-driving-support-hero"
+        assert results[0]["score"] == 395
+        assert len(results) == SKILL_SEARCH_RESULT_LIMIT
+
+    def test_search_skills_ranks_exact_name_before_substring_matches(self):
+        self.create_skill(name="support", description="Exact match.", body="# Support")
+        for index in range(SKILL_SEARCH_RESULT_LIMIT):
+            self.create_skill(
+                name=f"{chr(ord('a') + index)}-support",
+                description="Substring match.",
+                body="# Support",
+            )
+
+        response = self.client.get(self._url("search?query=support"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["name"] == "support"
 
     def test_search_skills_limits_file_queries_to_remaining_matches(self):
         path_skill = self.create_skill(name="path-skill", body="# Path\nContains needle.")
