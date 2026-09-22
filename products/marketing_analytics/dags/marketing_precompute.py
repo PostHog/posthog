@@ -151,13 +151,19 @@ def _recently_active_team_ids(days: int) -> set[int] | None:
     every team with a goal, so a transient failure over-warms for one run rather than starving the fleet.
     """
     try:
+        # Match on the query_type tag in log_comment (the intended API, as the web warmer does), not a
+        # substring of the SQL text — the tag is stable, the annotation format is not.
         rows = sync_execute(
             """
             SELECT DISTINCT JSONExtractInt(log_comment, 'team_id') AS team_id
             FROM clusterAllReplicas(posthog, system, query_log)
             WHERE type != 'QueryStart'
               AND event_time > now() - toIntervalDay(%(days)s)
-              AND (query LIKE '%%query_MarketingAnalytics%%' OR query LIKE '%%query_NonIntegratedConversions%%')
+              AND JSONExtractString(log_comment, 'query_type') IN (
+                'marketing_analytics_table_query',
+                'marketing_analytics_aggregated_query',
+                'non_integrated_conversions_table_query'
+              )
               AND team_id > 0
             """,
             {"days": days},

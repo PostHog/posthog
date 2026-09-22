@@ -52,15 +52,22 @@ def _pct_diff(precompute_value: float, live_value: float) -> float:
     return abs(precompute_value - live_value) / live_value * 100
 
 
-def _run(team: Team, query: dict[str, Any], *, use_precompute: bool) -> dict[str, float]:
+def _run(team: Team, query: dict[str, Any], *, use_precompute: bool) -> tuple[dict[str, float], bool]:
+    """Run one path. Returns (metrics, served_from_precompute). `served_from_precompute` is only true when
+    the read actually read the preagg tables — `dataComputedAt` is set only then, so if it is None the
+    precompute path fell back to live (non-precomputable goal or build error) and the comparison would be
+    vacuous (live vs live), which the caller flags rather than reporting a hollow OK."""
     runner = get_query_runner(query=query, team=team)
     # Force the path under test regardless of the team's flag: the precompute read warms inline under the
     # CACHE_WARMUP tag (its ensures build), the live read scans events.
     runner.config.conversion_goal_precomputation_enabled = use_precompute  # type: ignore[attr-defined]
     if use_precompute:
         with tags_context(feature=Feature.CACHE_WARMUP):
-            return _results_to_dict(runner.calculate().results)
-    return _results_to_dict(runner.calculate().results)
+            response = runner.calculate()
+    else:
+        response = runner.calculate()
+    served_from_precompute = getattr(response, "dataComputedAt", None) is not None
+    return _results_to_dict(response.results), served_from_precompute
 
 
 class Command(BaseCommand):
@@ -94,6 +101,7 @@ class Command(BaseCommand):
 
         teams_pass = 0
         teams_failed: list[int] = []
+        teams_vacuous: list[int] = []
         query = _aggregated_query(date_from=date_from, date_to=date_to)
 
         for team_id in team_ids:
@@ -101,11 +109,18 @@ class Command(BaseCommand):
             if team is None:
                 continue
             try:
-                pre_metrics = _run(team, query, use_precompute=True)
-                live_metrics = _run(team, query, use_precompute=False)
+                pre_metrics, served_from_precompute = _run(team, query, use_precompute=True)
+                live_metrics, _ = _run(team, query, use_precompute=False)
             except Exception as exc:  # noqa: BLE001 — one bad team shouldn't abort the sweep
                 self.stderr.write(f"{team_id}: query failed — {type(exc).__name__}: {exc}")
                 teams_failed.append(team_id)
+                continue
+
+            # The precompute run fell back to live (no precomputable goal, or a build error), so a match
+            # here compares live against live and proves nothing. Report it as vacuous, not a pass.
+            if not served_from_precompute:
+                teams_vacuous.append(team_id)
+                self.stdout.write(f"{team_id:>8}  VACUOUS — precompute path fell back to live, comparison skipped")
                 continue
 
             team_ok = True
@@ -122,7 +137,9 @@ class Command(BaseCommand):
             if not team_ok:
                 teams_failed.append(team_id)
 
-        self.stdout.write(f"\nsummary: pass={teams_pass} out_of_tolerance={teams_failed}")
+        self.stdout.write(
+            f"\nsummary: pass={teams_pass} out_of_tolerance={teams_failed} vacuous_fell_back_to_live={teams_vacuous}"
+        )
 
     def _parse_team_ids(self, options: dict[str, Any]) -> list[int]:
         raw = options.get("teams")
