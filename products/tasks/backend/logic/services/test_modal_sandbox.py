@@ -4,6 +4,8 @@ from pathlib import Path
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from modal.exception import TimeoutError as ModalTimeoutError
 
 from products.tasks.backend.constants import (
@@ -23,6 +25,8 @@ from products.tasks.backend.logic.services.modal_sandbox import (
     STREAMLIT_MODAL_APP_NAME,
     ModalSandbox,
     _prepare_local_modal_build_context,
+    _template_image_cache,
+    get_template_base_image,
 )
 from products.tasks.backend.logic.services.sandbox import (
     FULL_HISTORY_ORIGIN_PRODUCTS,
@@ -401,6 +405,27 @@ class TestLocalModalBuildContext:
         finally:
             shutil.rmtree(context_dir, ignore_errors=True)
             _prepare_local_modal_build_context.cache_clear()
+
+    def test_autoresearch_image_layers_onto_the_working_tree_base(self):
+        # The autoresearch Dockerfile's FROM names the published base, so a DEBUG build from it
+        # would miss every local change to the base image; it has to extend the local base build.
+        _template_image_cache.clear()
+        base = MagicMock()
+        with (
+            override_settings(DEBUG=True),
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_dockerfile", return_value=base),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._prepare_local_modal_build_context",
+                return_value=("/Dockerfile", "/ctx"),
+            ),
+        ):
+            image = get_template_base_image(SandboxTemplate.AUTORESEARCH_BASE)
+        _template_image_cache.clear()
+
+        assert image is base.dockerfile_commands.return_value
+        commands = base.dockerfile_commands.call_args.args[0]
+        assert any(line.startswith("RUN pip install") for line in commands)
+        assert not any(line.startswith(("FROM ", "ARG BASE_IMAGE")) for line in commands)
 
     def test_notebook_context_carries_the_baked_kernel_package(self):
         # DEBUG builds the notebook image from this trimmed context, not the repo root, so a
