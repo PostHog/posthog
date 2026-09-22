@@ -16,7 +16,7 @@ import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.fields import empty
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
@@ -32,9 +32,21 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 
 from products.autoresearch.backend.facade import api
 from products.autoresearch.backend.facade.access import has_autoresearch_access
-from products.autoresearch.backend.facade.contracts import AutoresearchConflict, PipelineNotFound, TrainingRunNotFound
+from products.autoresearch.backend.facade.contracts import (
+    ArtifactNotFound,
+    ArtifactStorageUnavailable,
+    AutoresearchConflict,
+    InvalidArtifactPath,
+    PipelineNotFound,
+    TrainingRunNotFound,
+)
 
 from .serializers import (
+    ArtifactContentSerializer,
+    ArtifactDeleteResultSerializer,
+    ArtifactListSerializer,
+    ArtifactPathSerializer,
+    ArtifactUploadSerializer,
     AutoresearchIterationSerializer,
     AutoresearchModelSerializer,
     AutoresearchPipelineCreateSerializer,
@@ -42,10 +54,13 @@ from .serializers import (
     AutoresearchRunSerializer,
     AutoresearchTrainingRunSerializer,
     CompleteTrainingRunSerializer,
+    MaterializeFeaturesRequestSerializer,
+    MaterializeFeaturesResponseSerializer,
     OpenTrainingRunSerializer,
     RecordIterationSerializer,
     ResolvedTemplateSerializer,
     ResolveTemplateRequestSerializer,
+    StoredArtifactSerializer,
     TemplateInfoSerializer,
     TrainingRunHistoryQuerySerializer,
     TrainingRunHistorySerializer,
@@ -117,6 +132,12 @@ class _FacadePaginationMixin:
         paginator.count = count
         serializer = serializer_class(instance=page, many=True)
         return paginator.get_paginated_response(serializer.data)
+
+
+class ArtifactStorageUnavailableError(APIException):
+    status_code = 503
+    default_detail = "Object storage is unavailable, so the artifact could not be stored. Try again in a moment."
+    default_code = "artifact_storage_unavailable"
 
 
 def _parent_pipeline_id(view: Any) -> str | None:
@@ -422,11 +443,26 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
     schema = FacadePathParamSchema()
     uuid_path_parameters = {"id": "A UUID string identifying this autoresearch training run.", "pipeline_id": None}
     scope_object = "autoresearch"
-    scope_object_read_actions = ["list", "retrieve", "history"]
-    scope_object_write_actions = ["create", "record_iteration", "complete"]
+    scope_object_read_actions = ["list", "retrieve", "list_artifacts", "get_artifact", "history"]
+    scope_object_write_actions = [
+        "create",
+        "record_iteration",
+        "complete",
+        "materialize_features",
+        "upload_artifact",
+        "delete_artifact",
+    ]
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchTrainingRunSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        # The feature query and the anchor count are unsampled ClickHouse scans, so a personal API
+        # key gets the ClickHouse budget here as on the pipeline viewset's query-backed actions.
+        if self.action == "materialize_features":
+            return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
+        return super().get_throttles()
+
     # A training run is opened and appended to, never edited or deleted.
     http_method_names = ["get", "post", "head", "options"]
 
@@ -516,6 +552,56 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
         return Response(AutoresearchIterationSerializer(instance=iteration).data, status=201)
 
     @validated_request(
+        request_serializer=MaterializeFeaturesRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=MaterializeFeaturesResponseSerializer,
+                description="Sandbox paths to the train/holdout feature and label parquet files, plus row counts and feature columns.",
+            ),
+            400: OpenApiResponse(
+                description=(
+                    "Run not running, features_sql invalid, sandbox unavailable, the query produced no usable "
+                    "rows, or the holdout split cannot be scored."
+                )
+            ),
+        },
+        summary="Materialize training features to the sandbox",
+        description=(
+            "Run features_sql server-side against the labeled training population and write the resulting "
+            "train/holdout feature and label parquet files directly into this run's sandbox. Returns the local "
+            "sandbox paths, row counts, and feature columns. The rows never pass through the agent's context and "
+            "there is no 500-row cap. Read the returned paths with pd.read_parquet and iterate in Python."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="materialize-features",
+        required_scopes=["autoresearch:write", "query:read"],
+    )
+    def materialize_features(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            result = api.materialize_features(
+                self.team_id,
+                self.kwargs["pk"],
+                pipeline_id=_parent_pipeline_id(self),
+                features_sql=request.validated_data["features_sql"],
+                user=cast(User, request.user),
+            )
+        except TrainingRunNotFound:
+            raise NotFound("Training run not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        logger.info(
+            "autoresearch_features_materialized_to_sandbox",
+            training_run_id=str(self.kwargs["pk"]),
+            n_train=result.n_train,
+            n_holdout=result.n_holdout,
+            n_features=result.n_features,
+        )
+        return Response(MaterializeFeaturesResponseSerializer(instance=result).data)
+
+    @validated_request(
         request_serializer=CompleteTrainingRunSerializer,
         responses={
             200: OpenApiResponse(
@@ -577,3 +663,128 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
         except PipelineNotFound as exc:
             raise NotFound(str(exc)) from exc
         return Response(TrainingRunHistorySerializer(instance=history).data)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=ArtifactListSerializer,
+                description="The relative paths of every file in this run's artifact bundle.",
+            ),
+        },
+        summary="List artifact bundle files",
+        description=(
+            "List the files an agent has uploaded for this training run's artifact bundle "
+            "(train.py, predict.py, features.sql, and any eda/ notebooks)."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="artifacts")
+    def list_artifacts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            listing = api.list_artifacts(self.team_id, self.kwargs["pk"], pipeline_id=_parent_pipeline_id(self))
+        except TrainingRunNotFound:
+            raise NotFound("Training run not found.")
+        return Response(ArtifactListSerializer(instance=listing).data)
+
+    @validated_request(
+        request_serializer=ArtifactUploadSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=StoredArtifactSerializer,
+                description="The stored file's path, size, and content hash.",
+            ),
+            400: OpenApiResponse(
+                description=(
+                    "Invalid or reserved path, content is not base64, file exceeds the size limit, the bundle "
+                    "holds its maximum number of files, or the run is no longer running."
+                )
+            ),
+            503: OpenApiResponse(description="Object storage is unavailable; nothing was stored."),
+        },
+        summary="Upload an artifact bundle file",
+        description=(
+            "Upload one file of this training run's artifact bundle. Send the file contents "
+            "base64-encoded in content_base64. Re-uploading the same path overwrites it. "
+            "Use this — not curl/set_output — to author train.py, predict.py, and features.sql. "
+            "The bundle is frozen once the run completes or fails."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="artifacts/upload")
+    def upload_artifact(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        data = request.validated_data
+        try:
+            stored = api.write_artifact(
+                self.team_id,
+                self.kwargs["pk"],
+                pipeline_id=_parent_pipeline_id(self),
+                path=data["path"],
+                content_base64=data["content_base64"],
+            )
+        except TrainingRunNotFound:
+            raise NotFound("Training run not found.")
+        except (AutoresearchConflict, InvalidArtifactPath) as exc:
+            raise ValidationError(str(exc)) from exc
+        except ArtifactStorageUnavailable as exc:
+            raise ArtifactStorageUnavailableError(str(exc)) from exc
+        return Response(StoredArtifactSerializer(instance=stored).data, status=201)
+
+    @validated_request(
+        request_serializer=ArtifactPathSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ArtifactContentSerializer,
+                description="The file's content, base64-encoded, with its size and hash.",
+            ),
+            404: OpenApiResponse(description="No file at that path in this run's bundle."),
+        },
+        summary="Get an artifact bundle file",
+        description="Fetch one file from this training run's artifact bundle, base64-encoded.",
+    )
+    @action(detail=True, methods=["post"], url_path="artifacts/get")
+    def get_artifact(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            content = api.read_artifact(
+                self.team_id,
+                self.kwargs["pk"],
+                pipeline_id=_parent_pipeline_id(self),
+                path=request.validated_data["path"],
+            )
+        except TrainingRunNotFound:
+            raise NotFound("Training run not found.")
+        except InvalidArtifactPath as exc:
+            raise ValidationError(str(exc)) from exc
+        except ArtifactNotFound as exc:
+            raise NotFound(str(exc)) from exc
+        return Response(ArtifactContentSerializer(instance=content).data)
+
+    @validated_request(
+        request_serializer=ArtifactPathSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ArtifactDeleteResultSerializer,
+                description="Whether a file existed at that path and was removed.",
+            ),
+            400: OpenApiResponse(description="Invalid path, or the run is no longer running."),
+            503: OpenApiResponse(description="Object storage is unavailable; nothing was deleted."),
+        },
+        summary="Delete an artifact bundle file",
+        description=(
+            "Remove one file from this training run's artifact bundle. Idempotent — deleting a missing "
+            "file is a no-op. The bundle is frozen once the run completes or fails."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="artifacts/delete")
+    def delete_artifact(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            result = api.delete_artifact(
+                self.team_id,
+                self.kwargs["pk"],
+                pipeline_id=_parent_pipeline_id(self),
+                path=request.validated_data["path"],
+            )
+        except TrainingRunNotFound:
+            raise NotFound("Training run not found.")
+        except (AutoresearchConflict, InvalidArtifactPath) as exc:
+            raise ValidationError(str(exc)) from exc
+        except ArtifactStorageUnavailable as exc:
+            raise ArtifactStorageUnavailableError(str(exc)) from exc
+        return Response(ArtifactDeleteResultSerializer(instance=result).data)
