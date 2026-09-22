@@ -7,6 +7,7 @@ import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions
 import { ActivityScope } from '~/types'
 
 const ruleId = '00000000-0000-4000-8000-000000000001'
+const otherRuleId = '00000000-0000-4000-8000-000000000003'
 const item: ActivityLogItem = {
     id: '00000000-0000-4000-8000-000000000002',
     scope: ActivityScope.FEATURE_FLAG,
@@ -33,7 +34,12 @@ const item: ActivityLogItem = {
                 { field: 'default_value', action: 'changed' },
                 { field: `rules/${ruleId}/targeting`, action: 'changed' },
                 { field: `rules/${ruleId}/rollout_percentage`, action: 'changed' },
-                { field: 'rule_order', action: 'changed', before: [ruleId], after: [ruleId] },
+                {
+                    field: 'rule_order',
+                    action: 'changed',
+                    before: [ruleId, otherRuleId],
+                    after: [otherRuleId, ruleId],
+                },
             ],
         },
     },
