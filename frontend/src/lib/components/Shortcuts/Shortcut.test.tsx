@@ -41,7 +41,7 @@ describe('Shortcut', () => {
             </div>
         )
 
-        fireEvent.keyDown(screen.getByRole('textbox', { name: 'Terminal' }), { key, ctrlKey, metaKey, shiftKey })
+        fireEvent.keyDown(screen.getByLabelText('Terminal'), { key, ctrlKey, metaKey, shiftKey })
 
         expect(onClick).toHaveBeenCalledTimes(triggered ? 1 : 0)
     })
