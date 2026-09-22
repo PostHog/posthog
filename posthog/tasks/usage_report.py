@@ -35,6 +35,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models import OrganizationMembership, User
+from posthog.models.ai_events.sql import TABLE_BASE_NAME as AI_EVENTS_TABLE
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.models.group_type_mapping import count_group_type_mappings_per_team, get_group_types_for_team
 from posthog.models.organization import Organization
@@ -1848,9 +1849,16 @@ def _get_teams_with_ai_credits_for_products(
     trace_id_expr, _ = get_property_string_expr(
         "events", "$ai_trace_id", "'$ai_trace_id'", "properties", use_new_events_schema=use_new
     )
-    output_state_expr, _ = get_property_string_expr(
-        "events", "$ai_output_state", "'$ai_output_state'", "properties", use_new_events_schema=use_new
-    )
+    output_state_expr, _ = get_property_string_expr("events", "$ai_output_state", "'$ai_output_state'", "properties")
+    trace_events_table = events_table
+    trace_analysis_id_expr = trace_id_expr
+    trace_region_expr = region_expr
+    if use_new:
+        # Native shared events omit the output state needed to identify free tool calls.
+        trace_events_table = AI_EVENTS_TABLE
+        trace_analysis_id_expr = "trace_id"
+        trace_region_expr = "JSONExtractString(properties, %(region_group_property)s)"
+        output_state_expr = "ifNull(output_state, '')"
     customer_team_id_expr, _ = get_property_string_expr(
         "events", "team_id", "'team_id'", "properties", use_new_events_schema=use_new
     )
@@ -1897,7 +1905,7 @@ def _get_teams_with_ai_credits_for_products(
                     ) AS is_billable
                 FROM (
                     SELECT
-                        {trace_id_expr} AS trace_id,
+                        {trace_analysis_id_expr} AS trace_id,
                         arrayFlatten(
                             arrayMap(
                                 msg -> JSONExtractArrayRaw(msg, 'tool_calls'),
@@ -1913,11 +1921,11 @@ def _get_teams_with_ai_credits_for_products(
                             )
                         ) AS tool_calls,
                         arrayMap(tc -> JSONExtractString(tc, 'name'), tool_calls) AS tool_names
-                    FROM {events_table}
+                    FROM {trace_events_table}
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
-                        AND {region_expr} = %(region_url)s
+                        AND {trace_region_expr} = %(region_url)s
                         AND timestamp >= %(begin)s
                         AND timestamp < %(end)s
                         AND event = '$ai_trace'

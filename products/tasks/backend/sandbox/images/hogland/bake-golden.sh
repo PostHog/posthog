@@ -27,7 +27,7 @@
 #   SKILLS_TARBALL — path to the runner-rendered skills tarball (.tar.gz)
 # Optional env:
 #   AGENT_VERSION  — @posthog/agent version to install in-box (default: latest)
-#   BOX_CPUS / BOX_MEM_MIB / BOX_DISK_GIB — seed box shape (default 4 / 16384 / 64)
+#   BOX_CPUS / BOX_MEM_MIB / BOX_DISK_GIB — seed box shape (default 4 / 20480 / 64)
 #
 # On success prints a single parseable line to stdout:
 #   BAKED_SNAPSHOT_ID=<id>
@@ -40,7 +40,7 @@ set -euo pipefail
 : "${SKILLS_TARBALL:?SKILLS_TARBALL is required (path to rendered-skills tarball)}"
 AGENT_VERSION="${AGENT_VERSION:-latest}"
 BOX_CPUS="${BOX_CPUS:-4}"
-BOX_MEM_MIB="${BOX_MEM_MIB:-16384}"
+BOX_MEM_MIB="${BOX_MEM_MIB:-20480}"
 BOX_DISK_GIB="${BOX_DISK_GIB:-64}"
 
 log() { printf '[tasks-bake] %s\n' "$*" >&2; }
