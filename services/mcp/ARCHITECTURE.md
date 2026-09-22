@@ -84,52 +84,76 @@ This produces one structured JSON log per request, making it easier to query in 
 
 ### Tracking and observability
 
-There are three independent layers that emit signals about each MCP request:
+Three layers describe each MCP request.
+They have different owners and uses.
 
-1. **PostHog analytics events** — `$mcp_tool_call` and friends, captured for product analytics.
-2. **Outbound API headers** — propagated when the MCP server calls PostHog's Django backend, so backend log lines and OTLP spans can correlate with the originating MCP request.
-3. **Wide structured logs** — single JSON record per request from the Worker itself (see [Wide Logging Pattern](#wide-logging-pattern) above).
+| Signal               | Owner                                        | Use                                                                          |
+| -------------------- | -------------------------------------------- | ---------------------------------------------------------------------------- |
+| MCP Analytics events | `PostHogMCP` through `src/hono/analytics.ts` | Product analytics for tool use, intent, model, errors, and discovery         |
+| Outbound API headers | `ApiClient.fetch()`                          | Context for Django analytics, activity logs, structured logs, and OTLP spans |
+| Wide structured logs | The Worker `RequestLogger`                   | One redacted edge log for the HTTP request                                   |
 
-#### MCP Analytics SDK integration
+#### MCP Analytics SDK boundary
 
-The canonical event is `$mcp_tool_call`.
-The legacy unprefixed `mcp_tool_call` alias is no longer emitted — the transition shim that dual-emitted it through the cutover has been removed (only pre-2026-06-16 history remains under that name).
-The public [event and property reference](https://posthog.com/docs/mcp-analytics/events) owns the wire contract.
-The [custom server integration guide](https://posthog.com/docs/mcp-analytics/custom-servers) documents the `PostHogMCP` API used by this Hono server.
+The public [event and property reference](https://posthog.com/docs/mcp-analytics/events) owns the shared wire contract.
+The [custom server integration guide](https://posthog.com/docs/mcp-analytics/custom-servers) owns the `PostHogMCP` API contract for custom dispatchers.
+This file only documents how the PostHog server connects those contracts to its request context.
 
 The server uses one shared `PostHogMCP` client from `src/lib/posthog/client.ts`.
-The `src/hono/analytics.ts` module resolves PostHog request context and calls SDK helpers for initialization, tool calls, and tool listings.
-Direct tool calls and inner exec calls use the same `trackToolCall` path.
-The SDK creates the canonical `$mcp_*` event fields and applies its sanitization and truncation rules.
+`ToolExecutor` uses `prepareToolList()` and `prepareToolCall()` to add and remove SDK-owned intent and model fields.
+`src/hono/analytics.ts` calls the SDK capture methods for initialization, tool calls, tool listings, missing capabilities, and feedback.
+Direct tool calls and inner exec calls use the same `trackToolCall()` path.
+The SDK builds the canonical `$mcp_*` fields and applies its sanitization and truncation rules.
 
-Server code can add PostHog-specific metadata through the SDK `properties` input, but local names must not use the `$mcp_*` prefix.
-New `$mcp_*` events and properties belong in the SDK instead of this server.
-Check the design with the MCP Analytics team before you extend the `$mcp_*` namespace.
+This server emits `$mcp_initialize` from both the legacy `initialize` handshake and modern `server/discover`.
+Modern requests do not have an `initialize` handshake.
 
-#### Three correlation identifiers
+The server keeps existing server-specific `$mcp_*` properties for compatibility.
+Do not add new `$mcp_*` names in this server.
+Add a shared signal to the SDK and the [event reference](https://posthog.com/docs/mcp-analytics/events), after agreement with the MCP Analytics team.
+Use an unreserved name for local metadata.
 
-Three identifiers travel with each request, each with a different lifecycle and a different consumer:
+#### Identity, correlation, and provenance
 
-| Identifier                                          | Source                                                                                                                                                                                                                                                                                     | Where it lands                                                                                                                                                                                                                                                           |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **`sessionId`** (wrapper-app hint)                  | `?sessionId=` query param, set by integrators (setup wizard, sandbox, etc.)                                                                                                                                                                                                                | Resolved to a UUIDv7 via `SessionManager.getSessionUuid()` and stamped as `$session_id` on events — drives Session Replay grouping. `$ai_session_id` is never stamped, so session-target AI evaluations cannot fire on MCP traffic. Only set when a wrapper supplies it. |
-| **`mcpSessionId`** (transport session)              | `Mcp-Session-Id` HTTP header, server-minted on initialize per the [Streamable-HTTP MCP spec](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#streamable-http) and echoed by clients on every subsequent request                                                  | Stamped on `$mcp_tool_call` events as `$mcp_session_id`, and forwarded to Django as `X-Posthog-Mcp-Session-Id` so backend structlog contextvars + OTLP span attributes (`mcp.session_id`) can correlate.                                                                 |
-| **`mcpConversationId`** (agent-echoed conversation) | The `conversation_id` arg [injected into tool schemas](https://github.com/PostHog/mcp-analytics/pull/14) by `@posthog/mcp-analytics` when `enableConversationId: true`. The SDK mints a UUID and asks the agent to echo it on subsequent calls, so it persists across transport reconnects | Same plumbing as `mcpSessionId` — stamped on events and forwarded to Django as `X-Posthog-Mcp-Conversation-Id`.                                                                                                                                                          |
+Do not treat these values as one session identifier.
+Each value has a separate source and lifecycle.
 
-Crucially, **`sessionId` and `mcpSessionId` are different concepts** and will not match for the same request. The wrapper-app `sessionId` is only set for a small fraction of traffic (mostly integrator-driven flows); the transport `mcpSessionId` is on essentially every authenticated request after initialize.
+| Signal                 | How this server resolves it                                                                                                                                                   | Event output and use                                                                                                                      |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Protocol revision      | Legacy clients send it during `initialize`. Modern clients send `io.modelcontextprotocol/protocolVersion` and `MCP-Protocol-Version` on each request.                         | `$mcp_protocol_version`. The value is request-scoped for the 2026-07-28 revision.                                                         |
+| Client identity        | Legacy clients send `clientInfo` during `initialize`. Modern clients send it in request `_meta`. A missing live field can use the value pinned to a legacy transport session. | `$mcp_client_name` and `$mcp_client_version`. The API client also forwards them to Django.                                                |
+| Vendor and user agent  | HTTP headers provide `User-Agent` and `x-anthropic-client`. The server sanitizes both at the boundary.                                                                        | `$mcp_client_user_agent` and `$mcp_vendor_client`. Queries resolve the final harness label from these values and the client name.         |
+| Model and model source | `prepareToolCall()` checks recognized request metadata first. It uses the SDK-owned `llm_model` tool argument as a fallback.                                                  | `$mcp_llm_model` and `$mcp_llm_model_source`. The source is `client_metadata` or `self_reported`.                                         |
+| Intent                 | `prepareToolCall()` reads the SDK-owned `context` tool argument and removes it before dispatch.                                                                               | `$mcp_intent` and `$mcp_intent_source`. The API client also forwards intent for activity logs.                                            |
+| Transport session      | Legacy `initialize` creates an `Mcp-Session-Id`. Clients echo it on later requests. Modern 2026-07-28 requests have no protocol session.                                      | `$mcp_session_id`. The server also uses it for legacy session-scoped state and downstream correlation.                                    |
+| Conversation handle    | This custom server reads the optional `mcp-conversation-id` request header. It does not mint or verify the handle.                                                            | `$mcp_conversation_id`. The value can correlate requests across transport sessions, but it does not set `$session_id`.                    |
+| Analytics session      | `getEffectiveSessionUuid()` uses `?sessionId=` first, then the legacy `Mcp-Session-Id`. `SessionManager` maps the selected value to a UUIDv7.                                 | `$session_id`, which MCP Analytics uses for session grouping. It can be absent on modern requests when no wrapper supplies `?sessionId=`. |
 
-#### Forwarding session and conversation IDs to Django
+The generic `instrument()` SDK path enables conversation IDs by default.
+It can mint a conversation handle and derive `$session_id` after the agent echoes that handle.
+This server uses the custom `PostHogMCP` path, which does not provide that conversation flow.
+The inbound conversation header does not take part in this server's `$session_id` resolution.
 
-When the Worker calls PostHog's Django backend (any `ApiClient.fetch`), the outbound request carries:
+#### Django propagation and trace correlation
 
-- `X-Posthog-Mcp-Session-Id: <mcpSessionId>` — when set on `ApiClient.config`
-- `X-Posthog-Mcp-Conversation-Id: <mcpConversationId>` — when set on `ApiClient.config`
+`ApiClient.fetch()` forwards the original user agent, client name and version, protocol version, consumer, OAuth client name, transport session, conversation handle, and intent.
+The backend uses the client fields for request analytics and the intent for activity logs.
 
-On the Django side, `per_request_logging_context_middleware` reads both headers (sanitized through the existing `sanitize_header_value` helper), binds them to structlog contextvars (`mcp_session_id`, `mcp_conversation_id`), and sets them on the current OTLP span as `mcp.session_id` / `mcp.conversation_id`.
+`per_request_logging_context_middleware` reads the session and conversation headers.
+It binds them to the `mcp_session_id` and `mcp_conversation_id` structlog context variables.
+It also adds `mcp.session_id` and `mcp.conversation_id` to the current OTLP span.
 
-The headers are caller-asserted — anyone can spoof them on a request — so backend consumers should treat them as correlation hints, not authoritative identifiers.
+This is attribute-based correlation.
+The Worker does not emit OTLP and the server does not forward `traceparent`, so Django starts a separate trace.
 
-This is **attribute-based correlation, not distributed-trace span linkage** — the Worker emits no OTLP itself and forwards no `traceparent`, so the Django-rooted span is not a child of any Worker-side span. Tracing backends can correlate after the fact by querying on the attribute, but won't render a cross-service trace tree until Worker-side OTLP export ships.
+#### Trust and privacy
+
+Client identity, vendor identity, model identity, and correlation headers are caller-provided.
+Use them for analytics and diagnostics, not for authorization, billing, or other security decisions.
+
+The SDK applies payload redaction and truncation before capture.
+Read the [privacy and redaction guide](https://posthog.com/docs/mcp-analytics/privacy) before you add payload data.
+Analytics failures must not fail an MCP request.
 
 ## OAuth Flow
 
