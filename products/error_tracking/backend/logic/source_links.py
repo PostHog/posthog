@@ -13,9 +13,10 @@ import json
 import time
 import zlib
 import struct
+import functools
 import urllib.parse
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from typing import Literal, Protocol
 
@@ -63,8 +64,12 @@ NEGATIVE_TTL_SECONDS = 5 * 60
 
 GITHUB_API_TIMEOUT_SECONDS = 20
 
+# A listing of one tree is capped in requests, in depth and in wall-clock time, since it runs
+# inside a page load. One process at a time lists a given tree, and the lock outlives the deadline.
 MAX_TREE_REQUESTS = 100
 MAX_TREE_SPLIT_DEPTH = 4
+TREE_LISTING_DEADLINE_SECONDS = 30
+TREE_LOCK_SECONDS = TREE_LISTING_DEADLINE_SECONDS + GITHUB_API_TIMEOUT_SECONDS
 
 _PROVIDER_HOSTS: dict[str, GitProvider] = {"github.com": "github", "gitlab.com": "gitlab"}
 _REPO_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -412,6 +417,11 @@ class PublicGitHubTokenCircuit:
 
 
 class GitHubApi(Protocol):
+    @property
+    def identity(self) -> str:
+        """Names the credential, so data read with it is only served to callers of the same credential."""
+        ...
+
     def get(self, path: str, *, endpoint: str, etag: str | None = None) -> requests.Response | None:
         """A GET on the GitHub API, or None when no response arrived. ``etag`` makes it conditional."""
         ...
@@ -426,6 +436,10 @@ class InstallationGitHubApi:
 
     def __init__(self, github: GitHubIntegration) -> None:
         self._github = github
+
+    @property
+    def identity(self) -> str:
+        return f"installation:{self._github.integration.id}"
 
     def get(self, path: str, *, endpoint: str, etag: str | None = None) -> requests.Response | None:
         try:
@@ -447,6 +461,10 @@ class PublicTokenGitHubApi:
     def __init__(self, token: str, circuit: PublicGitHubTokenCircuit) -> None:
         self._token = token
         self._circuit = circuit
+
+    @property
+    def identity(self) -> str:
+        return "public"
 
     def get(self, path: str, *, endpoint: str, etag: str | None = None) -> requests.Response | None:
         try:
@@ -520,7 +538,7 @@ def github_target(api: GitHubApi, repository: Repository, commit: str | None) ->
 
 
 def _github_default_branch(api: GitHubApi, repository: Repository) -> str | None:
-    key = f"error_tracking:source_links:default_branch:{repository.path}"
+    key = f"error_tracking:source_links:default_branch:{api.identity}:{repository.path}"
     cached = cache.get(key)
     if isinstance(cached, str):
         return cached or None
@@ -552,14 +570,18 @@ class TreeListing:
 
 
 class _TreeRequests:
-    """Issues the tree requests of one listing and counts them against the cap."""
+    """Issues the tree requests of one listing and counts them against the cap and the deadline."""
 
     def __init__(self, api: GitHubApi, repository: Repository) -> None:
         self._api = api
         self._repository = repository
+        self._deadline = time.time() + TREE_LISTING_DEADLINE_SECONDS
         self.remaining = MAX_TREE_REQUESTS
 
     def get(self, tree_ref: str, *, recursive: bool, etag: str | None = None) -> requests.Response | None:
+        if time.time() > self._deadline:
+            logger.warning("source_links_tree_listing_timed_out", repository=self._repository.path, tree=tree_ref)
+            return None
         self.remaining -= 1
         ref = urllib.parse.quote(tree_ref, safe="")
         suffix = "?recursive=1" if recursive else ""
@@ -660,7 +682,7 @@ def _tree_from_cache(entry: dict) -> RepositoryTree:
 
 
 def github_tree(api: GitHubApi, target: SourceTarget) -> RepositoryTree | None:
-    key = f"error_tracking:source_links:tree:{target.repository.path}@{target.ref}"
+    key = f"error_tracking:source_links:tree:{api.identity}:{target.repository.path}@{target.ref}"
     cached = cache.get(key)
     now = time.time()
     stale: dict | None = None
@@ -671,10 +693,20 @@ def github_tree(api: GitHubApi, target: SourceTarget) -> RepositoryTree | None:
             return _tree_from_cache(cached)
         stale = cached
 
-    listing = list_github_tree(api, target.repository, target.ref, etag=stale.get("etag") if stale else None)
+    # Concurrent page loads of one release would each list the tree. The one that takes the lock
+    # lists it, and the others use what they have, which is nothing for a first load.
+    lock_key = f"{key}:lock"
+    if not cache.add(lock_key, True, TREE_LOCK_SECONDS):
+        return _tree_from_cache(stale) if stale else None
+    try:
+        listing = list_github_tree(api, target.repository, target.ref, etag=stale.get("etag") if stale else None)
+    finally:
+        cache.delete(lock_key)
     if listing is None:
         if stale is None:
-            cache.set(key, {"paths": None}, NEGATIVE_TTL_SECONDS)
+            # Added rather than set, so a failure that lands after another process filled the
+            # tree does not replace it with a negative entry.
+            cache.add(key, {"paths": None}, NEGATIVE_TTL_SECONDS)
             return None
         # The branch tree could not be refreshed. The stale tree is still a good guide, and the
         # next attempt waits for the negative lifetime instead of running on every page load.
@@ -696,13 +728,16 @@ def github_tree(api: GitHubApi, target: SourceTarget) -> RepositoryTree | None:
 
 
 def github_paths_for_symbol_set(
-    api: GitHubApi, symbol_set: ErrorTrackingSymbolSet, target: SourceTarget, frame_sources: Iterable[str]
+    symbol_set: ErrorTrackingSymbolSet,
+    target: SourceTarget,
+    frame_sources: Iterable[str],
+    load_tree: Callable[[], RepositoryTree | None],
 ) -> Mapping[str, str | None]:
     """Raw source to repository path for every source of the symbol set, None where nothing matched.
 
     Kept per symbol set content and target, so a page load after the first costs no GitHub or
     object storage request. The frames' own sources are part of the set, which keeps matching
-    alive when the stored map cannot be read.
+    alive when the stored map cannot be read. ``load_tree`` is only called on a miss.
     """
     frame_sources = list(dict.fromkeys(frame_sources))
     key = (
@@ -713,7 +748,7 @@ def github_paths_for_symbol_set(
     if isinstance(cached, dict) and all(source in cached for source in frame_sources):
         return cached
 
-    tree = github_tree(api, target)
+    tree = load_tree()
     if tree is None:
         return {}
     stored_sources = symbol_set_sources(symbol_set)
@@ -899,13 +934,15 @@ def resolve_source_links(team_id: int, release_id: str, raw_ids: list[str]) -> l
     for frame in frames:
         by_symbol_set[frame.symbol_set_id].append(frame)
 
+    # Every symbol set of the event lives at the same target, so the tree is built at most once.
+    load_tree = functools.cache(lambda: github_tree(api, target))
     links: list[SourceLink] = []
     for symbol_set_frames in by_symbol_set.values():
         symbol_set = symbol_set_frames[0].symbol_set
         if symbol_set is None:
             continue
         mapping = github_paths_for_symbol_set(
-            api, symbol_set, target, [frame.contents["source"] for frame in symbol_set_frames]
+            symbol_set, target, [frame.contents["source"] for frame in symbol_set_frames], load_tree
         )
         for frame in symbol_set_frames:
             path = mapping.get(frame.contents["source"])

@@ -1,6 +1,7 @@
 import io
 import json
 import struct
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import time_machine
@@ -50,16 +51,28 @@ class _ScriptedGitHubApi:
     """Replays the queued responses of each request path and records the ETag each request sent.
     A path without a queue gets no response, which is how a failed request looks to the resolver."""
 
-    def __init__(self, responses: dict[str, list[requests.Response]]) -> None:
+    def __init__(self, responses: dict[str, list[requests.Response]], identity: str = "installation:1") -> None:
         self.responses = responses
+        self.identity = identity
         self.calls: list[tuple[str, str | None]] = []
+        self.on_request: Callable[[], None] | None = None
 
     def get(self, path: str, *, endpoint: str, etag: str | None = None) -> requests.Response | None:
         self.calls.append((path, etag))
+        if self.on_request is not None:
+            self.on_request()
         queue = self.responses.get(path)
         if not queue:
             return None
         return queue.pop(0) if len(queue) > 1 else queue[0]
+
+
+def _small_repository() -> dict[str, list[requests.Response]]:
+    return {
+        f"{TREES}/{COMMIT}?recursive=1": [
+            _json_response(200, {"truncated": False, "tree": [{"path": "src/a.ts", "type": "blob"}]})
+        ]
+    }
 
 
 def _truncated_repository(*, with_tools: bool) -> dict[str, list[requests.Response]]:
@@ -311,6 +324,65 @@ class TestGitHubTree(SimpleTestCase):
         api = _ScriptedGitHubApi(_truncated_repository(with_tools=False))
 
         assert github_tree(api, SourceTarget(repository=REPOSITORY, ref=COMMIT, pinned=True)) is None
+
+    def test_a_slow_listing_stops_at_the_deadline(self) -> None:
+        api = _ScriptedGitHubApi(_truncated_repository(with_tools=True))
+        target = SourceTarget(repository=REPOSITORY, ref=COMMIT, pinned=True)
+
+        with time_machine.travel(datetime(2026, 1, 1, tzinfo=UTC), tick=False) as traveller:
+            api.on_request = lambda: traveller.shift(timedelta(seconds=31))
+            assert github_tree(api, target) is None
+
+        assert len(api.calls) == 1
+
+    @parameterized.expand(
+        [
+            ("same_credential", "installation:1", {"src/a.ts"}),
+            ("other_credential", "public", None),
+        ]
+    )
+    def test_a_tree_is_only_served_to_the_credential_that_read_it(
+        self, _name: str, identity: str, expected_paths: set[str] | None
+    ) -> None:
+        # A private repository's paths must not reach a team that only holds the public token.
+        target = SourceTarget(repository=REPOSITORY, ref=COMMIT, pinned=True)
+        assert github_tree(_ScriptedGitHubApi(_small_repository()), target) is not None
+
+        tree = github_tree(_ScriptedGitHubApi({}, identity=identity), target)
+
+        assert (tree.paths if tree else None) == expected_paths
+
+    def test_one_process_lists_a_tree_while_the_others_wait_for_the_next_load(self) -> None:
+        target = SourceTarget(repository=REPOSITORY, ref=COMMIT, pinned=True)
+        first = _ScriptedGitHubApi(_small_repository())
+        second = _ScriptedGitHubApi(_small_repository())
+        results: list[RepositoryTree | None] = []
+        # The second load starts while the first is still waiting on GitHub.
+        first.on_request = lambda: results.append(github_tree(second, target))
+
+        tree = github_tree(first, target)
+
+        assert tree is not None and results == [None] and second.calls == []
+        assert github_tree(second, target) is not None and second.calls == []
+
+    def test_a_late_failure_does_not_replace_a_tree_another_process_filled(self) -> None:
+        target = SourceTarget(repository=REPOSITORY, ref=COMMIT, pinned=True)
+        failing = _ScriptedGitHubApi({})
+
+        with (
+            patch("products.error_tracking.backend.logic.source_links.TREE_LOCK_SECONDS", 1),
+            time_machine.travel(datetime(2026, 1, 1, tzinfo=UTC), tick=False) as traveller,
+        ):
+            # This process outlives its lock, and another one fills the tree before its request fails.
+            def other_process_fills() -> None:
+                traveller.shift(timedelta(seconds=2))
+                assert github_tree(_ScriptedGitHubApi(_small_repository()), target) is not None
+
+            failing.on_request = other_process_fills
+            assert github_tree(failing, target) is None
+
+            tree = github_tree(_ScriptedGitHubApi({}), target)
+            assert tree is not None and tree.paths == {"src/a.ts"}
 
     def test_revalidates_a_branch_tree_with_its_etag_instead_of_downloading_it_again(self) -> None:
         path = f"{TREES}/main?recursive=1"

@@ -32,6 +32,8 @@ def _response(status: int, body: dict | list | None = None) -> requests.Response
 class _FakeGitHubApi:
     """Answers the two GitHub reads the resolver makes and counts them."""
 
+    identity = "installation:1"
+
     def __init__(self, default_branch: str = "main") -> None:
         self.default_branch = default_branch
         self.calls: list[str] = []
