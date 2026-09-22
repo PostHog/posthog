@@ -502,7 +502,7 @@ Per Temporal's own guidance: write the **majority** of tests as the cheapest har
 
 Async tests that touch the Django ORM via `sync_to_async` / `database_sync_to_async` will fail without `@pytest.mark.django_db(transaction=True)`. asgiref dispatches the wrapped sync function to a separate thread, which gets its own DB connection, which can't see the test's wrapping atomic transaction. The test will create a row, the activity will fail to find it.
 
-`transaction=True` swaps fast transaction-rollback for slow TRUNCATE-everything between tests. This is the correct workaround — there's no clean way to share a Django connection across threads — but it's expensive, so **only use it when needed**:
+`transaction=True` swaps fast transaction-rollback for a flush between tests, which deletes the rows of every table the test wrote. This is the correct workaround — there's no clean way to share a Django connection across threads — but it's slower, so **only use it when needed**:
 
 ```python
 # Async test + Django ORM = needs transaction=True

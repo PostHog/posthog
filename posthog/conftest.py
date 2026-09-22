@@ -23,7 +23,6 @@ except ImportError:  # fail-open: runs without tools/hogli-commands on pythonpat
     apply_quarantine_markers = None
 
 from django.conf import settings
-from django.core.management import call_command
 from django.core.management.commands.flush import Command as FlushCommand
 from django.test import TransactionTestCase
 
@@ -476,17 +475,17 @@ def _patched_fixture_teardown(self: TransactionTestCase) -> None:
     The stock TransactionTestCase teardown runs the flush command, which truncates every table
     and re-seeds content types and permissions after each test. pytest-django uses it for every
     ``django_db(transaction=True)`` test. Use the selective flush of NonAtomicBaseTest instead.
-    Subset flushes (``available_apps``) and serialized rollback keep the stock path.
+    Subset flushes (``available_apps``), serialized rollback, and a failed selective flush keep
+    the stock teardown.
     """
-    if self.available_apps is not None or self.serialized_rollback:
-        _original_fixture_teardown(self)
-        return
-    for db_name in cast(Any, self)._databases_names(include_mirrors=False):
+    if self.available_apps is None and not self.serialized_rollback:
         try:
-            _selective_flush(db_name, reset_sequences=False)
+            for db_name in cast(Any, self)._databases_names(include_mirrors=False):
+                _selective_flush(db_name, reset_sequences=False)
+            return
         except Exception:
-            logger.exception("Selective flush of %r failed; falling back to the stock flush command", db_name)
-            call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
+            logger.exception("Selective flush failed; falling back to the stock teardown")
+    _original_fixture_teardown(self)
 
 
 _original_fixture_teardown = TransactionTestCase._fixture_teardown
