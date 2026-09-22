@@ -302,6 +302,7 @@ class TestLearningAnalyzer:
         search.assert_not_called()
         publish.assert_not_called()
 
+    @pytest.mark.parametrize("analytics_client", ["ready", "uninitialized"])
     @pytest.mark.parametrize(
         "pii_result",
         [PiiVerdict(verdict="unsafe"), PiiVerdict(verdict="uncertain")],
@@ -310,24 +311,30 @@ class TestLearningAnalyzer:
         self,
         team: Team,
         pii_result: PiiVerdict,
+        analytics_client: str,
     ) -> None:
         run, input = _setup_sync(team)
         provider = _Provider(EvidenceBundle(replies=("Use the standard contact process.",)))
         model = MagicMock()
         structured_model = model.with_structured_output.return_value
-        structured_model.invoke.return_value = pii_result
+        structured_model.invoke.side_effect = [
+            _extraction(
+                canonical_topic="Contact policy",
+                canonical_answer="Contact Taylor for help.",
+            ),
+            pii_result,
+        ]
+        client = MagicMock()
 
         with (
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
-            patch(
-                f"{_MODULE}._extract_candidate",
-                return_value=_extraction(
-                    canonical_topic="Contact policy",
-                    canonical_answer="Contact Taylor for help.",
-                ),
-            ),
             patch(f"{_MODULE}._build_model", return_value=model),
-            patch(f"{_MODULE}.posthoganalytics.default_client", MagicMock()),
+            patch(
+                f"{_MODULE}.posthoganalytics.default_client",
+                client if analytics_client == "ready" else None,
+            ),
+            patch(f"{_MODULE}.posthoganalytics.disabled", False),
+            patch(f"{_MODULE}.posthoganalytics.setup", return_value=client) as setup_client,
             patch(f"{_MODULE}.generate_embedding") as embed,
             patch(f"{_MODULE}.logic.search_knowledge") as search,
             patch(f"{_MODULE}.logic.create_generated_knowledge_document") as publish,
@@ -337,12 +344,30 @@ class TestLearningAnalyzer:
         run.refresh_from_db()
         assert result.rejection_code == "pii"
         assert run.result == LearningRunResult.NO_KNOWLEDGE
-        model.with_structured_output.assert_called_once_with(PiiVerdict, method="json_schema", include_raw=False)
-        structured_model.invoke.assert_called_once()
-        callback = structured_model.invoke.call_args.kwargs["config"]["callbacks"][0]
-        assert callback._trace_id == str(run.id)
-        assert callback._privacy_mode is True
-        assert callback._distinct_id == f"team-{team.id}"
+        assert [call.args[0] for call in model.with_structured_output.call_args_list] == [
+            ExtractedKnowledge,
+            PiiVerdict,
+        ]
+        assert model.with_structured_output.call_args_list[1].kwargs == {
+            "method": "json_schema",
+            "include_raw": False,
+        }
+        for call in structured_model.invoke.call_args_list:
+            callback = call.kwargs["config"]["callbacks"][0]
+            assert callback._trace_id == str(run.id)
+            assert callback._privacy_mode is True
+            assert callback._distinct_id == f"team-{team.id}"
+            assert callback._properties["ai_product"] == "business_knowledge"
+            assert callback._properties["learning_run_id"] == str(run.id)
+            assert callback._properties["team_id"] == team.id
+        assert [
+            call.kwargs["config"]["callbacks"][0]._properties["ai_feature"]
+            for call in structured_model.invoke.call_args_list
+        ] == ["support_learning_extraction", "support_learning_pii"]
+        if analytics_client == "ready":
+            setup_client.assert_not_called()
+        else:
+            setup_client.assert_called_once_with()
         embed.assert_not_called()
         search.assert_not_called()
         publish.assert_not_called()

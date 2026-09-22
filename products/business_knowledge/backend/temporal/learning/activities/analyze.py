@@ -156,7 +156,10 @@ def _learning_generation_properties(*, stage: str, trace_id: str, team_id: int) 
 
 
 def _learning_trace_callback(team: Team, *, stage: str, trace_id: str) -> CallbackHandler | None:
+    # default_client stays None until the first module-level capture.
     client = posthoganalytics.default_client
+    if client is None and not posthoganalytics.disabled:
+        client = posthoganalytics.setup()
     if client is None:
         return None
     return CallbackHandler(
