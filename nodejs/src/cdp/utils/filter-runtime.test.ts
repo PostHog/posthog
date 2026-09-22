@@ -19,7 +19,7 @@ describe('filter-runtime', () => {
         if (JSON.stringify(actual) !== JSON.stringify(expected)) {
             // toEqual alone prints a diff and nothing else; say what to do about it.
             throw new Error(
-                `${FILTER_GLOBALS_RELATIVE_PATH} is stale. Run: pnpm --filter=@posthog/plugin-server run build:filter-globals\n` +
+                `${FILTER_GLOBALS_RELATIVE_PATH} is stale. Run: pnpm --filter=@posthog/nodejs run build:filter-globals\n` +
                     JSON.stringify({ expected, actual }, null, 2)
             )
         }

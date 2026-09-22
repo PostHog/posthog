@@ -1,5 +1,5 @@
 {
-    "$comment": "Generated. Do not edit: run `pnpm --filter=@posthog/plugin-server run build:filter-globals`. roots are the data globals the CDP filter runtime builds for a hog function. callables are the standard-library names the VM hands back as values and can then invoke, so they are the ones a filter can pass as a callback. Django reads this to refuse a filter the runtime could not evaluate.",
+    "$comment": "Generated. Do not edit: run `pnpm --filter=@posthog/nodejs run build:filter-globals`. roots are the data globals the CDP filter runtime builds for a hog function. callables are the standard-library names the VM hands back as values and can then invoke, so they are the ones a filter can pass as a callback. Django reads this to refuse a filter the runtime could not evaluate.",
     "roots": [
         "$group_0",
         "$group_1",

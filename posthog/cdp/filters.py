@@ -366,7 +366,7 @@ class _LowerConstantMembership(CloningVisitor):
 _RUNTIME = json.loads((Path(__file__).parent / "filter_globals.json").read_text())
 # Callables belong here because the VM resolves a bare standard-library name through the same
 # GET_GLOBAL path, so `arrayMap(lower, ...)` is a working filter rather than an unknown global.
-# Generated from the runtime by `pnpm --filter=@posthog/plugin-server run build:filter-globals`.
+# Generated from the runtime by `pnpm --filter=@posthog/nodejs run build:filter-globals`.
 FILTER_GLOBALS: set[str] = set(_RUNTIME["roots"]) | set(_RUNTIME["callables"])
 
 _UNKNOWN_GLOBAL = "Unknown global variable: "
