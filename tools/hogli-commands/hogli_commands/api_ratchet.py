@@ -757,17 +757,17 @@ def cmd_lint_api_ratchet(update_baseline: bool, prune_baseline: bool, namespaces
     click.echo(f"ApiRequest path methods with a generated twin: {len(redundant)} ({len(baseline)} in the baseline)")
     if stale:
         click.echo(f"\n⚠️  {len(stale)} stale baseline entry/entries — gone or no longer redundant:")
-        for entry in sorted(stale):
-            click.echo(f"    {entry}")
+        for stale_entry in sorted(stale):
+            click.echo(f"    {stale_entry}")
         click.echo("    Run: hogli lint:api-ratchet --prune-baseline")
     if new:
         click.echo(f"\n❌ {len(new)} path method(s) duplicate a generated client:")
-        for entry in sorted(ratchet.redundant, key=lambda item: item.entry):
-            if entry.entry not in new:
+        for redundant_method in sorted(ratchet.redundant, key=lambda item: item.entry):
+            if redundant_method.entry not in new:
                 continue
             click.echo(
-                f"    {entry.name}  ->  /api/{'/'.join(entry.template)}"
-                f"  (generated in: {', '.join(sorted(entry.products))})"
+                f"    {redundant_method.name}  ->  /api/{'/'.join(redundant_method.template)}"
+                f"  (generated in: {', '.join(sorted(redundant_method.products))})"
             )
         click.echo(
             "\nUse the product's generated client from products/<product>/frontend/generated/api.ts instead.\n"
