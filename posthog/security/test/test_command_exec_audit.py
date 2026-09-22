@@ -179,7 +179,7 @@ class TestCommandExecAuditPatching(TestCase):
             (
                 "multiprocessing_spawn",
                 [
-                    "python",
+                    "/usr/bin/python3.13",
                     "-c",
                     "from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=5, pipe_handle=7)",
                     "--multiprocessing-fork",
@@ -189,8 +189,8 @@ class TestCommandExecAuditPatching(TestCase):
                 {"multiprocessing": "true"},
             ),
             (
-                "multiprocessing_resource_tracker",
-                ["python", "-c", "from multiprocessing.resource_tracker import main;main(5)"],
+                "multiprocessing_resource_tracker_with_interpreter_flags",
+                ["python", "-X", "faulthandler", "-c", "from multiprocessing.resource_tracker import main;main(5)"],
                 False,
                 None,
                 {"multiprocessing": "true"},
@@ -200,7 +200,8 @@ class TestCommandExecAuditPatching(TestCase):
                 [
                     "python",
                     "-c",
-                    "import sys; from multiprocessing.forkserver import main; main(5, 6, ['__main__'], **{})",
+                    "import sys; from multiprocessing.forkserver import main; "
+                    "main(5, 6, ['__main__'], sys_argv=sys.argv[1:], **{'sys_path': ['/app']})",
                     "manage.py",
                     "start_temporal_worker",
                 ],
@@ -208,11 +209,52 @@ class TestCommandExecAuditPatching(TestCase):
                 None,
                 {"multiprocessing": "true"},
             ),
+            # The label hides an execution from alerts, so a marker string in an arbitrary argument,
+            # a non-python binary, or extra code appended to the bootstrap program must not earn it.
+            ("spoof_flag_in_argument", ["/bin/evil", "--multiprocessing-fork"], False, None, {}),
+            (
+                "spoof_non_python_binary",
+                ["/bin/evil", "-c", "from multiprocessing.resource_tracker import main;main(5)"],
+                False,
+                None,
+                {},
+            ),
+            (
+                "spoof_code_appended_to_bootstrap",
+                ["python", "-c", "from multiprocessing.resource_tracker import main;main(5); import evil"],
+                False,
+                None,
+                {},
+            ),
+            (
+                "spoof_replaces_process",
+                [
+                    "python",
+                    "-c",
+                    "import evil",
+                    "from multiprocessing.spawn import spawn_main; spawn_main(pipe_handle=1)",
+                ],
+                False,
+                {"replaces_process": True},
+                {"replaces_process": "true"},
+            ),
             ("volume_suppressed", ["uname", "-rs"], False, None, {"suppressed": "true"}),
+            (
+                "volume_suppressed_exec_keeps_flags",
+                ["uname", "-rs"],
+                False,
+                {"replaces_process": True},
+                {"suppressed": "true", "replaces_process": "true"},
+            ),
         ]
     )
     def test_execution_is_counted_with_bounded_labels(
-        self, _name: str, command: Any, shell: bool, extra: dict | None, flags: dict[str, str]
+        self,
+        _name: str,
+        command: list[str] | str,
+        shell: bool,
+        extra: dict[str, Any] | None,
+        flags: dict[str, str],
     ) -> None:
         before = self._audit_count("os.spawn", **flags)
         with structlog.testing.capture_logs() as logs:
