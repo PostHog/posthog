@@ -496,7 +496,7 @@ export interface projectTreeLogicMeta {
             arg: any,
             arg2: any,
             arg3: any,
-            shortcutScope: ProjectTreeLogicProps['shortcutScope']
+            arg4: any
         ) => TreeDataItem[]
         treeTableColumnOffsets: (treeTableColumnSizes: number[]) => number[]
         checkedItemCountNumeric: (checkedItems: Record<string, boolean>) => number

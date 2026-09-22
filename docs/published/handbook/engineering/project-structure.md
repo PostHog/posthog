@@ -63,6 +63,8 @@ Row menus appear on hover or keyboard focus and include Add to starred or Remove
 Existing app and file menus keep their actions, with starring last below a separator.
 Files contains the project file tree, including search, filtering, sorting, folders, and recent items.
 The Files filter, sort, and action menus sit beside its search field.
+Starred files and the project tree share one scroll area below the search field.
+Recents can be collapsed, and the sidebar remembers that preference.
 Chat keeps the conversation list in its own tab.
 Add navigation destinations to the product manifest so they appear in Apps automatically.
 

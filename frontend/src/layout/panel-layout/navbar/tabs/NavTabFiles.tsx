@@ -26,7 +26,7 @@ export function NavTabFiles(): JSX.Element {
                     layout="inline"
                     beforeTree={
                         <>
-                            <div className="max-h-1/3 overflow-y-auto px-1 pb-2">
+                            <div className="px-1 pb-2">
                                 <div className="px-2 pt-1 pb-1">
                                     <span className="text-xs font-semibold text-secondary">Starred</span>
                                 </div>

@@ -6,6 +6,7 @@ import { ReactNode, RefObject, useEffect, useRef, useState } from 'react'
 import { IconCheckbox, IconChevronRight, IconEllipsis, IconFolderPlus, IconPlusSmall, IconStar } from '@posthog/icons'
 
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -116,7 +117,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
         root,
         shortcutScope,
         onlyTree = false,
-        disableScroll = onlyTree,
+        disableScroll = onlyTree || !!props.beforeTree,
         searchPlaceholder,
         treeSize = 'default',
         showRecents,
@@ -720,8 +721,14 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 </>
             )}
 
-            {props.beforeTree}
-            {tree}
+            {props.beforeTree ? (
+                <ScrollableShadows direction="vertical" className="flex-1 min-h-0" styledScrollbars>
+                    {props.beforeTree}
+                    {tree}
+                </ScrollableShadows>
+            ) : (
+                tree
+            )}
         </PanelLayoutPanel>
     )
 }

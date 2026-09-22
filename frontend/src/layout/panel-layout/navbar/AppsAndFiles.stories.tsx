@@ -12,6 +12,7 @@ import { getDefaultTreeDataAndPeople, getDefaultTreeProducts } from '../ProjectT
 import { projectTreeDataLogic } from '../ProjectTree/projectTreeDataLogic'
 import { NavBar } from './NavBar'
 import { navAppsTabLogic } from './tabs/navAppsTabLogic'
+import { navRecentsLogic } from './tabs/navRecentsLogic'
 
 const files: FileSystemEntry[] = [
     { id: 'folder-1', path: 'Getting started', type: 'folder' },
@@ -44,13 +45,16 @@ function SidebarStory({
     search = '',
     collapsed = false,
     empty = false,
+    recentsCollapsed = false,
 }: {
     tab?: NavExperimentTab
     search?: string
     collapsed?: boolean
     empty?: boolean
+    recentsCollapsed?: boolean
 }): JSX.Element {
     const { setNavExperimentTab, toggleLayoutNavCollapsed, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
+    const { setRecentsCollapsed } = useActions(navRecentsLogic)
     const { setSearch } = useActions(navAppsTabLogic)
     const { loadShortcutsSuccess } = useActions(projectTreeDataLogic)
     useOnMountEffect(() => {
@@ -58,6 +62,7 @@ function SidebarStory({
         toggleLayoutNavCollapsed(collapsed)
         clearActivePanelIdentifier()
         setSearch(search)
+        setRecentsCollapsed(recentsCollapsed)
         loadShortcutsSuccess(empty ? [] : starred)
     })
     return <NavBar />
@@ -133,4 +138,30 @@ export const EmptyStarred: Story = {
 export const FilesEmptyStarred: Story = {
     ...EmptyStarred,
     args: { tab: 'files', empty: true },
+}
+
+export const FilesRecentsCollapsed: Story = { args: { tab: 'files', recentsCollapsed: true } }
+export const FilesLongTree: Story = {
+    args: { tab: 'files' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/file_system': [
+                    200,
+                    {
+                        results: Array.from({ length: 40 }, (_, index) => ({
+                            id: `long-file-${index}`,
+                            path: `Report ${String(index + 1).padStart(2, '0')}`,
+                            type: 'dashboard',
+                            ref: String(index + 1000),
+                            href: `/dashboard/${index + 1000}`,
+                        })),
+                        count: 40,
+                        next: null,
+                        has_more: false,
+                    },
+                ],
+            },
+        }),
+    ],
 }
