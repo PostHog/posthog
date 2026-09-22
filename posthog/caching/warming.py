@@ -1,6 +1,7 @@
 import itertools
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from typing import Optional
 
 from django.db.models import Q
@@ -17,6 +18,7 @@ from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.utils import largest_teams
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, get_team_query_tags, tag_queries
+from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
@@ -31,7 +33,7 @@ from posthog.tasks.utils import CeleryQueue
 from posthog.utils import variables_override_requested_by_client
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.facade.api import insight_variables_for_team
+from products.product_analytics.backend.facade.api import insight_variables_for_team, with_last_viewed_at
 from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
@@ -45,11 +47,70 @@ STALE_INSIGHTS_GAUGE = Gauge(
 PRIORITY_INSIGHTS_COUNTER = Counter(
     "posthog_cache_warming_priority_insights",
     "Number of priority insights warmed",
-    ["team_id", "dashboard", "is_cached"],
+    ["team_id", "dashboard", "is_cached", "admission_reason"],
 )
 
 LAST_VIEWED_THRESHOLD = timedelta(days=7)
 SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD = timedelta(days=3)
+
+UNKNOWN_ADMISSION_REASON = "unknown"
+
+
+class WarmingAdmissionReason(StrEnum):
+    """Which branch of `insights_to_keep_fresh` let this insight into the warm set."""
+
+    DASHBOARD = "dashboard"
+    SINGLE = "single"
+    SHARED_DASHBOARD = "shared_dashboard"
+    SHARED_SINGLE = "shared_single"
+
+
+class InsightViewAge(StrEnum):
+    """Bucketed days since anyone last opened the insight itself.
+
+    A dashboard-admitted insight can sit in any bucket: opening a dashboard does not record a
+    view against each of its tiles, so `DASHBOARD` warming and `NEVER` is the expected pairing
+    for a tile nobody clicks into.
+    """
+
+    NEVER = "never"
+    D0_1 = "0-1"
+    D1_3 = "1-3"
+    D3_7 = "3-7"
+    D7_14 = "7-14"
+    D14_30 = "14-30"
+    D30_PLUS = "30+"
+
+
+_VIEW_AGE_BUCKETS: tuple[tuple[int, InsightViewAge], ...] = (
+    (1, InsightViewAge.D0_1),
+    (3, InsightViewAge.D1_3),
+    (7, InsightViewAge.D3_7),
+    (14, InsightViewAge.D7_14),
+    (30, InsightViewAge.D14_30),
+)
+
+
+def view_age_bucket(last_viewed_at: Optional[datetime], *, now: datetime) -> InsightViewAge:
+    if last_viewed_at is None:
+        return InsightViewAge.NEVER
+    days = (now - last_viewed_at).total_seconds() / 86400
+    for upper_bound, bucket in _VIEW_AGE_BUCKETS:
+        if days < upper_bound:
+            return bucket
+    return InsightViewAge.D30_PLUS
+
+
+@frozen
+class WarmingCandidate:
+    """One insight (optionally as tiled on one dashboard) admitted to a warming pass, with the
+    selection context that admitted it."""
+
+    insight_id: int
+    dashboard_id: Optional[int]
+    admission_reason: WarmingAdmissionReason
+    insight_view_age: InsightViewAge
+
 
 # ClickHouse capacity/concurrency errors that should retry with backoff rather than fail the task.
 # ClickHouseAtCapacity is included via CH_TRANSIENT_ERRORS (it's what codes 202/439 surface as).
@@ -89,17 +150,16 @@ def teams_enabled_for_cache_warming() -> list[int]:
     return enabled_team_ids
 
 
-def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[tuple[int, Optional[int]]]:
+def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[WarmingCandidate]:
     """
     This is the place to decide which insights should be kept warm for the provided team.
     The reasoning is that this will be a yes or no decision. If we need to keep it warm, we try our best
     to not let the cache go stale. There isn't any middle ground, like trying to refresh it once a day, since
     that would be like clock that's only right twice a day.
     """
+    now = datetime.now(UTC)
     # for shared insights, use a lower cut off
-    threshold = datetime.now(UTC) - (
-        LAST_VIEWED_THRESHOLD if not shared_only else SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD
-    )
+    threshold = now - (LAST_VIEWED_THRESHOLD if not shared_only else SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD)
 
     clean_up_stale_insights(team_id=team.pk, threshold=threshold)
 
@@ -126,9 +186,18 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
         if shared_only:
             single_insight_q_filter &= Q(sharingconfiguration__enabled=True)
 
-        single_insight_ids = Insight.objects.filter(single_insight_q_filter).distinct().values_list("id", flat=True)
-        for single_insight_id in single_insight_ids:
-            yield single_insight_id, None
+        single_insights = (
+            with_last_viewed_at(Insight.objects.filter(single_insight_q_filter))
+            .distinct()
+            .values_list("id", "last_viewed_at")
+        )
+        for single_insight_id, last_viewed_at in single_insights:
+            yield WarmingCandidate(
+                insight_id=single_insight_id,
+                dashboard_id=None,
+                admission_reason=WarmingAdmissionReason.SHARED_SINGLE if shared_only else WarmingAdmissionReason.SINGLE,
+                insight_view_age=view_age_bucket(last_viewed_at, now=now),
+            )
 
     if not dashboard_q_filter:
         return
@@ -136,13 +205,32 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
     if shared_only:
         dashboard_q_filter &= Q(dashboard__sharingconfiguration__enabled=True)
 
-    dashboard_tiles = (
+    dashboard_tiles = list(
         DashboardTile.objects.filter(dashboard__last_accessed_at__gte=threshold)
         .filter(dashboard_q_filter)
         .distinct()
         .values_list("insight_id", "dashboard_id")
     )
-    yield from dashboard_tiles
+    if not dashboard_tiles:
+        return
+
+    # The tile's own view recency, which the dashboard filter above never consults. This is the
+    # value that made "warmed but never viewed" a cross-store join to answer.
+    last_viewed_at_by_insight_id = dict(
+        with_last_viewed_at(
+            Insight.objects.filter(team=team, pk__in={insight_id for insight_id, _ in dashboard_tiles})
+        ).values_list("id", "last_viewed_at")
+    )
+
+    for insight_id, dashboard_id in dashboard_tiles:
+        yield WarmingCandidate(
+            insight_id=insight_id,
+            dashboard_id=dashboard_id,
+            admission_reason=WarmingAdmissionReason.SHARED_DASHBOARD
+            if shared_only
+            else WarmingAdmissionReason.DASHBOARD,
+            insight_view_age=view_age_bucket(last_viewed_at_by_insight_id.get(insight_id), now=now),
+        )
 
 
 @shared_task(ignore_result=True, expires=60 * 15)
@@ -189,13 +277,13 @@ def schedule_warming_for_teams_task():
 
     with ph_scoped_capture() as capture_ph_event:
         for team, shared_only in all_teams:
-            insight_tuples = list(insights_to_keep_fresh(team, shared_only=shared_only))
+            candidates = list(insights_to_keep_fresh(team, shared_only=shared_only))
 
             capture_ph_event(
                 distinct_id=str(team.uuid),
                 event="cache warming - insights to cache",
                 properties={
-                    "count": len(insight_tuples),
+                    "count": len(candidates),
                     "team_id": team.id,
                     "organization_id": team.organization_id,
                     "shared_only": shared_only,
@@ -205,8 +293,13 @@ def schedule_warming_for_teams_task():
             # We chain the task execution to prevent queries *for a single team* running at the same time
             chain(
                 *(
-                    warm_insight_cache_task.si(*insight_tuple).set(expires=expire_after)
-                    for insight_tuple in insight_tuples
+                    warm_insight_cache_task.si(
+                        candidate.insight_id,
+                        candidate.dashboard_id,
+                        admission_reason=candidate.admission_reason.value,
+                        insight_view_age=candidate.insight_view_age.value,
+                    ).set(expires=expire_after)
+                    for candidate in candidates
                 )
             )()
 
@@ -220,7 +313,12 @@ def schedule_warming_for_teams_task():
     retry_backoff_max=3,
     max_retries=3,
 )
-def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
+def warm_insight_cache_task(
+    insight_id: int,
+    dashboard_id: Optional[int],
+    admission_reason: Optional[str] = None,
+    insight_view_age: Optional[str] = None,
+):
     try:
         # nosemgrep: idor-lookup-without-team (Celery task, ID from internal scheduling)
         insight = Insight.objects.select_related("team__organization").get(pk=insight_id)
@@ -239,6 +337,8 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         insight_id=insight.pk,
         trigger="warmingV2",
         feature=Feature.CACHE_WARMUP,
+        warming_admission_reason=admission_reason,
+        warming_insight_view_age=insight_view_age,
     )
     if dashboard_id:
         tag_queries(dashboard_id=dashboard_id)
@@ -275,6 +375,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                 team_id=insight.team_id,
                 dashboard=dashboard_id is not None,
                 is_cached=is_cached,
+                admission_reason=admission_reason or UNKNOWN_ADMISSION_REASON,
             ).inc()
 
             with ph_scoped_capture() as capture_ph_event:

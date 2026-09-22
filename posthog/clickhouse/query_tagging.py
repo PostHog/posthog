@@ -513,6 +513,14 @@ class QueryTags(BaseModel):
     experiment_actors_query_includes_recordings: Optional[bool] = None  # whether recordings are included
 
     feature: Optional[Feature] = None
+    # Why cache warming picked this insight, set where warming starts the calculation (see
+    # posthog/caching/warming.py). Warming admits a dashboard tile on the dashboard's access
+    # time, so a tile nobody opens is warmed while its own view age keeps growing;
+    # `warming_insight_view_age` carries that age, which otherwise takes a join from the
+    # query log to Postgres to recover.
+    warming_admission_reason: Optional[str] = None  # WarmingAdmissionReason
+    warming_insight_view_age: Optional[str] = None  # InsightViewAge
+
     filter: Optional[object] = None
     filter_by_type: Optional[list[str]] = None
     breakdown_by: Optional[list[str]] = None
