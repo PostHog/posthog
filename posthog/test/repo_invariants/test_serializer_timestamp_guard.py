@@ -64,6 +64,17 @@ from rest_framework.schemas.generators import EndpointEnumerator
 
 WRITE_METHODS = frozenset({"POST", "PUT", "PATCH"})
 
+# The ways a view names the serializer it hands a write request. One entry per distinct
+# mechanism, because `test_every_discovery_path_finds_something` asserts each still
+# finds something, and a mechanism folded into another's bucket can die unnoticed.
+SERIALIZER_SOURCES = (
+    "serializer_class attribute",
+    "serializer lookup table",
+    "get_serializer_class return",
+    "get_serializer_class local",
+)
+REQUEST_BODY_SOURCE = "@extend_schema(request=...)"
+
 # `module.Serializer.field` -> why this timestamp is writable on a write route.
 # A reason starting with `TODO` marks a hole the owning team still has to close;
 # every other entry records a value a client is supposed to set. Nothing is inferred,
@@ -100,11 +111,11 @@ REVIEWED_WRITABLE: dict[str, str] = {
     "products.batch_exports.backend.api.batch_export.BatchExportSerializer.end_at": "Client-supplied bound, runs after it are not triggered",
     "products.batch_exports.backend.api.batch_export.BatchExportSerializer.last_paused_at": "TODO: written by the pause action, make read-only",
     "products.batch_exports.backend.api.batch_export.BatchExportSerializer.start_at": "Client-supplied bound, runs before it are not triggered",
-    "products.billing_alerts.backend.presentation.serializers.BillingAlertConfigurationSerializer.snoozed_until": "Client snoozes until this time, or passes null to unsnooze",
+    "products.billing_alerts.backend.presentation.serializers.BillingAlertConfigurationSerializer.snoozed_until": "Client-set instant: a plain DateTimeField that ModelSerializer writes to the column unchanged, with no relative-duration parsing on this path",
     "products.conversations.backend.api.tickets.TicketSerializer.sla_due_at": "Client or a workflow sets the SLA deadline, and null clears it",
-    "products.conversations.backend.api.tickets.TicketSerializer.snoozed_until": "Client snoozes until this time, or passes null to unsnooze",
+    "products.conversations.backend.api.tickets.TicketSerializer.snoozed_until": "Client-set instant: the ticket action assigns validated_data['snoozed_until'] to ticket.snoozed_until, with no relative-duration parsing on this path",
     "products.conversations.backend.api.tickets.TicketUpdateRequestSerializer.sla_due_at": "Client or a workflow sets the SLA deadline, and null clears it",
-    "products.conversations.backend.api.tickets.TicketUpdateRequestSerializer.snoozed_until": "Client snoozes until this time, or passes null to unsnooze",
+    "products.conversations.backend.api.tickets.TicketUpdateRequestSerializer.snoozed_until": "Client-set instant: the ticket action assigns validated_data['snoozed_until'] to ticket.snoozed_until, with no relative-duration parsing on this path",
     "products.dashboards.backend.api.dashboard.DashboardSerializer.last_accessed_at": "TODO: server-owned, written when a dashboard is opened",
     "products.dashboards.backend.api.dashboard.DashboardSerializer.last_refresh": "TODO: server-owned, written by the dashboard refresh path",
     "products.experiments.backend.presentation.serializers.ExperimentSerializer.end_date": "Client stops the experiment by setting this",
@@ -113,7 +124,7 @@ REVIEWED_WRITABLE: dict[str, str] = {
     "products.experiments.backend.presentation.serializers.ExperimentWriteSerializer.start_date": "Client launches the experiment by setting this",
     "products.feature_flags.backend.api.scheduled_change.ScheduledChangeSerializer.end_date": "Client picks when a recurring schedule stops",
     "products.feature_flags.backend.api.scheduled_change.ScheduledChangeSerializer.scheduled_at": "Client picks when the change is applied",
-    "products.logs.backend.presentation.views.alerts_api.LogsAlertConfigurationSerializer.snooze_until": "Client snoozes until this time, or passes null to unsnooze",
+    "products.logs.backend.presentation.views.alerts_api.LogsAlertConfigurationSerializer.snooze_until": "Client-set instant: update() pops snooze_until and assigns it to instance.snooze_until, with no relative-duration parsing on this path",
     "products.product_tours.backend.api.product_tour.ProductTourSerializer.end_date": "Client schedules when the tour stops",
     "products.product_tours.backend.api.product_tour.ProductTourSerializer.start_date": "Client schedules when the tour starts",
     "products.product_tours.backend.api.product_tour.ProductTourSerializerCreateUpdateOnly.end_date": "Client schedules when the tour stops",
@@ -122,7 +133,7 @@ REVIEWED_WRITABLE: dict[str, str] = {
     "products.reminders.backend.api.reminder.ReminderSerializer.scheduled_at": "Client picks when a one-off reminder fires",
     "products.replay_vision.backend.api.observations.ReplayObservationSerializer.completed_at": "TODO: server-owned, written by the evaluation workflow",
     "products.replay_vision.backend.api.observations.ReplayObservationSerializer.started_at": "TODO: server-owned, written by the evaluation workflow",
-    "products.replay_vision.backend.api.vision_alerts.VisionAlertConfigurationSerializer.snooze_until": "Client snoozes until this time, or passes null to unsnooze",
+    "products.replay_vision.backend.api.vision_alerts.VisionAlertConfigurationSerializer.snooze_until": "Client-set instant: update() pops snooze_until and assigns it to instance.snooze_until, with no relative-duration parsing on this path",
     "products.surveys.backend.api.survey.SurveySerializer.current_iteration_start_date": "TODO: server-owned, the iteration task advances it",
     "products.surveys.backend.api.survey.SurveySerializer.end_date": "Client stops the survey by setting this",
     "products.surveys.backend.api.survey.SurveySerializer.response_sampling_start_date": "Client sets when response sampling starts",
@@ -335,21 +346,25 @@ def _is_super_delegation(expression: ast.expr) -> bool:
             return False
 
 
-def _serializer_choices(view_class: type, action: str) -> tuple[set[type], list[str]]:
-    """Every serializer a view could hand to this action, and what would not resolve.
+def _serializer_sources(view_class: type, action: str) -> tuple[dict[str, set[type]], list[str]]:
+    """Serializers this action could be handed, grouped by the mechanism that names each.
+
+    Grouped rather than merged because `test_every_discovery_path_finds_something`
+    asserts every mechanism still contributes, and a bucket that folds several together
+    stays non-empty while one of them is dead.
 
     `get_serializer_class` is read statically rather than called, because calling it
     returns the one serializer that matches a synthesized request: a view that branches
     on a header or on request data would show the guard a single arm and hide the rest.
     """
-    found: set[type] = set()
+    sources: dict[str, set[type]] = {name: set() for name in SERIALIZER_SOURCES}
     unresolved: list[str] = []
     declared = getattr(view_class, "serializer_class", None)
     if _is_serializer(declared):
-        found.add(declared)
+        sources["serializer_class attribute"].add(declared)
     for attribute in vars(view_class).values():
         if isinstance(attribute, dict):
-            found.update(entry for entry in attribute.values() if _is_serializer(entry))
+            sources["serializer lookup table"].update(entry for entry in attribute.values() if _is_serializer(entry))
     for klass in view_class.__mro__:
         function = vars(klass).get("get_serializer_class")
         if function is None or klass is GenericAPIView:
@@ -362,17 +377,23 @@ def _serializer_choices(view_class: type, action: str) -> tuple[set[type], list[
         module = sys.modules.get(function.__module__)
         module_scope = vars(module) if module is not None else {}
         scope, locally_bound = _function_scope(tree, module_scope, view_class)
-        found.update(locally_bound)
+        sources["get_serializer_class local"].update(locally_bound)
         for returned, required in _returns_by_action(tree.body, view_class):
             if required is not None and action not in required:
                 continue
             resolved = _resolve(returned, scope, view_class)
             serializer_classes = [entry for entry in resolved if _is_serializer(entry)]
             if serializer_classes:
-                found.update(serializer_classes)
+                sources["get_serializer_class return"].update(serializer_classes)
             elif not resolved and not _is_super_delegation(returned):
                 unresolved.append(f"{klass.__qualname__}.get_serializer_class -> {ast.unparse(returned)[:60]}")
-    return found, unresolved
+    return sources, unresolved
+
+
+def _serializer_choices(view_class: type, action: str) -> tuple[set[type], list[str]]:
+    """Every serializer a view could hand to this action, and what would not resolve."""
+    sources, unresolved = _serializer_sources(view_class, action)
+    return set().union(*sources.values()), unresolved
 
 
 def _serializer_classes(declared: Any) -> set[type]:
@@ -517,6 +538,31 @@ def test_discovery_reaches_dynamically_selected_serializers() -> None:
     assert not missing, (
         "Discovery no longer reaches these serializers, so a server-owned timestamp on one of them "
         "would pass the sweep above. Reading get_serializer_class statically is what finds them:\n" + "\n".join(missing)
+    )
+
+
+def test_every_discovery_path_finds_something() -> None:
+    # A mechanism that finds nothing on every route is indistinguishable from one with
+    # nothing to find, so a broken reader keeps passing the sweep above while silently
+    # contributing zero. Requiring each to be non-empty across the whole repository
+    # separates the two, and is what fails when a drf-spectacular upgrade moves the
+    # closure the request-body reader depends on.
+    found: dict[str, set[type]] = {name: set() for name in (*SERIALIZER_SOURCES, REQUEST_BODY_SOURCE)}
+    for _path, method, callback in EndpointEnumerator().get_api_endpoints():
+        view_class = getattr(callback, "cls", None)
+        if method not in WRITE_METHODS or view_class is None:
+            continue
+        actions = getattr(callback, "actions", None) or {}
+        action = actions.get(method.lower()) or method.lower()
+        sources, _ = _serializer_sources(view_class, action)
+        for name, serializer_classes in sources.items():
+            found[name] |= serializer_classes
+        found[REQUEST_BODY_SOURCE] |= _request_body_serializers(view_class, {method.lower(), action})
+    silent = sorted(name for name, serializer_classes in found.items() if not serializer_classes)
+    assert not silent, (
+        "These discovery paths found no serializer on any write route in the repository, so "
+        "they are contributing nothing to the sweep above. Either the code they read moved, or "
+        "they are broken:\n" + "\n".join(silent)
     )
 
 
