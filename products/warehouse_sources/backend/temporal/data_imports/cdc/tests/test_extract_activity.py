@@ -2532,16 +2532,16 @@ class TestErrorClassification:
         mock_posthoganalytics,
         mock_get_machine_id,
     ):
-        # A revoked REPLICATION/SELECT grant surfaces as psycopg InsufficientPrivilege, which the
-        # adapter doesn't classify, so it loops as retryable UNKNOWN. Its SQLSTATE (42501) is what
-        # tells a human this is a permission error and not some other ProgrammingError.
+        # Preserve coverage for unknown psycopg failures now that insufficient privileges have a
+        # dedicated category. The SQLSTATE distinguishes an unclassified syntax error from other
+        # ProgrammingError subclasses without capturing potentially sensitive exception text.
         source = _make_source()
         MockSourceModel.objects.get.return_value = source
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
         mock_reader = MagicMock()
-        mock_reader.read_changes.side_effect = psycopg.errors.InsufficientPrivilege("permission denied")
+        mock_reader.read_changes.side_effect = psycopg.errors.SyntaxError("invalid syntax")
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
         mock_adapter.create_reader.return_value = mock_reader
@@ -2557,13 +2557,13 @@ class TestErrorClassification:
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
         with (
             patch("products.data_warehouse.backend.facade.tasks.schedule_external_data_failure_digest"),
-            pytest.raises(psycopg.errors.InsufficientPrivilege),
+            pytest.raises(psycopg.errors.SyntaxError),
         ):
             cdc_extract_activity(inputs)
 
         captured = mock_posthoganalytics.capture.call_args.kwargs
         assert captured["event"] == "cdc extraction unclassified error"
-        assert "42501" in captured["properties"]["sqlstates"]
+        assert "42601" in captured["properties"]["sqlstates"]
 
 
 class TestSlotInvalidationRecovery:

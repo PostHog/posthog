@@ -25,12 +25,13 @@ import pytest_asyncio
 from temporalio import activity, workflow
 from temporalio.api.enums.v1 import EventType, ParentClosePolicy
 from temporalio.api.history.v1 import HistoryEvent
-from temporalio.client import Client, WorkflowExecutionStatus, WorkflowFailureError, WorkflowHistory
-from temporalio.exceptions import ChildWorkflowError, TimeoutError
+from temporalio.client import Client, WorkflowExecutionStatus, WorkflowHistory
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from products.alerts.backend.facade.contracts import (
+    AlertBatchKey,
     AlertDemand,
     DemandDiscoveryInputs,
     OrchestrateInputs,
@@ -45,12 +46,33 @@ from products.alerts.backend.facade.temporal import (
     SHARED_ORCHESTRATION_WORKFLOWS,
 )
 from products.alerts.backend.temporal import postgres, workflows
+from products.alerts.backend.temporal.sources import SOURCE_EVALUATION_WORKFLOWS
 from products.alerts.backend.temporal.workflows import (
     AlertsProductEvaluateWorkflow,
     AlertsProductInputs,
     AlertsProductOrchestrateWorkflow,
     AlertsProductSourceDispatchWorkflow,
 )
+
+_team_id = 0
+
+
+def key(name: str) -> AlertBatchKey:
+    """One key per scenario name, so a test reads the way it did when demand was a list of ids.
+    The minute is derived from the name so keys within a scenario stay distinct."""
+    minute = sum(ord(character) for character in name) % 60
+    return AlertBatchKey(team_id=_team_id, slot=f"2026-09-16T10:{minute:02d}:00+00:00")
+
+
+@pytest.fixture(autouse=True)
+def scenario_team() -> None:
+    """The evaluation id is derived from the batch key and the Temporal environment is module-scoped,
+    so two tests deriving the same key address one evaluation: the second dispatch finds the first
+    test's abandoned evaluation still running and counts it as already running rather than
+    dispatched. A team per test keeps the derived ids apart, reruns included."""
+    global _team_id
+    _team_id += 1
+
 
 ORCHESTRATION_QUEUE = settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE
 EVALUATION_QUEUE = settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE
@@ -63,7 +85,7 @@ class PagingDispatcher:
     @workflow.run
     async def run(self, inputs: SourceDispatchInputs) -> SourceDispatchReport:
         await workflow.execute_activity(
-            "test_page_gate", inputs.configuration_ids, start_to_close_timeout=dt.timedelta(seconds=30)
+            "test_page_gate", [k.slot for k in inputs.batch_keys], start_to_close_timeout=dt.timedelta(seconds=30)
         )
         evaluation_workflow_id = f"{workflow.info().workflow_id}-eval"
         await workflow.start_child_workflow(
@@ -77,9 +99,37 @@ class PagingDispatcher:
             source=inputs.source,
             page=inputs.page,
             dispatched=1,
-            remaining_ids=inputs.configuration_ids[1:],
-            evaluation_workflow_id=evaluation_workflow_id,
+            remaining_keys=inputs.batch_keys[1:],
+            evaluation_workflow_ids=[evaluation_workflow_id],
         )
+
+
+@workflow.defn(name="alerts-product-source-dispatch")
+class BrokenLogsDispatcher:
+    """Registered under the real dispatcher's name. Fails for logs, dispatches for every other
+    source, the way a broken source adapter would."""
+
+    @workflow.run
+    async def run(self, inputs: SourceDispatchInputs) -> SourceDispatchReport:
+        if inputs.source is SourceKind.LOGS:
+            raise ApplicationError("the logs adapter is broken", non_retryable=True)
+        return SourceDispatchReport(
+            source=inputs.source,
+            page=inputs.page,
+            dispatched=len(inputs.batch_keys),
+            remaining_keys=[],
+            evaluation_workflow_ids=[],
+        )
+
+
+@workflow.defn(name="test-blocking-evaluation")
+class BlockingEvaluation:
+    """Occupies an evaluation workflow id for as long as the test needs it."""
+
+    @workflow.run
+    async def run(self) -> None:
+        # No timeout, so it registers no timer and the time-skipping server cannot skip past it.
+        await workflow.wait_condition(lambda: False)
 
 
 @pytest_asyncio.fixture(scope="module")
@@ -96,6 +146,14 @@ async def local_environment() -> AsyncIterator[WorkflowEnvironment]:
 
 
 @pytest.fixture(autouse=True)
+def no_source_bindings() -> Iterator[None]:
+    """These tests cover paging and the dispatch budget, not which source evaluates for real.
+    Clearing the registry keeps every source on the noop path; the binding has its own test."""
+    with patch.dict(SOURCE_EVALUATION_WORKFLOWS, clear=True):
+        yield
+
+
+@pytest.fixture(autouse=True)
 def postgres_cursor() -> Iterator[MagicMock]:
     with patch.object(postgres, "execute_with_timeout") as execute:
         execute.return_value.__enter__.return_value.fetchone.return_value = (1,)
@@ -107,40 +165,46 @@ GateActivity = Callable[[list[str]], Awaitable[None]]
 
 
 def demand_activity(
-    demand: dict[SourceKind, list[str]], omitted: dict[SourceKind, int] | None = None
+    demand: dict[SourceKind, list[AlertBatchKey]], omitted: dict[SourceKind, int] | None = None
 ) -> DiscoverActivity:
     @activity.defn(name="alerts_product_discover_demand_activity")
     async def discover(inputs: DemandDiscoveryInputs) -> AlertDemand:
-        return AlertDemand(configuration_ids_by_source=demand, omitted_by_source=omitted or {})
+        return AlertDemand(batch_keys_by_source=demand, omitted_by_source=omitted or {})
 
     return discover
 
 
 @activity.defn(name="test_page_gate")
-async def open_gate(configuration_ids: list[str]) -> None:
+async def open_gate(slots: list[str]) -> None:
     pass
 
 
 def workers(
-    client: Client, discover: DiscoverActivity, *, paging: bool, gate: GateActivity = open_gate
+    client: Client,
+    discover: DiscoverActivity | None = None,
+    *,
+    dispatcher: type | None = None,
+    gate: GateActivity = open_gate,
 ) -> tuple[Worker, Worker]:
+    """The two fleets a tick uses. A test dispatcher is registered under the real dispatcher's
+    name, so it takes its place on the fleet the tick dispatches to."""
     runner = UnsandboxedWorkflowRunner()
-    evaluation_workflows: list[type] = (
-        [AlertsProductEvaluateWorkflow, PagingDispatcher] if paging else list(EVALUATION_WORKFLOWS)
+    orchestration_workflows: list[type] = (
+        [AlertsProductOrchestrateWorkflow, dispatcher] if dispatcher else list(SHARED_ORCHESTRATION_WORKFLOWS)
     )
     return (
         Worker(
             client,
             task_queue=ORCHESTRATION_QUEUE,
-            workflows=SHARED_ORCHESTRATION_WORKFLOWS,
-            activities=[discover],
+            workflows=orchestration_workflows,
+            activities=[discover, gate] if discover else [gate],
             workflow_runner=runner,
         ),
         Worker(
             client,
             task_queue=EVALUATION_QUEUE,
-            workflows=evaluation_workflows,
-            activities=[*EVALUATION_ACTIVITIES, gate],
+            workflows=[*EVALUATION_WORKFLOWS, BlockingEvaluation],
+            activities=EVALUATION_ACTIVITIES,
             workflow_runner=runner,
         ),
     )
@@ -163,51 +227,105 @@ async def run_tick(client: Client, tick_id: str) -> OrchestrateResult:
 async def test_real_dispatcher_takes_everything_and_abandons_one_evaluation(environment: WorkflowEnvironment) -> None:
     client = environment.client
     dispatcher_id = f"dispatch-{uuid.uuid4()}"
-    async with Worker(
-        client,
-        task_queue=EVALUATION_QUEUE,
-        workflows=EVALUATION_WORKFLOWS,
-        activities=EVALUATION_ACTIVITIES,
-        workflow_runner=UnsandboxedWorkflowRunner(),
-    ):
+    orchestration_worker, evaluation_worker = workers(client)
+    async with orchestration_worker, evaluation_worker:
         report: SourceDispatchReport = await client.execute_workflow(
             AlertsProductSourceDispatchWorkflow.run,
-            SourceDispatchInputs(tick_id="tick", source=SourceKind.LOGS, page=0, configuration_ids=["a", "b", "c"]),
+            SourceDispatchInputs(
+                tick_id="tick",
+                source=SourceKind.LOGS,
+                page=0,
+                batch_keys=[key("a"), key("b"), key("c")],
+                cutoff="2026-09-16T10:00:00+00:00",
+            ),
             id=dispatcher_id,
-            task_queue=EVALUATION_QUEUE,
+            task_queue=ORCHESTRATION_QUEUE,
             execution_timeout=dt.timedelta(seconds=30),
         )
         assert report == SourceDispatchReport(
             source=SourceKind.LOGS,
             page=0,
             dispatched=3,
-            remaining_ids=[],
-            evaluation_workflow_id=f"{dispatcher_id}-eval",
+            remaining_keys=[],
+            evaluation_workflow_ids=[
+                f"alerts-eval-logs-{key('a').team_id}-{key('a').slot}",
+                f"alerts-eval-logs-{key('b').team_id}-{key('b').slot}",
+                f"alerts-eval-logs-{key('c').team_id}-{key('c').slot}",
+            ],
         )
         history = await client.get_workflow_handle(dispatcher_id).fetch_history()
         assert events_of(history, EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED) == []
         initiated = events_of(history, EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED)
-        assert len(initiated) == 1
+        # One evaluation per key the dispatcher took, each named by the key it holds.
+        assert len(initiated) == 3
         child = initiated[0].start_child_workflow_execution_initiated_event_attributes
         assert child.workflow_type.name == "alerts-product-evaluate"
         assert child.parent_close_policy == ParentClosePolicy.PARENT_CLOSE_POLICY_ABANDON
-        assert child.workflow_execution_timeout.ToTimedelta() == dt.timedelta(seconds=40)
-        # The dispatcher completed without waiting for the evaluation; the evaluation finishes on its own.
-        assert events_of(history, EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED) == []
-        evaluation = client.get_workflow_handle(f"{dispatcher_id}-eval")
+        assert child.workflow_execution_timeout.ToTimedelta() == workflows.SOURCE_EVALUATION_TIMEOUT
+        # One task per child start, plus the one that completed the run. A dispatcher that awaited an
+        # evaluation would need a further task to resume on its result. Counting tasks rather than
+        # forbidding a child-completion event keeps this off the race with an abandoned evaluation.
+        assert len(events_of(history, EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED)) == len(initiated) + 1
+        evaluation = client.get_workflow_handle(f"alerts-eval-logs-{key('a').team_id}-{key('a').slot}")
         assert await evaluation.result() is None
         assert (await evaluation.describe()).status == WorkflowExecutionStatus.COMPLETED
+
+
+async def test_a_key_whose_evaluation_still_runs_is_skipped_without_losing_the_page(
+    environment: WorkflowEnvironment,
+) -> None:
+    client = environment.client
+    held, free = key("held"), key("free")
+    held_id = f"alerts-eval-logs-{held.team_id}-{held.slot}"
+    orchestration_worker, evaluation_worker = workers(client)
+    async with orchestration_worker, evaluation_worker:
+        blocker = await client.start_workflow(BlockingEvaluation.run, id=held_id, task_queue=EVALUATION_QUEUE)
+        try:
+            report: SourceDispatchReport = await client.execute_workflow(
+                AlertsProductSourceDispatchWorkflow.run,
+                SourceDispatchInputs(
+                    tick_id="tick",
+                    source=SourceKind.LOGS,
+                    page=0,
+                    batch_keys=[held, free],
+                    cutoff="2026-09-16T10:00:00+00:00",
+                ),
+                id=f"dispatch-{uuid.uuid4()}",
+                task_queue=ORCHESTRATION_QUEUE,
+                execution_timeout=dt.timedelta(seconds=30),
+            )
+        finally:
+            await blocker.terminate()
+
+    assert report.already_running == 1
+    assert report.dispatched == 1
+    assert report.evaluation_workflow_ids == [f"alerts-eval-logs-{free.team_id}-{free.slot}"]
+    assert report.remaining_keys == []
 
 
 async def test_tick_with_real_dispatchers_is_one_page(environment: WorkflowEnvironment) -> None:
     client = environment.client
     tick_id = f"tick-{uuid.uuid4()}"
-    demand = {SourceKind.LOGS: ["l1", "l2", "l3"], SourceKind.INSIGHT: ["i1"]}
-    orchestration, evaluation = workers(client, demand_activity(demand), paging=False)
+    demand = {SourceKind.LOGS: [key("l1"), key("l2"), key("l3")], SourceKind.INSIGHT: [key("i1")]}
+    orchestration, evaluation = workers(client, demand_activity(demand))
     async with orchestration, evaluation:
         result = await run_tick(client, tick_id)
     assert [(page.page, page.dispatched, page.remaining) for page in result.pages] == [(0, 4, 0)]
     assert result == OrchestrateResult(pages=result.pages, remaining=0, deadline_reached=False)
+
+
+async def test_a_broken_source_dispatcher_does_not_stop_the_others(environment: WorkflowEnvironment) -> None:
+    client = environment.client
+    tick_id = f"tick-{uuid.uuid4()}"
+    demand = {SourceKind.LOGS: [key("l1"), key("l2")], SourceKind.INSIGHT: [key("i1")]}
+    orchestration, evaluation = workers(client, demand_activity(demand), dispatcher=BrokenLogsDispatcher)
+    async with orchestration, evaluation:
+        result = await run_tick(client, tick_id)
+    # One source's dispatcher raising used to end the tick, which stopped every other source
+    # evaluating for the same minute.
+    assert [(page.page, page.dispatched, page.failed_sources) for page in result.pages] == [(0, 1, 1)]
+    # Nothing advanced the two logs keys, so the tick reports them as still due.
+    assert result.remaining == 2 and not result.deadline_reached
 
 
 async def test_tick_counts_omitted_demand_as_remaining(environment: WorkflowEnvironment) -> None:
@@ -215,7 +333,8 @@ async def test_tick_counts_omitted_demand_as_remaining(environment: WorkflowEnvi
     client = environment.client
     tick_id = f"tick-{uuid.uuid4()}"
     orchestration, evaluation = workers(
-        client, demand_activity({SourceKind.LOGS: ["l1"]}, omitted={SourceKind.LOGS: 5}), paging=False
+        client,
+        demand_activity({SourceKind.LOGS: [key("l1")]}, omitted={SourceKind.LOGS: 5}),
     )
     async with orchestration, evaluation:
         result = await run_tick(client, tick_id)
@@ -226,8 +345,8 @@ async def test_tick_counts_omitted_demand_as_remaining(environment: WorkflowEnvi
 async def test_tick_pages_until_demand_is_exhausted(environment: WorkflowEnvironment) -> None:
     client = environment.client
     tick_id = f"tick-{uuid.uuid4()}"
-    demand = {SourceKind.LOGS: ["l1", "l2", "l3"], SourceKind.INSIGHT: ["i1"]}
-    orchestration, evaluation = workers(client, demand_activity(demand), paging=True)
+    demand = {SourceKind.LOGS: [key("l1"), key("l2"), key("l3")], SourceKind.INSIGHT: [key("i1")]}
+    orchestration, evaluation = workers(client, demand_activity(demand), dispatcher=PagingDispatcher)
     async with orchestration, evaluation:
         result = await run_tick(client, tick_id)
         assert [(page.page, page.dispatched, page.remaining) for page in result.pages] == [
@@ -262,7 +381,7 @@ async def test_tick_pages_until_demand_is_exhausted(environment: WorkflowEnviron
         for event in events_of(history, EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED):
             attributes = event.start_child_workflow_execution_initiated_event_attributes
             assert attributes.parent_close_policy == ParentClosePolicy.PARENT_CLOSE_POLICY_TERMINATE
-            assert attributes.task_queue.name == EVALUATION_QUEUE
+            assert attributes.task_queue.name == ORCHESTRATION_QUEUE
             assert attributes.workflow_execution_timeout.ToTimedelta() == dt.timedelta(seconds=30)
         # The tick awaited every dispatcher report. Evaluations are grandchildren and never awaited here.
         assert len(events_of(history, EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED)) == 4
@@ -274,7 +393,9 @@ async def test_tick_pages_until_demand_is_exhausted(environment: WorkflowEnviron
 async def test_tick_exits_cleanly_when_dispatch_budget_is_spent(environment: WorkflowEnvironment) -> None:
     client = environment.client
     tick_id = f"tick-{uuid.uuid4()}"
-    orchestration, evaluation = workers(client, demand_activity({SourceKind.LOGS: ["l1", "l2", "l3"]}), paging=True)
+    orchestration, evaluation = workers(
+        client, demand_activity({SourceKind.LOGS: [key("l1"), key("l2"), key("l3")]}), dispatcher=PagingDispatcher
+    )
     with patch.object(workflows, "TICK_DISPATCH_BUDGET", dt.timedelta(0)):
         async with orchestration, evaluation:
             result = await run_tick(client, tick_id)
@@ -287,7 +408,9 @@ async def test_tick_exits_cleanly_when_dispatch_budget_is_spent(environment: Wor
 async def test_continued_run_carries_demand_and_skips_discovery(environment: WorkflowEnvironment) -> None:
     client = environment.client
     tick_id = f"tick-{uuid.uuid4()}"
-    orchestration, evaluation = workers(client, demand_activity({SourceKind.LOGS: ["l1", "l2"]}), paging=True)
+    orchestration, evaluation = workers(
+        client, demand_activity({SourceKind.LOGS: [key("l1"), key("l2")]}), dispatcher=PagingDispatcher
+    )
     with patch.object(workflows, "_should_continue_as_new", return_value=True):
         async with orchestration, evaluation:
             result = await run_tick(client, tick_id)
@@ -300,7 +423,7 @@ async def test_continued_run_carries_demand_and_skips_discovery(environment: Wor
     assert len(events_of(first, EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED)) == 1
     continued = first.events[-1].workflow_execution_continued_as_new_event_attributes
     carried = await client.data_converter.decode(continued.input.payloads, [OrchestrateInputs])
-    assert carried[0].demand == {SourceKind.LOGS: ["l2"]}
+    assert carried[0].demand == {SourceKind.LOGS: [key("l2")]}
     assert carried[0].page == 1 and carried[0].cutoff is not None
     assert carried[0].deadline is not None and carried[0].hard_deadline is not None
 
@@ -312,22 +435,25 @@ async def test_continued_run_carries_demand_and_skips_discovery(environment: Wor
 async def test_overrunning_dispatcher_times_out_before_the_tick_hard_stop(
     local_environment: WorkflowEnvironment,
 ) -> None:
-    """The tick has a 3 s execution timeout, so each page gets at most 2 s. Page 1 blocks. Its dispatcher
-    times out first, the tick fails with that child error instead of being terminated mid-page, and
-    the evaluation page 0 started keeps running."""
+    """The tick has a 3 s execution timeout, so each page gets at most 2 s. Page 1 blocks. Its
+    dispatcher times out first rather than the tick being terminated mid-page, the tick reports that
+    source as failed and still finishes, and the evaluation page 0 started keeps running."""
     client = local_environment.client
     tick_id = f"tick-{uuid.uuid4()}"
     page_one_started = asyncio.Event()
     release = asyncio.Event()
 
     @activity.defn(name="test_page_gate")
-    async def block_page_one(configuration_ids: list[str]) -> None:
-        if configuration_ids == ["l2"]:
+    async def block_page_one(slots: list[str]) -> None:
+        if slots == [key("l2").slot]:
             page_one_started.set()
             await release.wait()
 
     orchestration, evaluation = workers(
-        client, demand_activity({SourceKind.LOGS: ["l1", "l2"]}), paging=True, gate=block_page_one
+        client,
+        demand_activity({SourceKind.LOGS: [key("l1"), key("l2")]}),
+        dispatcher=PagingDispatcher,
+        gate=block_page_one,
     )
     async with orchestration, evaluation:
         handle = await client.start_workflow(
@@ -338,11 +464,8 @@ async def test_overrunning_dispatcher_times_out_before_the_tick_hard_stop(
             execution_timeout=dt.timedelta(seconds=3),
         )
         await asyncio.wait_for(page_one_started.wait(), timeout=20)
-        with pytest.raises(WorkflowFailureError) as failure:
-            await handle.result()
+        result = await handle.result()
         release.set()  # let the blocked activity return so the worker can shut down
-        assert isinstance(failure.value.cause, ChildWorkflowError)
-        assert isinstance(failure.value.cause.cause, TimeoutError)
 
         tick_status = (await handle.describe()).status
         statuses = {
@@ -355,7 +478,12 @@ async def test_overrunning_dispatcher_times_out_before_the_tick_hard_stop(
             0
         ].child_workflow_execution_started_event_attributes.workflow_execution.workflow_id
         delivery_status = (await client.get_workflow_handle(delivery_id).describe()).status
-    assert tick_status == WorkflowExecutionStatus.FAILED  # its own child error, not the execution timeout
+    # The timed-out dispatcher is a failed source, not a failed tick: another source's dispatcher on
+    # the same page would otherwise be terminated with it.
+    assert tick_status == WorkflowExecutionStatus.COMPLETED
+    assert [(page.page, page.dispatched, page.failed_sources) for page in result.pages] == [(0, 1, 0), (1, 0, 1)]
+    # The key page 1 never dispatched is still due, so the tick reports it rather than dropping it.
+    assert result.remaining == 1
     assert statuses["logs-p0"] == WorkflowExecutionStatus.COMPLETED
     assert statuses["logs-p1"] == WorkflowExecutionStatus.TIMED_OUT
     assert page_one.start_time is not None and page_one.close_time is not None
