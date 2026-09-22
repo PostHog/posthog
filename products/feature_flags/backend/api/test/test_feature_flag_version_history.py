@@ -329,13 +329,17 @@ class TestV2FeatureFlagVersionHistoryAPI(APIBaseTest):
         assert change["after"]["rules"][1]["id"]
         assert self.history(2)["filters"] == before
 
-    @parameterized.expand(["context", "before", "after", "version"])
+    @parameterized.expand(["context", "before", "after", "version", "missing_snapshot", "malformed_changes"])
     def test_incomplete_or_malformed_audit_data_is_not_repaired(self, field: str) -> None:
         self.update(filters=config(default_value=True))
         entry = self.updates().get()
         detail = entry.detail
         if field == "context":
             detail.pop("context")
+        elif field == "missing_snapshot":
+            detail["changes"] = [c for c in detail["changes"] if c["field"] != "filters"]
+        elif field == "malformed_changes":
+            detail["changes"] = ["invalid"]
         elif field == "version":
             next(c for c in detail["changes"] if c["field"] == "version")["before"] = 0
         else:
