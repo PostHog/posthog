@@ -199,8 +199,6 @@ class TestRecordSyncRun(TeamScopedTestMixin, APIBaseTest):
 
     @patch(f"{HEALTH_SERVICE}.notify_source_auto_disabled")
     def test_the_disabling_failure_tells_the_owner_once_across_retries(self, mock_notify):
-        # The auto-disable was silent until now: the owner only found out by opening the history
-        # page. A retry re-reporting the same job must not tell them a second time.
         self.source.consecutive_failures = MAX_CONSECUTIVE_SYNC_FAILURES - 1
         self.source.save()
 

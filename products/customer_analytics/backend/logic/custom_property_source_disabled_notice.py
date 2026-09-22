@@ -1,16 +1,5 @@
-"""Telling the sync owner that PostHog disabled their warehouse property sync.
-
-A disabled source is silent: the properties it feeds — flag targeting, cohorts, insight filters —
-keep serving the last values it wrote, and until now the history page was the only place the
-disablement showed up. The owner is ``CustomPropertySource.created_by``, the person who bound the
-warehouse column in the first place.
-
-Both branches run after the source transaction commits and each guards itself, so a project
-without customer tasks still gets the notification, and a delivery that fails leaves the
-auto-disable in place.
-"""
-
 from datetime import datetime, time, timedelta
+from hashlib import sha256
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from django.db import connection, transaction
@@ -20,6 +9,7 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
+from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.permissions import posthog_feature_flag_enabled
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -41,13 +31,7 @@ logger = structlog.get_logger(__name__)
 
 TITLE_MAX_LENGTH = 255
 TASK_NAME_MAX_LENGTH = 400
-
-# The accounts tab of Customer analytics configuration, where custom property sources are listed.
-# Project-relative: the notifications panel adds the project prefix on navigation.
 CONFIGURATION_ACCOUNTS_PATH = "/customer_analytics/configuration?tab=customer-analytics-accounts"
-
-# No raw warehouse error here. It can carry a host name or a fragment of a row, and the owner sees
-# the real one on the run once they open configuration.
 DISABLED_BODY = (
     "PostHog disabled this sync after five consecutive failures. Review the latest run, fix the "
     "source, then re-enable the sync."
@@ -55,7 +39,6 @@ DISABLED_BODY = (
 
 
 def notify_source_auto_disabled(*, team_id: int, source_id: UUID, disable_event_id: str) -> None:
-    """Notify the sync owner and open a task for them. Never raises."""
     log = logger.bind(team_id=team_id, source_id=str(source_id), disable_event_id=disable_event_id)
     try:
         source = (
@@ -73,12 +56,17 @@ def notify_source_auto_disabled(*, team_id: int, source_id: UUID, disable_event_
             log.info("custom_property_source_disabled.owner_unavailable")
             return
 
-        team = Team.objects.filter(id=team_id).first()
+        team = (
+            Team.objects.select_related("parent_team")
+            .defer(*(f"parent_team__{attr}" for attr in DEPRECATED_ATTRS))
+            .filter(id=team_id)
+            .first()
+        )
         if team is None:
             log.info("custom_property_source_disabled.team_gone")
             return
 
-        access = UserAccessControl(user=owner, team=team)
+        access = UserAccessControl(user=owner, team=team, organization_id=team.organization_id)
         if not access.has_project_access:
             log.info("custom_property_source_disabled.owner_without_project_access")
             return
@@ -86,8 +74,8 @@ def notify_source_auto_disabled(*, team_id: int, source_id: UUID, disable_event_
         name = source.definition.name
         _notify_owner(team=team, owner=owner, source=source, name=name, disable_event_id=disable_event_id, log=log)
         _open_owner_task(team=team, owner=owner, source=source, name=name, disable_event_id=disable_event_id, log=log)
-    except Exception as e:
-        capture_exception(e)
+    except Exception as error:
+        capture_exception(error)
         log.exception("custom_property_source_disabled.dispatch_failed")
 
 
@@ -114,15 +102,12 @@ def _notify_owner(
                 resource_id=str(source.id),
                 source_url=CONFIGURATION_ACCOUNTS_PATH,
                 source_type=SourceType.CUSTOMER_ANALYTICS,
-                source_id=disable_event_id,
-                # A unique constraint, so two recorders racing on the same disablement still send
-                # one notification. The run id is part of the key, so a later disablement after
-                # someone re-enables the source sends a fresh one.
-                idempotency_key=f"custom-property-source-disabled-{source.id}-{disable_event_id}",
+                source_id=str(source.id),
+                idempotency_key=_notification_idempotency_key(source.id, disable_event_id),
             )
         )
-    except Exception as e:
-        capture_exception(e)
+    except Exception as error:
+        capture_exception(error)
         log.exception("custom_property_source_disabled.notification_failed")
 
 
@@ -135,23 +120,28 @@ def _open_owner_task(
     disable_event_id: str,
     log: structlog.BoundLogger,
 ) -> None:
-    # Tasks live on the project, not the environment the sync ran in.
-    canonical_team = team.parent_team or team
-    if not posthog_feature_flag_enabled(
-        CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG,
-        str(owner.distinct_id),
-        organization_id=team.organization_id,
-        team_id=team.id,
-    ):
-        # A task nobody can open is worse than no task: it never leaves the owner's list.
-        log.info("custom_property_source_disabled.tasks_unavailable")
-        return
-
-    task_id = _task_id(team_id=canonical_team.id, source_id=source.id, disable_event_id=disable_event_id)
     try:
+        if not posthog_feature_flag_enabled(
+            CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG,
+            str(owner.distinct_id),
+            organization_id=team.organization_id,
+            team_id=team.id,
+        ):
+            log.info("custom_property_source_disabled.tasks_unavailable")
+            return
+
+        canonical_team = team.parent_team or team
+        access = UserAccessControl(
+            user=owner,
+            team=canonical_team,
+            organization_id=canonical_team.organization_id,
+        )
+        if not access.has_project_access or not access.check_access_level_for_resource("customer_task", "editor"):
+            log.info("custom_property_source_disabled.tasks_unavailable")
+            return
+
+        task_id = _task_id(team_id=canonical_team.id, source_id=source.id, disable_event_id=disable_event_id)
         with transaction.atomic():
-            # Lock the disablement before its task exists, so two racing deliveries create one
-            # task, one activity row and one access grant.
             with connection.cursor() as cursor:
                 cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [canonical_team.id, str(task_id)])
             if CustomerTask.objects.for_team(canonical_team.id).filter(id=task_id).exists():
@@ -159,20 +149,23 @@ def _open_owner_task(
             create_customer_task(
                 team=canonical_team,
                 input=CreateCustomerTaskInput(
-                    # No account: one source can feed properties across every account and person.
                     name=f"Fix warehouse property sync: {name}"[:TASK_NAME_MAX_LENGTH],
                     description=DISABLED_BODY,
                     assigned_to_id=owner.id,
-                    due_at=_end_of_next_business_day(canonical_team),
+                    due_at=_end_of_next_business_day(team),
                 ),
-                # PostHog disabled the sync, so no user owns the action.
                 actor=None,
-                user_access_control=UserAccessControl(user=owner, team=canonical_team),
+                user_access_control=access,
                 task_id=task_id,
             )
-    except Exception as e:
-        capture_exception(e)
+    except Exception as error:
+        capture_exception(error)
         log.exception("custom_property_source_disabled.task_failed")
+
+
+def _notification_idempotency_key(source_id: UUID, disable_event_id: str) -> str:
+    event_hash = sha256(disable_event_id.encode()).hexdigest()[:32]
+    return f"custom-property-source:{source_id}:disabled:{event_hash}"
 
 
 def _task_id(*, team_id: int, source_id: UUID, disable_event_id: str) -> UUID:

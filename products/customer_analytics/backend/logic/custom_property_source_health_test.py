@@ -50,8 +50,6 @@ class TestCustomPropertySourceHealth(TeamScopedTestMixin, BaseTest):
         mock_notify.assert_called_once_with(team_id=self.team.id, source_id=self.source.id, disable_event_id="job-1")
 
     def test_a_failure_on_an_already_disabled_source_tells_nobody_again(self, mock_notify) -> None:
-        # Otherwise a source that keeps being scheduled after it was disabled pings its owner on
-        # every run.
         self.source.consecutive_failures = MAX_CONSECUTIVE_SYNC_FAILURES
         self.source.is_enabled = False
         self.source.save()
@@ -60,8 +58,6 @@ class TestCustomPropertySourceHealth(TeamScopedTestMixin, BaseTest):
         mock_notify.assert_not_called()
 
     def test_an_uncounted_failure_does_not_move_the_streak(self, mock_notify) -> None:
-        # A retry re-reporting a failure the caller already counted must not push the source over
-        # the threshold on retry noise alone.
         self.source.consecutive_failures = MAX_CONSECUTIVE_SYNC_FAILURES - 1
         self.source.save()
 

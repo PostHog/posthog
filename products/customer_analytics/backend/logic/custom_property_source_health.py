@@ -1,12 +1,3 @@
-"""The health lifecycle both custom-property run recorders share.
-
-Each path decides on its own when a logical sync is over — the account path waits for both
-segments, the person path dedupes a warehouse job's retries. What they share is the failure
-streak, the auto-disable threshold, and telling the sync owner once when a source crosses it.
-Keeping the threshold here is the point: two private copies drifted apart is how one path
-disables at five failures and the other at some other number.
-"""
-
 from datetime import datetime
 from functools import partial
 from uuid import UUID
@@ -20,7 +11,6 @@ MAX_CONSECUTIVE_SYNC_FAILURES = 5
 
 
 def record_sync_success(source: CustomPropertySource, *, finished_at: datetime | None) -> None:
-    """Clear the source's failure streak and stamp when it last synced."""
     source.last_synced_at = finished_at
     source.last_sync_error = None
     source.consecutive_failures = 0
@@ -34,13 +24,6 @@ def record_sync_failure(
     disable_event_id: str,
     count_failure: bool = True,
 ) -> bool:
-    """Fold a failed logical sync onto the source. Returns True when this failure disabled it.
-
-    ``count_failure`` is False for a failure the caller already counted, such as a person-path
-    activity retry re-reporting a job that failed before. ``disable_event_id`` names the run that
-    could disable the source, so the owner hears about one disablement once however many times
-    the recorder runs for it.
-    """
     was_enabled = source.is_enabled
     if count_failure:
         source.consecutive_failures = (source.consecutive_failures or 0) + 1
@@ -56,12 +39,6 @@ def record_sync_failure(
 
 
 def _schedule_owner_notice(*, team_id: int, source_id: UUID, disable_event_id: str) -> None:
-    """Deliver after the source transaction commits.
-
-    The account path holds row locks across this call, and delivery reads users, access control
-    and tasks. Running it inside would hold those locks for the whole round trip, and a delivery
-    that raised would roll the auto-disable back with it.
-    """
     transaction.on_commit(
         partial(
             notify_source_auto_disabled,

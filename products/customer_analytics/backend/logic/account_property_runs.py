@@ -179,8 +179,6 @@ def _update_source_status_for_terminal_runs(
 
         failed_runs = [run for run in runs if run.status == SyncStatus.FAILED.value]
         if failed_runs:
-            # Both segments have settled, so this is one failed logical sync however many segments
-            # carried the error.
             record_sync_failure(
                 source,
                 error=next((run.error for run in failed_runs if run.error), None),

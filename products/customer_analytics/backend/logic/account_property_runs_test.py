@@ -256,7 +256,6 @@ class TestAccountPropertyRuns(TeamScopedTestMixin, BaseTest):
 
     @patch(f"{HEALTH_SERVICE}.notify_source_auto_disabled")
     def test_the_fifth_failed_sync_disables_the_source_and_tells_its_owner_once(self, mock_notify) -> None:
-        # Both segments settle in one finalize, so this is one disablement — not one per segment.
         self.source.consecutive_failures = MAX_CONSECUTIVE_SYNC_FAILURES - 1
         self.source.save(update_fields=["consecutive_failures"])
         self._start_runs()
