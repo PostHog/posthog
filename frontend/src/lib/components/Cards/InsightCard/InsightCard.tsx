@@ -9,7 +9,6 @@ import { useInView } from 'react-intersection-observer'
 
 import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
-import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -30,7 +29,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { extractValidationError, extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
-import { queryVizDefinitelyRendersToCanvas, queryVizRendersToCanvas } from '~/queries/utils'
+import { queryVizRendersToCanvas } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -57,24 +56,12 @@ export function shouldRenderInsightCardViz({
     isStorybook,
     placement,
     inView,
-    isPageVisible,
-    query,
 }: {
     isStorybook: boolean
     placement: DashboardPlacement | 'SavedInsightGrid'
     inView: boolean
-    isPageVisible: boolean
-    query: QueryBasedInsightModel['query']
 }): boolean {
-    if (isStorybook || placement === DashboardPlacement.Export) {
-        return true
-    }
-
-    if (!inView) {
-        return false
-    }
-
-    return isPageVisible || !queryVizDefinitelyRendersToCanvas(query)
+    return isStorybook || placement === DashboardPlacement.Export || inView
 }
 
 const LazyEditAlertModal = lazyWithRetry(() =>
@@ -273,21 +260,19 @@ function InsightCardInternal(
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element | null {
     const { ref: inViewRef, inView } = useInView({ rootMargin: '500px' })
-    const { isVisible: isPageVisible } = usePageVisibility()
 
     const rendersToCanvas = queryVizRendersToCanvas(insight.query)
 
     /**
-     * Hidden canvas visualizations are unmounted to release their backing stores and reduce the risk of context loss.
-     * When the page is hidden, DOM and SVG visualizations stay mounted to preserve state such as table scroll position.
+     * Offscreen visualizations are unmounted to release canvas backing stores and reduce the risk of context loss,
+     * which bounds the live canvases to roughly what fits on screen. Do not also gate this on page visibility: a
+     * client that reports the page as hidden while it keeps painting then leaves every chart tile permanently blank.
      * See https://wiki.whatwg.org/wiki/Canvas_Context_Loss_and_Restoration.
      */
     const shouldRenderViz = shouldRenderInsightCardViz({
         isStorybook: IS_STORYBOOK,
         placement,
         inView,
-        isPageVisible,
-        query: insight.query,
     })
 
     const mergedRefs = useMergeRefs([ref, inViewRef])
