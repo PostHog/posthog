@@ -37,6 +37,16 @@ def classify_human_outcome(ai_draft: str, human_reply: str) -> HumanOutcome:
     return "ignored"
 
 
+def _inserted_draft_text(ai_note: Comment) -> str:
+    context = ai_note.item_context or {}
+    if context.get("persist_as") not in {"clarification", "findings"}:
+        return ai_note.content or ""
+    questions = context.get("clarifying_questions")
+    if not isinstance(questions, list):
+        return ai_note.content or ""
+    return next((question.strip() for question in questions if isinstance(question, str) and question.strip()), "")
+
+
 def _ticket_comments(*, team_id: int, ticket_id: str) -> QuerySet[Comment]:
     return Comment.objects.filter(
         team_id=team_id,
@@ -103,7 +113,7 @@ def maybe_record_human_outcome(*, team_id: int, ticket_id: str, comment_id: str,
         # Only private AI notes are drafts a human can adopt. A public AI reply was auto-sent
         # to the customer, so a later human reply is a follow-up, not adoption of a draft.
         ai_note = (
-            comments.filter(item_context__author_type="AI", item_context__is_private=True)
+            comments.filter(item_context__author_type="AI", item_context__is_private=True, deleted=False)
             .filter(before_this)
             .order_by("-created_at", "-id")
             .first()
@@ -116,13 +126,10 @@ def maybe_record_human_outcome(*, team_id: int, ticket_id: str, comment_id: str,
         if first_after is None or str(first_after.id) != str(comment_id):
             return
 
-        classified = classify_human_outcome(ai_note.content or "", human_content)
+        classified = classify_human_outcome(_inserted_draft_text(ai_note), human_content)
         if current == classified:
             return
-        # "Use as reply" records used before send. An edited send must be able to upgrade it.
-        if current == "used" and classified != "used":
-            classified = "edited"
-        elif current:
+        if current and current != "used":
             return
 
         triage["human_outcome"] = classified
