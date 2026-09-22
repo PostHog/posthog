@@ -40,6 +40,7 @@ It rejects redirects and other status codes; the CDP health handler does not ret
 - Close each socket at completion or timeout. Do not retry within a probe.
 - Exit 0 only when all required checks pass. Exit 1 on failure or invalid input.
 - Print only fixed failure messages to stderr. Do not print response bodies, environment values, or credentials.
+- Name the failed component. The proxy listener and the proxy metrics endpoint print separate fixed messages.
 
 The production endpoints and deadlines are fixed, except for `HTTP_SERVER_PORT`.
 The module parameters used by tests are not operator settings.

@@ -149,7 +149,11 @@ test('application connection refusal fails', async (context) => {
 test('a healthy metrics endpoint cannot hide proxy refusal', async (context) => {
     const port = await application(context)
     await sidecar(context, { proxy: false })
-    assert.equal((await probe(port)).code, 1)
+    assert.deepEqual(await probe(port), {
+        code: 1,
+        stdout: '',
+        stderr: 'CDP liveness: proxy listener check failed\n',
+    })
 })
 
 test('a healthy proxy listener cannot hide metrics refusal', async (context) => {
@@ -159,7 +163,11 @@ test('a healthy proxy listener cannot hide metrics refusal', async (context) => 
         net.createServer((socket) => socket.end()),
         4750
     )
-    assert.equal((await probe(port)).code, 1)
+    assert.deepEqual(await probe(port), {
+        code: 1,
+        stdout: '',
+        stderr: 'CDP liveness: proxy metrics check failed\n',
+    })
 })
 
 for (const [name, status, body, contentType] of [
@@ -181,7 +189,7 @@ for (const [name, status, body, contentType] of [
         assert.deepEqual(await probe(port), {
             code: 1,
             stdout: '',
-            stderr: 'CDP liveness: proxy check failed\n',
+            stderr: 'CDP liveness: proxy metrics check failed\n',
         })
     })
 }
@@ -209,7 +217,7 @@ test('a truncated metrics response fails', async (context) => {
         context,
         net.createServer((socket) => socket.end())
     )
-    assert.equal(await checkProxy({ metricsPort, proxyPort }), false)
+    assert.deepEqual(await checkProxy({ metricsPort, proxyPort }), { listener: true, metrics: false })
 })
 
 test('application and metrics deadlines run concurrently below the probe timeout', async (context) => {
@@ -222,7 +230,7 @@ test('application and metrics deadlines run concurrently below the probe timeout
     const result = await probe(port)
     assert.equal(result.code, 1)
     assert.match(result.stderr, /application check failed/)
-    assert.match(result.stderr, /proxy check failed/)
+    assert.match(result.stderr, /proxy metrics check failed/)
     assert.ok(performance.now() - start < 4000)
 })
 
@@ -236,7 +244,7 @@ test('a slow metrics body does not extend the deadline', async (context) => {
         },
     })
     const start = performance.now()
-    assert.equal(await checkProxy({ timeoutMs: 100 }), false)
+    assert.deepEqual(await checkProxy({ timeoutMs: 100 }), { listener: true, metrics: false })
     assert.ok(performance.now() - start < 1000)
 })
 

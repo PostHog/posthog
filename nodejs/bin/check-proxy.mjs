@@ -17,7 +17,7 @@ export function checkProxyListener({ port = 4750, timeoutMs = 2000 } = {}) {
 }
 
 export async function checkProxy({ proxyPort = 4750, metricsPort = 9810, timeoutMs = 2000 } = {}) {
-    const results = await Promise.all([
+    const [listener, metrics] = await Promise.all([
         checkProxyListener({ port: proxyPort, timeoutMs }),
         checkHttp({
             port: metricsPort,
@@ -28,5 +28,5 @@ export async function checkProxy({ proxyPort = 4750, metricsPort = 9810, timeout
                 /^go_goroutines [0-9]+\r?$/m.test(body),
         }),
     ])
-    return results.every(Boolean)
+    return { listener, metrics }
 }

@@ -15,17 +15,20 @@ async function main() {
         return 1
     }
 
-    const [applicationHealthy, proxyHealthy] = await Promise.all([
+    const [applicationHealthy, proxy] = await Promise.all([
         checkHttp({ port: Number(port), path: '/_health' }),
-        args.length === 1 ? checkProxy() : Promise.resolve(true),
+        args.length === 1 ? checkProxy() : Promise.resolve({ listener: true, metrics: true }),
     ])
     if (!applicationHealthy) {
         console.error('CDP liveness: application check failed')
     }
-    if (!proxyHealthy) {
-        console.error('CDP liveness: proxy check failed')
+    if (!proxy.listener) {
+        console.error('CDP liveness: proxy listener check failed')
     }
-    return applicationHealthy && proxyHealthy ? 0 : 1
+    if (!proxy.metrics) {
+        console.error('CDP liveness: proxy metrics check failed')
+    }
+    return applicationHealthy && proxy.listener && proxy.metrics ? 0 : 1
 }
 
 main().then(
