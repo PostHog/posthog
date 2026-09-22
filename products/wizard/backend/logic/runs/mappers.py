@@ -3,12 +3,14 @@ from products.wizard.backend.facade.contracts import (
     LocalFolderWorkspace,
     WizardRunCreatorDTO,
     WizardRunDTO,
+    WizardTaskDTO,
     WizardWorkspace,
 )
 from products.wizard.backend.facade.enums import (
     WizardRunEnvironment,
     WizardRunStage,
     WizardRunStatus,
+    WizardSessionTaskStatus,
     WizardWorkspaceType,
 )
 from products.wizard.backend.facade.validation import validate_workspace_metadata_value
@@ -60,5 +62,17 @@ def record_to_run(run: WizardRun) -> WizardRunDTO:
             )
             if creator is not None
             else None
+        ),
+        tasks=tuple(
+            WizardTaskDTO(
+                title=task["title"],
+                status=WizardSessionTaskStatus(task["status"]),
+                created_at=task["created_at"],
+                started_at=task["started_at"],
+                completed_at=task["completed_at"],
+                failed_at=task["failed_at"],
+                error_message=task["error_message"],
+            )
+            for task in run.tasks_snapshot or []
         ),
     )

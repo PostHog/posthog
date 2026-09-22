@@ -14,6 +14,7 @@ from products.wizard.backend.facade.contracts import (
     WizardRunCreationResult,
     WizardRunDTO,
     WizardRunPage,
+    WizardTaskDTO,
     WizardWorkspace,
 )
 from products.wizard.backend.facade.enums import (
@@ -215,5 +216,18 @@ def set_run_status(
         update_fields.extend(["finished_at", "stage", "stage_started_at"])
 
     run.save(update_fields=update_fields)
+
+    return record_to_run(run)
+
+
+def update_run_task_list(team_id: int, run_id: UUID, tasks: tuple[WizardTaskDTO, ...]) -> WizardRunDTO:
+    run = WizardRun.objects.for_team(team_id).filter(id=run_id).first()
+
+    if run is None:
+        raise WizardRunNotFoundError
+
+    run.tasks_snapshot = tasks
+    run.tasks_snapshot_updated_at = timezone.now()
+    run.save(update_fields=["tasks_snapshot", "tasks_snapshot_updated_at", "updated_at"])
 
     return record_to_run(run)

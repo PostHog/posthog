@@ -9,6 +9,7 @@ from products.wizard.backend.facade.contracts import (
     CreateWizardRunInput,
     GitRepositoryWorkspace,
     LocalFolderWorkspace,
+    UpdateWizardRunTaskInput,
     WizardWorkspace,
 )
 from products.wizard.backend.facade.enums import (
@@ -215,9 +216,19 @@ class UpdateWizardRunTaskSerializer(serializers.Serializer):
         allow_blank=False,
     )
 
+    def to_contract(self) -> UpdateWizardRunTaskInput:
+        # todo: this is failing
+        return UpdateWizardRunTaskInput(
+            title=cast(str, self.validated_data["name"]),
+            status=WizardTaskStatus(cast(str, self.validated_data["status"])),
+        )
+
 
 class UpdateWizardRunTaskListSerializer(serializers.Serializer):
     tasks = UpdateWizardRunTaskSerializer(many=True)
+
+    def to_contract(self) -> tuple[UpdateWizardRunTaskInput, ...]:
+        return tuple(task_serializer.to_contract() for task_serializer in self.validated_data["tasks"])
 
 
 class WizardRunTaskSerializer(serializers.Serializer):

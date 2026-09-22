@@ -196,7 +196,7 @@ class WizardRunTasksViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def tasks(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = UpdateWizardRunTaskListSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        validated_data = serializer.validated_data
+        validated_data = serializer.to_contract()
         run_id = UUID(cast(str, self.kwargs["run_id"]))
 
         res = wizard_facade.update_run_task_list(self.team_id, run_id, validated_data)

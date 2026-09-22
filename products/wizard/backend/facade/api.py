@@ -18,6 +18,7 @@ from products.wizard.backend.facade.contracts import (
     CreatePullRequestArtifactInput,
     CreateWizardRunInput,
     ListWizardRunsInput,
+    UpdateWizardRunTaskInput,
     UpsertWizardSessionInput,
     WizardProgram,
     WizardRunArtifactDTO,
@@ -135,7 +136,7 @@ def update_run_status(
 
 
 def update_run_task_list(
-    team_id: int, run_id: UUID, tasks: UpdateWizardRunTaskListInput
+    team_id: int, run_id: UUID, tasks: tuple[UpdateWizardRunTaskInput, ...]
 ) -> UpdateWizardRunTaskListInput:
     return run_service.update_run_task_list(team_id, run_id, tasks)
 

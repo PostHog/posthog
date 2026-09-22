@@ -19,6 +19,7 @@ from .enums import (
     WizardRunStatus,
     WizardSessionRunPhase,
     WizardSessionTaskStatus,
+    WizardTaskStatus,
 )
 
 STALE_AFTER = timedelta(minutes=10)
@@ -159,7 +160,7 @@ class UpdateWizardRunTaskInput:
     """
 
     title: str
-    status: WizardSessionTaskStatus
+    status: WizardTaskStatus
 
 
 @frozen
@@ -172,7 +173,7 @@ class UpdateWizardRunTaskListInput:
     server-side.
     """
 
-    tasks: list[UpdateWizardRunTaskInput]
+    tasks: tuple[UpdateWizardRunTaskInput, ...]
 
 
 @frozen
@@ -212,6 +213,7 @@ class WizardRunDTO:
     finished_at: datetime | None
     deadline_at: datetime | None
     created_by: WizardRunCreatorDTO | None = None
+    tasks: tuple[WizardTaskDTO, ...] | None = None
 
 
 @frozen

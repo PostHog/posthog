@@ -1,5 +1,6 @@
 import logging
 from dataclasses import replace
+from datetime import datetime
 from functools import partial
 from uuid import UUID
 
@@ -13,10 +14,11 @@ from products.wizard.backend.facade.contracts import (
     GitRepositoryWorkspace,
     ListWizardRunsInput,
     LocalFolderWorkspace,
-    UpdateWizardRunTaskListInput,
+    UpdateWizardRunTaskInput,
     WizardRunCreationResult,
     WizardRunDTO,
     WizardRunPage,
+    WizardTaskDTO,
 )
 from products.wizard.backend.facade.enums import (
     WizardRunEnvironment,
@@ -239,9 +241,15 @@ def transition_run(
     return run
 
 
+def _compute_task_list_derived_fields(
+    tasks: tuple[UpdateWizardRunTaskInput, ...], previous_tasks: tuple[WizardTaskDTO, ...], snapshot_timestamp: datetime
+) -> tuple[WizardTaskDTO, ...]:
+    return previous_tasks
+
+
 def update_run_task_list(
-    team_id: int, run_id: UUID, tasks: UpdateWizardRunTaskListInput
-) -> UpdateWizardRunTaskListInput:
+    team_id: int, run_id: UUID, tasks: tuple[UpdateWizardRunTaskInput, ...]
+) -> tuple[UpdateWizardRunTaskInput, ...]:
     """
     what this should do:
     - take the raw task list snapshot as input
@@ -249,5 +257,14 @@ def update_run_task_list(
     - compare them, and compute the derived fields (created_at, started_at, completed_at, failed_at, and error_message)
     - store the new, computed state
     """
+
+    # todo: lock this into a transaction
+    current_run: WizardRunDTO = store.get_run(team_id, run_id)
+    tasks_snapshot: tuple[WizardTaskDTO, ...] = current_run.tasks or ()
+
+    snapshot_timestamp = datetime.now()
+    updated_tasks = _compute_task_list_derived_fields(tasks, tasks_snapshot, snapshot_timestamp)
+
+    store.update_run_task_list(team_id, run_id, updated_tasks)
 
     return tasks
