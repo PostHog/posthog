@@ -186,7 +186,7 @@ describe("buildCloudTaskConfigOptions", () => {
       [
         model("gpt-5.5", "openai"),
         model("claude-opus-4-7", "anthropic"),
-        model("claude-opus-4-8", "anthropic", false),
+        model("claude-opus-5-5", "anthropic", false),
         model("@cf/zai-org/glm-5.2", "cloudflare"),
       ],
       "claude",
@@ -199,11 +199,11 @@ describe("buildCloudTaskConfigOptions", () => {
         currentValue: "@cf/zai-org/glm-5.2",
         options: [
           { value: "claude-opus-4-7" },
+          { value: "@cf/zai-org/glm-5.2" },
           {
-            value: "claude-opus-4-8",
+            value: "claude-opus-5-5",
             _meta: { "posthog.code/restrictedModel": true },
           },
-          { value: "@cf/zai-org/glm-5.2" },
         ],
       },
       {
