@@ -1210,7 +1210,10 @@ export interface SuggestedReviewerEntryWriteApi {
  * the viewset enforces the type check before validation runs.
  */
 export interface SignalReportArtefactWriteApi {
-    /** Full replacement list of reviewers. Empty list clears the artefact. At most 10 entries. */
+    /**
+     * Full replacement list of reviewers. Empty list clears the artefact. At most 10 entries.
+     * @maxItems 10
+     */
     content: SuggestedReviewerEntryWriteApi[]
 }
 

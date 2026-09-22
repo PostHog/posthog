@@ -279,6 +279,8 @@ export const signalsReportsReviewersUpdateBodyContentItemGithubNameMax = 200
 
 export const signalsReportsReviewersUpdateBodyContentItemReasonMax = 500
 
+export const signalsReportsReviewersUpdateBodyContentMax = 10
+
 export const SignalsReportsReviewersUpdateBody = /* @__PURE__ */ zod
     .object({
         content: zod
@@ -317,6 +319,7 @@ export const SignalsReportsReviewersUpdateBody = /* @__PURE__ */ zod
                         'Single entry in a PUT body for a `suggested_reviewers` artefact.\n\nEach entry must identify a reviewer by at least one of `github_login` or `user_uuid`. A\n`user_uuid` only has to name an org member on this team — a member with no linked GitHub\naccount is stored by uuid and routes like any other reviewer.'
                     )
             )
+            .max(signalsReportsReviewersUpdateBodyContentMax)
             .describe('Full replacement list of reviewers. Empty list clears the artefact. At most 10 entries.'),
     })
     .describe(
