@@ -80,7 +80,7 @@ from posthog.utils import human_list, pluralize
 from products.engineering_analytics.backend.facade.api import resolve_path_owners
 from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM, PathOwnership
 
-from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS, TOLERATION_PILEUP_WINDOW_DAYS, VARIANT_PILEUP_MIN
+from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS, TOLERATION_PILEUP_WINDOW_DAYS
 from ..facade.enums import RunType
 from ..models import QuarantinedIdentifier, Repo, Run
 from . import quarantine, run_queries, story_index, toleration
@@ -424,13 +424,13 @@ def collect_debt(repo: Repo, now: datetime) -> RepoDebt:
     quarantined_keys = quarantine.active_quarantine_keys(repo.id, now=now)
     piled_up = {
         key: count
-        for key, count in toleration.count_recent_intentional_tolerations(
-            repo.id, since=now - timedelta(days=TOLERATION_PILEUP_WINDOW_DAYS), newest_run_by_type=newest_run_by_type
+        for key, count in toleration.list_toleration_pileups(
+            repo.id, now=now, newest_run_by_type=newest_run_by_type
         ).items()
         # Any live quarantine, expiring or not, already says somebody knows the snapshot is
         # unreliable, so asking them about the tolerations underneath it is a second reminder about
         # one problem.
-        if count >= VARIANT_PILEUP_MIN and key not in quarantined_keys
+        if key not in quarantined_keys
     }
 
     run_types = {entry.run_type for entry in expiring} | {key.run_type for key in piled_up}

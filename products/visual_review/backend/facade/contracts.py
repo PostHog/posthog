@@ -754,3 +754,24 @@ class FlakinessOverview:
     totals: FlakinessTotals
     truncated: bool
     generated_at: datetime
+
+
+@dataclass(frozen=True)
+class TolerationPileupEntry:
+    """One snapshot identity that a person or agent tolerated at least `VARIANT_PILEUP_MIN` times
+    in the window."""
+
+    identifier: str
+    run_type: str
+    toleration_count: int
+    is_quarantined: bool
+
+
+@dataclass(frozen=True)
+class TolerationPileups:
+    """Result of the toleration pile-ups endpoint."""
+
+    entries: list[TolerationPileupEntry]
+    window_days: int
+    min_tolerations: int
+    generated_at: datetime

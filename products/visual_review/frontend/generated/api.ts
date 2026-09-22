@@ -34,6 +34,7 @@ import type {
     ReviewStateCountsApi,
     RunApi,
     SnapshotApi,
+    TolerationPileupsApi,
     UnquarantineQueryApi,
     VisualReviewReposListParams,
     VisualReviewReposQuarantineListParams,
@@ -285,6 +286,24 @@ export const visualReviewReposThumbnailsRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getVisualReviewReposThumbnailsRetrieveUrl(projectId, id, identifier, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisualReviewReposTolerationPileupsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/repos/${id}/toleration-pileups/`
+}
+
+/**
+ * Snapshots a person or agent tolerated at least 3 times in the last 30 days, counted across baselines. A toleration accepts one exact rendering, so a snapshot that keeps needing them renders differently from run to run, and the fix belongs in the story. This is the same rule the weekly debt digest uses, except that quarantined snapshots are kept and marked with `is_quarantined`. The list is small and returns fast; start here to find flaky stories worth fixing, then read one snapshot's history with the per-snapshot tools.
+ */
+export const visualReviewReposTolerationPileupsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TolerationPileupsApi> => {
+    return apiMutator<TolerationPileupsApi>(getVisualReviewReposTolerationPileupsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

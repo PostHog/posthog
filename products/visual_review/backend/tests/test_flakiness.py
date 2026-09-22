@@ -34,6 +34,8 @@ from products.visual_review.backend.facade.contracts import (
     FLAKINESS_RATE_DAYS,
     FLAKINESS_WINDOW_DAYS,
     PIXEL_DIFF_THRESHOLD_PERCENT,
+    TOLERATION_PILEUP_WINDOW_DAYS,
+    VARIANT_PILEUP_MIN,
 )
 from products.visual_review.backend.facade.enums import (
     ClassificationReason,
@@ -728,6 +730,26 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         assert entry["flakiness_state"] == FlakinessState.NOISY
         assert len(entry["daily_hard_counts"]) == FLAKINESS_WINDOW_DAYS
         assert data["totals"]["tracked"] == 1
+
+    def test_toleration_pileups_endpoint_keeps_quarantined_snapshots_flagged(self):
+        for identifier, variants in (("piled", 3), ("muted", 3), ("once", 1)):
+            _mk_snapshot(self.master_run, identifier=identifier)
+            for index in range(variants):
+                self._mk_variant(identifier=identifier, alternate_hash=f"v{index}", reason=ToleratedReason.HUMAN)
+        self._mk_quarantine("muted")
+
+        url = f"/api/projects/{self.team.id}/visual_review/repos/{self.repo.id}/toleration-pileups/"
+        response = self.client.get(url)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert [
+            (entry["identifier"], entry["toleration_count"], entry["is_quarantined"]) for entry in data["entries"]
+        ] == [
+            ("muted", 3, True),
+            ("piled", 3, False),
+        ]
+        assert (data["window_days"], data["min_tolerations"]) == (TOLERATION_PILEUP_WINDOW_DAYS, VARIANT_PILEUP_MIN)
 
     def test_endpoint_404_for_unknown_repo(self):
         url = f"/api/projects/{self.team.id}/visual_review/repos/{uuid4()}/flakiness/"

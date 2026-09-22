@@ -303,6 +303,28 @@ export interface UnquarantineQueryApi {
     identifier: string
 }
 
+export interface TolerationPileupEntryApi {
+    /** Snapshot identifier, for example a Storybook story id plus theme. */
+    identifier: string
+    /** Run type the snapshot belongs to, for example `storybook`. */
+    run_type: string
+    /** Tolerations a person or agent recorded for this snapshot in the last 30 days, across every baseline. Each one accepted a different exact rendering, so a high count means the snapshot renders differently from run to run. */
+    toleration_count: number
+    /** Whether an active quarantine already covers this snapshot, so it no longer blocks pull requests. */
+    is_quarantined: boolean
+}
+
+export interface TolerationPileupsApi {
+    /** Snapshots at or over the threshold, most tolerations first. */
+    entries: TolerationPileupEntryApi[]
+    /** Length of the counting window in days. */
+    window_days: number
+    /** Tolerations in the window at which a snapshot is listed. Currently 3. */
+    min_tolerations: number
+    /** When the list was computed. */
+    generated_at: string
+}
+
 export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
 
 export const SearchMatchTypeEnumApi = {

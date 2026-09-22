@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 16 enabled ops
+ * PostHog API - MCP 17 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -91,6 +91,18 @@ export const VisualReviewReposQuarantineListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     run_type: zod.string().optional().describe('Filter by run type'),
+})
+
+/**
+ * Snapshots a person or agent tolerated at least 3 times in the last 30 days, counted across baselines. A toleration accepts one exact rendering, so a snapshot that keeps needing them renders differently from run to run, and the fix belongs in the story. This is the same rule the weekly debt digest uses, except that quarantined snapshots are kept and marked with `is_quarantined`. The list is small and returns fast; start here to find flaky stories worth fixing, then read one snapshot's history with the per-snapshot tools.
+ */
+export const VisualReviewReposTolerationPileupsRetrieveParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
 })
 
 /**

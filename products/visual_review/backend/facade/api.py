@@ -20,6 +20,7 @@ from datetime import datetime
 from uuid import UUID
 
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
@@ -364,6 +365,31 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
         totals=totals,
         truncated=raw.truncated,
         generated_at=raw.generated_at,
+    )
+
+
+def get_toleration_pileups(repo_id: UUID) -> contracts.TolerationPileups:
+    """Snapshot identities that keep getting tolerated, biggest pile first.
+
+    Backs the pile-ups endpoint, which agents read. It uses the same rule as the debt digest, but
+    keeps quarantined identities and marks them, so a reader can see both open and muted piles.
+    """
+    now = timezone.now()
+    quarantined_keys = quarantine.active_quarantine_keys(repo_id, now=now)
+    pileups = toleration.list_toleration_pileups(repo_id, now=now)
+    return contracts.TolerationPileups(
+        entries=[
+            contracts.TolerationPileupEntry(
+                identifier=key.identifier,
+                run_type=key.run_type,
+                toleration_count=count,
+                is_quarantined=key in quarantined_keys,
+            )
+            for key, count in sorted(pileups.items(), key=lambda item: (-item[1], item[0].run_type, item[0].identifier))
+        ],
+        window_days=contracts.TOLERATION_PILEUP_WINDOW_DAYS,
+        min_tolerations=contracts.VARIANT_PILEUP_MIN,
+        generated_at=now,
     )
 
 

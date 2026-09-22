@@ -11,6 +11,8 @@ from ..facade.contracts import (
     FLAKINESS_RATE_DAYS,
     FLAKINESS_WINDOW_DAYS,
     PIXEL_DIFF_THRESHOLD_PERCENT,
+    TOLERATION_PILEUP_WINDOW_DAYS,
+    VARIANT_PILEUP_MIN,
     AddSnapshotsInput,
     AddSnapshotsResult,
     ApproveRunRequestInput,
@@ -43,6 +45,8 @@ from ..facade.contracts import (
     SnapshotHistoryEntry,
     SnapshotManifestItem,
     ToleratedHashEntry,
+    TolerationPileupEntry,
+    TolerationPileups,
     UpdateRepoRequestInput,
     UploadTarget,
     UserBasicInfo,
@@ -585,3 +589,35 @@ class FlakinessOverviewSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = FlakinessOverview
+
+
+class TolerationPileupEntrySerializer(DataclassSerializer):
+    identifier = serializers.CharField(help_text="Snapshot identifier, for example a Storybook story id plus theme.")
+    run_type = serializers.CharField(help_text="Run type the snapshot belongs to, for example `storybook`.")
+    toleration_count = serializers.IntegerField(
+        help_text=(
+            f"Tolerations a person or agent recorded for this snapshot in the last {TOLERATION_PILEUP_WINDOW_DAYS} "
+            "days, across every baseline. Each one accepted a different exact rendering, so a high count means the "
+            "snapshot renders differently from run to run."
+        )
+    )
+    is_quarantined = serializers.BooleanField(
+        help_text="Whether an active quarantine already covers this snapshot, so it no longer blocks pull requests."
+    )
+
+    class Meta:
+        dataclass = TolerationPileupEntry
+
+
+class TolerationPileupsSerializer(DataclassSerializer):
+    entries = TolerationPileupEntrySerializer(
+        many=True, help_text="Snapshots at or over the threshold, most tolerations first."
+    )
+    window_days = serializers.IntegerField(help_text="Length of the counting window in days.")
+    min_tolerations = serializers.IntegerField(
+        help_text=f"Tolerations in the window at which a snapshot is listed. Currently {VARIANT_PILEUP_MIN}."
+    )
+    generated_at = serializers.DateTimeField(help_text="When the list was computed.")
+
+    class Meta:
+        dataclass = TolerationPileups

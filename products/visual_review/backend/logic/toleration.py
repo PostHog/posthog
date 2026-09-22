@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from django.db import transaction
@@ -11,6 +11,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 
 from ..db import WRITER_DB
+from ..facade.contracts import TOLERATION_PILEUP_WINDOW_DAYS, VARIANT_PILEUP_MIN
 from ..facade.enums import INTENTIONAL_TOLERATE_REASONS, ActorType, ReviewState, SnapshotResult, ToleratedReason
 from ..models import Run, RunSnapshot, ToleratedHash
 from . import errors, run_queries
@@ -161,10 +162,11 @@ def count_recent_intentional_tolerations(
         keys_by_identifier.setdefault(key.identifier, []).append(key)
 
     counts: dict[SnapshotKey, int] = {}
+    # No identifier filter in SQL: the window and reason already cut the rows to a few hundred,
+    # and a list of every identifier in the universe would only bloat the query.
     for identifier, run_type, count in (
         ToleratedHash.objects.filter(
             repo_id=repo_id,
-            identifier__in=list(keys_by_identifier),
             reason__in=INTENTIONAL_TOLERATE_REASONS,
             created_at__gte=since,
         )
@@ -172,10 +174,30 @@ def count_recent_intentional_tolerations(
         .annotate(c=Count("id"))
         .values_list("identifier", "source_run__run_type", "c")
     ):
-        for key in keys_by_identifier[identifier]:
+        for key in keys_by_identifier.get(identifier, []):
             if run_type in (None, key.run_type):
                 counts[key] = counts.get(key, 0) + count
     return counts
+
+
+def list_toleration_pileups(
+    repo_id: UUID, *, now: datetime, newest_run_by_type: Mapping[str, Run] | None = None
+) -> dict[SnapshotKey, int]:
+    """Snapshot identities with `VARIANT_PILEUP_MIN` or more tolerations by a person or agent in
+    the last `TOLERATION_PILEUP_WINDOW_DAYS`, whether quarantined or not.
+
+    The one definition the debt digest and the pile-ups endpoint share, so the reminder and what
+    an agent reads cannot drift apart.
+    """
+    return {
+        key: count
+        for key, count in count_recent_intentional_tolerations(
+            repo_id,
+            since=now - timedelta(days=TOLERATION_PILEUP_WINDOW_DAYS),
+            newest_run_by_type=newest_run_by_type,
+        ).items()
+        if count >= VARIANT_PILEUP_MIN
+    }
 
 
 def _current_baseline_hashes(

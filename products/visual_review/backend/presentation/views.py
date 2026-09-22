@@ -64,6 +64,7 @@ from .serializers import (
     SnapshotHistoryEntrySerializer,
     SnapshotSerializer,
     ToleratedHashEntrySerializer,
+    TolerationPileupsSerializer,
     UnquarantineQuerySerializer,
     UpdateRepoInputSerializer,
 )
@@ -163,6 +164,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "thumbnail",
         "baselines",
         "flakiness",
+        "toleration_pileups",
     ]
 
     @extend_schema(responses={200: RepoSerializer(many=True)})
@@ -388,6 +390,28 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         result = api.get_flakiness_overview(repo_id, self.team_id)
         return Response(FlakinessOverviewSerializer(instance=result).data)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={200: TolerationPileupsSerializer},
+        description=(
+            "Snapshots a person or agent tolerated at least "
+            f"{contracts.VARIANT_PILEUP_MIN} times in the last {contracts.TOLERATION_PILEUP_WINDOW_DAYS} days, "
+            "counted across baselines. A toleration accepts one exact rendering, so a snapshot that keeps "
+            "needing them renders differently from run to run, and the fix belongs in the story. This is "
+            "the same rule the weekly debt digest uses, except that quarantined snapshots are kept and "
+            "marked with `is_quarantined`. The list is small and returns fast; start here to find flaky "
+            "stories worth fixing, then read one snapshot's history with the per-snapshot tools."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="toleration-pileups", pagination_class=None)
+    def toleration_pileups(self, request: Request, pk: str, **kwargs) -> Response:
+        repo_id = _parse_uuid(pk)
+        try:
+            api.get_repo(repo_id, team_id=self.team_id)
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(TolerationPileupsSerializer(instance=api.get_toleration_pileups(repo_id)).data)
 
 
 class SnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
