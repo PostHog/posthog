@@ -285,6 +285,24 @@ class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         self.assertTrue(mock_get.call_args.args[0].endswith("/api/v2/billing/products/product_analytics/"))
 
     @patch("ee.billing.billing_manager.http_session.get")
+    def test_catalog_reaches_billings_catalog_and_not_a_product_named_catalog(self, mock_get):
+        product = {
+            "key": "platform_and_support",
+            "name": "Platform and support",
+            "description": "SSO, permission management, and support.",
+            "subscribed": None,
+            "addons": [{"key": "teams", "name": "Teams", "description": "", "subscribed": False}],
+            "features": [
+                {"key": "sso_enforcement", "name": "Enforce SSO login", "included": True, "addon_keys": ["teams"]}
+            ],
+        }
+        mock_get.return_value = _response({"status": "ok", "customer_id": 42, "products": [product]})
+        response = self.client.get(self._url("products/catalog/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json(), {"results": [product]})
+        self.assertTrue(mock_get.call_args.args[0].endswith("/api/v2/billing/products/catalog/"))
+
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_billings_refusals_come_back_as_the_matching_errors(self, mock_get):
         mock_get.return_value = _response({"detail": "No product time_travel."}, 404)
         response = self.client.get(self._url("products/time_travel/"))

@@ -15475,6 +15475,46 @@ export namespace Schemas {
       hog_function_ids: string[];
     }
 
+    export interface BillingCatalogAddon {
+      /** The add-on key. */
+      key: string;
+      name: string;
+      description: string;
+      /**
+         * Whether the organization subscribes to it.
+         * @nullable
+         */
+      subscribed: boolean | null;
+    }
+
+    export interface BillingCatalogFeature {
+      /** The feature key. */
+      key: string;
+      name: string;
+      /** Whether the organization's plans include the feature. */
+      included: boolean;
+      /** The add-ons of this product that carry the feature. Empty when only the product carries it. */
+      addon_keys: string[];
+    }
+
+    export interface BillingCatalogProduct {
+      /** The product key. Pass it to the product route for prices and plans. */
+      key: string;
+      name: string;
+      description: string;
+      /**
+         * Whether the organization subscribes to it.
+         * @nullable
+         */
+      subscribed: boolean | null;
+      addons: BillingCatalogAddon[];
+      features: BillingCatalogFeature[];
+    }
+
+    export interface BillingCatalog {
+      results: BillingCatalogProduct[];
+    }
+
     export interface BillingFeatures {
       available_product_features: ProductFeature[];
     }

@@ -48,6 +48,24 @@ tools:
     billing-alerts-update:
         operation: billing_alerts_update
         enabled: false
+    billing-catalog-get:
+        operation: billing_products_catalog_retrieve
+        enabled: true
+        scopes:
+            - billing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get the product catalog
+        description: >
+            Every product with its add-ons and the names of its features, without prices or plans. Use it to find the
+            product, add-on or feature a question is about. A product or add-on says whether the organization
+            subscribes to it. A feature says whether the organization's plans include it and lists the add-ons that
+            carry it. For prices and plans, pass the product key to billing-product-get. Readable by any member. Beta:
+            behind the organization-billing-api flag, and the output shape may change while it is.
+        feature_flag: organization-billing-api
+        url_prefix: /organization/billing/overview
     billing-coupons-claim-create:
         operation: billing_coupons_claim_create
         enabled: false
@@ -192,32 +210,14 @@ tools:
             idempotent: true
         title: Get one product
         description: >
-            One product by key, for example product_analytics or session_replay, with its add-ons, price schedule and
-            subscribed state. Same fields as billing-products-list for a single product. Readable by any member. Beta:
-            behind the organization-billing-api flag, and the output shape may change while it is.
+            One product by key, for example product_analytics or session_replay, with its add-ons, features, price
+            schedule and subscribed state. Call billing-catalog-get first to find the key. Pass include_plans=true
+            for the plan list. Readable by any member. Beta: behind the organization-billing-api flag, and the output
+            shape may change while it is.
         feature_flag: organization-billing-api
     billing-products-list:
         operation: billing_products_list
-        enabled: true
-        scopes:
-            - billing:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List products
-        description: >
-            Every product and add-on with its features, price schedule, allocation, current plan and subscribed state.
-            Catalog only: usage, spend and forecast live on their own tools. Pass include_plans=true to add each entry's
-            plan list, which is most of the payload; leave it off unless the question is about plans. Readable by any
-            member. Beta: behind the organization-billing-api flag, and the output shape may change while it is.
-        param_overrides:
-            include_plans:
-                description: >
-                    Add the plan list to each product and add-on. Most of the payload; pass true only when the question
-                    is about plans or upgrades.
-        feature_flag: organization-billing-api
-        url_prefix: /organization/billing/overview
+        enabled: false
     billing-projects-list:
         operation: billing_project_list
         enabled: true
@@ -392,7 +392,7 @@ tools:
             The organization's subscription: plan, subscription flag and level, billing period, trial, discounts,
             startup program labels and billing provider. One small read, readable by any member. Use it to answer "what
             plan is this organization on", "when does the billing period end" or "is there an active trial". For usage
-            against limits call billing-usage-summary-get; for the product catalog call billing-products-list; for
+            against limits call billing-usage-summary-get; to find a product, add-on or feature call billing-catalog-get; for
             feature access call billing-features-get. Beta: behind the organization-billing-api flag, and the output
             shape may change while it is.
         feature_flag: organization-billing-api

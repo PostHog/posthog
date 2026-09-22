@@ -17,6 +17,7 @@ import type {
     BillingAlertsEventsListParams,
     BillingAlertsListParams,
     BillingApi,
+    BillingCatalogApi,
     BillingFeaturesApi,
     BillingForecastApi,
     BillingInvoicesApi,
@@ -785,6 +786,24 @@ export const billingProductsRetrieve = async (
     options?: RequestInit
 ): Promise<BillingProductApi> => {
     return apiMutator<BillingProductApi>(getBillingProductsRetrieveUrl(organizationId, productKey, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingProductsCatalogRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/products/catalog/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Get the product catalog without prices
+ */
+export const billingProductsCatalogRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingCatalogApi> => {
+    return apiMutator<BillingCatalogApi>(getBillingProductsCatalogRetrieveUrl(organizationId), {
         ...options,
         method: 'GET',
     })

@@ -971,6 +971,46 @@ export interface BillingProductsApi {
     results: BillingProductApi[]
 }
 
+export interface BillingCatalogAddonApi {
+    /** The add-on key. */
+    key: string
+    name: string
+    description: string
+    /**
+     * Whether the organization subscribes to it.
+     * @nullable
+     */
+    subscribed: boolean | null
+}
+
+export interface BillingCatalogFeatureApi {
+    /** The feature key. */
+    key: string
+    name: string
+    /** Whether the organization's plans include the feature. */
+    included: boolean
+    /** The add-ons of this product that carry the feature. Empty when only the product carries it. */
+    addon_keys: string[]
+}
+
+export interface BillingCatalogProductApi {
+    /** The product key. Pass it to the product route for prices and plans. */
+    key: string
+    name: string
+    description: string
+    /**
+     * Whether the organization subscribes to it.
+     * @nullable
+     */
+    subscribed: boolean | null
+    addons: BillingCatalogAddonApi[]
+    features: BillingCatalogFeatureApi[]
+}
+
+export interface BillingCatalogApi {
+    results: BillingCatalogProductApi[]
+}
+
 export interface BillingProjectApi {
     id: number
     /**

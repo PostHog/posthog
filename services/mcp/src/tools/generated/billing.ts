@@ -12,6 +12,21 @@ import {
 import { omitResponseFields, withInformationalResponse, type WithInformationalResponse } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const BillingCatalogGetSchema = () => z.object({})
+
+const billingCatalogGet = (): ToolBase<ReturnType<typeof BillingCatalogGetSchema>, Schemas.BillingCatalog> => ({
+    name: 'billing-catalog-get',
+    schema: BillingCatalogGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof BillingCatalogGetSchema>>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const result = await context.api.request<Schemas.BillingCatalog>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/billing/products/catalog/`,
+        })
+        return result
+    },
+})
+
 const BillingFeaturesGetSchema = () => z.object({})
 
 const billingFeaturesGet = (): ToolBase<ReturnType<typeof BillingFeaturesGetSchema>, Schemas.BillingFeatures> => ({
@@ -119,31 +134,6 @@ const billingProductGet = (): ToolBase<ReturnType<typeof BillingProductGetSchema
         const result = await context.api.request<Schemas.BillingProduct>({
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/billing/products/${encodeURIComponent(String(params.product_key))}/`,
-            query: {
-                include_plans: params.include_plans,
-            },
-        })
-        return result
-    },
-})
-
-const BillingProductsListSchema = () => {
-    const BillingProductsListQueryParams = orvalSchemas.BillingProductsListQueryParams()
-    return BillingProductsListQueryParams.extend({
-        include_plans: BillingProductsListQueryParams.shape['include_plans'].describe(
-            'Add the plan list to each product and add-on. Most of the payload; pass true only when the question is about plans or upgrades.'
-        ),
-    })
-}
-
-const billingProductsList = (): ToolBase<ReturnType<typeof BillingProductsListSchema>, Schemas.BillingProducts> => ({
-    name: 'billing-products-list',
-    schema: BillingProductsListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof BillingProductsListSchema>>) => {
-        const orgId = await context.stateManager.getOrgID()
-        const result = await context.api.request<Schemas.BillingProducts>({
-            method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/billing/products/`,
             query: {
                 include_plans: params.include_plans,
             },
@@ -477,12 +467,12 @@ const billingUsageTimeseriesGet = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'billing-catalog-get': billingCatalogGet,
     'billing-features-get': billingFeaturesGet,
     'billing-forecast-get': billingForecastGet,
     'billing-limits-get': billingLimitsGet,
     'billing-overview-get': billingOverviewGet,
     'billing-product-get': billingProductGet,
-    'billing-products-list': billingProductsList,
     'billing-projects-list': billingProjectsList,
     'billing-spend-get': billingSpendGet,
     'billing-spend-summary-get': billingSpendSummaryGet,
