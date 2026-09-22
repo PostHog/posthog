@@ -16,9 +16,9 @@ const MODELS = [
   { value: "claude-sonnet-5", name: "Claude Sonnet 5" },
   { value: "claude-opus-5", name: "Claude Opus 5" },
   { value: "claude-fable-5", name: "Claude Fable 5" },
-  { value: "gpt-5.6-sol", name: "GPT-5.6 Sol" },
+  { value: "gpt-6-sol", name: "GPT-6 Sol" },
   { value: "gpt-5.6-terra", name: "GPT-5.6 Terra" },
-  { value: "gpt-5.6-luna", name: "GPT-5.6 Luna" },
+  { value: "gpt-6-luna", name: "GPT-6 Luna" },
   {
     value: "gpt-6-astra",
     name: "GPT-6 Astra",

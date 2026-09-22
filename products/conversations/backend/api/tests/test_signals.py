@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from posthog.models.comment import Comment
 
+from products.conversations.backend.ai.human_outcome import record_human_outcome
 from products.conversations.backend.models import (
     ConversationDeliveryPart,
     EmailChannel,
@@ -57,13 +58,16 @@ class TestTicketMessageSignals(BaseTest):
             item_context={"author_type": "team", "is_private": is_private},
         )
 
-    def _create_ai_message(self, content: str, *, is_private: bool = True) -> Comment:
+    def _create_ai_message(
+        self, content: str, *, is_private: bool = True, deleted: bool = False, item_context: dict | None = None
+    ) -> Comment:
         return Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
             item_id=str(self.ticket.id),
             content=content,
-            item_context={"author_type": "AI", "is_private": is_private},
+            item_context={"author_type": "AI", "is_private": is_private, **(item_context or {})},
+            deleted=deleted,
         )
 
     def test_customer_message_updates_stats(self, mock_on_commit):
@@ -94,6 +98,54 @@ class TestTicketMessageSignals(BaseTest):
         self.ticket.refresh_from_db()
         assert self.ticket.ai_triage["human_outcome"] == "used"
 
+    def test_used_draft_then_edited_send_upgrades_human_outcome(self, mock_on_commit):
+        draft = "Add the snippet to the head of every page, then reload to send a pageview."
+        ai_draft = self._create_ai_message(draft)
+        record_human_outcome(
+            team_id=self.team.id,
+            ticket_id=str(self.ticket.id),
+            draft_message_id=str(ai_draft.id),
+            outcome="used",
+        )
+        self._create_team_message("Drop the recorder snippet on checkout only, then hard-refresh to send a pageview.")
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "edited"
+
+    def test_used_question_sent_unchanged_stays_used(self, mock_on_commit):
+        question = "Which SDK are you using?"
+        ai_draft = self._create_ai_message(
+            f"Suggested question for the customer:\n- {question}\n\nChecked the docs.\n\nStill unknown:\n- SDK version",
+            item_context={"persist_as": "clarification", "clarifying_questions": [question]},
+        )
+        record_human_outcome(
+            team_id=self.team.id,
+            ticket_id=str(self.ticket.id),
+            draft_message_id=str(ai_draft.id),
+            outcome="used",
+        )
+        self._create_team_message(question)
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "used"
+
+    def test_used_question_then_unrelated_send_is_ignored(self, mock_on_commit):
+        question = "Which SDK are you using?"
+        ai_draft = self._create_ai_message(
+            f"Suggested question for the customer:\n- {question}",
+            item_context={"persist_as": "clarification", "clarifying_questions": [question]},
+        )
+        record_human_outcome(
+            team_id=self.team.id,
+            ticket_id=str(self.ticket.id),
+            draft_message_id=str(ai_draft.id),
+            outcome="used",
+        )
+        self._create_team_message("We migrated this org to a new plan yesterday.")
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "ignored"
+
     def test_second_public_human_reply_does_not_overwrite_human_outcome(self, mock_on_commit):
         draft = "Add the snippet to the head of every page."
         self._create_ai_message(draft)
@@ -120,6 +172,15 @@ class TestTicketMessageSignals(BaseTest):
         draft = "Add the snippet to the head of every page."
         self._create_ai_message(draft)
         self._create_ai_message("Totally different automated billing answer.", is_private=False)
+        self._create_team_message(draft)
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "used"
+
+    def test_deleted_ai_note_is_not_the_similarity_target(self, mock_on_commit):
+        draft = "Add the snippet to the head of every page."
+        self._create_ai_message(draft)
+        self._create_ai_message("A deleted unrelated draft.", deleted=True)
         self._create_team_message(draft)
 
         self.ticket.refresh_from_db()

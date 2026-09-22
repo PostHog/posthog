@@ -292,7 +292,20 @@ class RunSnapshot(ProductTeamModel):
             models.UniqueConstraint(fields=["run", "identifier"], name="unique_snapshot_identifier_per_run"),
         ]
         indexes = [
-            models.Index(fields=["run", "result"], name="snapshot_run_result"),
+            # Covering, so the flakiness reads (a run's rows by result, filtered on reason, team and
+            # identifier) are index-only scans instead of reads of the whole table.
+            models.Index(
+                fields=["run", "result"],
+                include=[
+                    "classification_reason",
+                    "review_state",
+                    "identifier",
+                    "diff_percentage",
+                    "tolerated_hash_match",
+                    "team_id",
+                ],
+                name="snapshot_run_result_covering",
+            ),
             models.Index(fields=["run", "review_state"], name="snapshot_run_review_state"),
             models.Index(fields=["identifier"], name="snapshot_identifier"),
             models.Index(fields=["current_hash"], name="snapshot_current_hash"),
@@ -345,6 +358,9 @@ class ToleratedHash(ProductTeamModel):
         ]
         indexes = [
             models.Index(fields=["repo", "identifier", "baseline_hash"], name="tolerated_lookup"),
+            # Recency reads (pile-ups, digest, the baselines page's windowed counts) scan only the
+            # window instead of every toleration the repo ever recorded.
+            models.Index(fields=["repo", "created_at"], name="tolerated_repo_created"),
         ]
 
     def __str__(self) -> str:

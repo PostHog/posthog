@@ -377,6 +377,45 @@
   '''
   
 # ---
+# name: TestSampleWebAnalyticsQueries.test_web_overview_with_conversion_goal_snapshot
+  '''
+  SELECT uniq(session_person_id) AS unique_users,
+         NULL AS previous_unique_users,
+         sum(filtered_pageview_count) AS total_filtered_pageview_count,
+         NULL AS previous_total_filtered_pageview_count,
+         uniq(session_id) AS unique_sessions,
+         NULL AS previous_unique_sessions,
+         avg(session_duration) AS avg_duration_s,
+         NULL AS previous_avg_duration_s,
+         avg(is_bounce) AS bounce_rate,
+         NULL AS previous_bounce_rate
+  FROM
+    (SELECT any(events.person_id) AS session_person_id,
+            session.session_id AS session_id,
+            min(session.$start_timestamp) AS start_timestamp,
+            any(session.$session_duration) AS session_duration,
+            countIf(or(equals(event, '$pageview'), equals(event, '$screen'))) AS filtered_pageview_count,
+            any(session.$is_bounce) AS is_bounce
+     FROM events
+     WHERE and(notEquals(events.$session_id, NULL), or(equals(event, '$pageview'), equals(event, '$screen')), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1)
+     GROUP BY session_id
+     HAVING or(and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false))
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_overview_with_conversion_goal_snapshot.1
+  '''
+  SELECT countIf(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59'))))) AS total_conversion_count,
+         NULL AS previous_total_conversion_count,
+         uniqIf(events.person_id, and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59'))))) AS unique_conversions,
+         NULL AS previous_unique_conversions
+  FROM events
+  WHERE and(notEquals(events.$session_id_uuid, NULL), equals(events.event, 'signup'), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), 1)
+  LIMIT 50000
+  '''
+  
+# ---
 # name: TestSampleWebAnalyticsQueries.test_web_overview_with_event_filter_snapshot
   '''
   SELECT uniq(session_person_id) AS unique_users,
@@ -1078,6 +1117,85 @@
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
   ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_first_pageview_channel_type_with_conversion_goal_snapshot
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniqIf(filtered_person_id, greater(filtered_pageview_count, 0)), NULL) AS `context.columns.visitors`,
+         tuple(uniqIf(session_id, greater(filtered_pageview_count, 0)), NULL) AS `context.columns.sessions`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         tuple(sum(conversion_count), NULL) AS `context.columns.total_conversions`,
+         tuple(uniq(conversion_person_id), NULL) AS `context.columns.unique_conversions`,
+         tuple(if(equals(`context.columns.visitors`.1, 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(equals(`context.columns.visitors`.2, 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`,
+         divide(`context.columns.unique_conversions`.1, sum(`context.columns.unique_conversions`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT filtered_person_id,
+            filtered_pageview_count,
+            multiIf(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), 'cross-network'), 'Cross Network', or(in(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), tuple('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')), startsWith(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), 'paid'), isNotNull(nullIf(tupleElement(first_pageview_properties, 6), '')), notEquals(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 8), ''), ''), 'null'), NULL)), coalesce(lookupPaidSourceType(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null'))), if(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Paid Shopping', NULL), lookupPaidMediumType(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null'))), lookupPaidSourceType(nullIf(tupleElement(first_pageview_properties, 5), '')), multiIf(equals(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 8), ''), ''), 'null'), '1'), 'Paid Search', match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*video.*)$'), 'Paid Video', isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')), 'Paid Social', 'Paid Unknown')), and(equals(nullIf(tupleElement(first_pageview_properties, 5), ''), '$direct'), equals(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), NULL), or(equals(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), NULL), in(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null')), tuple('(direct)', 'direct', '$direct'))), not(isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')))), 'Direct', coalesce(lookupOrganicSourceType(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 3), ''), ''), 'null'))), if(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Organic Shopping', NULL), lookupOrganicMediumType(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null'))), lookupOrganicSourceType(nullIf(tupleElement(first_pageview_properties, 5), '')), multiIf(match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 1), ''), ''), 'null')), '^(.*video.*)$'), 'Organic Video', match(lower(nullIf(nullIf(nullIf(tupleElement(first_pageview_properties, 2), ''), ''), 'null')), 'push$'), 'Push', isNotNull(nullIf(tupleElement(first_pageview_properties, 7), '')), 'Organic Social', equals(nullIf(tupleElement(first_pageview_properties, 5), ''), '$direct'), 'Direct', notEquals(nullIf(tupleElement(first_pageview_properties, 5), ''), NULL), 'Referral', 'Unknown'))) AS breakdown_value,
+            session_id,
+            start_timestamp,
+            conversion_count,
+            conversion_person_id
+     FROM
+       (SELECT anyIf(events.person_id, or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_person_id,
+               countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
+               argMinIf(tuple(events.properties.utm_campaign, events.properties.utm_medium, events.properties.utm_source, events.properties.$current_url, events.properties.$referring_domain, events.properties.gclid, events.properties.fbclid, events.properties.gad_source), events.timestamp, in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
+               if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), events.$session_id, NULL) AS session_id,
+               any(if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)), NULL)) AS start_timestamp,
+               countIf(equals(events.event, 'signup')) AS conversion_count,
+               any(if(equals(events.event, 'signup'), events.person_id, NULL)) AS conversion_person_id
+        FROM events
+        WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen'), equals(events.event, 'signup')), 1, notEquals(events.$session_id_uuid, NULL))
+        GROUP BY session_id))
+  GROUP BY `context.columns.breakdown_value`
+  HAVING and(notEquals(`context.columns.breakdown_value`, NULL), notEquals(`context.columns.breakdown_value`, ''))
+  ORDER BY `context.columns.unique_conversions` DESC,
+           `context.columns.total_conversions` DESC,
+           `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 50000
+  '''
+  
+# ---
+# name: TestSampleWebAnalyticsQueries.test_web_stats_first_pageview_referring_domain_with_conversion_goal_snapshot
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniqIf(filtered_person_id, greater(filtered_pageview_count, 0)), NULL) AS `context.columns.visitors`,
+         tuple(uniqIf(session_id, greater(filtered_pageview_count, 0)), NULL) AS `context.columns.sessions`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         tuple(sum(conversion_count), NULL) AS `context.columns.total_conversions`,
+         tuple(uniq(conversion_person_id), NULL) AS `context.columns.unique_conversions`,
+         tuple(if(equals(`context.columns.visitors`.1, 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(equals(`context.columns.visitors`.2, 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`,
+         divide(`context.columns.unique_conversions`.1, sum(`context.columns.unique_conversions`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT filtered_person_id,
+            filtered_pageview_count,
+            nullIf(tupleElement(first_pageview_properties, 1), '') AS breakdown_value,
+            session_id,
+            start_timestamp,
+            conversion_count,
+            conversion_person_id
+     FROM
+       (SELECT anyIf(events.person_id, or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_person_id,
+               countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
+               argMinIf(tuple(events.properties.$referring_domain), events.timestamp, in(events.event, tuple('$pageview', '$screen'))) AS first_pageview_properties,
+               if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), events.$session_id, NULL) AS session_id,
+               any(if(equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7), fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)), NULL)) AS start_timestamp,
+               countIf(equals(events.event, 'signup')) AS conversion_count,
+               any(if(equals(events.event, 'signup'), events.person_id, NULL)) AS conversion_person_id
+        FROM events
+        WHERE and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen'), equals(events.event, 'signup')), 1, notEquals(events.$session_id_uuid, NULL))
+        GROUP BY session_id))
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.unique_conversions` DESC,
+           `context.columns.total_conversions` DESC,
+           `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
   LIMIT 50000

@@ -11,8 +11,10 @@ import {
 import type { LoopSchemas } from "@posthog/api-client/loops";
 import {
   Button,
+  Checkbox,
   Chip,
   ChipClose,
+  cn,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -28,6 +30,7 @@ import {
   ItemMedia,
   ItemMenuItem,
   ItemTitle,
+  Label,
   Switch,
   ToggleGroup,
   ToggleGroupItem,
@@ -40,7 +43,6 @@ import {
   formatScheduleTimestamp,
   systemTimezone,
 } from "@posthog/ui/primitives/timezone";
-import { Box, Checkbox, Flex, Text } from "@radix-ui/themes";
 import { type ReactNode, useState } from "react";
 import {
   compileCronSchedule,
@@ -156,7 +158,7 @@ export function LoopTriggerEditor({
     limits.maxTriggers === null || triggers.length < limits.maxTriggers;
 
   return (
-    <Flex direction="column" gap="3">
+    <div className="flex flex-col gap-3">
       {triggers.length === 0 ? (
         <Empty className="py-8">
           <EmptyHeader>
@@ -192,7 +194,7 @@ export function LoopTriggerEditor({
           onAdd={addTrigger}
         />
       ) : null}
-    </Flex>
+    </div>
   );
 }
 
@@ -283,26 +285,19 @@ function TriggerCard({
       : "Set when this trigger fires.";
 
   return (
-    <Flex
-      direction="column"
-      className="overflow-hidden rounded-(--radius-2) border border-border bg-(--gray-1)"
-    >
-      <Flex align="center" gap="2.5" className="px-3 py-2.5">
-        <Flex
-          align="center"
-          justify="center"
-          className="size-6 shrink-0 rounded-(--radius-1) bg-(--gray-3)"
-        >
+    <div className="flex flex-col overflow-hidden rounded-(--radius-2) border border-border bg-(--gray-1)">
+      <div className="flex items-center gap-2.5 px-3 py-2.5">
+        <div className="flex size-6 shrink-0 items-center justify-center rounded-(--radius-1) bg-(--gray-3)">
           <Icon size={14} className="text-gray-11" />
-        </Flex>
-        <Flex direction="column" className="min-w-0 flex-1">
-          <Text className="font-medium text-[13px] text-gray-12">
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="font-medium text-[13px] text-gray-12">
             {meta.label}
-          </Text>
-          <Text className="truncate text-[12px] text-gray-10">
+          </span>
+          <span className="truncate text-[12px] text-gray-10">
             {meta.subtitle}
-          </Text>
-        </Flex>
+          </span>
+        </div>
         <Switch
           checked={trigger.enabled}
           onCheckedChange={(checked) => onChange({ enabled: checked })}
@@ -340,9 +335,9 @@ function TriggerCard({
             />
           </DropdownMenuContent>
         </DropdownMenu>
-      </Flex>
+      </div>
 
-      <Box
+      <div
         className={`border-border border-t px-3 py-3 ${
           trigger.enabled ? "" : "opacity-60"
         }`}
@@ -367,19 +362,15 @@ function TriggerCard({
         {trigger.type === "api" ? (
           <ApiTriggerFields triggerEndpointPath={triggerEndpointPath} />
         ) : null}
-      </Box>
+      </div>
 
       {invalidMessage ? (
-        <Flex
-          align="center"
-          gap="2"
-          className="border-border border-t px-4 py-2"
-        >
+        <div className="flex items-center gap-2 border-border border-t px-4 py-2">
           <Warning size={13} className="shrink-0 text-(--red-11)" />
-          <Text className="text-(--red-11) text-[12px]">{invalidMessage}</Text>
-        </Flex>
+          <span className="text-(--red-11) text-[12px]">{invalidMessage}</span>
+        </div>
       ) : null}
-    </Flex>
+    </div>
   );
 }
 
@@ -393,10 +384,10 @@ function SubField({
   children: ReactNode;
 }) {
   return (
-    <Flex direction="column" gap="1" className={className}>
-      <Text className="font-medium text-[12px] text-gray-11">{label}</Text>
+    <div className={cn("flex flex-col gap-1", className)}>
+      <span className="font-medium text-[12px] text-gray-11">{label}</span>
       {children}
-    </Flex>
+    </div>
   );
 }
 
@@ -483,8 +474,8 @@ function ScheduleTriggerFields({
   };
 
   return (
-    <Flex direction="column" gap="3">
-      <Flex gap="3" wrap="wrap">
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-3">
         <SubField label="Frequency" className="w-[150px]">
           <SettingsOptionSelect
             value={frequency}
@@ -543,12 +534,12 @@ function ScheduleTriggerFields({
             />
           </SubField>
         ) : null}
-      </Flex>
+      </div>
 
       {frequency === "custom" ? (
-        <Text className="self-start rounded-(--radius-1) border border-border bg-(--gray-2) px-2 py-1 text-[12px] text-gray-12 [font-family:var(--font-mono)]">
+        <span className="self-start rounded-(--radius-1) border border-border bg-(--gray-2) px-2 py-1 text-[12px] text-gray-12 [font-family:var(--font-mono)]">
           {config.cron_expression}
-        </Text>
+        </span>
       ) : null}
 
       {frequency !== "once" ? (
@@ -564,18 +555,18 @@ function ScheduleTriggerFields({
       ) : null}
 
       {nextRun && nextRunLabel ? (
-        <Flex align="center" gap="2" className="text-[12px]">
+        <div className="flex items-center gap-2 text-[12px]">
           <Clock size={13} className="text-gray-10" />
-          <Text className="text-gray-10">Next run</Text>
+          <span className="text-gray-10">Next run</span>
           <TimezoneTimestamp
             timestamp={nextRun}
             timezone={nextRunTimezone}
             label={nextRunLabel}
             className="text-gray-12"
           />
-        </Flex>
+        </div>
       ) : null}
-    </Flex>
+    </div>
   );
 }
 
@@ -721,7 +712,7 @@ function GithubTriggerFields({
   };
 
   return (
-    <Flex direction="column" gap="3">
+    <div className="flex flex-col gap-3">
       <SubField label="Repository">
         <LoopRepositoryPicker
           value={
@@ -744,13 +735,9 @@ function GithubTriggerFields({
       </SubField>
 
       <SubField label="Run when">
-        <Flex direction="column" gap="2">
+        <div className="flex flex-col gap-2">
           {GITHUB_EVENT_OPTIONS.map((option) => (
-            <Text
-              key={option.value}
-              as="label"
-              className="flex items-start gap-2.5"
-            >
+            <Label className="flex items-start gap-2.5" key={option.value}>
               <Checkbox
                 className="mt-0.5"
                 checked={config.events.includes(option.value)}
@@ -765,9 +752,9 @@ function GithubTriggerFields({
                   {option.description}
                 </span>
               </span>
-            </Text>
+            </Label>
           ))}
-        </Flex>
+        </div>
       </SubField>
 
       {actionOptions.length > 0 ? (
@@ -868,7 +855,7 @@ function GithubTriggerFields({
           </div>
         </SubField>
       ) : null}
-    </Flex>
+    </div>
   );
 }
 
@@ -878,30 +865,25 @@ function ApiTriggerFields({
   triggerEndpointPath: string | null;
 }) {
   return (
-    <Flex direction="column" gap="3">
-      <Text className="text-[12.5px] text-gray-11 leading-relaxed">
+    <div className="flex flex-col gap-3">
+      <span className="text-[12.5px] text-gray-11 leading-relaxed">
         Fires on an authenticated POST from your own code. Authenticate with a
         project secret API key (<code>phs_...</code>) scoped to{" "}
         <code>loop:write</code>. The request body becomes the run's trigger
         context.
-      </Text>
+      </span>
       {triggerEndpointPath ? (
-        <Flex
-          align="center"
-          justify="between"
-          gap="2"
-          className="rounded-(--radius-2) border border-border bg-(--gray-2) px-3 py-2"
-        >
-          <Text className="min-w-0 truncate text-[12px] text-gray-12 [font-family:var(--font-mono)]">
+        <div className="flex items-center justify-between gap-2 rounded-(--radius-2) border border-border bg-(--gray-2) px-3 py-2">
+          <span className="min-w-0 truncate text-[12px] text-gray-12 [font-family:var(--font-mono)]">
             POST {triggerEndpointPath}
-          </Text>
+          </span>
           <CopyButton text={triggerEndpointPath} />
-        </Flex>
+        </div>
       ) : (
-        <Text className="text-[12px] text-gray-10">
+        <span className="text-[12px] text-gray-10">
           Save the loop to get its trigger URL.
-        </Text>
+        </span>
       )}
-    </Flex>
+    </div>
   );
 }

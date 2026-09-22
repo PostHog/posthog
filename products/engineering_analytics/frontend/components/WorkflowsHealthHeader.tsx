@@ -79,16 +79,16 @@ export function WorkflowsHealthHeader({
                             : summary.flakyNow > 0
                               ? `${summary.flakyNow} flaky · below 90% pass rate`
                               : truncated
-                                ? `Top ${summary.workflowCount} by runs · all passing`
+                                ? `Top ${summary.workflowCount} by runs · none failing`
                                 : `All ${summary.workflowCount} workflows healthy`}
                 </span>
             </div>
 
             <div className="flex flex-col border-l border-primary pl-6">
                 <Tooltip
-                    title={`Share of workflows whose latest run passed, of the ${summary.settledWorkflows} with a completed run. Workflow-level and current — distinct from the volume-weighted Run pass rate.`}
+                    title={`Share of workflows whose latest run did not fail, of the ${summary.settledWorkflows} with a completed run. A cancelled, skipped or neutral latest run counts as not failing. This is per workflow and current, unlike the run pass rate, which weighs every run.`}
                 >
-                    <span className="self-start cursor-default text-xs text-tertiary">Passing now</span>
+                    <span className="self-start cursor-default text-xs text-tertiary">Not failing now</span>
                 </Tooltip>
                 <span className="text-2xl font-semibold leading-7 tabular-nums">{passingRateLabel}</span>
             </div>

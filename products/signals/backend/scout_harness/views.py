@@ -1101,7 +1101,6 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 team=self.team,
                 run=run,
                 description=data["description"],
-                confidence=data.get("confidence"),
                 evidence=evidence,
                 hypothesis=data.get("hypothesis") or None,
                 severity=data.get("severity") or None,
@@ -2801,12 +2800,15 @@ def scout_config_context(team: Team, skill_names: list[str], request: Request) -
     # `scout-config-list`. The skill API only hands a sandbox caller the owners of a skill that
     # opted into the report channel (`LLMSkillSerializer.get_owners`); a scout that needs owners
     # reads them there, and this field stays for the human UI.
-    if _caller_carries_scout_internal_scope(request):
-        owners_by_skill_name: dict[str, list[User]] = {}
-    else:
-        owners_by_skill_name = resolve_skill_owners_for_names(team, skill_names)
+    may_read_member_identities = not _caller_carries_scout_internal_scope(request)
+    owners_by_skill_name: dict[str, list[User]] = (
+        resolve_skill_owners_for_names(team, skill_names) if may_read_member_identities else {}
+    )
     return {
         "skill_info": _skill_info_for(team.id, skill_names),
+        # Gates `status_changed_by` for the same reason: who turned a scout off is member PII, and
+        # a sandbox caller holding `signal_scout:read` has no business reading it here.
+        "may_read_member_identities": may_read_member_identities,
         # Owners are recorded on the scout's skill (`LLMSkillOwner`, keyed on the same
         # `skill_name`), so they hold across edits to the skill body. `created_by` / `enabled_by`
         # on the config row say who last flipped a switch, which is a different question.
@@ -3028,7 +3030,14 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # held-back team across the whole config API. Storage is untouched; the row reappears if
         # the team is later un-withheld.
         withheld = withheld_skills_for_team(team_id)
-        queryset = SignalScoutConfig.objects.unscoped().filter(team_id=team_id).exclude(skill_name__in=withheld)
+        queryset = (
+            SignalScoutConfig.objects.unscoped()
+            .filter(team_id=team_id)
+            .exclude(skill_name__in=withheld)
+            # `status_changed_by` is serialized per row, so without the join the fleet read costs
+            # one extra query per scout that a person ever turned on or off.
+            .select_related("status_changed_by")
+        )
         # Any-of, matching how the fleet UI's tag picker reads. `&&` over the array column rather
         # than a join table or a GIN index: the team filter already bounds this to the handful of
         # scouts an org is allowed to create, so there is nothing left for an index to save.
