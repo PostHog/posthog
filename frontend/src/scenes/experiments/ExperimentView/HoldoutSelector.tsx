@@ -19,7 +19,22 @@ export function HoldoutSelector(): JSX.Element {
         <div className="mt-3">
             <div className="inline-flex deprecated-space-x-1">
                 <h4 className="font-semibold mb-0">Holdout group</h4>
-                <Tooltip title="Exclude a stable group of users from the experiment. This cannot be changed once the experiment is launched.">
+                <Tooltip
+                    title={
+                        <div className="flex flex-col gap-1">
+                            <span>
+                                Exclude a stable group of users from the experiment. Holdout users see none of the
+                                variants, so they stay a baseline for the combined impact of everything you ship.
+                            </span>
+                            <span>
+                                The holdout keeps excluding them after you roll a winning variant out to everyone.
+                                Membership does not rotate, so to hold out a different group, create a new holdout and
+                                use it on your next experiment.
+                            </span>
+                            <span>This cannot be changed once the experiment is launched.</span>
+                        </div>
+                    }
+                >
                     <IconInfo className="text-secondary text-base" />
                 </Tooltip>
             </div>
