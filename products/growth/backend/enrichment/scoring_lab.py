@@ -7,14 +7,14 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.growth.backend.enrichment import gates
-from products.growth.backend.enrichment.ai_pilled import (
-    current_ai_pilled_label,
-    normalize_fit_payload,
-    positive_ai_pilled_label,
-)
 from products.growth.backend.enrichment.fit_recomputation import latest_matched_payload
-from products.growth.backend.enrichment.fit_score import IcpFitResult, build_scoring_inputs, score_company
+from products.growth.backend.enrichment.fit_score import IcpFitResult, score_context
 from products.growth.backend.enrichment.icp_lists import CuratedLists, build_curated_lists
+from products.growth.backend.enrichment.scoring_context import (
+    load_scoring_context,
+    normalize_fit_payload,
+    saved_wizard_ai_sdk,
+)
 from products.growth.backend.enrichment.scoring_rules import parse_scoring_rules
 from products.growth.backend.models import IcpScoringConfig, OrganizationEnrichment, OrganizationEnrichmentFetch
 
@@ -45,36 +45,43 @@ def _evaluate_formula(
     domain: str | None,
     wizard_ai_sdk: bool,
 ) -> _FormulaEvaluation:
-    label = current_ai_pilled_label(fetch, domain, lists=lists, lock_prompt_config=False) if fetch else None
-    arguments: dict[str, Any] = {
-        "role": role,
-        "domain": domain,
-        "wizard_ai_sdk": wizard_ai_sdk,
-        "ai_pilled_label": positive_ai_pilled_label(label) if label is not None else None,
-    }
-    inputs = build_scoring_inputs(payload, lists=lists, **arguments)
+    context = load_scoring_context(
+        payload,
+        fetch=fetch,
+        lists=lists,
+        role=role,
+        domain=domain,
+        wizard_ai_sdk=wizard_ai_sdk,
+        lock_prompt_config=False,
+    )
     try:
-        return _FormulaEvaluation(inputs=inputs, result=score_company(payload, lists=lists, **arguments), error=None)
+        result = score_context(
+            context.values,
+            source=lists.rules.source,
+            lists_version=lists.version,
+            input_versions=context.input_versions,
+        )
+        return _FormulaEvaluation(inputs=context.values, result=result, error=None)
     except Exception as error:
         capture_exception(error, {"path": "preview_scoring_formula", "scoring_version": lists.version})
-        return _FormulaEvaluation(inputs=inputs, result=None, error=f"{type(error).__name__}: {str(error)[:1000]}")
+        return _FormulaEvaluation(
+            inputs=context.values, result=None, error=f"{type(error).__name__}: {str(error)[:1000]}"
+        )
 
 
-def _preview_company(
+def preview_company(
     fetch: OrganizationEnrichmentFetch, active: CuratedLists, candidate: CuratedLists
 ) -> ScoringPreviewRow:
     record = OrganizationEnrichment.objects.filter(organization_id=fetch.organization_id).first()
     data = record.data if record and isinstance(record.data, dict) else {}
     identity = gates.resolve_signup_identity(str(fetch.organization_id))
     domain = identity.domain if isinstance(identity, gates.SignupIdentity) else None
-    flags = data.get("icp_fit_flags")
-    wizard = isinstance(flags, dict) and flags.get("wizard_ai_sdk") is True
+    wizard = saved_wizard_ai_sdk(data)
     payload = normalize_fit_payload(fetch.payload)
-    label_fetch = fetch if payload is not None else None
     if payload is None:
         payload = normalize_fit_payload(latest_matched_payload(str(fetch.organization_id)))
     arguments: dict[str, Any] = {
-        "fetch": label_fetch,
+        "fetch": fetch,
         "role": data.get("signup_role"),
         "domain": domain,
         "wizard_ai_sdk": wizard,
@@ -102,9 +109,7 @@ def preview_scoring_formula(
 ) -> list[ScoringPreviewRow]:
     active_lists = build_curated_lists(active)
     base_lists = build_curated_lists(base)
-    candidate_lists = replace(
-        base_lists, rules=parse_scoring_rules({"source": source, "ai_labels": list(base_lists.rules.ai_labels)})
-    )
+    candidate_lists = replace(base_lists, rules=parse_scoring_rules({"source": source}))
     latest = (
         OrganizationEnrichmentFetch.objects.filter(organization_id=OuterRef("organization_id"))
         .order_by("-fetched_at", "-id")
@@ -115,4 +120,4 @@ def preview_scoring_formula(
         .select_related("organization")
         .order_by("-fetched_at", "-id")[:sample]
     )
-    return [_preview_company(fetch, active_lists, candidate_lists) for fetch in fetches]
+    return [preview_company(fetch, active_lists, candidate_lists) for fetch in fetches]

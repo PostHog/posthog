@@ -195,9 +195,7 @@ export const GrowthEnrichmentScoringPreviewCreateBody = /* @__PURE__ */ zod.obje
         .string()
         .max(growthEnrichmentScoringPreviewCreateBodySourceMax)
         .describe('Hog formula to compile and execute.'),
-    base_config_id: zod
-        .uuid()
-        .describe('Configuration whose curated tags, investors, and label names to use for the draft.'),
+    base_config_id: zod.uuid().describe('Configuration whose curated tags and investors to use for the draft.'),
     sample: zod
         .number()
         .min(1)
@@ -219,5 +217,5 @@ export const GrowthEnrichmentScoringSaveCreateBody = /* @__PURE__ */ zod.object(
         .string()
         .max(growthEnrichmentScoringSaveCreateBodyVersionMax)
         .describe('Unique name for the new scoring version.'),
-    base_config_id: zod.uuid().describe('Configuration whose curated tags, investors, and label names to retain.'),
+    base_config_id: zod.uuid().describe('Configuration whose curated tags and investors to retain.'),
 })

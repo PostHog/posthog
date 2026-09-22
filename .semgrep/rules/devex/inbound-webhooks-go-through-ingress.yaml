@@ -115,4 +115,3 @@ rules:
               # migrates that endpoint removes its line. The paths are the ones on master,
               # so the rule holds whether or not the migrations land with it.
               - /ee/api/vercel/vercel_webhooks.py
-              - /products/workflows/backend/api/ses_events_webhook.py

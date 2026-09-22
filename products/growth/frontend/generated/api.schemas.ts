@@ -237,7 +237,7 @@ export interface ScoringPreviewRequestApi {
      * @maxLength 30000
      */
     source: string
-    /** Configuration whose curated tags, investors, and label names to use for the draft. */
+    /** Configuration whose curated tags and investors to use for the draft. */
     base_config_id: string
     /**
      * Number of recent companies to preview.
@@ -253,6 +253,11 @@ export interface ScoringPreviewRequestApi {
  */
 export type ScoringOutcomeApiComponents = { [key: string]: number } | null
 
+/**
+ * Named diagnostic values returned by the formula.
+ */
+export type ScoringOutcomeApiFlags = { [key: string]: boolean | number | string | null }
+
 export interface ScoringOutcomeApi {
     /** Scored, disqualified, missing-company, or insufficient-data status. */
     status: string
@@ -266,11 +271,8 @@ export interface ScoringOutcomeApi {
      * @nullable
      */
     components: ScoringOutcomeApiComponents
-    /**
-     * Whether the formula marks the score as low confidence.
-     * @nullable
-     */
-    low_confidence: boolean | null
+    /** Named diagnostic values returned by the formula. */
+    flags: ScoringOutcomeApiFlags
     /**
      * Reason for disqualification, or null when absent.
      * @nullable
@@ -279,9 +281,30 @@ export interface ScoringOutcomeApi {
 }
 
 /**
- * Saved company facts, curated lists, and eligible AI label supplied to the formula.
+ * @nullable
  */
-export type ScoringPreviewRowApiInputs = { [key: string]: unknown }
+export type ScoringPreviewRowApiInputsCompany = { [key: string]: unknown } | null
+
+export type ScoringPreviewRowApiInputsSignup = {
+    role: string
+    domain: string
+    wizard_ai_sdk: boolean
+}
+
+export type ScoringPreviewRowApiInputsEnrichments = { [key: string]: { [key: string]: unknown } }
+
+export type ScoringPreviewRowApiInputsLists = { [key: string]: string[] }
+
+/**
+ * Saved company facts, signup answers, enrichment outputs, and curated lists supplied to the formula.
+ */
+export type ScoringPreviewRowApiInputs = {
+    /** @nullable */
+    company: ScoringPreviewRowApiInputsCompany
+    signup: ScoringPreviewRowApiInputsSignup
+    enrichments: ScoringPreviewRowApiInputsEnrichments
+    lists: ScoringPreviewRowApiInputsLists
+}
 
 export interface ScoringPreviewRowApi {
     /** Company name from the archived enrichment. */
@@ -291,7 +314,7 @@ export interface ScoringPreviewRowApi {
      * @nullable
      */
     domain: string | null
-    /** Saved company facts, curated lists, and eligible AI label supplied to the formula. */
+    /** Saved company facts, signup answers, enrichment outputs, and curated lists supplied to the formula. */
     inputs: ScoringPreviewRowApiInputs
     /** Result from the active formula on these inputs. */
     active: ScoringOutcomeApi | null
@@ -331,7 +354,7 @@ export interface ScoringSaveRequestApi {
      * @maxLength 128
      */
     version: string
-    /** Configuration whose curated tags, investors, and label names to retain. */
+    /** Configuration whose curated tags and investors to retain. */
     base_config_id: string
 }
 

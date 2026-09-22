@@ -23,7 +23,7 @@ fun has_quality_investor(observed, accepted_names) {
     return false;
 }
 
-if (lower(trim(role)) == 'student') {
+if (lower(trim(ifNull(signup.role, ''))) == 'student') {
     return {'status': 'disqualified', 'score': 0, 'dq_reason': 'role=student'};
 }
 if (empty(company)) { return {'status': 'not_found'}; }
@@ -41,6 +41,24 @@ if (not (headcount or funding or company.funding.investors or company.tags_v2 or
     return {'status': 'insufficient_data'};
 }
 
+fun normalized_name(value) {
+    return trim(replaceAll(lower(ifNull(value, '')), ' and ', ' & '));
+}
+let tags := [];
+let tag_types := [];
+for (let tag in company.tags_v2) {
+    if (typeof(tag) == 'object') {
+        tags := arrayPushBack(tags, normalized_name(tag.display_value));
+        tag_types := arrayPushBack(tag_types, tag.type);
+    }
+}
+let investors := [];
+for (let investor in company.funding.investors) {
+    if (typeof(investor) == 'object') {
+        investors := arrayPushBack(investors, normalized_name(investor.name));
+    }
+}
+
 let traffic_change := metric('web_traffic', '90d_ago', 'percent_change');
 let traffic_level := multiIf(visits >= 100000, 15, visits >= 10000, 10, visits >= 1000, 5, 0);
 let traffic_growth := if(visits >= 5000,
@@ -56,11 +74,11 @@ capital := min2(30, capital + if(quality, 10, 0));
 let description := if(company.description, company.description, ifNull(company.short_description, ''));
 let harmonic_ai := intersects(tags, lists.ai_positive)
     or match(lower(description), '\\b(ai|artificial intelligence|machine learning|ml|llms?|genai|generative|copilot|neural network)\\b')
-    or match(domain, '[.]ai$');
+    or match(ifNull(signup.domain, ''), '[.]ai$');
 let ai_sources := [];
 if (harmonic_ai) { ai_sources := arrayPushBack(ai_sources, 'harmonic'); }
-if (wizard_ai_sdk) { ai_sources := arrayPushBack(ai_sources, 'wizard'); }
-if (ai_pilled) { ai_sources := arrayPushBack(ai_sources, 'llm'); }
+if (signup.wizard_ai_sdk) { ai_sources := arrayPushBack(ai_sources, 'wizard'); }
+if (typeof(enrichments.ai_pilled.ai_pilled) == 'boolean' and enrichments.ai_pilled.ai_pilled == true) { ai_sources := arrayPushBack(ai_sources, 'llm'); }
 let ai_points := if(empty(ai_sources), 0, 15);
 let ai_source := if(empty(ai_sources), null, if(ai_sources == ['harmonic', 'wizard'], 'both', arrayStringConcat(ai_sources, '+')));
 
@@ -82,11 +100,13 @@ return {
         'traction': traction, 'capital': capital, 'ai_pilled': ai_points,
         'headcount_growth': headcount_growth, 'software_relevance': software_relevance
     },
-    'quality_investor': quality,
-    'data_coverage': coverage,
-    'low_confidence': coverage <= 1,
-    'agency_flag': intersects(tags, ['consulting', 'technology & digital consulting', 'management & strategy consulting']),
-    'nonprofit_flag': intersects(tags, ['non-profit & community organizations']),
-    'wizard_ai_sdk': wizard_ai_sdk,
-    'ai_pilled_source': ai_source
+    'flags': {
+        'quality_investor': quality,
+        'data_coverage': coverage,
+        'low_confidence': coverage <= 1,
+        'agency_flag': intersects(tags, ['consulting', 'technology & digital consulting', 'management & strategy consulting']),
+        'nonprofit_flag': intersects(tags, ['non-profit & community organizations']),
+        'wizard_ai_sdk': signup.wizard_ai_sdk,
+        'ai_pilled_source': ai_source
+    }
 };

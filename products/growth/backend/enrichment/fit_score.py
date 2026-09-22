@@ -1,4 +1,7 @@
-import dataclasses
+import json
+import hashlib
+from copy import deepcopy
+from dataclasses import field
 from datetime import timedelta
 from typing import Annotated, Any, Literal, Optional, Self
 
@@ -6,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from posthog.dataclasses import frozen
 
-from products.growth.backend.enrichment.icp_lists import CuratedLists, norm
+from products.growth.backend.enrichment.icp_lists import CuratedLists
 from products.growth.backend.enrichment.scoring_rules import DISALLOWED_FUNCTIONS, compile_scoring_formula
 
 from common.hogvm.python.execute import execute_bytecode
@@ -19,35 +22,21 @@ STATUS_NOT_FOUND = "not_found"
 STATUS_DISQUALIFIED = "disqualified"
 
 SCORING_TIMEOUT = timedelta(milliseconds=100)
+FlagValue = bool | int | Annotated[float, Field(allow_inf_nan=False)] | Annotated[str, Field(max_length=1_000)] | None
 
 
 @frozen
-class AiPilledLabel:
-    result_id: str
-    fetch_id: str
-    prompt_version: str
-    prompt_hash: str
-
-
-@dataclasses.dataclass(frozen=True)
 class IcpFitResult:
-    """One org's fit evaluation. score is None unless status is scored/disqualified."""
-
     status: str
     score: Optional[int] = None
     dq_reason: Optional[str] = None
     components: Optional[dict[str, int]] = None
-    quality_investor: Optional[bool] = None
-    data_coverage: Optional[int] = None
-    low_confidence: Optional[bool] = None
-    agency_flag: Optional[bool] = None
-    nonprofit_flag: Optional[bool] = None
-    wizard_ai_sdk: Optional[bool] = None
-    ai_pilled_source: Optional[str] = None
-    ai_pilled_label: AiPilledLabel | None = None
-    ai_pilled_label_result_id: str | None = None
+    flags: dict[str, FlagValue] = field(default_factory=dict)
     version: str = SCORE_VERSION
     lists_version: Optional[str] = None
+    input_versions: dict[str, str] = field(default_factory=dict)
+    input_hash: str = ""
+    input_values: dict[str, Any] = field(default_factory=dict)
 
 
 class FormulaResult(BaseModel):
@@ -57,15 +46,9 @@ class FormulaResult(BaseModel):
     score: Annotated[int, Field(ge=0, le=100)] | None = None
     components: Annotated[dict[str, Annotated[int, Field(ge=0, le=100)]], Field(max_length=30)] | None = None
     dq_reason: Annotated[str, Field(max_length=500)] | None = None
-    quality_investor: bool | None = None
-    data_coverage: Annotated[int, Field(ge=0)] | None = None
-    low_confidence: bool | None = None
-    agency_flag: bool | None = None
-    nonprofit_flag: bool | None = None
-    wizard_ai_sdk: bool | None = None
-    ai_pilled_source: (
-        Literal["harmonic", "wizard", "llm", "both", "harmonic+llm", "wizard+llm", "harmonic+wizard+llm"] | None
-    ) = None
+    flags: Annotated[dict[Annotated[str, Field(min_length=1, max_length=128)], FlagValue], Field(max_length=32)] = (
+        Field(default_factory=dict)
+    )
 
     @model_validator(mode="after")
     def coherent_score(self) -> Self:
@@ -87,18 +70,12 @@ def build_scoring_inputs(
     role: Optional[str] = None,
     domain: Optional[str] = None,
     wizard_ai_sdk: bool = False,
-    ai_pilled_label: AiPilledLabel | None = None,
+    enrichments: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    company = payload if isinstance(payload, dict) else None
-    tags = (company or {}).get("tags_v2") or []
-    funding = (company or {}).get("funding") or {}
     return {
-        "company": company,
-        "tags": [norm(tag.get("display_value")) for tag in tags if isinstance(tag, dict)],
-        "tag_types": [tag.get("type") for tag in tags if isinstance(tag, dict)],
-        "investors": [
-            norm(investor.get("name")) for investor in funding.get("investors") or [] if isinstance(investor, dict)
-        ],
+        "company": payload if isinstance(payload, dict) else None,
+        "signup": {"role": role or "", "domain": domain or "", "wizard_ai_sdk": wizard_ai_sdk},
+        "enrichments": enrichments if enrichments is not None else {},
         "lists": {
             name: sorted(getattr(lists, name))
             for name in (
@@ -110,11 +87,44 @@ def build_scoring_inputs(
                 "quality_investors",
             )
         },
-        "role": role or "",
-        "domain": domain or "",
-        "wizard_ai_sdk": wizard_ai_sdk,
-        "ai_pilled": ai_pilled_label is not None,
     }
+
+
+def evaluate_score(source: str, inputs: dict[str, Any]) -> FormulaResult:
+    response = execute_bytecode(
+        compile_scoring_formula(source),
+        globals=inputs,
+        timeout=SCORING_TIMEOUT,
+        disallowed_functions=DISALLOWED_FUNCTIONS,
+    )
+    return FormulaResult.model_validate(response.result)
+
+
+def scoring_input_hash(inputs: dict[str, Any], input_versions: dict[str, str]) -> str:
+    encoded = json.dumps(
+        {"inputs": inputs, "input_versions": input_versions}, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def score_context(
+    inputs: dict[str, Any],
+    *,
+    source: str,
+    lists_version: str,
+    input_versions: dict[str, str] | None = None,
+) -> IcpFitResult:
+    values = deepcopy(inputs)
+    versions = dict(input_versions or {})
+    input_hash = scoring_input_hash(values, versions)
+    result = evaluate_score(source, values)
+    return IcpFitResult(
+        **result.model_dump(),
+        lists_version=lists_version,
+        input_versions=versions,
+        input_hash=input_hash,
+        input_values=values,
+    )
 
 
 def score_company(
@@ -124,22 +134,10 @@ def score_company(
     role: Optional[str] = None,
     domain: Optional[str] = None,
     wizard_ai_sdk: bool = False,
-    ai_pilled_label: AiPilledLabel | None = None,
+    enrichments: dict[str, Any] | None = None,
+    input_versions: dict[str, str] | None = None,
 ) -> IcpFitResult:
     inputs = build_scoring_inputs(
-        payload, lists=lists, role=role, domain=domain, wizard_ai_sdk=wizard_ai_sdk, ai_pilled_label=ai_pilled_label
+        payload, lists=lists, role=role, domain=domain, wizard_ai_sdk=wizard_ai_sdk, enrichments=enrichments
     )
-    response = execute_bytecode(
-        compile_scoring_formula(lists.rules.source),
-        globals=inputs,
-        timeout=SCORING_TIMEOUT,
-        disallowed_functions=DISALLOWED_FUNCTIONS,
-    )
-    result = FormulaResult.model_validate(response.result)
-    uses_label = result.status == STATUS_SCORED and "llm" in (result.ai_pilled_source or "").split("+")
-    return IcpFitResult(
-        **result.model_dump(exclude={"wizard_ai_sdk"}),
-        wizard_ai_sdk=wizard_ai_sdk if result.status == STATUS_SCORED else None,
-        ai_pilled_label=ai_pilled_label if uses_label else None,
-        lists_version=lists.version,
-    )
+    return score_context(inputs, source=lists.rules.source, lists_version=lists.version, input_versions=input_versions)

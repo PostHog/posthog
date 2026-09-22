@@ -37,7 +37,7 @@ class TestIcpScoringConfigLifecycle(BaseTest):
             tags=[{"tag": "Invented category", "recommendation": "software_positive"}],
             quality_investors=[{"investor": "Example Ventures", "aliases": []}],
             scoring_rules={
-                "source": "return {'status': 'scored', 'score': 0, 'components': {}, 'low_confidence': true};"
+                "source": "return {'status': 'scored', 'score': 0, 'components': {}, 'flags': {'low_confidence': true}};"
             },
             is_active=True,
         )
@@ -62,7 +62,7 @@ class TestIcpScoringConfigLifecycle(BaseTest):
         self.config.refresh_from_db()
         assert self.config.version == "initial"
         assert self.config.scoring_rules == {
-            "source": "return {'status': 'scored', 'score': 0, 'components': {}, 'low_confidence': true};"
+            "source": "return {'status': 'scored', 'score': 0, 'components': {}, 'flags': {'low_confidence': true}};"
         }
         assert self.config.is_active is True
 
@@ -194,7 +194,7 @@ class TestIcpScoringConfigLifecycle(BaseTest):
         candidate = IcpScoringConfig.objects.create(
             version="confidence",
             scoring_rules={
-                "source": "return {'status': 'scored', 'score': 0, 'components': {}, 'low_confidence': false};"
+                "source": "return {'status': 'scored', 'score': 0, 'components': {}, 'flags': {'low_confidence': false}};"
             },
         )
         OrganizationEnrichmentFetch.objects.create(
@@ -209,5 +209,5 @@ class TestIcpScoringConfigLifecycle(BaseTest):
         preview = json.loads(output.getvalue())
         assert preview["changed"] == 1
         assert preview["samples"][0]["score_delta"] == 0
-        assert preview["samples"][0]["active"]["low_confidence"] is True
-        assert preview["samples"][0]["candidate"]["low_confidence"] is False
+        assert preview["samples"][0]["active"]["flags"]["low_confidence"] is True
+        assert preview["samples"][0]["candidate"]["flags"]["low_confidence"] is False

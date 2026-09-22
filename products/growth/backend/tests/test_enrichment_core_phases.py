@@ -111,7 +111,11 @@ class TestEnrichmentCorePhases(BaseTest):
     def _record_data_without_evaluated_at(self):
         data = dict(OrganizationEnrichment.objects.get(organization=self.organization).data)
         self.assertTrue(data.pop("icp_fit_evaluated_at"))
-        return data
+        return {
+            key: value
+            for key, value in data.items()
+            if not key.startswith("icp_fit_input_") and key != "icp_fit_signup"
+        }
 
     def _rows(self):
         return list(

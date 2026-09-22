@@ -42,8 +42,8 @@ from datetime import datetime
 
 from django.conf import settings
 from django.core.management import call_command
-from django.db.models import CharField, DateTimeField, Exists, F, OuterRef
-from django.db.models.fields.json import KeyTextTransform
+from django.db.models import CharField, DateTimeField, Exists, F, OuterRef, Q
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 from django.utils import timezone
 
@@ -133,22 +133,27 @@ def count_projected_scores(label: str, prompt_version: str, started_at: datetime
             prompt_version=prompt_version,
             prompt_hash=config.content_hash,
         )
-        .alias(result_id=Cast("id", CharField()))
-        .filter(result_id=OuterRef("applied_result_id"))
+        .alias(result_id=Cast("id", CharField()), source_fetch_id=Cast("fetch_id", CharField()))
+        .filter(source_fetch_id=OuterRef("current_fetch_id"))
     )
     return (
-        OrganizationEnrichment.objects.filter(updated_at__gte=started_at, data__icp_fit_evaluation_kind="ai_label")
+        OrganizationEnrichment.objects.filter(updated_at__gte=started_at, data__icp_fit_evaluation_kind="enrichment")
         .alias(
             evaluated_at=Cast(KeyTextTransform("icp_fit_evaluated_at", "data"), DateTimeField()),
-            applied_result_id=KeyTextTransform("icp_fit_ai_label_result_id", "data"),
-            projected_result_id=KeyTextTransform("icp_fit_ai_label_projected_result_id", "data"),
+            applied_result_id=KeyTextTransform(f"enrichment/{label}", KeyTransform("icp_fit_input_versions", "data")),
+            current_fetch_id=KeyTextTransform("current_fetch", KeyTransform("icp_fit_input_versions", "data")),
+            input_hash=KeyTextTransform("icp_fit_input_hash", "data"),
+            projected_input_hash=KeyTextTransform("icp_fit_projected_input_hash", "data"),
         )
         .filter(
             evaluated_at__gte=started_at,
-            applied_result_id__isnull=False,
-            projected_result_id=F("applied_result_id"),
+            input_hash__isnull=False,
+            projected_input_hash=F("input_hash"),
         )
-        .filter(Exists(matching_results))
+        .filter(
+            Exists(matching_results.filter(result_id=OuterRef("applied_result_id")))
+            | (Q(applied_result_id__isnull=True) & Exists(matching_results))
+        )
         .count()
     )
 

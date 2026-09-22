@@ -436,6 +436,10 @@ _PATCH_ID_FOLLOWUP_FAILURE_KEEPS_RUN = "tasks-followup-failure-keeps-run"
 
 _PATCH_ID_DEV_STACK_PREVIEW = "tasks-dev-stack-preview"
 
+_PATCH_ID_PROGRESS_EMIT_NONBLOCKING = "progress-emit-nonblocking-2026-09"
+
+_PENDING_PROGRESS_FLUSH_SECONDS = 15.0
+
 # `Task.OriginProduct.ONBOARDING`, mirrored as a literal so workflow code stays free of
 # Django model imports.
 _ONBOARDING_ORIGIN_PRODUCT = "onboarding"
@@ -472,6 +476,10 @@ def _dev_stack_preview_enabled() -> bool:
 
 def _agent_boot_interaction_telemetry_enabled() -> bool:
     return workflow.in_workflow() and workflow.patched(_PATCH_ID_AGENT_BOOT_INTERACTION_TELEMETRY)
+
+
+def _progress_emit_nonblocking() -> bool:
+    return workflow.in_workflow() and workflow.patched(_PATCH_ID_PROGRESS_EMIT_NONBLOCKING)
 
 
 @temporalio.workflow.defn(name="process-task")
@@ -548,6 +556,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._image_source: str | None = None
         self._agent_ready_at: datetime | None = None
         self._boot_telemetry_tasks: list[asyncio.Task[None]] = []
+        self._progress_chain: asyncio.Task[None] | None = None
+        self._pending_progress_activities: dict[asyncio.Task[None], str] = {}
         self._agent_boot_interaction_telemetry_enabled = False
 
     @property
@@ -1286,6 +1296,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         if task is not None:
                             await self._cancel_relay(task)
                     await self._flush_boot_telemetry_tasks()
+                    await self._flush_pending_progress_activities()
                     workflow.continue_as_new(self._build_resumed_input(input, sandbox_id))
                 event = await self._wait_for_event()
                 match event:
@@ -1689,6 +1700,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 if agent_shadow_task is not None:
                     await self._cancel_relay(agent_shadow_task)
                 await self._flush_boot_telemetry_tasks()
+                await self._flush_pending_progress_activities()
                 await self._close_dev_stack_preview_progress()
 
                 cleanup_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
@@ -1737,7 +1749,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # Announce the first progress step immediately so the desktop card
         # shows up before any provisioning log lines arrive.
         sandbox_label = "Restoring sandbox" if self.context.is_snapshot_resume else "Setting up sandbox"
-        await self._emit_progress("sandbox", "in_progress", sandbox_label, "setup")
+        await self._emit_progress("sandbox", "in_progress", sandbox_label, "setup", wait=False)
 
         await self._track_workflow_event(
             "task_run_started",
@@ -1780,11 +1792,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         if sandbox_output.agent_server_launched:
             agent_server_output = await self._await_agent_server_ready(sandbox_output, boot_excluded_ms=wizard_ms)
         else:
-            await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
+            await self._emit_progress("agent", "in_progress", "Starting agent", "setup", wait=False)
             agent_server_output = await self._start_agent_server(sandbox_output, boot_excluded_ms=wizard_ms)
         self._agent_shadow_launched = bool(sandbox_output.agent_shadow_launched or agent_server_output.shadow_launched)
         self._agent_ready_at = workflow.now() if self._agent_boot_interaction_telemetry_enabled else None
-        await self._emit_progress("agent", "completed", "Agent ready", "setup")
+        await self._emit_progress("agent", "completed", "Agent ready", "setup", wait=False)
 
         await self._track_workflow_event(
             "sandbox_started",
@@ -1819,6 +1831,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "agent_ready_wait_ms": agent_server_output.ready_wait_ms,
                 "agent_session_init_ms": agent_server_output.session_init_ms,
                 "agent_server_total_ms": agent_server_output.boot_phases_ms.get("server_total"),
+                "agent_server_process_total_ms": agent_server_output.boot_phases_ms.get("process_total"),
                 "agent_server_http_ready_ms": agent_server_output.boot_phases_ms.get("http_ready"),
                 "agent_launcher_to_process_ms": agent_server_output.boot_phases_ms.get("launcher_to_process"),
                 "agent_context_fetch_ms": agent_server_output.boot_phases_ms.get("context_fetch"),
@@ -2002,9 +2015,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "Restored sandbox",
                 "setup",
                 detail="Resumed from a previous snapshot",
+                wait=False,
             )
         else:
-            await self._emit_progress("sandbox", "completed", "Sandbox ready", "setup")
+            await self._emit_progress("sandbox", "completed", "Sandbox ready", "setup", wait=False)
 
         # Resuming from a filesystem snapshot carries the previous run's
         # credentials baked into .git/config and any agentsh env file — refresh
@@ -2073,6 +2087,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     "Setting up sandbox",
                     "setup",
                     detail="Previous session could not be restored; starting fresh",
+                    wait=False,
                 )
                 created = await self._run_sandbox_creation_activity(prepared)
                 self._sandbox_id_for_cleanup = created.sandbox_id
@@ -2086,7 +2101,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 ):
                     raise _TaskCompletedDuringSandboxCreation
                 used_snapshot = False
-                await self._emit_progress("sandbox", "completed", "Sandbox ready", "setup")
+                await self._emit_progress("sandbox", "completed", "Sandbox ready", "setup", wait=False)
 
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
         has_clone_credentials = self.context.has_github_credentials or can_clone_without_integration
@@ -2105,7 +2120,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         agent_prepare_ms: int | None = None
         agent_invoke_ms: int | None = None
         if overlap:
-            await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
+            await self._emit_progress("agent", "in_progress", "Starting agent", "setup", wait=False)
             launch_output = await self._launch_agent_server(created, defer_for_clone=True, used_snapshot=used_snapshot)
             launch_ms = launch_output.launch_ms if launch_output else None
             agent_prepare_ms = launch_output.prepare_ms if launch_output else None
@@ -2120,7 +2135,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             overlap and len(repositories_to_clone) > 1 and workflow.patched(_PATCH_ID_AGENT_READY_AFTER_PRIMARY_CLONE)
         )
         if will_clone:
-            await self._emit_progress("clone", "in_progress", "Cloning repository", "setup")
+            await self._emit_progress("clone", "in_progress", "Cloning repository", "setup", wait=False)
             continue_after_clone_failure = workflow.patched(_PATCH_ID_CONTINUE_AFTER_REPOSITORY_CLONE_FAILURE)
 
             async def clone_repository(
@@ -2202,10 +2217,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     "Repository clone failed; continuing without it",
                     "setup",
                     detail=f"Could not clone: {failed_list}",
+                    wait=False,
                 )
             else:
                 clone_label = "Cloned repository" if len(repositories_to_clone) == 1 else "Cloned repositories"
-                await self._emit_progress("clone", "completed", clone_label, "setup")
+                await self._emit_progress("clone", "completed", clone_label, "setup", wait=False)
 
         state = self.context.state or {}
         is_resume = bool(state.get("resume_from_run_id") or is_same_run_resume_state(state))
@@ -2216,7 +2232,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             prepares_repository_desktop = prepares_desktop(checkout_repository)
             branch_label_active = f"Checking out branch {prepared.branch}"
             branch_label_done = f"Checked out branch {prepared.branch}"
-            await self._emit_progress("checkout", "in_progress", branch_label_active, "setup")
+            await self._emit_progress("checkout", "in_progress", branch_label_active, "setup", wait=False)
             checkout_output = await workflow.execute_activity(
                 checkout_branch_in_sandbox,
                 CheckoutBranchInSandboxInput(
@@ -2235,7 +2251,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
             # Pre-rollout histories (and mocked tests) recorded a null result here.
             checkout_ms = getattr(checkout_output, "checkout_ms", None)
-            await self._emit_progress("checkout", "completed", branch_label_done, "setup")
+            await self._emit_progress("checkout", "completed", branch_label_done, "setup", wait=False)
 
         # Gated on recorded activity output, not workflow.patched: the env var only
         # exists in histories written after the context layer shipped, so replays of
@@ -2364,7 +2380,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return 0
 
         exclude_from_boot_total = workflow.patched(_PATCH_ID_EXCLUDE_WIZARD_FROM_BOOT_TOTAL)
-        await self._emit_progress("wizard", "in_progress", "Running PostHog setup wizard", "setup")
+        await self._emit_progress("wizard", "in_progress", "Running PostHog setup wizard", "setup", wait=False)
         started_at = workflow.now() if exclude_from_boot_total else None
         await workflow.execute_activity(
             run_wizard,
@@ -2379,7 +2395,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
         wizard_ms = int((workflow.now() - started_at).total_seconds() * 1000) if started_at is not None else 0
-        await self._emit_progress("wizard", "completed", "Ran PostHog setup wizard", "setup")
+        await self._emit_progress("wizard", "completed", "Ran PostHog setup wizard", "setup", wait=False)
         return wizard_ms
 
     @staticmethod
@@ -2696,6 +2712,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         label: str,
         group: str,
         detail: Optional[str] = None,
+        wait: bool = True,
     ) -> None:
         """Emit a structured progress notification. Best-effort.
 
@@ -2704,34 +2721,79 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         scoped id is what actually goes on the wire — callers don't need to
         think about uniqueness.
         """
-        scoped_group = f"{group}:{self.context.run_id}"
+        activity_input = EmitProgressInput(
+            run_id=self.context.run_id,
+            step=step,
+            status=status,
+            label=label,
+            group=f"{group}:{self.context.run_id}",
+            detail=detail,
+        )
+        if not _progress_emit_nonblocking():
+            if await self._run_progress_activity(step, status, activity_input):
+                self._record_progress_step(step, label, group, status)
+            return
+        self._record_progress_step(step, label, group, status)
+        emission = asyncio.create_task(self._emit_progress_in_order(self._progress_chain, step, status, activity_input))
+        self._progress_chain = emission
+        self._pending_progress_activities[emission] = f"{step}:{status}"
+        emission.add_done_callback(lambda finished: self._pending_progress_activities.pop(finished, None))
+        if wait:
+            await emission
+
+    async def _emit_progress_in_order(
+        self,
+        previous: "asyncio.Task[None] | None",
+        step: str,
+        status: str,
+        activity_input: EmitProgressInput,
+    ) -> None:
+        if previous is not None:
+            await asyncio.wait([previous])
+        await self._run_progress_activity(step, status, activity_input)
+
+    async def _run_progress_activity(self, step: str, status: str, activity_input: EmitProgressInput) -> bool:
         try:
             await workflow.execute_activity(
                 emit_progress_activity,
-                EmitProgressInput(
-                    run_id=self.context.run_id,
-                    step=step,
-                    status=status,
-                    label=label,
-                    group=scoped_group,
-                    detail=detail,
-                ),
+                activity_input,
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
-            if status == "in_progress":
-                self._current_progress_step = (step, label, group)
-            elif status in {"completed", "failed"}:
-                if self._current_progress_step and self._current_progress_step[0] == step:
-                    self._current_progress_step = None
         except Exception as e:
+            self._log_progress_failure(step, status, e)
+            return False
+        return True
+
+    def _record_progress_step(self, step: str, label: str, group: str, status: str) -> None:
+        if status == "in_progress":
+            self._current_progress_step = (step, label, group)
+        elif status in {"completed", "failed"}:
+            if self._current_progress_step and self._current_progress_step[0] == step:
+                self._current_progress_step = None
+
+    def _log_progress_failure(self, step: str, status: str, error: BaseException) -> None:
+        workflow.logger.warning(
+            "emit_progress_failed",
+            extra={
+                "run_id": self.context.run_id,
+                "step": step,
+                "status": status,
+                "error": str(error),
+            },
+        )
+
+    async def _flush_pending_progress_activities(self) -> None:
+        chain = self._progress_chain
+        if chain is None or chain.done():
+            return
+        _, unfinished = await asyncio.wait([chain], timeout=_PENDING_PROGRESS_FLUSH_SECONDS)
+        if unfinished:
             workflow.logger.warning(
-                "emit_progress_failed",
+                "emit_progress_flush_timed_out",
                 extra={
                     "run_id": self.context.run_id,
-                    "step": step,
-                    "status": status,
-                    "error": str(e),
+                    "pending_cards": list(self._pending_progress_activities.values()),
                 },
             )
 

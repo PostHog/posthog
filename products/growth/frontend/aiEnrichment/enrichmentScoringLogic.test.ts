@@ -9,7 +9,7 @@ import { enrichmentScoringLogic } from './enrichmentScoringLogic'
 const ACTIVE_CONFIG: ScoringConfigApi = {
     id: 'active-config',
     version: 'v1',
-    source: "return {'status': 'scored', 'score': 42, 'components': {'ai': 0}};",
+    source: "return {'status': 'scored', 'score': 42, 'components': {'segment': 0}};",
     is_active: true,
     created_at: '2026-09-21T00:00:00Z',
     created_by_email: 'staff@example.com',
@@ -18,7 +18,7 @@ const DRAFT_CONFIG: ScoringConfigApi = {
     ...ACTIVE_CONFIG,
     id: 'draft-config',
     version: 'v2',
-    source: "return {'status': 'scored', 'score': 57, 'components': {'ai': 15}};",
+    source: "return {'status': 'scored', 'score': 57, 'components': {'segment': 15}};",
     is_active: false,
 }
 const PREVIEW: ScoringPreviewResponseApi = {
@@ -26,9 +26,26 @@ const PREVIEW: ScoringPreviewResponseApi = {
         {
             company: 'Example company',
             domain: 'example.com',
-            inputs: { ai_pilled: true },
-            active: { status: 'scored', dq_reason: null, low_confidence: false, score: 42, components: { ai: 0 } },
-            preview: { status: 'scored', dq_reason: null, low_confidence: false, score: 57, components: { ai: 15 } },
+            inputs: {
+                company: { description: 'An invented software company.' },
+                signup: { role: 'founder', domain: 'example.com', wizard_ai_sdk: false },
+                enrichments: { business_model: { segment: 'b2b', recurring_revenue: 'unknown' } },
+                lists: {},
+            },
+            active: {
+                status: 'scored',
+                dq_reason: null,
+                flags: { review_required: true, segment: 'b2b' },
+                score: 42,
+                components: { segment: 0 },
+            },
+            preview: {
+                status: 'scored',
+                dq_reason: null,
+                flags: { review_required: true, segment: 'b2b' },
+                score: 57,
+                components: { segment: 15 },
+            },
             error: null,
         },
     ],

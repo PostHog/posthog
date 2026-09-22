@@ -15,9 +15,8 @@ from posthog.hogql.visitor import TraversingVisitor
 from common.hogvm.python.stl import STL
 
 DEFAULT_SCORING_SOURCE = Path(__file__).with_name("scoring_formula.hog").read_text()
-SCORING_GLOBALS = frozenset(
-    {"company", "tags", "tag_types", "investors", "lists", "role", "domain", "wizard_ai_sdk", "ai_pilled"}
-)
+SCORING_GLOBALS = frozenset({"company", "signup", "enrichments", "lists"})
+MAX_SCORING_SOURCE_LENGTH = 30_000
 DISALLOWED_FUNCTIONS = frozenset(name for name, function in STL.items() if function.is_blocking) | {
     "sql",
     "now",
@@ -43,6 +42,8 @@ class _ValidateFormula(TraversingVisitor):
 @lru_cache(maxsize=64)
 def compile_scoring_formula(source: str) -> list[Any]:
     try:
+        if not source.strip() or len(source) > MAX_SCORING_SOURCE_LENGTH:
+            raise ValueError(f"Scoring source must contain 1 to {MAX_SCORING_SOURCE_LENGTH} characters")
         program = parse_program(source)
         _ValidateFormula().visit(program)
         context = HogQLContext(team_id=None, globals=dict.fromkeys(SCORING_GLOBALS))
@@ -58,22 +59,14 @@ def compile_scoring_formula(source: str) -> list[Any]:
 class ScoringRules(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", validate_default=True)
 
-    source: Annotated[str, Field(strict=True, min_length=1, max_length=30_000)] = DEFAULT_SCORING_SOURCE
-    ai_labels: Annotated[
-        tuple[Annotated[str, Field(strict=True, pattern=r"^[a-z][a-z0-9_]{0,127}$")], ...], Field(min_length=1)
-    ] = ("ai_pilled",)
+    source: Annotated[str, Field(strict=True, min_length=1, max_length=MAX_SCORING_SOURCE_LENGTH)] = (
+        DEFAULT_SCORING_SOURCE
+    )
 
     @field_validator("source")
     @classmethod
     def valid_formula(cls, value: str) -> str:
         compile_scoring_formula(value)
-        return value
-
-    @field_validator("ai_labels")
-    @classmethod
-    def unique_labels(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        if len(set(value)) != len(value):
-            raise ValueError("Label names must be unique")
         return value
 
 

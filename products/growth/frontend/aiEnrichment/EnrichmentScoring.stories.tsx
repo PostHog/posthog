@@ -5,15 +5,21 @@ import { mswDecorator } from '~/mocks/browser'
 
 import type { ScoringConfigApi, ScoringPreviewResponseApi } from '../generated/api.schemas'
 import { EnrichmentScoring } from './EnrichmentScoring'
+import { enrichmentScoringLogic } from './enrichmentScoringLogic'
 
 const CONFIG: ScoringConfigApi = {
     id: 'active-formula',
     version: 'v1',
-    source: `let ai := if(ai_pilled, 15, 0);
+    source: `let segment := enrichments.business_model.segment;
+let fit := if(segment == 'b2b', 10, 0);
 return {
     'status': 'scored',
-    'score': 42 + ai,
-    'components': {'traction': 22, 'capital': 20, 'ai': ai}
+    'score': 42 + fit,
+    'components': {'baseline': 42, 'segment': fit},
+    'flags': {
+        'segment': segment,
+        'review_required': enrichments.business_model.recurring_revenue == 'unknown'
+    }
 };`,
     is_active: true,
     created_at: '2026-09-21T00:00:00Z',
@@ -24,23 +30,29 @@ const PREVIEW: ScoringPreviewResponseApi = {
         company: index === 0 ? 'Example company with a longer name' : `Example company ${index + 1}`,
         domain: `example-company-${index + 1}.com`,
         inputs: {
-            ai_pilled: index % 2 === 0,
-            domain: `example-company-${index + 1}.com`,
-            company: { description: 'An example software company for previewing the score.' },
+            company: { description: 'An invented company for previewing the score.' },
+            signup: { role: 'founder', domain: `example-company-${index + 1}.com`, wizard_ai_sdk: false },
+            enrichments: {
+                business_model: {
+                    segment: index % 2 === 0 ? 'b2b' : 'consumer',
+                    recurring_revenue: index % 3 === 0 ? 'unknown' : index % 3 === 1,
+                },
+            },
+            lists: { target_segments: ['b2b'] },
         },
         active: {
             status: 'scored',
             dq_reason: null,
-            low_confidence: false,
-            score: 42,
-            components: { traction: 22, capital: 20, ai: 0 },
+            flags: { segment: index % 2 === 0 ? 'b2b' : 'consumer', review_required: index % 3 === 0 },
+            score: index % 2 === 0 ? 52 : 42,
+            components: { baseline: 42, segment: index % 2 === 0 ? 10 : 0 },
         },
         preview: {
             status: 'scored',
             dq_reason: null,
-            low_confidence: false,
+            flags: { segment: index % 2 === 0 ? 'b2b' : 'consumer', review_required: index % 3 === 0 },
             score: index % 2 === 0 ? 57 : 42,
-            components: { traction: 22, capital: 20, ai: index % 2 === 0 ? 15 : 0 },
+            components: { baseline: 42, segment: index % 2 === 0 ? 15 : 0 },
         },
         error: null,
     })),
@@ -67,6 +79,7 @@ export const TenCompanies: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         const previewButton = await canvas.findByText('Test 10 companies')
+        enrichmentScoringLogic.actions.setSource(CONFIG.source.replace("'b2b', 10", "'b2b', 15"))
         previewButton.click()
         await canvas.findByText('Example company 10')
     },

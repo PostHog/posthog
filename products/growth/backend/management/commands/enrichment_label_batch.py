@@ -26,7 +26,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.utils import get_instance_region
 
 from products.growth.backend.enrichment import gates
-from products.growth.backend.enrichment.fit_recomputation import ai_label_needs_application, apply_ai_pilled_label
+from products.growth.backend.enrichment.fit_recomputation import apply_enrichment_result, label_needs_application
 from products.growth.backend.enrichment.icp_lists import load_active_lists
 from products.growth.backend.enrichment.labels import (
     PromptConfigError,
@@ -225,10 +225,9 @@ class Command(BaseCommand):
             lists = load_active_lists()
             if (
                 lists is None
-                or result.label_name not in lists.rules.ai_labels
                 or not gates.region_allowed()
                 or not gates.enrichment_enabled()
-                or not ai_label_needs_application(result)
+                or not label_needs_application(result)
             ):
                 return
             with counts_lock:
@@ -238,9 +237,9 @@ class Command(BaseCommand):
                     repair_attempted += 1
                 counts["score_attempted"] += 1
             try:
-                applied = apply_ai_pilled_label(result)
+                applied = apply_enrichment_result(result)
             except Exception as error:
-                capture_exception(error, {"label_result_id": str(result.id), "path": "ai_pilled_score"})
+                capture_exception(error, {"label_result_id": str(result.id), "path": "enrichment_score"})
                 with counts_lock:
                     counts["score_failures"] += 1
                     score_failure_streak += 1

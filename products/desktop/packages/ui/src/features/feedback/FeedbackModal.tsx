@@ -1,4 +1,7 @@
-import type { IFeedbackContext } from "@posthog/platform/feedback-context";
+import type {
+  FeedbackSubmissionInput,
+  IFeedbackContext,
+} from "@posthog/platform/feedback-context";
 import {
   Button,
   Dialog,
@@ -8,7 +11,14 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  Field,
+  FieldLabel,
   Kbd,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Text,
   Textarea,
 } from "@posthog/quill";
@@ -28,6 +38,15 @@ import {
 import type { FeedbackModalMode } from "./feedbackStore";
 
 export type { FeedbackModalMode } from "./feedbackStore";
+
+const FEEDBACK_TYPES = [
+  { value: "bug", label: "Bug" },
+  { value: "feature", label: "Feature" },
+  { value: "general", label: "General" },
+] satisfies {
+  value: NonNullable<FeedbackSubmissionInput["feedbackType"]>;
+  label: string;
+}[];
 
 const MODAL_COPY: Record<
   FeedbackModalMode,
@@ -131,6 +150,8 @@ function FeedbackModalForm({
   initialScreenshot: string | null;
 }) {
   const [value, setValue] = useState("");
+  const [feedbackType, setFeedbackType] =
+    useState<NonNullable<FeedbackSubmissionInput["feedbackType"]>>("general");
   const [view] = useState(getAppViewSnapshot);
   const [submitting, setSubmitting] = useState(false);
   const [attachments, setAttachments] = useState<FeedbackAttachmentsValue>({
@@ -158,6 +179,7 @@ function FeedbackModalForm({
       await contextClient.submitFeedback({
         response,
         source: FEEDBACK_SOURCE_BY_MODE[mode],
+        ...(mode === "feedback" ? { feedbackType } : {}),
         feedbackView: view.type,
         ...(view.taskId ? { feedbackTaskId: view.taskId } : {}),
         ...(view.folderId ? { feedbackFolderId: view.folderId } : {}),
@@ -192,6 +214,30 @@ function FeedbackModalForm({
     <>
       <DialogBody>
         <div className="flex flex-col gap-3">
+          {mode === "feedback" && (
+            <Field className="gap-1">
+              <FieldLabel htmlFor="feedback-type">Feedback type</FieldLabel>
+              <Select
+                value={feedbackType}
+                items={FEEDBACK_TYPES}
+                disabled={submitting}
+                onValueChange={(next) => {
+                  if (next) setFeedbackType(next);
+                }}
+              >
+                <SelectTrigger id="feedback-type" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FEEDBACK_TYPES.map((type) => (
+                    <SelectItem key={type.value} value={type.value}>
+                      {type.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
           <Textarea
             value={value}
             onChange={(event) => setValue(event.target.value)}

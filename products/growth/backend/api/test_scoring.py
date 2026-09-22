@@ -18,9 +18,7 @@ from products.growth.backend.models import (
 from products.growth.backend.presentation.scoring_serializers import ScoringPreviewRequestSerializer
 
 _API = "/api/growth_enrichment_scoring/"
-_FORMULA = (
-    "return { 'status': 'scored', 'score': if(ai_pilled, 15, 0), 'components': { 'ai_pilled': if(ai_pilled, 15, 0) } };"
-)
+_FORMULA = "return { 'status': 'scored', 'score': if(enrichments.ai_pilled.ai_pilled == true, 15, 0), 'components': { 'ai_pilled': if(enrichments.ai_pilled.ai_pilled == true, 15, 0) } };"
 
 
 class TestScoringRequest(SimpleTestCase):
@@ -103,7 +101,7 @@ class TestScoringAPI(APIBaseTest):
         assert body["summary"] == {"evaluated": 1, "changed": 1, "errors": 0}
         row = body["results"][0]
         assert row["company"] == "Inventory Example"
-        assert row["inputs"]["ai_pilled"] is approved
+        assert ("ai_pilled" in row["inputs"]["enrichments"]) is approved
         assert row["active"]["score"] == 3
         assert row["preview"]["score"] == (15 if approved else 0)
         self.record.refresh_from_db()
@@ -113,14 +111,13 @@ class TestScoringAPI(APIBaseTest):
         complete.assert_not_called()
         tool.assert_not_called()
 
-    def test_preview_uses_the_selected_lists_and_label_names(self) -> None:
+    def test_preview_uses_the_selected_lists_and_all_saved_enrichments(self) -> None:
         selected = IcpScoringConfig.objects.create(
             version="selected",
             tags=[{"tag": "Inventory", "recommendation": "ai_positive"}],
-            scoring_rules={"ai_labels": ["experimental_ai"]},
         )
         source = """
-            let points := if(has(lists.ai_positive, 'inventory'), 10, 0) + if(ai_pilled, 5, 0);
+            let points := if(has(lists.ai_positive, 'inventory'), 10, 0) + if(enrichments.ai_pilled.ai_pilled == true, 5, 0);
             return {'status': 'scored', 'score': points, 'components': {'custom': points}};
         """
         result = self.client.post(
@@ -129,9 +126,9 @@ class TestScoringAPI(APIBaseTest):
         assert result.status_code == 200, result.json()
         row = result.json()["results"][0]
         assert row["active"]["score"] == 3
-        assert row["preview"]["score"] == 10
+        assert row["preview"]["score"] == 15
         assert row["inputs"]["lists"]["ai_positive"] == ["inventory"]
-        assert row["inputs"]["ai_pilled"] is False
+        assert row["inputs"]["enrichments"]["ai_pilled"]["ai_pilled"] is True
         assert result.json()["summary"] == {"evaluated": 1, "changed": 1, "errors": 0}
 
         unchanged = self.client.post(
@@ -142,13 +139,18 @@ class TestScoringAPI(APIBaseTest):
         assert unchanged.status_code == 200, unchanged.json()
         assert unchanged.json()["summary"] == {"evaluated": 1, "changed": 0, "errors": 0}
 
-    @parameterized.expand([("low_confidence", True, False), ("dq_reason", "role=student", "company_type=SCHOOL")])
+    @parameterized.expand(
+        [
+            ("flags", {"needs_review": True}, {"needs_review": False}),
+            ("dq_reason", "role=student", "company_type=SCHOOL"),
+        ]
+    )
     def test_preview_reports_metadata_changes_without_score_changes(
-        self, field: str, before: bool | str, after: bool | str
+        self, field: str, before: dict[str, bool] | str, after: dict[str, bool] | str
     ) -> None:
         result = (
             {"status": "scored", "score": 3, "components": {"ai_pilled": 3}}
-            if field == "low_confidence"
+            if field == "flags"
             else {"status": "disqualified", "score": 0}
         )
         IcpScoringConfig.objects.filter(pk=self.config.pk).update(

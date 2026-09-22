@@ -150,18 +150,16 @@ A receiver can also read one from `get_current_trigger()` when the job wrapped i
 
 ### Agent writes
 
-`OAuthAccessTokenAuthentication` records the agent's stated reason from the `x-posthog-intent` header for applications in the Desktop OAuth allowlist.
-Other OAuth applications need a server-set sandbox task binding before they can record agent attribution.
-The authentication also records the task id when the server has bound the token to a sandbox task.
-Desktop uses the signed-in user's OAuth token, so an allowlisted token does not require a sandbox task binding.
+`record_agent_intent` stores the agent's stated reason from the `x-posthog-intent` header for any authenticated request.
+A session, a personal API key and an OAuth token all reach it: the middleware calls it for a session, and the authentication class calls it for a bearer credential.
+`OAuthAccessTokenAuthentication` also records the task id when the server has bound the token to a sandbox task.
 When a row would otherwise have no trigger, `log_activity` fills it with `Trigger(job_type="agent", job_id=<task id or empty string>, payload={"intent": ...})`.
 A product that passes its own trigger keeps it, so this only fills the gap.
 
 The intent is the caller's own claim and nothing verifies it.
 Both activity views display intent without a task link and identify it as self-reported in the tooltip.
-A task link appears only when the token has a server-set task binding.
+A task link appears only when the token has a server-set task binding, so intent never implies a verified run.
 The `X-PostHog-Task-Id` header cannot supply that binding, and the authenticated user remains the actor on the audit row.
-Session authentication and personal API keys do not use this OAuth attribution path.
 This applies to new activity rows; it does not recover intent that was discarded before the change.
 
 A model with a fail-closed manager (`TeamScopedRootMixin`, `ProductTeamModel`) raises `TeamScopeError` on any query without team context.
