@@ -68,7 +68,7 @@ describe('the authorized urls list logic', () => {
 
     describe('applying a suggestion', () => {
         // Regression coverage: the `addUrl` listener must await `saveUrls` before triggering
-        // `markTaskAsCompleted`. Both send PATCHes to /api/environments/:id, and the `currentTeam`
+        // `markTaskAsCompleted`. Both send PATCHes to /api/projects/:id, and the `currentTeam`
         // subscription in this logic replaces local `authorizedUrls` from whichever response lands
         // last. If the onboarding-tasks PATCH fires in parallel with the app_urls PATCH, its
         // response can carry a stale app_urls snapshot and wipe the just-added URL out of the UI.
@@ -93,7 +93,7 @@ describe('the authorized urls list logic', () => {
             await flushPromises()
 
             expect(api.update).toHaveBeenCalledWith(
-                `api/environments/${MOCK_TEAM_ID}`,
+                `api/projects/${MOCK_TEAM_ID}`,
                 expect.objectContaining({
                     app_urls: expect.arrayContaining(['https://new-suggestion.example.com']),
                 })
@@ -149,7 +149,7 @@ describe('the authorized urls list logic', () => {
                 logic.actions.submitProposedUrl()
             }).toFinishAllListeners()
 
-            expect(update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}`, {
+            expect(update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}`, {
                 app_urls: ['https://www.example.com'],
             })
         })
@@ -303,7 +303,7 @@ describe('the authorized urls list logic', () => {
 
             expectLogic(logic, () => logic.actions.addUrl('http://*.example.com')).toFinishAllListeners()
 
-            expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}`, {
+            expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}`, {
                 recording_domains: ['https://recordings.posthog.com/', 'http://*.example.com'],
             })
         })
