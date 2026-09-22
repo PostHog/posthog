@@ -1440,6 +1440,8 @@ def drop_assets_on_failure(context: dagster.HookContext) -> None:
     _kill_and_drop_run_assets(context.resources.cluster, context.run_id.replace("-", "_"))
 
 
+# The rows this job writes to person_pg_cleanup_queue are drained by person_pg_cleanup_drain_job,
+# which runs on its own daily schedule rather than in this chain.
 @dagster.job(
     hooks={drop_assets_on_failure},
     tags={
