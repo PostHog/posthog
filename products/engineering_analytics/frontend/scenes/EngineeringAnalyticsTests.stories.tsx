@@ -75,7 +75,7 @@ const TRUNK_QUARANTINE: TrunkQuarantineDebtApi = {
 
 const meta: Meta = {
     component: App,
-    title: 'Scenes-App/Engineering Analytics/Test Health',
+    title: 'Scenes-App/Engineering Analytics/Tests',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -114,7 +114,7 @@ type Story = StoryObj<typeof meta>
 
 export const TrunkQuarantineDebt: Story = {
     render: () => <App />,
-    parameters: { pageUrl: urls.engineeringAnalyticsTestHealth() },
+    parameters: { pageUrl: urls.engineeringAnalyticsTests() },
 }
 
 const OWNERS_UNAVAILABLE: TrunkQuarantineDebtApi = {
@@ -126,7 +126,7 @@ const OWNERS_UNAVAILABLE: TrunkQuarantineDebtApi = {
 
 export const TrunkQuarantineDebtOwnersUnavailable: Story = {
     render: () => <App />,
-    parameters: { pageUrl: urls.engineeringAnalyticsTestHealth() },
+    parameters: { pageUrl: urls.engineeringAnalyticsTests() },
     decorators: [
         mswDecorator({
             get: { 'api/projects/:team_id/engineering_analytics/trunk_quarantine/': OWNERS_UNAVAILABLE },
@@ -137,7 +137,7 @@ export const TrunkQuarantineDebtOwnersUnavailable: Story = {
 export const QuarantineLoadError: Story = {
     render: () => <App />,
     parameters: {
-        pageUrl: urls.engineeringAnalyticsTestHealth(),
+        pageUrl: urls.engineeringAnalyticsTests(),
         testOptions: { waitForSelector: '.text-danger' },
     },
     decorators: [
