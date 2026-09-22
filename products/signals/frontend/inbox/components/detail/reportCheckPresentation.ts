@@ -6,7 +6,12 @@ import type { SignalReportCheckApi } from 'products/signals/frontend/generated/a
 
 import { SignalReportArtefact } from '../../types'
 import { prettifyScoutSkillName } from '../../utils/scoutRunsWindow'
-import { CheckResultContent } from './artefactTypes'
+import type {
+    CheckCancelledContent,
+    CheckExpiredContent,
+    CheckResultContent,
+    CheckScheduledContent,
+} from './artefactTypes'
 
 /** Rows past this many collapse the ones that only record how a check ended. */
 const REPORT_CHECK_ROWS_BEFORE_COLLAPSE = 4
@@ -39,12 +44,15 @@ function soakLabel(minutes: number): string {
 }
 
 /** Which scout answers an `agent` check. A `metric_threshold` check has no lane: the coordinator measures it. */
-function laneLabel(check: SignalReportCheckApi): string | null {
-    if (check.kind !== 'agent') {
+function scoutLaneLabel(kind: string | undefined, skillName: string | null | undefined): string | null {
+    if (kind !== 'agent') {
         return null
     }
-    const skillName = 'skill_name' in check.config ? check.config.skill_name : null
     return skillName ? prettifyScoutSkillName(skillName) : FALLBACK_LANE_LABEL
+}
+
+function laneLabel(check: SignalReportCheckApi): string | null {
+    return scoutLaneLabel(check.kind, 'skill_name' in check.config ? check.config.skill_name : null)
 }
 
 function shortDate(value: string): string {
@@ -225,4 +233,68 @@ export function reportChecksMeta(checks: SignalReportCheckApi[]): string {
         return `${checks.length} · waiting for resolve`
     }
     return `${checks.length} · all done`
+}
+
+// ── Lifecycle log entries ────────────────────────────────────────────────────────────────────
+
+/** How a check's activity entry reads: the tag beside its header, and the line under its title. */
+export interface CheckLifecycleEntry {
+    tag: { label: string; type: LemonTagType }
+    detail: string
+}
+
+const CHECK_CANCELLED_REASONS: Record<string, string> = {
+    stopped_by_person: 'Stopped from the report before it could settle',
+    stopped_by_scout: 'A scout run stopped it before it could settle',
+    replaced_by_research: 'Replaced when research re-ran on this report and wrote a new check',
+}
+
+/**
+ * The entry written when a check is attached. A check on an open report has no date to give yet,
+ * so it says what starts the clock instead of naming a day it cannot keep.
+ */
+export function checkScheduledEntry(content: CheckScheduledContent): CheckLifecycleEntry {
+    const lane = scoutLaneLabel(content.kind, content.skill_name)
+    const runs = content.runs && content.runs > 1 ? `${content.runs} runs` : null
+
+    if (content.arms_on_resolve) {
+        const start = content.soak_minutes
+            ? `Starts ${soakLabel(content.soak_minutes)} after this report is resolved`
+            : 'Starts when this report is resolved'
+        return {
+            tag: { label: 'Waiting for resolve', type: 'muted' },
+            detail: joinDetail([start, lane && `${lane} runs it`, runs]),
+        }
+    }
+
+    return {
+        tag: {
+            label: content.next_run_at ? `Runs ${shortDate(content.next_run_at)}` : 'Scheduled',
+            type: 'primary',
+        },
+        detail: joinDetail([lane ? `${lane} runs it` : 'The coordinator measures it', runs]),
+    }
+}
+
+/** The entry written when the sweep retires a check at its horizon. */
+export function checkExpiredEntry(content: CheckExpiredContent): CheckLifecycleEntry {
+    if (content.never_ran) {
+        return {
+            tag: { label: 'Never ran', type: 'muted' },
+            detail: 'Retired at its horizon without running, so this claim was never re-measured',
+        }
+    }
+    const ranOn = content.last_run_at ? `Last ran ${shortDate(content.last_run_at)}` : null
+    return {
+        tag: { label: 'Expired', type: 'muted' },
+        detail: joinDetail([ranOn, 'retired at its horizon before it settled']),
+    }
+}
+
+/** The entry written when a person, a scout run, or a re-research pass stops a check. */
+export function checkCancelledEntry(content: CheckCancelledContent): CheckLifecycleEntry {
+    return {
+        tag: { label: 'Cancelled', type: 'muted' },
+        detail: (content.reason && CHECK_CANCELLED_REASONS[content.reason]) ?? 'Stopped before it could settle',
+    }
 }

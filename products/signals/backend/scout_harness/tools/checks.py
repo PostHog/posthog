@@ -31,6 +31,7 @@ from posthog.models import Team
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport, SignalReportCheck, SignalScoutRun
 from products.signals.backend.report_check_agent import resolve_check_skill_name
+from products.signals.backend.report_check_artefacts import write_check_cancelled
 from products.signals.backend.report_check_authoring import CheckCreationError, create_check
 from products.signals.backend.report_check_execution import CheckVerdict, record_check_verdict
 from products.signals.backend.report_checks import AgentCheckConfig, parse_check_config
@@ -271,7 +272,16 @@ def cancel_report_check(*, team: Team, run: SignalScoutRun, check_id: str) -> Sc
         .filter(id=check.id, status__in=SignalReportCheck.OPEN_STATUSES)
         .update(status=SignalReportCheck.Status.CANCELLED, updated_at=timezone.now())
     )
-    check.refresh_from_db()
     if not cancelled:
+        check.refresh_from_db()
         raise InvalidCheckWriteError(f"check {check_id} already finished as `{check.status}` and cannot be cancelled")
+    # Written from the row as it was before the update, so the entry names the check the run
+    # stopped rather than the status it now holds.
+    task_id = _resolve_task_id(run)
+    write_check_cancelled(
+        check,
+        reason="stopped_by_scout",
+        attribution=ArtefactAttribution.from_task(task_id) if task_id else ArtefactAttribution.system(),
+    )
+    check.refresh_from_db()
     return _summarize(check)

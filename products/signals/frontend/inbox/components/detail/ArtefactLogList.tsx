@@ -44,7 +44,10 @@ import { ArtefactTaskRun } from './ArtefactTaskRun'
 import {
     artefactAttributionLabel,
     artefactLocationLabel,
+    CheckCancelledContent,
+    CheckExpiredContent,
     CheckResultContent,
+    CheckScheduledContent,
     CodeReviewContent,
     CodeReferenceContent,
     CommitContent,
@@ -65,6 +68,7 @@ import {
     TitleChangeContent,
 } from './artefactTypes'
 import { prActivityTitle } from './prActivityPresentation'
+import { checkCancelledEntry, checkExpiredEntry, checkScheduledEntry } from './reportCheckPresentation'
 
 /** Map a file extension to a CodeSnippet language for syntax highlighting; falls back to plain text. */
 function languageFromPath(path: string | undefined): Language {
@@ -143,6 +147,9 @@ const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
     report_link: IconListTreeConnected,
     code_review: IconListCheck,
     check_result: IconCalendar,
+    check_scheduled: IconCalendar,
+    check_expired: IconCalendar,
+    check_cancelled: IconCalendar,
     implementation_decision: IconRefresh,
     implementation_replacement: IconRefresh,
     implementation_handover: IconRefresh,
@@ -354,6 +361,32 @@ function CheckResultBody({ content }: { content: CheckResultContent }): JSX.Elem
     )
 }
 
+/**
+ * The three entries that record a check's life rather than its verdict. They share a shape with
+ * `CheckResultBody`, because a reader scanning the log is following one check through four entries
+ * and a different layout per transition would hide that they are the same thing.
+ */
+function CheckLifecycleBody({
+    title,
+    rationale,
+    detail,
+}: {
+    title?: string
+    rationale?: string
+    detail: string
+}): JSX.Element | null {
+    if (!title?.trim() && !detail) {
+        return null
+    }
+    return (
+        <div className="flex w-full flex-col items-start gap-1">
+            {title?.trim() ? <span className="text-xs text-default">{title}</span> : null}
+            {rationale?.trim() ? <span className="text-xs text-default">{rationale}</span> : null}
+            {detail ? <span className="text-xs text-tertiary">{detail}</span> : null}
+        </div>
+    )
+}
+
 function CodeReviewBody({ content }: { content: CodeReviewContent }): JSX.Element | null {
     const counts = content.counts
     const reviewUrl = content.review_url || content.pr_url
@@ -475,6 +508,30 @@ function renderArtefactSummary(artefact: SignalReportArtefact): JSX.Element | nu
                 </LemonTag>
             ) : null
         }
+        case 'check_scheduled': {
+            const { tag } = checkScheduledEntry(content as CheckScheduledContent)
+            return (
+                <LemonTag size="small" type={tag.type}>
+                    {tag.label}
+                </LemonTag>
+            )
+        }
+        case 'check_expired': {
+            const { tag } = checkExpiredEntry(content as CheckExpiredContent)
+            return (
+                <LemonTag size="small" type={tag.type}>
+                    {tag.label}
+                </LemonTag>
+            )
+        }
+        case 'check_cancelled': {
+            const { tag } = checkCancelledEntry(content as CheckCancelledContent)
+            return (
+                <LemonTag size="small" type={tag.type}>
+                    {tag.label}
+                </LemonTag>
+            )
+        }
         case 'implementation_decision': {
             const { supersede, blocked_reason } = content as ImplementationDecisionContent
             if (typeof supersede !== 'boolean') {
@@ -578,6 +635,18 @@ function renderArtefactBody({
             return <CodeReviewBody content={content as CodeReviewContent} />
         case 'check_result':
             return <CheckResultBody content={content as CheckResultContent} />
+        case 'check_scheduled': {
+            const c = content as CheckScheduledContent
+            return <CheckLifecycleBody title={c.title} rationale={c.rationale} detail={checkScheduledEntry(c).detail} />
+        }
+        case 'check_expired': {
+            const c = content as CheckExpiredContent
+            return <CheckLifecycleBody title={c.title} detail={checkExpiredEntry(c).detail} />
+        }
+        case 'check_cancelled': {
+            const c = content as CheckCancelledContent
+            return <CheckLifecycleBody title={c.title} detail={checkCancelledEntry(c).detail} />
+        }
         case 'title_change': {
             const c = content as TitleChangeContent
             return <ContentChangeBody previous={c.old_title} current={c.new_title ?? ''} />

@@ -103,3 +103,88 @@ export const Narrow: Story = {
         ),
     ],
 }
+
+/** A check's whole life in the log: scheduled, run, stopped, and retired without a verdict. */
+const checkLifecycleArtefacts = [
+    {
+        id: 'check-expired',
+        type: 'check_expired',
+        created_at: '2026-10-27T09:00:00Z',
+        content: {
+            check_id: 'check-c',
+            kind: 'metric_threshold',
+            title: 'Confirm the export backlog stays clear',
+            expired_at: '2026-10-27T09:00:00Z',
+            never_ran: true,
+            last_run_at: null,
+        },
+    },
+    {
+        id: 'check-verdict',
+        type: 'check_result',
+        created_at: '2026-09-27T09:00:00Z',
+        content: {
+            check_id: 'check-a',
+            kind: 'agent',
+            title: 'Checkout errors stay at zero after the retry fix',
+            outcome: 'failed',
+            explanation: 'New events arrive on the same stack frame, with checkout traffic unchanged.',
+        },
+    },
+    {
+        id: 'check-cancelled',
+        type: 'check_cancelled',
+        created_at: '2026-09-21T09:00:00Z',
+        content: {
+            check_id: 'check-b',
+            kind: 'metric_threshold',
+            title: 'No new reports of the export timeout',
+            reason: 'replaced_by_research',
+        },
+    },
+    {
+        id: 'check-scheduled-pending',
+        type: 'check_scheduled',
+        created_at: '2026-09-20T09:05:00Z',
+        content: {
+            check_id: 'check-b',
+            kind: 'metric_threshold',
+            title: 'No new reports of the export timeout',
+            rationale: 'The timeout should stop once the queue drains.',
+            next_run_at: '2026-09-27T09:00:00Z',
+            arms_on_resolve: true,
+            soak_minutes: 4320,
+            runs: 1,
+        },
+    },
+    {
+        id: 'check-scheduled',
+        type: 'check_scheduled',
+        created_at: '2026-09-20T09:00:00Z',
+        content: {
+            check_id: 'check-a',
+            kind: 'agent',
+            title: 'Checkout errors stay at zero after the retry fix',
+            rationale: 'Confirms no new checkout exceptions arrive after the retry fix ships.',
+            next_run_at: '2026-09-27T09:00:00Z',
+            arms_on_resolve: false,
+            skill_name: 'signals-scout-error-tracking',
+            runs: 2,
+        },
+    },
+]
+
+export const CheckLifecycle: Story = {
+    args: { artefacts: checkLifecycleArtefacts },
+}
+export const CheckLifecycleNarrow: Story = {
+    args: { artefacts: checkLifecycleArtefacts },
+    decorators: [
+        (Story) => (
+            // The rail at the width it gets next to an open side panel.
+            <div className="w-[20rem] p-5">
+                <Story />
+            </div>
+        ),
+    ],
+}

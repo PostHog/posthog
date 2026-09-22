@@ -783,6 +783,67 @@ class CheckResult(BaseModel):
         return v
 
 
+class CheckScheduled(BaseModel):
+    """Content schema for a `check_scheduled` artefact: someone attached a check to this report.
+
+    A check soaks for days before its first run, so the verdict alone leaves the log silent over the
+    whole window a reader most wants explained. This entry says when the watch started, what it
+    watches, and which lane answers it. System-generated — `report_check_authoring.create_check` is
+    the only writer.
+    """
+
+    check_id: str = Field(description="UUID of the SignalReportCheck this entry opens.")
+    kind: str = Field(description="The check's kind, e.g. `metric_threshold`.")
+    title: str = Field(description="The check's title, copied so the log entry reads on its own.")
+    rationale: str = Field(default="", description="Why the author wrote the check, in their own words.")
+    next_run_at: str = Field(description="ISO 8601 date of the first run. Provisional when `arms_on_resolve`.")
+    arms_on_resolve: bool = Field(
+        description="True when the report has not resolved yet, so the clock starts at the resolve."
+    )
+    soak_minutes: int | None = Field(
+        default=None, description="How long after the resolve the first run waits. Absent on a dated check."
+    )
+    skill_name: str | None = Field(
+        default=None,
+        description="Scout skill that answers an `agent` check. Absent when it runs on the fleet's follow-up scout.",
+    )
+    runs: int = Field(default=1, description="How many runs the check was written for.")
+
+
+class CheckExpired(BaseModel):
+    """Content schema for a `check_expired` artefact: a check reached its horizon without deciding.
+
+    The one transition nobody chose. A check that never ran says something the verdicts cannot: the
+    claim was never re-measured, so the report's conclusion still stands unverified. System-generated
+    — the expiry sweep is the only writer.
+    """
+
+    check_id: str = Field(description="UUID of the SignalReportCheck that retired.")
+    kind: str = Field(description="The check's kind, e.g. `metric_threshold`.")
+    title: str = Field(description="The check's title, copied so the log entry reads on its own.")
+    expired_at: str = Field(description="ISO 8601 time the sweep retired the check.")
+    never_ran: bool = Field(description="True when the check retired with no run behind it at all.")
+    last_run_at: str | None = Field(
+        default=None, description="ISO 8601 time of the last run, when the check ran but never settled."
+    )
+
+
+class CheckCancelled(BaseModel):
+    """Content schema for a `check_cancelled` artefact: a check was stopped before it could decide.
+
+    Kept apart from `check_scheduled` so each entry in the log records one transition and the
+    renderer reads the type rather than a nullable field. System-generated — the three cancel paths
+    (a person in the inbox, a scout run, a re-research pass) are its only writers.
+    """
+
+    check_id: str = Field(description="UUID of the SignalReportCheck that was stopped.")
+    kind: str = Field(description="The check's kind, e.g. `metric_threshold`.")
+    title: str = Field(description="The check's title, copied so the log entry reads on its own.")
+    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research"] = Field(
+        description="Which path stopped the check."
+    )
+
+
 # ── Type mapping ─────────────────────────────────────────────────────────────────
 
 # Content models that describe the report's current state (latest row of each type wins) vs
@@ -812,6 +873,9 @@ LogArtefactContent = (
     | WorkRelease
     | PullRequestLink
     | CheckResult
+    | CheckScheduled
+    | CheckExpired
+    | CheckCancelled
     | ImplementationReplacement
     | ImplementationHandover
 )
@@ -842,6 +906,9 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "work_release": WorkRelease,
     "pull_request": PullRequestLink,
     "check_result": CheckResult,
+    "check_scheduled": CheckScheduled,
+    "check_expired": CheckExpired,
+    "check_cancelled": CheckCancelled,
     "implementation_decision": ImplementationDecision,
     "implementation_dispatch": ImplementationDispatch,
     "implementation_replacement": ImplementationReplacement,
@@ -859,7 +926,10 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # that never happened. They stay readable (and so show up in the report's artefact log) but cannot
 # be created or edited directly.
 # `check_result` is likewise system-generated — the check executor is its only writer; accepting it
-# through the API would let a caller fabricate a verdict for a soak that never ran.
+# through the API would let a caller fabricate a verdict for a soak that never ran. The three
+# lifecycle types around it are closed for the same reason: a fabricated `check_scheduled` claims a
+# watch nobody set up, and a fabricated `check_expired` or `check_cancelled` retires one that is
+# still running.
 # `code_review` is likewise system-generated — the ReviewHog workflow is its only writer; accepting
 # it through the API would let a caller fabricate review receipts for reviews that never ran.
 # Replacement decisions, reservations, and outcomes authorize GitHub closures. Only the server
@@ -875,6 +945,9 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "work_release",
         "pull_request",
         "check_result",
+        "check_scheduled",
+        "check_expired",
+        "check_cancelled",
         "report_link",
         "implementation_decision",
         "implementation_dispatch",

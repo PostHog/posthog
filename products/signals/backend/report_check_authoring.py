@@ -25,6 +25,7 @@ import structlog
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport, SignalReportCheck
+from products.signals.backend.report_check_artefacts import write_check_cancelled, write_check_scheduled
 from products.signals.backend.report_check_execution import resolve_check_query
 from products.signals.backend.report_check_telemetry import capture_report_check_created
 from products.signals.backend.report_checks import (
@@ -148,6 +149,9 @@ def create_check(
             created_by_id=attribution.user_id,
             task_id=attribution.task_id,
         )
+        # In the same transaction as the row, so the log can never show a watch the report does not
+        # carry, nor carry one the log never opened.
+        write_check_scheduled(check, attribution)
         # Reported from the shared write so every author is counted: the REST endpoint, the scout
         # tool and the research pipeline. Post-commit, so a check the cap or a rollback rejected is
         # never counted as written.
@@ -175,9 +179,19 @@ def create_checks_from_specs(
     """
     if not specs:
         return []
-    SignalReportCheck.objects.for_team(report.team_id).filter(
+    # Retired one row at a time rather than in one UPDATE, so each cancellation the write actually
+    # made gets its log entry and one it lost a race for gets none. A report carries at most a
+    # handful of pending checks, so the extra statements cost nothing.
+    for replaced in SignalReportCheck.objects.for_team(report.team_id).filter(
         report_id=report.id, status=SignalReportCheck.Status.PENDING
-    ).update(status=SignalReportCheck.Status.CANCELLED, updated_at=timezone.now())
+    ):
+        cancelled = (
+            SignalReportCheck.objects.for_team(report.team_id)
+            .filter(id=replaced.id, status=SignalReportCheck.Status.PENDING)
+            .update(status=SignalReportCheck.Status.CANCELLED, updated_at=timezone.now())
+        )
+        if cancelled:
+            write_check_cancelled(replaced, reason="replaced_by_research", attribution=attribution)
     written: list[SignalReportCheck] = []
     for spec in specs:
         try:

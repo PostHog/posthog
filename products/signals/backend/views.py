@@ -123,6 +123,7 @@ from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
+from products.signals.backend.report_check_artefacts import write_check_cancelled
 from products.signals.backend.report_claims import (
     actor_owns_claim,
     get_active_claim,
@@ -4351,12 +4352,18 @@ class SignalReportCheckViewSet(
             .filter(id=check.id, status__in=SignalReportCheck.OPEN_STATUSES)
             .update(status=SignalReportCheck.Status.CANCELLED, updated_at=timezone.now())
         )
-        check.refresh_from_db()
         if not cancelled:
+            check.refresh_from_db()
             return Response(
                 {"error": f"This check already finished as '{check.status}' and cannot be cancelled."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # Written from the row as it was before the update, so the entry names the check the person
+        # stopped rather than the status it now holds.
+        write_check_cancelled(
+            check, reason="stopped_by_person", attribution=resolve_request_attribution(request, self.team.id)
+        )
+        check.refresh_from_db()
         return Response(self.get_serializer(check).data)
 
 
