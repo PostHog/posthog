@@ -17,7 +17,6 @@ import type { SignalReportMetricSnapshotsApi } from 'products/signals/frontend/g
 
 import { captureInboxReportAction, type InboxReportActionSurface } from '../inboxAnalytics'
 import {
-    ACTIONABLE_ACTIONABILITY_VALUES,
     INBOX_LEGACY_PRIMARY_REPORT_SECTION_KEY,
     INBOX_PRIMARY_REPORT_SECTION_KEY,
     INBOX_SCOPE_ENTIRE_PROJECT,
@@ -64,12 +63,7 @@ export interface ReportListLogicProps {
 export const INBOX_REPORT_SECTION_LIST_PARAMS: Record<InboxReportSectionKey, ReportListParams> = {
     // An implementation PR is open, waiting to be reviewed and merged.
     monitoring: { has_implementation_pr: 'true', status: 'ready' },
-    // Researched and actionable, but no PR has been opened for it yet.
-    'needs-decision': {
-        has_implementation_pr: 'false',
-        status: 'ready,pending_input',
-        actionability: ACTIONABLE_ACTIONABILITY_VALUES.join(','),
-    },
+    'needs-decision': { view: 'needs_decision' },
     // Fixed by a merged implementation PR, or resolved by a person. Terminal, not restorable.
     resolved: { status: 'resolved' },
     // Dismissed by a person, or suppressed because its PR closed without merging. Restorable.

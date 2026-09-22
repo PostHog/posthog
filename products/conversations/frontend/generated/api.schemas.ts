@@ -635,6 +635,14 @@ export interface ComposeTicketResponseApi {
     ticket_number: number
 }
 
+export interface TicketUnreadCountResponseApi {
+    /**
+     * Unread messages across the non-resolved tickets the caller can see.
+     * @minimum 0
+     */
+    count: number
+}
+
 /**
  * * `widget` - widget
  * * `email` - email
