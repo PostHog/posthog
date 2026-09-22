@@ -78,7 +78,7 @@ describe("buildCostChecklist", () => {
         kind: "model-notch",
         done: false,
         fromModelId: "claude-opus-5",
-        toModelId: "claude-sonnet-5",
+        toModelId: "claude-opus-5-5",
       },
       { kind: "custom-image", done: true },
     ]);
@@ -120,11 +120,11 @@ describe("modelNotchSuggestion", () => {
   it.each([
     [
       "claude-opus-5",
-      { fromModelId: "claude-opus-5", toModelId: "claude-sonnet-5" },
+      { fromModelId: "claude-opus-5", toModelId: "claude-opus-5-5" },
     ],
     [
       "claude-fable-5-1",
-      { fromModelId: "claude-fable-5-1", toModelId: "claude-opus-5" },
+      { fromModelId: "claude-fable-5-1", toModelId: "claude-opus-5-5" },
     ],
     // Already at the cheapest priced rung on its ladder.
     ["claude-sonnet-5", null],
