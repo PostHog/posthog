@@ -7737,9 +7737,9 @@ snapshots:
     scenes-app-data-pipelines-destinations--realtime--light:
         hash: v1.k794b7964.90a104b79843b4b06635df7d85ccd0549df8f0b9a4971afea09f374c05bcd010.E9MSjaXn9JMVTj-quN955urarkj2H7a3oVXuHooUd50
     scenes-app-data-pipelines-destinations-incident-replay-banner--default--dark:
-        hash: v1.k794b7964.e6d0767c743d29188c9e2cd7cda13c4ae2580e323fc61298dd749c2ada6748ce.hsLdEbmZBzM5ytotm0trAusUL8v0kk9mrHCvtLDleDk
+        hash: v1.k794b7964.180cab2c6184f778ee72521bfd3776004d62c8fa7d822ae91a7af06d1ab12111.LmUCiAt2EBpkwhT4s3chjsCdq4JD3V_b2HeDkKSnifw
     scenes-app-data-pipelines-destinations-incident-replay-banner--default--light:
-        hash: v1.k794b7964.9470c6fd30bf7a37caf55d61d73a8b2e4fc52c95634c18832212f7e8470a27b7.hdLajs9Vv1linws_5FrgcdRjMWpzk4_8SnDzkWz9z64
+        hash: v1.k794b7964.68aae054d71cc2b3f9fa5cf6e2f341f23bbff3057a67d8aa1491c057b127050e.ZzeUlB7VWX3jhleoby_01IQMZePDlv9netuwDg7nnY8
     scenes-app-data-pipelines-event-filtering--add-condition-and-test-case--dark:
         hash: v1.k794b7964.054b485fa44909bda3f635ba9d134cea4dfa7e60bbc65206ba752f23b7729c42._2cxQzZ_XmaTvoI9Z7hIKh5kpuDY5rxQG0-1RNRyDgE
     scenes-app-data-pipelines-event-filtering--add-condition-and-test-case--light:
@@ -9543,7 +9543,7 @@ snapshots:
     scenes-app-mcp-analytics--sessions--dark:
         hash: v1.k794b7964.a66e676a524e1de75d68579adb63b097fc17ed5db94ca86dccbf9e6265b169ac.sVkiD6KMNejyrVPs1hOZjHQWspPL2a7lvOWA6VcPNps
     scenes-app-mcp-analytics--sessions--light:
-        hash: v1.k794b7964.16f1771f05843a7492f213219e671ca1f8ab3c6ca03e49af7f47e13e40525585.p72ZdNHtERLOxua-BOsZX5tyg9fPU2-1h_VSEr7aaGw
+        hash: v1.k794b7964.17f5e27f60024ff6e083bc6b799427b40e475fddb3bf7900aaab5f935d509b23.cgze06ZKpLRtg_doPvcuWuj_yfLplR3PlkqRGeqxzfE
     scenes-app-mcp-analytics--tool-quality--dark:
         hash: v1.k794b7964.697b42ee7e043ae0dd4bf56ffcab59f24810196459f4303be1a418ed8e0f128d.hxsxWCzwdJI2stSHMmN6oMhjhsnPtB4iv8_OJxgzScs
     scenes-app-mcp-analytics--tool-quality--light:
