@@ -589,34 +589,39 @@ def _create_ticket_comments(built: list[_BuiltTicket]) -> None:
         Comment.objects.bulk_update(comment_ts_updates, ["created_at"])
 
 
-def _apply_denormalized_counters(team: Team, built: list[_BuiltTicket]) -> None:
+def _apply_denormalized_counters(built: list[_BuiltTicket]) -> None:
     # All of these back the customer-facing widget (message_count, last_message_*, unread badge),
     # so they must exclude private notes — see _build_comments and signals.update_ticket_on_message.
+    # The rows were just bulk_created, so their counters still hold the model defaults and an
+    # absolute value replaces the increment a live update needs. One bulk_update then covers the
+    # whole batch, which keeps the allocation lock window short for live ticket creation.
+    updates: list[Ticket] = []
     for b in built:
         if not b.comments:
             continue
         ticket_obj = b.ticket
         cust_count = b.customer_message_count
         agent_count = b.agent_reply_count
-        update_fields_dict: dict[str, Any] = {
-            "message_count": F("message_count") + cust_count + agent_count,
-        }
+        ticket_obj.message_count = cust_count + agent_count
         # last_message_* is shown to the customer, so use the latest non-private comment. Comments
         # are appended in Zendesk chronological order, so reverse-scan for the newest visible one.
         last_visible = next((c for c in reversed(b.comments) if not _comment_is_private(c)), None)
         if last_visible is not None:
-            update_fields_dict["last_message_at"] = last_visible.created_at
-            update_fields_dict["last_message_text"] = (last_visible.content or "")[:500]
+            ticket_obj.last_message_at = last_visible.created_at
+            ticket_obj.last_message_text = (last_visible.content or "")[:500]
         # Only still-active imported tickets should surface unread badges. Pending/on-hold/resolved
         # (Zendesk solved+closed) tickets are done or parked, so lighting up the agent inbox
         # (unread_team_count) or the customer widget (unread_customer_count) with years-old activity
         # is pure alert fatigue — import them read.
-        is_active = ticket_obj.status in (Status.NEW, Status.OPEN)
-        if is_active and cust_count:
-            update_fields_dict["unread_team_count"] = F("unread_team_count") + cust_count
-        if is_active and agent_count:
-            update_fields_dict["unread_customer_count"] = F("unread_customer_count") + agent_count
-        Ticket.objects.filter(team_id=team.id, id=ticket_obj.id).update(**update_fields_dict)
+        if ticket_obj.status in (Status.NEW, Status.OPEN):
+            ticket_obj.unread_team_count = cust_count
+            ticket_obj.unread_customer_count = agent_count
+        updates.append(ticket_obj)
+    if updates:
+        Ticket.objects.bulk_update(
+            updates,
+            ["message_count", "last_message_at", "last_message_text", "unread_team_count", "unread_customer_count"],
+        )
 
 
 def _persist_ticket_batch(team: Team, built: list[_BuiltTicket], tags_by_name: dict[str, Tag]) -> int:
@@ -643,7 +648,7 @@ def _persist_ticket_batch(team: Team, built: list[_BuiltTicket], tags_by_name: d
         _apply_ticket_timestamps(built)
         _link_ticket_tags(built, tags_by_name)
         _create_ticket_comments(built)
-        _apply_denormalized_counters(team, built)
+        _apply_denormalized_counters(built)
         return len(tickets_to_create)
 
 
