@@ -21,11 +21,11 @@ from urllib.parse import urlparse
 import httpx
 import openai
 
-from posthog.security.pinned_httpx import pinned_transport
 from posthog.security.pinned_requests import SSRFBlockedError
-from posthog.security.url_validation import is_url_allowed
+from posthog.security.url_validation import is_url_allowed, validate_url_and_pin_ips
 
-from products.ai_observability.backend.llm.providers._diagnostics import PROVIDER_DEFAULT_LIMITS, tagged_http_client
+from products.ai_observability.backend.llm.errors import ProviderConfigurationError, error_field_for_message
+from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
@@ -45,6 +45,11 @@ DISALLOWED_BASE_URL_MESSAGE = "Base URL must be a public https:// URL (e.g. http
 
 REDIRECT_MESSAGE = "The endpoint redirected to a different address, use that address as the base URL"
 
+# Validating a key and listing models are cheap calls; don't inherit the long completion timeout.
+# The endpoint is user-configured, so a host that accepts the connection then stalls would otherwise
+# hold a synchronous worker for the whole completion budget.
+VALIDATION_TIMEOUT = 10.0
+
 # Maps adapter error-message prefixes to the form field they should highlight in the UI.
 # Keep aligned with the `return` statements in `OpenAICompatibleAdapter.validate_key` below,
 # because editing a message string there without updating this table silently breaks field routing.
@@ -62,12 +67,7 @@ _ERROR_FIELD_BY_PREFIX: tuple[tuple[str, str], ...] = (
 
 def error_field_for_validation_message(error_message: str | None) -> str | None:
     """Map a `validate_key` error message to the UI form field that should be highlighted."""
-    if not error_message:
-        return None
-    return next(
-        (field for prefix, field in _ERROR_FIELD_BY_PREFIX if error_message.startswith(prefix)),
-        None,
-    )
+    return error_field_for_message(_ERROR_FIELD_BY_PREFIX, error_message)
 
 
 def is_allowed_custom_base_url(base_url: str) -> bool:
@@ -84,16 +84,15 @@ def is_allowed_custom_base_url(base_url: str) -> bool:
     return allowed
 
 
-def _pinned_http_client(base_url: str) -> httpx.Client:
+def _pinned_http_client(base_url: str, timeout: float) -> httpx.Client:
     """Build a client that can only reach the address ``base_url`` was validated against.
 
     Raises ``SSRFBlockedError`` before any connection is opened when validation fails.
     """
-    return tagged_http_client(
-        timeout=OpenAIConfig.TIMEOUT,
-        transport=pinned_transport(base_url, limits=PROVIDER_DEFAULT_LIMITS),
-        follow_redirects=False,
-    )
+    allowed, reason, pinned_ips = validate_url_and_pin_ips(base_url)
+    if not allowed:
+        raise SSRFBlockedError(reason or "URL blocked by SSRF protection")
+    return tagged_http_client(timeout=timeout, pin=(base_url, pinned_ips), follow_redirects=False)
 
 
 class OpenAICompatibleAdapter(OpenAIAdapter):
@@ -120,17 +119,12 @@ class OpenAICompatibleAdapter(OpenAIAdapter):
         user's key to the wrong host.
         """
         if not is_allowed_custom_base_url(self.base_url):
-            raise ValueError(DISALLOWED_BASE_URL_MESSAGE)
+            raise ProviderConfigurationError(DISALLOWED_BASE_URL_MESSAGE)
         return self.base_url
 
-    def _build_http_client(self, base_url: str | None) -> httpx.Client:
-        """Pin the connection to the configured endpoint's validated address.
-
-        Ignores the argument in favor of ``self.base_url``: that is the value
-        ``complete`` / ``stream`` checked, so pinning anything else would dial an
-        address that passed no validation.
-        """
-        return _pinned_http_client(self._require_allowed_base_url())
+    def _build_http_client(self) -> httpx.Client:
+        """Pin the connection to the configured endpoint's validated address."""
+        return _pinned_http_client(self._require_allowed_base_url(), OpenAIConfig.TIMEOUT)
 
     def complete(
         self,
@@ -164,11 +158,12 @@ class OpenAICompatibleAdapter(OpenAIAdapter):
             return (LLMProviderKey.State.INVALID, DISALLOWED_BASE_URL_MESSAGE)
 
         try:
-            with _pinned_http_client(base_url) as http_client:
+            with _pinned_http_client(base_url, VALIDATION_TIMEOUT) as http_client:
                 client = openai.OpenAI(
                     api_key=api_key,
                     base_url=base_url,
-                    timeout=OpenAIConfig.TIMEOUT,
+                    timeout=VALIDATION_TIMEOUT,
+                    max_retries=0,
                     http_client=http_client,
                 )
                 client.models.list()
@@ -209,11 +204,12 @@ class OpenAICompatibleAdapter(OpenAIAdapter):
             return []
 
         try:
-            with _pinned_http_client(base_url) as http_client:
+            with _pinned_http_client(base_url, VALIDATION_TIMEOUT) as http_client:
                 client = openai.OpenAI(
                     api_key=api_key,
                     base_url=base_url,
-                    timeout=OpenAIConfig.TIMEOUT,
+                    timeout=VALIDATION_TIMEOUT,
+                    max_retries=0,
                     http_client=http_client,
                 )
                 # `created` is required by the OpenAI schema but arbitrary endpoints omit it, and
@@ -228,7 +224,7 @@ class OpenAICompatibleAdapter(OpenAIAdapter):
 
     @staticmethod
     def get_api_key() -> str:
-        raise ValueError(f"{PROVIDER_DISPLAY_NAME} is BYOKEY-only. No default API key is available.")
+        raise ValueError(f"{PROVIDER_DISPLAY_NAME} is BYOK-only. No default API key is available.")
 
     def _get_default_api_key(self) -> str:
-        raise ValueError(f"{PROVIDER_DISPLAY_NAME} is BYOKEY-only. No default API key is available.")
+        raise ValueError(f"{PROVIDER_DISPLAY_NAME} is BYOK-only. No default API key is available.")

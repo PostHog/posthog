@@ -20,6 +20,7 @@ from posthog.event_usage import report_user_action
 from posthog.models.utils import mask_key_value
 from posthog.permissions import TeamMemberStrictManagementPermission, is_service_auth
 from posthog.plugins.plugin_server_api import reload_evaluations_on_workers, reload_taggers_on_workers
+from posthog.security.url_validation import strip_userinfo
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 
@@ -27,7 +28,7 @@ from ..llm.client import Client
 from ..llm.providers.azure_openai import (
     DEFAULT_API_VERSION,
     DISALLOWED_ENDPOINT_MESSAGE,
-    error_field_for_validation_message,
+    error_field_for_validation_message as azure_error_field,
     is_allowed_azure_endpoint,
 )
 from ..llm.providers.openai_compatible import (
@@ -82,19 +83,19 @@ def validate_provider_key(provider: str, api_key: str, **kwargs) -> tuple[str, s
         return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
 
 
-def _validation_error_field(provider: str, error_message: str | None) -> str:
+def _validation_error_field(provider: str, error_message: str | None, *, default: str | None = "api_key") -> str | None:
     """Pick the serializer field to attach a validation error to.
 
-    Defaults to `api_key` — most providers only validate the key itself. Azure OpenAI and
-    OpenAI-compatible providers may fail because of endpoint issues (unreachable, wrong domain,
-    404), in which case the error is attributed to the endpoint field so the UI can highlight
-    the right input.
+    Azure OpenAI and OpenAI-compatible providers may fail because of endpoint issues (unreachable,
+    wrong domain, 404), in which case the error is attributed to the endpoint field so the UI can
+    highlight the right input. `default` is what an unattributed message falls back to: `api_key`
+    when the error has to land on some field, `None` when the caller reports the field separately.
     """
     if provider == LLMProvider.AZURE_OPENAI:
-        return error_field_for_validation_message(error_message) or "api_key"
+        return azure_error_field(error_message) or default
     if provider == LLMProvider.OPENAI_COMPATIBLE:
-        return openai_compatible_error_field(error_message) or "api_key"
-    return "api_key"
+        return openai_compatible_error_field(error_message) or default
+    return default
 
 
 # Write-only serializer fields that carry provider-specific config into encrypted_config.
@@ -169,6 +170,20 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         if obj.provider != LLMProvider.OPENAI_COMPATIBLE:
             return None
         return obj.encrypted_config.get("base_url")
+
+    def validate_base_url(self, value: str) -> str:
+        # `base_url_display` is readable by any project member while the API key is masked, and the
+        # URL also reaches exception messages and log lines. A credential typed into this field
+        # would leak through all three, so drop it before anything stores or echoes the value.
+        return strip_userinfo(value)
+
+    def validate_provider(self, value: str) -> str:
+        # `validate` below branches on the incoming provider while `update` branches on the stored
+        # one. Letting the two disagree would strand `encrypted_config` on a key that now claims a
+        # different provider, and would skip the check that keeps a base URL change tied to its key.
+        if self.instance and value != self.instance.provider:
+            raise serializers.ValidationError("A key's provider cannot be changed. Create a new key instead.")
+        return value
 
     def validate_api_key(self, value: str) -> str:
         provider = self.initial_data.get("provider", self.instance.provider if self.instance else LLMProvider.OPENAI)
@@ -372,8 +387,8 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
     def perform_update(self, serializer):
         instance = serializer.save()
 
-        # Deployments are a property of the resource (azure_endpoint), not the key, so any
-        # config change can shift the available model list. Drop the cached list so the next
+        # The model list belongs to the endpoint the key points at (azure_endpoint, base_url),
+        # not to the key, so any config change can shift it. Drop the cached list so the next
         # picker request fetches fresh from the provider instead of serving stale entries.
         cache.delete(models_cache_key(instance.id))
 
@@ -618,10 +633,5 @@ class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 extra_kwargs["base_url"] = base_url
 
         state, error_message = validate_provider_key(provider, api_key, **extra_kwargs)
-        if provider == LLMProvider.AZURE_OPENAI:
-            error_field = error_field_for_validation_message(error_message)
-        elif provider == LLMProvider.OPENAI_COMPATIBLE:
-            error_field = openai_compatible_error_field(error_message)
-        else:
-            error_field = None
+        error_field = _validation_error_field(provider, error_message, default=None)
         return Response({"state": state, "error_message": error_message, "error_field": error_field})

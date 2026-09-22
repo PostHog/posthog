@@ -5,13 +5,13 @@ import httpx
 import openai
 from parameterized import parameterized
 
-from posthog.security.pinned_httpx import PinnedIPHTTPTransport
 from posthog.security.pinned_requests import SSRFBlockedError
 
 from products.ai_observability.backend.llm.providers import openai_compatible
 from products.ai_observability.backend.llm.providers.openai_compatible import (
     DISALLOWED_BASE_URL_MESSAGE,
     REDIRECT_MESSAGE,
+    VALIDATION_TIMEOUT,
     OpenAICompatibleAdapter,
     error_field_for_validation_message,
     is_allowed_custom_base_url,
@@ -70,11 +70,10 @@ class TestErrorFieldForValidationMessage:
 
 class TestPinnedHttpClient:
     def test_client_is_locked_to_the_validated_endpoint(self):
-        with openai_compatible._pinned_http_client(ALLOWED_BASE_URL) as client:
+        with openai_compatible._pinned_http_client(ALLOWED_BASE_URL, VALIDATION_TIMEOUT) as client:
             # Following a redirect would reach a host nothing validated, and the hop would be
             # made by the pooled connection rather than a freshly validated one.
             assert client.follow_redirects is False
-            assert isinstance(client._transport, PinnedIPHTTPTransport)
 
             with pytest.raises(SSRFBlockedError):
                 client.get("https://internal.example/v1/models")
@@ -92,6 +91,10 @@ class TestOpenAICompatibleAdapter:
         assert state == "ok"
         assert message is None
         assert mock_openai.call_args.kwargs["base_url"] == ALLOWED_BASE_URL
+        # Listing is cheap, and the endpoint is user-configured: inheriting the completion
+        # timeout would let a stalling host hold a synchronous worker for five minutes.
+        assert mock_openai.call_args.kwargs["timeout"] == VALIDATION_TIMEOUT
+        assert mock_openai.call_args.kwargs["max_retries"] == 0
 
     @patch(OPENAI_PATCH_TARGET)
     def test_validate_key_without_base_url_is_invalid(self, mock_openai):
@@ -181,20 +184,25 @@ class TestOpenAICompatibleAdapter:
         assert message == REDIRECT_MESSAGE
 
     @patch(OPENAI_PATCH_TARGET)
-    def test_validate_key_is_invalid_when_the_host_fails_pinning(self, mock_openai):
-        # Stands in for a record that resolved publicly during validation and rebinds to a
-        # private address before the request goes out.
-        with patch.object(openai_compatible, "pinned_transport", side_effect=SSRFBlockedError("Internal IP")):
+    def test_validate_key_is_invalid_when_the_endpoint_fails_validation(self, mock_openai):
+        # Validation runs while the client is built, so a URL that fails it is reported as an
+        # invalid key rather than escaping as a 500. A rebind *after* this point is handled by
+        # dialing the pinned address, not by this path.
+        with patch.object(openai_compatible, "validate_url_and_pin_ips", return_value=(False, "Internal IP", set())):
             state, message = OpenAICompatibleAdapter.validate_key("test-key", base_url=ALLOWED_BASE_URL)
 
         assert state == "invalid"
         assert message == DISALLOWED_BASE_URL_MESSAGE
         mock_openai.assert_not_called()
 
+    def test_list_models_is_empty_when_the_endpoint_fails_validation(self):
+        with patch.object(openai_compatible, "validate_url_and_pin_ips", return_value=(False, "Internal IP", set())):
+            assert OpenAICompatibleAdapter.list_models("test-key", base_url=ALLOWED_BASE_URL) == []
+
     @patch(OPENAI_PATCH_TARGET)
     def test_complete_without_api_key_raises(self, mock_openai):
         adapter = OpenAICompatibleAdapter(base_url=ALLOWED_BASE_URL)
 
-        with pytest.raises(ValueError, match="BYOKEY-only"):
+        with pytest.raises(ValueError, match="BYOK-only"):
             adapter.complete(_completion_request(), None, AnalyticsContext())
         mock_openai.assert_not_called()

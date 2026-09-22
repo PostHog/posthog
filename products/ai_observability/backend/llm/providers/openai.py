@@ -8,6 +8,7 @@ from typing import Any
 
 from django.conf import settings
 
+import httpx
 import openai
 import posthoganalytics
 from openai.types import CompletionUsage, ReasoningEffort
@@ -116,7 +117,7 @@ class OpenAIAdapter:
         """Create an OpenAI client. Override in subclasses for different client types (e.g. AzureOpenAI)."""
         default_headers = self._get_default_headers()
         posthog_client = posthoganalytics.default_client
-        http_client = self._build_http_client(base_url)
+        http_client = self._build_http_client()
         if analytics.capture and posthog_client:
             return OpenAI(
                 api_key=api_key,
@@ -134,7 +135,7 @@ class OpenAIAdapter:
             http_client=http_client,
         )
 
-    def _build_http_client(self, base_url: str | None) -> Any:
+    def _build_http_client(self) -> httpx.Client:
         """Build the transport the provider client runs on.
 
         Overridden by providers that talk to a user-configured endpoint, where the

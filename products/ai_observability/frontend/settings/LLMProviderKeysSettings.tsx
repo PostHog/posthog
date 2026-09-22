@@ -285,6 +285,15 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
         }
     }
 
+    // A result is only about the endpoint it was validated against, so editing the base URL has
+    // to drop it. Otherwise a key validated against the old endpoint keeps showing as validated.
+    const handleBaseUrlChange = (value: string): void => {
+        setBaseUrl(value)
+        if (preValidationResult) {
+            clearPreValidation()
+        }
+    }
+
     const handleProviderChange = (value: LLMProvider): void => {
         setProvider(value)
         setApiKey('')
@@ -370,7 +379,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                         <label className="text-sm font-medium">Base URL</label>
                         <LemonInput
                             value={baseUrl}
-                            onChange={setBaseUrl}
+                            onChange={handleBaseUrlChange}
                             placeholder="https://api.example.com/v1"
                             className="mt-1"
                             fullWidth
@@ -467,7 +476,7 @@ function EditKeyModal({
                 payload.api_version = apiVersion
             }
         }
-        if (isOpenAICompatibleEdit && baseUrl !== (keyToEdit.base_url_display ?? '')) {
+        if (baseUrlChanged) {
             payload.base_url = baseUrl
         }
         updateProviderKey({ id: keyToEdit.id, payload })
@@ -491,14 +500,25 @@ function EditKeyModal({
         }
     }
 
+    // A result is only about the endpoint it was validated against, so editing the base URL has
+    // to drop it. Otherwise a key validated against the old endpoint keeps showing as validated.
+    const handleBaseUrlChange = (value: string): void => {
+        setBaseUrl(value)
+        if (preValidationResult) {
+            clearPreValidation()
+        }
+    }
+
     const keyValidated = apiKey.length === 0 || preValidationResult?.state === 'ok'
+    const baseUrlMissing = isOpenAICompatibleEdit && baseUrl.length === 0
     // The backend rejects a base URL change that arrives without a key, so the key can't stay
     // masked here: re-entering it is what proves the caller already has it.
-    const baseUrlChanged = isOpenAICompatibleEdit && baseUrl !== (keyToEdit.base_url_display ?? '')
+    const baseUrlChanged = isOpenAICompatibleEdit && !baseUrlMissing && baseUrl !== (keyToEdit.base_url_display ?? '')
     const apiKeyRequiredReason =
         baseUrlChanged && apiKey.length === 0 ? 'Enter the API key again to change the base URL' : null
-    const isValid =
-        name.length > 0 && keyValidated && (!isOpenAICompatibleEdit || baseUrl.length > 0) && !apiKeyRequiredReason
+    const missingFieldReason = name.length === 0 ? 'Enter a name' : baseUrlMissing ? 'Enter a base URL' : null
+    const disabledReason = restrictionReason ?? missingFieldReason ?? apiKeyRequiredReason
+    const isValid = keyValidated && !disabledReason
     const validationFailed = !!preValidationResult && preValidationResult.state !== 'ok'
     const endpointErrorField =
         (isAzureEdit || isOpenAICompatibleEdit) && validationFailed
@@ -520,7 +540,7 @@ function EditKeyModal({
                         onClick={handleSubmit}
                         loading={providerKeysLoading}
                         disabled={!isValid}
-                        disabledReason={restrictionReason ?? apiKeyRequiredReason}
+                        disabledReason={disabledReason}
                     >
                         Save changes
                     </LemonButton>
@@ -570,7 +590,7 @@ function EditKeyModal({
                         <label className="text-sm font-medium">Base URL</label>
                         <LemonInput
                             value={baseUrl}
-                            onChange={setBaseUrl}
+                            onChange={handleBaseUrlChange}
                             placeholder="https://api.example.com/v1"
                             className="mt-1"
                             fullWidth
