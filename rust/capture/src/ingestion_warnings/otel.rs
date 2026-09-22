@@ -66,6 +66,7 @@ pub fn warning_for_otel_parse_error(err: &CaptureError) -> Option<WarningType> {
         | CaptureError::EmptyPayload
         | CaptureError::EmptyPayloadFiltered
         | CaptureError::NoTokenError
+        | CaptureError::UnknownToken
         | CaptureError::MultipleTokensError
         | CaptureError::TokenValidationError(_)
         | CaptureError::MissingEventName

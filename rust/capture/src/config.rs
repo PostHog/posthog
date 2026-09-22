@@ -4,6 +4,8 @@ use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use tracing::Level;
 
+use crate::known_tokens::TokenValidationMode;
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum CaptureMode {
     Events,
@@ -255,6 +257,47 @@ pub struct Config {
 
     #[envconfig(default = "300")]
     pub event_restrictions_fail_open_after_secs: u64,
+
+    // --- Known-token validation at the edge (reads the projection Django writes) ---
+    /// `off`, `dry_run`, or `enforce`. Anything but `off` needs
+    /// `KNOWN_TOKENS_REDIS_URL` (or `EVENT_RESTRICTIONS_REDIS_URL`) to resolve, or
+    /// the check stays disabled. `enforce` is the only mode that refuses a request.
+    #[envconfig(default = "off")]
+    pub token_validation_mode: TokenValidationMode,
+
+    /// Redis holding the known-token projection. Falls back to
+    /// `event_restrictions_redis_url`, which is the same instance Django writes it to.
+    pub known_tokens_redis_url: Option<String>,
+
+    /// Timeout for a single known-token lookup. Short on purpose: a slow Redis
+    /// must turn into acceptance, not into added request latency.
+    #[envconfig(default = "50")]
+    pub known_tokens_lookup_timeout_ms: u64,
+
+    /// How long a local "this token has a team" entry survives.
+    #[envconfig(default = "600")]
+    pub known_tokens_known_cache_ttl_secs: u64,
+
+    /// How long a local "no team owns this token" entry survives. Kept well under
+    /// the positive TTL so a project created just after its first event stops being
+    /// refused without the sender doing anything.
+    #[envconfig(default = "60")]
+    pub known_tokens_unknown_cache_ttl_secs: u64,
+
+    /// Cap on local cache entries, per verdict. Bounds memory under a flood of
+    /// distinct junk tokens.
+    #[envconfig(default = "100000")]
+    pub known_tokens_cache_max_entries: u64,
+
+    /// How often to re-read the sweep freshness marker.
+    #[envconfig(default = "30")]
+    pub known_tokens_marker_refresh_secs: u64,
+
+    /// How old the sweep marker may get before capture stops trusting an absent
+    /// token. Must comfortably exceed the sweep's own period, or a single skipped
+    /// sweep silently disables the check.
+    #[envconfig(default = "3600")]
+    pub known_tokens_marker_max_age_secs: u64,
 
     pub otel_url: Option<String>,
 

@@ -8,6 +8,7 @@ pub mod extractors;
 pub mod gateway_provenance;
 pub mod global_rate_limiter;
 pub mod ingestion_warnings;
+pub mod known_tokens;
 pub mod log_util;
 pub mod metrics_middleware;
 pub mod ordering;

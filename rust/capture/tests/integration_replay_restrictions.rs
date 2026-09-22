@@ -129,6 +129,8 @@ async fn setup_recordings_router_with_restriction(
         None,             // ai_gateway_signing_secret
         false,            // ai_events_overflow_enabled
         None,             // ingestion_warning_emitter
+        None,             // known_token_checker
+        capture::known_tokens::TokenValidationMode::Off,
     );
 
     (router, sink_clone)
@@ -502,6 +504,8 @@ async fn setup_recordings_router_with_redirect_to_topic(
         None,             // ai_gateway_signing_secret
         false,            // ai_events_overflow_enabled
         None,             // ingestion_warning_emitter
+        None,             // known_token_checker
+        capture::known_tokens::TokenValidationMode::Off,
     );
 
     (router, sink_clone)

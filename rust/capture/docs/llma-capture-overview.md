@@ -45,7 +45,7 @@ No other encoding is accepted.
 ## Processing flow
 
 1. Stream the body in with a timeout, bounded by the body limit.
-2. Validate the Bearer token.
+2. Validate the Bearer token: its shape always, and in `TOKEN_VALIDATION_MODE=enforce` also whether any project owns it (401 when none does). See `src/known_tokens.rs`.
 3. Gunzip if `Content-Encoding: gzip`.
 4. Parse the `event` part only, extracting event name, distinct id, and uuid for the early gates.
 5. Early gates: event restrictions (drop/redirect/force-overflow), token dropper (silent 200), AI-gateway provenance verification, then the quota limiter (`LLMEvents` scoped quota, or the global Events quota for verified gateway events).

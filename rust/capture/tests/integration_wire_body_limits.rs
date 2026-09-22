@@ -105,6 +105,8 @@ fn make_test_client(mode: CaptureMode) -> (TestClient, CapturingSink) {
         None,
         false,
         None,
+        None, // known_token_checker
+        capture::known_tokens::TokenValidationMode::Off,
     );
 
     (TestClient::new(app), sink)

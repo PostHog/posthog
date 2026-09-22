@@ -65,6 +65,11 @@ pub enum CaptureError {
     MultipleTokensError,
     #[error("API key is not valid: {0}")]
     TokenValidationError(#[from] InvalidTokenReason),
+    /// A well-formed token that the known-token projection says belongs to no
+    /// team. Only raised when token validation runs in enforce mode -- see
+    /// [`crate::known_tokens`].
+    #[error("API key does not belong to any project. Check the project API key in your PostHog project settings")]
+    UnknownToken,
 
     #[error("transient error, please retry")]
     RetryableSinkError,
@@ -131,6 +136,7 @@ impl CaptureError {
             CaptureError::NoTokenError => "no_token",
             CaptureError::MultipleTokensError => "multiple_tokens",
             CaptureError::TokenValidationError(_) => "invalid_token",
+            CaptureError::UnknownToken => "unknown_token",
             CaptureError::RetryableSinkError => "retryable_sink",
             CaptureError::EventTooBig(_) => "oversize_event",
             CaptureError::AiEventTooBig(_) => "ai_event_too_big",
@@ -173,6 +179,7 @@ impl IntoResponse for CaptureError {
 
             CaptureError::NoTokenError
             | CaptureError::MultipleTokensError
+            | CaptureError::UnknownToken
             | CaptureError::TokenValidationError(_) => (StatusCode::UNAUTHORIZED, self.to_string()),
 
             CaptureError::RetryableSinkError | CaptureError::ServiceUnavailable(_) => {

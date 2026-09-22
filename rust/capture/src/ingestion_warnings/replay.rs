@@ -169,6 +169,7 @@ pub fn warning_for_capture_error(err: &CaptureError) -> Option<WarningType> {
         // Auth failures: the token is missing, ambiguous, or invalid, so any
         // attribution would be untrustworthy.
         CaptureError::NoTokenError
+        | CaptureError::UnknownToken
         | CaptureError::MultipleTokensError
         | CaptureError::TokenValidationError(_) => None,
 

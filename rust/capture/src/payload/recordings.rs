@@ -17,6 +17,7 @@ use crate::{
     events::recordings::RawRecording,
     extractors::extract_body_with_timeout,
     ingestion_warnings::replay::attribution_from_event,
+    known_tokens::enforce_known_token,
     payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
     token::validate_token,
@@ -117,6 +118,12 @@ pub async fn handle_recording_payload(
         .ok_or(CaptureError::NoTokenError)?;
     validate_token(&token)?;
     Span::current().record("token", &token);
+    enforce_known_token(
+        state.known_token_checker.as_ref(),
+        state.token_validation_mode,
+        &token,
+    )
+    .await?;
 
     counter!("capture_events_received_total").increment(events.len() as u64);
 

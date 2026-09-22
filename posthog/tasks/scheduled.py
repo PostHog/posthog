@@ -62,6 +62,7 @@ from posthog.tasks.tasks import (
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
+    sweep_capture_known_tokens,
     sync_all_organization_available_product_features,
     sync_feature_flag_last_called,
     update_event_partitions,
@@ -308,6 +309,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="0"),
         refresh_expiring_team_metadata_cache_entries.s(),
         name="team metadata cache sync",
+    )
+
+    # Known project API token projection that capture reads - every 15 minutes. The
+    # Team save receiver keeps it current; this sweep is what makes it complete, and
+    # its freshness marker is what lets capture reject an unknown token at all.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/15"),
+        sweep_capture_known_tokens.s(),
+        name="capture known token projection sweep",
     )
 
     # Team metadata expiry tracking cleanup - daily at 3 AM

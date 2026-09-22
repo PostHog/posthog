@@ -16,6 +16,7 @@ use tracing::{info, warn};
 use crate::config::{CaptureMode, Config};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::global_rate_limiter::{ai_byte_limit_window, GlobalRateLimiter};
+use crate::known_tokens::{KnownTokenChecker, TokenValidationMode};
 use crate::outputs::{Output, OutputRegistry};
 use crate::prometheus::setup_metrics_recorder;
 use crate::quota_limiters::{
@@ -379,6 +380,8 @@ pub async fn build_components(
     let ingestion_warning_emitter =
         create_ingestion_warning_emitter(&config, ingestion_warnings_handle).await;
 
+    let known_token_checker = create_known_token_checker(&config).await;
+
     let app = router::router(
         crate::time::SystemTime {},
         readiness,
@@ -412,6 +415,8 @@ pub async fn build_components(
         config.ai_gateway_signing_secret.clone(),
         ai_events_overflow_enabled,
         ingestion_warning_emitter,
+        known_token_checker,
+        config.token_validation_mode,
     );
 
     info!(
@@ -822,6 +827,72 @@ async fn create_ingestion_warning_emitter(
     gauge!(INGESTION_WARNINGS_EMITTER_ENABLED, "reason" => "ok").set(1.0);
     info!(topic = topic.as_str(), "ingestion warnings emitter enabled");
     Some(emitter)
+}
+
+/// Builds the known-token checker, or `None` when the mode is `off` or the
+/// projection's Redis cannot be reached at boot.
+///
+/// A connection failure here is not fatal: it leaves the deployment behaving as
+/// it did before the check existed, which is the same place every runtime failure
+/// inside the checker lands.
+async fn create_known_token_checker(config: &Config) -> Option<Arc<KnownTokenChecker>> {
+    if config.token_validation_mode == TokenValidationMode::Off {
+        return None;
+    }
+
+    let redis_url = config
+        .known_tokens_redis_url
+        .clone()
+        .or_else(|| config.event_restrictions_redis_url.clone());
+
+    let Some(redis_url) = redis_url else {
+        warn!("Token validation enabled but neither KNOWN_TOKENS_REDIS_URL nor EVENT_RESTRICTIONS_REDIS_URL is set");
+        return None;
+    };
+
+    // Plain UTF-8, no compression: Django writes the projection as bare strings,
+    // the same format the event-restriction repository reads.
+    let redis = match common_redis::RedisClient::with_config(
+        redis_url,
+        common_redis::CompressionConfig::disabled(),
+        common_redis::RedisValueFormat::Utf8,
+        Some(Duration::from_millis(config.known_tokens_lookup_timeout_ms)),
+        Some(Duration::from_millis(config.redis_connection_timeout_ms)),
+    )
+    .await
+    {
+        Ok(client) => Arc::new(client),
+        Err(e) => {
+            warn!(error = %e, "failed to connect to the known-token Redis; token validation disabled");
+            return None;
+        }
+    };
+
+    let checker = Arc::new(KnownTokenChecker::new(
+        redis,
+        config.redis_key_prefix.clone(),
+        Duration::from_millis(config.known_tokens_lookup_timeout_ms),
+        Duration::from_secs(config.known_tokens_known_cache_ttl_secs),
+        Duration::from_secs(config.known_tokens_unknown_cache_ttl_secs),
+        config.known_tokens_cache_max_entries,
+    ));
+
+    let marker_max_age = Duration::from_secs(config.known_tokens_marker_max_age_secs);
+    // Read the marker once before serving, so a deployment in enforce mode does
+    // not spend its first refresh interval unable to reject anything.
+    checker.refresh_marker(marker_max_age).await;
+    checker.clone().spawn_marker_watcher(
+        Duration::from_secs(config.known_tokens_marker_refresh_secs),
+        marker_max_age,
+    );
+
+    info!(
+        mode = config.token_validation_mode.as_tag(),
+        marker_max_age_secs = config.known_tokens_marker_max_age_secs,
+        "Edge token validation enabled"
+    );
+
+    Some(checker)
 }
 
 fn create_event_restriction_service(

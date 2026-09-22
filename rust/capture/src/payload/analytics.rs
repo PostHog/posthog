@@ -17,6 +17,7 @@ use crate::{
     debug_or_info,
     extractors::extract_body_with_timeout,
     ingestion_warnings::SdkAttribution,
+    known_tokens::enforce_known_token,
     payload::{extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
     utils::extract_and_verify_token,
@@ -111,6 +112,15 @@ pub async fn handle_event_payload(
         }
     };
     Span::current().record("token", &token);
+
+    // Tell the sender now if no project owns this token. Downstream the event is
+    // dropped as `invalid_token` with nothing reaching the sender at all.
+    enforce_known_token(
+        state.known_token_checker.as_ref(),
+        state.token_validation_mode,
+        &token,
+    )
+    .await?;
 
     counter!("capture_events_received_total").increment(events.len() as u64);
 
