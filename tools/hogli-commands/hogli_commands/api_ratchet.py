@@ -86,7 +86,9 @@ _ROOT_PREFIXES: Final[dict[str, tuple[str, ...]]] = {
     "organizationsDetail": ("organizations", "{}"),
 }
 
-_METHOD_START: Final = re.compile(r"^    public (\w+)\(")
+# TypeScript class members are public by default, so a method needs an explicit
+# `private`/`protected`/`static` modifier to be unreachable from the `api` singleton.
+_METHOD_START: Final = re.compile(r"^    (?!private |protected |static )(?:public )?(\w+)\(")
 _CHAIN_BASE: Final = re.compile(r"this\.(\w+)\(")
 _RETURN_LINE: Final = re.compile(r"\s*return\b")
 _CHAINED_CALL: Final = re.compile(r"\.(\w+)\(")
@@ -218,13 +220,19 @@ def _block_paths(lines: list[str]) -> tuple[list[tuple[int, ...]], dict[int, int
     return paths, opened_at
 
 
-def _fallthrough_guard(lines: list[str], paths: list[tuple[int, ...]], index: int) -> tuple[str, bool] | None:
-    """The guard on the nearest same-level statement before ``index``, if it is an ``if``.
+def _blocks_with_return(lines: list[str], paths: list[tuple[int, ...]]) -> frozenset[int]:
+    """Block ids that contain a ``return``, directly or in a block nested inside them."""
+    has_return: set[int] = set()
+    for index, line in enumerate(lines):
+        if _RETURN_LINE.match(line):
+            has_return.update(paths[index])
+    return frozenset(has_return)
 
-    A return after a closed if-block, at the same depth as the block's own header, is
-    reachable only when that if's condition was false - the opposite of the guard its
-    own returns carry.
-    """
+
+def _nearest_same_level_if(
+    lines: list[str], paths: list[tuple[int, ...]], opened_at: dict[int, int], index: int
+) -> tuple[int, str, bool] | None:
+    """The nearest same-level closed if-block before ``index``, as (block id, name, negated)."""
     level = paths[index]
     for position in range(index - 1, -1, -1):
         if paths[position] != level:
@@ -235,12 +243,33 @@ def _fallthrough_guard(lines: list[str], paths: list[tuple[int, ...]], index: in
         if match is None:
             return None
         negated, name = match.groups()
-        return (name, bool(negated))
+        block_id = next((bid for bid, opened_line in opened_at.items() if opened_line == position), None)
+        if block_id is None:
+            return None
+        return (block_id, name, bool(negated))
     return None
 
 
+def _fallthrough_guard(
+    lines: list[str], paths: list[tuple[int, ...]], opened_at: dict[int, int], index: int, has_return: frozenset[int]
+) -> tuple[str, bool] | None:
+    """The guard on the nearest same-level if this return falls through from.
+
+    Only applies when that if returns on its own: reaching past it then proves the
+    condition was false. An if that only mutates and falls through leaves this return
+    reachable either way, so it carries no guard here - ``_optional_mutation`` covers it.
+    """
+    found = _nearest_same_level_if(lines, paths, opened_at, index)
+    if found is None:
+        return None
+    block_id, name, negated = found
+    if block_id not in has_return:
+        return None
+    return (name, negated)
+
+
 def _return_guard(
-    lines: list[str], paths: list[tuple[int, ...]], opened_at: dict[int, int], index: int
+    lines: list[str], paths: list[tuple[int, ...]], opened_at: dict[int, int], index: int, has_return: frozenset[int]
 ) -> tuple[str, bool] | None:
     """The single-variable ``if`` this return runs inside, or falls through from."""
     if paths[index]:
@@ -250,7 +279,27 @@ def _return_guard(
             return None
         negated, name = match.groups()
         return (name, not bool(negated))
-    return _fallthrough_guard(lines, paths, index)
+    return _fallthrough_guard(lines, paths, opened_at, index, has_return)
+
+
+def _optional_mutation(
+    lines: list[str], paths: list[tuple[int, ...]], opened_at: dict[int, int], index: int, has_return: frozenset[int]
+) -> tuple[tuple[str, bool], list[str]] | None:
+    """The mutation-only if-block this return might have fallen through, if any.
+
+    An if that never returns on its own leaves the return after it reachable whether
+    or not the block ran, so its mutation belongs in an extra, guarded copy of that
+    return - dropping it entirely resolves the method to the untouched route only,
+    and applying it unconditionally resolves it to the mutated route only.
+    """
+    found = _nearest_same_level_if(lines, paths, opened_at, index)
+    if found is None:
+        return None
+    block_id, name, negated = found
+    if block_id in has_return:
+        return None
+    block_lines = [line for position, line in enumerate(lines) if block_id in paths[position]]
+    return (name, not negated), block_lines
 
 
 def _split_returns(body: str) -> list[ReturnStatement]:
@@ -260,9 +309,13 @@ def _split_returns(body: str) -> list[ReturnStatement]:
     and in the blocks enclosing it, never those in a branch it never entered. A
     conditional that mutates the chain before returning inside the `if` must not reach
     the return below the block, or the method resolves to the conditional route only.
+    A conditional that mutates and falls through - no return of its own - reaches the
+    return below either way, so that return gets two copies here: one with the
+    mutation, one without, each guarded on whether the block ran.
     """
     lines = body.splitlines()
     paths, opened_at = _block_paths(lines)
+    has_return = _blocks_with_return(lines, paths)
     returns: list[ReturnStatement] = []
     for index, line in enumerate(lines):
         if not _RETURN_LINE.match(line):
@@ -273,8 +326,15 @@ def _split_returns(body: str) -> list[ReturnStatement]:
             if paths[position] == paths[index][: len(paths[position])] and not _RETURN_LINE.match(earlier)
         ]
         statement = _return_expression("\n".join(lines[index:]))
-        guard = _return_guard(lines, paths, opened_at, index)
-        returns.append(ReturnStatement(setup="\n".join(setup), statement=statement, guard=guard))
+        guard = _return_guard(lines, paths, opened_at, index, has_return)
+        optional = _optional_mutation(lines, paths, opened_at, index, has_return) if guard is None else None
+        if optional is None:
+            returns.append(ReturnStatement(setup="\n".join(setup), statement=statement, guard=guard))
+            continue
+        mutated_guard, block_lines = optional
+        name, mutated = mutated_guard
+        returns.append(ReturnStatement(setup="\n".join(setup), statement=statement, guard=(name, not mutated)))
+        returns.append(ReturnStatement(setup="\n".join(setup + block_lines), statement=statement, guard=mutated_guard))
     return returns or [ReturnStatement(setup="", statement=body)]
 
 
