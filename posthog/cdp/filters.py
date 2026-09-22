@@ -363,7 +363,10 @@ class _LowerConstantMembership(CloningVisitor):
 
 # Loaded rather than listed: the set belongs to the runtime, and a stale copy here would reject a
 # filter people can legitimately write. A test in the nodejs package pins the file to the type.
-FILTER_GLOBALS: set[str] = set(json.loads((Path(__file__).parent / "filter_globals.json").read_text())["roots"])
+_RUNTIME = json.loads((Path(__file__).parent / "filter_globals.json").read_text())
+# Callables belong here because the VM resolves a bare standard-library name through the same
+# GET_GLOBAL path, so `arrayMap(lower, ...)` is a working filter rather than an unknown global.
+FILTER_GLOBALS: set[str] = set(_RUNTIME["roots"]) | set(_RUNTIME["callables"])
 
 _UNKNOWN_GLOBAL = "Unknown global variable: "
 

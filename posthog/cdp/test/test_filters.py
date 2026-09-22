@@ -162,6 +162,21 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
         assert "bytecode_error" not in evaluation
 
+    def test_filters_allow_a_named_stl_callback(self):
+        # The VM resolves a bare standard-library name through GET_GLOBAL and returns the callable,
+        # so this filter runs. Only the async one cannot, because the filter path allows no async steps.
+        ok = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "arrayMap(lower, ['A'])[1] = 'a'"}]},
+            team=self.team,
+        )
+        assert "bytecode_error" not in ok
+
+        rejected = compile_filters_bytecode(
+            filters={"properties": [{"type": "hogql", "key": "arrayMap(sleep, [1])[1] = 1"}]},
+            team=self.team,
+        )
+        assert "sleep" in rejected["bytecode_error"]
+
     def test_filters_allow_group_globals(self):
         response = compile_filters_bytecode(
             filters={

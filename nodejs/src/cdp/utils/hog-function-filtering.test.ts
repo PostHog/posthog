@@ -6,6 +6,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent } from '../../types'
 import { HogFunctionFilterGlobals, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import { execHog } from './hog-exec'
 import {
     convertClickhouseRawEventToFilterGlobals,
     convertToHogFunctionFilterGlobal,
@@ -277,11 +278,38 @@ describe('hog-function-filtering', () => {
             variables: true,
         }
 
+        const shared = (): any =>
+            parseJSON(readFileSync(join(__dirname, '../../../../posthog/cdp/filter_globals.json'), 'utf8'))
+
         it('matches the set Django validates against', () => {
-            const shared = parseJSON(
-                readFileSync(join(__dirname, '../../../../posthog/cdp/filter_globals.json'), 'utf8')
-            )
-            expect(Object.keys(EVERY_GLOBAL).sort()).toEqual([...shared.roots].sort())
+            expect(Object.keys(EVERY_GLOBAL).sort()).toEqual([...shared().roots].sort())
+        })
+
+        // Ask the VM itself rather than mirroring its tables: this is the property Django relies on,
+        // and it stays true however the standard library is organised internally.
+        const resolves = async (name: string): Promise<boolean> => {
+            const { error, execResult } = await execHog(['_H', 1, 32, name, 1, 1], { globals: {} })
+            const message = String(error ?? execResult?.error ?? '')
+            return !message.includes('Global variable not found')
+        }
+
+        // roots are pinned to the type above; they only resolve when the runtime supplies them.
+        // callables resolve out of an empty globals object, which is the property worth asserting.
+        it('lists only callables the VM resolves', async () => {
+            const unresolvable: string[] = []
+            for (const name of shared().callables as string[]) {
+                if (!(await resolves(name))) {
+                    unresolvable.push(name)
+                }
+            }
+            expect(unresolvable).toEqual([])
+        })
+
+        it('rejects a name the VM cannot resolve', async () => {
+            // The inverse direction. Without it the file could list everything and pass above.
+            expect(await resolves('definitelyNotAGlobal')).toBe(false)
+            // sleep is resolvable but async, and the filter path runs with maxAsyncSteps 0.
+            expect(shared().callables).not.toContain('sleep')
         })
     })
 
