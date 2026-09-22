@@ -29,12 +29,18 @@ import type {
     _TracingCountRequestApi,
     _TracingCountResponseApi,
     _TracingDurationHistogramRequestApi,
+    _TracingDurationHistogramResponseApi,
     _TracingLatencyHeatmapRequestApi,
     _TracingLatencyHeatmapResponseApi,
     _TracingQueryRequestApi,
+    _TracingQueryResponseApi,
+    _TracingServiceNamesResponseApi,
     _TracingSparklineRequestApi,
+    _TracingSparklineResponseApi,
     _TracingTraceRequestApi,
+    _TracingTraceResponseApi,
     _TracingTreeRequestApi,
+    _TracingTreeResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -188,8 +194,8 @@ export const tracingSpansDurationHistogramCreate = async (
     projectId: string,
     _tracingDurationHistogramRequestApi: _TracingDurationHistogramRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTracingSpansDurationHistogramCreateUrl(projectId), {
+): Promise<_TracingDurationHistogramResponseApi> => {
+    return apiMutator<_TracingDurationHistogramResponseApi>(getTracingSpansDurationHistogramCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -236,8 +242,8 @@ export const tracingSpansQueryCreate = async (
     projectId: string,
     _tracingQueryRequestApi: _TracingQueryRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTracingSpansQueryCreateUrl(projectId), {
+): Promise<_TracingQueryResponseApi> => {
+    return apiMutator<_TracingQueryResponseApi>(getTracingSpansQueryCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -268,8 +274,8 @@ export const tracingSpansServiceNamesRetrieve = async (
     projectId: string,
     params?: TracingSpansServiceNamesRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTracingSpansServiceNamesRetrieveUrl(projectId, params), {
+): Promise<_TracingServiceNamesResponseApi> => {
+    return apiMutator<_TracingServiceNamesResponseApi>(getTracingSpansServiceNamesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -283,8 +289,8 @@ export const tracingSpansSparklineCreate = async (
     projectId: string,
     _tracingSparklineRequestApi: _TracingSparklineRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTracingSpansSparklineCreateUrl(projectId), {
+): Promise<_TracingSparklineResponseApi> => {
+    return apiMutator<_TracingSparklineResponseApi>(getTracingSpansSparklineCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -318,8 +324,8 @@ export const tracingSpansTraceCreate = async (
     traceId: string,
     _tracingTraceRequestApi?: _TracingTraceRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTracingSpansTraceCreateUrl(projectId, traceId), {
+): Promise<_TracingTraceResponseApi> => {
+    return apiMutator<_TracingTraceResponseApi>(getTracingSpansTraceCreateUrl(projectId, traceId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -335,8 +341,8 @@ export const tracingSpansTreeCreate = async (
     projectId: string,
     _tracingTreeRequestApi: _TracingTreeRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTracingSpansTreeCreateUrl(projectId), {
+): Promise<_TracingTreeResponseApi> => {
+    return apiMutator<_TracingTreeResponseApi>(getTracingSpansTreeCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
