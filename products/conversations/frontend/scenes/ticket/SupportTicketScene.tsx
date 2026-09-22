@@ -490,7 +490,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     size="small"
                                     value={priority}
                                     options={priorityOptions}
-                                    onChange={(value: TicketPriority | null) => value && setPriority(value)}
+                                    onChange={(value: TicketPriority | null) => setPriority(value)}
                                     dropdownMatchSelectWidth={false}
                                     disabledReason={sendDisabledReason}
                                 />

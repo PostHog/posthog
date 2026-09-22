@@ -51,6 +51,33 @@ describe('posthog conversations ticket templates', () => {
         })
     })
 
+    describe('update ticket priority', () => {
+        const tester = new TemplateTester(updateTicketTemplate)
+
+        beforeEach(async () => {
+            await tester.beforeEach()
+            tester.mockInternalFetchResponse({ status: 200, body: { id: TICKET_UUID } })
+        })
+
+        const updates = (): Record<string, unknown> =>
+            JSON.parse((tester.mockInternalFetch.mock.calls[0][1] as { body: string }).body)
+
+        // 'clear' is the sentinel that removes a priority set by mistake. Without the branch the
+        // hog code treats it as an ordinary choice and the API rejects it.
+        it.each<[string, string, unknown]>([
+            ['forwards a chosen priority', 'high', 'high'],
+            ['forwards null for the clear sentinel', 'clear', null],
+        ])('%s', async (_name, priority, expected) => {
+            await tester.invoke({ ticket_id: TICKET_UUID, priority })
+            expect(updates().priority).toEqual(expected)
+        })
+
+        it('omits the field when no priority is chosen', async () => {
+            await tester.invoke({ ticket_id: TICKET_UUID, status: 'open' })
+            expect(updates()).not.toHaveProperty('priority')
+        })
+    })
+
     describe('get ticket first_customer_message_text opt-in', () => {
         const tester = new TemplateTester(getTicketTemplate)
 

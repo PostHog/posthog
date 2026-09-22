@@ -460,8 +460,8 @@ export interface supportTicketSceneLogicActions {
     setOlderMessagesLoading: (loading: boolean) => {
         loading: boolean
     }
-    setPriority: (priority: TicketPriority) => {
-        priority: TicketPriority
+    setPriority: (priority: TicketPriority | null) => {
+        priority: TicketPriority | null
     }
     setSnoozedUntil: (snoozedUntil: string | null) => {
         snoozedUntil: string | null
@@ -616,7 +616,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setMessageSending: (sending: boolean) => ({ sending }),
 
         setStatus: (status: TicketStatus) => ({ status }),
-        setPriority: (priority: TicketPriority) => ({ priority }),
+        setPriority: (priority: TicketPriority | null) => ({ priority }),
         setAssignee: (assignee: TicketAssignee) => ({ assignee }),
         setTags: (tags: string[]) => ({ tags }),
         setSnoozedUntil: (snoozedUntil: string | null) => ({ snoozedUntil }),
@@ -1024,7 +1024,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     return []
                 }
                 const changes: string[] = []
-                if (priority && priority !== ticket.priority) {
+                if ((priority ?? null) !== (ticket.priority ?? null)) {
                     changes.push(`Priority: ${priorityOptions.find((o) => o.value === priority)?.label ?? priority}`)
                 }
                 if (JSON.stringify(assignee) !== JSON.stringify(ticket.assignee)) {
@@ -1317,7 +1317,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             if (values.status && values.status !== values.ticket?.status) {
                 data.status = values.status
             }
-            if (values.priority && values.priority !== values.ticket?.priority) {
+            if ((values.priority ?? null) !== (values.ticket?.priority ?? null)) {
                 data.priority = values.priority
             }
             data.assignee = values.assignee

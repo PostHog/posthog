@@ -273,7 +273,8 @@ export const statusMultiselectOptions: { key: TicketStatus; label: string }[] = 
     { key: 'resolved', label: 'Resolved' },
 ]
 
-export const priorityOptions: { value: TicketPriority; label: string }[] = [
+export const priorityOptions: { value: TicketPriority | null; label: string }[] = [
+    { value: null, label: 'No priority' },
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },
     { value: 'high', label: 'High' },
