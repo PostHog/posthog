@@ -1073,9 +1073,20 @@ async def test_typed_links_hold_back_autostart(link, expect_skip_reason, link_be
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_a_report_already_addressed_is_counted_as_a_skip_without_a_log_entry():
+@pytest.mark.parametrize(
+    ("actionability_choice", "already_addressed", "expect_skip_reason"),
+    [
+        (ActionabilityChoice.IMMEDIATELY_ACTIONABLE, True, "already_addressed"),
+        (ActionabilityChoice.REQUIRES_HUMAN_INPUT, False, "requires_human_input"),
+        (ActionabilityChoice.NOT_ACTIONABLE, False, "not_actionable"),
+    ],
+)
+async def test_a_non_link_skip_is_counted_under_its_own_reason_without_a_log_entry(
+    actionability_choice, already_addressed, expect_skip_reason
+):
     # Every gate has to be readable as a share of evaluations, but only the link gates put a row on
     # the report: the other reasons are visible on the report already, so a row would be noise.
+    # A report parked for a person holds work, so it must not land in the `not_actionable` bucket.
     def _setup() -> tuple[Team, SignalReport]:
         organization = Organization.objects.create(name="skip-count-org")
         team = Team.objects.create(organization=organization, name="skip-count-team")
@@ -1095,8 +1106,8 @@ async def test_a_report_already_addressed_is_counted_as_a_skip_without_a_log_ent
             summary="s",
             actionability=ActionabilityAssessment(
                 explanation="Somebody already has a pull request open.",
-                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
-                already_addressed=True,
+                actionability=actionability_choice,
+                already_addressed=already_addressed,
             ),
             reviewers_content=[],
             priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
@@ -1107,7 +1118,7 @@ async def test_a_report_already_addressed_is_counted_as_a_skip_without_a_log_ent
         for call in capture_mock.call_args_list
         if call.kwargs.get("event") == "signals_autostart_skipped"
     ]
-    assert reasons == ["already_addressed"]
+    assert reasons == [expect_skip_reason]
     logged = await sync_to_async(
         SignalReportArtefact.objects.filter(team_id=team.id, report_id=report.id, type="autostart_skip").count
     )()

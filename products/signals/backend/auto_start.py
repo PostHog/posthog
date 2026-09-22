@@ -477,8 +477,11 @@ def _capture_steering_attached(*, team: Team, report_id: str, task_id: str, stee
 # Stable slugs for `signals_autostart_skipped`. The outcome's `reason` stays a human sentence that
 # reaches the caller and the log; the slug is what a breakdown groups on, so it must not drift when
 # the sentence is reworded. `task_exists` has no slug on purpose: it is idempotency, not a gate, and
-# it fires on every re-evaluation of a report whose run already started.
+# it fires on every re-evaluation of a report whose run already started. The two non-immediate
+# actionability choices get a slug each: a report waiting on a person still holds work, so counting
+# it as `not_actionable` would read as the opposite conclusion.
 SKIP_NOT_ACTIONABLE = "not_actionable"
+SKIP_REQUIRES_HUMAN_INPUT = "requires_human_input"
 SKIP_ALREADY_ADDRESSED = "already_addressed"
 SKIP_NO_PRIORITY = "no_priority"
 SKIP_AUTOSTART_DISABLED = "autostart_disabled"
@@ -1133,7 +1136,11 @@ async def maybe_autostart_implementation_task(
         skip_reason = "implementation task already exists"
     elif actionability.actionability != ActionabilityChoice.IMMEDIATELY_ACTIONABLE:
         skip_reason = f"not immediately actionable: {actionability.actionability.value}"
-        skip_code = SKIP_NOT_ACTIONABLE
+        skip_code = (
+            SKIP_REQUIRES_HUMAN_INPUT
+            if actionability.actionability == ActionabilityChoice.REQUIRES_HUMAN_INPUT
+            else SKIP_NOT_ACTIONABLE
+        )
     elif actionability.already_addressed:
         skip_reason = "report already addressed"
         skip_code = SKIP_ALREADY_ADDRESSED
