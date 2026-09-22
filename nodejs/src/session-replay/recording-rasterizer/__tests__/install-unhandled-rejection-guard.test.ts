@@ -40,7 +40,11 @@ function exec(command: string, args: string[]): Promise<{ code: number; stdout: 
         execFile(command, args, (err, stdout, stderr) => {
             // A non-zero exit reports as err with the code attached; resolve, not reject.
             const code = (err as NodeJS.ErrnoException | null)?.code
-            resolve({ code: typeof code === 'number' ? code : err ? 1 : 0, stdout: String(stdout), stderr: String(stderr) })
+            resolve({
+                code: typeof code === 'number' ? code : err ? 1 : 0,
+                stdout: String(stdout),
+                stderr: String(stderr),
+            })
         })
     })
 }

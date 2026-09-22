@@ -19,10 +19,7 @@ type RejectionLogger = {
  * The parameters are structural types rather than the logger and metrics modules so this
  * file compiles standalone for the child-process regression test.
  */
-export function installUnhandledRejectionGuard(
-    log: RejectionLogger,
-    onSuppressed: () => void = () => {}
-): void {
+export function installUnhandledRejectionGuard(log: RejectionLogger, onSuppressed: () => void = () => {}): void {
     const WINDOW_MS = 60_000
     const MAX_SUPPRESSED = 50
 
