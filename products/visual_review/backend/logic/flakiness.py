@@ -241,13 +241,11 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     # reach the numerator. That deflates every rate, and late in the day it can
     # drop a snapshot failing every run below the `broken` band and mark a
     # quarantine decision-ready while its last failure is still inside the span.
+    #
+    # Counted from the captured run ids, so a run that completes between the two
+    # reads cannot join the denominator without its rows joining the numerator.
     rate_runs_by_type: dict[str, int] = dict(
-        Run.objects.filter(
-            repo_id=repo_id,
-            branch__in=run_queries._DEFAULT_BRANCHES,
-            status=RunStatus.COMPLETED,
-            created_at__date__gte=rate_start,
-        )
+        Run.objects.filter(id__in=window_run_ids, created_at__date__gte=rate_start)
         .values("run_type")
         .annotate(run_count=Count("id"))
         .values_list("run_type", "run_count")
