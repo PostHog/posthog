@@ -507,8 +507,9 @@ class Repo:
 # Hard cap on entries returned by the baselines overview endpoint. Above this,
 # truncate (newest by run completion) and surface `truncated: True` so the UI
 # can flag it. The whole flow is sized for this — the FE filters/sorts client-
-# side and ships ~600 KB gzipped at the cap.
-BASELINE_OVERVIEW_MAX_ENTRIES = 5000
+# side and ships ~900 KB gzipped at the cap. Sized above the largest repo's
+# universe, so the cap is a backstop rather than a filter that hides stories.
+BASELINE_OVERVIEW_MAX_ENTRIES = 7500
 
 # Number of most-recent default-branch completed runs that feed the
 # `recent_drift_avg` smoothing window. Bounded by run count rather than time
