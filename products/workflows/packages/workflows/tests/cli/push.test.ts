@@ -93,6 +93,21 @@ describe('push', () => {
         assert.equal(standIn.rows.length, 1)
     })
 
+    it('claims code ownership on the create and on the update', async (t) => {
+        const standIn = await startStandIn()
+        t.after(() => standIn.close())
+        const workspace = makeWorkspace({ 'flows/onboarding.ts': workflowFile() })
+        await push(workspace, standIn)
+
+        const edited = makeWorkspace({ 'flows/onboarding.ts': workflowFile({ wait: '2d' }) })
+        await runCli(['push', 'flows/onboarding.ts'], { workspace: edited, env: credentials(standIn) })
+
+        const created = standIn.requests.find((request) => request.method === 'POST')
+        const updated = standIn.requests.find((request) => request.method === 'PATCH')
+        assert.equal(created?.body?.managed_by, 'code')
+        assert.equal(updated?.body?.managed_by, 'code')
+    })
+
     it('refuses a missing secret even when nothing else changed', async (t) => {
         const standIn = await startStandIn()
         t.after(() => standIn.close())

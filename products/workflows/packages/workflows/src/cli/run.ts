@@ -40,7 +40,7 @@ interface Report {
     readonly version?: number
 }
 
-/** `a1b2c3d on main`, or the honest shorter forms when a part did not resolve. */
+// `a1b2c3d on main`, or the honest shorter forms when a part did not resolve.
 function describeSource(source: Source | null): string {
     if (source === null) {
         return 'not detected: this version will not name a commit'
@@ -129,11 +129,9 @@ function printFooter(
     io.out(`${verb} project ${credentials.projectId} on ${credentials.host} (credentials from ${credentials.source}).`)
 }
 
-/**
- * A file that moved is a legitimate edit; a file that was copied is an accident about to overwrite
- * a live workflow. The two look identical from here, so the CLI refuses and `--allow-move` is the
- * author saying which one it is.
- */
+// A file that moved is a legitimate edit; a file that was copied is an accident about to overwrite
+// a live workflow. The two look identical from here, so the CLI refuses and `--allow-move` is the
+// author saying which one it is.
 function guardPath(remote: StoredWorkflow, source: Source | null, options: RunOptions): Change | null {
     const recorded = remote.source_path
     if (typeof recorded !== 'string' || recorded === '') {
@@ -184,14 +182,15 @@ function bodyFor(workflow: LoadedWorkflow, source: Source | null, forUpdate: boo
                   // when there is one.
                   ...((source.commit ?? source.ref) ? { source_ref: source.commit ?? source.ref } : {}),
               }
-    return forUpdate ? { ...content, ...pointer } : { ...content, key, ...pointer }
+    // Claimed on every write and not only on the create, so a push re-claims a workflow that was
+    // released in the UI. Code-owned means read-only there, and the next push wins.
+    const ownership = { managed_by: 'code' }
+    return forUpdate ? { ...content, ...pointer, ...ownership } : { ...content, key, ...pointer, ...ownership }
 }
 
-/**
- * Anything a push resolved from the environment, so it can be taken out of what PostHog says back.
- * A validation error that quotes the value it refused would otherwise put a live credential into a
- * CI log that anybody on the repository can read.
- */
+// Anything a push resolved from the environment, so it can be taken out of what PostHog says back.
+// A validation error that quotes the value it refused would otherwise put a live credential into a
+// CI log that anybody on the repository can read.
 function resolvedSecrets(file: LoadedFile, env: Readonly<Record<string, string | undefined>>): string[] {
     const values = new Set<string>()
     for (const workflow of file.workflows) {
