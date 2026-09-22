@@ -18,7 +18,11 @@ logger = structlog.get_logger(__name__)
 
 
 class LinkSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="User who created the link. Null when that user was deleted.",
+    )
     short_code = serializers.CharField(
         required=True,
         allow_null=False,
@@ -53,11 +57,14 @@ class LinkSerializer(serializers.ModelSerializer):
             "description": {"help_text": "Free-form note about what the link is for."},
         }
 
+    def validate_short_link_domain(self, value: str) -> str:
+        # Field-level, so PUT and PATCH reject a bad domain too. It used to run in create() only.
+        if value != "phog.gg":
+            raise serializers.ValidationError("Only phog.gg is allowed as a short link domain")
+        return value
+
     def create(self, validated_data: dict[str, Any]) -> Link:
         team = Team.objects.get(id=self.context["team_id"])
-
-        if validated_data.get("short_link_domain") != "phog.gg":
-            raise serializers.ValidationError({"short_link_domain": "Only phog.gg is allowed as a short link domain"})
 
         link = Link.objects.create(
             team=team,
