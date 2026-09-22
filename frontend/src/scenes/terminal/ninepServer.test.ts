@@ -208,6 +208,19 @@ describe('PostHog 9P filesystem', () => {
         expect(saved).toBe('# café 🦔\n')
     })
 
+    it.each([12, 24])('continues serving requests when a type %s reply throws', async (type) => {
+        let replied!: () => void
+        const attempted = new Promise<void>((resolve) => (replied = resolve))
+        const brokenReply = jest.fn(() => {
+            replied()
+            throw new RangeError('Guest buffer is outside memory')
+        })
+        server.handle(new NinePWriter().number(2, 4).number(0, 8).frame(type, 10), brokenReply)
+        await attempted
+        expect((await request(120, new NinePWriter().number(2, 4))).type).toBe(121)
+        expect(brokenReply).toHaveBeenCalledTimes(1)
+    })
+
     it('cancels a pending open without blocking flush or replying to its reused tag', async () => {
         let reading!: () => void
         const started = new Promise<void>((resolve) => (reading = resolve))

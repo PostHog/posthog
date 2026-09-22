@@ -117,7 +117,8 @@ Check the browser's save error banner and /posthog/recovery for failed edits.
 Use mkdir to create project folders and mv to move or rename files and folders
 inside /posthog/files. Keep .md or .json extensions when renaming files.
 Moves preserve object IDs and folder contents. Existing destinations cannot be
-replaced. Use rm to remove files, rmdir for empty folders, and rm -r for folder trees.
+replaced. Folders inferred from file paths cannot be moved; move their files instead.
+Use rm to remove files, rmdir for empty folders, and rm -r for folder trees.
 Removing the last file reference deletes the PostHog object, using your permissions.
 Files open for writing must be closed before removal. Use ph notebook-create to create notebooks.
 Work in /tmp for programs that save by renaming a temporary file,
@@ -298,14 +299,11 @@ export class PosthogFilesystem extends TerminalFilesystem {
             throw new FilesystemError(22)
         }
         const parts = [...destination.parts, basename]
-        const entry =
-            source.entry ??
-            (await fileSystemCreate(
-                this.projectId,
-                { path: joinPath(source.parts), type: 'folder' },
-                { signal: this.signal }
-            ))
-        source.entry = entry
+        const entry = source.entry
+        if (!entry) {
+            // Creating an implicit folder before moving it cannot be rolled back safely when it has children.
+            throw new FilesystemError(95)
+        }
         // The generated move body describes a filesystem row, but this action requires new_path.
         await apiMutator<FileSystemApi>(getFileSystemMoveCreateUrl(this.projectId, entry.id), {
             method: 'POST',

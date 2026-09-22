@@ -37,6 +37,13 @@ export class NinePServer {
 
     // Keep API operations ordered, but let local metadata and buffered reads proceed during a slow request.
     handle = (bytes: Uint8Array, reply: (bytes: Uint8Array) => void): void => {
+        const respond = (response: Uint8Array): void => {
+            try {
+                reply(response)
+            } catch {
+                // A bad guest reply buffer must not stop requests on other descriptors.
+            }
+        }
         const reader = new NinePReader(bytes)
         let tag = 0xffff
         let type: number
@@ -49,11 +56,11 @@ export class NinePServer {
             }
             if (type === 108) {
                 this.requests.get(reader.number(2))?.abort()
-                reply(new NinePWriter().frame(109, tag))
+                respond(new NinePWriter().frame(109, tag))
                 return
             }
         } catch (error) {
-            reply(new NinePWriter().number(error instanceof FilesystemError ? error.errno : 5, 4).frame(7, tag))
+            respond(new NinePWriter().number(error instanceof FilesystemError ? error.errno : 5, 4).frame(7, tag))
             return
         }
         const controller = new AbortController()
@@ -65,11 +72,13 @@ export class NinePServer {
                 }
                 const result = await this.request(type, reader, controller.signal)
                 if (!controller.signal.aborted) {
-                    reply(result.frame(type + 1, tag))
+                    respond(result.frame(type + 1, tag))
                 }
             } catch (error) {
                 if (!controller.signal.aborted) {
-                    reply(new NinePWriter().number(error instanceof FilesystemError ? error.errno : 5, 4).frame(7, tag))
+                    respond(
+                        new NinePWriter().number(error instanceof FilesystemError ? error.errno : 5, 4).frame(7, tag)
+                    )
                 }
             } finally {
                 if (this.requests.get(tag) === controller) {

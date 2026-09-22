@@ -236,6 +236,22 @@ describe('PostHog filesystem projection', () => {
         expect(notebooksRetrieve).not.toHaveBeenCalled()
     })
 
+    it('rejects moves of implicit folders without creating records or changing their contents', async () => {
+        const fs = new PosthogFilesystem('42', new AbortController().signal)
+        await fs.load()
+        const files = fs.root.children!.get('files')!
+        const folder = files.children!.get('Research')!
+        const note = folder.children!.get('Notes.md')!
+
+        await expect(folder.rename!(files, 'Published')).rejects.toMatchObject({ errno: 95 })
+        expect(fileSystemCreate).not.toHaveBeenCalled()
+        expect(apiMutator).not.toHaveBeenCalled()
+        expect(files.children!.get('Research')).toBe(folder)
+        expect(files.children!.has('Published')).toBe(false)
+        expect(folder.children!.get('Notes.md')).toBe(note)
+        expect(note.parent).toBe(folder)
+    })
+
     it.each(['Notes', 'Notes.md'])(
         'persists mkdir and moves of %s, preserves open files, and refuses replacement and cycles',
         async (storedName) => {
