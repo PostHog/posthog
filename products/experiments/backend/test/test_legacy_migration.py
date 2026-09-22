@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from rest_framework import status
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
@@ -70,6 +72,32 @@ class TestExperimentMigrateEndpoint(APILicensedTest):
         assert migrated.primary_metrics_ordered_uuids == [migrated.metrics[0]["uuid"]]
         assert migrated.secondary_metrics_ordered_uuids == [link.saved_metric.query["uuid"]]
         assert migrated.metrics[0]["fingerprint"]
+
+    def test_the_copy_starts_unlinked_from_the_source_flag_rule(self) -> None:
+        rule_id = uuid4()
+        Experiment.objects.filter(pk=self.experiment.pk).update(
+            feature_flag_rule_id=rule_id, feature_flag_rule_snapshot={"variants": []}
+        )
+
+        migrated = Experiment.objects.get(pk=self._migrate().json()["id"])
+
+        assert migrated.feature_flag_rule_id is None
+        assert migrated.feature_flag_rule_snapshot is None
+
+    def test_migrates_again_when_the_earlier_copy_was_deleted(self) -> None:
+        first = Experiment.objects.get(pk=self._migrate().json()["id"])
+        first_id = first.id
+        ExperimentSavedMetric.objects.get(
+            pk=ExperimentToSavedMetric.objects.get(experiment=first).saved_metric_id
+        ).delete()
+        first.delete()
+
+        response = self._migrate()
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["id"] != first_id
+        second = Experiment.objects.get(pk=response.json()["id"])
+        assert ExperimentToSavedMetric.objects.get(experiment=second).saved_metric.query["kind"] == "ExperimentMetric"
 
     def test_migrating_twice_returns_the_first_copy(self) -> None:
         first = self._migrate().json()["id"]

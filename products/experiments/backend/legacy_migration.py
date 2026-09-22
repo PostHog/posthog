@@ -16,8 +16,9 @@ from products.experiments.backend.models.experiment import (
 )
 
 # The copy carries everything except identity and creation time, so the new experiment keeps the
-# original's feature flag, name, dates and results window.
-_NOT_COPIED_FIELDS = ("id", "created_at", "key")
+# original's feature flag, name, dates and results window. The rules v2 link and its snapshot
+# belong to the source flag's rule, and the rule id is globally unique, so a copy starts unlinked.
+_NOT_COPIED_FIELDS = ("id", "created_at", "key", "feature_flag_rule_id", "feature_flag_rule_snapshot")
 
 
 class LegacyMigrationError(Exception):
@@ -36,9 +37,8 @@ def migrate_saved_metric(saved_metric_id: int, team_id: int) -> ExperimentSavedM
     with transaction.atomic():
         original = ExperimentSavedMetric.objects.select_for_update().get(pk=saved_metric_id, team_id=team_id)
 
-        migrated_to = (original.metadata or {}).get("migrated_to")
-        if migrated_to:
-            return ExperimentSavedMetric.objects.get(pk=migrated_to, team_id=team_id)
+        if existing := _migrated_target(original, team_id):
+            return existing
 
         new_metric = ExperimentSavedMetric.objects.create(
             name=original.name,
@@ -70,9 +70,10 @@ def migrate_experiment(
         original = Experiment.objects.select_for_update().get(pk=experiment_id, team_id=team_id)
 
         migrated_to = (original.stats_config or {}).get("migrated_to")
-        if migrated_to:
+        existing = Experiment.objects.filter(pk=migrated_to, team_id=team_id).first() if migrated_to else None
+        if existing:
             return ExperimentMigration(
-                experiment=Experiment.objects.get(pk=migrated_to, team_id=team_id),
+                experiment=existing,
                 already_migrated=True,
                 migrated_saved_metric_ids=[],
             )
@@ -126,8 +127,17 @@ def _resolve_saved_metrics(
     links = list(
         ExperimentToSavedMetric.objects.filter(experiment=original).select_related("saved_metric").order_by("id")
     )
-    legacy_metrics = [link.saved_metric for link in links if saved_metric_has_legacy_query(link.saved_metric)]
-    blocked = [metric for metric in legacy_metrics if not (metric.metadata or {}).get("migrated_to")]
+    already_migrated: dict[int, ExperimentSavedMetric] = {}
+    blocked_by_id: dict[int, ExperimentSavedMetric] = {}
+    for link in links:
+        metric = link.saved_metric
+        if not saved_metric_has_legacy_query(metric):
+            continue
+        if target := _migrated_target(metric, team_id):
+            already_migrated[metric.id] = target
+        else:
+            blocked_by_id[metric.id] = metric
+    blocked = list(blocked_by_id.values())
 
     if blocked and not migrate_shared_metrics:
         names = ", ".join(f'"{metric.name}" (id {metric.id})' for metric in blocked)
@@ -139,18 +149,26 @@ def _resolve_saved_metrics(
     }
     migrated_ids = [metric.id for metric in replacements.values()]
 
-    targets = [(link, _target_metric(link.saved_metric, replacements, team_id)) for link in links]
+    targets = [(link, _target_metric(link.saved_metric, {**already_migrated, **replacements})) for link in links]
     return targets, migrated_ids
 
 
-def _target_metric(
-    metric: ExperimentSavedMetric, replacements: dict[int, ExperimentSavedMetric], team_id: int
-) -> ExperimentSavedMetric:
+def _target_metric(metric: ExperimentSavedMetric, targets: dict[int, ExperimentSavedMetric]) -> ExperimentSavedMetric:
     if not saved_metric_has_legacy_query(metric):
         return metric
-    if metric.id in replacements:
-        return replacements[metric.id]
-    return ExperimentSavedMetric.objects.get(pk=metric.metadata["migrated_to"], team_id=team_id)
+    return targets[metric.id]
+
+
+def _migrated_target(metric: ExperimentSavedMetric, team_id: int) -> ExperimentSavedMetric | None:
+    """The new-engine copy this legacy shared metric already has, if it still exists.
+
+    The pointer outlives a hard delete of its target, so a stale one counts as unmigrated and the
+    metric is migrated again. Reading it as a live id instead blocks every later migration.
+    """
+    migrated_to = (metric.metadata or {}).get("migrated_to")
+    if not migrated_to:
+        return None
+    return ExperimentSavedMetric.objects.filter(pk=migrated_to, team_id=team_id).first()
 
 
 def _prepare_metrics(metrics: list[dict], experiment: Experiment) -> list[dict]:
