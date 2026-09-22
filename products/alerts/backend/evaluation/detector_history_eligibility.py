@@ -11,6 +11,8 @@ do with it. Merge the two into one matcher once both have landed.
 
 from copy import deepcopy
 from dataclasses import field, fields
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext, get_default_limit_for_context
@@ -280,11 +282,14 @@ class DetectorSeriesQuery:
     def column_names(self) -> list[str]:
         return [self.bucket_alias, self.value_alias]
 
-    def narrowed_to(self, hours: int) -> dict:
-        """The same query, reading only the most recent ``hours`` buckets.
+    def narrowed_to(self, hours: int, *, at: datetime, tz: str) -> dict:
+        """The same query, reading only the most recent ``hours`` buckets, anchored at ``at``.
 
         The added bound sits alongside the original one and is never wider, so the rows it keeps
-        are a suffix of the rows the original query would have grouped.
+        are a suffix of the rows the original query would have grouped. Every ``now()`` in the
+        copy is replaced with ``at`` rendered in the team timezone, so the warehouse evaluates
+        the bounds the caller reasoned about — a warehouse clock that crosses an hour boundary
+        mid-check cannot shift the scan against the cache bookkeeping.
         """
         if hours >= self.window_hours:
             raise ValueError(f"narrowing to {hours}h would not shorten a {self.window_hours}h window")
@@ -301,10 +306,38 @@ class DetectorSeriesQuery:
                 ),
             )
         )
+        _pin_clock(narrowed, at=at, tz=tz)
         override = deepcopy(self.source)
         target = override["source"] if override.get("kind") == "DataVisualizationNode" else override
         target["query"] = narrowed.to_hogql()
         return override
+
+
+def _pin_clock(node: ast.AST, *, at: datetime, tz: str) -> None:
+    """Replace every ``now()`` under ``node`` with ``at`` as a literal in timezone ``tz``.
+
+    The matcher only admits ``now()`` inside the recognized window bounds, so this touches
+    nothing else.
+    """
+    pinned = ast.Call(
+        name="toDateTime",
+        args=[
+            ast.Constant(value=at.astimezone(ZoneInfo(tz)).strftime("%Y-%m-%d %H:%M:%S")),
+            ast.Constant(value=tz),
+        ],
+    )
+    for field_ in fields(node):
+        value = getattr(node, field_.name)
+        if isinstance(value, ast.Call) and value.name == "now" and not value.args:
+            setattr(node, field_.name, deepcopy(pinned))
+        elif isinstance(value, ast.AST):
+            _pin_clock(value, at=at, tz=tz)
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                if isinstance(item, ast.Call) and item.name == "now" and not item.args:
+                    value[index] = deepcopy(pinned)
+                elif isinstance(item, ast.AST):
+                    _pin_clock(item, at=at, tz=tz)
 
 
 def match_detector_series_query(query: object, *, column: str | None) -> DetectorSeriesQuery | None:

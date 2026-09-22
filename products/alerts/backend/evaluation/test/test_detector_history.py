@@ -93,6 +93,18 @@ class TestDetectorHistory(BaseTest):
             .values_list("bucket", flat=True)
         )
 
+    def test_the_tail_scan_carries_a_pinned_clock(self) -> None:
+        warehouse = _Warehouse(self._dense(10))
+        with time_machine.travel(NOW, tick=False):
+            self._check(warehouse)
+            self._check(warehouse)
+
+        # The warehouse evaluating now() in a later hour than the app would strand a cached
+        # bucket outside the authoritative range, so the narrowed query must not contain now().
+        narrowed_sql = warehouse.overrides[-1]["query"]
+        assert "now()" not in narrowed_sql
+        assert "toDateTime('2026-09-22 12:30:00', 'UTC')" in narrowed_sql
+
     def test_a_warm_cache_reads_only_the_recent_tail_and_returns_the_full_scan_series(self) -> None:
         warehouse = _Warehouse(self._dense(10))
         with time_machine.travel(NOW, tick=False):
