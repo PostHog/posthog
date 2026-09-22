@@ -368,6 +368,8 @@ _RUNTIME = json.loads((Path(__file__).parent / "filter_globals.json").read_text(
 # GET_GLOBAL path, so `arrayMap(lower, ...)` is a working filter rather than an unknown global.
 # Generated from the runtime by `pnpm --filter=@posthog/nodejs run build:filter-globals`.
 FILTER_GLOBALS: set[str] = set(_RUNTIME["roots"]) | set(_RUNTIME["callables"])
+# The Python compiler knows its own standard library, which is not the one the Node VM runs.
+FILTER_FUNCTIONS: set[str] = set(_RUNTIME["functions"])
 
 _UNKNOWN_GLOBAL = "Unknown global variable: "
 
@@ -382,7 +384,9 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
         expr = _LowerConstantMembership().visit(expr)
         # Declaring the globals turns the compiler's field resolution into a check: it warns on a
         # root that is neither a local, an upvalue, nor one of ours.
-        context = HogQLContext(team_id=team.id, globals=dict.fromkeys(FILTER_GLOBALS))
+        context = HogQLContext(
+            team_id=team.id, globals=dict.fromkeys(FILTER_GLOBALS), allowed_functions=FILTER_FUNCTIONS
+        )
         filters["bytecode"] = create_bytecode(expr, context=context).bytecode
 
         unknown = sorted(

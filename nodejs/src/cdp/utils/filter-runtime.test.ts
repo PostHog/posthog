@@ -27,7 +27,7 @@ describe('filter-runtime', () => {
     })
 
     it('describes what a hog function is actually evaluated with', () => {
-        const { roots, callables } = describeFilterRuntime()
+        const { roots, callables, functions } = describeFilterRuntime()
         expect(roots).toEqual(expect.arrayContaining(['event', 'person', 'properties', 'group_0', '$group_4']))
         // In the type, but built only by the hogflow conditional-branch path, which does not compile
         // through compile_filters_bytecode. Listing it would let a destination save a filter that throws.
@@ -38,6 +38,8 @@ describe('filter-runtime', () => {
         // Resolvable, but the closure it resolves to cannot be invoked. Calling arrayMap by name is
         // unaffected, because a call is not read as a global.
         expect(callables).not.toContain('arrayMap')
+        expect(functions).toEqual(expect.arrayContaining(['lower', 'arrayMap', 'sortableSemver']))
+        expect(functions).not.toContain('sleep')
     })
 
     it('agrees with what the VM does when asked', async () => {
@@ -68,5 +70,20 @@ describe('filter-runtime', () => {
             }
         }
         expect(broken).toEqual([])
+
+        // Django checks a direct call against functions, so every name there has to run as one.
+        const calledDirectly = async (name: string): Promise<string> => {
+            const { error, execResult } = await execHog(['_H', 1, 2, name, 0], { globals: {} })
+            return String(error ?? execResult?.error ?? '')
+        }
+        const notCallable: string[] = []
+        for (const name of describeFilterRuntime().functions) {
+            const message = await calledDirectly(name)
+            if (contractErrors.some((error) => message.includes(error))) {
+                notCallable.push(`${name}: ${message}`)
+            }
+        }
+        expect(notCallable).toEqual([])
+        expect(await calledDirectly('definitelyNotAFunction')).toContain('Unsupported function call')
     })
 })

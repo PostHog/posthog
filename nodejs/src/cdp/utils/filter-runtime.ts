@@ -1,4 +1,4 @@
-import { ASYNC_STL, STL } from '@posthog/hogvm'
+import { ASYNC_STL, BYTECODE_STL, STL } from '@posthog/hogvm'
 
 import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent } from '../../types'
 import { HogFunctionInvocationGlobals } from '../types'
@@ -13,6 +13,8 @@ export type FilterRuntime = {
     /** Standard-library names the VM hands back as values and can then invoke, so a filter can pass
      * them as callbacks. */
     callables: string[]
+    /** Every standard-library name a filter can call directly, the bytecode-implemented ones included. */
+    functions: string[]
 }
 
 // These stand for the callers of compile_filters_bytecode: hog function filters, evaluated by the two
@@ -79,16 +81,16 @@ export function describeFilterRuntime(): FilterRuntime {
     // ASYNC_STL is a separate table today, so this removes nothing. It stays because GET_GLOBAL checks
     // ASYNC_STL first: a name added to both would be async at runtime, and the filter path allows no
     // async steps, so it must not be offered as a callable.
-    const callables = Object.keys(STL)
-        .filter((name) => !Object.hasOwn(ASYNC_STL, name))
-        .sort()
+    const notAsync = (name: string): boolean => !Object.hasOwn(ASYNC_STL, name)
+    const callables = Object.keys(STL).filter(notAsync).sort()
+    const functions = [...new Set([...Object.keys(STL), ...Object.keys(BYTECODE_STL)])].filter(notAsync).sort()
 
     if (fromInvocation.length < MIN_ROOTS || callables.length < MIN_CALLABLES) {
         throw new Error(
             `Suspiciously small runtime description: ${fromInvocation.length} roots, ${callables.length} callables`
         )
     }
-    return { roots: fromInvocation, callables }
+    return { roots: fromInvocation, callables, functions }
 }
 
 export function renderFilterGlobalsFile(runtime: FilterRuntime): string {
@@ -99,10 +101,11 @@ export function renderFilterGlobalsFile(runtime: FilterRuntime): string {
                     'Generated. Do not edit: run `pnpm --filter=@posthog/nodejs run build:filter-globals`. ' +
                     'roots are the data globals the CDP filter runtime builds for a hog function. callables are ' +
                     'the standard-library names the VM hands back as values and can then invoke, so they are the ' +
-                    'ones a filter can pass as a callback. Django reads this to refuse a filter the runtime could ' +
-                    'not evaluate.',
+                    'ones a filter can pass as a callback. functions are every standard-library name a filter can ' +
+                    'call directly. Django reads this to refuse a filter the runtime could not evaluate.',
                 roots: runtime.roots,
                 callables: runtime.callables,
+                functions: runtime.functions,
             },
             null,
             // Matches what the pre-commit hook (bin/hogli format:yaml) writes, so a regenerate is a no-op.

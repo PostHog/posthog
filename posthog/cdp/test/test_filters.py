@@ -201,6 +201,13 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
         assert "bytecode_error" not in called_directly
 
+    def test_filters_reject_a_function_the_runtime_does_not_have(self):
+        # max2 exists in the Python standard library and not in the Node VM.
+        for key in ("max2(1, 2) > 1", "sleep(1) = 1"):
+            response = compile_filters_bytecode(filters={"properties": [{"type": "hogql", "key": key}]}, team=self.team)
+            assert response.get("bytecode_error"), key
+            assert key.split("(")[0] in response["bytecode_error"]
+
     def test_filters_allow_group_globals(self):
         response = compile_filters_bytecode(
             filters={
