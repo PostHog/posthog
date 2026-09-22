@@ -1,15 +1,11 @@
--- Production carries this foreign key as ON DELETE CASCADE, NOT VALID, under the
--- constraint name below. The partition migration dropped the original
--- single-column key and nothing re-added one, so a database built from these
--- migrations kept override rows after a person delete. Skipped when any foreign
--- key to posthog_person already exists, so a copy of production is left alone.
--- Also skipped when posthog_person is not partitioned: hobby keeps the
--- unpartitioned Django table, whose primary key is (id) alone, and a composite
--- key cannot reference it. The key stays NOT VALID to match production: it
--- still checks new rows and still cascades, and adding it takes no scan.
--- ADD CONSTRAINT locks posthog_person and every partition against writes while
--- it waits, so the wait is bounded; on timeout the per-file transaction aborts,
--- nothing is recorded, and the next migration run retries this idempotent file.
+-- The partition migration dropped the foreign key from
+-- posthog_featureflaghashkeyoverride to posthog_person and nothing put it back,
+-- so databases built from these migrations kept override rows after a person
+-- delete. This restores it in the shape production already has, NOT VALID
+-- included. Skipped where a key to posthog_person exists, and where
+-- posthog_person is not partitioned (hobby), because its (id) primary key
+-- cannot back a composite key. lock_timeout bounds the wait for the partition
+-- locks; on timeout the file aborts unrecorded and the next run retries it.
 SET LOCAL lock_timeout = '2s';
 
 DO $$
