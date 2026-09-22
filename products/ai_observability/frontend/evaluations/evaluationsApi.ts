@@ -1,3 +1,5 @@
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import type { AnyPropertyFilter } from '~/types'
 
 import { evaluationsList, evaluationsPartialUpdate, llmAnalyticsEvaluationReportsList } from '../generated/api'
@@ -25,7 +27,7 @@ function modelConfigurationFromApi(evaluation: EvaluationApi): ModelConfiguratio
     }
 }
 
-export function evaluationFromApi(evaluation: EvaluationApi): EvaluationConfig {
+export function evaluationFromApi(evaluation: EvaluationApi): EvaluationConfig | null {
     const baseEvaluation = {
         id: evaluation.id,
         name: evaluation.name,
@@ -100,14 +102,20 @@ export function evaluationFromApi(evaluation: EvaluationApi): EvaluationConfig {
         }
     }
 
-    throw new Error(`Evaluation ${evaluation.id} has an invalid type or configuration`)
+    return null
 }
 
 export async function listAllEvaluations(projectId: string): Promise<EvaluationConfig[]> {
     const evaluations = await listAllPages((offset) =>
         evaluationsList(projectId, { limit: EVALUATIONS_PAGE_SIZE, offset })
     )
-    return evaluations.map(evaluationFromApi)
+    const supportedEvaluations = evaluations.map(evaluationFromApi).filter((evaluation) => evaluation !== null)
+    if (supportedEvaluations.length !== evaluations.length) {
+        lemonToast.warning('Some evaluations could not be displayed. Refresh the page to get the latest version.', {
+            toastId: 'unsupported-evaluation-types',
+        })
+    }
+    return supportedEvaluations
 }
 
 export async function listAllEvaluationReports(projectId: string): Promise<EvaluationReportApi[]> {
@@ -124,5 +132,9 @@ export async function patchEvaluation(
     evaluationId: string,
     update: PatchedEvaluationApi
 ): Promise<EvaluationConfig> {
-    return evaluationFromApi(await evaluationsPartialUpdate(projectId, evaluationId, update))
+    const evaluation = evaluationFromApi(await evaluationsPartialUpdate(projectId, evaluationId, update))
+    if (!evaluation) {
+        throw new Error('This evaluation is not supported by this version of PostHog. Refresh the page and try again.')
+    }
+    return evaluation
 }

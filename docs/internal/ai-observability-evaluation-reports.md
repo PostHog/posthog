@@ -62,3 +62,9 @@ Saving back to the linked evaluation leaves its output settings unchanged.
 Saving as a new evaluation copies the linked evaluation's current output type and settings, including bounds, N/A, passing rules, and boolean polarity.
 Unlinked prompts and sentiment sources create boolean evaluations by default.
 Playground completions do not apply the evaluation's structured response schema or output validation.
+
+## Browser compatibility
+
+The evaluations list keeps supported rows visible if the API returns an output type the browser cannot display.
+A refresh message explains that some evaluations are omitted.
+Deploy this compatibility behavior before enabling creation of a new evaluation output type.
