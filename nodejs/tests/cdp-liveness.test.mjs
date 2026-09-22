@@ -28,7 +28,10 @@ async function listen(context, server, port = 0) {
     })
     await new Promise((resolve, reject) => {
         server.once('error', reject)
-        server.listen(port, '127.0.0.1', resolve)
+        server.listen(port, '127.0.0.1', () => {
+            server.off('error', reject)
+            resolve()
+        })
     })
     return server.address().port
 }
