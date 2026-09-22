@@ -84,14 +84,12 @@ _READY_AT_SELECT = f"""
     WHERE pr.number IN {{pr_numbers}}
     GROUP BY pr.number
     HAVING last_ready_at IS NOT NULL
-    ORDER BY pr.number
 """
 
 _REVIEWS_SELECT = f"""
-    SELECT pr_number, reviewer_login, state, submitted_at
+    SELECT pr_number, reviewer_login, state, submitted_at, id AS review_id
     FROM __REVIEWS_SOURCE__ AS rv
     WHERE pr_number IN {{pr_numbers}}
-    ORDER BY pr_number, submitted_at, reviewer_login, state
 """
 
 # Skipped runs add no red or running time, and the shared gate-attempt read handles queue runs.
@@ -101,7 +99,6 @@ _RUNS_SELECT = f"""
     FROM __RUNS_SOURCE__ AS r
     WHERE pr_number IN {{pr_numbers}} AND run_started_at >= {{run_from}}
         AND NOT is_merge_queue AND ifNull(conclusion, '') != 'skipped'
-    ORDER BY pr_number, id
 """
 
 # One row per run attempt. Re-run copies are GitHub's re-listing of jobs that never ran again, so
@@ -109,7 +106,7 @@ _RUNS_SELECT = f"""
 _JOB_ATTEMPTS_SELECT = f"""
     SELECT
         run_id,
-        run_attempt,
+        ifNull(run_attempt, 1) AS attempt_number,
         min(started_at) AS started_at,
         max(completed_at) AS completed_at,
         countIf(status != 'completed') AS unfinished,
@@ -117,12 +114,11 @@ _JOB_ATTEMPTS_SELECT = f"""
         countIf(conclusion NOT IN ('success', 'skipped')) AS unsuccessful
     FROM __JOBS_SOURCE__ AS j
     WHERE run_id IN {{run_ids}} AND NOT is_rerun_copy
-    GROUP BY run_id, run_attempt
-    ORDER BY run_id, run_attempt
+    GROUP BY run_id, attempt_number
 """
 
 _MASTER_FAILURES_SELECT = f"""
-    SELECT j.workflow_name, j.name, j.completed_at
+    SELECT j.workflow_name, j.name, j.completed_at, j.id AS job_id
     FROM __JOBS_SOURCE__ AS j
     INNER JOIN __RUNS_SOURCE__ AS r ON r.id = j.run_id
     WHERE r.head_branch = {{default_branch}}
@@ -131,7 +127,6 @@ _MASTER_FAILURES_SELECT = f"""
         AND j.conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})
         AND j.completed_at IS NOT NULL
         AND j.workflow_name IN {{workflow_names}}
-    ORDER BY j.workflow_name, j.name, j.completed_at
 """
 
 _TRUNK_STATE_SELECT = """
@@ -361,6 +356,7 @@ class PullRequestTimelinesQuery:
             return {}
         rows = self._curated.run_paged(
             _READY_AT_SELECT.replace("__PR_SOURCE__", pr_source).replace("__ISSUE_EVENTS_SOURCE__", events_source),
+            page_key=(("pr_number", 0),),
             query_type="engineering_analytics.pull_request_timelines_ready_at",
             placeholders={
                 "pr_numbers": ast.Constant(value=pr_numbers),
@@ -376,11 +372,12 @@ class PullRequestTimelinesQuery:
             return None
         rows = self._curated.run_paged(
             _REVIEWS_SELECT.replace("__REVIEWS_SOURCE__", source),
+            page_key=(("review_id", 4),),
             query_type="engineering_analytics.pull_request_timelines_reviews",
             placeholders={"pr_numbers": ast.Constant(value=pr_numbers)},
         )
         reviews: dict[int, list[ReviewVerdict]] = defaultdict(list)
-        for number, reviewer, state, submitted_at in rows:
+        for number, reviewer, state, submitted_at, _review_id in rows:
             reviews[int(number)].append(ReviewVerdict(reviewer=reviewer or "", state=state, submitted_at=submitted_at))
         return reviews
 
@@ -394,6 +391,7 @@ class PullRequestTimelinesQuery:
     def _query_run_attempts(self, pr_numbers: list[int], run_from: datetime) -> dict[int, list[RunAttempt]]:
         rows = self._curated.run_paged(
             _RUNS_SELECT.replace("__RUNS_SOURCE__", self._curated.run_source(started_floor=True)),
+            page_key=(("id", 0),),
             query_type="engineering_analytics.pull_request_timelines_runs",
             placeholders=self._runs_placeholders(pr_numbers, run_from),
         )
@@ -474,7 +472,8 @@ class PullRequestTimelinesQuery:
             run_filter="pr_number IN {pr_numbers} AND run_started_at >= {run_from}",
         )
         rows = self._curated.run_paged(
-            sql + "\nORDER BY pr_number, head_sha",
+            sql,
+            page_key=(("pr_number", 0), ("head_sha", 1)),
             query_type="engineering_analytics.pull_request_timelines_pushes",
             placeholders=self._runs_placeholders(pr_numbers, run_from),
         )
@@ -492,8 +491,8 @@ class PullRequestTimelinesQuery:
                 pull_requests_source=self._curated.pr_source(),
                 pull_request_filter="pr.number IN {pr_numbers}",
                 decisive_failure_conclusions_sql=DECISIVE_FAILURE_CONCLUSIONS_SQL,
-            )
-            + "\nORDER BY pr_number, started_at, attempt",
+            ),
+            page_key=(("pr_number", 0), ("attempt", 1)),
             query_type="engineering_analytics.pull_request_timelines_gate_attempts",
             placeholders={
                 "pr_numbers": ast.Constant(value=pr_numbers),
@@ -520,6 +519,7 @@ class PullRequestTimelinesQuery:
             return {}
         rows = self._curated.run_paged(
             _JOB_ATTEMPTS_SELECT.replace("__JOBS_SOURCE__", source),
+            page_key=(("run_id", 0), ("attempt_number", 1)),
             query_type="engineering_analytics.pull_request_timelines_job_attempts",
             placeholders={
                 "run_ids": ast.Constant(value=run_ids),
@@ -561,6 +561,7 @@ class PullRequestTimelinesQuery:
             _MASTER_FAILURES_SELECT.replace("__JOBS_SOURCE__", jobs_source).replace(
                 "__RUNS_SOURCE__", self._curated.run_source(started_floor=True)
             ),
+            page_key=(("job_id", 3),),
             query_type="engineering_analytics.pull_request_timelines_master_failures",
             placeholders={
                 "default_branch": ast.Constant(value=default_branch),
@@ -570,7 +571,9 @@ class PullRequestTimelinesQuery:
                 "job_created_floor": run_windowed_job_created_floor_constant(run_from),
             },
         )
-        return MasterFailureIndex([(workflow or "", name or "", completed_at) for workflow, name, completed_at in rows])
+        return MasterFailureIndex(
+            [(workflow or "", name or "", completed_at) for workflow, name, completed_at, _job_id in rows]
+        )
 
     def _query_out_of_queue(self, pr_numbers: list[int]) -> set[int]:
         source = self._curated.trunk_merge_queue_source()

@@ -1,5 +1,6 @@
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from unittest.mock import patch
@@ -8,6 +9,12 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.schema import HogQLQueryResponse
+
+from posthog.hogql import ast
+
+from posthog.clickhouse.workload import Workload
 
 from products.engineering_analytics.backend.facade.contracts import (
     ComparisonTeamBasis as Basis,
@@ -727,6 +734,53 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
                 date_from=datetime.now(tz=UTC) - timedelta(days=7),
                 date_to=None,
             )
+
+    def test_evidence_paging_keeps_the_next_row_when_an_earlier_row_leaves(self) -> None:
+        failure_start, failure_end = _ago_offset_with_duration(3, 0, 3600)
+        fix_start, fix_end = _ago_offset_with_duration(2, 0, 3600)
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(1, "alice", "closed", 0, _ago(4), merged_at=_ago(1))],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(4001, "CI", "sha-old", "completed", "failure", failure_start, failure_end, pr_number=1),
+                _run_row(4002, "CI", "sha-fix", "completed", "success", fix_start, fix_end, pr_number=1),
+            ],
+        )
+        curated = CuratedGitHubSource.for_team(self.team)
+        original_run = curated.run
+        evidence_page = 0
+
+        def run_after_first_page(
+            sql: str,
+            *,
+            query_type: str,
+            placeholders: dict[str, ast.Expr] | None = None,
+            workload: Workload = Workload.DEFAULT,
+        ) -> HogQLQueryResponse | SimpleNamespace:
+            nonlocal evidence_page
+            if query_type == "engineering_analytics.pull_request_timelines_runs":
+                evidence_page += 1
+                if evidence_page == 2 and " OFFSET " in sql:
+                    return SimpleNamespace(results=[])
+            return original_run(sql, query_type=query_type, placeholders=placeholders, workload=workload)
+
+        with (
+            patch.object(curated, "run", side_effect=run_after_first_page),
+            patch("products.engineering_analytics.backend.logic.queries._curated._QUERY_PAGE_SIZE", 1),
+        ):
+            timelines = query_pull_request_timelines(
+                curated=curated,
+                scope=_ALICE,
+                date_from=datetime.now(tz=UTC) - timedelta(days=7),
+                date_to=None,
+            )
+
+        assert [push.head_sha for push in timelines.items[0].pushes] == ["sha-old", "sha-fix"]
 
     def test_a_ready_event_after_the_close_still_builds_a_timeline(self) -> None:
         closed_at = _ago(2)

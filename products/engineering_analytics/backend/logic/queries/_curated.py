@@ -510,21 +510,45 @@ class CuratedGitHubSource:
         """Prefix ``select`` with the given CTEs and fill its ``__PR_SOURCE__`` placeholder with the PR source."""
         return f"WITH {', '.join(ctes)} {select}".replace("__PR_SOURCE__", self.pr_source())
 
-    def run_paged(self, sql: str, *, query_type: str, placeholders: dict[str, ast.Expr]) -> list[tuple]:
-        """Read every row of a query with a stable ORDER BY, without the per-query result cap."""
+    def run_paged(
+        self,
+        sql: str,
+        *,
+        page_key: tuple[tuple[str, int], ...],
+        query_type: str,
+        placeholders: dict[str, ast.Expr],
+    ) -> list[tuple]:
+        """Read every row by an immutable unique key, without the per-query result cap."""
         rows: list[tuple] = []
-        offset = 0
+        cursor: tuple[object, ...] | None = None
+        key_columns = [column for column, _index in page_key]
+        order_by = ", ".join(key_columns)
         while True:
+            cursor_filter = ""
+            page_placeholders = placeholders
+            if cursor is not None:
+                cursor_names = [f"paged_after_{index}" for index in range(len(cursor))]
+                left = key_columns[0] if len(key_columns) == 1 else f"({', '.join(key_columns)})"
+                right = (
+                    f"{{{cursor_names[0]}}}"
+                    if len(cursor_names) == 1
+                    else f"({', '.join(f'{{{name}}}' for name in cursor_names)})"
+                )
+                cursor_filter = f"WHERE {left} > {right}"
+                page_placeholders = {
+                    **placeholders,
+                    **{name: ast.Constant(value=value) for name, value in zip(cursor_names, cursor, strict=True)},
+                }
             response = self.run(
-                f"{sql}\nLIMIT {_QUERY_PAGE_SIZE} OFFSET {offset}",
+                f"SELECT * FROM ({sql}) AS paged\n{cursor_filter}\nORDER BY {order_by}\nLIMIT {_QUERY_PAGE_SIZE}",
                 query_type=query_type,
-                placeholders=placeholders,
+                placeholders=page_placeholders,
             )
             page = list(response.results or [])
             rows.extend(page)
             if len(page) < _QUERY_PAGE_SIZE:
                 return rows
-            offset += len(page)
+            cursor = tuple(page[-1][index] for _column, index in page_key)
 
     def run(
         self,
