@@ -9,6 +9,7 @@ import { DataNode } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 
 import { DEFAULT_PAGE_SIZE } from '../DataVisualization/Components/Table'
+import { rowLimitReachedText } from './RowLimitNotice'
 
 interface LoadNextProps {
     query: DataNode
@@ -37,9 +38,9 @@ export function LoadNext({ query, nouns = ['entry', 'entries'] }: LoadNextProps)
                     numberOfRows === 1 ? 'entry' : 'entries'
                 }`
             }
-            return `Default limit of ${dataLimit} rows reached`
+            return rowLimitReachedText(dataLimit)
         } else if (isHogQLQuery(query) && !canLoadNextData && hasMoreData && dataLimit) {
-            return `Default limit of ${dataLimit} rows reached. Try adding a LIMIT clause to adjust.`
+            return rowLimitReachedText(dataLimit)
         }
         const noun = numberOfRows === 1 ? nouns[0] : nouns[1]
         let result = `Showing ${
