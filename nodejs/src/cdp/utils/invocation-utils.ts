@@ -1,5 +1,4 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
-import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { UUIDT } from '~/common/utils/utils'
@@ -16,6 +15,7 @@ import {
     MinimalAppMetric,
 } from '../types'
 import { HogFunctionType } from '../types'
+import { logEntry } from '../utils'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from './hog-function-filtering'
 
 /** The inputs step of the dead-letter pipeline. Read next to cdp_hog_function_filter_error. */
@@ -109,9 +109,8 @@ export async function buildHogFunctionInvocations(
                 log_source: 'hog_function',
                 log_source_id: hogFunction.id,
                 instance_id: new UUIDT().toString(), // random UUID, like it would be for an invocation
-                timestamp: DateTime.now(),
-                level: 'error',
-                message: `Error building inputs for event ${triggerGlobals.event.uuid}: ${error.message}`,
+                // logEntry truncates: the message carries the VM's text, which can quote a value.
+                ...logEntry('error', `Error building inputs for event ${triggerGlobals.event.uuid}: ${error.message}`),
             })
 
             hogFunctionInputsErrors.inc({ type: hogFunction.type })
