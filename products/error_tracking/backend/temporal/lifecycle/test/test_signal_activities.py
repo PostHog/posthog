@@ -16,26 +16,23 @@ from products.error_tracking.backend.temporal.lifecycle.issue_spiking.activities
     emit_issue_spiking_signal_activity,
 )
 
-SIGNAL_ACTIVITIES = [
-    ("products.error_tracking.backend.temporal.lifecycle.issue_created.activities", emit_issue_created_signal_activity),
-    (
-        "products.error_tracking.backend.temporal.lifecycle.issue_reopened.activities",
-        emit_issue_reopened_signal_activity,
-    ),
-    ("products.error_tracking.backend.temporal.lifecycle.issue_spiking.activities", emit_issue_spiking_signal_activity),
-]
-
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("module,signal_activity", SIGNAL_ACTIVITIES)
+@pytest.mark.parametrize(
+    "signal_activity",
+    [emit_issue_created_signal_activity, emit_issue_reopened_signal_activity, emit_issue_spiking_signal_activity],
+)
 async def test_signal_activity_leaves_exception_capture_to_the_interceptor(
-    module: str, signal_activity: Callable[[Any], Awaitable[None]]
+    signal_activity: Callable[[Any], Awaitable[None]],
 ) -> None:
     inputs = MagicMock(computed_baseline=1.0, current_bucket_value=5.0)
     dropped_connection = OperationalError("server closed the connection unexpectedly")
 
     with (
-        patch(f"{module}.emit_issue_lifecycle_signal", new=AsyncMock(side_effect=dropped_connection)),
+        patch(
+            f"{signal_activity.__module__}.emit_issue_lifecycle_signal",
+            new=AsyncMock(side_effect=dropped_connection),
+        ),
         patch("posthoganalytics.capture_exception") as capture_exception,
     ):
         with pytest.raises(OperationalError):
