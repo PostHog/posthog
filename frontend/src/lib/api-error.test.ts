@@ -120,6 +120,11 @@ describe('api-error', () => {
             ['a Chromium fetch failure', new TypeError('Failed to fetch'), false],
             ['a WebKit fetch failure', new TypeError('Load failed'), false],
             ['a Gecko fetch failure', new TypeError('NetworkError when attempting to fetch resource.'), false],
+            [
+                'a Gecko truncated response',
+                new TypeError('Content-Length header of network response exceeds response Body.'),
+                false,
+            ],
             // `handleFetch` stringifies the original error into the message of its fallback ApiError.
             ['a fetch failure wrapped by ApiError', new ApiError('TypeError: Failed to fetch'), false],
             // A stale chunk after a deploy words itself the same way and is a defect we can fix.
