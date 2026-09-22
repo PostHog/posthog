@@ -143,12 +143,16 @@ async def test_probe_cancellation_and_concurrent_activity_cleanup(settings: Sett
     [
         ([], "not visible"),
         ([(postgres.required_tables()[0], True, True)], "not visible"),
+        # `to_regclass` resolves nothing, so the strict privilege functions answer null.
+        ([(table, None, None) for table in postgres.required_tables()], "not visible"),
         ([(table, False, True) for table in postgres.required_tables()], "INSERT"),
         ([(table, True, False) for table in postgres.required_tables()], "UPDATE"),
         ([(table, False, False) for table in postgres.required_tables()], "INSERT, UPDATE"),
     ],
 )
-def test_probe_fails_when_a_write_privilege_is_missing(granted: list[tuple[str, bool, bool]], expected: str) -> None:
+def test_probe_fails_when_a_write_privilege_is_missing(
+    granted: list[tuple[str, bool | None, bool | None]], expected: str
+) -> None:
     with patch.object(postgres, "execute_with_timeout") as execute:
         execute.return_value.__enter__.return_value.fetchall.return_value = granted
         with pytest.raises(postgres.WriteReadinessError) as caught:

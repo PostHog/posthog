@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 import random
 import datetime as dt
 
@@ -23,14 +24,14 @@ def _inputs(team_id: int) -> SourceOutcomeInputs:
     return SourceOutcomeInputs(
         team_id=team_id,
         cutoff=dt.datetime(2026, 9, 22, 10, tzinfo=dt.UTC).isoformat(),
-        outcomes=[
+        outcomes=(
             PlatformAlertOutcome(
-                configuration_id="01997d4a-0000-0000-0000-000000000000",
+                configuration_id=uuid.UUID("01997d4a-0000-0000-0000-000000000000"),
                 new_state="firing",
                 notified=True,
                 consecutive_failures=0,
-            )
-        ],
+            ),
+        ),
     )
 
 
@@ -53,16 +54,19 @@ def test_only_a_privilege_error_stops_the_write_retrying(cause: Exception, non_r
     team = Team.objects.create(organization=organization, name="AlertsOutcomesTeam")
     failure = _database_error(cause)
 
+    async def record() -> int:
+        return await ActivityEnvironment().run(alerts_product_record_outcomes_activity, _inputs(team.id))
+
     with patch("products.alerts.backend.facade.platform_alerts.record_outcomes", side_effect=failure):
-        run = async_to_sync(ActivityEnvironment().run)
+        run = async_to_sync(record)
         if non_retryable:
             with pytest.raises(ApplicationError) as caught:
-                run(alerts_product_record_outcomes_activity, _inputs(team.id))
+                run()
             assert caught.value.type == WRITE_PERMISSION_DENIED
             assert caught.value.non_retryable
             # The role and the table it could not write are deployment facts, not batch data.
             assert "permission denied" not in caught.value.message
         else:
             with pytest.raises(ProgrammingError) as caught_unrelated:
-                run(alerts_product_record_outcomes_activity, _inputs(team.id))
+                run()
             assert caught_unrelated.value is failure

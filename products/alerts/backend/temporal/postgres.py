@@ -14,15 +14,15 @@ from products.alerts.backend.models import PlatformAlert, PlatformAlertConfigura
 # both the alert state and the configuration's schedule.
 REQUIRED_PRIVILEGES = ("INSERT", "UPDATE")
 
-# One statement, so the probe still proves the connection works. `current_schemas(false)` keeps
-# the answer to the tables the role's own search path resolves, which is what a write resolves.
+# One statement, so the probe still proves the connection works. `to_regclass` resolves a name
+# the way an unqualified write resolves it, so the row reports the relation the ORM would reach
+# rather than a same-named table in another schema. It returns null for a name the role cannot
+# see, and the privilege functions are strict, so both privileges come back null with it.
 PRIVILEGE_SQL = """
-SELECT c.relname,
-       has_table_privilege(c.oid, 'INSERT'),
-       has_table_privilege(c.oid, 'UPDATE')
-FROM pg_class c
-JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE c.relname = ANY(%s) AND n.nspname = ANY(current_schemas(false))
+SELECT requested.table_name,
+       pg_catalog.has_table_privilege(pg_catalog.to_regclass(requested.table_name), 'INSERT'),
+       pg_catalog.has_table_privilege(pg_catalog.to_regclass(requested.table_name), 'UPDATE')
+FROM pg_catalog.unnest(%s::text[]) AS requested(table_name)
 """
 
 
@@ -34,11 +34,11 @@ def required_tables() -> tuple[str, ...]:
     return (PlatformAlertConfiguration._meta.db_table, PlatformAlert._meta.db_table)
 
 
-def _missing_privileges(granted: dict[str, tuple[bool, ...]]) -> list[str]:
+def _missing_privileges(granted: dict[str, tuple[bool | None, ...]]) -> list[str]:
     missing = []
     for table in required_tables():
         privileges = granted.get(table)
-        if privileges is None:
+        if privileges is None or None in privileges:
             missing.append(f"{table} (not visible)")
             continue
         lacking = [name for name, held in zip(REQUIRED_PRIVILEGES, privileges, strict=True) if not held]
