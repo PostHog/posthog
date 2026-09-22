@@ -341,6 +341,7 @@ class GeneratedWidgetVersion(TeamScopedRootMixin, UUIDModel):
     prompt_history: JSONField = JSONField(default=list)
     model = models.CharField(max_length=64, blank=True, default="")
     generator_version = models.CharField(max_length=32)
+    generation_cost_usd = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
     input_contract: JSONField = JSONField(default=list)
     demo_data: JSONField = JSONField(default=dict, db_default={})
     schema_hash = models.CharField(max_length=64)

@@ -33,6 +33,8 @@ import { toMcpInputSchema } from './tool-catalog'
 /** Presence of this tool is the runtime signal that the notebook cell surface
  *  (the `revamped-py-notebooks` flag) is live for this client. */
 const NOTEBOOK_ADD_CELL_TOOL = 'notebooks-add-cell'
+const DOCS_SEARCH_TOOL = 'docs-search'
+const BUSINESS_KNOWLEDGE_SEARCH_TOOL = 'business-knowledge-documents-search'
 
 export class InstructionsBuilder {
     private readonly formatter: InstructionsFormatter
@@ -78,6 +80,7 @@ export class InstructionsBuilder {
             metadataCompact: state.metadataCompact,
             groupTypes: state.groupTypes,
             notebookCellsEnabled: state.allTools.some((tool) => tool.name === NOTEBOOK_ADD_CELL_TOOL),
+            docsSearchEnabled: state.allTools.some((tool) => tool.name === DOCS_SEARCH_TOOL),
         }
     }
 
@@ -178,9 +181,9 @@ export class InstructionsBuilder {
 
     buildExecToolDescription(state?: ResolvedState): string {
         const skillsEnabled = state ? this.getExecLearnCapabilities(state).skillsEnabled : false
-        const docsSearchEnabled = state?.allTools.some(({ name }) => name === 'docs-search')
+        const docsSearchEnabled = state?.allTools.some(({ name }) => name === DOCS_SEARCH_TOOL)
         const businessKnowledgeSearchEnabled = state?.allTools.some(
-            ({ name }) => name === 'business-knowledge-documents-search'
+            ({ name }) => name === BUSINESS_KNOWLEDGE_SEARCH_TOOL
         )
         return this.formatter.buildExecToolDescription({
             skillsEnabled,
