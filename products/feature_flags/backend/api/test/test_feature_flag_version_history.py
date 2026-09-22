@@ -156,6 +156,7 @@ class TestV2FeatureFlagVersionHistoryAPI(APIBaseTest):
             states.append(copy.deepcopy(self.flag.filters))
             tags.append([])
             entry = self.updates().latest("created_at")
+            assert entry.detail is not None
             filters_change = next(c for c in entry.detail["changes"] if c["field"] == "filters")
             assert filters_change["before"] == previous
             assert filters_change["after"] == self.flag.filters == response["filters"]
@@ -164,6 +165,7 @@ class TestV2FeatureFlagVersionHistoryAPI(APIBaseTest):
             assert not entry.is_system
             assert entry.detail["context"]["filters_version"] == 2
         first = self.updates().earliest("created_at")
+        assert first.detail is not None
         summary = first.detail["context"]["config_changes"]
         added_id = states[1]["rules"][2]["id"]
         assert {
@@ -183,6 +185,7 @@ class TestV2FeatureFlagVersionHistoryAPI(APIBaseTest):
         states.append(copy.deepcopy(self.flag.filters))
         tags.append(["preview"])
         metadata_entry = self.updates().latest("created_at")
+        assert metadata_entry.detail is not None
         assert {c["field"] for c in metadata_entry.detail["changes"]} == {"version", "name", "key", "tags"}
         self.update(filters=config(rollout(None, None, metadata={"later": True})), tags=[])
         assert self.flag.version == 6
@@ -212,6 +215,7 @@ class TestV2FeatureFlagVersionHistoryAPI(APIBaseTest):
         self.update(filters=config(targeted(metadata=before)))
         self.update(filters=config(targeted(metadata=after)))
         entry = self.updates().latest("created_at")
+        assert entry.detail is not None
         assert any(c["field"] == f"rules/{RULE_A}/metadata" for c in entry.detail["context"]["config_changes"])
         assert self.history(2)["filters"]["rules"][0]["metadata"] == before
 
@@ -220,11 +224,15 @@ class TestV2FeatureFlagVersionHistoryAPI(APIBaseTest):
         reordered_keys = dict(reversed(list(before.items())))
         reordered_keys["rules"] = [dict(reversed(list(rule.items()))) for rule in before["rules"]]
         self.update(filters=reordered_keys)
-        assert self.updates().latest("created_at").detail["changes"] == [
+        key_order_entry = self.updates().latest("created_at")
+        assert key_order_entry.detail is not None
+        assert key_order_entry.detail["changes"] == [
             {"type": "FeatureFlag", "field": "version", "action": "changed", "before": 1, "after": 2}
         ]
         self.update(filters={**before, "rules": list(reversed(before["rules"]))})
-        summary = self.updates().latest("created_at").detail["context"]["config_changes"]
+        rule_order_entry = self.updates().latest("created_at")
+        assert rule_order_entry.detail is not None
+        summary = rule_order_entry.detail["context"]["config_changes"]
         assert summary == [
             {
                 "type": "FeatureFlag",
@@ -293,6 +301,7 @@ class TestV2FeatureFlagVersionHistoryAPI(APIBaseTest):
         entry = self.updates().get()
         assert entry.user_id == self.user.id
         assert entry.was_impersonated
+        assert entry.detail is not None
         assert entry.detail["trigger"] == {"job_type": "audit_test", "job_id": "synthetic-job", "payload": {}}
 
     def test_internal_event_masks_config_without_losing_authorized_history(self) -> None:
@@ -323,6 +332,7 @@ class TestV2FeatureFlagVersionHistoryAPI(APIBaseTest):
         assert saved.name == "Changed before locking"
         assert saved.version == 3
         entry = self.updates().latest("created_at")
+        assert entry.detail is not None
         change = next(c for c in entry.detail["changes"] if c["field"] == "filters")
         assert change["before"] == before
         assert change["after"] == saved.filters
@@ -334,6 +344,7 @@ class TestV2FeatureFlagVersionHistoryAPI(APIBaseTest):
         self.update(filters=config(default_value=True))
         entry = self.updates().get()
         detail = entry.detail
+        assert detail is not None
         if field == "context":
             detail.pop("context")
         elif field == "missing_snapshot":
@@ -357,7 +368,9 @@ class TestV2FeatureFlagVersionHistoryAPI(APIBaseTest):
             )
             persisted = copy.deepcopy(saved.filters)
             saved.filters["rules"][0]["metadata"] = {"later": True}
-        change = next(c for c in self.updates().get().detail["changes"] if c["field"] == "filters")
+        entry = self.updates().get()
+        assert entry.detail is not None
+        change = next(c for c in entry.detail["changes"] if c["field"] == "filters")
         assert change["before"] == before
         assert change["after"] == persisted
 
