@@ -114,7 +114,9 @@ class TestDeletePersonsAsync(SimpleTestCase):
                 delete_persons_async.pop_request()
 
     @parameterized.expand([("last_attempt", 3, 1), ("earlier_attempt", 2, 0)])
-    def test_reports_unpublished_tombstones_only_when_it_gives_up(self, _name, retries, reported) -> None:
+    def test_reports_unpublished_tombstones_only_when_it_gives_up(
+        self, _name: str, retries: int, reported: int
+    ) -> None:
         result = PersonProfileDeletionResult(
             deleted_count=1,
             failures=[
