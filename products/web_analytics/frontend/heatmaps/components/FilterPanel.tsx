@@ -277,7 +277,9 @@ export function FilterPanel({
                 </div>
                 <ViewportChooser lockedWidth={lockedWidth} />
             </div>
-            {heatmapEmpty && !rawHeatmapLoading && !previewUnavailable ? <HeatmapEmptyState /> : null}
+            {heatmapEmpty && !rawHeatmapLoading && !previewUnavailable ? (
+                <HeatmapEmptyState lockedWidth={lockedWidth} />
+            ) : null}
         </div>
     )
 }

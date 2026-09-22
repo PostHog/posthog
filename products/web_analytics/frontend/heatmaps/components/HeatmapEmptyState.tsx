@@ -114,7 +114,7 @@ function DiagnosisMessage({
     }
 }
 
-export function HeatmapEmptyState(): JSX.Element {
+export function HeatmapEmptyState({ lockedWidth }: { lockedWidth?: number }): JSX.Element {
     const { emptyDiagnosis, emptyDiagnosisLoading, hasValidReplayIframeData, recordingUrlMatchMode } =
         useValues(heatmapCoverageLogic)
     const { heatmapFilters, analysisWidth } = useValues(heatmapDataLogic({ context: 'in-app' }))
@@ -129,8 +129,9 @@ export function HeatmapEmptyState(): JSX.Element {
     if (!emptyDiagnosis) {
         return (
             <p className="text-sm text-muted mt-2 mb-0">
-                No interactions found at this screen width. Try another screen width, a different date range, or adjust
-                your filters in Heatmap settings.
+                {lockedWidth
+                    ? 'No interactions found at this screen width. Try a different date range, or adjust your filters in Heatmap settings.'
+                    : 'No interactions found at this screen width. Try another screen width, a different date range, or adjust your filters in Heatmap settings.'}
             </p>
         )
     }
