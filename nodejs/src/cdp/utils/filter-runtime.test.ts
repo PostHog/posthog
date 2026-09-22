@@ -14,7 +14,16 @@ describe('filter-runtime', () => {
         // diff until the file is regenerated, so Django cannot silently validate against a stale set.
         // Compared as parsed JSON: the pre-commit hook reformats the file, and whitespace is not the
         // contract.
-        expect(parseJSON(committed())).toEqual(parseJSON(renderFilterGlobalsFile(describeFilterRuntime())))
+        const expected = parseJSON(renderFilterGlobalsFile(describeFilterRuntime()))
+        const actual = parseJSON(committed())
+        if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+            // toEqual alone prints a diff and nothing else; say what to do about it.
+            throw new Error(
+                `${FILTER_GLOBALS_RELATIVE_PATH} is stale. Run: pnpm --filter=@posthog/plugin-server run build:filter-globals\n` +
+                    JSON.stringify({ expected, actual }, null, 2)
+            )
+        }
+        expect(actual).toEqual(expected)
     })
 
     it('describes what a hog function is actually evaluated with', () => {
