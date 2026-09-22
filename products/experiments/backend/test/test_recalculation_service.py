@@ -502,7 +502,14 @@ class TestTimeseriesColdStartPayload(BaseTest):
         uuids = {r["metric_uuid"] for r in payload["results"]}
         assert uuids == {"m1"}
 
-    @parameterized.expand([("fresh_point", timedelta(hours=23), True), ("stale_point", timedelta(hours=25), False)])
+    @parameterized.expand(
+        [
+            ("fresh_point", timedelta(hours=23), True),
+            ("stale_point", timedelta(hours=25), False),
+            # The backfill writes end-of-day points, so today's point can sit in the future.
+            ("future_point", timedelta(hours=-10), False),
+        ]
+    )
     def test_only_points_inside_the_max_age_feed_the_fallback(self, _name: str, age: timedelta, included: bool):
         exp = self._experiment(f"ts-age-{_name}", ["m1"])
         self._timeseries_point(exp, "m1", timezone.now() - age, {"ok": True})

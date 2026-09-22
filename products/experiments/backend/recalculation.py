@@ -448,6 +448,7 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
         metrics = discover_experiment_metrics(experiment)
         stats_method = get_experiment_stats_method(experiment)
 
+        now = timezone.now()
         results: list[dict] = []
         latest_query_to = None
         for metric in metrics:
@@ -468,7 +469,10 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
                     metric_uuid=metric.metric_uuid,
                     fingerprint=config_fp,
                     status=ExperimentMetricResult.Status.COMPLETED,
-                    query_to__gte=timezone.now() - TIMESERIES_FALLBACK_MAX_AGE,
+                    # Bounded on both sides: the backfill writes end-of-day points, so today's point can carry
+                    # a future query_to that would surface here as a future completion time.
+                    query_to__gte=now - TIMESERIES_FALLBACK_MAX_AGE,
+                    query_to__lte=now,
                 )
                 .order_by("-query_to")
                 .first()
