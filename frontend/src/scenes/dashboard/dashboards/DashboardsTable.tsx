@@ -113,7 +113,7 @@ export function DashboardsTable({
         {
             title: 'Name',
             dataIndex: 'name',
-            width: '40%',
+            width: 384,
             render: function Render(_, { id, name, description, is_shared, user_access_level }) {
                 const isPrimary = id === currentTeam?.primary_dashboard
                 const canEditDashboard = accessLevelSatisfied(
@@ -338,7 +338,7 @@ export function DashboardsTable({
                 rowKey="id"
                 rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
                 tableLayout="fixed"
-                tableStyle={{ minWidth: '1800px' }}
+                tableStyle={{ minWidth: '1400px' }}
                 columns={columns}
                 loading={dashboardsLoading}
                 defaultSorting={effectiveTableSorting}
