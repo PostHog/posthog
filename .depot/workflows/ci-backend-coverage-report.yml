@@ -77,6 +77,9 @@ jobs:
                           depot ci artifacts download "$(jq -r '.artifact_id' <<<"$artifact")" \
                               --output-file "$REPORT_ARCHIVE"
                           echo "available=true" >> "$GITHUB_OUTPUT"
+                          if job_path=$(jq -er 'select((.workflow_id + .job_id) | test("^[a-z0-9]+$")) | "\(.workflow_id)?job=\(.job_id)"' <<<"$artifact"); then
+                              echo "backend_job_url=${DEPOT_JOB_URL%%/workflows/*}/workflows/$job_path" >> "$GITHUB_OUTPUT"
+                          fi
                           break
                       fi
 
@@ -146,6 +149,9 @@ jobs:
                   REPORT_DATA: ${{ runner.temp }}/coverage-report-data.json
                   REPORT_BODY: ${{ runner.temp }}/coverage-comment.md
                   PATCH_DATA: ${{ runner.temp }}/patch-coverage.json
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  # Points the agent hint at the backend job that uploaded patch-coverage.
+                  DEPOT_JOB_URL: ${{ steps.report.outputs.backend_job_url }}
               run: |
                   uv run --script .github/scripts/coverage_report.py \
                       --report-data-in "$REPORT_DATA" \

@@ -556,6 +556,9 @@ def main() -> int:
         "--core-artifacts", type=Path, help="dir of core (posthog/ee) coverage-core-* artifacts to include"
     )
     parser.add_argument("--source-commit", help="exact commit that every coverage artifact must have measured")
+    parser.add_argument(
+        "--core-source-commit", help="exact commit the core coverage artifacts measured (default: --source-commit)"
+    )
     args = parser.parse_args()
 
     if args.report_data_in is not None:
@@ -573,14 +576,20 @@ def main() -> int:
         if args.artifacts is None:
             parser.error("--artifacts is required unless --report-data-in is used")
 
-        def from_source_commit(artifacts_dir: Path) -> bool:
-            return args.source_commit is None or artifacts_match_commit(artifacts_dir, args.source_commit)
+        def from_source_commit(artifacts_dir: Path, expected_commit: str | None) -> bool:
+            return expected_commit is None or artifacts_match_commit(artifacts_dir, expected_commit)
 
-        covered, valid = aggregate(args.artifacts) if from_source_commit(args.artifacts) else ({}, {})
+        covered, valid = (
+            aggregate(args.artifacts) if from_source_commit(args.artifacts, args.source_commit) else ({}, {})
+        )
 
         core_covered: dict[str, set[int]] = {}
         core_valid: dict[str, set[int]] = {}
-        if args.core_artifacts is not None and args.core_artifacts.exists() and from_source_commit(args.core_artifacts):
+        if (
+            args.core_artifacts is not None
+            and args.core_artifacts.exists()
+            and from_source_commit(args.core_artifacts, args.core_source_commit or args.source_commit)
+        ):
             core_covered, core_valid = aggregate_core(args.core_artifacts)
 
         results = collect(covered, valid)  # per-product table is products only; core feeds patch coverage

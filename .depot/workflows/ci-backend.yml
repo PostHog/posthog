@@ -3622,6 +3622,8 @@ jobs:
               if: steps.reporter.outputs.available == 'true'
               env:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
+                  # The django job checks out the PR head, not the merge ref this job checks out.
+                  PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
                   mkdir -p cov-artifacts core-artifacts
                   uv run --script .github/scripts/coverage_report.py \
@@ -3630,6 +3632,7 @@ jobs:
                       --combined-out combined-coverage.xml \
                       --compare-branch HEAD^1 \
                       --source-commit "$(git rev-parse HEAD)" \
+                      --core-source-commit "$PR_HEAD_SHA" \
                       --patch-json-out patch-coverage.json \
                       --report-data-out coverage-report-data.json \
                       --out coverage-comment.md
