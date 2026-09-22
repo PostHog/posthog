@@ -196,6 +196,9 @@ jobs:
                         - 'frontend/src/generated/core/api.ts'
                         - 'products/*/frontend/generated/api.ts'
                         - 'tools/hogli-commands/hogli_commands/api_ratchet.py'
+                        # The generated rule block is compared against the generator, so
+                        # editing it by hand has to reach the drift check.
+                        - '.semgrep/rules/devex/prefer-codegen-api-namespaced.yaml'
                         - 'hogli.yaml'
                         - .github/workflows/ci-python.yml
 

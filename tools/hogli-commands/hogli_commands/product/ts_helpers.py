@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from hogli_commands.api_ratchet import namespaces_owned_by
+from hogli_commands.api_ratchet import NamespaceMember, namespace_members, namespaces_owned_by
 
 _EXPORTED_ASYNC_RE = re.compile(r"^export\s+const\s+(\w+)\s*=\s*async\s*\(", re.MULTILINE)
 
@@ -100,9 +100,9 @@ def owned_namespace_pattern(frontend_dir: Path) -> re.Pattern[str] | None:
     if not owned:
         return None
     alternatives = "|".join(sorted(owned))
-    # `(?:\.\w+)+` so a nested chain (api.signalScout.runs.list) counts once, as one
-    # call. Matching a single member would miss it, which hid a third of signals.
-    return re.compile(rf"\bapi\.({alternatives})((?:\.\w+)+)\s*(?:<[^(]*>)?\s*\(")
+    # `(?:\s*\.\s*\w+)+` so a nested chain (api.signalScout.runs.list) counts once, and
+    # a call the formatter broke across lines (api.endpoint\n    .get(...)) counts at all.
+    return re.compile(rf"\bapi\.({alternatives})((?:\s*\.\s*\w+)+)\s*(?:<[^(]*>)?\s*\(")
 
 
 def count_manual_api_calls(frontend_dir: Path) -> int:
@@ -179,9 +179,14 @@ class ManualCallSite:
     url: str
     method: str
     generated_equivalent: str | None
-    # A call on a namespace this product owns. The call site carries no URL, so the
-    # covering generated function is unknown, but one exists.
+    # A call on a namespace this product owns whose route and verb the generated client
+    # covers. False when the client has no operation for it, which is a backend gap.
     namespaced: bool = False
+
+
+def _generated_key(request: NamespaceMember) -> str:
+    """The member's route in the shape `_parse_generated_url_map` keys on."""
+    return "/api/" + "/".join("{p}" if segment == "{}" else segment for segment in request.template)
 
 
 def _normalize_url(url: str) -> str:
@@ -291,16 +296,23 @@ def codegen_call_sites(frontend_dir: Path) -> list[ManualCallSite]:
 
         if namespaced is None:
             continue
+        members = namespace_members()
         for m in namespaced.finditer(content):
+            namespace = m.group(1)
+            member = re.sub(r"\s+", "", m.group(2)).lstrip(".")
+            # The route and verb the namespace method sends, so a member the client has
+            # no operation for is reported as a gap rather than as already covered.
+            request = members.get(f"{namespace}.{member}")
+            equivalent = generated_map.get((_generated_key(request), request.method)) if request is not None else None
             sites.append(
                 ManualCallSite(
                     file=rel_path,
                     line=content[: m.start()].count("\n") + 1,
-                    verb=f"{m.group(1)}{m.group(2)}",
-                    url="",
-                    method="",
-                    generated_equivalent=None,
-                    namespaced=True,
+                    verb=f"{namespace}.{member}",
+                    url="/".join(request.template) if request is not None else "",
+                    method=request.method if request is not None else "",
+                    generated_equivalent=equivalent,
+                    namespaced=equivalent is not None,
                 )
             )
 

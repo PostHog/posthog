@@ -407,7 +407,12 @@ class TestSemgrepRules:
     def test_the_check_fails_when_the_committed_rules_are_stale(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _write_repo(tmp_path, baseline="hogFlows\npropertyDefinitions\nsignalReport\nsignalReports\n")
+        _write_repo(
+            tmp_path,
+            baseline=_baseline_lines(
+                "hogFlows", "propertyDefinitions", "organizationMembers", "signalReport", "signalReports"
+            ),
+        )
         rule = tmp_path / api_ratchet.SEMGREP_RULE
         rule.write_text(rule.read_text().replace("api.signalReports.$METHOD(...)", "api.somethingElse.$METHOD(...)"))
         monkeypatch.setattr(api_ratchet, "REPO_ROOT", tmp_path)

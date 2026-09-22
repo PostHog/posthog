@@ -17,6 +17,10 @@ export class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('signals').addPathComponent('reports')
     }
 
+    public signalReport(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.signalReports(teamId).addPathComponent(id)
+    }
+
     public signalScoutRuns(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('signals').addPathComponent('scout').addPathComponent('runs')
     }
@@ -30,6 +34,12 @@ const api = {
     signalReports: {
         async list(): Promise<any> {
             return await new ApiRequest().signalReports().get()
+        },
+        async setState(id: string, data: any): Promise<any> {
+            return await new ApiRequest().signalReport(id).withAction('state').create({ data })
+        },
+        async availableReviewers(): Promise<any> {
+            return await new ApiRequest().signalReports().withAction('available_reviewers').get()
         },
     },
     signalScout: {
@@ -53,6 +63,12 @@ export const getSignalsReportsListUrl = (projectId: string) => {
 }
 export const signalsReportsList = async (projectId: string) => {
     return apiMutator({ url: getSignalsReportsListUrl(projectId), method: 'GET' })
+}
+export const signalsReportsStateCreate = async (projectId: string, id: string) => {
+    return apiMutator({ url: getSignalsReportsStateCreateUrl(projectId, id), method: 'POST' })
+}
+export const getSignalsReportsStateCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/state/`
 }
 export const getSignalsScoutRunsListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/scout/runs/`
@@ -78,6 +94,9 @@ export const load = async (): Promise<void> => {
     await api.signalReports.list()
     await api.signalReports.setState(id, { state: 'resolved' })
     await api.signalScout.runs.list({ limit: 10 })
+    await api.signalReports.availableReviewers()
+    await api.signalReports
+        .setState(id, { state: 'resolved' })
     await api.comments.list()
     await api.get(`api/projects/${projectId}/signals/config/`)
 }
@@ -101,19 +120,25 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 class TestManualApiCalls:
     # Guards the blind spot: an owned namespace used to score as zero manual calls.
     def test_counts_owned_namespaces_and_skips_foreign_ones(self, repo: Path) -> None:
-        # two api.signalReports calls, one nested api.signalScout.runs.list, one api.get;
-        # api.comments belongs to platform_features, so it does not count here
-        assert count_manual_api_calls(repo / "products/signals/frontend") == 4
+        # four api.signalReports calls, one of them broken across lines, one nested
+        # api.signalScout.runs.list, one api.get; api.comments belongs to platform_features
+        assert count_manual_api_calls(repo / "products/signals/frontend") == 6
 
     def test_call_sites_mark_a_namespaced_call_as_covered(self, repo: Path) -> None:
         sites = codegen_call_sites(repo / "products/signals/frontend")
         assert sorted(site.verb for site in sites) == [
             "get",
+            "signalReports.availableReviewers",
             "signalReports.list",
+            "signalReports.setState",
             "signalReports.setState",
             # A nested chain counts once, with its full member path.
             "signalScout.runs.list",
         ]
-        namespaced = next(site for site in sites if site.verb == "signalReports.list")
-        assert namespaced.namespaced
-        assert namespaced.generated_equivalent is None
+        covered = next(site for site in sites if site.verb == "signalReports.list")
+        assert covered.namespaced
+        assert covered.generated_equivalent == "signalsReportsList"
+        # The client has no operation for this member, so it is a gap, not a twin.
+        gap = next(site for site in sites if site.verb == "signalReports.availableReviewers")
+        assert not gap.namespaced
+        assert gap.generated_equivalent is None

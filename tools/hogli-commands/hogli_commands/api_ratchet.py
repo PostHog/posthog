@@ -132,6 +132,21 @@ _CHAIN_BASE: Final = re.compile(r"this\.(\w+)\(")
 _RETURN_LINE: Final = re.compile(r"\s*return\b")
 _CHAINED_CALL: Final = re.compile(r"\.(\w+)\(")
 _NAMESPACE_START: Final = re.compile(r"^    (\w+): \{")
+# A method of a namespace block, at the block's own depth or one group deeper.
+_NAMESPACE_MEMBER: Final = re.compile(r"^ {8,12}(?:async )?(\w+)[(<]")
+# A group of methods inside a namespace, api.signalScout.runs, always one level deep.
+_NAMESPACE_GROUP: Final = re.compile(r"^ {8}(\w+): \{$")
+_VERB_CALL: Final = re.compile(r"\.(get|getResponse|create|update|put|delete)\(")
+
+# The HTTP method each ApiRequest verb sends, from its body in api.ts.
+VERB_METHODS: Final[dict[str, str]] = {
+    "get": "GET",
+    "getResponse": "GET",
+    "create": "POST",
+    "update": "PATCH",
+    "put": "PUT",
+    "delete": "DELETE",
+}
 _MEMBER_CALL: Final = re.compile(r"\.(\w+)\(")
 _GENERATED_URL: Final = re.compile(r"`(/api/[^`]*)`")
 _TEMPLATE_HOLE: Final = re.compile(r"\$\{[^}]*\}")
@@ -582,6 +597,63 @@ class GeneratedTemplates:
         return self.owners.get(template, frozenset())
 
 
+@dataclass(frozen=True)
+class NamespaceMember:
+    """One method on the ``api`` singleton, with the request it sends."""
+
+    namespace: str
+    member: str
+    template: tuple[str, ...]
+    method: str
+
+    @property
+    def path(self) -> str:
+        """What a call site names: `signalScout.runs.list`."""
+        return f"{self.namespace}.{self.member}"
+
+
+@dataclass(frozen=True)
+class MemberSource:
+    """A namespace method as it appears in api.ts."""
+
+    name: str
+    body: str
+
+
+def _split_members(block: str) -> list[MemberSource]:
+    """The methods of a namespace block.
+
+    A method inside a group keeps its path, ``runs.list``, because that is what the
+    call site names: api.signalScout.runs.list(). api.ts nests one level deep, so a
+    group is a line at the block's own indentation and its methods sit one deeper.
+    """
+    lines = block.splitlines()
+    starts: list[tuple[int, str]] = []  # line index, dotted name
+    group = ""
+    for index, line in enumerate(lines):
+        if (opening := _NAMESPACE_GROUP.match(line)) is not None:
+            group = opening.group(1)
+            continue
+        member = _NAMESPACE_MEMBER.match(line)
+        if member is None:
+            continue
+        nested = line.startswith(" " * 12)
+        starts.append((index, f"{group}.{member.group(1)}" if nested and group else member.group(1)))
+    bounds = [index for index, _ in starts] + [len(lines)]
+    return [
+        MemberSource(name=name, body="\n".join(lines[index : bounds[position + 1]]))
+        for position, (index, name) in enumerate(starts)
+    ]
+
+
+def _argument_segments_after(text: str, offset: int) -> tuple[str, ...]:
+    """The segments the `withAction` calls after ``offset`` append."""
+    segments: list[str] = []
+    for call in re.finditer(r"\.(withAction|addPathComponent)\(", text[offset:]):
+        segments.extend(_argument_segments(_read_call_argument(text[offset:], call.end() - 1)))
+    return tuple(segments)
+
+
 class Ratchet:
     """The report: which path methods are redundant, and which namespaces use them."""
 
@@ -608,6 +680,39 @@ class Ratchet:
         for entry in self.redundant:
             products[entry.name] = products.get(entry.name, frozenset()) | entry.products
         return products
+
+    def namespace_members(self) -> dict[str, NamespaceMember]:
+        """Every ``api.<namespace>.<member>`` with the route and HTTP method it sends.
+
+        The route alone cannot say whether a member is covered: the signals client
+        generates GET and PATCH on a report but no DELETE, so a namespace method
+        needs its verb checked as well.
+        """
+        members: dict[str, NamespaceMember] = {}
+        for namespace, block in self._namespace_blocks().items():
+            for source in _split_members(block):
+                route = self._member_route(source.body)
+                verb = _VERB_CALL.search(source.body)
+                if route is None or verb is None:
+                    continue
+                member = NamespaceMember(
+                    namespace=namespace,
+                    member=source.name,
+                    template=route,
+                    method=VERB_METHODS[verb.group(1)],
+                )
+                members[member.path] = member
+        return members
+
+    def _member_route(self, body: str) -> tuple[str, ...] | None:
+        """The route a member builds: its path method plus any action it appends."""
+        for call in _MEMBER_CALL.finditer(body):
+            templates = self._resolver.templates(call.group(1))
+            if not templates:
+                continue
+            tail = _argument_segments_after(body, call.end())
+            return normalize_template((*templates[0], *tail))
+        return None
 
     def namespaces(self) -> dict[str, frozenset[str]]:
         """Namespaces on the ``api`` singleton that call a redundant path method.
@@ -673,6 +778,11 @@ def write_baseline(repo_root: Path, methods: set[str]) -> None:
 @lru_cache(maxsize=1)
 def _ratchet(repo_root: Path) -> Ratchet:
     return Ratchet(repo_root)
+
+
+def namespace_members(repo_root: Path | None = None) -> dict[str, NamespaceMember]:
+    """Every ``api.<namespace>.<member>`` with the route and HTTP method it sends."""
+    return _ratchet(repo_root or Path(REPO_ROOT)).namespace_members()
 
 
 def namespaces_owned_by(product: str, repo_root: Path | None = None) -> frozenset[str]:

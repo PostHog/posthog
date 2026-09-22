@@ -951,6 +951,10 @@ rules:
           - pattern: api.activity.$MEMBER.$METHOD(...)
           - pattern: api.comments.$METHOD(...)
           - pattern: api.comments.$MEMBER.$METHOD(...)
+          - pattern: api.organizationMembers.$METHOD(...)
+          - pattern: api.organizationMembers.$MEMBER.$METHOD(...)
+          - pattern: api.roles.$METHOD(...)
+          - pattern: api.roles.$MEMBER.$METHOD(...)
       paths:
           include:
               - '/products/platform_features/frontend/'
