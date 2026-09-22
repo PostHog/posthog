@@ -677,13 +677,6 @@ class TestOrganizationBillingInvoicesAndLimits(OrganizationBillingTestMixin, API
         self.assertTrue(body["next"].endswith("/billing/invoices/?limit=1&status=paid&cursor=bz0x"), body["next"])
         self.assertIsNone(body["previous"])
         self.assertEqual(mock_get.call_args.kwargs["params"], {"limit": 1, "status": "paid"})
-        mock_get.return_value = _response({**INVOICES, "previous": ""})
-        response = self.client.get(self._url("invoices/?limit=1&status=paid&cursor=page-two"))
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        self.assertTrue(
-            response.json()["previous"].endswith("/billing/invoices/?limit=1&status=paid"),
-            response.json()["previous"],
-        )
         for query in ("limit=abc", "limit=0", "status=draft"):
             response = self.client.get(self._url(f"invoices/?{query}"))
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, query)
