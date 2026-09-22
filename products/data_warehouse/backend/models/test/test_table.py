@@ -1068,8 +1068,7 @@ class TestTable(BaseTest):
         assert definition.top_level_settings is not None
         assert definition.top_level_settings.format_csv_allow_double_quotes is False
 
-    def test_hogql_definition_allows_the_json_type_when_a_column_uses_it(self):
-        # The cluster enables the setting by default, so without this the table stops reading if that default changes.
+    def test_hogql_definition_reads_a_json_column_as_the_json_type(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(
             name="runs",
@@ -1082,8 +1081,6 @@ class TestTable(BaseTest):
 
         definition = table.hogql_definition()
         assert isinstance(definition, HogQLDataWarehouseTable)
-        assert definition.top_level_settings is not None
-        assert definition.top_level_settings.allow_experimental_json_type is True
         assert definition.structure == "`usage` JSON"
 
     def test_hogql_definition_no_raw_settings_for_parquet(self):

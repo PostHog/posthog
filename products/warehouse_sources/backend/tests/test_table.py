@@ -329,6 +329,8 @@ class TestStructureAgainstTheEngine(BaseTest):
         assert definition.structure is not None
         glob = escape_param_clickhouse(str(directory / "*.json"))
         result = run_chdb_query(
+            # The engine chdb embeds still treats the JSON type as experimental, so it needs the setting to create
+            # the column. The cluster enables the type by default and the read path sets nothing.
             "SET allow_experimental_json_type=1; SELECT id, usage.cacheWriteInputTokenCount AS written FROM "
             f"file({glob}, JSONEachRow, {escape_param_clickhouse(definition.structure)}) ORDER BY id",
             timeout=self.CHDB_TIMEOUT_SECONDS,

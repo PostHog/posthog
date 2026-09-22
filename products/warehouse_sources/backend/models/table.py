@@ -572,12 +572,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             return described_type
         return "JSON"
 
-    def _has_native_json_columns(self) -> bool:
-        return any(
-            clean_type(type if isinstance(type, str) else type.get("clickhouse", "")) == "JSON"
-            for type in (self.columns or {}).values()
-        )
-
     def _describe_settings(self) -> dict[str, str | int]:
         settings: dict[str, str | int] = {**DISABLE_HIVE_PARTITIONING_SETTINGS}
         if self._is_csv_format() and self.csv_allow_double_quotes is not None:
@@ -1076,17 +1070,11 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             source_type=self.external_data_source.source_type if self.external_data_source else None,
         )
 
-        query_settings: dict[str, Any] = {}
         if self._is_csv_format():
-            query_settings["format_csv_allow_double_quotes"] = (
-                self.csv_allow_double_quotes if self.csv_allow_double_quotes is not None else False
+            effective = self.csv_allow_double_quotes if self.csv_allow_double_quotes is not None else False
+            table_def.top_level_settings = HogQLQuerySettings(
+                format_csv_allow_double_quotes=effective,
             )
-        if self._has_native_json_columns():
-            # Insurance rather than a requirement: on 26.6 `enable_json_type` gates the type and the structure parses
-            # without this, but an older engine refuses to create the JSON column the structure declares.
-            query_settings["allow_experimental_json_type"] = True
-        if query_settings:
-            table_def.top_level_settings = HogQLQuerySettings(**query_settings)
 
         return table_def
 
