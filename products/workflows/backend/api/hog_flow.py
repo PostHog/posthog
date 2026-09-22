@@ -1360,6 +1360,15 @@ class HogFlowActionSerializer(serializers.Serializer):
         """Save-time checks for the "Create AI task" step beyond input shape: whether the
         chosen connectors, model and repository are actually usable, and the parallel-run
         limit is sane - so a misconfigured step fails here instead of only when it fires."""
+        # The step fires as the workflow's creator. A project secret API key has no user, so a flow
+        # it creates would pass every check here and then fail on each fire with "no owner".
+        request = self.context.get("request")
+        if self.context.get("workflow_owner_id") is None and isinstance(getattr(request, "user", None), SyntheticUser):
+            raise serializers.ValidationError(
+                "A workflow created with a project secret API key cannot contain a Create AI task step, because "
+                "the step runs as the workflow's creator and the key has no user. Create the workflow with a "
+                "personal API key or in the app, then push updates with the project key."
+            )
         connectors = (inputs.get("connectors") or {}).get("value")
         if connectors:
             get_team = self.context.get("get_team")
@@ -4379,23 +4388,27 @@ class HogFlowViewSet(
         # error, so nothing is logged. Write the row as a system row instead and name the key in the
         # trigger, so a person can still see which credential wrote the workflow.
         psak = authenticator.project_secret_api_key
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team.id,
-            user=None,
-            was_impersonated=False,
-            item_id=str(instance.id),
-            scope="HogFlow",
-            activity=activity or ACTIVITY_TYPES.get(self.action, ACTIVITY_TYPES["default"]),
-            detail=Detail(
-                name=instance.name,
-                type=detail_type,
-                changes=changes_between("HogFlow", previous=previous, current=instance)
-                if previous is not None
-                else None,
-                trigger=Trigger(job_type=PSAK_TRIGGER_JOB_TYPE, job_id=psak.id, payload={"label": psak.label}),
-            ),
-        )
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=None,
+                was_impersonated=False,
+                item_id=str(instance.id),
+                scope="HogFlow",
+                activity=activity or ACTIVITY_TYPES.get(self.action, ACTIVITY_TYPES["default"]),
+                detail=Detail(
+                    name=instance.name,
+                    type=detail_type,
+                    changes=changes_between("HogFlow", previous=previous, current=instance)
+                    if previous is not None
+                    else None,
+                    trigger=Trigger(job_type=PSAK_TRIGGER_JOB_TYPE, job_id=psak.id, payload={"label": psak.label}),
+                ),
+            )
+        except Exception:
+            # The row is already saved; the audit write must not fail the request, same as the shared helper.
+            logger.exception("Failed to write workflow activity for a project secret API key", flow_id=instance.id)
 
     def _report_workflow_action(self, event: str, instance: HogFlow, extra_properties: Optional[dict] = None) -> None:
         # report_user_action injects source and MCP-client properties from the request, so usage is
