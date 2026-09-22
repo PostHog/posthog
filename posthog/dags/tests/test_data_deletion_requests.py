@@ -2724,21 +2724,25 @@ def test_property_removal_where_omits_event_filter_when_delete_all_events():
     assert "events" not in params
 
 
-def _profile_result_with_unpublished_tombstone(person_uuid: UUID) -> PersonProfileDeletionResult:
+def _profile_result_with_unpublished_tombstone(
+    person_uuid: UUID, step: PersonDeletionStep = PersonDeletionStep.TOMBSTONE_CLICKHOUSE
+) -> PersonProfileDeletionResult:
     return PersonProfileDeletionResult(
         deleted_count=1,
-        failures=[
-            PersonDeletionFailure(step=PersonDeletionStep.TOMBSTONE_CLICKHOUSE, person_uuid=person_uuid, error="kafka")
-        ],
+        failures=[PersonDeletionFailure(step=step, person_uuid=person_uuid, error="kafka")],
     )
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "tombstone_setting,republish_calls",
-    [(True, 1), (False, 0)],
+    "tombstone_setting,failed_step,republish_calls",
+    [
+        (True, PersonDeletionStep.TOMBSTONE_CLICKHOUSE, 1),
+        (True, PersonDeletionStep.DELETE_POSTGRES, 1),
+        (False, PersonDeletionStep.TOMBSTONE_CLICKHOUSE, 0),
+    ],
 )
-def test_delete_person_profiles_op_republishes_unpublished_tombstones(tombstone_setting, republish_calls):
+def test_delete_person_profiles_op_republishes_unpublished_tombstones(tombstone_setting, failed_step, republish_calls):
     p_uuid = str(uuid4())
     create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
     ctx = PersonRemovalContext(
@@ -2756,7 +2760,7 @@ def test_delete_person_profiles_op_republishes_unpublished_tombstones(tombstone_
         patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter,
         patch("posthog.dags.data_deletion_requests.republish_tombstones", return_value=[]) as republish,
     ):
-        deleter.return_value = _profile_result_with_unpublished_tombstone(UUID(p_uuid))
+        deleter.return_value = _profile_result_with_unpublished_tombstone(UUID(p_uuid), failed_step)
         result = delete_person_profiles_op(build_op_context(), ctx)
 
     assert result is ctx

@@ -967,7 +967,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 if failure.person_uuid is not None
             ]
             if settings.PERSON_DELETE_TOMBSTONE:
-                # These persons no longer resolve, so a repeat request cannot reach them.
+                # A tombstoned person no longer resolves, so a repeat request cannot reach it.
+                # This includes a failed tombstone call, because the call can commit before it fails.
                 unpublished = unpublished_tombstone_uuids(result.failures)
                 if unpublished:
                     republish_person_tombstones.delay(team_id=self.team_id, person_uuids=[str(u) for u in unpublished])

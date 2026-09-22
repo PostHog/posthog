@@ -655,10 +655,19 @@ def _republish_tombstones(
 
 
 def unpublished_tombstone_uuids(failures: builtins.list[PersonDeletionFailure]) -> builtins.list[uuid_lib.UUID]:
+    """Persons that can be tombstoned in Postgres with no ClickHouse tombstone, under PERSON_DELETE_TOMBSTONE.
+
+    A failed tombstone call can still commit, for example when the response is lost after the
+    replica wrote the rows. A tombstoned person no longer resolves, so a repeat request cannot
+    reach it. Republishing is safe for each of these persons: the tombstone call returns the
+    stored versions for a person it already tombstoned, and otherwise it completes the delete
+    that the caller asked for.
+    """
     return [
         failure.person_uuid
         for failure in failures
-        if failure.step is PersonDeletionStep.TOMBSTONE_CLICKHOUSE and failure.person_uuid is not None
+        if failure.step in (PersonDeletionStep.TOMBSTONE_CLICKHOUSE, PersonDeletionStep.DELETE_POSTGRES)
+        and failure.person_uuid is not None
     ]
 
 
@@ -666,8 +675,6 @@ def republish_tombstones(team_id: int, person_uuids: builtins.list[uuid_lib.UUID
     """Publish ClickHouse tombstones again; returns the uuids still unpublished afterwards."""
     failures: builtins.list[PersonDeletionFailure] = []
     _republish_tombstones(team_id, person_uuids, failures)
-    if any(failure.step is PersonDeletionStep.DELETE_POSTGRES for failure in failures):
-        return list(person_uuids)
     return unpublished_tombstone_uuids(failures)
 
 

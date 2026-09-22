@@ -611,29 +611,30 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertEqual(data["code"], "person_deletion_failed")
             self.assertIn("delete_postgres", data["detail"])
 
-    @parameterized.expand([("publish_failed", True, 1), ("published", False, 0)])
+    @parameterized.expand(
+        [
+            ("publish_failed", PersonDeletionStep.TOMBSTONE_CLICKHOUSE, 1, status.HTTP_202_ACCEPTED),
+            ("tombstone_call_failed", PersonDeletionStep.DELETE_POSTGRES, 0, status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("published", None, 1, status.HTTP_202_ACCEPTED),
+        ]
+    )
     @override_settings(PERSON_DELETE_TOMBSTONE=True)
-    def test_delete_person_hands_unpublished_tombstones_to_celery(self, _name, publish_failed, delay_calls):
+    def test_delete_person_hands_unpublished_tombstones_to_celery(self, _name, failed_step, deleted, expected_status):
         person = _create_person(team=self.team, distinct_ids=["person_1"], immediate=True)
         failures = (
-            [
-                PersonDeletionFailure(
-                    step=PersonDeletionStep.TOMBSTONE_CLICKHOUSE, person_uuid=person.uuid, error="kafka"
-                )
-            ]
-            if publish_failed
-            else []
+            [PersonDeletionFailure(step=failed_step, person_uuid=person.uuid, error="down")] if failed_step else []
         )
         with (
             mock.patch(
                 "posthog.api.person.delete_persons_profile",
-                return_value=PersonProfileDeletionResult(deleted_count=1, failures=failures),
+                return_value=PersonProfileDeletionResult(deleted_count=deleted, failures=failures),
             ),
             mock.patch("posthog.api.person.republish_person_tombstones") as task,
         ):
             response = self.client.delete(f"/api/person/{person.uuid}/")
 
-        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(response.status_code, expected_status)
+        delay_calls = 1 if failed_step else 0
         self.assertEqual(task.delay.call_count, delay_calls)
         if delay_calls:
             task.delay.assert_called_once_with(team_id=self.team.pk, person_uuids=[str(person.uuid)])

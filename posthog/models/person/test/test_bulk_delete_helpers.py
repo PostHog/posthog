@@ -17,6 +17,7 @@ from posthog.models.person.bulk_delete import (
     process_queued_person_deletion,
     queue_person_event_deletion,
     queue_person_recording_deletion,
+    republish_tombstones,
     resolve_persons_for_deletion,
 )
 from posthog.models.person.util import DistinctIdForPerson, PersonTombstone
@@ -632,6 +633,31 @@ class RepublishTombstonesOnRetryTests(BaseTest):
         # A live person that merely failed to resolve must not be tombstoned behind its other steps.
         assert [f.step for f in result.failures] == [PersonDeletionStep.RESOLVE_PERSONS]
         rpc.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("tombstone_call_fails", True, None, [0, 1]),
+            ("one_publish_fails", False, 0, [0]),
+            ("all_published", False, None, []),
+        ]
+    )
+    def test_republish_returns_the_uuids_still_unpublished(self, _name, rpc_fails, failing_publish, expected):
+        uuids = [uuid4(), uuid4()]
+        tombstones = [PersonTombstone(uuid=u, version=7, distinct_ids=[]) for u in uuids]
+
+        def publish(_team_id, tombstone):
+            if failing_publish is not None and tombstone.uuid == uuids[failing_publish]:
+                raise RuntimeError("kafka down")
+
+        with (
+            patch(
+                "posthog.models.person.bulk_delete.tombstone_persons_in_postgres",
+                side_effect=RuntimeError("deadline exceeded") if rpc_fails else None,
+                return_value=tombstones,
+            ),
+            patch("posthog.models.person.bulk_delete.publish_person_tombstone", side_effect=publish),
+        ):
+            assert republish_tombstones(self.team.pk, uuids) == [uuids[i] for i in expected]
 
 
 class QueueRecordingDeletionTests(BaseTest):
