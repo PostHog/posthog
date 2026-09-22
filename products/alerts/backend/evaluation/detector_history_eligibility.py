@@ -80,7 +80,14 @@ class _HourlySeriesMatcher:
             and not expr.args[0].args
         )
 
-    def _row_local(self, expr: ast.Expr, *, allow_now: bool = False) -> bool:
+    def _row_local(self, expr: ast.Expr) -> bool:
+        """True when the predicate reads only the row itself — never the clock.
+
+        The two window bounds are the only now()-dependent predicates the cache can account for,
+        and ``_window_hours`` recognizes those structurally before this check runs. Any other
+        now()-dependent predicate changes which rows count toward a bucket as the bucket ages, so
+        its value would depend on when it was computed.
+        """
         if isinstance(expr, ast.Constant):
             return True
         if isinstance(expr, ast.Field):
@@ -98,28 +105,15 @@ class _HourlySeriesMatcher:
                     ast.CompareOperationOp.In,
                     ast.CompareOperationOp.NotIn,
                 )
-                and self._row_local(expr.left, allow_now=allow_now)
-                and self._row_local(expr.right, allow_now=allow_now)
+                and self._row_local(expr.left)
+                and self._row_local(expr.right)
             )
-        if isinstance(expr, ast.And):
-            return all(self._row_local(part, allow_now=allow_now) for part in expr.exprs)
-        # Below Or, Not, or a tuple, a now()-anchored bound is not a window narrowing: it changes
-        # which rows count toward a bucket as the bucket ages, so its value depends on when it was
-        # computed. Only conjuncts qualify, because those are what _window_hours folds into the
-        # window. The parser flattens AND chains, so a conjunct can never hide inside a nested And.
-        if isinstance(expr, ast.Or):
-            return all(self._row_local(part, allow_now=False) for part in expr.exprs)
+        if isinstance(expr, ast.And | ast.Or):
+            return all(self._row_local(part) for part in expr.exprs)
         if isinstance(expr, ast.Not):
-            return self._row_local(expr.expr, allow_now=False)
+            return self._row_local(expr.expr)
         if isinstance(expr, ast.Tuple):
-            return all(self._row_local(part, allow_now=False) for part in expr.exprs)
-        # A now()-anchored conjunct is sound in WHERE, where narrowing only removes older rows.
-        # Inside an aggregate argument it makes the bucket value depend on evaluation time, so a
-        # cached bucket and a full scan would disagree about the same hour.
-        if allow_now and self._end(expr):
-            return True
-        if allow_now and isinstance(expr, ast.ArithmeticOperation) and expr.op == ast.ArithmeticOperationOp.Sub:
-            return self._end(expr.left) and self._hours(expr.right) is not None
+            return all(self._row_local(part) for part in expr.exprs)
         return False
 
     def _hours(self, expr: ast.Expr) -> int | None:
@@ -197,10 +191,38 @@ class _HourlySeriesMatcher:
             return None
         return _SeriesAliases(bucket=bucket.alias, value=value.alias)
 
+    def _lower_bound_hours(self, predicate: ast.Expr) -> int | None:
+        """The N of a ``timestamp >= toStartOfHour(now()) - INTERVAL N HOUR`` conjunct, else None."""
+        if not isinstance(predicate, ast.CompareOperation) or not self._timestamp(predicate.left):
+            return None
+        lower = predicate.right
+        if (
+            predicate.op == ast.CompareOperationOp.GtEq
+            and isinstance(lower, ast.ArithmeticOperation)
+            and lower.op == ast.ArithmeticOperationOp.Sub
+            and self._end(lower.left)
+        ):
+            return self._hours(lower.right)
+        return None
+
+    def _is_end_bound(self, predicate: ast.Expr) -> bool:
+        return (
+            isinstance(predicate, ast.CompareOperation)
+            and predicate.op == ast.CompareOperationOp.Lt
+            and self._timestamp(predicate.left)
+            and self._end(predicate.right)
+        )
+
     def _window_hours(self) -> int | None:
-        """The number of hourly buckets the query asks for, when its bounds pin one."""
+        """The number of hourly buckets the query asks for, when its bounds pin one.
+
+        Every top-level conjunct must be one of the two exact bound shapes or contain no clock at
+        all. A now()-dependent predicate in any other shape shifts which rows a bucket holds as
+        time advances without moving the window this returns, so the cache would keep buckets a
+        full scan no longer reads.
+        """
         query = self.query
-        if not isinstance(query.where, ast.And) or not self._row_local(query.where, allow_now=True):
+        if not isinstance(query.where, ast.And):
             return None
         row_limit = get_default_limit_for_context(LimitContext.QUERY_ASYNC)
         if query.limit is not None:
@@ -214,23 +236,21 @@ class _HourlySeriesMatcher:
         hours: int | None = None
         has_end = False
         for predicate in query.where.exprs:
-            if not isinstance(predicate, ast.CompareOperation) or not self._timestamp(predicate.left):
-                continue
-            if predicate.op == ast.CompareOperationOp.Lt and self._end(predicate.right):
+            if self._is_end_bound(predicate):
                 has_end = True
                 continue
-            lower = predicate.right
-            if (
-                predicate.op == ast.CompareOperationOp.GtEq
-                and isinstance(lower, ast.ArithmeticOperation)
-                and lower.op == ast.ArithmeticOperationOp.Sub
-                and self._end(lower.left)
-            ):
-                found = self._hours(lower.right)
-                if found is not None and _MIN_WINDOW_HOURS < found < row_limit - _ROW_LIMIT_HEADROOM:
-                    # A second lower bound would narrow the window further, so keep the tightest.
-                    hours = found if hours is None else min(hours, found)
-        return hours if has_end else None
+            found = self._lower_bound_hours(predicate)
+            if found is not None:
+                # A second lower bound narrows the window further, so keep the tightest.
+                hours = found if hours is None else min(hours, found)
+                continue
+            if not self._row_local(predicate):
+                return None
+        if not has_end or hours is None:
+            return None
+        if not _MIN_WINDOW_HOURS < hours < row_limit - _ROW_LIMIT_HEADROOM:
+            return None
+        return hours
 
     def match(self) -> _HourlySeriesShape | None:
         aliases = self._aliases()

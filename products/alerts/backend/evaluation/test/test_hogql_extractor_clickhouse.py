@@ -274,6 +274,21 @@ class TestHogQLDetectorIncrementalHistory(APIBaseTest, ClickhouseDestroyTablesMi
         assert calculator.call_args_list[-1].kwargs["query_override"] is not None
         assert evaluate_with_detector(incremental, DETECTOR).breaches == evaluate_with_detector(full, DETECTOR).breaches
 
+    def test_a_check_an_hour_later_matches_the_full_scan(self) -> None:
+        with time_machine.travel("2026-10-25T04:37:00Z", tick=False):
+            self._events(list(range(1, 41)))
+            self._freeze_clickhouse_clock()
+            alert = self._alert()
+            with patch(FLAG_PATH, return_value=True):
+                self._extract(alert)
+        with time_machine.travel("2026-10-25T05:37:00Z", tick=False):
+            with patch(FLAG_PATH, return_value=True):
+                incremental = self._extract(alert)
+            with patch(FLAG_PATH, return_value=False):
+                full = self._extract(alert)
+
+        assert self._values(incremental) == self._values(full)
+
     def test_an_event_arriving_inside_the_margin_reaches_its_bucket(self) -> None:
         with time_machine.travel("2026-10-25T04:00:00Z", tick=False):
             self._events(list(range(1, 41)))

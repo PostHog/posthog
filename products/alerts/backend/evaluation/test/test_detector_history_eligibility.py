@@ -62,6 +62,9 @@ def test_accepts_bucket_local_aggregations(aggregate: str, column: str | None) -
             "AND event = 'signup'",
             "AND (timestamp >= toStartOfHour(now()) - INTERVAL 6 HOUR OR event = 'signup')",
         ),
+        SQL.replace("AND event = 'signup'", "AND timestamp > toStartOfHour(now()) - INTERVAL 36 HOUR"),
+        SQL.replace("AND event = 'signup'", "AND timestamp < toStartOfHour(now()) - INTERVAL 2 HOUR"),
+        SQL.replace("AND event = 'signup'", "AND timestamp >= toStartOfHour(now()) - INTERVAL 1 HOUR"),
         SQL.replace("AND event = 'signup'", "AND {filters}"),
         "SELECT 1",
         "not valid hogql at all",
@@ -69,6 +72,13 @@ def test_accepts_bucket_local_aggregations(aggregate: str, column: str | None) -
 )
 def test_rejects_shapes_whose_buckets_are_not_self_contained(sql: str) -> None:
     assert match_detector_series_query(_query(sql), column="value") is None
+
+
+def test_a_second_recognized_lower_bound_narrows_the_window() -> None:
+    sql = SQL.replace("AND event = 'signup'", "AND timestamp >= toStartOfHour(now()) - INTERVAL 36 HOUR")
+    matched = match_detector_series_query(_query(sql), column="value")
+    assert matched is not None
+    assert matched.window_hours == 36
 
 
 def test_rejects_a_column_that_is_not_the_aggregate() -> None:
