@@ -20,23 +20,31 @@ Read that before configuring anything.
 
 1. From the request, infer the **target** (the event that marks someone reaching the change, usually `$pageview` for a page) and a **candidate metric event**.
    Confirm both exist with `read-data-schema`. Don't ask the user for event names you can find.
+   For a page, read `event_property_values` for `$host` and `$pathname` on the target event as well.
+   The response samples the values rather than listing them all, so read it for the shape the project records (a trailing slash, a `www.` prefix, the casing) rather than as proof that a value is absent.
+   An exact filter has to carry that shape: `/pricing` matches nothing where every pageview says `/pricing/`, and `example.com` matches nothing where the host is `www.example.com`.
 2. If the `experiment-setup-context` tool is available, call it once with `target_event` and `metric_event`.
-   For one page, add `target_properties` with an exact `$host` and an exact `$pathname`.
-   A substring match on the URL cannot separate a homepage from the pages under it, so it overstates the traffic and the exposure rate.
-   Use `target_url_contains` only when a broad URL fragment is the surface the user asked for, such as every page under one path.
+   For a web surface, add `target_properties` with an exact `$host`.
+   Add an exact `$pathname` as well when the surface is one page.
+   `target_url_contains` is a substring match on `$current_url`.
+   A bare domain matches any host that contains it, `notexample.com` included, and a homepage path matches every page under it.
+   Both overstate the traffic and the exposure rate.
+   For a surface that spans several pages, keep the exact `$host` and put only the path fragment in `target_url_contains`.
    Add `metric_properties` in the same call when the candidate metric counts only some occurrences of its event.
    If the tool is not available, continue without it and treat every choice below as a best guess. Never call a tool you can't see.
 
-   Each filter needs a `type` of `event` or `person`, a `key`, an `operator` and a `value`. For the homepage of one domain:
+   Each filter needs a `type` of `event` or `person`, a `key`, an `operator` and a `value`.
+   The call rejects the `flag_evaluates_to` operator with a 400 that names it.
+   For the homepage of one domain:
 
    ```json
    {
      "target_event": "$pageview",
      "target_properties": [
-       { "key": "$host", "type": "event", "operator": "exact", "value": ["example.com"] },
+       { "key": "$host", "type": "event", "operator": "exact", "value": ["www.example.com"] },
        { "key": "$pathname", "type": "event", "operator": "exact", "value": ["/"] }
      ],
-     "metric_event": "signed_up"
+     "metric_event": "your_conversion_event"
    }
    ```
 
