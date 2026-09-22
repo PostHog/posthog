@@ -1339,6 +1339,21 @@ class TestFinalizeV2:
         assert draft.query is not None
         assert [e["id"] for e in draft.query["events"]] == ["checkout step (2)"]
 
+    def test_a_dead_event_whose_own_name_ends_in_a_count_survives_to_be_revived(self):
+        # A dead event leaves the briefing, so it is not in `allowed_events` — but revival can put
+        # it back, and it can only be recognised under its real name. Stripped to "checkout step" it
+        # either drops, leaving a query that scans every session, or grounds to a different event.
+        draft = _finalize_v2(
+            _draft_v2(filter_events=["checkout step (2)"]),
+            allowed_pages=[],
+            allowed_events=[],
+            team_id=1,
+            excluded_events={"checkout step (2)"},
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["checkout step (2)"]
+
     def test_an_all_match_draft_stops_at_the_and_cap(self):
         # The third slot exists for the OR case. ANDed, three events need one session to do all of
         # them, which is the over-constrained draft the cap is there to prevent.

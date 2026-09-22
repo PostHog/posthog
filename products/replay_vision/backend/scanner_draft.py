@@ -1692,7 +1692,9 @@ def _finalize_v2(
     scanner_config = _normalized_config(parsed)  # type: ignore[arg-type]
 
     proposed_pages = _proposed_filter_values(parsed.filter_pages, allowed_pages)
-    proposed_events = _proposed_filter_values(parsed.filter_events, allowed_events)
+    # Dead events count as offered here: they left the briefing, but revival below can still put one
+    # back, and a name that itself ends in a numeric parenthetical must survive to be recognised.
+    proposed_events = _proposed_filter_values(parsed.filter_events, [*allowed_events, *excluded_events])
     # Verbatim membership in the lists the model was shown: a page or event the product never emits
     # would silently match zero sessions, so a hallucinated one must not survive. Events also accept
     # a definition-lookup match, because the briefing's events list is a sample and the goal can
