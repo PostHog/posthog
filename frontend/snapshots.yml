@@ -7440,10 +7440,18 @@ snapshots:
         hash: v1.k794b7964.4bee55e405082cc86dbd6cbaeb89cc1d583174707ba34ebcd95648ad8c32658a.yMqVeg0qnl7x4i2wG3eomTFBZVXVSQCdgHVkoY70t0A
     scenes-app-feature-flags-request-usage-summary-card--billing-units--light:
         hash: v1.k794b7964.4c874fa56cb5763308d6014643e745856067d5ae0cd7d14cff6454718555b111.lviDpRxDXwBFa5Z4SbmojXPgplv48hNUG3VUIelmOrw
+    scenes-app-feature-flags-schedule-timeline--covered-rollout-ramp--dark:
+        hash: v1.k794b7964.ad9192ab55f8f5e542a8445625a849f01e17302c3127146c7a600f4a5d8b5cef.dNWbeKuXarGmRrZxVNdZifKjkATc-C7MgQ_VsGKjyjY
+    scenes-app-feature-flags-schedule-timeline--covered-rollout-ramp--light:
+        hash: v1.k794b7964.551a33567dae1ec835591f05870a772c36f05c18580ef098ede0910914dd8014.u9cpFLrusp2xg2kFZ6c9IL88YaJOIJLdBjPEc6hQGHI
+    scenes-app-feature-flags-schedule-timeline--edge-step-labels--dark:
+        hash: v1.k794b7964.9d0c45874a53317c3145004b5f1f6ae59d3a43b185f62efa61b7b0fc7897becb.9Ukm0ZWOzOX2LsZdlMc0YNrRD3-k_NExXcu7T1SUvWs
+    scenes-app-feature-flags-schedule-timeline--edge-step-labels--light:
+        hash: v1.k794b7964.45c64f3d8299d4afda07a59d04382ecb85486106d863494e1f3187af8908e772._EpESEc1BMeoEuiqXiAMQbuFa39eI1enc8L4eMX2Ly4
     scenes-app-feature-flags-schedule-timeline--rollout-ramp--dark:
-        hash: v1.k794b7964.2953688108a239d2ec1fed7e9536ba4fe608d7894111f5eeaf6f8a47339d8aff.sgkcFh_IvnLvMdJI7mdrIZEMQFbXUeRMTQxiWJUpalU
+        hash: v1.k794b7964.c00fc8b3a2e77415350262792b953fe0da14068195a9df1cf0aea842bddb2c99.FI6EKO8xZYF-BUwvRFWbhzdt8ZXIMdVKvolJM2A7xrY
     scenes-app-feature-flags-schedule-timeline--rollout-ramp--light:
-        hash: v1.k794b7964.0785f69304e857d326d3f0b6fd1d080b98693832830dc27efee8962998071f21.1PukOHY28udTttP75f7GWVgGOqw5NVX8UynvDughGJo
+        hash: v1.k794b7964.d0e25585317f687d66e13ef43142923e3e4a34910cff71f405b46b79149a27e3.XLp7cHGZR-jOdtC0lpVMB1rw9cV3_cORzUJUrBUUZDc
     scenes-app-feature-flags-schedule-timeline--single-occurrence--dark:
         hash: v1.k794b7964.5f56b26c9731f7507c03e0ca3830b20dc9c54e0af644d969931a942054969403.gZwCiTKCj8cQ8GfXJIV5uUG058HQ5g5M4Z2qMVNYaHs
     scenes-app-feature-flags-schedule-timeline--single-occurrence--light:
