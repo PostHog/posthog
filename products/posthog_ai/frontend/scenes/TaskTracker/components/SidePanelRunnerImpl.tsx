@@ -10,11 +10,11 @@ import { composerOverrideLogic } from '../../../logics/composerOverrideLogic'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../../../utils/posthogContextBlock'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { StartupRunChat } from './StartupRunChat'
-import { TaskComposer } from './TaskComposer'
+import { TaskComposer, type TaskComposerProps } from './TaskComposer'
 import { TaskHistoryList, TaskHistoryPreview } from './TaskHistory'
 import { TaskRunChat } from './TaskRunChat'
 
-export interface SidePanelRunnerImplProps {
+export interface SidePanelRunnerImplProps extends TaskComposerProps {
     /** Embedded `taskTrackerSceneLogic` key — keeps this instance independent of the `/tasks` scene singleton. */
     panelId: string
     composer?: ReactNode
@@ -27,15 +27,22 @@ export interface SidePanelRunnerImplProps {
  * `TaskTrackerSceneLogicProps`) so `TaskComposer` — which reads the unbound `taskTrackerSceneLogic` — resolves
  * this instance instead of the scene's own singleton.
  */
-export function SidePanelRunnerImpl({ panelId, composer }: SidePanelRunnerImplProps): JSX.Element {
+export function SidePanelRunnerImpl({
+    panelId,
+    composer,
+    renderAccessFallback,
+}: SidePanelRunnerImplProps): JSX.Element {
     return (
         <BindLogic logic={taskTrackerSceneLogic} props={{ panelId }}>
-            <SidePanelRunnerContent composer={composer} />
+            <SidePanelRunnerContent composer={composer} renderAccessFallback={renderAccessFallback} />
         </BindLogic>
     )
 }
 
-function SidePanelRunnerContent({ composer }: { composer?: ReactNode }): JSX.Element {
+function SidePanelRunnerContent({
+    composer,
+    renderAccessFallback,
+}: Pick<SidePanelRunnerImplProps, 'composer' | 'renderAccessFallback'>): JSX.Element {
     const { activeCreation, historyExpanded } = useValues(taskTrackerSceneLogic)
     const { composerOverride } = useValues(composerOverrideLogic)
     const { toggleHistory, updateActiveCreationRun, setStartupDraft } = useActions(taskTrackerSceneLogic)
@@ -81,7 +88,7 @@ function SidePanelRunnerContent({ composer }: { composer?: ReactNode }): JSX.Ele
                 {/* No `items-center` (unlike the legacy welcome block): `TaskComposer` must stretch to full
                 width — it centers its own content, same as under the `/tasks` scene's wrapper. */}
                 <div className="grow min-h-0 flex flex-col">
-                    <TaskComposer />
+                    <TaskComposer renderAccessFallback={renderAccessFallback} />
                 </div>
                 {!composerOverride?.hideRecentTasks && <TaskHistoryPreview />}
             </div>

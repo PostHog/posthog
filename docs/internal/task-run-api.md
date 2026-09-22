@@ -10,6 +10,10 @@ The origin marker does not grant sandbox access.
 PostHog Desktop access, runtime access, and usage limits still apply.
 Repository-backed report discussions also require Desktop access.
 
+When the web task composer receives an access refusal, it disables input and task controls.
+The PostHog AI page and side panel offer a switch to legacy PostHog AI with the unsent draft preserved.
+The switch does not send the draft.
+
 The response has status `201` and contains the task and its `latest_run`.
 If task creation succeeds but run creation or dispatch fails, the response also contains `run_error`.
 Keep the task ID and inspect its runs before you retry.

@@ -22,6 +22,7 @@ import { MaxThreadLogicProps, maxThreadLogic } from '../maxThreadLogic'
 import { phaiAiComposerSeedLogic } from '../phaiAiComposerSeedLogic'
 import { Thread } from '../Thread'
 import { MaxNotConfigured } from './MaxNotConfigured'
+import { PhaiLegacyChatButton } from './PhaiLegacyChatButton'
 import { PhaiViewToggle } from './PhaiViewToggle'
 import { SidebarQuestionInputWithSuggestions } from './SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './ThreadAutoScroller'
@@ -126,7 +127,11 @@ export function AiFirstMaxInstance({ tabId, taskId, chatId }: AiFirstMaxInstance
                 )}
                 <div className="flex flex-col flex-1 min-h-0">
                     <BindLogic logic={phaiAiComposerSeedLogic} props={{}}>
-                        <EmbeddedRunner taskId={taskId} titleActions={<DebugLogsMenu variant="lemon" />} />
+                        <EmbeddedRunner
+                            taskId={taskId}
+                            titleActions={<DebugLogsMenu variant="lemon" />}
+                            renderAccessFallback={(draft) => <PhaiLegacyChatButton draft={draft} panelId={tabId} />}
+                        />
                     </BindLogic>
                 </div>
             </div>

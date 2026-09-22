@@ -286,6 +286,7 @@ describe('taskTrackerSceneLogic', () => {
         expect(logic.values.activeCreation).toBeNull()
         expect(logic.values.newTaskData.description).toBe('Explain the example chart')
         expect(logic.values.isSubmittingTask).toBe(false)
+        expect(logic.values.taskCreationBlockedReason).toContain('Startup or YC program')
     })
 
     it.each(['task', 'run', 'missing_run'] as const)(

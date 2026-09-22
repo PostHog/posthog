@@ -7,12 +7,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { TaskComposer } from './components/TaskComposer'
+import { TaskComposer, type TaskComposerProps } from './components/TaskComposer'
 import { TaskCreateThread } from './components/TaskCreateThread'
 import { TaskDetailPage } from './components/TaskDetailPage'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
 
-export interface TaskTrackerProps {
+export interface TaskTrackerProps extends TaskComposerProps {
     /** From the `/tasks/:taskId` route. A UUID selects a task; `new` or absent shows the composer. */
     taskId?: string
     titleActions?: JSX.Element
@@ -25,7 +25,7 @@ export const scene: SceneExport<TaskTrackerProps> = {
     paramsToProps: ({ params: { taskId } }) => ({ taskId }),
 }
 
-export function TaskTracker({ taskId, titleActions }: TaskTrackerProps): JSX.Element {
+export function TaskTracker({ taskId, titleActions, renderAccessFallback }: TaskTrackerProps): JSX.Element {
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('lg')
     const { activeCreation } = useValues(taskTrackerSceneLogic)
@@ -51,7 +51,7 @@ export function TaskTracker({ taskId, titleActions }: TaskTrackerProps): JSX.Ele
         <SceneContent className="h-full">
             <AllowTrainingCallout featureName="Tasks" />
             <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
-                <TaskComposer />
+                <TaskComposer renderAccessFallback={renderAccessFallback} />
             </div>
         </SceneContent>
     )

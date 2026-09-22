@@ -915,7 +915,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 if (error instanceof ApiError && error.code === 'warm_run_activation_unavailable') {
                     lemonToast.error("Couldn't start this run yet. Please try again.")
                 } else if (error instanceof ApiError && error.code === CODE_ACCESS_REQUIRED_ERROR_CODE) {
-                    lemonToast.error(taskAccessBlockedMessage(readDesktopAccessReason(error)))
+                    const reason = readDesktopAccessReason(error)
+                    actions.loadDesktopAccessSuccess({ allowed: false, reason })
+                    lemonToast.error(taskAccessBlockedMessage(reason))
                 }
                 cache.submittingTask = null
                 actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')
