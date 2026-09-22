@@ -1,9 +1,7 @@
 //! Compares the Postgres person graph against the personhog writer's temp
 //! tables for one team. One full outer join counts the per-field diffs in the
-//! database and returns only the tallies. A cheap count of each side's live
-//! distinct ids is polled until the cohort stops moving; only then does the
-//! join run, because on the writer it scans the whole team and slows the
-//! ingestion drain it is waiting for.
+//! database and returns only the tallies. It polls until the graphs agree on a
+//! drained cohort or the deadline passes.
 
 use std::time::Duration;
 
@@ -12,10 +10,7 @@ use metrics::gauge;
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use sqlx::{Executor, PgPool, Row};
 
-/// Between drain probes, and before retrying a failed query.
 const PROBE_INTERVAL: Duration = Duration::from_secs(5);
-/// After a comparison that found a divergence, before the cohort is probed
-/// again; a mismatch usually means ingestion is still catching up.
 const COMPARE_INTERVAL: Duration = Duration::from_secs(30);
 /// Caps one comparison well under the verify deadline.
 const STATEMENT_TIMEOUT_MS: u64 = 120_000;
@@ -60,22 +55,16 @@ impl Counts {
     }
 }
 
-/// Live distinct id counts on each side: the drain signal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Cohort {
     pub main: i64,
     pub shadow: i64,
 }
 
-/// Ingestion has drained once two consecutive probes agree on a non-empty
-/// authoritative cohort. A zero count means nothing landed, which is a failed
-/// run, not a drained one.
 fn is_drained(prev: Option<Cohort>, cohort: Cohort) -> bool {
     cohort.main > 0 && prev == Some(cohort)
 }
 
-/// Parity holds when the comparison found no divergence and the cohort did not
-/// move while it ran, so the tallies describe a settled graph.
 fn is_pass(mismatched: i64, before: Cohort, after: Cohort) -> bool {
     mismatched == 0 && before.main > 0 && before == after
 }
@@ -143,8 +132,6 @@ impl Verifier {
         )
     }
 
-    /// Live distinct id counts on both sides, from the `(team_id, distinct_id)`
-    /// indexes alone.
     pub async fn probe(&self) -> Result<Cohort> {
         let row = sqlx::query(&self.cohort_sql())
             .bind(self.team_id)
@@ -229,9 +216,9 @@ impl Verifier {
             .set(common_metrics::get_current_timestamp_seconds());
     }
 
-    /// Probes the cohort until it stops moving, then compares once. Polls
-    /// again after a divergence until the deadline passes. A transient query
-    /// error retries; only a divergence that outlasts the deadline fails.
+    /// Polls until the graphs agree on a stable, drained cohort or the deadline
+    /// passes. A transient query error retries; only a divergence that outlasts
+    /// the deadline fails.
     pub async fn run(&self, cfg: &VerifyConfig) -> Result<bool> {
         let deadline = tokio::time::Instant::now() + cfg.deadline;
         let mut prev: Option<Cohort> = None;
@@ -297,13 +284,10 @@ impl Verifier {
     }
 }
 
-/// Sleeps for the interval, but never past the deadline, so the loop gets its
-/// final check on time instead of overshooting by a whole interval.
 async fn pause(deadline: tokio::time::Instant, interval: Duration) {
     tokio::time::sleep_until(deadline.min(tokio::time::Instant::now() + interval)).await;
 }
 
-/// A query error is retried until the deadline, then surfaced.
 fn retry_or_give_up(
     error: anyhow::Error,
     deadline: tokio::time::Instant,
