@@ -1,5 +1,6 @@
 import re
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -25,6 +26,9 @@ GROUP BY bucket
 ORDER BY bucket ASC
 """
 FLAG_PATH = "products.alerts.backend.evaluation.detector_history.feature_enabled_or_false"
+RESTRICTIONS_PATH = (
+    "products.alerts.backend.evaluation.detector_history.get_restricted_properties_with_group_type_index_for_team"
+)
 
 
 class _Warehouse:
@@ -146,6 +150,17 @@ class TestDetectorHistory(BaseTest):
             self._check(warehouse)
 
         # Cached buckets were aligned under the old timezone, so the new one must rebuild.
+        assert warehouse.overrides[-1] is None
+
+    def test_changing_property_access_restrictions_discards_the_cached_series(self) -> None:
+        warehouse = _Warehouse(self._dense(10))
+        restriction = SimpleNamespace(name="plan", property_type="event", group_type_index=None)
+        with time_machine.travel(NOW, tick=False):
+            self._check(warehouse)
+            with patch(RESTRICTIONS_PATH, return_value=[restriction]):
+                self._check(warehouse)
+
+        # Cached buckets were computed before the property was restricted, so they must go.
         assert warehouse.overrides[-1] is None
 
     def test_a_bucket_that_loses_its_events_loses_its_cached_value(self) -> None:
