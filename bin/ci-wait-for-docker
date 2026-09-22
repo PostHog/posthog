@@ -19,7 +19,9 @@ DEFAULT_COMPOSE_FILE="${REPO_ROOT}/docker-compose.dev.yml"
 WAIT_RETRIES="${WAIT_FOR_DOCKER_RETRIES:-1}"
 WAIT_RETRY_TIMEOUT="${WAIT_FOR_DOCKER_RETRY_TIMEOUT:-120}"
 COMPOSE_WAIT_TIMEOUT="${WAIT_FOR_COMPOSE_TIMEOUT:-600}"
-LAUNCH_RETRIES="${WAIT_FOR_DOCKER_LAUNCH_RETRIES:-1}"
+# `compose up` pulls every image before it creates any container, so one Docker Hub
+# timeout leaves the whole stack missing.
+LAUNCH_RETRIES="${WAIT_FOR_DOCKER_LAUNCH_RETRIES:-3}"
 LAUNCH_RETRY_DELAY="${WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY:-5}"
 
 usage() {
@@ -73,20 +75,6 @@ read_background_launch_pid() {
 
 clear_background_launch_pid() {
     rm -f "$(background_launch_pid_file)"
-}
-
-launched_services_file() {
-    local pid_file
-    pid_file="$(background_launch_pid_file)"
-    printf '%s.services\n' "${pid_file%.pid}"
-}
-
-read_launched_services() {
-    local services_file
-    services_file="$(launched_services_file)"
-    if [ -f "$services_file" ]; then
-        cat "$services_file"
-    fi
 }
 
 background_launch_is_running() {
@@ -234,10 +222,6 @@ run_launch() {
     done
 
     launch_services=("$@")
-    rm -f "$(launched_services_file)"
-    if [ "${#launch_services[@]}" -gt 0 ]; then
-        printf '%s\n' "${launch_services[@]}" > "$(launched_services_file)"
-    fi
 
     launch_runner() {
         local inner_attempt=1
@@ -309,8 +293,6 @@ run_wait() {
     local current_timeout="$initial_timeout"
     local attempt=0
     local missing=()
-    local launched=()
-    local retry_services=()
     local launch_wait_status
 
     mapfile -t wait_services < <(dedupe_services "${wait_services[@]}")
@@ -351,14 +333,6 @@ run_wait() {
 
         if [ "$attempt" -ge "$WAIT_RETRIES" ]; then
             return 1
-        fi
-
-        # A launch that died before creating anything also left the services this wait does
-        # not cover missing, and later steps wait for those on their own without a retry.
-        mapfile -t launched < <(read_launched_services)
-        if [ "${#launched[@]}" -gt 0 ]; then
-            mapfile -t retry_services < <(dedupe_services "${missing[@]}" "${launched[@]}")
-            mapfile -t missing < <(missing_services "${retry_services[@]}")
         fi
 
         attempt=$(( attempt + 1 ))
