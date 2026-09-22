@@ -156,5 +156,5 @@ Example tool names: execute-sql, experiment-create, feature-flag-get-all.
 
 Defined group types: organization, project
 
-Base URL: us.posthog.com. Use `generate-app-url` for project-scoped links.
+Base URL: us.posthog.com.
 Project timezone: America/New_York.

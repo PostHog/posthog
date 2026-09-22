@@ -447,10 +447,10 @@ export class StateManager {
      * The active-environment block in every shape the render paths need, from one
      * fetch of the cached entities.
      *
-     * `full` carries the person, the organization, and the project identifiers, so
-     * it belongs in the per-session `instructions` payload and nowhere else. The
-     * `cacheable*` shapes drop that identity: they go into the advertised `exec`
-     * input schema, which connector hosts capture once and serve to every user.
+     * `full` carries the person, the organization, and the project identifiers, so only
+     * the per-session `instructions` payload may render it. The `cacheable*` shapes drop
+     * that identity for the advertised tool schema — see
+     * `InstructionsFormatter.schemaMetadata`.
      */
     async getEnvironmentPrompts(): Promise<{
         full: string | undefined

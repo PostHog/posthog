@@ -33,9 +33,7 @@ const realisticMetadata =
 
 // What `buildActiveEnvironmentContextPrompt` renders with `includeIdentity: false`:
 // project shape without the person, the organization, or the project identifiers.
-const realisticCacheableMetadata =
-    'Base URL: us.posthog.com. Use `generate-app-url` for project-scoped links.\n' +
-    'Project timezone: America/New_York.'
+const realisticCacheableMetadata = 'Base URL: us.posthog.com.\n' + 'Project timezone: America/New_York.'
 
 const fullCtx: InstructionsContext = {
     guidelines: 'some guidelines',

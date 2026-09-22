@@ -138,8 +138,7 @@ export class InstructionsBuilder {
             // Env-context rides here even for clients that honor `instructions`: that
             // payload is capped at MCP_INSTRUCTIONS_CHAR_BUDGET and is spent entirely
             // on the tool-domain index, which is the part that can't be recovered by
-            // any later tool call. This description has no such cap. It carries the
-            // identity-free shape only, because it is advertised in the tool schema.
+            // any later tool call. This description has no such cap.
             keepEnvContext: true,
             learnEnabled: skillsEnabled,
         })

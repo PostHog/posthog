@@ -48,10 +48,7 @@ const STATIC_METADATA = [
 
 // The identity-free shape the advertised `exec` schema renders: project shape
 // without the person, the organization, or the project identifiers.
-const STATIC_CACHEABLE_METADATA = [
-    'Base URL: us.posthog.com. Use `generate-app-url` for project-scoped links.',
-    'Project timezone: America/New_York.',
-].join('\n')
+const STATIC_CACHEABLE_METADATA = ['Base URL: us.posthog.com.', 'Project timezone: America/New_York.'].join('\n')
 
 const STATIC_CTX: InstructionsContext = {
     guidelines: 'some guidelines',
@@ -290,19 +287,17 @@ describe('InstructionsFormatter prompt snapshots', () => {
             timezone: 'America/New_York',
             person_on_events_querying_enabled: true,
         } as CachedProject
-        const build = (includeIdentity: boolean): string | undefined =>
-            buildActiveEnvironmentContextPrompt(user, org, project, 'https://us.posthog.com', {
-                includeIdentity,
-                ...(includeIdentity ? {} : { includeProductContext: false }),
-            })
+        const cacheable = buildActiveEnvironmentContextPrompt(user, org, project, 'https://us.posthog.com', {
+            includeIdentity: false,
+        })
         const state = {
             allTools: STATIC_TOOLS.map(({ name }) => ({ name })),
             clientProfile: new MCPClientProfile(clientInput),
             toolFeatureFlags: {},
             renderUiEnabled: true,
-            metadata: build(true),
-            metadataCacheable: build(false),
-            metadataCacheableCompact: build(false),
+            metadata: buildActiveEnvironmentContextPrompt(user, org, project, 'https://us.posthog.com'),
+            metadataCacheable: cacheable,
+            metadataCacheableCompact: cacheable,
             groupTypes: STATIC_GROUP_TYPES,
             requestContext: { mcpConsumer: undefined },
             sessionContext: null,
@@ -310,17 +305,17 @@ describe('InstructionsFormatter prompt snapshots', () => {
 
         const advertised = JSON.stringify(new InstructionsBuilder('').buildExecToolEntry(state))
 
-        for (const secret of [
-            'Jane',
-            'Doe',
-            'jane@example.com',
-            'Acme Corporation',
-            '00000000-0000-0000-0000-000000000000',
-            'Acme Production',
-            '4815162',
+        // Every value of the user and org fixtures, so a field added to either is
+        // covered without editing a list here. The project fixture is mixed — its
+        // shape fields are deliberately advertised — so its identity is named.
+        for (const value of [
+            ...Object.values(user),
+            ...Object.values(org),
+            project.name,
+            String(project.id),
             project.api_token,
         ]) {
-            expect(advertised).not.toContain(secret)
+            expect(advertised).not.toContain(String(value))
         }
         // The project-shape hints that make the agent useful are not identity, and stay.
         expect(advertised).toContain('Project timezone: America/New_York.')

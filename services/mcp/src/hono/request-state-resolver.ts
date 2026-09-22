@@ -70,9 +70,7 @@ export interface ResolvedState {
     // reference. Resolved once here so every render path reads the same source.
     metadata: string | undefined
     // Identity-free variant of `metadata`, for every surface that lands in the
-    // advertised tool schema. Connector hosts cache one roster and serve it to
-    // every user, so the person, the organization, and the project identifiers
-    // stay in `metadata` (the per-session `instructions` payload) alone.
+    // advertised tool schema — see `InstructionsFormatter.schemaMetadata`.
     metadataCacheable: string | undefined
     // `metadataCacheable` without the product/integration context lines, for the
     // claude.ai exec command reference: that surface counts against the ~16 KiB

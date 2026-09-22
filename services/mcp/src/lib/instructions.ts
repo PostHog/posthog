@@ -76,12 +76,11 @@ export interface EnvironmentContextOptions {
      *  reference counts against a ~16 KiB registry cap on the serialized
      *  inputSchema) where the product/integration lines do not fit. */
     includeProductContext?: boolean
-    /** Set to false for any surface a client can cache and replay to other
-     *  people — above all the advertised `exec` input schema. Connector hosts
-     *  capture one tool roster and serve that snapshot to every user, so the
-     *  person, the organization, and the project identifiers (the API token
-     *  included) must never ride in it. The project-shape lines below carry no
-     *  identity and stay. */
+    /** Set to false for any surface a client can cache and replay to other people —
+     *  above all the advertised `exec` input schema, which connector hosts capture
+     *  once and serve to every user. Drops the person, the organization, and the
+     *  project identifiers, the API token included; the project-shape lines below
+     *  carry no identity and stay. */
     includeIdentity?: boolean
 }
 
@@ -114,17 +113,11 @@ export function buildActiveEnvironmentContextPrompt(
     }
     if (regionalBaseUrl) {
         const origin = regionalBaseUrl.replace(/^https?:\/\//, '')
-        if (!includeIdentity) {
-            // The project id is withheld here, so point the agent at the tool that
-            // resolves a project-scoped path instead of at a path it cannot build.
-            lines.push(`Base URL: ${origin}. Use \`generate-app-url\` for project-scoped links.`)
-        } else {
-            lines.push(
-                project?.id !== undefined
-                    ? `Base URL: ${origin} — add /project/${project.id} for project-scoped paths.`
-                    : `Base URL: ${origin}.`
-            )
-        }
+        lines.push(
+            includeIdentity && project?.id !== undefined
+                ? `Base URL: ${origin} — add /project/${project.id} for project-scoped paths.`
+                : `Base URL: ${origin}.`
+        )
     }
     if (project) {
         lines.push(`Project timezone: ${project.timezone ?? 'UTC'}.`)

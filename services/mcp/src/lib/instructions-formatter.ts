@@ -44,17 +44,14 @@ import { type ExecLearnGuide, LEARN_COMMAND_LINE } from '@/tools/exec-learn'
 export interface InstructionsContext {
     guidelines: string
     groupTypes?: GroupType[] | undefined
-    /** Carries the person, the organization, and the project identifiers, so it is
-     *  rendered into the per-session `instructions` payload alone. Anything that
-     *  lands in an advertised tool schema reads `metadataCacheable` instead. */
+    /** Carries the person, the organization, and the project identifiers, so only the
+     *  per-session `instructions` payload may render it. See {@link InstructionsFormatter.schemaMetadata}. */
     metadata?: string | undefined
-    /** `metadata` with the identity lines removed, for the exec command reference.
-     *  Connector hosts cache one tool roster and serve that snapshot to every user,
-     *  so identity in the schema reaches people it does not belong to. */
+    /** `metadata` with the identity lines removed. */
     metadataCacheable?: string | undefined
     /** `metadataCacheable` without the product/integration context lines, for the
      *  claude.ai exec command reference, which counts against the ~16 KiB registry
-     *  cap on the serialized inputSchema. Falls back to `metadataCacheable`. */
+     *  cap on the serialized inputSchema. */
     metadataCacheableCompact?: string | undefined
     tools?: ToolInfo[] | undefined
     queryTools?: QueryToolInfo[] | undefined
@@ -75,6 +72,16 @@ export interface InstructionsContext {
  * modes live in a single file, so prose can't drift.
  */
 export class InstructionsFormatter {
+    /**
+     * The env-context an advertised tool schema may carry. Connector hosts capture one
+     * tool roster and serve that snapshot to every user, so a schema must never render
+     * `ctx.metadata` — it names the person, the organization, and the project token.
+     * Every schema-bound render path reads this instead of picking a field itself.
+     */
+    private schemaMetadata(ctx: InstructionsContext, opts?: { compact?: boolean }): string | undefined {
+        return opts?.compact ? (ctx.metadataCacheableCompact ?? ctx.metadataCacheable) : ctx.metadataCacheable
+    }
+
     private knowledgeFirstSections(ctx: InstructionsContext): string[] {
         return ctx.tools?.some(({ name }) => name === 'business-knowledge-documents-search' || name === 'docs-search')
             ? [BUSINESS_KNOWLEDGE_FIRST]
@@ -219,12 +226,15 @@ export class InstructionsFormatter {
     ): string {
         const learnEnabled = opts.learnEnabled ?? true
         const skillsEnabled = opts.skillsEnabled ?? false
-        const learnGuides = this.buildClaudeExecLearnGuides(ctx)
+        const schemaMetadata = this.schemaMetadata(ctx, { compact: true })
+        // The guide list is advertised in the schema, so compose it from a ctx whose
+        // metadata is already identity-free; every gating flag is kept as-is.
+        const learnGuides = this.buildClaudeExecLearnGuides({ ...ctx, metadata: schemaMetadata })
         const learnGuideList = learnGuides.map((entry) => `- ${entry.id}: ${entry.description}`).join('\n')
         const learnSection = learnEnabled ? formatPrompt(EXEC_LEARN, { help_topics: learnGuideList }) : undefined
         const renderCtx: InstructionsContext = {
             guidelines: ctx.guidelines,
-            metadata: ctx.metadataCacheableCompact ?? ctx.metadataCacheable,
+            metadata: schemaMetadata,
             groupTypes: ctx.groupTypes,
             tools: ctx.tools,
         }
@@ -272,9 +282,8 @@ export class InstructionsFormatter {
      *  (project metadata, group types) here even though `stripEnvContext` is
      *  set, so it still reaches the agent.
      *
-     *  Either way the env-context comes from `metadataCacheable`, never from
-     *  `metadata`: this text is advertised in the tool schema, and connector
-     *  hosts replay a cached schema to every user.
+     *  Either way the env-context comes from {@link schemaMetadata}, never from
+     *  `ctx.metadata`, because this text is advertised in the tool schema.
      *
      *  Claude web/desktop uses `buildClaudeExecCommandReference` instead because
      *  its complete JSON schema has a smaller client-enforced size budget. */
@@ -306,9 +315,9 @@ export class InstructionsFormatter {
             ? {
                   guidelines: ctx.guidelines,
                   queryTools: ctx.queryTools,
-                  ...(opts.keepEnvContext ? { metadata: ctx.metadataCacheable, groupTypes: ctx.groupTypes } : {}),
+                  ...(opts.keepEnvContext ? { metadata: this.schemaMetadata(ctx), groupTypes: ctx.groupTypes } : {}),
               }
-            : { ...ctx, tools: undefined, metadata: ctx.metadataCacheable }
+            : { ...ctx, tools: undefined, metadata: this.schemaMetadata(ctx) }
         // Tool domains are temporarily omitted from the command reference while we
         // probe claude.ai's per-tool size cap (it silently drops oversized entries);
         // agents still discover domains at runtime via the `search` command, and

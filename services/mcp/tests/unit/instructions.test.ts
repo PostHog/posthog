@@ -369,10 +369,11 @@ describe('buildActiveEnvironmentContextPrompt', () => {
     })
 
     describe('includeIdentity: false', () => {
+        const result = buildActiveEnvironmentContextPrompt(user, org, project, 'https://us.posthog.com', {
+            includeIdentity: false,
+        })
+
         it('drops the person, the organization, and the project identifiers', () => {
-            const result = buildActiveEnvironmentContextPrompt(user, org, project, 'https://us.posthog.com', {
-                includeIdentity: false,
-            })
             expect(result).not.toContain('You are currently in project')
             expect(result).not.toContain('My App')
             expect(result).not.toContain('token_1')
@@ -383,18 +384,12 @@ describe('buildActiveEnvironmentContextPrompt', () => {
         })
 
         it('keeps the project-shape hints an agent needs', () => {
-            const result = buildActiveEnvironmentContextPrompt(user, org, project, 'https://us.posthog.com', {
-                includeIdentity: false,
-            })
             expect(result).toContain('Project timezone: America/New_York.')
             expect(result).toContain('Person properties are query-time in this project.')
         })
 
-        it('withholds the project path and points at the tool that builds one', () => {
-            const result = buildActiveEnvironmentContextPrompt(user, org, project, 'https://us.posthog.com', {
-                includeIdentity: false,
-            })
-            expect(result).toContain('Base URL: us.posthog.com. Use `generate-app-url` for project-scoped links.')
+        it('withholds the project path from the base URL line', () => {
+            expect(result).toContain('Base URL: us.posthog.com.')
             expect(result).not.toContain('/project/1')
         })
 
