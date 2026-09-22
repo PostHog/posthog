@@ -1527,12 +1527,11 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         scope_was_truncated = is_truncated_scope_request(requested_scope_tokens)
 
         # `validate_scopes` clamps a request whose every resource token is unknown down to
-        # nothing. That is a valid outcome for a token, but not for a consent screen. The
-        # screen then shows no permissions, and its Authorize button posts a blank scope,
-        # which the POST serializer rejects. The person cannot complete the grant at all.
-        # Resolve the request the way an omitted scope resolves instead. A client sends
-        # such a request by accident when it builds the URL from an unsubstituted scope
-        # placeholder, so every token arrives as junk.
+        # nothing. That is a valid outcome for a token, but not for a consent screen: the
+        # screen shows no permissions, and its Authorize button posts a blank scope the
+        # POST rejects. Resolve such a request the way an omitted scope resolves instead.
+        # A client sends one by accident when it builds the URL from an unsubstituted
+        # scope placeholder, so every token arrives as junk.
         requested_resource_tokens = set(requested_scope_tokens) - ALWAYS_ALLOWED_SCOPES
         nothing_grantable = bool(requested_resource_tokens) and not (set(scopes) - ALWAYS_ALLOWED_SCOPES)
         if nothing_grantable:
