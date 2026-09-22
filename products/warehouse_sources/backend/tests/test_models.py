@@ -1412,6 +1412,7 @@ class TestDeleteTable(BaseTest):
     ) -> None:
         schema = self._schema()
         table_id = schema.table_id
+        assert table_id is not None
         client = MagicMock()
         client.delete.side_effect = error
 
