@@ -62,10 +62,10 @@ class AdvancedActivityLogFieldDiscovery:
     def _distinct_values(queryset: QuerySet, field: str) -> list[Any]:
         # order_by() clears the ordering the viewset applies. Django puts ordering expressions in
         # the select list of a DISTINCT query, and the row id there makes every row unique again.
-        return list(queryset.order_by().exclude(**{f"{field}__isnull": True}).values_list(field, flat=True).distinct())
+        return list(queryset.order_by().values_list(field, flat=True).distinct())
 
     def _get_available_users(self, queryset: QuerySet) -> list[dict[str, str]]:
-        user_ids = self._distinct_values(queryset, "user_id")
+        user_ids = [user_id for user_id in self._distinct_values(queryset, "user_id") if user_id]
         users = User.objects.filter(id__in=user_ids).values("uuid", "first_name", "last_name", "email")
 
         return [
