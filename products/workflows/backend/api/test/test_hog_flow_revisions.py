@@ -137,6 +137,24 @@ class TestHogFlowRevisions(APIBaseTest):
         assert set(content.keys()) == set(DRAFT_CONTENT_FIELDS)
         assert content["actions"] == HogFlow.objects.get(pk=flow_id).actions
 
+    def test_create_then_resave_of_response_keeps_single_revision(self):
+        # The editor rebaselines its form on the create response and sends that shape back on the
+        # next save, so the stored create must carry every key the response echoes.
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Test Flow", "actions": [_trigger_action(), _webhook_action()]},
+        )
+        assert create.status_code == 201, create.json()
+        flow_id = create.json()["id"]
+
+        resave = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Renamed", "actions": create.json()["actions"], "edges": create.json()["edges"]},
+        )
+        assert resave.status_code == 200, resave.json()
+        assert resave.json()["version"] == 1
+        assert [r["version"] for r in self._list_revisions(flow_id)] == [1]
+
     # ── Appending on live-content writes ─────────────────────────────
 
     def test_publish_appends_revision_and_bumps_version(self):
