@@ -43,6 +43,7 @@ import { HEATMAP_SCREENSHOT_COOKIE_NAME } from '../heatmapScreenshotCookie'
 import {
     ReplayIframeData,
     getStoredRecordingBackground,
+    isReplayDimension,
     isUsableHeatmapUrl,
     removeReplayIframeDataFromLocalStorage,
 } from '../replayIframeData'
@@ -674,7 +675,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 // overlay can line up with. Without this the width falls back to the generic default,
                 // so the query asks for viewports the recorded visitor never had and the heatmap
                 // comes back empty on a page that clearly has interactions.
-                if (replayIframeData.width > 0) {
+                if (isReplayDimension(replayIframeData.width)) {
                     actions.setWindowWidthOverride(replayIframeData.width)
                 }
             } else {
