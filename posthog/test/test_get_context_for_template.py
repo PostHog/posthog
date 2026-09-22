@@ -8,20 +8,92 @@ from unittest.mock import MagicMock
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
-from django.test import RequestFactory
+from django.test import RequestFactory, SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.models import UserHomeSettings
-from posthog.utils import get_context_for_template
+from posthog.utils import (
+    get_context_for_template,
+    get_persisted_feature_flags_for_app_context,
+)
 
-from products.conversations.backend.services.identity import IDENTITY_CLAIM_MAX_AGE_SECONDS
+from products.conversations.backend.services.identity import (
+    IDENTITY_CLAIM_MAX_AGE_SECONDS,
+)
+
+
+class TestPersistedFeatureFlagsForAppContext(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("enabled", True, [], [], ["warehouse-person-properties"]),
+            ("disabled", False, [], [], []),
+            (
+                "disabled_explicit",
+                False,
+                ["warehouse-person-properties", "other-feature"],
+                [],
+                ["other-feature"],
+            ),
+            (
+                "disabled_dynamic",
+                False,
+                ["other-feature"],
+                [
+                    {
+                        "key": "warehouse-person-properties",
+                        "active": True,
+                        "filters": {"groups": [{"rollout_percentage": 100}]},
+                    }
+                ],
+                ["other-feature"],
+            ),
+        ]
+    )
+    @mock.patch("posthog.utils.posthoganalytics.feature_flag_definitions")
+    def test_self_hosted_context_respects_operator_setting(
+        self, _name, enabled, static_flags, definitions, expected, mock_definitions
+    ):
+        mock_definitions.return_value = definitions
+        with self.settings(
+            CLOUD_DEPLOYMENT=None,
+            DEBUG=False,
+            PERSISTED_FEATURE_FLAGS=static_flags,
+            WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED=enabled,
+        ):
+            assert get_persisted_feature_flags_for_app_context() == expected
+
+    @parameterized.expand(
+        [
+            ("without_explicit_flag", [], []),
+            (
+                "with_explicit_flag",
+                ["warehouse-person-properties"],
+                ["warehouse-person-properties"],
+            ),
+        ]
+    )
+    @mock.patch(
+        "posthog.utils.posthoganalytics.feature_flag_definitions", return_value=[]
+    )
+    def test_cloud_context_does_not_include_non_cloud_persisted_flags(
+        self, _name, static_flags, expected, _definitions
+    ):
+        with self.settings(
+            CLOUD_DEPLOYMENT="US",
+            DEBUG=False,
+            PERSISTED_FEATURE_FLAGS=static_flags,
+            WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED=False,
+        ):
+            assert get_persisted_feature_flags_for_app_context() == expected
 
 
 class TestGetContextForTemplate(APIBaseTest):
     def test_get_context_for_template(self):
-        with self.settings(STRIPE_PUBLIC_KEY=None, PERSISTED_FEATURE_FLAGS=["the_persisted_flags"]):
+        with self.settings(
+            STRIPE_PUBLIC_KEY=None, PERSISTED_FEATURE_FLAGS=["the_persisted_flags"]
+        ):
             actual = get_context_for_template(
                 "layout",
                 MagicMock(),
@@ -37,7 +109,7 @@ class TestGetContextForTemplate(APIBaseTest):
             "js_posthog_host": "",
             "js_url": "http://localhost:8234",
             "opt_out_capture": False,
-            "posthog_app_context": '{"persisted_feature_flags": ["the_persisted_flags"], "anonymous": false}',
+            "posthog_app_context": '{"persisted_feature_flags": ["the_persisted_flags", "warehouse-person-properties"], "anonymous": false}',
             "posthog_bootstrap": "{}",
             "posthog_js_uuid_version": "v7",
             "region": None,
@@ -55,14 +127,25 @@ class TestGetContextForTemplate(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("configured", {"pathname": "/dashboard/42", "pinned": True, "title": "Default dashboard"}),
+            (
+                "configured",
+                {
+                    "pathname": "/dashboard/42",
+                    "pinned": True,
+                    "title": "Default dashboard",
+                },
+            ),
             ("not_configured", None),
             ("empty_is_cleared", {}),
         ]
     )
-    def test_bootstraps_configured_homepage_into_app_context(self, _name, stored_homepage):
+    def test_bootstraps_configured_homepage_into_app_context(
+        self, _name, stored_homepage
+    ):
         if stored_homepage is not None:
-            UserHomeSettings.objects.create(user=self.user, team=self.team, homepage=stored_homepage)
+            UserHomeSettings.objects.create(
+                user=self.user, team=self.team, homepage=stored_homepage
+            )
 
         request = RequestFactory().get("/")
         SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
@@ -85,7 +168,10 @@ class TestGetContextForTemplate(APIBaseTest):
         actual = get_context_for_template("layout", request)
 
         app_context = json.loads(actual["posthog_app_context"])
-        assert sorted(app_context["current_project"]["tags"]) == ["eu-region", "production"]
+        assert sorted(app_context["current_project"]["tags"]) == [
+            "eu-region",
+            "production",
+        ]
 
     @parameterized.expand(
         [
@@ -116,7 +202,9 @@ class TestGetContextForTemplate(APIBaseTest):
             ("legacy_unknown", None, False),
         ]
     )
-    def test_only_verified_email_is_signed_as_identity_claim(self, _name, verification_state, expects_claim):
+    def test_only_verified_email_is_signed_as_identity_claim(
+        self, _name, verification_state, expects_claim
+    ):
         self.user.is_email_verified = verification_state
         self.user.save(update_fields=["is_email_verified"])
         request = RequestFactory().get("/")
@@ -134,4 +222,8 @@ class TestGetContextForTemplate(APIBaseTest):
             claims = json.loads(context["js_posthog_identity_claims"])
             assert claims["email"]["value"] == self.user.email.lower()
             current_time = int(time.time())
-            assert current_time < claims["email"]["expires_at"] <= current_time + IDENTITY_CLAIM_MAX_AGE_SECONDS
+            assert (
+                current_time
+                < claims["email"]["expires_at"]
+                <= current_time + IDENTITY_CLAIM_MAX_AGE_SECONDS
+            )
