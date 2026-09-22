@@ -301,7 +301,7 @@ describe('marketingAnalyticsLogic', () => {
         logic = marketingAnalyticsLogic()
         logic.mount()
 
-        const filters = [
+        const filters: WebAnalyticsPropertyFilters = [
             {
                 type: PropertyFilterType.Session,
                 key: '$channel_type',
@@ -311,7 +311,7 @@ describe('marketingAnalyticsLogic', () => {
         ]
         logic.actions.setDashboardView(MarketingDashboardView.ENGAGEMENT)
         logic.actions.setDashboardBreakdown(MarketingAnalyticsAttributionBreakdown.Campaign)
-        logic.actions.setDashboardProperties(filters as WebAnalyticsPropertyFilters)
+        logic.actions.setDashboardProperties(filters)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(router.values.searchParams).toMatchObject({
@@ -319,6 +319,11 @@ describe('marketingAnalyticsLogic', () => {
             breakdown: 'campaign',
             filters,
         })
+
+        logic.actions.setDashboardView(MarketingDashboardView.OVERVIEW)
+        logic.actions.setDashboardBreakdown(MarketingAnalyticsAttributionBreakdown.Channel)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.searchParams).toMatchObject({ view: 'overview', breakdown: 'channel' })
 
         await expectLogic(logic, () =>
             router.actions.push(urls.marketingAnalyticsApp(), { view: 'retention', breakdown: 'source' })

@@ -1546,12 +1546,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 values.activeTab === MarketingAnalyticsTab.DASHBOARD &&
                 values.featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]
             ) {
-                if (values.dashboardView !== DEFAULT_DASHBOARD_VIEW) {
-                    searchParams.set('view', values.dashboardView)
-                }
-                if (values.dashboardBreakdown !== DEFAULT_DASHBOARD_BREAKDOWN) {
-                    searchParams.set('breakdown', values.dashboardBreakdown)
-                }
+                searchParams.set('view', values.dashboardView)
+                searchParams.set('breakdown', values.dashboardBreakdown)
                 if (values.dashboardProperties.length > 0) {
                     searchParams.set('filters', JSON.stringify(values.dashboardProperties))
                 }
