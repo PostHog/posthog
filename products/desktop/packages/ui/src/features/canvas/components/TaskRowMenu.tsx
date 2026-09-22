@@ -100,12 +100,6 @@ export interface TaskRowMenuProps {
 // parts as dropdowns, so the props line up; typing them structurally keeps the
 // shared content from having to know which surface it's on.
 interface MenuParts extends TaskArchiveMenuParts {
-  Item: ComponentType<{
-    children: ReactNode;
-    disabled?: boolean;
-    variant?: "default" | "destructive";
-    onClick?: () => void;
-  }>;
   Sub: ComponentType<{ children: ReactNode }>;
   SubTrigger: ComponentType<{ children: ReactNode }>;
 }
