@@ -2,6 +2,10 @@
 
 Notebooks can generate interactive widgets from instructions and the notebook's SQL and Python dataframe context.
 
+Generated widgets are in beta. Widget generation is free during beta; regular token pricing applies after beta.
+The insert menu, notebook widget toolbar, generation dialog, and reusable widget page show a **BETA** label.
+Before generating, improving, or regenerating a widget, the form shows: “Free while in beta. Regular token pricing applies after beta.”
+
 - Generation runs as a durable background job. The notebook shows its phase, elapsed time, cancellation, and terminal errors. Queued jobs stop immediately when canceled.
 - Failed jobs expose a stable error code and the failed source-generation, security-review, or publishing phase. AI request logs include upstream status and request IDs when available.
 - Source generation and security review send Claude requests through the native Anthropic Messages format in both local and cloud environments.

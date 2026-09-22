@@ -21,6 +21,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { reusableWidgetsDemoFrame } from 'products/notebooks/frontend/generated/api'
 
+import { NotebookWidgetBetaNotice } from '../NotebookNodeGeneratedWidget/NotebookWidgetBetaNotice'
 import { NotebookWidgetTrustControls } from '../NotebookNodeGeneratedWidget/NotebookWidgetTrustControls'
 import { WidgetArtifactFrame } from '../NotebookNodeGeneratedWidget/WidgetArtifactFrame'
 import { WIDGET_MODEL_OPTIONS } from '../NotebookNodeGeneratedWidget/widgetModels'
@@ -113,6 +114,11 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
         <SceneContent className="@container/reusable-widget flex-1 min-h-0">
             <SceneTitleSection
                 name={reusableWidget.name}
+                nameSuffix={
+                    <LemonTag type="warning" size="small">
+                        BETA
+                    </LemonTag>
+                }
                 description={reusableWidget.description || 'Reusable notebook widget'}
                 resourceType={{ type: 'notebook' }}
                 forceBackTo={{
@@ -288,6 +294,7 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
                                         data-attr="reusable-widget-model"
                                     />
                                 </div>
+                                <NotebookWidgetBetaNotice />
                                 <div className="flex flex-wrap items-center gap-2">
                                     <LemonButton
                                         type="primary"

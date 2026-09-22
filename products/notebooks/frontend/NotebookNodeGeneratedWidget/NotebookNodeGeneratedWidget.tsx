@@ -22,6 +22,7 @@ import {
     notebookNodeGeneratedWidgetLogic,
 } from './notebookNodeGeneratedWidgetLogic'
 import { NotebookNodeGeneratedWidgetSettings } from './NotebookNodeGeneratedWidgetSettings'
+import { NotebookWidgetBetaNotice } from './NotebookWidgetBetaNotice'
 import { NotebookWidgetGenerationModal } from './NotebookWidgetGenerationModal'
 import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
 import { NotebookWidgetTrustControls } from './NotebookWidgetTrustControls'
@@ -434,13 +435,16 @@ function ExpandedWidget({
                                     Regenerate…
                                 </LemonButton>
                             ) : (
-                                <LemonButton
-                                    type="primary"
-                                    onClick={() => generateWidget(initialPrompt, model, 'initial')}
-                                    loading={generationRequestLoading}
-                                >
-                                    Generate widget
-                                </LemonButton>
+                                <>
+                                    <NotebookWidgetBetaNotice />
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={() => generateWidget(initialPrompt, model, 'initial')}
+                                        loading={generationRequestLoading}
+                                    >
+                                        Generate widget
+                                    </LemonButton>
+                                </>
                             )
                         ) : (
                             <div className="text-sm text-muted">
@@ -502,13 +506,16 @@ function ExpandedWidget({
             <div className="flex flex-col items-center gap-3">
                 <div>This widget has not been generated yet.</div>
                 {isEditable ? (
-                    <LemonButton
-                        type="primary"
-                        onClick={() => generateWidget(initialPrompt, model, 'initial')}
-                        loading={generationRequestLoading}
-                    >
-                        Generate widget
-                    </LemonButton>
+                    <>
+                        <NotebookWidgetBetaNotice />
+                        <LemonButton
+                            type="primary"
+                            onClick={() => generateWidget(initialPrompt, model, 'initial')}
+                            loading={generationRequestLoading}
+                        >
+                            Generate widget
+                        </LemonButton>
+                    </>
                 ) : (
                     <div className="text-sm text-muted">Ask an editor to generate this widget.</div>
                 )}

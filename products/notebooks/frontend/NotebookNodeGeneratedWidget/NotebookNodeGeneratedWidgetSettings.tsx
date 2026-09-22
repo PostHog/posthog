@@ -25,6 +25,7 @@ import {
     notebookNodeGeneratedWidgetLogic,
     notebookNodeGeneratedWidgetSettingsLogic,
 } from './notebookNodeGeneratedWidgetLogic'
+import { NotebookWidgetBetaNotice } from './NotebookWidgetBetaNotice'
 import { NotebookWidgetGenerationModal } from './NotebookWidgetGenerationModal'
 import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
 import { DEFAULT_WIDGET_MODEL, DEFAULT_WIDGET_PROMPT, WIDGET_MODEL_OPTIONS } from './widgetModels'
@@ -277,6 +278,7 @@ export function NotebookNodeGeneratedWidgetSettings({
                 </>
             )}
 
+            {!hasVersions && !isWorking ? <NotebookWidgetBetaNotice /> : null}
             <div className="flex flex-wrap items-start gap-2">
                 {isWorking && workingStatus ? (
                     <>
