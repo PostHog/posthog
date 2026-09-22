@@ -74,8 +74,11 @@ MAX_ARTIFACTS_PER_SWEEP = 20_000
 SWEEP_TIME_BUDGET_SECONDS = 15 * 60
 
 # Repos do not record their real default branch, so a run with no PR number is
-# read as default-branch history and the rule fails toward keeping it.
-_PROTECTED_HISTORY = Q(branch__in=run_queries._DEFAULT_BRANCHES) | Q(pr_number__isnull=True)
+# read as default-branch history and the rule fails toward keeping it. A
+# merge-queue branch is never the default branch, whatever its PR number.
+_PROTECTED_HISTORY = Q(branch__in=run_queries._DEFAULT_BRANCHES) | (
+    Q(pr_number__isnull=True) & ~Q(branch__startswith=MERGE_QUEUE_BRANCH_PREFIX)
+)
 
 # Merge-queue first, because the general pass would keep them for the full window.
 _QUIET_BRANCH_PASSES = (

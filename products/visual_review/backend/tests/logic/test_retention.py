@@ -84,6 +84,7 @@ class TestRetentionSweep:
             ("feature/x", 7, 2, True),
             ("trunk-merge/pr-7/0c0ffee", 7, 8, False),
             ("trunk-merge/pr-7/0c0ffee", 7, 6, True),
+            ("trunk-merge/pr-7/0c0ffee", None, 8, False),
             ("master", None, 31, True),
             ("master", None, 181, False),
             ("feature/x", None, 31, True),
