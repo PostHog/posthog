@@ -536,6 +536,7 @@ class _StubContextToolRuntime:
         fetched_refs: tuple[str, ...] = (),
         relevant_events: tuple[str, ...] = (),
         schema_snapshot: ReportContextSchema = _EMPTY_SCHEMA,
+        selected_context_count: int = 0,
     ) -> None:
         self.has_selection = has_selection
         self.has_usable_context = has_usable_context
@@ -543,6 +544,7 @@ class _StubContextToolRuntime:
         self.fetched_refs = fetched_refs
         self.relevant_events = relevant_events
         self.schema_snapshot = schema_snapshot
+        self.selected_context_count = selected_context_count
         self.dispatch = AsyncMock(return_value="{}")
 
     def tool_schemas(self) -> list[type[BaseModel]]:
@@ -915,12 +917,37 @@ async def test_contextful_frozen_plan_is_reused(
     assert result.authorized_context_refs == ("insight:1",)
 
 
+@parameterized.expand(
+    [
+        # A fetch was attempted and failed: the notice is accurate ("those results were
+        # unavailable"), and the failure counts toward degraded.
+        (
+            "fetch_failed",
+            AiReportContexts(insights=(AiReportInsightContext(id=1, name="Signups", status="failed"),)),
+            True,
+            True,
+            1,
+        ),
+        # The model never attempted a fetch (no tool call, nothing failed): the report simply didn't
+        # need the selected context, so claiming it was "unavailable" would be false, and nothing
+        # actually failed.
+        ("never_attempted", _EMPTY_STATUSES, False, False, 0),
+    ]
+)
 @patch(_SLO_CAPTURE)
 @patch(f"{_RP}.MaxChatOpenAI")
 @patch(f"{_RP}._run_steps", new_callable=AsyncMock)
 @patch(f"{_RP}.build_enriched_prompt", new_callable=AsyncMock)
 async def test_all_failed_context_is_visible_and_marks_report_degraded(
-    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, mock_capture: MagicMock
+    _name: str,
+    statuses: AiReportContexts,
+    expect_notice: bool,
+    expect_degraded: bool,
+    expected_failed_contexts: int,
+    mock_bep: MagicMock,
+    mock_run: AsyncMock,
+    mock_chat: MagicMock,
+    mock_capture: MagicMock,
 ) -> None:
     mock_bep.return_value = _spec(steps=0)
     mock_run.return_value = PlanExecution(rendered=[], failed_count=0, diagnostics=[], charts=[])
@@ -928,7 +955,8 @@ async def test_all_failed_context_is_visible_and_marks_report_degraded(
     context_tools = _StubContextToolRuntime(
         has_selection=True,
         has_usable_context=False,
-        statuses=AiReportContexts(insights=(AiReportInsightContext(id=1, name="Signups", status="failed"),)),
+        statuses=statuses,
+        selected_context_count=1,
     )
 
     result = await generate_ai_report(
@@ -939,10 +967,14 @@ async def test_all_failed_context_is_visible_and_marks_report_degraded(
         context_tools=cast(ContextToolRuntime, context_tools),
     )
 
-    assert result.markdown == _all_contexts_failed_notice() + "# Report"
+    expected_markdown = _all_contexts_failed_notice() + "# Report" if expect_notice else "# Report"
+    assert result.markdown == expected_markdown
     props = _slo_completed(mock_capture)
-    assert props["degraded"] is True
-    assert props["failed_contexts"] == 1
+    assert props["degraded"] is expect_degraded
+    assert props["failed_contexts"] == expected_failed_contexts
+    # selected_contexts reflects the selection size, not fetch outcomes — a never-attempted
+    # selection still reports how many contexts were attached.
+    assert props["selected_contexts"] == 1
 
 
 @parameterized.expand(

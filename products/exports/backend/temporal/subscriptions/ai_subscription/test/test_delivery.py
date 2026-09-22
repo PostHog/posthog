@@ -1040,6 +1040,34 @@ class TestFreezePlanPersistence:
         mock_ctx.assert_called_once()
         assert returned.query_plan_status == AIQueryPlanStatus.FROZEN
 
+    async def test_ensure_loaded_awaited_before_generation_when_context_is_selected(self) -> None:
+        # A selected context must be loaded before generation runs, or a load-time-unavailable ref
+        # (deleted insight, revoked access) would never surface in the delivered report's statuses.
+        sub = self._subscription(ai_query_plan=None)
+        call_order: list[str] = []
+
+        async def _ensure_loaded() -> None:
+            call_order.append("ensure_loaded")
+
+        async def _generate(**_kwargs: object) -> AiReportResult:
+            call_order.append("generate_ai_report")
+            return AiReportResult(
+                markdown="# R", diagnostics=(), window_end_utc="2026-06-29T16:00:00+00:00", plan_to_persist=None
+            )
+
+        runtime_stub = MagicMock(has_selection=True)
+        runtime_stub.ensure_loaded = AsyncMock(side_effect=_ensure_loaded)
+
+        with (
+            patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
+            patch(f"{_DELIVERY}.ContextToolRuntime", return_value=runtime_stub),
+            patch(f"{_DELIVERY}.generate_ai_report", new=AsyncMock(side_effect=_generate)),
+        ):
+            await build_ai_subscription_report(sub)
+
+        runtime_stub.ensure_loaded.assert_awaited_once()
+        assert call_order == ["ensure_loaded", "generate_ai_report"]
+
     async def test_query_access_is_rejected_before_context_or_planner_work(self) -> None:
         sub = self._subscription(ai_query_plan=None)
         with (

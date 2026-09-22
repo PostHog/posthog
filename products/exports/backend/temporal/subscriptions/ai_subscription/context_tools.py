@@ -318,6 +318,10 @@ class ContextToolRuntime:
         return bool(self._selection.dashboard_ids or self._selection.insight_ids)
 
     @property
+    def selected_context_count(self) -> int:
+        return len(self._selection.dashboard_ids) + len(self._selection.insight_ids)
+
+    @property
     def schema_snapshot(self) -> ReportContextSchema:
         parts = self._schema_parts
         if not parts:

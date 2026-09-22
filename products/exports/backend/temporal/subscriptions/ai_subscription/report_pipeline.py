@@ -376,7 +376,7 @@ async def generate_ai_report(
             failed_steps=failed_count,
             query_coverage=(total_steps - failed_count) / total_steps if total_steps else 1.0,
             degraded=bool(failed_count or failed_contexts),
-            selected_contexts=len(context_statuses),
+            selected_contexts=context_tools.selected_context_count if context_tools is not None else 0,
             failed_contexts=failed_contexts,
             # No status the runtime produces is "truncated" (a single tool result's own truncation
             # doesn't fail the fetch) — kept at 0 rather than removed so the dashboard built on this
@@ -403,7 +403,10 @@ async def generate_ai_report(
             # deterministic notice (not left to the synthesis LLM) so the recipient gets a clear signal
             # instead of a confident-looking but empty report.
             report = _all_queries_failed_notice(total_steps, include_manage_link=include_manage_link) + report
-        if has_selected_context and not has_usable_context:
+        if has_selected_context and not has_usable_context and failed_contexts > 0:
+            # A selection the model never attempted (no fetch dispatched, nothing failed) is not the
+            # same as a selection that failed — the notice below claims fetched context was
+            # "unavailable", which would be false for a report that simply didn't need it.
             report = _all_contexts_failed_notice() + report
         plan_to_persist = _plan_to_freeze(
             spec.plan,
