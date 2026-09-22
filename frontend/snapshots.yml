@@ -8037,21 +8037,29 @@ snapshots:
     scenes-app-engineering-analytics-run-activity-chart--default--light:
         hash: v1.k794b7964.f63752ff3ebf3bbee3be4ddc83d1ff657d9cdd11ee71e7283c30ce5a1aefde72.yTb8kpRqcG51TbM2CqgRmC5YvgE7-6pV1Trc7y5wuto
     scenes-app-engineering-analytics-team--team--dark:
-        hash: v1.k794b7964.8ab9a14d00c57a179d6ae23a4f318527a125e1a886eb5eec4739e83204ca91d6.nCHqHNwOO6d0m-LoBUv-3mlTDU45SqaZAvg_0XRWqF4
+        hash: v1.k794b7964.2f951d96c575ff0f885d1c81b69bdeaec6d25ee5450d207561ae1215a3bd9be3.Y7zgUsl87c8frDY84qEtWiUwKOjoypzPxNkJQdCzEug
     scenes-app-engineering-analytics-team--team--light:
-        hash: v1.k794b7964.ce702b43b3812be57a316311450f1f60264f12969ea5b89a1f229bb24c1f5ade.wQYkNs1KtELeBKDCbvAdMTIKf1gCKinpoO2DqlxtTjk
+        hash: v1.k794b7964.c8315ec4a28e42f3ce074e0b5c388eca3be0f46b3d6bbc128d469f011389bbb0.7fQ5t9nHDImfuPh2iOU-74-ymwf2wDsJpAsZPfYnjDU
+    scenes-app-engineering-analytics-team--team-narrow--dark:
+        hash: v1.k794b7964.5b3f358f19b229642150d9e95dab3cb4ac5ed4bc918c7eb5bc5e00154a674358.nAXabrV4Apo98Lcnvsnn2KPXN43nfOLV93Jo6zzmpUs
+    scenes-app-engineering-analytics-team--team-narrow--light:
+        hash: v1.k794b7964.c9c9b890183e5383467ba4b8826e5cf4a153516423c77771c54b6328a7710ef2.uq3CH0JJZSabP_YTCjjRDKiMXtir7EXj36o2ovHo-V8
+    scenes-app-engineering-analytics-team--team-quarantine-load-error--dark:
+        hash: v1.k794b7964.541452d01837a1c1129b58ec587f3417a8aabd0dd1b92bd52229a160c1d07d6a.j1fzAkcNzZSw9KI7zOdccCx17gv-AlR5SocMTb2cOxw
+    scenes-app-engineering-analytics-team--team-quarantine-load-error--light:
+        hash: v1.k794b7964.cdb1215ddbfbed34cfe0ee14a694349d294a00cf7388e9891de5f080693ae025.BdZyEbPlRvzd9YxLHP4ahd5E_Y2uzEPsF-OjLfxUkNI
     scenes-app-engineering-analytics-team--team-without-membership--dark:
-        hash: v1.k794b7964.3c3142b9a3a6bb141701854805597465f6f823106746e7b20c381f3d610eaddb.E0-u2Sj4HAj2xqSq6Z4Jh3fQz9gagK4K0Z-3hegKbkE
+        hash: v1.k794b7964.6c597367df91af414d0ed49f8a13e687349f4c8e7952f9f05e9926acc3848dd1.9puYEgRsC--vOo4DwU3e1gWEyHfR4jZb-vY7rKrPYlk
     scenes-app-engineering-analytics-team--team-without-membership--light:
-        hash: v1.k794b7964.22b8a8a0e228d1af6ef2ee6ccd6790bdd39da67113cf04c9c4dccf349c280fa0.5ydsnSNLbc1Kym8S7J7u-e8YQS8iFYBHS-0g-1Q0VkU
+        hash: v1.k794b7964.d4e2de6cbcb878719014f8b5d038a1cc6e0ddc204de1f82b254ea99c032c57da.5Fd7ZBgUGdp6rQO7sroVkUpeDyRbxOiULjDN54bG3Wk
     scenes-app-engineering-analytics-teams--team-ci-health-load-error--dark:
-        hash: v1.k794b7964.032ac3a7c28431e14d1ffdcbcbdd8298ba32f6251a07291ccfd6ecdbe7ee47d8.PwPD3bNyLIlN-6hUWq-iiFoWlzvjg09qTxPAib5LOK4
+        hash: v1.k794b7964.2c5b47795360001e6281631b9c29b313cab79a2c10b335f018c3a9b333ba8593.aEHiND5D1aaD-yEMHu8kAQRrHw2X6AIRTQS6X9j0CNk
     scenes-app-engineering-analytics-teams--team-ci-health-load-error--light:
-        hash: v1.k794b7964.d204e91c0971783b6f322044ff75e69ca6eae1f0f423be5c736e8c4138889d3f.RsRhskU_JsqEk2II3fkKvxynfA3CqNOBPfC-sYuzGEw
+        hash: v1.k794b7964.3c0e74717954d87c4897c6449b6b11e296988aa9b3ecc8169d47e8b290f92852.hin4fcT7XyKyrwZ4N7JtOEUo_RqohPnmkRExX4Ns0TA
     scenes-app-engineering-analytics-teams--team-ci-health-roster--dark:
-        hash: v1.k794b7964.d7984917604b3b00c62080e1e14df8c6d8627227cd87b386e20f5875dbcae662.vFLjLR41Z042e4HEFAjPTtFk3TUQi32rHZNWjlsVC1Q
+        hash: v1.k794b7964.ab345005be51ec67d355c2fb12b7eaaeb52764b0c0a3b9598ebc1767f9ae7457.Zmaq5AaqeZ-xTAJJ2O24qjoSj03D1kUPUwk9c2bHWfw
     scenes-app-engineering-analytics-teams--team-ci-health-roster--light:
-        hash: v1.k794b7964.0e0f7789f3b9852991ee2fb1a0921bf56c9b5983875650fa5c5a21995ea1de0f.xAdZUSzJ_tsV3QvHcRu2sGw90W9Lg2NalsLCG-z3ibo
+        hash: v1.k794b7964.cfe54886d432295145a2e955fb75306173e31ba6c5f0f988e47f8304f2c75979.n8OplejM8MfCpDTi27u9UowHP9fdc8ORprBRHaemOUA
     scenes-app-engineering-analytics-tests--quarantine-load-error--dark:
         hash: v1.k794b7964.bd56f14c086152fa97390134d29ab0cff68e6665c1a309a4db67f45c49a82818.7yComHRRY3qMsmJoz1YQZPupup7KgJWWQpoljHmXm3c
     scenes-app-engineering-analytics-tests--quarantine-load-error--light:
