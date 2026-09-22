@@ -53,9 +53,9 @@ class AdvancedActivityLogFieldDiscovery:
     def _get_static_filters(self, queryset: QuerySet) -> dict[str, list[dict[str, str]]]:
         return {
             "users": self._get_available_users(queryset),
-            "scopes": self._get_available_scopes(queryset),
-            "activities": self._get_available_activities(queryset),
-            "clients": self._get_available_clients(queryset),
+            "scopes": self._get_available_values(queryset, "scope"),
+            "activities": self._get_available_values(queryset, "activity"),
+            "clients": self._get_available_values(queryset, "client"),
         }
 
     @staticmethod
@@ -76,17 +76,9 @@ class AdvancedActivityLogFieldDiscovery:
             for user in users
         ]
 
-    def _get_available_scopes(self, queryset: QuerySet) -> list[dict[str, str]]:
-        scopes = self._distinct_values(queryset, "scope")
-        return [{"value": scope} for scope in sorted(s for s in scopes if s)]
-
-    def _get_available_activities(self, queryset: QuerySet) -> list[dict[str, str]]:
-        activities = self._distinct_values(queryset, "activity")
-        return [{"value": activity} for activity in sorted(a for a in activities if a)]
-
-    def _get_available_clients(self, queryset: QuerySet) -> list[dict[str, str]]:
-        clients = self._distinct_values(queryset, "client")
-        return [{"value": client} for client in sorted(c for c in clients if c)]
+    def _get_available_values(self, queryset: QuerySet, field: str) -> list[dict[str, str]]:
+        values = self._distinct_values(queryset, field)
+        return [{"value": value} for value in sorted(v for v in values if v)]
 
     def _analyze_detail_fields_memory(self) -> DetailFieldsResult:
         fields = self._discover_fields_memory(batch_size=BATCH_SIZE, use_sampling=False)
