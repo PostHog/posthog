@@ -1141,16 +1141,21 @@ ASYNC_DELETION_RETENTION_DAYS = 90
 class PruneVerifiedDeletionsConfig(dagster.Config):
     retention_days: int = pydantic.Field(
         default=ASYNC_DELETION_RETENTION_DAYS,
+        # A negative window would put the cutoff in the future, which prunes every verified
+        # request including the one the sweep stamped minutes ago.
+        ge=0,
         description="Delete requests whose delete_verified_at is older than this many days. A "
         "request still pending verification is never deleted, whatever its age.",
     )
     batch_size: int = pydantic.Field(
         default=10000,
+        gt=0,
         description="Rows deleted per statement. Each batch is its own statement, so a run that "
         "stops part way keeps the rows it already removed.",
     )
     max_rows: int = pydantic.Field(
         default=1000000,
+        ge=0,
         description="Most rows one run may delete. A run that meets this cap leaves the rest for "
         "the next run, so one run cannot hold the whole backlog open.",
     )

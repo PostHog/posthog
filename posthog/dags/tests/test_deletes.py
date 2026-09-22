@@ -11,6 +11,7 @@ from django.conf import settings as django_settings
 from django.utils import timezone
 
 import dagster
+import pydantic
 from clickhouse_driver import Client
 from dagster import build_op_context
 
@@ -26,6 +27,7 @@ from posthog.dags.deletes import (
     MonthlyCleanupConfig,
     PendingDeletesDictionary,
     PendingDeletesTable,
+    PruneVerifiedDeletionsConfig,
     StagedDictionary,
     _count_through,
     _count_unswept_rows,
@@ -1375,3 +1377,17 @@ def test_pruning_stops_at_the_row_cap_and_leaves_the_rest():
     context = build_op_context(config={"retention_days": 90, "batch_size": 2, "max_rows": 3})
     assert prune_verified_deletions(context, cleanup_complete=True) == 3
     assert AsyncDeletion.objects.count() == 2
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        # A negative window puts the cutoff in the future, which prunes every verified request.
+        {"retention_days": -1},
+        # A non-positive batch selects no ids, so the run loops until it meets the row cap.
+        {"batch_size": 0},
+    ],
+)
+def test_pruning_refuses_a_config_that_would_run_away(config: dict):
+    with pytest.raises(pydantic.ValidationError):
+        PruneVerifiedDeletionsConfig(**config)
