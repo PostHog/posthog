@@ -1038,6 +1038,10 @@ tools:
         bin_script: granian_metrics.py
         description: HTTP server that aggregates Prometheus metrics from Granian workers
         hidden: true
+    tool:granian-shared-socket:
+        bin_script: granian_shared_socket.py
+        description: Granian launcher that keeps one listen socket shared by all workers
+        hidden: true
     sync:storage:
         bin_script: sync-storage
         description: 'TODO: add description for sync-storage'
