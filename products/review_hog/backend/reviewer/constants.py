@@ -75,7 +75,7 @@ FLASH_ARM = ReviewArm(
 
 # Every GitHub message a flash turn writes (status comment, promo, review body, inline comments)
 # starts with this, so a reader can tell a flash review from a full one at a glance.
-FLASH_MODE_MESSAGE_PREFIX = "FLASH MODE\n"
+FLASH_MODE_MESSAGE_PREFIX = "FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review\n"
 
 
 def message_prefix_for_mode(review_mode: str) -> str:

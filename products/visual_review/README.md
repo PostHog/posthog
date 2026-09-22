@@ -55,7 +55,7 @@ The lead names the team and the week, and counts each condition that has items, 
 Under it, one thread reply per condition that has items: a line saying what to do about that condition, then one section per item with the single action that resolves it on a button beside it.
 Theme variants of one story list as one entry when the reader would see the same facts for each.
 A merged expiring quarantine links to the flakiness page searched to that story, and a merged unowned file keeps its file button.
-Pile-ups never merge, because a baseline resets one snapshot at a time.
+Pile-ups never merge, because each theme variant carries its own toleration count.
 The last reply says when the next digest comes.
 A team that owns nothing gets no message at all.
 
@@ -66,15 +66,14 @@ Two conditions, and nothing else:
   The extra day is overlap: two weekly runs can fall slightly more than seven days apart, and a quarantine expiring in that gap would otherwise never be reported.
   The flakiness page keeps the plain seven days.
   It clears when somebody extends it past the window, lifts it, or lets it lapse.
-- **N accepted variants of the current baseline.**
-  `VARIANT_PILEUP_MIN` or more active intentional tolerations recorded against the hash the baseline currently holds, with no quarantine already covering the identity.
-  This is not the ninety-day tolerated count on the baselines page, which measures how often somebody accepted drift in a window.
-  This count has no window, because an accepted variant keeps matching without a new record.
-  It clears when the tolerations are removed, or when the baseline changes.
-
-A baseline change invalidates the tolerations recorded against the old baseline: they can never match again, so the count drops to zero.
-That is not evidence the story recovered.
-Reminders about retained exceptions repeat until they are removed or no longer apply.
+- **Tolerated N times in 30 days.**
+  `VARIANT_PILEUP_MIN` or more tolerations by a person or agent in the last `TOLERATION_PILEUP_WINDOW_DAYS`, with no quarantine already covering the identity.
+  It matches the manual half of the rule the Tolerate dialog uses to suggest a quarantine.
+  The count spans every baseline.
+  A flaky story's baseline often moves between tolerations, and a count scoped to the current baseline would drop to zero at each move while the tolerations go on.
+  Automatic tolerations do not count: they absorb renderings under the diff thresholds, which never block anybody.
+  It clears when the tolerations age out of the window.
+  Reminders about retained exceptions repeat until they are removed or no longer apply.
 
 Attribution runs through the story index of the newest default-branch Storybook run, and then through `owners.yaml`.
 `vr run upload --storybook-index <index.json> --storybook-root <dir>` turns the build's `index.json` into a story-to-file map, and each default-branch run records the map's SHA-256 in `metadata["story_index_hash"]`.

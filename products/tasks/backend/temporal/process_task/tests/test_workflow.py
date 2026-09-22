@@ -4,7 +4,7 @@ import uuid
 import random
 import asyncio
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -2464,6 +2464,78 @@ class TestProcessTaskWorkflowUnit:
 
         assert result.success is True
         assert post_slack_update_mock.await_count == expected_post_slack_calls
+
+    async def test_run_drains_boot_progress_cards_still_pending_at_exit(self, monkeypatch):
+        workflow_instance = ProcessTaskWorkflow()
+        release = asyncio.Event()
+        started: list[tuple[str, str]] = []
+        emitted: list[tuple[str, str]] = []
+
+        async def blocked_emit(activity_input: EmitProgressInput) -> None:
+            started.append((activity_input.step, activity_input.status))
+            await release.wait()
+            emitted.append((activity_input.step, activity_input.status))
+
+        def fake_execute_activity(activity_fn: Any, activity_input: Any, **kwargs: Any) -> Awaitable[None]:
+            assert activity_fn is emit_progress_activity
+            return blocked_emit(activity_input)
+
+        monkeypatch.setattr(
+            workflow_instance,
+            "_get_task_processing_context",
+            AsyncMock(return_value=_build_context(github_integration_id=123)),
+        )
+        monkeypatch.setattr(workflow_instance, "_update_task_run_status", AsyncMock())
+        monkeypatch.setattr(workflow_instance, "_track_workflow_event", AsyncMock())
+        monkeypatch.setattr(workflow_instance, "_post_slack_update", AsyncMock())
+        monkeypatch.setattr(workflow_instance, "_read_sandbox_logs", AsyncMock())
+        monkeypatch.setattr(workflow_instance, "_cleanup_sandbox", AsyncMock())
+        monkeypatch.setattr(workflow_instance, "_create_resume_snapshot", AsyncMock())
+        monkeypatch.setattr(workflow_instance, "_forward_pending_user_message", AsyncMock())
+        monkeypatch.setattr(
+            workflow_instance,
+            "_get_sandbox_for_repository",
+            AsyncMock(
+                return_value=GetSandboxForRepositoryOutput(
+                    sandbox_id="sandbox-123",
+                    sandbox_url="https://sandbox.example",
+                    connect_token="connect-token",
+                    used_snapshot=False,
+                    should_create_snapshot=False,
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            workflow_instance,
+            "_start_agent_server",
+            AsyncMock(
+                return_value=StartAgentServerOutput(
+                    sandbox_url="https://sandbox.example",
+                    connect_token="connect-token",
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            workflow_instance,
+            "_wait_for_event",
+            AsyncMock(return_value=process_task_workflow_module.TaskEvent.TIMEOUT_REACHED),
+        )
+        monkeypatch.setattr(workflow_instance, "_relay_sandbox_events", AsyncMock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+        monkeypatch.setattr(process_task_workflow_module, "_progress_emit_nonblocking", Mock(return_value=True))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        run_task = asyncio.create_task(workflow_instance.run(ProcessTaskInput(run_id="run-id")))
+        done, _ = await asyncio.wait([run_task], timeout=0.2)
+        assert not done, "run() finished while a boot progress card was still pending"
+        assert started == [("sandbox", "in_progress")]
+
+        release.set()
+        result = await asyncio.wait_for(run_task, timeout=5)
+
+        assert result.success is True
+        assert emitted == [("sandbox", "in_progress"), ("agent", "in_progress"), ("agent", "completed")]
+        assert workflow_instance._pending_progress_activities == {}
 
     async def test_get_sandbox_for_repository_skips_clone_and_checkout_for_private_repo_without_github_integration(
         self, monkeypatch

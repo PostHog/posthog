@@ -68,7 +68,7 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     PropertyFilterType,
-    QueryBasedInsightModel,
+    InsightModel,
     SessionRecordingPlaylistType,
     TeamType,
 } from '~/types'
@@ -935,8 +935,8 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             endpoint: combineUrl(`api/environments/${teamId}/insights/`, {
                 saved: true,
             }).url,
-            getName: (insight: QueryBasedInsightModel) => insight.name,
-            getValue: (insight: QueryBasedInsightModel) => insight.short_id,
+            getName: (insight: InsightModel) => insight.name,
+            getValue: (insight: InsightModel) => insight.short_id,
             getPopoverHeader: () => `Insights`,
         },
         {

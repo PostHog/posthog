@@ -137,6 +137,47 @@ def count_active_variants_against_current_baseline(
     return counts
 
 
+def count_recent_intentional_tolerations(
+    repo_id: UUID, *, since: datetime, newest_run_by_type: Mapping[str, Run] | None = None
+) -> dict[SnapshotKey, int]:
+    """How many tolerations a person or agent recorded for each snapshot identity since `since`,
+    across every baseline.
+
+    The count survives a baseline change, unlike `count_active_variants_against_current_baseline`.
+    A flaky story's baseline often moves between tolerations, so a per-baseline count keeps
+    dropping to zero while the tolerations go on.
+
+    Only identities on the newest default-branch runs are counted, so a deleted story drops out.
+    A toleration row has no run type of its own, so it takes the run type of the run it was
+    decided in. A row whose run the retention sweep already deleted counts for every run type
+    that has the identifier. Only non-zero counts are returned.
+    """
+    baseline_hash_by_key = _current_baseline_hashes(repo_id, newest_run_by_type)
+    if not baseline_hash_by_key:
+        return {}
+
+    keys_by_identifier: dict[str, list[SnapshotKey]] = {}
+    for key in baseline_hash_by_key:
+        keys_by_identifier.setdefault(key.identifier, []).append(key)
+
+    counts: dict[SnapshotKey, int] = {}
+    for identifier, run_type, count in (
+        ToleratedHash.objects.filter(
+            repo_id=repo_id,
+            identifier__in=list(keys_by_identifier),
+            reason__in=INTENTIONAL_TOLERATE_REASONS,
+            created_at__gte=since,
+        )
+        .values_list("identifier", "source_run__run_type")
+        .annotate(c=Count("id"))
+        .values_list("identifier", "source_run__run_type", "c")
+    ):
+        for key in keys_by_identifier[identifier]:
+            if run_type in (None, key.run_type):
+                counts[key] = counts.get(key, 0) + count
+    return counts
+
+
 def _current_baseline_hashes(
     repo_id: UUID, newest_run_by_type: Mapping[str, Run] | None = None
 ) -> dict[SnapshotKey, str]:

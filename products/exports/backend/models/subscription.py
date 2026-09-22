@@ -116,6 +116,8 @@ class Subscription(ModelActivityMixin, models.Model):
     Also see https://jakubroztocil.github.io/rrule/ for a helpful visual demonstration
     """
 
+    activity_logging_on_delete = True
+
     class SubscriptionTarget(models.TextChoices):
         EMAIL = "email"
         SLACK = "slack"
