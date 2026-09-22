@@ -71,16 +71,40 @@ const projectsTwinFor = (path: string, registeredPaths: Set<string>): string | n
     return registeredPaths.has(matchKey(twin)) ? null : twin
 }
 
+// True when `pattern` matches every request `other` matches and more, because it has a `:param`
+// segment where `other` names a literal. MSW answers with the first match, so a looser pattern
+// registered earlier hides the stricter one.
+const covers = (pattern: string, other: string): boolean => {
+    const loose = matchKey(pattern).split('/')
+    const strict = matchKey(other).split('/')
+    if (loose.length !== strict.length) {
+        return false
+    }
+    let looserSomewhere = false
+    for (let i = 0; i < loose.length; i++) {
+        if (loose[i] === strict[i]) {
+            continue
+        }
+        if (loose[i] !== ':param') {
+            return false
+        }
+        looserSomewhere = true
+    }
+    return looserSomewhere
+}
+
 export const mocksToHandlers = (mocks: Mocks): HttpHandler[] => {
-    const explicit: HttpHandler[] = []
-    // Every twin goes after every explicit handler. MSW answers with the first match, and a twin
-    // carries whatever mask its environments path had, so a broad twin placed earlier would cover a
-    // more specific projects route that a test registered on purpose.
-    const twins: HttpHandler[] = []
+    const handlers: HttpHandler[] = []
+    // A twin that would hide a projects route the map registers on purpose goes last instead of in
+    // place. Only those move, because registration order decides which handler MSW picks and tests
+    // depend on the order their mocks resolve in.
+    const deferred: HttpHandler[] = []
     Object.entries(mocks)
         .filter((entry): entry is [HttpMethod, Record<string, MockSignature>] => !!entry[1])
         .forEach(([method, mockHandlers]) => {
-            const registeredPaths = new Set(Object.keys(mockHandlers).map(matchKey))
+            const paths = Object.keys(mockHandlers)
+            const registeredPaths = new Set(paths.map(matchKey))
+            const projectsPaths = paths.filter((path) => !ENVIRONMENTS_PATH.test(path))
             Object.entries(mockHandlers).forEach(([path, handler]) => {
                 // Function handlers and static values support the same MockResult forms: a
                 // `[status, body]` tuple, a Response, or a plain JSON body. Static `[status, body]`
@@ -89,14 +113,16 @@ export const mocksToHandlers = (mocks: Mocks): HttpHandler[] => {
                 const resolve = async (info: MockResolverInfo): Promise<Response> =>
                     typeof handler === 'function' ? toResponse(await handler(info)) : toResponse(handler as MockResult)
 
-                const register = http[method] as (typeof http)['get']
-                explicit.push(register(withoutTrailingSlash(path), resolve))
+                handlers.push((http[method] as (typeof http)['get'])(withoutTrailingSlash(path), resolve))
 
                 const twin = projectsTwinFor(path, registeredPaths)
                 if (twin) {
-                    twins.push(register(withoutTrailingSlash(twin), resolve))
+                    const target = projectsPaths.some((projectsPath) => covers(twin, projectsPath))
+                        ? deferred
+                        : handlers
+                    target.push((http[method] as (typeof http)['get'])(withoutTrailingSlash(twin), resolve))
                 }
             })
         })
-    return [...explicit, ...twins]
+    return [...handlers, ...deferred]
 }
