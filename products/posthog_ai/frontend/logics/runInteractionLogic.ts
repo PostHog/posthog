@@ -119,15 +119,12 @@ function isClearCommand(content: string): boolean {
 const GENERIC_RUN_START_FAILURE = 'Failed to start a new run. Please try again.'
 
 /**
- * What to tell the user when starting a run failed. The run-create endpoint refuses for many
- * distinct reasons - a resume source that no longer resolves, a run from a previous task owner, a
- * base branch that does not match the resumed run, a model the caller cannot use, a usage limit -
- * and each refusal already carries user-facing wording in its response body. Show that wording, so
- * the user learns whether to retry, change branch, or start over.
+ * The run-create endpoint refuses for many distinct reasons and words each one for a person, so the
+ * body says whether to retry, change branch, or start over where the generic string cannot.
  *
  * Only a refusal below 500 speaks for itself. A 5xx is a fault on our side or in the gateway, and
- * its body is either empty or an internal message, so those keep the generic wording. The warm-run
- * retry code is the one 5xx exception, because the backend words that one for the user.
+ * its body is either empty or an internal message. The warm-run retry code is the one 5xx
+ * exception, because the backend words that one for the user.
  */
 function runStartFailureMessage(error: unknown): string {
     if (!(error instanceof ApiError)) {
