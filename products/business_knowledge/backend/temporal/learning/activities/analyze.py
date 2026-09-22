@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime
-from typing import TypeVar, cast
+from typing import Any, TypeVar, cast
 from uuid import UUID
 
 from django.db import transaction
@@ -58,6 +58,29 @@ from ..schemas import (
 
 logger = structlog.get_logger(__name__)
 ModelOutput = TypeVar("ModelOutput", bound=BaseModel)
+
+
+class _LearningTraceCallbackHandler(CallbackHandler):
+    def on_llm_error(
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        **kwargs: Any,
+    ) -> None:
+        _ = error, run_id, parent_run_id, kwargs
+
+    def on_chain_error(
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        **kwargs: Any,
+    ) -> None:
+        _ = error, run_id, parent_run_id, kwargs
+
 
 _EXTRACTION_SYSTEM_PROMPT = """You extract reusable Business knowledge from public human support replies.
 
@@ -162,7 +185,7 @@ def _learning_trace_callback(team: Team, *, stage: str, trace_id: str) -> Callba
         client = posthoganalytics.setup()
     if client is None:
         return None
-    return CallbackHandler(
+    return _LearningTraceCallbackHandler(
         client,
         distinct_id=team_distinct_id(team.id),
         trace_id=trace_id,
@@ -204,6 +227,7 @@ def _invoke_structured_model(
     output_model: type[ModelOutput],
     max_tokens: int = LEARNING_MAX_TOKENS,
 ) -> ModelOutput:
+    callback = _learning_trace_callback(team, stage=stage, trace_id=trace_id)
     try:
         model = _build_model(team, user, stage=stage, trace_id=trace_id, max_tokens=max_tokens).with_structured_output(
             output_model,
@@ -214,7 +238,6 @@ def _invoke_structured_model(
             SystemMessage(content=system_prompt),
             HumanMessage(content=json.dumps(payload, ensure_ascii=False)),
         ]
-        callback = _learning_trace_callback(team, stage=stage, trace_id=trace_id)
         if callback is None:
             result = model.invoke(messages)
         else:

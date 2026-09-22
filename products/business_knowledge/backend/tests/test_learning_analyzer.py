@@ -479,28 +479,41 @@ class TestLearningAnalyzer:
         search.assert_not_called()
         publish.assert_not_called()
 
-    def test_unexpected_structured_extraction_marks_run_failed(self, team: Team) -> None:
+    def test_model_error_marks_run_failed_without_capturing_sensitive_error(self, team: Team) -> None:
         run, input = _setup_sync(team)
         provider = _Provider(EvidenceBundle(replies=("Refunds are available within 30 days.",)))
         model = MagicMock()
         structured_model = model.with_structured_output.return_value
-        structured_model.invoke.return_value = None
+        client = MagicMock()
+        analytics = MagicMock(default_client=client, disabled=False)
+
+        def _raise_sensitive_error(messages: object, config: dict[str, list[object]]) -> None:
+            callback = config["callbacks"][0]
+            error = ValueError("sensitive model output")
+            callback.on_llm_error(error, run_id=UUID(int=1))
+            callback.on_chain_error(error, run_id=UUID(int=2))
+            raise error
+
+        structured_model.invoke.side_effect = _raise_sensitive_error
 
         with (
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
             patch(f"{_MODULE}._build_model", return_value=model),
-            pytest.raises(LearningAnalysisError, match="invalid_extraction_output"),
+            patch(f"{_MODULE}.posthoganalytics", analytics),
+            pytest.raises(LearningAnalysisError, match="extraction_model_failed"),
         ):
             analyze_learning_evidence(input)
 
         run.refresh_from_db()
         assert run.status == "failed"
-        assert run.error == "invalid_extraction_output"
+        assert run.error == "extraction_model_failed"
         model.with_structured_output.assert_called_once_with(
             ExtractedKnowledge,
             method="json_schema",
             include_raw=False,
         )
+        client.capture.assert_not_called()
+        client.capture_exception.assert_not_called()
 
     def test_missing_evidence_completes_as_ineligible(self, team: Team) -> None:
         run, input = _setup_sync(team)
