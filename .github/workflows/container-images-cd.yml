@@ -181,11 +181,15 @@ jobs:
             # exception to the same release the frontend bundles carry: the sourcemap stage of the
             # Dockerfile resolves the release by the same name and version, so it finds this one.
             # The CLI pin is read from the Dockerfile so both places run one CLI version. This step
-            # never fails the build: without the secret, or on a download, checksum, or API error, the
-            # id stays empty and the SDK treats a blank value as unset.
+            # must never block a deploy. The script turns the expected failures (no secret, a
+            # download, checksum, or API error) into an empty id with a warning. continue-on-error
+            # and the step timeout cover what the script does not catch, such as a hung API call.
+            # An empty id is fine: the SDK treats a blank value as unset.
             - name: Resolve error tracking release
               id: release
               if: steps.preflight.outputs.digest == ''
+              continue-on-error: true
+              timeout-minutes: 5
               env:
                   POSTHOG_CLI_TOKEN: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
                   POSTHOG_CLI_ENV_ID: '2'
