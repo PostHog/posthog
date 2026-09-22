@@ -546,7 +546,7 @@ def _read_activity(
         queryset.annotate(day=TruncDate("run__created_at"))
         .values("run__run_type", "identifier", "day")
         .annotate(
-            day_count=Count("id"),
+            day_count=Count("*"),
             latest=Max("run__created_at"),
             worst_diff=Max("diff_percentage"),
         )
