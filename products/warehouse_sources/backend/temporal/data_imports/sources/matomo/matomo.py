@@ -32,8 +32,8 @@ class MatomoRetryableError(Exception):
 
 @dataclasses.dataclass
 class MatomoResumeConfig:
-    # Visits: the serverTimestamp cursor of the next minTimestamp request.
-    # Reports: the next unfetched day (yyyy-mm-dd).
+    # The next unfetched day (yyyy-mm-dd), for both streams. Visits additionally carry the
+    # serverTimestamp cursor that pages within that day.
     min_timestamp: Optional[int] = None
     next_date: Optional[str] = None
 
@@ -158,9 +158,6 @@ def get_rows(
                 min_timestamp = int(float(db_incremental_field_last_value))
             except (TypeError, ValueError):
                 min_timestamp = 0
-        if resume_config is not None and resume_config.min_timestamp is not None:
-            min_timestamp = max(min_timestamp, resume_config.min_timestamp)
-            logger.debug(f"Matomo: resuming visits from minTimestamp {min_timestamp}")
 
         # Defer visits that may still be in progress so their action list is
         # complete when stored; they're picked up by the next sync instead.
@@ -168,57 +165,90 @@ def get_rows(
 
         today = datetime.now(tz=UTC).date()
         if min_timestamp > 0:
-            range_start = datetime.fromtimestamp(min_timestamp, tz=UTC).date()
+            # `period=day` resolves in the site's timezone while minTimestamp is UTC, so start a
+            # day early: the watermark's UTC date can sit a site-day ahead of visits we still owe.
+            # The extra day costs one request and merge dedupes its rows on idVisit.
+            day = datetime.fromtimestamp(min_timestamp, tz=UTC).date() - timedelta(days=1)
         else:
-            range_start = today - timedelta(days=DEFAULT_BACKFILL_DAYS)
+            day = today - timedelta(days=DEFAULT_BACKFILL_DAYS)
 
-        while True:
-            batch = call(
-                config.method,
-                {
-                    "period": "range",
-                    "date": f"{range_start.isoformat()},{today.isoformat()}",
-                    "filter_limit": VISITS_PAGE_SIZE,
-                    "filter_sort_order": "asc",
-                    "minTimestamp": min_timestamp,
-                },
-            )
-            if not isinstance(batch, list):
-                return
-            visits = [row for row in batch if isinstance(row, dict)]
+        if resume_config is not None:
+            if resume_config.min_timestamp is not None:
+                min_timestamp = max(min_timestamp, resume_config.min_timestamp)
+            resumed_day = _to_date(resume_config.next_date) if resume_config.next_date else None
+            if resumed_day is not None and resumed_day > day:
+                day = resumed_day
+            logger.debug(f"Matomo: resuming visits from {day.isoformat()} at minTimestamp {min_timestamp}")
 
-            final_visits = []
-            for visit in visits:
-                ts = visit.get("serverTimestamp")
-                if isinstance(ts, (int, float)) and ts > finality_cutoff:
-                    continue
-                final_visits.append(visit)
+        # One day per request. Matomo reads the raw visit log with every visit's actions
+        # attached, so a request spanning months of history can run long enough for the
+        # instance's gateway to answer 502 instead (matomo-org/matomo#11592). The same request
+        # times out the same way on every retry, so the backfill never gets past it.
+        # minTimestamp still pages within a day that holds more than one page.
+        while day <= today:
+            while True:
+                batch = call(
+                    config.method,
+                    {
+                        "period": "day",
+                        "date": day.isoformat(),
+                        "filter_limit": VISITS_PAGE_SIZE,
+                        "filter_sort_order": "asc",
+                        "minTimestamp": min_timestamp,
+                    },
+                )
+                if not isinstance(batch, list):
+                    return
+                visits = [row for row in batch if isinstance(row, dict)]
 
-            if final_visits:
-                yield final_visits
+                final_visits = []
+                for visit in visits:
+                    ts = visit.get("serverTimestamp")
+                    if isinstance(ts, (int, float)) and ts > finality_cutoff:
+                        continue
+                    final_visits.append(visit)
 
-            if len(visits) < VISITS_PAGE_SIZE or not final_visits:
-                return
+                if final_visits:
+                    yield final_visits
 
-            timestamps = [
-                int(v["serverTimestamp"]) for v in final_visits if isinstance(v.get("serverTimestamp"), (int, float))
-            ]
-            if not timestamps:
-                return
-            next_min_timestamp = max(timestamps)
-            # minTimestamp is inclusive: boundary visits at the max second get
-            # refetched next page and deduped on idVisit (fine). But if a full
-            # page's visits all fall in a single second, advancing to that
-            # second returns the same page forever, so step one second past it
-            # to guarantee progress. The only loss is overflow beyond
-            # VISITS_PAGE_SIZE visits within that one second — an accepted
-            # tradeoff against stalling the sync indefinitely.
-            if next_min_timestamp <= min_timestamp or min(timestamps) == next_min_timestamp:
-                next_min_timestamp = next_min_timestamp + 1
-            min_timestamp = next_min_timestamp
-            # Save state AFTER yielding so a crash re-yields the in-flight
-            # batch (merge dedupes on idVisit).
-            resumable_source_manager.save_state(MatomoResumeConfig(min_timestamp=min_timestamp))
+                if len(visits) < VISITS_PAGE_SIZE:
+                    break
+
+                if not final_visits:
+                    # Visits arrive oldest-first, so a full page holding nothing but in-progress
+                    # visits means every later day is in progress too.
+                    return
+
+                timestamps = [
+                    int(v["serverTimestamp"])
+                    for v in final_visits
+                    if isinstance(v.get("serverTimestamp"), (int, float))
+                ]
+                if not timestamps:
+                    return
+                next_min_timestamp = max(timestamps)
+                # minTimestamp is inclusive: boundary visits at the max second get
+                # refetched next page and deduped on idVisit (fine). But if a full
+                # page's visits all fall in a single second, advancing to that
+                # second returns the same page forever, so step one second past it
+                # to guarantee progress. The only loss is overflow beyond
+                # VISITS_PAGE_SIZE visits within that one second — an accepted
+                # tradeoff against stalling the sync indefinitely.
+                if next_min_timestamp <= min_timestamp or min(timestamps) == next_min_timestamp:
+                    next_min_timestamp = next_min_timestamp + 1
+                min_timestamp = next_min_timestamp
+                # Save state AFTER yielding so a crash re-yields the in-flight
+                # batch (merge dedupes on idVisit).
+                resumable_source_manager.save_state(
+                    MatomoResumeConfig(min_timestamp=min_timestamp, next_date=day.isoformat())
+                )
+
+            day = day + timedelta(days=1)
+            if day <= today:
+                resumable_source_manager.save_state(
+                    MatomoResumeConfig(min_timestamp=min_timestamp, next_date=day.isoformat())
+                )
+        return
 
     # Per-day report walk, oldest-first. Recent days re-archive, so
     # incremental runs re-pull a trailing lookback window.
