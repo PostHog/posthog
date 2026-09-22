@@ -10,8 +10,8 @@ products/tasks' sandbox mint (ai_gateway_token.py): the wizard needs
 attempt fast instead of retrying into the CLI's timeout.
 """
 
-import re
 import json
+import string
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
@@ -340,7 +340,7 @@ def wizard_product_node(program: str | None) -> str | None:
 
 
 _POSTHOG_STAFF_EMAIL_DOMAIN = "@posthog.com"
-_PROGRAM_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_PROGRAM_ID_CHARACTERS = frozenset(string.ascii_lowercase + string.digits)
 _MAX_PROGRAM_ID_LENGTH = 64
 
 
@@ -352,7 +352,7 @@ def wizard_staff_product_node(program: object, *, email: str | None, is_email_ve
         return None
     if not isinstance(program, str) or len(program) > _MAX_PROGRAM_ID_LENGTH:
         return None
-    if not _PROGRAM_ID_PATTERN.match(program):
+    if not all(segment and set(segment) <= _PROGRAM_ID_CHARACTERS for segment in program.split("-")):
         return None
     return f"{WIZARD_PRODUCT}:{program}"
 

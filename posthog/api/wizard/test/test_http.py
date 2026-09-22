@@ -846,7 +846,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         self, mock_authentication, mock_flag, mock_authorized, mock_mint
     ):
         self._set_user_email("dev@posthog.com", True)
-        for program in ("Feature Flags", "feature_flags", "wizard:integration", "a" * 65):
+        for program in ("Feature Flags", "feature_flags", "wizard:integration", "feature-flags\n", "a" * 65):
             with self.subTest(program=program):
                 self._mock_oauth(mock_authentication)
 
