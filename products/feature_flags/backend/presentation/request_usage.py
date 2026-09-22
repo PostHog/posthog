@@ -101,7 +101,11 @@ class FeatureFlagRequestUsageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             },
             send_feature_flag_events=False,
         ):
-            raise NotFound("Feature flag request usage is not enabled for this project.")
+            raise NotFound(
+                "Feature flag request usage is in beta and is not turned on for this project. "
+                "Contact PostHog support to ask for access. "
+                "Your organization's billing page shows feature flag request totals in the meantime."
+            )
 
         query = request.validated_query_data
         results = get_feature_flag_request_usage(
