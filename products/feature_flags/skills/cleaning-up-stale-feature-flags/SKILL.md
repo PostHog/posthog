@@ -132,7 +132,12 @@ Summarize the surviving candidates for the user: key, why it's stale, when it wa
 The same flag often arrives twice: from an automated report, from a teammate, or from a second session.
 When you can read the repository, search for work already done on the key before you classify its rollout or read any call sites.
 This is the cheapest step in the workflow and the only one that prevents a duplicate cleanup.
-Fetch first, because `git branch` and `git log` read only the refs this checkout already has:
+Look in this checkout first, because this skill leaves a cleanup it could not publish as uncommitted changes:
+`git status --short`, then `git diff HEAD -S'<key>' --stat` when the worktree is dirty, which covers staged and unstaged work together.
+Uncommitted work that removes the key is a cleanup already prepared here, not a no-op and not a reason to start again.
+Report it, then ask whether to validate and publish it, because step 5 reads the worktree and would otherwise report that no references remain.
+
+Then fetch, because `git branch` and `git log` read only the refs this checkout already has:
 
 - branches naming the key: `git branch -a --list '*<key>*'`, and again with `-` and `_` swapped, because branch names rewrite the separator
 - commits that added or removed the key: `git log --all -S'<key>' --oneline -20`, which finds a cleanup commit whose message never names the flag
