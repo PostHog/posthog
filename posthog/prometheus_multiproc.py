@@ -22,6 +22,8 @@ from prometheus_client.metrics_core import Metric
 from prometheus_client.mmap_dict import MmapedDict
 from prometheus_client.registry import Collector
 
+from posthog.dataclasses import frozen
+
 logger = structlog.get_logger(__name__)
 
 
@@ -32,6 +34,37 @@ class MergeMode(Enum):
     MIN = "min"
     MAX = "max"
     MOST_RECENT = "mostrecent"
+
+
+@frozen
+class Sample:
+    """One reading of one metric, as prometheus_client holds it in a file."""
+
+    value: float
+    timestamp: float
+
+    @classmethod
+    def from_pair(cls, pair: tuple[float, float]) -> "Sample":
+        """Adopt the pair that the mmap layer returns, which is the only place they arrive in."""
+        value, timestamp = pair
+        return cls(value=value, timestamp=timestamp)
+
+
+@frozen
+class MetricFile:
+    """One ``<prefix>_<owner>.db`` file, where the prefix types it and the owner wrote it."""
+
+    prefix: str
+    owner: str
+    path: str
+
+    @property
+    def pid(self) -> int | None:
+        """The process that wrote the file, or None for the archive that outlives them."""
+        try:
+            return int(self.owner)
+        except ValueError:
+            return None
 
 
 class PrometheusMultiprocDir:
@@ -67,14 +100,14 @@ class PrometheusMultiprocDir:
         return cls(path)
 
     @classmethod
-    def _split(cls, filename: str) -> tuple[str, str] | None:
-        """Split ``counter_17.db`` into its prefix and the owner that wrote it."""
-        if not filename.endswith(cls._SUFFIX):
+    def _describe(cls, entry: os.DirEntry) -> MetricFile | None:
+        """Read ``counter_17.db`` as the prefix that types it and the owner that wrote it."""
+        if not entry.name.endswith(cls._SUFFIX):
             return None
-        prefix, _, owner = filename[: -len(cls._SUFFIX)].rpartition("_")
+        prefix, _, owner = entry.name[: -len(cls._SUFFIX)].rpartition("_")
         if not prefix or not owner:
             return None
-        return prefix, owner
+        return MetricFile(prefix=prefix, owner=owner, path=entry.path)
 
     @staticmethod
     def _is_alive(pid: int) -> bool:
@@ -89,16 +122,14 @@ class PrometheusMultiprocDir:
         return True
 
     @staticmethod
-    def _combine(mode: MergeMode, old: tuple[float, float], new: tuple[float, float]) -> tuple[float, float]:
-        old_value, old_timestamp = old
-        new_value, new_timestamp = new
+    def _combine(mode: MergeMode, old: Sample, new: Sample) -> Sample:
         if mode is MergeMode.SUM:
-            return old_value + new_value, 0.0
+            return Sample(value=old.value + new.value, timestamp=0.0)
         if mode is MergeMode.MIN:
-            return old if old_value <= new_value else new
+            return old if old.value <= new.value else new
         if mode is MergeMode.MAX:
-            return old if old_value >= new_value else new
-        return old if old_timestamp >= new_timestamp else new
+            return old if old.value >= new.value else new
+        return old if old.timestamp >= new.timestamp else new
 
     @contextmanager
     def _lock(self, operation: int) -> Iterator[None]:
@@ -136,6 +167,10 @@ class PrometheusMultiprocDir:
             logger.warning("prometheus_multiproc_scan_failed", directory=self.path, error=str(e))
             return []
 
+    def _metric_files(self) -> list[MetricFile]:
+        described = (self._describe(entry) for entry in self._entries())
+        return [metric_file for metric_file in described if metric_file is not None]
+
     def _unlink(self, path: str) -> bool:
         try:
             os.unlink(path)
@@ -146,28 +181,29 @@ class PrometheusMultiprocDir:
             return False
         return True
 
-    def _archive(self, prefix: str, path: str) -> None:
+    def _archive(self, metric_file: MetricFile) -> None:
         """Fold one file's samples into the archive that outlives the process."""
-        mode = self._MERGE_MODES.get(prefix)
+        mode = self._MERGE_MODES.get(metric_file.prefix)
         if mode is None:
             return
-        archive_path = os.path.join(self.path, f"{prefix}_{self._ARCHIVE_OWNER}{self._SUFFIX}")
+        archive_name = f"{metric_file.prefix}_{self._ARCHIVE_OWNER}{self._SUFFIX}"
         archive = None
         try:
-            samples = list(MmapedDict.read_all_values_from_file(path))
-            if not samples:
+            readings = list(MmapedDict.read_all_values_from_file(metric_file.path))
+            if not readings:
                 return
-            archive = MmapedDict(archive_path)
+            archive = MmapedDict(os.path.join(self.path, archive_name))
             known = {key for key, _, _ in archive.read_all_values()}
-            for key, value, timestamp, _ in samples:
+            for key, value, timestamp, _ in readings:
+                sample = Sample(value=value, timestamp=timestamp)
                 if key in known:
-                    value, timestamp = self._combine(mode, archive.read_value(key), (value, timestamp))
-                archive.write_value(key, value, timestamp)
+                    sample = self._combine(mode, Sample.from_pair(archive.read_value(key)), sample)
+                archive.write_value(key, sample.value, sample.timestamp)
                 known.add(key)
         except Exception as e:
             # Reclaiming the disk matters more than the samples on it: the caller deletes the file
             # either way, and a full volume is exactly when the archive write fails.
-            logger.warning("prometheus_multiproc_archive_failed", file=path, error=str(e))
+            logger.warning("prometheus_multiproc_archive_failed", file=metric_file.path, error=str(e))
         finally:
             if archive is not None:
                 archive.close()
@@ -179,12 +215,11 @@ class PrometheusMultiprocDir:
             return 0
         retired = 0
         with self._lock(fcntl.LOCK_EX):
-            for entry in self._entries():
-                split = self._split(entry.name)
-                if split is None or split[1] not in owners:
+            for metric_file in self._metric_files():
+                if metric_file.owner not in owners:
                     continue
-                self._archive(split[0], entry.path)
-                if self._unlink(entry.path):
+                self._archive(metric_file)
+                if self._unlink(metric_file.path):
                     retired += 1
         return retired
 
@@ -193,18 +228,8 @@ class PrometheusMultiprocDir:
 
         A child that is killed (OOM, SIGKILL) never runs its shutdown handler.
         """
-        pids = set()
-        for entry in self._entries():
-            split = self._split(entry.name)
-            if split is None:
-                continue
-            try:
-                pid = int(split[1])
-            except ValueError:
-                continue
-            if not self._is_alive(pid):
-                pids.add(pid)
-        return self.retire_pids(pids)
+        pids = {metric_file.pid for metric_file in self._metric_files()}
+        return self.retire_pids(pid for pid in pids if pid is not None and not self._is_alive(pid))
 
     def purge_all(self) -> int:
         """Delete every metric file, archives included. Only safe before the children write."""
