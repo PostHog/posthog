@@ -5606,7 +5606,7 @@ export const ExperimentsCreateBody = () => zod
                                 ])
                                 .optional()
                                 .describe(
-                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
                                 ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
@@ -6648,7 +6648,7 @@ export const ExperimentsCreateBody = () => zod
                                 ])
                                 .optional()
                                 .describe(
-                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
                                 ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
@@ -11569,7 +11569,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                 ])
                                 .optional()
                                 .describe(
-                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
                                 ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
@@ -12615,7 +12615,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                 ])
                                 .optional()
                                 .describe(
-                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
                                 ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
@@ -17511,7 +17511,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                 ])
                                 .optional()
                                 .describe(
-                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
                                 ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
@@ -18557,7 +18557,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                 ])
                                 .optional()
                                 .describe(
-                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
                                 ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod

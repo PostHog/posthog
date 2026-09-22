@@ -17755,7 +17755,8 @@ class ExperimentApiMetric(BaseModel):
         description=(
             'For retention metrics: start event. Pass {"kind":'
             ' "ExperimentExposureNode"} to start retention from the experiment\'s'
-            " exposure event; start_handling and conversion window are ignored then."
+            " exposure event; a conversion window or 'last_seen' start_handling is"
+            " rejected then, because the start is always the user's first exposure."
         ),
     )
     start_handling: StartHandling | None = None

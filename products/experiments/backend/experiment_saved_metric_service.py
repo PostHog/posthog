@@ -20,6 +20,7 @@ from posthog.schema import (
 
 from posthog.models.team.team import Team
 
+from products.experiments.backend.hogql_queries.retention_validation import retention_metric_error
 from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     ExperimentSavedMetric,
@@ -62,7 +63,10 @@ class ExperimentSavedMetricService:
                 elif query["metric_type"] == ExperimentMetricType.RATIO:
                     ExperimentRatioMetric(**query)
                 elif query["metric_type"] == ExperimentMetricType.RETENTION:
-                    ExperimentRetentionMetric(**query)
+                    retention_metric = ExperimentRetentionMetric(**query)
+                    retention_error = retention_metric_error(retention_metric)
+                    if retention_error:
+                        raise ValidationError(retention_error)
                 else:
                     raise ValidationError(
                         "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'"

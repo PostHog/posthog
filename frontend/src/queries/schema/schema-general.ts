@@ -5647,7 +5647,8 @@ export interface ExperimentApiMetric {
      *  binomial-style denominator, which is never clamped. */
     denominator_outlier_handling?: ExperimentMetricOutlierHandling
     /** For retention metrics: start event. Pass {"kind": "ExperimentExposureNode"} to start retention
-     *  from the experiment's exposure event; start_handling and conversion window are ignored then. */
+     *  from the experiment's exposure event; a conversion window or 'last_seen' start_handling is
+     *  rejected then, because the start is always the user's first exposure. */
     start_event?: ExperimentApiRetentionStart
     /** For retention metrics: completion event. */
     completion_event?: ExperimentApiEventSource
@@ -5847,7 +5848,7 @@ export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
     retention_window_end: integer
     retention_window_unit: FunnelConversionWindowTimeUnit
 
-    // How to handle the start of the retention window. Ignored for an
+    // How to handle the start of the retention window. Must be 'first_seen' for an
     // ExperimentExposureNode start, which always anchors on the first exposure.
     start_handling: 'first_seen' | 'last_seen'
 }
