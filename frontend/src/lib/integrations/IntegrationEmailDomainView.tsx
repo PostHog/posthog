@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { IconCollapse, IconExpand, IconGear, IconLetter, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+
 import { EmailIntegrationDomainGroupedType, IntegrationType } from '~/types'
 
 import { ChannelType } from 'products/workflows/frontend/Channels/MessageChannels'
@@ -75,9 +77,23 @@ export function IntegrationEmailDomainView({
                 <div className="flex flex-col">
                     {integrations.map((integration) => (
                         <div key={integration.id} className="flex items-center px-4 py-2 border-t gap-2">
-                            <span className="flex-1">
-                                {integration.config.name} &lt;{integration.config.email}&gt;
-                            </span>
+                            <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
+                                <span>
+                                    {integration.config.name} &lt;{integration.config.email}&gt;
+                                </span>
+                                <CopyToClipboardInline
+                                    explicitValue={String(integration.id)}
+                                    description="integration id"
+                                    tooltipMessage="Use this id in integrationIds when you define the workflow in code. Click to copy."
+                                    iconSize="xsmall"
+                                    className="text-xs text-secondary"
+                                    data-attr="email-integration-id"
+                                >
+                                    <span>
+                                        Integration id <span className="font-mono">{integration.id}</span>
+                                    </span>
+                                </CopyToClipboardInline>
+                            </div>
                             <LemonButton
                                 type="primary"
                                 size="small"
