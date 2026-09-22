@@ -95,12 +95,12 @@ ETags are computed as SHA256 hashes of the JSON content.
 
 ## Service cache (Rust)
 
-The feature-flags Rust evaluation service uses a separate HyperCache instance defined in `posthog/models/feature_flag/flags_cache.py`. Unlike the local evaluation cache (which serves SDKs with cohort definitions and group type mappings), the service cache provides raw flag data plus pre-computed dependency metadata so the Rust service can evaluate flags in the correct order without recomputing the dependency graph on every request.
+The feature-flags Rust evaluation service uses a separate HyperCache instance defined in `products/feature_flags/backend/flags_cache.py`. Unlike the local evaluation cache (which serves SDKs with cohort definitions and group type mappings), the service cache provides raw flag data plus pre-computed dependency metadata so the Rust service can evaluate flags in the correct order without recomputing the dependency graph on every request.
 
 ### Cache instance
 
 ```python
-# posthog/models/feature_flag/flags_cache.py
+# products/feature_flags/backend/flags_cache.py
 flags_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags.json",
@@ -117,8 +117,8 @@ The `_get_feature_flags_for_service` function fetches all flags for a team (incl
 
 Before anything serializes or reads a flag, `_omit_unsupported_flags` classifies each stored `filters` document with `detect_config_format` (`products/feature_flags/backend/facade/config.py`).
 Only a config version 1 document (no `version`, or a numeric 1) is published.
-A v2 document, an unsupported discriminator, or an evaluable v1 document whose release conditions cannot be read is omitted, together with every flag whose dependency conditions reference it, transitively.
-That applies to inactive and archived rows too, so an inactive v2 row is never blanked into a v1-shaped `{"groups": []}` entry, and a dependent with `flag_evaluates_to: false` on it never matches against a target the matcher never evaluated.
+A v2 document, an unsupported discriminator, a document that is not a JSON object, or an evaluable v1 document whose release conditions cannot be read is omitted, together with every flag whose dependency conditions reference it, transitively.
+That applies to inactive and archived rows too, so an inactive v2 or non-object row is never blanked into a v1-shaped `{"groups": []}` entry, and a dependent with `flag_evaluates_to: false` on it never matches against a target the matcher never evaluated.
 The rebuild still succeeds with the remaining flags, the stored rows are not modified, and the omitted ids are logged.
 Unevaluable v1 rows are not read (`_is_unevaluable`), so a disabled row with an unreadable document keeps its established behavior: kept and blanked when referenced, dropped otherwise.
 Cohort references and flag dependencies are then read from the surviving flags' `filters` through `products/feature_flags/backend/facade/references.py`.
@@ -581,7 +581,7 @@ Django signals automatically invalidate the cache when models change.
 All signal handlers use `transaction.on_commit()` to avoid race conditions:
 
 ```python
-# posthog/models/feature_flag/flags_cache.py
+# products/feature_flags/backend/flags_cache.py
 @receiver([post_save, post_delete], sender=FeatureFlag)
 def feature_flag_changed_flags_cache(sender, instance, **kwargs):
     transaction.on_commit(lambda: update_team_service_flags_cache.delay(instance.team_id))

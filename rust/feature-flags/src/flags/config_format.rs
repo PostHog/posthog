@@ -100,23 +100,58 @@ impl FlagFilters {
     }
 }
 
-#[cfg(test)]
-pub(crate) fn decode_filters(value: Value) -> Result<FlagFilters, serde_json::Error> {
-    decode_raw_filters(serde_json::value::to_raw_value(&value)?)
+/// A stored document the decoder rejected. `object` tells a v1 object the typed decoder
+/// rejected apart from a document that is not an object at all: a producer may keep the
+/// former blank when it is never read, but the latter has no format to classify.
+pub(crate) struct FilterDecodeError {
+    pub(crate) error: serde_json::Error,
+    pub(crate) object: bool,
 }
 
-pub(crate) fn decode_raw_filters(raw: Box<RawValue>) -> Result<FlagFilters, serde_json::Error> {
+impl std::fmt::Display for FilterDecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.error.fmt(f)
+    }
+}
+
+impl std::fmt::Debug for FilterDecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FilterDecodeError")
+            .field("error", &self.error)
+            .field("object", &self.object)
+            .finish()
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn decode_filters(value: Value) -> Result<FlagFilters, FilterDecodeError> {
+    let raw = serde_json::value::to_raw_value(&value).expect("a Value always serializes");
+    decode_raw_filters(raw)
+}
+
+pub(crate) fn decode_raw_filters(raw: Box<RawValue>) -> Result<FlagFilters, FilterDecodeError> {
     let (format, document) = match serde_json::from_str::<FilterDocument<true>>(raw.get()) {
         Ok(decoded) => (decoded.format, Ok(decoded.document)),
         Err(error) => {
             // An unrepresentable number must stay a per-flag v2 failure. Only
             // failed Value reads need another scan to recover the discriminator.
-            let probe = serde_json::from_str::<FilterDocument<false>>(raw.get())?;
+            let probe =
+                serde_json::from_str::<FilterDocument<false>>(raw.get()).map_err(|error| {
+                    FilterDecodeError {
+                        error,
+                        object: false,
+                    }
+                })?;
             (probe.format, Err(error))
         }
     };
     if format == ConfigFormat::V1 {
-        serde_json::from_value(Value::Object(document?))
+        document
+            .and_then(|document| serde_json::from_value(Value::Object(document)))
+            .map_err(|error| FilterDecodeError {
+                error,
+                object: true,
+            })
     } else {
         let parsed_v2 = (format == ConfigFormat::V2).then(|| {
             config_v2::validate_raw_document(&raw)?;

@@ -12,6 +12,7 @@ use common_types::TeamId;
 
 use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
+use crate::flags::feature_flag_list::UndecodableFlags;
 use crate::flags::flag_models::{
     EvaluationMetadata, FeatureFlag, FeatureFlagId, FeatureFlagList, FlagFilters,
     HypercacheFlagsWrapper,
@@ -77,9 +78,9 @@ pub(crate) fn is_evaluable(flag: &FeatureFlag) -> bool {
 }
 
 /// Drop the stored rows this cache cannot carry, and the rows whose dependency
-/// conditions reference one, transitively: every non-v1 document whatever its
-/// lifecycle, so an inactive v2 row is never blanked into a v1-shaped entry, and every
-/// evaluable row whose document could not be decoded. An unevaluable undecodable row
+/// conditions reference one, transitively: every non-v1 or non-object document whatever
+/// its lifecycle, so an inactive one is never blanked into a v1-shaped entry, and every
+/// evaluable v1 object the typed decoder rejected. An unevaluable unreadable v1 object
 /// stays, blank, because the Python writer never reads an inactive document either.
 ///
 /// Mirrors Python's `_omit_unsupported_flags()` in
@@ -87,12 +88,14 @@ pub(crate) fn is_evaluable(flag: &FeatureFlag) -> bool {
 fn omit_unsupported_flags(
     team_id: TeamId,
     flags: Vec<FeatureFlag>,
-    undecodable: &HashSet<FeatureFlagId>,
+    undecodable: &UndecodableFlags,
 ) -> Vec<FeatureFlag> {
     let unsupported: HashSet<FeatureFlagId> = flags
         .iter()
         .filter(|flag| {
-            !flag.filters.is_v1() || (is_evaluable(flag) && undecodable.contains(&flag.id))
+            !flag.filters.is_v1()
+                || undecodable.non_object.contains(&flag.id)
+                || (is_evaluable(flag) && undecodable.unreadable_v1.contains(&flag.id))
         })
         .map(|flag| flag.id)
         .collect();

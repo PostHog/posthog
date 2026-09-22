@@ -17,6 +17,29 @@ use std::sync::Arc;
 /// Parsed hypercache result: flags, evaluation metadata, optional preloaded cohorts.
 type HypercacheParseResult = (Vec<FeatureFlag>, EvaluationMetadata, Option<Vec<Cohort>>);
 
+/// Rows `from_pg_keeping_undecodable` left in its list with blank filters, by what failed.
+#[derive(Debug, Default)]
+pub struct UndecodableFlags {
+    /// Not a JSON object, so no format can be read from it.
+    pub non_object: HashSet<FeatureFlagId>,
+    /// A v1 object the typed decoder rejected.
+    pub unreadable_v1: HashSet<FeatureFlagId>,
+}
+
+impl UndecodableFlags {
+    pub fn is_empty(&self) -> bool {
+        self.non_object.is_empty() && self.unreadable_v1.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.non_object.len() + self.unreadable_v1.len()
+    }
+
+    pub fn contains(&self, id: &FeatureFlagId) -> bool {
+        self.non_object.contains(id) || self.unreadable_v1.contains(id)
+    }
+}
+
 /// `Arc<[FeatureFlag]>` with regexes pre-compiled. Every constructor routes
 /// through [`PreparedFlags::seal`] (or `from_arc` for already-sealed input),
 /// so a value of this type is guaranteed to have been through
@@ -135,15 +158,16 @@ impl FeatureFlagList {
     }
 
     /// Like `from_pg`, but a row whose `filters` document could not be decoded stays in
-    /// the list with blank filters, and its id is returned alongside. The cache builder
-    /// needs the row's identity: an evaluable one takes its dependents with it when it is
-    /// omitted, and an inactive one is kept blank and pre-seeded false, as the Python
-    /// writer does without ever reading an inactive document. Evaluation callers use
-    /// `from_pg`, which drops these rows.
+    /// the list with blank filters, and its id is returned by what failed. The cache
+    /// builder needs that identity: a non-object row is omitted whatever its lifecycle, an
+    /// evaluable unreadable v1 object takes its dependents with it, and an inactive
+    /// unreadable v1 object is kept blank and pre-seeded false, as the Python writer does
+    /// without ever reading an inactive document. Evaluation callers use `from_pg`, which
+    /// drops all of them.
     pub async fn from_pg_keeping_undecodable(
         client: PostgresReader,
         team_id: TeamId,
-    ) -> Result<(Vec<FeatureFlag>, HashSet<FeatureFlagId>), FlagError> {
+    ) -> Result<(Vec<FeatureFlag>, UndecodableFlags), FlagError> {
         let mut conn = get_connection_with_metrics(&client, "non_persons_reader", "fetch_flags")
             .await
             .map_err(|e| {
@@ -215,7 +239,7 @@ impl FeatureFlagList {
             FlagError::internal(anyhow::Error::new(e).context(message))
         })?;
 
-        let mut undecodable: HashSet<FeatureFlagId> = HashSet::new();
+        let mut undecodable = UndecodableFlags::default();
         let flags: Vec<FeatureFlag> = flags_row
             .into_iter()
             .map(|row| {
@@ -257,7 +281,11 @@ impl FeatureFlagList {
                             "component" => "feature_flag_list",
                         )
                         .increment(1);
-                        undecodable.insert(id);
+                        if e.object {
+                            undecodable.unreadable_v1.insert(id);
+                        } else {
+                            undecodable.non_object.insert(id);
+                        }
                         FlagFilters::default()
                     });
                 FeatureFlag {

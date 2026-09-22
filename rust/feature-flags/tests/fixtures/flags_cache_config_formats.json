@@ -158,6 +158,25 @@
       "expect": "omitted"
     },
     {
+      "key": "malformed-non-object-inactive",
+      "active": false,
+      "filters": ["not", "an", "object"],
+      "expect": "omitted"
+    },
+    {
+      "key": "depends-false-on-non-object-inactive",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [{ "key": "malformed-non-object-inactive", "type": "flag", "value": "false", "operator": "flag_evaluates_to" }],
+            "rollout_percentage": 100
+          }
+        ]
+      },
+      "expect": "omitted"
+    },
+    {
       "key": "depends-true-on-v2-valid-active",
       "active": true,
       "filters": {

@@ -732,7 +732,8 @@ class TestOmitUnsupportedFlags(BaseTest):
         assert [c["id"] for c in single["cohorts"]] == [kept_cohort.id]
         assert [c["id"] for c in batch["cohorts"]] == [kept_cohort.id]
 
-    def test_celery_task_publishes_the_omitted_payload(self):
+    @patch("products.feature_flags.backend.tasks.publish_shadow_invalidation")
+    def test_celery_task_publishes_the_omitted_payload(self, mock_publish_shadow_invalidation):
         from products.feature_flags.backend.tasks import update_team_service_flags_cache
 
         FeatureFlag.objects.create(
@@ -754,6 +755,7 @@ class TestOmitUnsupportedFlags(BaseTest):
         assert cached is not None
         assert [f["key"] for f in cached] == ["v1-flag"]
         assert flags_hypercache.get_etag(self.team) is not None
+        mock_publish_shadow_invalidation.assert_called_once_with(self.team.id)
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
