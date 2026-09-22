@@ -20,11 +20,10 @@
 #   canonical: Depot resolves ./.github/actions/<x> from .depot/actions/<x>, so a missing
 #   mirror fails the step at setup with "action manifest not found".
 # - permissions: read-only in every job, so the ambient token never writes. Canonical grants
-#   handle-snapshots' github.token pull-requests:write for its CI report section; here the
-#   section posts with a posthog-tests token scoped to pull-requests:write (see the header of
+#   handle-snapshots' and backend-coverage-report's github.token pull-requests:write for their
+#   CI report sections; here those sections post with a posthog-tests token scoped to pull-requests:write (see the header of
 #   .depot/actions/commit-snapshots). Migration reports cross an artifact boundary into the
 #   base-controlled ci-backend-report.yml workflow before any write token is minted.
-# - Stripped side effects: the backend coverage CI report section.
 # - Trunk uploads and quarantine verdicts match canonical only when side effects
 #   are enabled. Disabled test steps retain their direct failure verdict.
 # - dynamic-ci-filter: canonical asks Trunk which jobs a diff needs and records the verdict
@@ -4041,5 +4040,100 @@ jobs:
                   uv run --script .github/scripts/report_test_timings.py \
                       --min-duration-seconds=0.5 \
                       ./junit-artifacts
+
+    backend-coverage-report:
+        name: Backend coverage report
+        needs: [changes, turbo-tests, django_tests, turbo-discover]
+        runs-on: depot-ubuntu-24.04
+        continue-on-error: true
+        timeout-minutes: 10
+        permissions:
+            contents: read
+        if: >-
+            !cancelled() &&
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.draft == false &&
+            needs.turbo-discover.outputs.mode != 'selected' &&
+            github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
+            (needs.turbo-tests.result != 'skipped' || needs.django_tests.result != 'skipped')
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+            - name: Check for coverage reporter
+              id: reporter
+              shell: bash
+              run: |
+                  if [[ -f .github/scripts/coverage_report.py ]]; then
+                      echo "available=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "available=false" >> "$GITHUB_OUTPUT"
+                      echo "Coverage reporter not present on this ref; skipping (branch may predate the check)."
+                  fi
+            - name: Download coverage artifacts
+              if: steps.reporter.outputs.available == 'true'
+              continue-on-error: true
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              with:
+                  path: ./cov-artifacts
+                  pattern: coverage-xml-*
+            - name: Download core coverage artifacts
+              if: steps.reporter.outputs.available == 'true'
+              continue-on-error: true
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              with:
+                  path: ./core-artifacts
+                  pattern: coverage-core-*
+            - uses: ./.depot/actions/setup-uv
+              with:
+                  enable-cache: false
+              if: steps.reporter.outputs.available == 'true'
+            - name: Build coverage report
+              if: steps.reporter.outputs.available == 'true'
+              run: |
+                  mkdir -p cov-artifacts core-artifacts
+                  git fetch --no-tags --filter=blob:none --quiet origin master
+                  uv run --script .github/scripts/coverage_report.py \
+                      --artifacts cov-artifacts \
+                      --core-artifacts core-artifacts \
+                      --combined-out combined-coverage.xml \
+                      --compare-branch origin/master \
+                      --patch-json-out patch-coverage.json \
+                      --out coverage-comment.md
+            - name: Get app token for CI report
+              if: steps.reporter.outputs.available == 'true'
+              id: ci-report-app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  permission-pull-requests: write
+            - name: Set up Node.js
+              if: steps.reporter.outputs.available == 'true'
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ steps.ci-report-app-token.outputs.token }}
+            - name: Post to CI report comment
+              if: steps.reporter.outputs.available == 'true'
+              env:
+                  GITHUB_TOKEN: ${{ steps.ci-report-app-token.outputs.token }}
+              run: |
+                  if [ -f .github/scripts/post-coverage-section.mjs ]; then
+                      node .github/scripts/post-coverage-section.mjs coverage-comment.md patch-coverage.json
+                  fi
+            - name: Upload patch coverage payload
+              if: ${{ always() && steps.reporter.outputs.available == 'true' }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: patch-coverage
+                  path: |
+                      patch-coverage.json
+                      combined-coverage.xml
+                      coverage-comment.md
+                  if-no-files-found: ignore
+                  retention-days: 2
+                  overwrite: true
 
     # calculate-running-time is omitted so Depot runs are not recorded as canonical CI data.
