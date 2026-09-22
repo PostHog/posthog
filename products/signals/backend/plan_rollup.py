@@ -131,6 +131,12 @@ def roll_up_plan_parents(*, team_id: int, report_id: str, include_report: bool =
                     continue
                 target = _rolled_up_status(team_id=team_id, parent=parent)
                 if target is None:
+                    # Undecided now, not undecided forever: a step of this plan may be a plan that
+                    # closes later in this same walk. A step can be `part_of` both its plan and
+                    # that plan's plan, and the shortcut edge can be the older one, so the walk
+                    # reaches the outer plan before the inner one settles. Unmark it, and the
+                    # level bound still bounds the walk.
+                    visited.discard(parent_id)
                     continue
                 if _close_parent(parent=parent, target=target):
                     closed.append(parent_id)
