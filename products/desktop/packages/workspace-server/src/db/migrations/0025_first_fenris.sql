@@ -1,0 +1,1 @@
+ALTER TABLE `task_metadata` ADD `pi_subscription_provider` text;

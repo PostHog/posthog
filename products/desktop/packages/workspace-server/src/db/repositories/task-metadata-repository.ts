@@ -19,6 +19,7 @@ export interface TaskMetadataPatch {
   archivedRepository?: string | null;
   serverArchiveScope?: string | null;
   piSessionFile?: string | null;
+  piSubscriptionProvider?: string | null;
 }
 
 /**

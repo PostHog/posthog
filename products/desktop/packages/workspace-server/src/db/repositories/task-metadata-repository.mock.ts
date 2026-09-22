@@ -53,6 +53,10 @@ export function createMockTaskMetadataRepository(): MockTaskMetadataRepository {
         "piSessionFile" in patch
           ? (patch.piSessionFile ?? null)
           : (existing?.piSessionFile ?? null),
+      piSubscriptionProvider:
+        "piSubscriptionProvider" in patch
+          ? (patch.piSubscriptionProvider ?? null)
+          : (existing?.piSubscriptionProvider ?? null),
       createdAt: existing?.createdAt ?? ts,
       updatedAt: ts,
     });

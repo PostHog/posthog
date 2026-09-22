@@ -187,6 +187,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
 
       this.taskMetadataRepository.upsert(taskId, {
         piSessionFile: state.sessionFile,
+        piSubscriptionProvider: input.piSubscriptionProvider ?? null,
       });
 
       await client.prompt(input.prompt);
@@ -234,6 +235,9 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       taskId,
     });
 
+    this.taskMetadataRepository.upsert(taskId, {
+      piSubscriptionProvider: null,
+    });
     await this.stopLocked(taskId);
     await this.resumeLocked({ taskContext: { taskId, cwd } });
   }
@@ -257,14 +261,21 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       throw new Error(`Pi session metadata is missing for task ${taskId}`);
     }
 
+    const piSubscriptionProvider =
+      metadata?.piSubscriptionProvider === "openai-codex"
+        ? "openai-codex"
+        : undefined;
+
     await this.stopLocked(taskId);
 
     const runtime = await this.runtimeFactory.create({
       taskContext: input.taskContext,
       sessionFile,
+      piSubscriptionProvider,
     });
     const client = runtime.client;
     const session = this.registerSession(taskId, runtime, cwd);
+    session.usesSubscriptionProvider = Boolean(piSubscriptionProvider);
 
     await this.startSession(taskId, client, session, async () => {});
   }

@@ -338,6 +338,34 @@ describe("PiSessionService switchSubscriptionSessionsToGateway", () => {
     expect(runtimeFactory.create).toHaveBeenLastCalledWith({
       taskContext: { taskId: "task-1", cwd: "/tmp" },
       sessionFile: "/tmp/pi-session.jsonl",
+      piSubscriptionProvider: undefined,
+    });
+  });
+
+  it("keeps the persisted subscription provider when resuming", async () => {
+    const client = makeStartableClient();
+    const runtimeFactory = makeRuntimeFactory(client);
+    const taskMetadataRepository = {
+      upsert: vi.fn(),
+      findByTaskId: vi.fn().mockReturnValue({
+        piSessionFile: "/tmp/pi-session.jsonl",
+        piSubscriptionProvider: "openai-codex",
+      }),
+    } as unknown as ITaskMetadataRepository;
+    const service = new PiSessionService(
+      runtimeFactory,
+      taskMetadataRepository,
+      {} as ProcessTrackingService,
+      { approveMcpTool: vi.fn() },
+      rootLogger,
+    );
+
+    await service.resume({ taskContext: { taskId: "task-1", cwd: "/tmp" } });
+
+    expect(runtimeFactory.create).toHaveBeenCalledWith({
+      taskContext: { taskId: "task-1", cwd: "/tmp" },
+      sessionFile: "/tmp/pi-session.jsonl",
+      piSubscriptionProvider: "openai-codex",
     });
   });
 
