@@ -38,6 +38,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.context_too
     AiReportContexts,
     AiReportDashboardContext,
     AiReportInsightContext,
+    ContextToolRuntime,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
     AI_SUBSCRIPTION_SYNTHESIS_PROMPT,
@@ -293,7 +294,6 @@ async def generate_ai_report(
     compact_contexts = (
         compact_report_context(report_context) if report_context is not None else EMPTY_AI_REPORT_CONTEXTS
     )
-    context_events = report_context.relevant_events if report_context is not None else ()
     has_successful_context = report_context.has_successful_evidence if report_context is not None else False
 
     initial_query_plan_status = get_ai_query_plan_status(ai_query_plan)
@@ -332,9 +332,7 @@ async def generate_ai_report(
                         prompt=prompt,
                         window=window,
                         trace_id=trace_correlation_id,
-                        formatted_context=formatted_context,
-                        has_successful_context=has_successful_context,
-                        context_events=context_events,
+                        runtime=None,
                     )
                     freshly_planned = True
             else:
@@ -344,9 +342,7 @@ async def generate_ai_report(
                     prompt=prompt,
                     window=window,
                     trace_id=trace_correlation_id,
-                    formatted_context=formatted_context,
-                    has_successful_context=has_successful_context,
-                    context_events=context_events,
+                    runtime=None,
                 )
                 freshly_planned = True
             # A report that will not show its charts must not build or render them: each render is a
@@ -377,7 +373,7 @@ async def generate_ai_report(
                     selected=len(selected),
                 )
             synthesis_task = asyncio.ensure_future(
-                _synthesize(spec, execution.rendered, team, user, trace_correlation_id)
+                _synthesize(spec, execution.rendered, formatted_context, team, user, trace_correlation_id)
             )
             render_task = asyncio.ensure_future(render_charts(selected, team=team, user=user))
             try:
@@ -542,20 +538,16 @@ async def _plan(
     prompt: Optional[str],
     window: ReportWindow,
     trace_id: Optional[Union[int, str]],
-    formatted_context: str = "",
-    has_successful_context: bool = True,
-    context_events: Sequence[str] = (),
+    runtime: ContextToolRuntime | None = None,
 ) -> EnrichedPromptSpec:
     try:
-        return await database_sync_to_async(build_enriched_prompt, thread_sensitive=False)(
+        return await build_enriched_prompt(
             team=team,
             user=user,
             prompt=prompt,
             window=window,
             trace_correlation_id=trace_id,
-            formatted_context=formatted_context,
-            has_successful_context=has_successful_context,
-            context_events=context_events,
+            runtime=runtime,
         )
     except PromptRejectedError:
         raise
@@ -612,6 +604,7 @@ async def _execute_plan(
 async def _synthesize(
     spec: EnrichedPromptSpec,
     rendered_results: list[str],
+    formatted_context: str,
     team: Team,
     user: User,
     trace_correlation_id: Optional[Union[int, str]],
@@ -645,7 +638,7 @@ async def _synthesize(
         result = await database_sync_to_async(chat.invoke, thread_sensitive=False)(
             [
                 ("system", synthesis_prompt),
-                ("human", _compose_synthesis_human_message(spec, rendered_results)),
+                ("human", _compose_synthesis_human_message(spec, rendered_results, formatted_context)),
             ],
         )
     except Exception as exc:
@@ -654,17 +647,19 @@ async def _synthesize(
     return content if isinstance(content, str) else str(content)
 
 
-def _compose_synthesis_human_message(spec: EnrichedPromptSpec, rendered_results: list[str]) -> str:
+def _compose_synthesis_human_message(
+    spec: EnrichedPromptSpec, rendered_results: list[str], formatted_context: str
+) -> str:
     results_block = (
         "\n".join(rendered_results)
         if rendered_results
         else "_No supplemental queries were needed._"
-        if spec.formatted_context
+        if formatted_context
         else "_No query results were available._"
     )
     # planner output from user-controlled context — strip framing markers so it can't inject
     safe_intent = strip_llm_framing_markers(spec.plan.overall_intent, max_len=500)
-    safe_formatted_context = strip_llm_framing_markers(spec.formatted_context, max_len=len(spec.formatted_context))
+    safe_formatted_context = strip_llm_framing_markers(formatted_context, max_len=len(formatted_context))
     computed_context_block = (
         f"<computed_context>\n{safe_formatted_context}\n</computed_context>\n\n" if safe_formatted_context else ""
     )
