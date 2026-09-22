@@ -362,6 +362,7 @@ class DockerSandbox(AgentServerLaunchMixin):
             image_name,
             dockerfile_path,
             build_args={"BASE_IMAGE": base_image},
+            needs_skills=False,  # the base image already carries them
             labels={_BASE_IMAGE_ID_LABEL: base_id},
             force=bool(base_id) and (built_on != base_id or built_from != dockerfile_sha),
         )

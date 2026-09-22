@@ -394,6 +394,7 @@ class TestDockerSandboxUnit:
 
         assert mock_build.call_args.kwargs["force"] is expect_force
         assert mock_build.call_args.kwargs["build_args"] == {"BASE_IMAGE": "posthog-sandbox-base-local"}
+        assert mock_build.call_args.kwargs["needs_skills"] is False
         assert mock_run.call_args_list[0].args[0][-1] == "posthog-sandbox-base-local"
         assert mock_build.call_args.kwargs["labels"] == {"com.posthog.sandbox.base-image-id": "sha256:new"}
 
