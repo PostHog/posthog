@@ -916,7 +916,7 @@ class TestFacadeReadsAndMappers(TestCase):
                 self.assertIsNotNone(dtos[task.id].latest_run_id)
 
     @patch("products.tasks.backend.logic.services.warm.execute_task_processing_workflow")
-    @patch("products.tasks.backend.logic.services.warm.is_team_limited", return_value=False)
+    @patch("ee.billing.quota_limiting.is_team_limited", return_value=False)
     def test_warm_task_run_returns_contract(self, _mock_quota, mock_workflow):
         task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI)
 

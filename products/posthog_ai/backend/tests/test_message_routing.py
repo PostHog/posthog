@@ -27,6 +27,7 @@ from products.tasks.backend.models import Task, TaskRun
 
 ROUTING = "products.posthog_ai.backend.message_routing"
 WARM = "products.tasks.backend.logic.services.warm"
+QUOTA_LIMITING = "ee.billing.quota_limiting"
 SYS_PROMPT = {"type": "preset", "preset": "claude_code", "append": "SYS"}
 
 
@@ -496,7 +497,7 @@ class TestSandboxWarmViaOpen(APIBaseTest):
     def test_warm_first_creates_warm_run_without_pending_message(self):
         with (
             patch(f"{WARM}.execute_task_processing_workflow") as m_workflow,
-            patch(f"{WARM}.is_team_limited", return_value=False),
+            patch(f"{QUOTA_LIMITING}.is_team_limited", return_value=False),
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -525,7 +526,7 @@ class TestSandboxWarmViaOpen(APIBaseTest):
     def test_warm_honors_initial_permission_mode(self):
         with (
             patch(f"{WARM}.execute_task_processing_workflow"),
-            patch(f"{WARM}.is_team_limited", return_value=False),
+            patch(f"{QUOTA_LIMITING}.is_team_limited", return_value=False),
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -548,7 +549,7 @@ class TestSandboxWarmViaOpen(APIBaseTest):
 
         with (
             patch(f"{WARM}.execute_task_processing_workflow") as m_workflow,
-            patch(f"{WARM}.is_team_limited", return_value=False),
+            patch(f"{QUOTA_LIMITING}.is_team_limited", return_value=False),
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -570,7 +571,7 @@ class TestSandboxWarmViaOpen(APIBaseTest):
 
         with (
             patch(f"{WARM}.execute_task_processing_workflow") as m_workflow,
-            patch(f"{WARM}.is_team_limited", return_value=False),
+            patch(f"{QUOTA_LIMITING}.is_team_limited", return_value=False),
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -589,7 +590,7 @@ class TestSandboxWarmViaOpen(APIBaseTest):
     def test_warm_over_quota_raises_and_creates_no_task(self):
         # The AI-credit gate lives behind the tasks warming facade; an over-quota warm must not leave a runless Task.
         with (
-            patch(f"{WARM}.is_team_limited", return_value=True),
+            patch(f"{QUOTA_LIMITING}.is_team_limited", return_value=True),
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
             self.assertRaises(QuotaLimitExceeded),
         ):
@@ -621,7 +622,7 @@ class TestSandboxWarmViaOpen(APIBaseTest):
 
         with (
             patch(f"{WARM}.execute_task_processing_workflow") as m_workflow,
-            patch(f"{WARM}.is_team_limited", return_value=False),
+            patch(f"{QUOTA_LIMITING}.is_team_limited", return_value=False),
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -640,7 +641,7 @@ class TestSandboxWarmViaOpen(APIBaseTest):
 
         with (
             patch(f"{WARM}.execute_task_processing_workflow") as m_workflow,
-            patch(f"{WARM}.is_team_limited", return_value=False),
+            patch(f"{QUOTA_LIMITING}.is_team_limited", return_value=False),
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -658,7 +659,7 @@ class TestSandboxWarmViaOpen(APIBaseTest):
 
         with (
             patch(f"{WARM}.execute_task_processing_workflow") as m_workflow,
-            patch(f"{WARM}.is_team_limited", return_value=False),
+            patch(f"{QUOTA_LIMITING}.is_team_limited", return_value=False),
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -678,7 +679,7 @@ class TestSandboxWarmViaOpen(APIBaseTest):
 
         with (
             patch(f"{WARM}.execute_task_processing_workflow") as m_workflow,
-            patch(f"{WARM}.is_team_limited", return_value=False),
+            patch(f"{QUOTA_LIMITING}.is_team_limited", return_value=False),
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -692,7 +693,7 @@ class TestSandboxWarmViaOpen(APIBaseTest):
         # create a duplicate Task on a task-less conversation.
         with (
             patch(f"{WARM}.execute_task_processing_workflow"),
-            patch(f"{WARM}.is_team_limited", return_value=False),
+            patch(f"{QUOTA_LIMITING}.is_team_limited", return_value=False),
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
             patch(f"{ROUTING}.lock_conversation_for_followup", wraps=lock_conversation_for_followup) as m_lock,
             self.captureOnCommitCallbacks(execute=True),

@@ -26,13 +26,12 @@ from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.tasks.backend.logic.services.ai_credits import AI_CREDITS_LIMIT_MESSAGE, ai_credits_exhausted
 from products.tasks.backend.logic.services.compute_quota import organization_deactivated
 from products.tasks.backend.logic.services.workflow_dispatch import WorkflowDispatchOptions, enqueue_or_start_workflow
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
 from products.tasks.backend.temporal.process_task.utils import parse_run_state
-
-from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 
 logger = structlog.get_logger(__name__)
 
@@ -56,11 +55,8 @@ class WarmPoolCaps:
 
 
 def _ai_credits_checker(team: Team, user: User) -> None:
-    if is_team_limited(team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
-        raise QuotaLimitExceeded(
-            "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, "
-            "or ask an org admin to do so."
-        )
+    if ai_credits_exhausted(team):
+        raise QuotaLimitExceeded(AI_CREDITS_LIMIT_MESSAGE)
 
 
 class SandboxWarmer:

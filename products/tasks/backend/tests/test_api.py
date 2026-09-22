@@ -100,6 +100,8 @@ from products.tasks.backend.presentation.serializers import (
 from products.tasks.backend.presentation.views import api as views_api
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
+from ee.billing.quota_limiting import QuotaResource
+
 # The catalog gates no model behind a rollout flag now, so the write paths that re-check
 # entitlement are exercised with a stand-in rather than with whichever model is mid-rollout.
 GATED_MODEL_FLAG = "tasks-test-model-gate"
@@ -14133,6 +14135,10 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
         self.assertNotIn("sandbox_environment_id", task_run.state)
 
 
+def _limited_for_ai_credits(_token, resource, *_args, **_kwargs) -> bool:
+    return resource == QuotaResource.AI_CREDITS
+
+
 class TestCloudUsageGate(BaseTaskAPITest):
     def _cloud_run(self, task, status_value=TaskRun.Status.QUEUED):
         return TaskRun.objects.create(
@@ -14306,6 +14312,12 @@ class TestCloudUsageGate(BaseTaskAPITest):
         assert response.json()["attr"] == "model"
         assert mock_feature_enabled.call_args.args[0] == GATED_MODEL_FLAG
         assert not Task.objects.filter(title="Gated").exists()
+
+    def _posthog_ai_task(self) -> Task:
+        task = self.create_task()
+        task.origin_product = Task.OriginProduct.POSTHOG_AI
+        task.save()
+        return task
 
     def _inbox_task(self, origin: Task.OriginProduct) -> Task:
         from products.signals.backend.models import SignalReport
@@ -14788,6 +14800,218 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(response.status_code, expected_status)
         mock_gate.assert_called_once()
         self.assertEqual(TaskRun.objects.filter(task=task).exists(), expected_status == status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
+            ("warm_reuse_hints", {"branch": None}),
+            ("immediate_run", {"start_run": True}),
+        ]
+    )
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("ee.billing.quota_limiting.is_team_limited", return_value=False)
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
+    def test_create_posthog_ai_task_needs_no_code_access(
+        self, _name, payload, _mock_gate, _mock_limited, _mock_workflow, _mock_internal_team
+    ):
+        # Web PostHog AI spends AI credits, not Desktop compute, so the Desktop funding policy
+        # must not refuse it, on the shape that activates a warm run or on the one that starts a
+        # run outright.
+        self._desktop_access_enabled = False
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "AI task", "description": "Do web work", "origin_product": "posthog_ai", **payload},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertTrue(Task.objects.filter(title="AI task").exists())
+
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("ee.billing.quota_limiting.is_team_limited", side_effect=_limited_for_ai_credits)
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
+    def test_create_posthog_ai_task_over_ai_credits_creates_no_task(
+        self, _mock_gate, _mock_limited, _mock_internal_team
+    ):
+        # AI credits are the spend backstop that replaces the Desktop gate here, so an over-limit
+        # team must not get a run out of the create path either.
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "AI task", "description": "Do web work", "origin_product": "posthog_ai", "start_run": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        self.assertEqual(response.json()["code"], "ai_credits_exhausted")
+        self.assertFalse(Task.objects.filter(title="AI task").exists())
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("ee.billing.quota_limiting.is_team_limited", return_value=False)
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
+    def test_run_posthog_ai_task_needs_no_code_access(self, _mock_gate, _mock_limited, mock_workflow):
+        # The cold web path creates the task, then runs it here, so the exemption has to hold on
+        # both endpoints or the refusal just moves.
+        self._desktop_access_enabled = False
+        task = self._posthog_ai_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertTrue(TaskRun.objects.filter(task=task).exists())
+        mock_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("under_limit", None, status.HTTP_200_OK),
+            ("over_limit", OVER_LIMIT, status.HTTP_429_TOO_MANY_REQUESTS),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("ee.billing.quota_limiting.is_team_limited", return_value=False)
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_run_posthog_ai_task_keeps_the_gateway_usage_backstop(
+        self, _name, gate_return, expected_status, mock_gate, _mock_limited, _mock_workflow
+    ):
+        # The exemption covers the Desktop entitlement gate only, exactly like the Inbox shapes
+        # above: the gateway usage backstop still fires, so a client-settable origin cannot escape
+        # every local rate limit at once.
+        mock_gate.return_value = gate_return
+        task = self._posthog_ai_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(TaskRun.objects.filter(task=task).exists(), expected_status == status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
+            ("posthog_ai", Task.OriginProduct.POSTHOG_AI, status.HTTP_402_PAYMENT_REQUIRED),
+            ("user_created", Task.OriginProduct.USER_CREATED, status.HTTP_200_OK),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("ee.billing.quota_limiting.is_team_limited", side_effect=_limited_for_ai_credits)
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
+    def test_run_over_ai_credits_refuses_only_posthog_ai(
+        self, _name, origin, expected_status, _mock_gate, _mock_limited, _mock_workflow
+    ):
+        # Only the warm path checked AI credits before, so a cold run had no backstop at all once
+        # the Desktop gate stopped applying. Desktop runs are funded separately and keep running.
+        task = self.create_task()
+        task.origin_product = origin
+        task.save()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        self.assertEqual(TaskRun.objects.filter(task=task).exists(), expected_status == status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
+            ("bootstrap_cloud_run", "bootstrap"),
+            ("start_queued_run", "start"),
+            ("resume_in_cloud", "resume"),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("ee.billing.quota_limiting.is_team_limited", side_effect=_limited_for_ai_credits)
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
+    def test_run_endpoints_over_ai_credits_refuse_posthog_ai(
+        self, _name, action, _mock_gate, _mock_limited, mock_workflow
+    ):
+        # Every endpoint that launches cloud compute for a PostHog AI task carries the AI credits
+        # limit, so exempting the origin from the Desktop gate leaves no unmetered path.
+        task = self._posthog_ai_task()
+        if action == "bootstrap":
+            url = f"/api/projects/@current/tasks/{task.id}/runs/"
+            payload: dict[str, Any] = {"environment": "cloud"}
+        else:
+            run = self._cloud_run(
+                task,
+                status_value=TaskRun.Status.QUEUED if action == "start" else TaskRun.Status.COMPLETED,
+            )
+            suffix = "start" if action == "start" else "resume_in_cloud"
+            url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/{suffix}/"
+            payload = {}
+
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED, response.json())
+        self.assertEqual(response.json()["code"], "ai_credits_exhausted")
+        mock_workflow.assert_not_called()
+
+    @patch("ee.billing.quota_limiting.is_team_limited", side_effect=_limited_for_ai_credits)
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
+    def test_ai_credits_answer_stays_behind_the_404_for_a_task_the_caller_cannot_drive(self, _mock_gate, _mock_limited):
+        # A PostHog AI task belongs to whoever created it, so another member's task must answer 404
+        # rather than the organization's credit state, which would confirm that the task exists.
+        other_user = self.create_organization_user()
+        task = self.create_task(created_by=other_user)
+        task.origin_product = Task.OriginProduct.POSTHOG_AI
+        task.save()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {"environment": "cloud"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.json())
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox")
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
+    def test_warm_posthog_ai_needs_no_code_access(self, _mock_gate, _mock_warm_enabled, mock_warm):
+        # A warm must not be refused where its submit path is allowed; SandboxWarmer applies the
+        # AI credits limit to this origin instead.
+        self._desktop_access_enabled = False
+        mock_warm.return_value = MagicMock(task_id=uuid.uuid4(), run_id=uuid.uuid4())
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/warm/",
+            {"origin_product": "posthog_ai"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        mock_warm.assert_called_once()
+
+    @patch("products.tasks.backend.facade.api.warm_task_resume_sandbox")
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
+    def test_warm_resume_posthog_ai_needs_no_code_access(self, _mock_gate, _mock_warm_enabled, mock_warm_resume):
+        self._desktop_access_enabled = False
+        task = self._posthog_ai_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.CLOUD,
+            status=TaskRun.Status.COMPLETED,
+        )
+        mock_warm_resume.return_value = MagicMock(task_id=task.id, run_id=uuid.uuid4())
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/warm/",
+            {"resume_from_run_id": str(run.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        mock_warm_resume.assert_called_once()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
