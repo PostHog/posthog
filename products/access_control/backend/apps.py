@@ -13,3 +13,5 @@ class AccessControlConfig(AppConfig):
         # that import is now deferred to compile time, so the wiring must happen here or the
         # receivers connect in no process and cache invalidation silently stops.
         from products.access_control.backend import property_access_control, signals  # noqa: F401, PLC0415
+
+        signals.connect_object_rule_cleanup()
