@@ -113,6 +113,7 @@ export type SettingId =
     | 'approval-policies'
     | 'authentication-domains'
     | 'autocapture'
+    | 'enforce-2fa'
     | 'enforce-verified-domains'
     | 'autocapture-data-attributes'
     | 'banner'
