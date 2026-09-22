@@ -238,7 +238,7 @@ Two things keep cache hit rates high:
 2. **Scoped to queried tables:** `queried_access_controlled_resources()` (`posthog/hogql_queries/access_controlled_resources.py`) parses the query and returns only the access-controlled scopes it actually reads. Tables whose visibility depends on another scoped table add that dependency too. For example, `system.customer_tasks` adds `account` because its row predicate reads `system.accounts`. A plain **events or persons query shares one cache entry across all users**.
 
 When a run has no user but does read access-controlled resources, the fingerprint uses `restricted_resources: ["*"]` so it can never collide with a real user's cache, and synthetic principals partition on their readable scopes so a narrow token can't reuse a broader token's cached rows.
-Warehouse scopes are left out of that partition because these principals bypass warehouse access control (`WAREHOUSE_ACCESS_SCOPES`), and for them the `external_data_source` scope a synced table falls back to is not added either (`with_fallback_parents=False`), so a shared-link view of a warehouse table lands in the same cache entry as an unrestricted user's.
+Warehouse scopes are left out of that partition because these principals bypass warehouse access control (`WAREHOUSE_ACCESS_SCOPES`), and for them the `external_data_source` scope a synced table falls back to is not added either (`queried_access_controlled_resources` receives those scopes as `bypassed_scopes`), so a shared-link view of a warehouse table lands in the same cache entry as an unrestricted user's.
 A system table that carries `external_data_source` directly still partitions their key.
 
 ## One preloaded `UserAccessControl` everywhere

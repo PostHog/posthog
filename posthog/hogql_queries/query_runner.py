@@ -3418,12 +3418,12 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         # from - so queries on events, persons and other non-access-controlled tables share one cache
         # entry (incl. userless cache warming).
         # Service tokens and shared-link viewers bypass warehouse access control (see Database.create_for),
-        # so the source scope a synced table falls back to must not partition their key. It still does
-        # when a system table carries that scope directly, which is why only the fallback is dropped.
-        is_synthetic_principal = self.user is not None and not isinstance(self.user, User)
-        queried_resources = queried_access_controlled_resources(
-            self.query, self.team, with_fallback_parents=not is_synthetic_principal
+        # so the source scope a synced table falls back to never gates them and must not partition their
+        # key. It still does when a system table carries that scope directly.
+        bypassed_scopes = (
+            WAREHOUSE_ACCESS_SCOPES if self.user is not None and not isinstance(self.user, User) else frozenset()
         )
+        queried_resources = queried_access_controlled_resources(self.query, self.team, bypassed_scopes=bypassed_scopes)
 
         if isinstance(self.user, User) and not self.team.organization.is_feature_available(
             AvailableFeature.ACCESS_CONTROL

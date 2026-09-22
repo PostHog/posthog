@@ -58,7 +58,7 @@ _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
 
 
 def queried_access_controlled_resources(
-    query, team: "Team", *, with_fallback_parents: bool = True
+    query, team: "Team", *, bypassed_scopes: frozenset[str] = frozenset()
 ) -> Optional[set[str]]:
     """The set of access-control scope names a query reads, e.g. "notebook", "warehouse_table".
     Empty when the query reads no access-controlled table.
@@ -68,13 +68,10 @@ def queried_access_controlled_resources(
     otherwise a denied user could be served an allowed user's cached rows on a cache hit (the hit
     short-circuits the schema strip that would otherwise raise "You don't have access to table").
 
-    `with_fallback_parents=False` leaves out the parent scope a child falls back to through
-    `RESOURCE_FALLBACK_MAP`. A principal that bypasses the child's access control never reaches the
-    parent's rules, so for it the parent only partitions the cache when a table carries that scope
-    directly."""
-
-    def finish(scopes: set[str]) -> set[str]:
-        return _with_fallback_parents(scopes) if with_fallback_parents else scopes
+    `bypassed_scopes` are the scopes whose access control the principal bypasses. The parent such a
+    scope falls back to through `RESOURCE_FALLBACK_MAP` is left out, because the principal never
+    reaches the parent's rules; the parent still partitions the cache when a table carries that
+    scope directly."""
 
     # Deferred to break the query_runner -> this module -> hogql import cycle.
     from posthog.hogql.database.database import get_data_warehouse_table_name  # noqa: PLC0415
@@ -88,7 +85,7 @@ def queried_access_controlled_resources(
     from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
 
     if getattr(query, "kind", None) == "AccountsTableQuery":
-        return finish({"account"})
+        return _with_fallback_parents({"account"}, bypassed_scopes)
 
     if getattr(query, "kind", None) == "AccountsQuery":
         expressions = [
@@ -108,7 +105,7 @@ def queried_access_controlled_resources(
         account_scopes = {"account"}
         if any(any(str(segment) in _ACCOUNT_COMMUNICATION_LAZY_FIELDS for segment in field.chain) for field in fields):
             account_scopes.add("ticket")
-        return finish(account_scopes)
+        return _with_fallback_parents(account_scopes, bypassed_scopes)
 
     # Raw HogQL is the only query that references system.* and warehouse tables by name
     if getattr(query, "kind", None) == "HogQLQuery":
@@ -210,21 +207,27 @@ def queried_access_controlled_resources(
                 # otherwise a user denied an underlying table could be served a cached view result.
                 scopes.add("warehouse_table")
 
-        return finish(scopes)
+        return _with_fallback_parents(scopes, bypassed_scopes)
 
     # Structured insight queries (Trends/Funnels/Lifecycle/...) read warehouse data via a
     # DataWarehouseNode in their tree rather than by table name.
-    return finish({"warehouse_table", "warehouse_view"}) if _references_data_warehouse(query) else set()
+    return (
+        _with_fallback_parents({"warehouse_table", "warehouse_view"}, bypassed_scopes)
+        if _references_data_warehouse(query)
+        else set()
+    )
 
 
-def _with_fallback_parents(scopes: set[str]) -> set[str]:
+def _with_fallback_parents(scopes: set[str], bypassed_scopes: frozenset[str]) -> set[str]:
     """Add the parent of every scope that resolves through one, since the parent's rules decide the
-    child's access.
+    child's access. A bypassed child's parent is not added: the principal never reaches its rules.
 
     Only RESOURCE_FALLBACK_MAP. RESOURCE_INHERITANCE_MAP substitutes the parent's access for the
     child's rather than adding rules of its own, so there is nothing extra to partition on.
     """
-    return scopes | {parent for child, parent in RESOURCE_FALLBACK_MAP.items() if child in scopes}
+    return scopes | {
+        parent for child, parent in RESOURCE_FALLBACK_MAP.items() if child in scopes and child not in bypassed_scopes
+    }
 
 
 def _references_data_warehouse(value) -> bool:
