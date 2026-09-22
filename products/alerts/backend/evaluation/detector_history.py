@@ -24,8 +24,10 @@ from posthog.schema import HogQLAlertConfig
 
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 
+from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
 from products.alerts.backend.evaluation.detector_history_eligibility import (
     DetectorSeriesQuery,
     match_detector_series_query,
@@ -77,7 +79,7 @@ def detector_rows_from_history(
         return None
 
     team_id = resolve_effective_team_id(alert.team_id)
-    fingerprint = _fingerprint(matched, config, team)
+    fingerprint = _fingerprint(matched, config, team, alert.created_by)
     now = django_timezone.now()
 
     def rebuild() -> tuple[list[_Row], list[str]]:
@@ -144,10 +146,11 @@ def _flag_enabled(team: Team) -> bool:
     )
 
 
-def _fingerprint(matched: DetectorSeriesQuery, config: HogQLAlertConfig, team: Team) -> str:
+def _fingerprint(matched: DetectorSeriesQuery, config: HogQLAlertConfig, team: Team, user: User | None) -> str:
     """Tie cached values to what produced them, so an edit cannot mix two series together."""
     source = matched.source
     inner = source.get("source") if source.get("kind") == "DataVisualizationNode" else source
+    restricted = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.id)
     payload = json.dumps(
         {
             "query": inner.get("query") if isinstance(inner, dict) else None,
@@ -156,6 +159,12 @@ def _fingerprint(matched: DetectorSeriesQuery, config: HogQLAlertConfig, team: T
             "window_hours": matched.window_hours,
             # Bucket instants are read back through the team timezone, so a change re-aligns them.
             "timezone": team.timezone,
+            # The query executes as the alert creator, and property access control masks values per
+            # user, so a restriction change makes old and new buckets disagree.
+            "restricted_properties": sorted(
+                (r.name, str(r.property_type), -1 if r.group_type_index is None else r.group_type_index)
+                for r in restricted
+            ),
         },
         sort_keys=True,
     )
