@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.apps import apps
 from django.test import SimpleTestCase, override_settings
 from django.utils import (
     timezone,
@@ -73,6 +74,16 @@ class TestWorkflowTasksAPI(APIBaseTest):
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {token or _token(self.team.id, str(self.hog_flow.id))}",
         )
+
+    def _seed_canvas(self, channel_type: str) -> UUID:
+        with team_scope(self.team.id):
+            channel = Channel.objects.create(team=self.team, name="growth", channel_type=channel_type)
+        canvas = (
+            apps.get_model("canvas", "Canvas")
+            .objects.unscoped()
+            .create(team=self.team, channel=channel, name="Growth", created_by=self.user)
+        )
+        return canvas.id
 
     def _seed_workflow_task(self, run_status: str) -> Task:
         task = Task.objects.create(
@@ -152,6 +163,50 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         task = Task.objects.get(id=response.json()["id"])
         assert task.channel_id == (channel.id if channel and expect_filed else None)
+
+    @parameterized.expand(
+        [
+            ("canvas the owner can see", Channel.ChannelType.PUBLIC, True),
+            ("canvas in a private space the owner is not in", Channel.ChannelType.PRIVATE, False),
+        ]
+    )
+    def test_a_named_canvas_buys_canvas_scopes_without_widening_the_run_to_full(
+        self, _name: str, channel_type: str, expect_granted: bool
+    ) -> None:
+        # Least privilege: publishing to a canvas must cost the two canvas scopes, not the whole
+        # `full` write surface, and a canvas the owner cannot see must buy nothing at all.
+        canvas_id = self._seed_canvas(channel_type)
+
+        response = self._post({"canvas": str(canvas_id)})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        scopes = run.state["pending_dispatch"]["posthog_mcp_scopes"]
+        message = run.state["initial_prompt_override"]
+        if expect_granted:
+            assert "canvas:read" in scopes
+            assert "canvas:write" in scopes
+            assert "organization:write" not in scopes
+            assert "canvas-publish-create" in message
+            assert str(canvas_id) in message
+        else:
+            assert scopes == "read_only"
+            assert "canvas-publish-create" not in message
+
+    @parameterized.expand(
+        [
+            ("no canvas", None),
+            ("a canvas that does not exist", "0198c9f1-cccc-0000-0000-000000000001"),
+            ("not an id at all", "growth"),
+        ]
+    )
+    def test_a_run_with_no_resolvable_canvas_stays_read_only(self, _name: str, canvas: str | None) -> None:
+        response = self._post({"canvas": canvas} if canvas is not None else None)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state["pending_dispatch"]["posthog_mcp_scopes"] == "read_only"
+        assert "canvas-publish-create" not in run.state["initial_prompt_override"]
 
     @parameterized.expand(
         [

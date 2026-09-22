@@ -16,16 +16,17 @@ interface LoopContextFieldsProps {
   value: LoopContextTargetDraft | null;
   onChange: (value: LoopContextTargetDraft | null) => void;
   disabled?: boolean;
-  /** Off for a workflow-backed loop, which posts its runs to the channel's
-   * feed but maintains no context.md and no canvas. */
-  showOutputs?: boolean;
+  /** Which deliverables the loop can maintain. A workflow-backed loop always
+   * posts its runs to the channel's feed and maintains no context.md, so it
+   * offers the canvas on its own. */
+  outputs?: "all" | "canvas";
 }
 
 export function LoopContextFields({
   value,
   onChange,
   disabled,
-  showOutputs = true,
+  outputs = "all",
 }: LoopContextFieldsProps) {
   const { channels } = useChannels();
   const { dashboards } = useDashboards(value?.folderId, { poll: false });
@@ -73,26 +74,32 @@ export function LoopContextFields({
         onValueChange={selectContext}
       />
 
-      {value && showOutputs ? (
+      {value ? (
         <Flex
           direction="column"
           gap="3"
           className="rounded-(--radius-2) border border-border bg-(--gray-1) p-3"
         >
-          <ToggleRow
-            title="Show runs in the feed"
-            description="Each run appears as a card in this context's feed."
-            checked={value.outputs.post_to_feed}
-            disabled={disabled}
-            onChange={(checked) => patchOutputs({ post_to_feed: checked })}
-          />
-          <ToggleRow
-            title="Keep context.md updated"
-            description="Each run reads this context's context.md and republishes it with the latest state."
-            checked={value.outputs.update_context}
-            disabled={disabled}
-            onChange={(checked) => patchOutputs({ update_context: checked })}
-          />
+          {outputs === "all" ? (
+            <>
+              <ToggleRow
+                title="Show runs in the feed"
+                description="Each run appears as a card in this context's feed."
+                checked={value.outputs.post_to_feed}
+                disabled={disabled}
+                onChange={(checked) => patchOutputs({ post_to_feed: checked })}
+              />
+              <ToggleRow
+                title="Keep context.md updated"
+                description="Each run reads this context's context.md and republishes it with the latest state."
+                checked={value.outputs.update_context}
+                disabled={disabled}
+                onChange={(checked) =>
+                  patchOutputs({ update_context: checked })
+                }
+              />
+            </>
+          ) : null}
           <ToggleRow
             title="Maintain a canvas"
             description={

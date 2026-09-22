@@ -29,6 +29,12 @@ from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext
 from products.tasks.backend.facade import contracts
 from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
+from products.tasks.backend.logic.services.context_outputs import (
+    CANVAS_WRITE_SCOPES,
+    context_canvas_is_visible,
+    render_canvas_maintenance_line,
+    widen_scopes,
+)
 from products.tasks.backend.logic.services.model_catalogue import runtime_adapter_for
 from products.tasks.backend.logic.services.run_actor import (
     loop_owner_eligible_for_credentials,
@@ -150,6 +156,7 @@ def create_workflow_task(
     prompt: str,
     title: str | None = None,
     channel_ref: str | None = None,
+    canvas_id: str | None = None,
     repository: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
@@ -184,6 +191,11 @@ def create_workflow_task(
     `channel_ref` names the space the task is filed into, so a workflow built inside a space
     puts its runs in that space's feed. It is dropped rather than failing the create when it
     names no space the owner can see, for the same reason a Slack context is.
+
+    `canvas_id` names the canvas the run keeps current. It buys the run the two canvas scopes
+    and the publish contract in its prompt, so a canvas-publishing workflow does not have to be
+    given the whole `full` write surface. It is resolved against what the owner can see, never
+    taken from the prompt, and dropped when it names no such canvas.
 
     `event` is rendered into the agent's prompt as data. The Slack thread binding decides
     the run's lifetime: a thread-bound run stays live until its inactivity timeout, so its
@@ -250,6 +262,12 @@ def create_workflow_task(
     # Resolved after the gate so a capped or blocked fire never pays for the query, and outside
     # the transaction below so the skills store read never happens while holding the team lock.
     skills = resolve_attached_skills(team, gate_owner, skill_names)
+
+    # Resolved server-side, so instructions a trigger event carries can never widen the run past
+    # the canvas the workflow was saved with.
+    canvas_id = _resolve_canvas(team.id, owner_id, canvas_id)
+    if canvas_id is not None:
+        posthog_mcp_scopes = widen_scopes(posthog_mcp_scopes, extra=CANVAS_WRITE_SCOPES)
 
     # Snapshot the connector selection onto the run, next to the PostHog MCP scopes the token
     # minter reads back. The mounts themselves follow the same list stamped on the task as its
@@ -341,6 +359,7 @@ def create_workflow_task(
                 skills,
                 slack_reply_context=slack_binding is not None,
                 output_schema=output_schema,
+                canvas_id=canvas_id,
             )
             # Derived from the thread context rather than tested separately, because the two
             # must travel together: a context passed without an explicit origin defaults the
@@ -414,6 +433,17 @@ def create_workflow_task(
     # replay path above, which counts as replayed instead.
     observe_workflow_task_create(reason="created")
     return _task_dto(task, created=True)
+
+
+def _resolve_canvas(team_id: int, owner_id: int, canvas_id: str | None) -> str | None:
+    """The canvas the run maintains, or None when it names none the owner can see."""
+    if not canvas_id:
+        return None
+    try:
+        parsed = uuid.UUID(canvas_id)
+    except ValueError:
+        return None
+    return str(parsed) if context_canvas_is_visible(team_id, parsed, owner_id) else None
 
 
 def _resolve_channel(team_id: int, owner_id: int, channel_ref: str | None) -> Channel | None:
@@ -518,6 +548,7 @@ def _render_run_message(
     *,
     slack_reply_context: bool = False,
     output_schema: Mapping[str, Any] | None = None,
+    canvas_id: str | None = None,
 ) -> str:
     # PostHog Code strips this established wrapper from user-message bubbles while still
     # sending its contents to the agent (same contract as render_loop_run_message).
@@ -531,6 +562,11 @@ def _render_run_message(
     skills_manifest = render_skills_manifest(skills or [])
     if skills_manifest:
         instructions.append(skills_manifest)
+    if canvas_id:
+        instructions.append(
+            "When the work above is done, keep this workflow's canvas current:\n"
+            + render_canvas_maintenance_line(canvas_id)
+        )
     message = (
         "<user_custom_instructions>\n"
         "The following system-generated instructions apply to this unattended workflow run. Follow them.\n\n"

@@ -14,16 +14,22 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from django.apps import apps
 from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone as django_timezone
 
 from posthog.models import User
-from posthog.temporal.oauth import LOOP_CONTEXT_INTERNAL_SCOPE, PosthogMcpScopes, resolve_scopes
+from posthog.temporal.oauth import PosthogMcpScopes
 from posthog.user_permissions import UserPermissions
 
 from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
+from products.tasks.backend.logic.services.context_outputs import (
+    CANVAS_WRITE_SCOPES,
+    CONTEXT_WRITE_SCOPES,
+    context_canvas_is_visible,
+    render_canvas_maintenance_line,
+    widen_scopes,
+)
 from products.tasks.backend.loop_notifications import dispatch_loop_event
 from products.tasks.backend.loop_service import pause_loop_schedules, signal_loop_run_cancelled
 from products.tasks.backend.metrics import observe_loop_auto_paused, observe_loop_fire
@@ -103,15 +109,6 @@ def render_loop_run_message(loop_instructions: str, execution_context: str) -> s
     return f"{hidden_context}\n\n{loop_instructions}"
 
 
-# Least-privilege write grants for a loop that maintains a context page or canvas,
-# added on top of whatever posthog_mcp_scopes the loop already carries rather than escalating
-# the run to the broad `full` write surface. resolve_scopes() re-adds the internal scopes at
-# mint time. Context updates use the task surface plus server-minted internal-run provenance;
-# canvases have their own scopes.
-_CONTEXT_WRITE_SCOPES = ["task:read", "task:write", LOOP_CONTEXT_INTERNAL_SCOPE]
-_CANVAS_WRITE_SCOPES = ["canvas:read", "canvas:write"]
-
-
 @dataclass
 class LoopFireResult:
     created: bool
@@ -165,17 +162,7 @@ def render_context_target_block(context_target: dict | None, *, loop_id: str) ->
             "until complete is true. Join all content chunks before editing. On a revision conflict, restart the read."
         )
     if outputs["canvas_id"]:
-        lines.append(
-            f"- Update its canvas (id: {outputs['canvas_id']}): read the current source project and "
-            f"`current_version_id` with `canvas-source-retrieve`, then publish the "
-            f"complete project with `canvas-publish-create`, passing the version you "
-            f"read as `expected_current_version_id`. Follow the `building-canvases` skill."
-            " Read runtime state with `canvas-state-retrieve`: list keys without values, follow next_offset, "
-            "and select only the keys needed. Read long values with `canvas-state-value-retrieve`, keeping "
-            "the revision fixed across chunks. Discover these tools through MCP search and info; do not assume "
-            "a composition storage tool is available. Missing tools, denied access, missing values, and incomplete "
-            "reads are different conditions. Report the actual condition instead of requesting broader permissions."
-        )
+        lines.append(render_canvas_maintenance_line(outputs["canvas_id"]))
     # A context-only target has no canvas, and the run holds no canvas scopes for one.
     destination = "canvas" if outputs["canvas_id"] else "context page"
     lines.append(
@@ -202,18 +189,6 @@ def _resolve_feed_channel_id(loop: Loop) -> str | None:
     return str(channel_id) if exists else None
 
 
-def context_canvas_is_visible(team_id: int, canvas_id: str | UUID, user_id: int | None) -> bool:
-    """Whether `canvas_id` is a canvas in this team the user may see.
-
-    The Canvas model belongs to the canvas product, which depends on tasks —
-    resolved through the app registry so this soft existence check doesn't
-    create a tasks → canvas import cycle.
-    """
-    canvas_model = apps.get_model("canvas", "Canvas")
-    visible = Channel.visible_to_q(user_id, relation="channel")
-    return canvas_model.objects.for_team(team_id).filter(Q(id=canvas_id, deleted=False) & visible).exists()
-
-
 def _augment_scopes_for_context(scopes: PosthogMcpScopes, *, outputs: dict) -> PosthogMcpScopes:
     """Widen a run's PostHog MCP scopes by exactly what its context maintenance needs.
 
@@ -224,13 +199,10 @@ def _augment_scopes_for_context(scopes: PosthogMcpScopes, *, outputs: dict) -> P
     """
     extra: list[str] = []
     if outputs.get("update_context"):
-        extra.extend(_CONTEXT_WRITE_SCOPES)
+        extra.extend(CONTEXT_WRITE_SCOPES)
     if outputs.get("canvas_id"):
-        extra.extend(_CANVAS_WRITE_SCOPES)
-    if not extra:
-        return scopes
-    base = resolve_scopes(scopes, include_internal_scopes=False)
-    return list(dict.fromkeys([*base, *extra]))
+        extra.extend(CANVAS_WRITE_SCOPES)
+    return widen_scopes(scopes, extra=extra)
 
 
 def render_trigger_context(trigger_type: str, payload: dict | None, loop: Loop) -> str:

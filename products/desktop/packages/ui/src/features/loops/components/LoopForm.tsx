@@ -653,7 +653,7 @@ export function LoopForm({
               <LoopContextFields
                 value={values.contextTarget}
                 disabled={isSubmitting}
-                showOutputs={!workflowBacked}
+                outputs={workflowBacked ? "canvas" : "all"}
                 onChange={(contextTarget) =>
                   patch(
                     contextTarget
@@ -875,7 +875,7 @@ export function LoopForm({
                     <LoopContextFields
                       value={values.contextTarget}
                       disabled={isSubmitting}
-                      showOutputs={!workflowBacked}
+                      outputs={workflowBacked ? "canvas" : "all"}
                       onChange={(contextTarget) =>
                         patch(
                           contextTarget
