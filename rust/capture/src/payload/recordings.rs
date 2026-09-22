@@ -118,6 +118,22 @@ pub async fn handle_recording_payload(
     validate_token(&token)?;
     Span::current().record("token", &token);
 
+    // Ingestion stamps the whole batch with the first event's `$snapshot_source` (defaulting
+    // to web), and billing meters per session off that stamp. Normalize the batch to that
+    // verdict before the quota limiter runs, so its per-event probe matches what the session
+    // gets billed as. The verdict is a fixed small string, never the raw client value, so a
+    // large first-event property cannot be cloned per event.
+    let batch_is_mobile = events[0]
+        .properties
+        .snapshot_source
+        .as_ref()
+        .is_some_and(|v| v.as_str() == Some("mobile"));
+    let batch_snapshot_source =
+        serde_json::Value::String(String::from(if batch_is_mobile { "mobile" } else { "web" }));
+    for event in events.iter_mut() {
+        event.properties.snapshot_source = Some(batch_snapshot_source.clone());
+    }
+
     counter!("capture_events_received_total").increment(events.len() as u64);
 
     let now = state.timesource.current_time();

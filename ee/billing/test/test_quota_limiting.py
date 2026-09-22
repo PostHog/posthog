@@ -18,9 +18,11 @@ from posthog.api.test.test_team import create_team
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.redis import get_client
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from ee.billing.quota_limiting import (
     INFORMATIONAL_USAGE_RESOURCES,
+    MOBILE_RECORDINGS_QUOTA_ENFORCEMENT_FLAG,
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
     OrganizationUsageInfo,
     QuotaLimitingCaches,
@@ -258,6 +260,103 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"@posthog/quota-limits/survey_responses", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/rows_exported", 0, -1) == []
 
+    @patch(
+        "posthoganalytics.feature_enabled",
+        side_effect=lambda key, *_args, **_kwargs: key == MOBILE_RECORDINGS_QUOTA_ENFORCEMENT_FLAG,
+    )
+    @time_machine.travel("2021-01-25T23:59:59Z", tick=False)
+    def test_quota_limiting_limits_mobile_sessions_under_the_mobile_resource(self, _patch_flag) -> None:
+        # Mobile sessions meter against their own quota resource: billing converts the combined
+        # $ limit into separate web/mobile unit counts, so mobile volume must never be summed
+        # into the web `recordings` meter (the web limit is in ratio-adjusted base units, so
+        # summing raw counts would limit mobile users too early). Overage
+        # buffer for both replay resources is 1000, so todays usage alone has to cross it.
+        with self.settings(USE_TZ=False):
+            self.organization.usage = {
+                "recordings": {"usage": 10, "limit": 100},
+                "mobile_recordings": {"usage": 10, "limit": 100},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.customer_trust_scores = zero_trust_scores()
+            self.organization.save()
+
+            timestamp = now() - relativedelta(hours=1)
+            for _ in range(0, 1100):
+                produce_replay_summary(
+                    team_id=self.team.id,
+                    session_id=str(uuid4()),
+                    distinct_id="user",
+                    first_timestamp=timestamp,
+                    last_timestamp=timestamp,
+                    snapshot_source="mobile",
+                    ensure_analytics_event_in_session=False,
+                )
+
+        flush_persons_and_events()
+
+        result = update_all_orgs_billing_quotas()
+        org_id = str(self.organization.id)
+        # Limited under the mobile resource, and the web meter is untouched by mobile volume.
+        assert result.quota_limited_orgs["mobile_recordings"] == {org_id: 1612137599}
+        assert result.quota_limited_orgs["recordings"] == {}
+        assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
+            f"@posthog/quota-limits/mobile_recordings", 0, -1
+        )
+        assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
+
+    @patch(
+        "posthoganalytics.feature_enabled",
+        side_effect=lambda key, *_args, **_kwargs: key == MOBILE_RECORDINGS_QUOTA_ENFORCEMENT_FLAG,
+    )
+    @time_machine.travel("2021-01-25T23:59:59Z", tick=False)
+    def test_quota_limiting_keeps_web_and_mobile_meters_independent(self, _patch_flag) -> None:
+        # A web-heavy org over only the web limit must not be limited by its (below-limit)
+        # mobile volume, and vice versa: each resource reads only its own sessions.
+        with self.settings(USE_TZ=False):
+            self.organization.usage = {
+                "recordings": {"usage": 10, "limit": 100},
+                "mobile_recordings": {"usage": 10, "limit": 5000},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.customer_trust_scores = zero_trust_scores()
+            self.organization.save()
+
+            timestamp = now() - relativedelta(hours=1)
+            for _ in range(0, 1100):
+                produce_replay_summary(
+                    team_id=self.team.id,
+                    session_id=str(uuid4()),
+                    distinct_id="user",
+                    first_timestamp=timestamp,
+                    last_timestamp=timestamp,
+                    ensure_analytics_event_in_session=False,
+                )
+
+        flush_persons_and_events()
+
+        result = update_all_orgs_billing_quotas()
+        org_id = str(self.organization.id)
+        assert result.quota_limited_orgs["recordings"] == {org_id: 1612137599}
+        assert result.quota_limited_orgs["mobile_recordings"] == {}
+
+    @time_machine.travel("2021-01-25T00:00:00Z", tick=False)
+    def test_quota_limiting_mobile_recordings_reuses_the_recordings_trust_score(self) -> None:
+        # Billing trusts the session replay product as one, so orgs have no `mobile_recordings`
+        # trust score. An org trusted on `recordings` must keep that grace period under the
+        # mobile limit instead of being cut off with no score of its own.
+        self.organization.usage = {
+            "mobile_recordings": {"usage": 1101, "limit": 100},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.customer_trust_scores = {QuotaResource.RECORDINGS.value: 10}
+        self.organization.save()
+
+        result = org_quota_limited_until(self.organization, QuotaResource.MOBILE_RECORDINGS, [])
+        assert result == {
+            "quota_limited_until": None,
+            "quota_limiting_suspended_until": 1611878400,  # grace period 3 days, from the recordings score
+        }
+
     def test_billing_rate_limit_not_set_if_missing_org_usage(self) -> None:
         with self.settings(USE_TZ=False):
             self.organization.usage = {}
@@ -358,6 +457,7 @@ class TestQuotaLimiting(BaseTest):
                 "quota_limited_events": 1612137599,
                 "quota_limited_exceptions": None,
                 "quota_limited_recordings": None,
+                "quota_limited_mobile_recordings": None,
                 "quota_limited_api_queries": None,
                 "quota_limited_rows_synced": None,
                 "quota_limited_feature_flags": None,
@@ -2210,6 +2310,33 @@ class TestQuotaLimiting(BaseTest):
 
         mock_update_remote_config.apply_async.assert_not_called()
 
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    @time_machine.travel("2021-01-25T00:00:00Z", tick=False)
+    @patch("posthog.tasks.remote_config.update_team_remote_config")
+    def test_update_org_billing_quotas_clears_mobile_limit_when_enforcement_off(
+        self, mock_update_remote_config, _patch_flag
+    ) -> None:
+        """With mobile enforcement off, a token left in the mobile zset from a previous
+        flag-on episode must be lifted: capture keeps dropping mobile sessions until the
+        zset entry goes, so flag-off removes it and dispatches the remote config rebuild."""
+        replace_limited_team_tokens(
+            QuotaResource.MOBILE_RECORDINGS,
+            {self.team.api_token: int(timezone.now().timestamp()) + 10_000},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+        self.organization.usage = {
+            "events": {"usage": 1, "limit": 100},
+            "recordings": {"usage": 1, "limit": 5_000},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.save()
+
+        update_org_billing_quotas(self.organization)
+
+        assert self.redis_client.zrange(f"@posthog/quota-limits/mobile_recordings", 0, -1) == []
+        mock_update_remote_config.apply_async.assert_called_once()
+
     @parameterized.expand(
         [
             ("active_member_becomes_unlimited", 10_000, 1, 1, False, 1, False),
@@ -2342,6 +2469,7 @@ def _full_usage_counters(**overrides: int) -> UsageCounters:
         events=0,
         exceptions=0,
         recordings=0,
+        mobile_recordings=0,
         rows_synced=0,
         feature_flag_requests=0,
         api_queries_read_bytes=0,

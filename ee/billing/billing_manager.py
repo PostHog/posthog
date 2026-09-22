@@ -611,6 +611,7 @@ class BillingManager:
                 events=usage_summary["events"],
                 exceptions=usage_summary.get("exceptions", {}),
                 recordings=usage_summary["recordings"],
+                mobile_recordings=usage_summary.get("mobile_recordings", {}),
                 survey_responses=usage_summary.get("survey_responses", {}),
                 rows_synced=usage_summary.get("rows_synced", {}),
                 cdp_trigger_events=usage_summary.get("cdp_trigger_events", {}),

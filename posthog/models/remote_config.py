@@ -277,10 +277,26 @@ class RemoteConfig(UUIDTModel):
                 QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
                 use_cache=not bypass_recordings_quota_cache,
             )
+            # Mobile recordings are a separately-metered quota resource; a web limit must not
+            # switch off mobile capture, and vice versa, so the two reads stay independent.
+            limited_tokens_mobile_recordings = list_limited_team_attributes(
+                QuotaResource.MOBILE_RECORDINGS,
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+                use_cache=not bypass_recordings_quota_cache,
+            )
 
+            quota_limited = []
             if team.api_token in limited_tokens_recordings:
-                config["quotaLimited"] = ["recordings"]
+                quota_limited.append("recordings")
                 config["sessionRecording"] = False
+            if team.api_token in limited_tokens_mobile_recordings:
+                # Only the web limit switches off the shared `sessionRecording` flag: the web
+                # SDK stops on it, and a mobile limit still leaves web recording available.
+                # Mobile capture stops on the `mobile_recordings` entry below instead.
+                quota_limited.append("mobile_recordings")
+
+            if quota_limited:
+                config["quotaLimited"] = quota_limited
 
         config["heatmaps"] = build_heatmaps_config(team) if team.heatmaps_opt_in else False
 
