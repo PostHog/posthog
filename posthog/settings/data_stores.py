@@ -807,6 +807,9 @@ PATCH_EVENT_LIST_MAX_OFFSET_PER_TEAM: set[int] = get_from_env(
 CLICKHOUSE_EVENT_LIST_MAX_THREADS: int = get_from_env("CLICKHOUSE_EVENT_LIST_MAX_THREADS", 50, type_cast=int)
 
 WAREHOUSE_SOURCES_DATABASE_URL: str = os.getenv("WAREHOUSE_SOURCES_DATABASE_URL", "")
+# The queue partition job connects with this role because only the owner of a partitioned
+# table can create partitions of it. Empty means the job uses WAREHOUSE_SOURCES_DATABASE_URL.
+WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL: str = os.getenv("WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL", "")
 WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL: str = os.getenv(
     "WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL", ""
 )
