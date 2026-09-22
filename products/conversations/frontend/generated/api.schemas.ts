@@ -7,6 +7,13 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface AIContextAccountPropertyApi {
+    /** Customer analytics account property definition id. */
+    id: string
+    /** Display name of the account property. */
+    name: string
+}
+
 export interface AIReplyPlaybookApi {
     /** Repo default instructions, plus the PostHog overlay when docs_source is posthog. */
     readonly inherited_instructions: string
@@ -183,7 +190,7 @@ export interface TicketApi {
     ai_resolved?: boolean
     /** @nullable */
     escalation_reason?: string | null
-    /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
+    /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, verdict, blocker, sources). Retrieve hydrates sources from citations. */
     readonly ai_triage: unknown
     readonly created_at: string
     readonly updated_at: string
@@ -408,6 +415,40 @@ export interface AiFeedbackRequestApi {
 }
 
 /**
+ * * `used` - used
+ * * `edited` - edited
+ */
+export type AiDraftHumanOutcomeEnumApi = (typeof AiDraftHumanOutcomeEnumApi)[keyof typeof AiDraftHumanOutcomeEnumApi]
+
+export const AiDraftHumanOutcomeEnumApi = {
+    Used: 'used',
+    Edited: 'edited',
+} as const
+
+/**
+ * Payload for recording whether a human adopted an AI draft.
+ */
+export interface AiHumanOutcomeRequestApi {
+    /**
+     * ID of the private AI draft being adopted.
+     * @maxLength 200
+     */
+    message_id: string
+    /** used when the human inserts the draft as-is; edited after they change it in the composer.
+     *
+     * * `used` - used
+     * * `edited` - edited */
+    outcome: AiDraftHumanOutcomeEnumApi
+}
+
+export interface TicketErrorApi {
+    /** Human-readable error message. */
+    detail: string
+    /** Machine-readable error code. */
+    error_type?: string
+}
+
+/**
  * A single message in a ticket thread (output-only).
  */
 export interface TicketMessageApi {
@@ -447,11 +488,6 @@ export interface PaginatedTicketMessageListApi {
 export interface TicketFullEmailApi {
     /** Full inbound email body in Markdown. */
     readonly content: string
-}
-
-export interface TicketErrorApi {
-    detail: string
-    error_type?: string
 }
 
 /**

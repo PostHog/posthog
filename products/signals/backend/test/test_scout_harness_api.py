@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -286,7 +287,6 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
 def _make_emission(team: Team, run: SignalScoutRun, *, finding_id: str, **overrides) -> SignalScoutEmission:
     defaults: dict = {
         "description": "Checkout 500s post-deploy",
-        "weight": 0.7,
         "confidence": 0.85,
         "severity": "P1",
         "source_id": f"run:{run.id}:finding:{finding_id}",
@@ -310,7 +310,7 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
         first = body[0]
         assert first["run_id"] == str(run.id)
         assert first["description"] == "Checkout 500s post-deploy"
-        assert first["weight"] == 0.7
+        assert "weight" not in first
         assert first["confidence"] == 0.85
         assert first["severity"] == "P1"
         assert first["tags"] == ["cost-spike"]
@@ -855,6 +855,31 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
                 self._emit_signal_url(str(run.id)),
                 data=self._payload(tags=[f"tag-{i}" for i in range(11)]),
                 format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_emit.assert_not_called()
+
+    def test_emit_finding_without_confidence_leaves_it_unset(self) -> None:
+        # `confidence` is retired from the emit contract: an emit that omits it succeeds, keeps the
+        # key out of the signal's `extra`, and records NULL on the emission row.
+        run = _make_run(self.team)
+        payload = self._payload()
+        payload.pop("confidence")
+        with patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock) as mock_emit:
+            response = self.client.post(self._emit_signal_url(str(run.id)), data=payload, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_emit.await_args is not None
+        assert "confidence" not in mock_emit.await_args.kwargs["extra"]
+        assert SignalScoutEmission.objects.get(scout_run=run).confidence is None
+
+    @parameterized.expand([("below_range", -0.1), ("above_range", 1.1)])
+    def test_emit_finding_rejects_out_of_range_confidence(self, _name: str, confidence: float) -> None:
+        # A custom scout still sending the retired field gets the same error it got before, not a
+        # silently accepted value.
+        run = _make_run(self.team)
+        with patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock) as mock_emit:
+            response = self.client.post(
+                self._emit_signal_url(str(run.id)), data=self._payload(confidence=confidence), format="json"
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_emit.assert_not_called()
@@ -2429,6 +2454,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             body="# test scout",
         )
 
+    @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
     def test_display_name_update_preserves_identity_and_running_history(self) -> None:
         skill = self._make_skill("signals-scout-daily-digest")
         config = SignalScoutConfig.objects.create(
@@ -2447,15 +2473,21 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             item for item in self.client.get(self._list_url()).json() if item["id"] == str(config.id)
         )
         assert original_config["display_name"] == ""
+        assert original_config["updated_at"] == "2026-09-01T12:00:00Z"
 
-        response = self.client.patch(
-            self._detail_url(str(config.id)), data={"display_name": "  Checkout / daily digest  "}, format="json"
-        )
+        with time_machine.travel("2026-09-01T13:00:00Z", tick=False):
+            response = self.client.patch(
+                self._detail_url(str(config.id)), data={"display_name": "  Checkout / daily digest  "}, format="json"
+            )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {**original_config, "display_name": "Checkout / daily digest"}
+        assert response.json() == {
+            **original_config,
+            "display_name": "Checkout / daily digest",
+            "updated_at": "2026-09-01T13:00:00Z",
+        }
         saved_config = next(item for item in self.client.get(self._list_url()).json() if item["id"] == str(config.id))
-        assert saved_config["display_name"] == "Checkout / daily digest"
+        assert saved_config == response.json()
         config.refresh_from_db()
         skill.refresh_from_db()
         run.refresh_from_db()
@@ -2704,6 +2736,33 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["owners"] == []
+
+    def test_list_says_who_turned_a_scout_off(self) -> None:
+        # The roster could only say *when* a scout went off, so a reader had to open the activity
+        # log to learn who did it, and a system pause looked like somebody's decision.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout")
+        self.client.patch(
+            self._detail_url(str(SignalScoutConfig.objects.get(skill_name="signals-scout-checkout").id)),
+            data={"enabled": False},
+            format="json",
+        )
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["status_changed_by"]["email"] == self.user.email
+
+    def test_list_hides_who_turned_a_scout_off_from_a_scout_sandbox_token(self) -> None:
+        # Same rule as `owners`: the actor is member PII, and the sandbox token carries
+        # `signal_scout:read`, so a run must not read it off the fleet's configs.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout")
+        self.client.patch(self._detail_url(str(config.id)), data={"enabled": False}, format="json")
+        _authenticate_as_scout(self)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["status_changed_by"] is None
 
     def test_list_origin_defaults_to_custom_when_skill_absent(self) -> None:
         # A config with no live skill row isn't a canonical scout.

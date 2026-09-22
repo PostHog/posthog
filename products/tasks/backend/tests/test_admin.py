@@ -203,6 +203,8 @@ class TestTasksConfigAdminForms(BaseTest):
             ("model_without_adapter", {"model": "claude-opus-4-8"}),
             ("unknown_key", {"runtime_adapter": "claude", "model": "claude-opus-4-8", "profile": "max"}),
             ("non_string_value", {"runtime_adapter": "claude", "model": 7}),
+            ("pi_with_an_adapter", {"runtime": "pi", "runtime_adapter": "claude", "model": "gpt-5.6-terra"}),
+            ("unknown_runtime", {"runtime": "acp2", "runtime_adapter": "claude", "model": "claude-opus-4-8"}),
         ]
     )
     def test_rejects_invalid_preference_payloads(self, _name: str, payload: dict) -> None:
@@ -222,6 +224,16 @@ class TestTasksConfigAdminForms(BaseTest):
         assert team_form.is_valid(), team_form.errors
         user_form = self.user_form_class(data={"team": self.team.pk, "user": self.user.pk, "ai_run_preferences": {}})
         assert user_form.is_valid(), user_form.errors
+
+    def test_accepts_a_pi_payload(self) -> None:
+        form = self.user_form_class(
+            data={
+                "team": self.team.pk,
+                "user": self.user.pk,
+                "ai_run_preferences": {"runtime": "pi", "model": "gpt-5.6-terra", "reasoning_effort": "off"},
+            }
+        )
+        assert form.is_valid(), form.errors
 
     def test_rejects_a_row_keyed_on_an_environment_team(self) -> None:
         env_team = Team.objects.create(

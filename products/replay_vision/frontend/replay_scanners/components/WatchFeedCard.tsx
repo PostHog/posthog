@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconPlay } from '@posthog/icons'
+import { IconPlay, IconPlayFilled } from '@posthog/icons'
 import { LemonButton, LemonDivider, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -11,6 +11,7 @@ import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/
 import { urls } from 'scenes/urls'
 
 import { CitedText, ObservationResultSummary, readResult } from '../../components/ObservationCard'
+import { ObservationThumbnail } from '../../components/ObservationThumbnail'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import type { ReplayObservationApi, WatchFeedItemApi, WatchFeedReasonApi } from '../../generated/api.schemas'
 import { OBSERVATION_ORIGIN_PARAM, WATCH_FEED_ORIGIN } from '../../utils/breadcrumbs'
@@ -19,6 +20,16 @@ import { ScannerType } from '../types'
 
 const roundScore = (value: number): number => Math.round(value * 100) / 100
 
+const PROBLEM_TYPE_LABELS: Record<string, string> = {
+    bug: 'bug',
+    crash: 'crash',
+    design_flaw: 'design flaw',
+    ux_friction: 'UX friction',
+}
+
+const problemTypeLabel = (problemType: string): string =>
+    PROBLEM_TYPE_LABELS[problemType] ?? problemType.replace(/_/g, ' ')
+
 export function watchReasonCopy(reason: WatchFeedReasonApi): string {
     // The scan wrote this sentence while watching the session, so it beats anything derived from the
     // reason kind. Absent on observations scanned before notability shipped, which fall through below.
@@ -26,10 +37,37 @@ export function watchReasonCopy(reason: WatchFeedReasonApi): string {
         return reason.notability_reason
     }
     switch (reason.kind) {
-        case 'signal_emitted':
-            return (reason.signals_count ?? 0) > 1
-                ? `The scanner raised ${reason.signals_count} signals from this session.`
-                : 'The scanner raised a signal from this session.'
+        case 'signal_emitted': {
+            const total = reason.signals_count ?? 0
+            const problemTypes = reason.problem_types ?? []
+            if (problemTypes.length === 0) {
+                return total > 1
+                    ? `The scanner raised ${total} signals from this session.`
+                    : 'The scanner raised a signal from this session.'
+            }
+            // Count each problem type, keeping the order the scan first raised them.
+            const order: string[] = []
+            const countByType = new Map<string, number>()
+            for (const problemType of problemTypes) {
+                if (!countByType.has(problemType)) {
+                    order.push(problemType)
+                }
+                countByType.set(problemType, (countByType.get(problemType) ?? 0) + 1)
+            }
+            if (order.length === 1) {
+                const label = problemTypeLabel(order[0])
+                return total > 1
+                    ? `The scanner raised ${total} ${label} signals from this session.`
+                    : `The scanner raised a ${label} signal from this session.`
+            }
+            const breakdown = order
+                .map((problemType) => {
+                    const n = countByType.get(problemType) ?? 0
+                    return `${n} ${problemTypeLabel(problemType)} signal${n === 1 ? '' : 's'}`
+                })
+                .join(', ')
+            return `The scanner raised ${total} signals from this session: ${breakdown}.`
+        }
         case 'unusual_verdict':
             return reason.verdict
                 ? `The scanner answered ${reason.verdict}, which is rare for it in this window.`
@@ -141,8 +179,11 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
         >
             {/* The thumbnail column spans the card's full height; everything else stacks beside it. */}
             <div className="hidden @md:flex w-48 shrink-0 flex-col gap-1">
-                <div className="h-24 rounded bg-surface-secondary border flex items-center justify-center relative">
-                    <IconPlay className="text-2xl text-muted" />
+                {/* The dot and the duration sit outside the poster, which clips its own overflow. */}
+                <div className="relative">
+                    <ObservationThumbnail observation={observation}>
+                        <IconPlayFilled className="text-2xl text-brand-red drop-shadow" aria-hidden />
+                    </ObservationThumbnail>
                     {!observation.viewed && (
                         <Tooltip title="You haven't opened this observation yet">
                             <span

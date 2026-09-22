@@ -75,6 +75,7 @@ export interface dashboardsModelValues {
     dashboard: DashboardType<QueryBasedInsightModel> | null
     dashboardLoading: boolean
     dashboardsLoading: boolean
+    loadDashboardsFailed: boolean
     nameSortedDashboards: (DashboardBasicType | DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>)[]
     pagedDashboards: PaginatedResponse<DashboardBasicType> | null
     pagedDashboardsLoading: boolean
@@ -578,6 +579,16 @@ export const dashboardsModel = kea<dashboardsModelType>([
             false,
             {
                 dashboardsFullyLoaded: () => true,
+            },
+        ],
+        // dashboardsLoading stays true after a failed load, because paging never completes.
+        // Consumers need this to tell a failure from a load still in flight.
+        loadDashboardsFailed: [
+            false,
+            {
+                loadDashboards: () => false,
+                loadDashboardsSuccess: () => false,
+                loadDashboardsFailure: () => true,
             },
         ],
         redirect: [

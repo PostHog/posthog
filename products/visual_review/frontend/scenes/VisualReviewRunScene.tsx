@@ -221,6 +221,7 @@ export function VisualReviewRunScene(): JSX.Element {
         sortedChangedSnapshots,
         toleratedHashes,
         toleratedHashesLoading,
+        recentTolerations,
         quarantinedIdentifiers,
         quarantinedIdentifierSet,
         showQuarantinedThumbnails,
@@ -595,6 +596,7 @@ export function VisualReviewRunScene(): JSX.Element {
                             snapshot={selectedSnapshot}
                             toleratedHashes={toleratedHashes}
                             toleratedHashesLoading={toleratedHashesLoading}
+                            recentTolerations={recentTolerations}
                             onApprove={handleApproveSnapshot}
                             isApproving={isApprovingSnapshot}
                             onMarkTolerated={() => markAsTolerated(selectedSnapshot)}
