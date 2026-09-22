@@ -112,24 +112,11 @@ function LastDeliveryStatus({
 }
 
 interface EditSubscriptionProps {
-    id: number | 'new'
+    id: number
     insightShortId?: InsightShortId
     dashboard?: DashboardType<any> | null
     onCancel: () => void
     onDelete: () => void
-}
-
-export function EditSubscription(props: EditSubscriptionProps): JSX.Element {
-    const isCreating = props.id === 'new'
-
-    if (!isCreating) {
-        return <EditSubscriptionForm {...props} />
-    }
-    return (
-        <SubscriptionCreationGate onCancel={props.onCancel}>
-            <EditSubscriptionForm {...props} />
-        </SubscriptionCreationGate>
-    )
 }
 
 export function SubscriptionCreationGate({
@@ -239,7 +226,7 @@ function DashboardInsightsField({
     )
 }
 
-function EditSubscriptionForm({
+export function EditSubscription({
     id,
     insightShortId,
     dashboard,
@@ -292,32 +279,33 @@ function EditSubscriptionForm({
     const isParentless = !insightShortId && !dashboardId
     const availableFrequencyOptions = subscription?.interval === 1 ? frequencyOptionsSingular : frequencyOptionsPlural
 
-    // For new subscriptions, show InsightSelector immediately (useEffect will auto-select)
-    // For editing, wait until subscription data has loaded from API (target_type exists)
-    // We check target_type instead of dashboard_export_insights because old subscriptions
-    // may have no insights selected yet
-    const isEditing = id !== 'new'
     const aiGate = getAiSubscriptionGate({
         isAiPrompt,
         isParentless,
-        isEditing,
+        isEditing: true,
         aiConsentApproved: Boolean(currentOrganization?.is_ai_data_processing_approved),
         isCloud: Boolean(preflight?.cloud),
         isDebug: Boolean(preflight?.is_debug),
         aiFlagEnabled: Boolean(aiSubscriptionsEnabled),
     })
     const subscriptionLoaded = !!subscription?.target_type
-    const selectionReady = !isEditing || subscriptionLoaded
 
-    if (subscriptionLoading || (isEditing && !subscriptionLoaded)) {
+    if (subscriptionLoading) {
         return <SubscriptionFormSkeleton />
     }
 
+    if (!subscriptionLoaded) {
+        return (
+            <div className="p-4 text-center">
+                <h2>Not found</h2>
+                <p>This subscription could not be found. It may have been deleted.</p>
+            </div>
+        )
+    }
+
     const _onDelete = (): void => {
-        if (isEditing) {
-            deleteSubscription(id)
-            onDelete()
-        }
+        deleteSubscription(id)
+        onDelete()
     }
 
     const formatter = new Intl.DateTimeFormat('en-US', { timeZoneName: 'shortGeneric' })
@@ -329,7 +317,7 @@ function EditSubscriptionForm({
     if (aiGate.submitBlocked) {
         saveDisabledReason = AI_NOT_ALLOWED_REASON
     } else if (!subscriptionChanged) {
-        saveDisabledReason = id === 'new' ? 'Nothing to create yet' : 'No changes to save'
+        saveDisabledReason = 'No changes to save'
     }
 
     return (
@@ -344,7 +332,7 @@ function EditSubscriptionForm({
                 <div className="flex items-center gap-2">
                     <LemonButton icon={<IconChevronLeft />} onClick={onCancel} size="xsmall" />
 
-                    <h3>{id === 'new' ? 'New' : 'Edit '} Subscription</h3>
+                    <h3>Edit subscription</h3>
                 </div>
             </LemonModal.Header>
 
@@ -443,7 +431,7 @@ function EditSubscriptionForm({
                             </LemonField>
                         )}
 
-                        {dashboard?.tiles && selectionReady && !isAiPrompt && (
+                        {dashboard?.tiles && !isAiPrompt && (
                             <DashboardInsightsField
                                 dashboard={dashboard}
                                 onDefaultsApplied={applyDefaultSelectedInsights}
@@ -784,34 +772,32 @@ function EditSubscriptionForm({
                                     {currentTimezone}
                                 </div>
                             )}
-                            {id !== 'new' && (
-                                <div className="flex items-center justify-between gap-2 mt-1">
-                                    <div className="text-sm text-secondary">
-                                        <LastDeliveryStatus
-                                            lastDelivery={lastDelivery}
-                                            loading={lastDeliveryLoading}
-                                            failed={lastDeliveryLoadFailed}
-                                            currentTimezone={currentTimezone}
-                                        />
-                                        {' · '}
-                                        <Link to={urls.subscription(id)}>View history</Link>
-                                    </div>
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        icon={<IconSend />}
-                                        onClick={sendTestDelivery}
-                                        loading={testDeliveryLoading}
-                                        disabledReason={
-                                            subscription.enabled === false
-                                                ? 'Re-enable this subscription before sending a test delivery'
-                                                : undefined
-                                        }
-                                    >
-                                        Send test delivery
-                                    </LemonButton>
+                            <div className="flex items-center justify-between gap-2 mt-1">
+                                <div className="text-sm text-secondary">
+                                    <LastDeliveryStatus
+                                        lastDelivery={lastDelivery}
+                                        loading={lastDeliveryLoading}
+                                        failed={lastDeliveryLoadFailed}
+                                        currentTimezone={currentTimezone}
+                                    />
+                                    {' · '}
+                                    <Link to={urls.subscription(id)}>View history</Link>
                                 </div>
-                            )}
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconSend />}
+                                    onClick={sendTestDelivery}
+                                    loading={testDeliveryLoading}
+                                    disabledReason={
+                                        subscription.enabled === false
+                                            ? 'Re-enable this subscription before sending a test delivery'
+                                            : undefined
+                                    }
+                                >
+                                    Send test delivery
+                                </LemonButton>
+                            </div>
                         </div>
 
                         {/*
@@ -946,7 +932,7 @@ function EditSubscriptionForm({
 
             <LemonModal.Footer>
                 <div className="flex-1">
-                    {subscription && id !== 'new' && (
+                    {subscription && (
                         <LemonButton
                             type="secondary"
                             status="danger"
@@ -966,7 +952,7 @@ function EditSubscriptionForm({
                     loading={isSubscriptionSubmitting}
                     disabledReason={saveDisabledReason}
                 >
-                    {id === 'new' ? 'Create subscription' : 'Save'}
+                    Save
                 </LemonButton>
             </LemonModal.Footer>
         </Form>

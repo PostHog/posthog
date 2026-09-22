@@ -8,9 +8,11 @@ import time_machine
 from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import ANY, MagicMock, patch
 
+from django.core.cache import cache
 from django.db import connection
 from django.db.models import F
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from dateutil import parser
 from parameterized import parameterized
@@ -48,6 +50,7 @@ from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_MARKER,
     Experiment,
     ExperimentHoldout,
+    ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
@@ -55,6 +58,7 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 from products.experiments.backend.models.web_experiment import WebExperiment
 from products.experiments.backend.presentation.serializers import ExperimentSerializer
 from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
+from products.experiments.backend.setup_context import EXPERIMENT_SETUP_CONTEXT_FLAG
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -8914,6 +8918,235 @@ class TestCalculateRunningTimeEndpoint(APILicensedTest):
     def test_invalid_input_rejected(self, _name: str, payload: dict):
         response = self._calculate(payload)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+
+class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def _post(self, payload: dict[str, Any], *, flag_on: bool = True, **kwargs: Any):
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda key, *args, **_: flag_on and key == EXPERIMENT_SETUP_CONTEXT_FLAG,
+        ):
+            return self.client.post(
+                f"/api/projects/{self.team.id}/experiments/setup_context/", payload, format="json", **kwargs
+            )
+
+    @parameterized.expand([("flag_off", False, status.HTTP_404_NOT_FOUND), ("flag_on", True, status.HTTP_200_OK)])
+    def test_flag_gates_endpoint_for_read_scoped_personal_api_key(
+        self, _name: str, flag_on: bool, expected_status: int
+    ) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="read",
+            secure_value=hash_key_value(token),
+            scopes=["experiment:read", "experiment_saved_metric:read", "query:read"],
+        )
+        self.client.logout()
+
+        response = self._post({}, flag_on=flag_on, headers={"authorization": f"Bearer {token}"})
+
+        assert response.status_code == expected_status, response.content
+        if flag_on:
+            sections = response.json()
+            assert sections["target_surface"] == {"status": "skipped", "data": None}
+            assert sections["team_defaults"]["status"] == "ok"
+            assert sections["sdk_profile"]["status"] == "ok"
+
+    @parameterized.expand(
+        [
+            # Saved-metric names, events and reuse counts sit behind the saved-metric API's own scope.
+            ("without_saved_metric_scope", ["experiment:read", "query:read"]),
+            # Event counts for caller-chosen events are the same data /query/ gates behind query:read.
+            ("without_query_scope", ["experiment:read", "experiment_saved_metric:read"]),
+        ]
+    )
+    def test_rejects_key_missing_a_scope_for_data_it_would_return(self, _name: str, scopes: list[str]) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="partial", secure_value=hash_key_value(token), scopes=scopes
+        )
+        self.client.logout()
+
+        response = self._post({}, flag_on=True, headers={"authorization": f"Bearer {token}"})
+
+        assert response.status_code == 403, response.content
+
+    @parameterized.expand(
+        [
+            (
+                "url_filter_without_pageview",
+                {"target_event": "$screen", "target_url_contains": "pricing"},
+                "target_url_contains",
+            ),
+            (
+                "metric_event_equals_target_event",
+                {"target_event": "$pageview", "metric_event": "$pageview"},
+                "metric_event",
+            ),
+            (
+                "target_properties_without_target_event",
+                {"target_properties": [{"key": "$pathname", "type": "event", "value": ["/"]}]},
+                "target_properties",
+            ),
+            (
+                "metric_properties_without_metric_event",
+                {"metric_properties": [{"key": "plan", "type": "event", "value": ["paid"]}]},
+                "metric_properties",
+            ),
+            (
+                "a_filter_type_the_query_cannot_apply",
+                {"target_event": "$pageview", "target_properties": [{"key": "id", "type": "cohort", "value": 1}]},
+                "target_properties",
+            ),
+            (
+                "an_operator_the_query_cannot_apply",
+                {
+                    "target_event": "$pageview",
+                    "target_properties": [
+                        {"key": "flag", "type": "event", "operator": "flag_evaluates_to", "value": ["true"]}
+                    ],
+                },
+                "target_properties",
+            ),
+            (
+                "more_filters_than_the_maximum",
+                {
+                    "target_event": "$pageview",
+                    "target_properties": [
+                        {"key": f"p-{index}", "type": "event", "value": ["x"]} for index in range(11)
+                    ],
+                },
+                "target_properties",
+            ),
+        ]
+    )
+    def test_rejects_input_that_cannot_produce_an_answer(
+        self, _name: str, payload: dict[str, Any], expected_attr: str
+    ) -> None:
+        response = self._post(payload)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == expected_attr
+
+    def test_omits_experiments_the_user_cannot_access(self) -> None:
+        other_user = self._create_user("setup-context-other@posthog.com")
+        visible_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="setup-visible")
+        hidden_flag = FeatureFlag.objects.create(team=self.team, created_by=other_user, key="setup-hidden")
+        visible = Experiment.objects.create(
+            team=self.team, name="Visible", created_by=self.user, feature_flag=visible_flag
+        )
+        hidden = Experiment.objects.create(
+            team=self.team, name="Hidden", created_by=other_user, feature_flag=hidden_flag
+        )
+        AccessControl.objects.create(resource="experiment", resource_id=hidden.id, team=self.team, access_level="none")
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self._post({})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        listed = [experiment["id"] for experiment in response.json()["previous_experiments"]["data"]["experiments"]]
+        assert listed == [visible.id]
+
+    def test_serializes_a_context_with_every_section_populated(self) -> None:
+        # The response serializer runs outside the per-section guard, so a field it cannot render
+        # fails the whole endpoint rather than one section. Only a populated context reaches the
+        # nested serializers for the outcome, the SDK rows and the two baselines.
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="setup-populated",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {"variants": [{"key": "control", "rollout_percentage": 50}]},
+            },
+        )
+        # The result belongs to the run that starts here, so both dates come from one value.
+        started_at = timezone.now() - timedelta(days=10)
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Populated",
+            created_by=self.user,
+            feature_flag=flag,
+            start_date=started_at,
+            metrics=[{"kind": "ExperimentMetric", "metric_type": "mean", "uuid": "populated-metric"}],
+        )
+        ExperimentMetricResult.objects.create(
+            experiment=experiment,
+            metric_uuid="populated-metric",
+            query_from=started_at,
+            query_to=timezone.now(),
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result={
+                "baseline": {"key": "control", "number_of_samples": 100, "sum": 1, "sum_squares": 1},
+                "variant_results": [{"key": "test", "number_of_samples": 90, "significant": True}],
+            },
+            completed_at=timezone.now(),
+        )
+        ExperimentToSavedMetric.objects.create(
+            experiment=experiment,
+            saved_metric=ExperimentSavedMetric.objects.create(
+                team=self.team,
+                name="Revenue",
+                query={"kind": "ExperimentMetric", "metric_type": "mean", "uuid": "saved-uuid"},
+            ),
+            metadata={"type": "secondary"},
+        )
+        _create_person(team=self.team, distinct_ids=["buyer"])
+        for event in ["$pageview", "purchase"]:
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id="buyer",
+                timestamp=timezone.now() - timedelta(days=1),
+                properties={
+                    "$lib": "web",
+                    "$is_identified": False,
+                    "$device_id": "device-1",
+                    "$pathname": "/",
+                },
+            )
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="buyer",
+            timestamp=timezone.now() - timedelta(days=1),
+            properties={"$lib": "web", "$feature_flag": "setup-populated", "$feature_flag_response": "control"},
+        )
+        flush_persons_and_events()
+
+        response = self._post(
+            {
+                "target_event": "$pageview",
+                "target_properties": [{"key": "$pathname", "type": "event", "operator": "exact", "value": ["/"]}],
+                "metric_event": "purchase",
+            }
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        context = response.json()
+        assert {name: section["status"] for name, section in context.items()} == {
+            "team_defaults": "ok",
+            "sdk_profile": "ok",
+            "target_surface": "ok",
+            "candidate_metric": "ok",
+            "previous_experiments": "ok",
+            "shared_metrics": "ok",
+        }
+        assert context["sdk_profile"]["data"]["libs"][0]["lib"] == "web"
+        # The echoed filters are parsed and dumped through pydantic, so the operator reaches JSON
+        # as its value rather than as an enum the renderer cannot write.
+        assert context["target_surface"]["data"]["target_properties"] == [
+            {"key": "$pathname", "operator": "exact", "type": "event", "value": ["/"]}
+        ]
+        assert context["candidate_metric"]["data"]["funnel_baseline_stats"]["number_of_samples"] == 1
+        assert context["candidate_metric"]["data"]["mean_count_baseline_stats"]["number_of_samples"] == 1
+        assert context["previous_experiments"]["data"]["experiments"][0]["outcome"]["analyzed_exposures"] == 190
+        assert context["shared_metrics"]["data"]["metrics"][0]["name"] == "Revenue"
 
 
 class TestExperimentSerializerSuperset(unittest.TestCase):
