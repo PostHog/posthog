@@ -115,7 +115,7 @@ def org_may_register_reserved_domain(organization_id: str | UUID, domain: str) -
     deployment opts a specific org in.
     """
     domain = domain.lower()
-    if not any(domain == apex or domain.endswith(f".{apex}") for apex in RESERVED_PROXY_DOMAIN_EXCEPTION_APEXES):
+    if not any(domain.endswith(f".{apex}") for apex in RESERVED_PROXY_DOMAIN_EXCEPTION_APEXES):
         return False
     return str(organization_id) in settings.PROXY_RESERVED_DOMAIN_ALLOWED_ORG_IDS
 
