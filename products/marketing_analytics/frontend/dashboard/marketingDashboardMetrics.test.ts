@@ -1,10 +1,23 @@
 import { WebOverviewItem } from '~/queries/schema/schema-general'
-import { TrendResult } from '~/types'
+import { CompareLabelType, TrendResult } from '~/types'
 
 import { ratioItem, seriesTotal, sumTrendSeries } from './marketingDashboardMetrics'
 
-const result = (order: number, aggregated_value: number, compare_label?: string): TrendResult =>
-    ({ order, aggregated_value, compare_label }) as TrendResult
+const result = (
+    order: number,
+    aggregated_value: number,
+    compare_label?: TrendResult['compare_label']
+): TrendResult => ({
+    action: null,
+    count: aggregated_value,
+    data: [aggregated_value],
+    days: ['2026-01-01'],
+    label: `Series ${order}`,
+    labels: ['1 Jan'],
+    order,
+    aggregated_value,
+    compare_label,
+})
 
 describe('marketingDashboardMetrics', () => {
     // The conversion value query asks for the sum first and the average second, so picking by
@@ -17,7 +30,7 @@ describe('marketingDashboardMetrics', () => {
     })
 
     it('keeps the compared period apart from the current one', () => {
-        const results = [result(0, 13700), result(0, 9100, 'previous')]
+        const results = [result(0, 13700), result(0, 9100, CompareLabelType.Previous)]
 
         expect(seriesTotal(results, 0)).toEqual({ value: 13700, previous: 9100 })
     })
@@ -30,7 +43,12 @@ describe('marketingDashboardMetrics', () => {
 
     it('sums multiple goals without mixing their compared periods', () => {
         expect(
-            sumTrendSeries([result(0, 0), result(1, 20), result(0, 5, 'previous'), result(1, 10, 'previous')])
+            sumTrendSeries([
+                result(0, 0),
+                result(1, 20),
+                result(0, 5, CompareLabelType.Previous),
+                result(1, 10, CompareLabelType.Previous),
+            ])
         ).toEqual({ value: 20, previous: 15 })
         expect(sumTrendSeries([result(0, 0)])).toEqual({ value: 0, previous: undefined })
     })
