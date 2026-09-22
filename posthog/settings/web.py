@@ -594,6 +594,8 @@ SPECTACULAR_SETTINGS = {
             "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
             # Matches replay_vision's VisionAlertState.
             "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
+            # Matches the shared alerts skeleton's PlatformAlert.State.
+            "BillingAlertConfigurationStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
             "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
             "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
@@ -934,6 +936,10 @@ if REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE > 1:
 REMOTE_CONFIG_CDN_PURGE_ENDPOINT = get_from_env("REMOTE_CONFIG_CDN_PURGE_ENDPOINT", "")
 REMOTE_CONFIG_CDN_PURGE_TOKEN = get_from_env("REMOTE_CONFIG_CDN_PURGE_TOKEN", "")
 REMOTE_CONFIG_CDN_PURGE_DOMAINS = get_list(os.getenv("REMOTE_CONFIG_CDN_PURGE_DOMAINS", ""))
+
+HEATMAP_URL_ALLOWLIST_ENFORCEMENT_ENABLED = get_from_env(
+    "HEATMAP_URL_ALLOWLIST_ENFORCEMENT_ENABLED", False, type_cast=str_to_bool
+)
 
 # Versioned posthog-js S3 bucket — enables versioned JS content serving when set
 POSTHOG_JS_S3_BUCKET = get_from_env("POSTHOG_JS_S3_BUCKET", "")

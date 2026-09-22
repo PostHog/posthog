@@ -23873,6 +23873,7 @@ export namespace Schemas {
      * * `table` - table
      * * `view` - view
      * * `metric` - metric
+     * * `posthog_table` - posthog_table
      */
     export type SubjectTypeEnum = typeof SubjectTypeEnum[keyof typeof SubjectTypeEnum];
 
@@ -23881,6 +23882,7 @@ export namespace Schemas {
       Table: 'table',
       View: 'view',
       Metric: 'metric',
+      PosthogTable: 'posthog_table',
     } as const;
 
     /**
@@ -23906,14 +23908,15 @@ export namespace Schemas {
       name?: string;
       /** Why this check exists and what a failure means. */
       description?: string;
-      /** Kind of catalog object being checked: 'table', 'view', or 'metric'.
+      /** Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.
        *
        * * `table` - table
        * * `view` - view
-       * * `metric` - metric */
+       * * `metric` - metric
+       * * `posthog_table` - posthog_table */
       readonly subject_type: SubjectTypeEnum;
       /**
-         * Id of the table, view, or metric being checked. Null once the subject is deleted.
+         * Id of the table, view, metric, or PostHog table being checked. Null once the subject is deleted.
          * @nullable
          */
       readonly subject_uuid: string | null;
@@ -24011,13 +24014,14 @@ export namespace Schemas {
       name?: string;
       /** Why this check exists and what a failure means. */
       description?: string;
-      /** Kind of catalog object to check: 'table', 'view', or 'metric'.
+      /** Kind of object to check: 'table', 'view', 'metric', or 'posthog_table'.
        *
        * * `table` - table
        * * `view` - view
-       * * `metric` - metric */
+       * * `metric` - metric
+       * * `posthog_table` - posthog_table */
       subject_type: SubjectTypeEnum;
-      /** Id of the table, view, or metric to check. */
+      /** Id of the table, view, metric, or PostHog table to check. */
       subject_uuid: string;
       /** Queryable name of the subject, refreshed on every run. */
       readonly subject_name: string;
@@ -24284,14 +24288,15 @@ export namespace Schemas {
       name?: string;
       /** Why this check exists and what a failure means. */
       description?: string;
-      /** Kind of catalog object being checked: 'table', 'view', or 'metric'.
+      /** Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.
        *
        * * `table` - table
        * * `view` - view
-       * * `metric` - metric */
+       * * `metric` - metric
+       * * `posthog_table` - posthog_table */
       readonly subject_type: SubjectTypeEnum;
       /**
-         * Id of the table, view, or metric being checked. Null once the subject is deleted.
+         * Id of the table, view, metric, or PostHog table being checked. Null once the subject is deleted.
          * @nullable
          */
       readonly subject_uuid: string | null;
@@ -24374,7 +24379,7 @@ export namespace Schemas {
       /** @nullable */
       readonly updated_at: string | null;
       /**
-         * Data modeling node of the view this check audits, or null when it is on no DAG or the subject is a table.
+         * Data modeling node of the view or PostHog table this check audits, or null when it is on no DAG or the subject is a warehouse table.
          * @nullable
          */
       readonly subject_node_id: string | null;
@@ -24405,7 +24410,8 @@ export namespace Schemas {
        *
        * * `table` - table
        * * `view` - view
-       * * `metric` - metric */
+       * * `metric` - metric
+       * * `posthog_table` - posthog_table */
       subject_type?: SubjectTypeEnum;
       /** Id of the subject to run every enabled check on. Pass subject_type with it. */
       subject_uuid?: string;
@@ -24420,11 +24426,12 @@ export namespace Schemas {
      * One thing a check can be authored on, whatever kind it is.
      */
     export interface DataQualitySubject {
-      /** Kind of object: 'table', 'view', or 'metric'. Pass it back as subject_type when creating a check.
+      /** Kind of object: 'table', 'view', 'metric', or 'posthog_table'. Pass it back as subject_type when creating a check.
        *
        * * `table` - table
        * * `view` - view
-       * * `metric` - metric */
+       * * `metric` - metric
+       * * `posthog_table` - posthog_table */
       subject_type: SubjectTypeEnum;
       /** Id of the subject. Pass it back as subject_uuid when creating a check. */
       id: string;
@@ -24432,6 +24439,8 @@ export namespace Schemas {
       name: string;
       /** Label shown in the data catalog. Blank for tables and views. */
       display_name: string;
+      /** Column a lookback window bounds, or blank for a subject that has none. */
+      time_column: string;
       /** Column name to ClickHouse type. Empty for a metric, and for a view that has not run yet. */
       columns: DataQualitySubjectColumns;
       /** Whether the caller may author a check on this subject. A subject that is only readable can still be the target of a relationships check. */
@@ -24442,9 +24451,9 @@ export namespace Schemas {
      * Per-subject rollup, the same rule the information_schema.data_quality_health table uses.
      */
     export interface DataQualitySubjectHealth {
-      /** 'table', 'view', or 'metric'. */
+      /** 'table', 'view', 'metric', or 'posthog_table'. */
       subject_type: string;
-      /** Id of the table, view, or metric. */
+      /** Id of the table, view, metric, or PostHog table. */
       subject_uuid: string;
       /** failing (an error-severity check failed), erroring (a check could not run), warn (only warn-severity failures), healthy, or unknown (nothing has run yet). */
       health: string;
@@ -24454,6 +24463,48 @@ export namespace Schemas {
       checks_failing: number;
     }
 
+    /**
+     * One subject's schedule, in the project-wide listing.
+     */
+    export interface DataQualitySubjectSchedule {
+      /** Schedule identifier. */
+      readonly id: string;
+      /** How often the checks run.
+       *
+       * * `1hour` - 1hour
+       * * `6hour` - 6hour
+       * * `12hour` - 12hour
+       * * `24hour` - 24hour
+       * * `7day` - 7day */
+      readonly interval: DataQualityScheduleIntervalEnum;
+      /** Whether the schedule runs automatically. */
+      readonly enabled: boolean;
+      /**
+         * Next scheduled execution time, if enabled.
+         * @nullable
+         */
+      readonly next_run_at: string | null;
+      /**
+         * Most recent visible scheduled suite execution time.
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      /**
+         * Most recent visible scheduled suite.
+         * @nullable
+         */
+      readonly last_suite_run: string | null;
+      /** 'metric' or 'posthog_table'.
+       *
+       * * `table` - table
+       * * `view` - view
+       * * `metric` - metric
+       * * `posthog_table` - posthog_table */
+      readonly subject_type: SubjectTypeEnum;
+      /** Id of the metric or PostHog table. */
+      readonly subject_uuid: string;
+    }
+
     export interface DataQualitySuiteRun {
       readonly id: string;
       /** manual, materialization, source_sync, or scheduled. */
@@ -24461,7 +24512,7 @@ export namespace Schemas {
       /** running, completed, failed, or empty (nothing matched the trigger). */
       readonly status: string;
       /**
-         * 'table', 'view', or 'metric' when the run targets exactly one subject, including a run of a single check on that subject; null for a run spanning several subjects.
+         * 'table', 'view', 'metric', or 'posthog_table' when the run targets exactly one subject, including a run of a single check on that subject; null for a run spanning several subjects.
          * @nullable
          */
       readonly subject_type: string | null;
@@ -30335,6 +30386,20 @@ export namespace Schemas {
       VisitingPostHogWeb: 'Visiting PostHog web',
     } as const;
 
+    /**
+     * * `bug` - Bug
+     * * `feature` - Feature
+     * * `general` - General
+     */
+    export type DesktopFeedbackTypeEnum = typeof DesktopFeedbackTypeEnum[keyof typeof DesktopFeedbackTypeEnum];
+
+
+    export const DesktopFeedbackTypeEnum = {
+      Bug: 'bug',
+      Feature: 'feature',
+      General: 'general',
+    } as const;
+
     export interface DesktopFeedbackRequest {
       /**
          * Feedback text entered by the user.
@@ -30351,6 +30416,12 @@ export namespace Schemas {
          * @maxLength 100
          */
       feedback_view: string;
+      /** Feedback type selected by the user: bug, feature, or general.
+       *
+       * * `bug` - Bug
+       * * `feature` - Feature
+       * * `general` - General */
+      feedback_type?: DesktopFeedbackTypeEnum;
       /**
          * Task that was active when the feedback form opened.
          * @maxLength 100
@@ -33390,11 +33461,12 @@ export namespace Schemas {
          */
       description: string;
       /**
-         * Agent's confidence the finding is real in [0, 1]. Persisted in `extra`.
+         * Deprecated and ignored. Nothing reads it; omit it. Still range-checked when supplied.
          * @minimum 0
          * @maximum 1
+         * @nullable
          */
-      confidence: number;
+      confidence?: number | null;
       /**
          * Citations supporting the finding. Capped at 20 entries.
          * @maxItems 20
@@ -39007,6 +39079,669 @@ export namespace Schemas {
        * * `no_recordings` - no_recordings
        * * `no_session_linked_exposures` - no_session_linked_exposures */
       empty_reason: ExperimentWatchEmptyReasonEnum | null;
+    }
+
+    /**
+     * Event or person property filters that narrow which events are counted.
+     * @maxItems 10
+     */
+    export type _ExperimentSetupPropertyFilterList = (EventPropertyFilter | PersonPropertyFilter)[];
+
+    export interface ExperimentSetupFunnelBaseline {
+      /** Persons who reached the target. */
+      number_of_samples: number;
+      /** Persons who converted. */
+      sum: number;
+      /** One entry: the persons who converted. */
+      step_counts: number[];
+    }
+
+    export interface ExperimentSetupMeanCountBaseline {
+      /** Persons who reached the target. */
+      number_of_samples: number;
+      /** Metric events those persons sent in the whole window. */
+      sum: number;
+      /** Sum over persons of their metric event count squared. */
+      sum_squares: number;
+    }
+
+    export interface ExperimentSetupCandidateMetric {
+      /** Days of events read, ending now. */
+      window_days: number;
+      /** The metric event that was counted. */
+      source_event: string;
+      /** The property filters that were applied to the metric event. Empty when none were passed. */
+      metric_properties: _ExperimentSetupPropertyFilterList;
+      /**
+         * The target event the baseline starts from, or null when none was passed.
+         * @nullable
+         */
+      target_event: string | null;
+      /** When the numbers were computed. They are cached for an hour. */
+      computed_at: string;
+      /** Whether test accounts were left out. It follows the default a new experiment gets, so the baseline matches the population that experiment analyzes. False when the project defines no test-account filters. */
+      test_accounts_filtered: boolean;
+      /**
+         * Persons who sent the target event. Null without target_event.
+         * @nullable
+         */
+      persons_reached: number | null;
+      /**
+         * Persons who sent the metric event at or after their first target event. Null without target_event.
+         * @nullable
+         */
+      persons_converted: number | null;
+      /**
+         * persons_converted divided by persons_reached. Null without target_event.
+         * @nullable
+         */
+      conversion_rate: number | null;
+      /** Pass as baseline_stats to experiment-calculate-running-time with metric_type 'funnel'. Null without target_event. */
+      funnel_baseline_stats: ExperimentSetupFunnelBaseline | null;
+      /** Pass as baseline_stats to experiment-calculate-running-time with metric_type 'mean_count'. It counts metric events in the whole window, not only after the first target event, so it can overstate the baseline. Null without target_event. */
+      mean_count_baseline_stats: ExperimentSetupMeanCountBaseline | null;
+      /**
+         * What the mean count baseline counts.
+         * @nullable
+         */
+      note: string | null;
+      /**
+         * Metric events in the window, with metric_properties applied. 0 means the event did not occur under those filters, so check the event name before you trust a conversion_rate of 0.
+         * @nullable
+         */
+      event_volume: number | null;
+      /**
+         * Persons who sent the metric event, with metric_properties applied.
+         * @nullable
+         */
+      unique_persons: number | null;
+    }
+
+    /**
+     * * `ok` - Ok
+     * * `skipped` - Skipped
+     * * `timed_out` - Timed Out
+     * * `error` - Error
+     */
+    export type SetupContextSectionStatusEnum = typeof SetupContextSectionStatusEnum[keyof typeof SetupContextSectionStatusEnum];
+
+
+    export const SetupContextSectionStatusEnum = {
+      Ok: 'ok',
+      Skipped: 'skipped',
+      TimedOut: 'timed_out',
+      Error: 'error',
+    } as const;
+
+    export interface ExperimentSetupCandidateMetricSection {
+      /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+       *
+       * * `ok` - Ok
+       * * `skipped` - Skipped
+       * * `timed_out` - Timed Out
+       * * `error` - Error */
+      status: SetupContextSectionStatusEnum;
+      /** Baseline of the candidate metric. Skipped without metric_event. */
+      data: ExperimentSetupCandidateMetric | null;
+    }
+
+    /**
+     * What the caller plans to test. Every field is optional; a section that needs a missing input
+     * comes back with status 'skipped'.
+     */
+    export interface ExperimentSetupContextInput {
+      /**
+         * Event that marks a visit to the surface under test, for example '$pageview' or '$screen'. Needed for target_surface and for the baseline in candidate_metric.
+         * @maxLength 400
+         * @nullable
+         */
+      target_event?: string | null;
+      /**
+         * Only counts target events whose $current_url contains this text, ignoring case. Needs target_event to be '$pageview'.
+         * @maxLength 1000
+         * @nullable
+         */
+      target_url_contains?: string | null;
+      /** Event or person property filters that narrow the target event, for example an exact $host and $pathname for one page. At most 10 filters, and each needs type 'event' or 'person'. Needs target_event. Combines with target_url_contains. */
+      target_properties?: _ExperimentSetupPropertyFilterList | null;
+      /**
+         * Event of the candidate primary metric. With target_event, candidate_metric returns a baseline. Without it, candidate_metric returns only the event's volume. Also marks the shared metrics that count this event.
+         * @maxLength 400
+         * @nullable
+         */
+      metric_event?: string | null;
+      /** Event or person property filters that narrow the metric event, for the metric that counts only some of its occurrences. At most 10 filters, and each needs type 'event' or 'person'. Needs metric_event. */
+      metric_properties?: _ExperimentSetupPropertyFilterList | null;
+      /**
+         * How many experiments to return, most recently launched first, then drafts, 1 to 25.
+         * @minimum 1
+         * @maximum 25
+         */
+      previous_experiments_limit?: number;
+      /**
+         * How many shared metrics to return, most reused first, 1 to 25.
+         * @minimum 1
+         * @maximum 25
+         */
+      shared_metrics_limit?: number;
+    }
+
+    export interface ExperimentSetupTeamDefaults {
+      /**
+         * Default statistical method for new experiments: 'bayesian' or 'frequentist'.
+         * @nullable
+         */
+      stats_method: string | null;
+      /**
+         * Default confidence level for new experiments, for example 0.95. Null when unset.
+         * @nullable
+         */
+      confidence_level: number | null;
+      /**
+         * The team's default minimum detectable effect, as a percentage. Null when the team has not set one; product_default_minimum_detectable_effect applies then.
+         * @nullable
+         */
+      minimum_detectable_effect: number | null;
+      /** The minimum detectable effect, as a percentage, that applies when the team has no default. */
+      product_default_minimum_detectable_effect: number;
+      /** The statistical method that applies when the team has no default. */
+      product_default_stats_method: string;
+      /** The confidence level that applies when the team has no default. Both methods use the same one. */
+      product_default_confidence_level: number;
+      /** Default for counting only users whose metric window has fully passed. */
+      only_count_matured_users: boolean;
+      /** Default for CUPED variance reduction on new experiments. */
+      cuped_enabled: boolean;
+      /** Default for sequential testing. Applies only to the frequentist method. */
+      sequential_testing_enabled: boolean;
+      /** Default for persisting flag values across authentication steps on new flags. It becomes the flag's ensure_experience_continuity. */
+      flags_persistence_default: boolean;
+      /** How many filters the team uses to identify internal and test users. */
+      test_account_filter_count: number;
+      /** A new experiment filters test accounts this way unless its own exposure criteria say otherwise. It does not follow the project's insight default. */
+      new_experiments_filter_test_accounts: boolean;
+      /** The exposure event a new experiment launched now counts by default: '$experiment_exposure' or '$feature_flag_called'. */
+      default_exposure_event: string;
+    }
+
+    export interface ExperimentSetupTeamDefaultsSection {
+      /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+       *
+       * * `ok` - Ok
+       * * `skipped` - Skipped
+       * * `timed_out` - Timed Out
+       * * `error` - Error */
+      status: SetupContextSectionStatusEnum;
+      /** The team's experiment defaults. */
+      data: ExperimentSetupTeamDefaults | null;
+    }
+
+    /**
+     * * `web` - Web
+     * * `mobile` - Mobile
+     * * `server` - Server
+     * * `other` - Other
+     */
+    export type SdkLibCategoryEnum = typeof SdkLibCategoryEnum[keyof typeof SdkLibCategoryEnum];
+
+
+    export const SdkLibCategoryEnum = {
+      Web: 'web',
+      Mobile: 'mobile',
+      Server: 'server',
+      Other: 'other',
+    } as const;
+
+    export interface ExperimentSetupSdkLib {
+      /**
+         * The $lib value of the SDK, for example 'web'.
+         * @nullable
+         */
+      lib: string | null;
+      /** 'web' for the JavaScript web SDK, 'mobile', 'server', or 'other' for libraries not classified.
+       *
+       * * `web` - Web
+       * * `mobile` - Mobile
+       * * `server` - Server
+       * * `other` - Other */
+      category: SdkLibCategoryEnum;
+      /** Multivariate flag calls this SDK sent in the window. */
+      calls: number;
+      /** Distinct ids that sent those calls. */
+      distinct_ids: number;
+      /** Share of calls that carry a $device_id. 0 when this SDK never sends one, as server SDKs don't. */
+      device_id_share: number;
+      /**
+         * Share of calls evaluated locally in the SDK instead of by the flags service. Null when no call from this SDK reported it, as the web SDK doesn't.
+         * @nullable
+         */
+      locally_evaluated_share: number | null;
+      /**
+         * Share of distinct ids that were anonymous, among those that report whether they are identified. Null when no call from this SDK reported it.
+         * @nullable
+         */
+      anonymous_share: number | null;
+    }
+
+    export interface ExperimentSetupLibActivity {
+      /**
+         * The $lib value of the SDK, for example 'web'.
+         * @nullable
+         */
+      lib: string | null;
+      /** 'web', 'mobile', 'server', or 'other'.
+       *
+       * * `web` - Web
+       * * `mobile` - Mobile
+       * * `server` - Server
+       * * `other` - Other */
+      category: SdkLibCategoryEnum;
+      /** Events this SDK sent in the window, of any kind. */
+      events: number;
+      /** Distinct ids that sent those events. */
+      distinct_ids: number;
+    }
+
+    export interface ExperimentSetupSdkProfile {
+      /** Days of flag calls read, ending now. */
+      window_days: number;
+      /** The event read: '$experiment_exposure' when the project receives it, otherwise '$feature_flag_called'. Only one is read, because one copies the other, and only multivariate responses count either way. This says what the project's events carry today, so it can differ from team_defaults.default_exposure_event, which says what a new experiment would count. */
+      source_event: string;
+      /** When the numbers were computed. They are cached for hours. */
+      computed_at: string;
+      /** One row per SDK, most calls first. */
+      libs: ExperimentSetupSdkLib[];
+      /** True when more SDKs sent flag calls than libs lists. */
+      libs_truncated: boolean;
+      /** Distinct multivariate flag keys called in the window. */
+      flags_seen: number;
+      /** How many of those flag keys were called by both a server SDK and the web SDK. */
+      flags_evaluated_on_server_and_web: number;
+      /** True when at least one flag key was called by both a server SDK and the web SDK. The same flag decided on the server and read in the browser can bucket one user into two variants. */
+      evaluated_on_server_and_web: boolean;
+      /**
+         * Up to 10 SDKs seen on any event over the last day, most events first. Set only when libs is empty, so a project creating its first experiment still says which platforms it sends from. Null when flag calls exist, and null when this extra read timed out.
+         * @nullable
+         */
+      libs_on_any_event: ExperimentSetupLibActivity[] | null;
+      /** True when more SDKs sent events than libs_on_any_event lists. False when it is null. */
+      libs_on_any_event_truncated: boolean;
+    }
+
+    export interface ExperimentSetupSdkProfileSection {
+      /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+       *
+       * * `ok` - Ok
+       * * `skipped` - Skipped
+       * * `timed_out` - Timed Out
+       * * `error` - Error */
+      status: SetupContextSectionStatusEnum;
+      /** Which SDKs send multivariate flag calls, across the whole project. */
+      data: ExperimentSetupSdkProfile | null;
+    }
+
+    export interface ExperimentSetupLibReach {
+      /**
+         * The $lib value that sent the target events.
+         * @nullable
+         */
+      lib: string | null;
+      /** 'web', 'mobile', 'server', or 'other'.
+       *
+       * * `web` - Web
+       * * `mobile` - Mobile
+       * * `server` - Server
+       * * `other` - Other */
+      category: SdkLibCategoryEnum;
+      /** Persons who sent the target event from this SDK. */
+      unique_persons: number;
+      /**
+         * Among this SDK's distinct ids that report whether they are identified, the share that was anonymous. Null when no target event from this SDK reported it.
+         * @nullable
+         */
+      anonymous_share: number | null;
+      /** Share of this SDK's target events that carry a $device_id. 0 when it never sends one. */
+      device_id_share: number;
+    }
+
+    export interface ExperimentSetupTargetSurface {
+      /** Days of target events read, ending now. */
+      window_days: number;
+      /** The target event that was counted. */
+      source_event: string;
+      /**
+         * The URL filter that was applied, or null.
+         * @nullable
+         */
+      target_url_contains: string | null;
+      /** The property filters that were applied to the target event. Empty when none were passed. */
+      target_properties: _ExperimentSetupPropertyFilterList;
+      /** When the numbers were computed. They are cached for an hour. */
+      computed_at: string;
+      /** Whether test accounts were left out. It follows the default a new experiment gets, so the counts match the population that experiment analyzes. False when the project defines no test-account filters. */
+      test_accounts_filtered: boolean;
+      /** Persons who sent the target event in the window. */
+      unique_persons: number;
+      /** unique_persons divided by window_days. Pass it as exposure_rate_per_day to experiment-calculate-running-time, scaled by the share of traffic the experiment will include. */
+      exposures_per_day_estimate: number;
+      /** Up to 5 SDKs by persons reached. */
+      libs: ExperimentSetupLibReach[];
+      /**
+         * Among all distinct ids that report whether they are identified, whichever SDK they came from, the share that was anonymous. Null when no target event reported it.
+         * @nullable
+         */
+      anonymous_share: number | null;
+      /**
+         * Share of all target events that carry a $device_id. Null when there were no target events.
+         * @nullable
+         */
+      device_id_share: number | null;
+    }
+
+    export interface ExperimentSetupTargetSurfaceSection {
+      /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+       *
+       * * `ok` - Ok
+       * * `skipped` - Skipped
+       * * `timed_out` - Timed Out
+       * * `error` - Error */
+      status: SetupContextSectionStatusEnum;
+      /** Traffic on the target surface. Skipped without target_event. */
+      data: ExperimentSetupTargetSurface | null;
+    }
+
+    /**
+     * * `draft` - Draft
+     * * `running` - Running
+     * * `paused` - Paused
+     * * `exposure_frozen` - Exposure Frozen
+     * * `stopped` - Stopped
+     */
+    export type PreviousExperimentStateEnum = typeof PreviousExperimentStateEnum[keyof typeof PreviousExperimentStateEnum];
+
+
+    export const PreviousExperimentStateEnum = {
+      Draft: 'draft',
+      Running: 'running',
+      Paused: 'paused',
+      ExposureFrozen: 'exposure_frozen',
+      Stopped: 'stopped',
+    } as const;
+
+    /**
+     * Property filters as an experiment stored them. Any filter type can appear, cohorts included.
+     */
+    export type _ExperimentSetupStoredPropertyFilterList = (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[];
+
+    export interface ExperimentSetupOutcome {
+      /** metric_type of the metric this outcome describes: 'funnel', 'mean', 'ratio' or 'retention'. */
+      metric_type: string;
+      /**
+         * Units the result counted across all variants. What a unit is depends on metric_type, so read analyzed_exposures where you need exposures. Null when the result stores no sample counts.
+         * @nullable
+         */
+      metric_samples: number | null;
+      /**
+         * metric_samples, but only where the metric type makes it the analyzed population: 'funnel' and 'mean'. Users seen in several variants are left out under the default handling, so it can be lower than exposures. Null for 'retention', whose samples are the units that did the start event, and for 'ratio', whose samples are not exposures either. Also null when the result stores no sample counts, which is not the same as analyzing nobody.
+         * @nullable
+         */
+      analyzed_exposures: number | null;
+      /**
+         * What control measured: a conversion rate for 'funnel', an average per unit for 'mean'. Compare it with the rate on the surface itself to see whether the exposure was diluted by users who never reached the surface. Null for other metric types and when control analyzed no units.
+         * @nullable
+         */
+      control_baseline_value: number | null;
+      /** Whether any variant was significant on that metric in that result. */
+      any_variant_significant: boolean;
+      /**
+         * When that result was computed.
+         * @nullable
+         */
+      result_completed_at: string | null;
+      /**
+         * The last moment the result covers. A backfill writes an older day with a recent completed_at, so this says how current the numbers are.
+         * @nullable
+         */
+      result_data_through: string | null;
+    }
+
+    export interface ExperimentSetupPreviousExperiment {
+      /** Experiment id. */
+      id: number;
+      /** Experiment name. */
+      name: string;
+      /** 'draft', 'running', 'paused' (running with its flag turned off), 'exposure_frozen' (running with enrollment closed to the already-exposed users) or 'stopped'.
+       *
+       * * `draft` - Draft
+       * * `running` - Running
+       * * `paused` - Paused
+       * * `exposure_frozen` - Exposure Frozen
+       * * `stopped` - Stopped */
+      state: PreviousExperimentStateEnum;
+      /** When the experiment was created. */
+      created_at: string;
+      /**
+         * When it launched. Null for drafts.
+         * @nullable
+         */
+      start_date: string | null;
+      /**
+         * When it ended. Null unless stopped.
+         * @nullable
+         */
+      end_date: string | null;
+      /**
+         * The recorded conclusion, for example 'won' or 'inconclusive', or null.
+         * @nullable
+         */
+      conclusion: string | null;
+      /** Key of the feature flag the experiment runs on. */
+      feature_flag_key: string;
+      /** Variants on the flag, control included. */
+      variant_count: number;
+      /**
+         * Whether variants split traffic evenly, read from the flag as it stands now. 34/33/33 counts as even. Null on a boolean flag, which has no variants, and null when serving_single_variant is set.
+         * @nullable
+         */
+      split_even: boolean | null;
+      /**
+         * The one variant the flag now serves to everyone it matches, or null. Shipping a variant rewrites the flag this way, so the split the experiment ran with cannot be read from the flag any more. Only a launched experiment can be shipped, so a draft at 100/0 reports its split as it stands.
+         * @nullable
+         */
+      serving_single_variant: string | null;
+      /**
+         * Rollout percentage of the flag's first release condition, read from the flag as it stands now.
+         * @nullable
+         */
+      rollout_percentage: number | null;
+      /** How users seen in several variants are analyzed, with the default resolved.
+       *
+       * * `exclude` - exclude
+       * * `first_seen` - first_seen */
+      multiple_variant_handling: ExperimentWatchMultipleVariantHandlingEnum;
+      /** Whether the experiment sets multiple_variant_handling itself instead of using the default. */
+      multiple_variant_handling_set: boolean;
+      /** Whether the flag keeps a user's variant across authentication steps, read from the flag as it stands now. */
+      ensure_experience_continuity: boolean;
+      /** What the flag buckets users on: 'distinct_id' (default) or 'device_id'. Read from the flag as it stands now. */
+      bucketing_identifier: string;
+      /** Where the flag may be evaluated: 'server', 'client' or 'all'. Read from the flag as it stands now. */
+      evaluation_runtime: string;
+      /** Whether the flag buckets groups instead of persons. */
+      group_aggregation: boolean;
+      /**
+         * An exposure event other than the default one, or null. A default event narrowed by exposure_property_filters is still the default event, so it stays null here.
+         * @nullable
+         */
+      custom_exposure_event: string | null;
+      /**
+         * Action used as the custom exposure, or null.
+         * @nullable
+         */
+      custom_exposure_action_id: number | null;
+      /** Property filters the exposure is narrowed by, whichever event it counts. An experiment that counts exposure only where $pathname is '/' is the precedent for a new test on that page. Any filter type can appear, cohorts included. Empty when the exposure is not narrowed. */
+      exposure_property_filters: _ExperimentSetupStoredPropertyFilterList;
+      /**
+         * Event a user must send after their first exposure event before they count as exposed, or null. This is activation mode, which sits on top of the default exposure event.
+         * @nullable
+         */
+      activation_event: string | null;
+      /**
+         * Action used for activation instead of an event, or null.
+         * @nullable
+         */
+      activation_action_id: number | null;
+      /** Whether exposures leave out test accounts. */
+      filter_test_accounts: boolean;
+      /** Primary metrics, shared ones included. */
+      primary_metric_count: number;
+      /** Secondary metrics, shared ones included. */
+      secondary_metric_count: number;
+      /** Shared metrics attached to the experiment. */
+      shared_metric_count: number;
+      /** metric_type of each primary metric, for example 'mean', 'funnel', 'ratio' or 'retention'. */
+      primary_metric_types: string[];
+      /** Event names the primary metrics count. */
+      primary_metric_events: string[];
+      /** Actions the primary metrics count. */
+      primary_metric_action_ids: number[];
+      /**
+         * Minimum detectable effect saved from the running time calculator, or null.
+         * @nullable
+         */
+      minimum_detectable_effect: number | null;
+      /** 'bayesian' or 'frequentist'. */
+      stats_method: string;
+      /** Whether the experiment uses a holdout group. */
+      has_holdout: boolean;
+      /** From the completed result that covers the latest data in the experiment's current run. A funnel or a mean primary metric is chosen over a retention or a ratio one, because only its samples are the analyzed population. Null when no result exists for that run, which is also the case for older metric definitions that results are never stored for. */
+      outcome: ExperimentSetupOutcome | null;
+    }
+
+    export interface ExperimentSetupPreviousExperimentsSummary {
+      /** Experiments listed. */
+      total: number;
+      /** Listed experiments that launched. */
+      launched: number;
+      /** Launched experiments with no completed result. */
+      launched_without_results: number;
+      /** Launched experiments whose result says nothing about exposures: it stores no sample counts, or its metric is a retention or a ratio one, whose samples are not exposures. */
+      launched_with_unknown_analyzed_exposures: number;
+      /** Launched experiments whose latest result analyzed no one. */
+      launched_with_zero_analyzed_exposures: number;
+      /** Launched experiments whose latest result analyzed fewer than 100 units, zero included. */
+      launched_with_under_100_analyzed_exposures: number;
+      /** Experiments that bucket on device id. */
+      using_device_id_bucketing: number;
+      /** Experiments that keep variants across authentication steps. */
+      using_persistence: number;
+      /** Experiments with a custom exposure event or action. */
+      using_custom_exposure: number;
+      /** Experiments whose exposure is narrowed by property filters. */
+      using_exposure_property_filters: number;
+      /** Experiments that use an activation event or action. */
+      using_activation: number;
+      /** Experiments whose variants split traffic unevenly. A flag that now serves one variant is left out, because its split no longer says what the experiment ran with. */
+      using_uneven_split: number;
+      /** Launched experiments whose flag now serves one variant to everyone it matches, usually after shipping. */
+      serving_single_variant: number;
+    }
+
+    export interface ExperimentSetupPreviousExperiments {
+      /** Most recently launched first, then drafts. Archived experiments are included, deleted ones are not. */
+      experiments: ExperimentSetupPreviousExperiment[];
+      /** Counts over the listed experiments. */
+      summary: ExperimentSetupPreviousExperimentsSummary;
+    }
+
+    export interface ExperimentSetupPreviousExperimentsSection {
+      /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+       *
+       * * `ok` - Ok
+       * * `skipped` - Skipped
+       * * `timed_out` - Timed Out
+       * * `error` - Error */
+      status: SetupContextSectionStatusEnum;
+      /** How the project's recent experiments were set up and how they went. */
+      data: ExperimentSetupPreviousExperiments | null;
+    }
+
+    export interface ExperimentSetupSharedMetric {
+      /** Shared metric id, to attach it instead of creating an inline metric. */
+      id: number;
+      /** Shared metric name. */
+      name: string;
+      /**
+         * 'mean', 'funnel', 'ratio' or 'retention', or null for older metrics.
+         * @nullable
+         */
+      metric_type: string | null;
+      /** Event names the metric counts. */
+      events: string[];
+      /** Actions the metric counts. */
+      action_ids: number[];
+      /** Experiments that use it as a primary metric. */
+      used_as_primary: number;
+      /** Experiments that use it as a secondary metric. */
+      used_as_secondary: number;
+      /**
+         * When it was last attached to an experiment, or null.
+         * @nullable
+         */
+      last_used_at: string | null;
+      /**
+         * Whether the metric counts metric_event, directly or through an action. Null when no metric_event was passed.
+         * @nullable
+         */
+      matches_metric_event: boolean | null;
+      /**
+         * Where metric_event sits in the metric: 'funnel_step' and 'funnel_final_step' for a funnel, 'mean_source', 'ratio_numerator', 'ratio_denominator', 'retention_start' or 'retention_completion'. A metric that only starts from the event is a different precedent from one that converts on it. Empty when the metric does not count it, and null when no metric_event was passed.
+         * @nullable
+         */
+      metric_event_roles: string[] | null;
+    }
+
+    export interface ExperimentSetupSharedMetrics {
+      /**
+         * The metric_event that was matched, or null.
+         * @nullable
+         */
+      metric_event: string | null;
+      /** True when the project has more shared metrics than the event match could read, so a match further down the list may be missing. Matching is capped for cost. */
+      metric_event_match_truncated: boolean;
+      /** Metrics that match metric_event first, then most reused. A use counts when it is on an experiment you can open and that is not deleted, so the counts follow your access. */
+      metrics: ExperimentSetupSharedMetric[];
+    }
+
+    export interface ExperimentSetupSharedMetricsSection {
+      /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+       *
+       * * `ok` - Ok
+       * * `skipped` - Skipped
+       * * `timed_out` - Timed Out
+       * * `error` - Error */
+      status: SetupContextSectionStatusEnum;
+      /** Shared metrics the project reuses. */
+      data: ExperimentSetupSharedMetrics | null;
+    }
+
+    /**
+     * Facts about the project that decide how to configure a new experiment. Facts only, no
+     * recommendations.
+     */
+    export interface ExperimentSetupContextResponse {
+      /** The project's experiment defaults. */
+      team_defaults: ExperimentSetupTeamDefaultsSection;
+      /** Which SDKs call feature flags and where flags are evaluated. */
+      sdk_profile: ExperimentSetupSdkProfileSection;
+      /** Traffic on the surface under test. */
+      target_surface: ExperimentSetupTargetSurfaceSection;
+      /** Traffic and baseline of the candidate primary metric. */
+      candidate_metric: ExperimentSetupCandidateMetricSection;
+      /** Recent experiments in the project. */
+      previous_experiments: ExperimentSetupPreviousExperimentsSection;
+      /** Most reused shared metrics. */
+      shared_metrics: ExperimentSetupSharedMetricsSection;
     }
 
     /**
@@ -44691,7 +45426,7 @@ export namespace Schemas {
     }
 
     export interface FlakyTestList {
-      /** Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs. */
+      /** Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs. A CI setup break (a run attempt whose tests errored in 3 or more jobs or for 3 or more owning teams, or a job attempt with 100 or more distinct failed or errored tests) excludes every trial of that attempt, not only its failures. */
       items: FlakyTestItem[];
       /** True when more tests qualified than the cap; `items` is the highest-ranked `limit` rows. */
       truncated: boolean;
@@ -45929,6 +46664,52 @@ export namespace Schemas {
       unsnoozed: HealthIssueCounts;
       /** Counts for active, non-dismissed issues whose snooze has not expired yet. Reported separately so callers can decide for themselves whether a snoozed issue is worth surfacing. */
       snoozed: HealthIssueCounts;
+    }
+
+    export interface HeatmapCapturePage {
+      /** A page URL that currently sends heatmap data. */
+      url: string;
+      /** Heatmap events captured on this page in the last 30 days. */
+      count: number;
+    }
+
+    export interface HeatmapCapturePages {
+      /** Top pages by recent heatmap volume, most active first. */
+      pages: HeatmapCapturePage[];
+    }
+
+    /**
+     * * `all` - All URLs
+     * * `url_allowlist` - Only listed URLs
+     */
+    export type TeamHeatmapConfigCaptureModeEnum = typeof TeamHeatmapConfigCaptureModeEnum[keyof typeof TeamHeatmapConfigCaptureModeEnum];
+
+
+    export const TeamHeatmapConfigCaptureModeEnum = {
+      All: 'all',
+      UrlAllowlist: 'url_allowlist',
+    } as const;
+
+    export interface HeatmapCaptureSettings {
+      /** Whether to capture heatmap data from every page ('all') or only listed URLs ('url_allowlist').
+       *
+       * * `all` - All URLs
+       * * `url_allowlist` - Only listed URLs */
+      capture_mode: TeamHeatmapConfigCaptureModeEnum;
+      /**
+         * Full http(s) URLs that may send heatmap data. Use * to match any characters.
+         * @items.maxLength 2000
+         */
+      url_allowlist: string[];
+      /** Whether this installation enforces the URL allow-list for heatmap capture. */
+      readonly enforcement_enabled: boolean;
+      /** Whether this organization's plan may capture heatmaps on every page. */
+      readonly can_capture_all_urls: boolean;
+      /**
+         * How many URLs this plan may capture, or null when the plan captures all pages.
+         * @nullable
+         */
+      readonly capture_url_limit: number | null;
     }
 
     export interface HeatmapEventItem {
@@ -62378,6 +63159,11 @@ export namespace Schemas {
        * * `failed` - Failed
        * * `errored` - Errored */
       readonly last_outcome: SignalReportCheckOutcomeEnum | null;
+      /**
+         * When the `agent` check's scout run started, cleared as soon as a verdict is recorded. A non-null value is what tells a reader the check is running rather than waiting, because dispatch also pushes `next_run_at` out to the result window. Always null on a `metric_threshold` check, which is measured in the tick that collects it.
+         * @nullable
+         */
+      readonly dispatched_at: string | null;
       /** Runs that could not be measured since the last clean one. */
       readonly consecutive_errors: number;
       readonly created_at: string;
@@ -67544,14 +68330,15 @@ export namespace Schemas {
       name?: string;
       /** Why this check exists and what a failure means. */
       description?: string;
-      /** Kind of catalog object being checked: 'table', 'view', or 'metric'.
+      /** Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.
        *
        * * `table` - table
        * * `view` - view
-       * * `metric` - metric */
+       * * `metric` - metric
+       * * `posthog_table` - posthog_table */
       readonly subject_type?: SubjectTypeEnum;
       /**
-         * Id of the table, view, or metric being checked. Null once the subject is deleted.
+         * Id of the table, view, metric, or PostHog table being checked. Null once the subject is deleted.
          * @nullable
          */
       readonly subject_uuid?: string | null;
@@ -67639,13 +68426,14 @@ export namespace Schemas {
      * Which subject's schedule to change, and what to change about it.
      */
     export interface PatchedDataQualityCheckScheduleUpdate {
-      /** Kind of catalog object: 'table', 'view', or 'metric'.
+      /** Kind of object: 'table', 'view', 'metric', or 'posthog_table'.
        *
        * * `table` - table
        * * `view` - view
-       * * `metric` - metric */
+       * * `metric` - metric
+       * * `posthog_table` - posthog_table */
       subject_type?: SubjectTypeEnum;
-      /** Id of the table, view, or metric. */
+      /** Id of the table, view, metric, or PostHog table. */
       subject_uuid?: string;
       /** How often all enabled checks on the subject run.
        *
@@ -69506,6 +70294,20 @@ export namespace Schemas {
          * @nullable
          */
       readonly resolved_at?: string | null;
+    }
+
+    export interface PatchedHeatmapCaptureSettingsRequest {
+      /** Whether to capture heatmap data from every page ('all') or only listed URLs ('url_allowlist').
+       *
+       * * `all` - All URLs
+       * * `url_allowlist` - Only listed URLs */
+      capture_mode?: TeamHeatmapConfigCaptureModeEnum;
+      /**
+         * Full http(s) URLs that may send heatmap data. Use * to match any characters.
+         * @maxItems 100
+         * @items.maxLength 2000
+         */
+      url_allowlist?: string[];
     }
 
     export interface PatchedHeatmapScreenshotSettingsRequest {
@@ -81911,7 +82713,7 @@ export namespace Schemas {
       finding_id: string;
       skill_name: string;
       skill_version: number;
-      confidence: number;
+      confidence?: number | null;
       severity?: ReportPriority | null;
       hypothesis?: string | null;
       evidence: SignalsScoutEvidenceEntry[];
@@ -85376,17 +86178,12 @@ export namespace Schemas {
       /** The emitted finding prose — the signal's `description` as surfaced to the inbox. */
       description: string;
       /**
-         * Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.
+         * Deprecated and no longer set on new findings. Null unless the run supplied one.
          * @minimum 0
          * @maximum 1
+         * @nullable
          */
-      weight: number;
-      /**
-         * Agent's confidence the finding is real in [0, 1].
-         * @minimum 0
-         * @maximum 1
-         */
-      confidence: number;
+      confidence: number | null;
       /** Optional severity tag — one of P0, P1, P2, P3, P4 — or null if the run didn't set one.
        *
        * * `P0` - P0
@@ -94011,15 +94808,15 @@ export namespace Schemas {
       regression_test_count: number;
       /** Same count over the prior window. */
       regression_test_count_prior: number;
-      /** CI runs (not spans) where an owned test's recorded outcome was failed or error. An absolute count, not a rate: fast passing runs are not emitted. */
+      /** Distinct CI runs where at least one owned test failed or errored. A run with many failing owned tests counts once. An absolute count, not a rate: fast passing runs are not emitted. */
       failed_run_count: number;
       /** Same count over the prior window. */
       failed_run_count_prior: number;
-      /** Runs where one commit both failed and passed an owned test: a re-run attempt went green, or an in-job retry recovered it. */
+      /** Distinct CI runs where one commit both failed and passed at least one owned test: a re-run attempt went green, or an in-job retry recovered it. */
       same_commit_recovery_run_count: number;
       /** Same count over the prior window. */
       same_commit_recovery_run_count_prior: number;
-      /** Runs where an owned test recorded a tolerated failure while quarantined: masked in CI, still failing. */
+      /** Distinct CI runs where at least one owned test recorded a tolerated failure while quarantined. */
       quarantined_failed_run_count: number;
       /** Same count over the prior window. */
       quarantined_failed_run_count_prior: number;
@@ -94051,7 +94848,7 @@ export namespace Schemas {
     }
 
     export interface TeamCIHealthList {
-      /** Owning teams ranked by current flaky + failure signal, heaviest first, capped at `limit`. Teams are organizational owners of code surfaces; this never aggregates by author. */
+      /** Owning teams ranked by current flaky + failure signal, heaviest first, capped at `limit`. Teams are organizational owners of code surfaces; this never aggregates by author. A CI setup break (a run attempt whose tests errored in 3 or more jobs or for 3 or more owning teams, or a job attempt with 100 or more distinct failed or errored tests) excludes every trial of that attempt, not only its failures. */
       items: TeamCIHealthItem[];
       /** True when more teams had signal than the cap. */
       truncated: boolean;
@@ -102398,11 +103195,11 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Kind of catalog object: 'table', 'view', or 'metric'.
+     * Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.
      */
     subject_type?: DataQualityChecksListSubjectType;
     /**
-     * Id of the table, view, or metric.
+     * Id of the table, view, metric, or PostHog table.
      */
     subject_uuid?: string;
     };
@@ -102425,13 +103222,14 @@ export namespace Schemas {
 
     export const DataQualityChecksListSubjectType = {
       Metric: 'metric',
+      PosthogTable: 'posthog_table',
       Table: 'table',
       View: 'view',
     } as const;
 
     export type DataQualityChecksCheckTypesListParams = {
     /**
-     * Kind of catalog object: 'table', 'view', or 'metric'.
+     * Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.
      */
     subject_type?: DataQualityChecksCheckTypesListSubjectType;
     };
@@ -102441,17 +103239,18 @@ export namespace Schemas {
 
     export const DataQualityChecksCheckTypesListSubjectType = {
       Metric: 'metric',
+      PosthogTable: 'posthog_table',
       Table: 'table',
       View: 'view',
     } as const;
 
     export type DataQualityChecksHealthListParams = {
     /**
-     * Kind of catalog object: 'table', 'view', or 'metric'.
+     * Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.
      */
     subject_type?: DataQualityChecksHealthListSubjectType;
     /**
-     * Id of the table, view, or metric.
+     * Id of the table, view, metric, or PostHog table.
      */
     subject_uuid?: string;
     };
@@ -102461,17 +103260,18 @@ export namespace Schemas {
 
     export const DataQualityChecksHealthListSubjectType = {
       Metric: 'metric',
+      PosthogTable: 'posthog_table',
       Table: 'table',
       View: 'view',
     } as const;
 
     export type DataQualityChecksOutputSchemaRetrieveParams = {
     /**
-     * Kind of catalog object: 'table', 'view', or 'metric'.
+     * Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.
      */
     subject_type?: DataQualityChecksOutputSchemaRetrieveSubjectType;
     /**
-     * Id of the table, view, or metric.
+     * Id of the table, view, metric, or PostHog table.
      */
     subject_uuid?: string;
     };
@@ -102481,17 +103281,18 @@ export namespace Schemas {
 
     export const DataQualityChecksOutputSchemaRetrieveSubjectType = {
       Metric: 'metric',
+      PosthogTable: 'posthog_table',
       Table: 'table',
       View: 'view',
     } as const;
 
     export type DataQualityChecksScheduleRetrieveParams = {
     /**
-     * Kind of catalog object: 'table', 'view', or 'metric'.
+     * Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.
      */
     subject_type?: DataQualityChecksScheduleRetrieveSubjectType;
     /**
-     * Id of the table, view, or metric.
+     * Id of the table, view, metric, or PostHog table.
      */
     subject_uuid?: string;
     };
@@ -102501,6 +103302,7 @@ export namespace Schemas {
 
     export const DataQualityChecksScheduleRetrieveSubjectType = {
       Metric: 'metric',
+      PosthogTable: 'posthog_table',
       Table: 'table',
       View: 'view',
     } as const;
@@ -102515,11 +103317,11 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Kind of catalog object: 'table', 'view', or 'metric'.
+     * Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.
      */
     subject_type?: DataQualityRunsListSubjectType;
     /**
-     * Id of the table, view, or metric.
+     * Id of the table, view, metric, or PostHog table.
      */
     subject_uuid?: string;
     };
@@ -102529,6 +103331,7 @@ export namespace Schemas {
 
     export const DataQualityRunsListSubjectType = {
       Metric: 'metric',
+      PosthogTable: 'posthog_table',
       Table: 'table',
       View: 'view',
     } as const;

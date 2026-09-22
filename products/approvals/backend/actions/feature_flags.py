@@ -1,12 +1,33 @@
 from abc import abstractmethod
 from typing import Any, Optional
+from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Model
 
 from products.approvals.backend.actions.base import BaseAction
 from products.approvals.backend.exceptions import ApplyFailed, PreconditionFailed
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+
+def _to_wire_form(value: Any) -> Any:
+    """Convert deserialized related objects in a validated change back to primary keys.
+
+    A related field on FeatureFlagSerializer deserializes to model instances, so
+    `analytics_dashboards` reaches the gate as a list of Dashboard objects. The intent must hold
+    the wire form instead, because `intent` is a JSONField and because `validate_intent` and
+    `apply` both feed `full_request_data` back through the serializer, which accepts a primary
+    key and rejects an instance. A UUID primary key becomes a string, because JSON has no UUID
+    type and PrimaryKeyRelatedField accepts the string form.
+    """
+    if isinstance(value, Model):
+        return str(value.pk) if isinstance(value.pk, UUID) else value.pk
+    if isinstance(value, list | tuple):
+        return [_to_wire_form(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _to_wire_form(item) for key, item in value.items()}
+    return value
 
 
 def _get_validated_change(request, view, *args, **kwargs) -> dict[str, Any]:
@@ -44,7 +65,7 @@ def _get_validated_change(request, view, *args, **kwargs) -> dict[str, Any]:
         normalized.setdefault("filters", change["get_filters"])
         change = normalized
 
-    return change
+    return {key: _to_wire_form(value) for key, value in change.items()}
 
 
 def _get_flag_instance(view, *args, **kwargs) -> Optional[FeatureFlag]:
