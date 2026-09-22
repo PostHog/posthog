@@ -380,6 +380,10 @@ def _download_bulk_export(
         return
 
     response.raw.decode_content = True
+    # An empty export body (a window with no records) makes urllib3 close the raw stream at EOF, so
+    # TextIOWrapper's confirming read raises "I/O operation on closed file". Keep the stream open so
+    # that read returns EOF cleanly.
+    response.raw.auto_close = False
     # Wrap the raw stream rather than iterating lines: exported text columns can contain
     # newlines inside quoted fields, which line-splitting would tear apart.
     stream = io.TextIOWrapper(cast(IO[bytes], response.raw), encoding="utf-8", newline="")

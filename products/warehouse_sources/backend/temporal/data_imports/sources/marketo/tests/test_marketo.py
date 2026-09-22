@@ -7,6 +7,7 @@ from typing import Any, Optional, cast
 import pytest
 from unittest import mock
 
+import urllib3
 import requests
 from requests import Response
 from requests.structures import CaseInsensitiveDict
@@ -621,6 +622,18 @@ class TestMarketo:
         batches = list(_download_bulk_export(client, "leads", "exp-1", ("id",)))
 
         assert [len(batch) for batch in batches] == [BULK_CHUNK_ROWS, 5]
+
+    def test_download_empty_export_body_yields_no_rows(self) -> None:
+        # A real urllib3 stream (not the BytesIO fake) closes itself at EOF, so an empty export
+        # body used to raise "I/O operation on closed file" instead of finishing with no rows.
+        response = Response()
+        response.status_code = 200
+        response.headers = CaseInsensitiveDict({"Content-Type": "text/csv;charset=UTF-8"})
+        response.raw = urllib3.response.HTTPResponse(body=io.BytesIO(b""), preload_content=False)
+        client = mock.MagicMock()
+        client.request.return_value = response
+
+        assert _drain(_download_bulk_export(client, "leads", "exp-1", ("id",))) == []
 
     @pytest.mark.parametrize(
         "row,int_columns,expected",
