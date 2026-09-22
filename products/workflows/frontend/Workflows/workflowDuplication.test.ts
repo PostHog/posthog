@@ -2,9 +2,10 @@ import type { HogFlow } from './hogflows/types'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 
 describe('prepareWorkflowDuplicate', () => {
-    it('removes server-owned identity and product ownership fields', () => {
+    it('removes identity and product ownership fields', () => {
         const workflow = {
             id: 'workflow-id',
+            key: 'loop-workflow',
             team_id: 1,
             name: 'Loop workflow',
             status: 'active',

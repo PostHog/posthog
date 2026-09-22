@@ -2907,6 +2907,16 @@ class HogFlowSummarySerializer(HogFlowMinimalSerializer):
 
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
+    key = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=400,
+        trim_whitespace=False,
+        help_text=(
+            "Client-chosen identifier, unique within this environment. Set only when creating a workflow. "
+            "Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only."
+        ),
+    )
     origin_product = serializers.ChoiceField(
         choices=HogFlow.OriginProduct.choices,
         required=False,
@@ -3375,7 +3385,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         if value is None:
             return value
 
-        if not re.match(r"^[a-zA-Z0-9_-]+$", value):
+        if not re.fullmatch(r"[a-zA-Z0-9_-]+", value):
             raise serializers.ValidationError(
                 "Only letters, numbers, hyphens (-) & underscores (_) are allowed.",
                 code="invalid_key",
@@ -4146,6 +4156,11 @@ class HogFlowViewSet(
             # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
             # otherwise repeat on one page and never appear on another.
             queryset = queryset.order_by("-updated_at", "-id")
+
+            # An explicit key query always means an exact identity lookup. django-filter skips empty
+            # values, so handle the impossible empty key before the filter backend can return every row.
+            if "key" in self.request.GET and self.request.GET["key"] == "":
+                queryset = queryset.none()
 
             created_by = self.request.GET.get("created_by")
             if created_by:
