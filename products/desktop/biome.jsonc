@@ -283,7 +283,6 @@
     {
       "includes": [
         "packages/agent/**/*.ts",
-        "packages/agent-contracts/**/*.ts",
         "packages/enricher/**/*.ts",
         "packages/git/**/*.ts",
         "packages/harness/**/*.ts"
@@ -298,6 +297,26 @@
                   {
                     "group": ["@posthog/shared", "@posthog/shared/*"],
                     "message": "The agent runtime must not depend on desktop code. Import from @posthog/agent-contracts."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/agent-contracts/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["@posthog/*"],
+                    "message": "agent-contracts is a leaf shared with the agent runtime. It imports no internal package."
                   }
                 ]
               }

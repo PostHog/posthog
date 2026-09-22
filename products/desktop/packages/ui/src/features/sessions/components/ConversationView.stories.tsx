@@ -3,7 +3,7 @@ import {
   toolInfoFromToolUse,
   toolUpdateFromToolResult,
 } from "@posthog/agent/adapters/claude/conversion/tool-use-to-acp";
-import type { AcpMessage } from "@posthog/shared/session-events";
+import type { AcpMessage } from "@posthog/shared";
 import { ConversationView } from "@posthog/ui/features/sessions/components/ConversationView";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
