@@ -7958,15 +7958,29 @@ def warm_task_resume_sandbox(
 # --- Task run (the ``run`` action) ---
 
 
-def _refuse_task_run(task: Task, reason: str, error: contracts.TaskValidationError) -> contracts.TaskRunResult:
-    """Record why a run start was refused, then hand the caller the error it returns.
+def _capture_run_start_refused(task: Task, reason: str, guard: str | None = None) -> None:
+    """Record why a run start was refused.
 
     A refusal creates no run, so without this event the task shows a creation and then silence,
     which is indistinguishable from a run that was dispatched and lost. ``reason`` is a stable
     code, safe to group on.
     """
-    task.capture_event("task_run_start_refused", {"reason": reason})
+    task.capture_event("task_run_start_refused", {"reason": reason, "guard": guard})
+
+
+def _refuse_task_run(
+    task: Task, reason: str, error: contracts.TaskValidationError, *, guard: str | None = None
+) -> contracts.TaskRunResult:
+    _capture_run_start_refused(task, reason, guard)
     return contracts.TaskRunResult(error=error)
+
+
+def _refuse_task_run_detail(
+    task: Task, reason: str, detail: str, *, guard: str | None = None, **extra: Any
+) -> contracts.TaskRunResult:
+    return _refuse_task_run(
+        task, reason, contracts.TaskValidationError(kind="detail", detail=detail, **extra), guard=guard
+    )
 
 
 def _branches_worked_on(run: TaskRun) -> set[str]:
@@ -8012,24 +8026,22 @@ def run_task(
         parse_run_state,
     )
 
-    task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
+    # A refusal below captures through the task's team and creator, which this query must carry.
+    task = (
+        _visible_task_qs(team_id, user_id, for_control=True)
+        .select_related("team", "created_by")
+        .filter(id=task_id)
+        .first()
+    )
     if task is None:
         return None
     # Another product may need to finish something before this task runs, for example a chat that
     # is copied into the task a few seconds behind each turn.
     refusal = task_run_start_refusal(str(task.id), team_id, user_id)
     if refusal is not None:
-        return _refuse_task_run(
-            task,
-            f"guard:{refusal.guard}",
-            contracts.TaskValidationError(kind="detail", detail=refusal.message),
-        )
+        return _refuse_task_run_detail(task, "start_guard", refusal.message, guard=refusal.guard)
     if _is_unlinked_report_warm_task(task):
-        return _refuse_task_run(
-            task,
-            "report_warm_run_not_activated",
-            contracts.TaskValidationError(kind="detail", detail=REPORT_WARM_RUN_NOT_ACTIVATED),
-        )
+        return _refuse_task_run_detail(task, "report_warm_run_not_activated", REPORT_WARM_RUN_NOT_ACTIVATED)
     report_id_for_slot_check = (
         str(task.signal_report_id)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT
@@ -8068,32 +8080,23 @@ def run_task(
     if resume_from_run_id:
         previous_run = task.runs.filter(id=resume_from_run_id).first()
         if previous_run is None:
-            return _refuse_task_run(
-                task,
-                "invalid_resume_source",
-                contracts.TaskValidationError(kind="detail", detail="Invalid resume_from_run_id"),
-            )
+            return _refuse_task_run_detail(task, "invalid_resume_source", "Invalid resume_from_run_id")
         previous_is_import_run = "imported_from" in (previous_run.state or {})
         if not previous_run.matches_task_ownership(task):
-            return _refuse_task_run(
+            return _refuse_task_run_detail(
                 task,
                 "resume_source_ownership_changed",
-                contracts.TaskValidationError(
-                    kind="detail",
-                    detail="This run belongs to a previous task owner. Start a new run instead.",
-                ),
+                "This run belongs to a previous task owner. Start a new run instead.",
             )
         previous_state = parse_run_state(previous_run.state)
         if previous_state.run_source == RunSource.AGENT:
             run_source = RunSource.AGENT
         previous_branch = previous_state.pr_base_branch
         if branch is not None and branch != previous_branch and branch not in _branches_worked_on(previous_run):
-            return _refuse_task_run(
+            return _refuse_task_run_detail(
                 task,
                 "resume_branch_mismatch",
-                contracts.TaskValidationError(
-                    kind="detail", detail="A resumed run must use its previous base branch. Omit branch to resume."
-                ),
+                "A resumed run must use its previous base branch. Omit branch to resume.",
             )
 
         branch = previous_branch
@@ -8403,19 +8406,13 @@ def run_task(
         )
         if custom_image is None:
             if custom_image_id_supplied_by_user:
-                return _refuse_task_run(
-                    task,
-                    "invalid_custom_image",
-                    contracts.TaskValidationError(kind="detail", detail="Invalid custom_image_id"),
-                )
+                return _refuse_task_run_detail(task, "invalid_custom_image", "Invalid custom_image_id")
         elif not custom_image.is_ready:
             if custom_image_id_supplied_by_user:
-                return _refuse_task_run(
+                return _refuse_task_run_detail(
                     task,
                     "custom_image_not_ready",
-                    contracts.TaskValidationError(
-                        kind="detail", detail=f"Custom image is not ready (status: {custom_image.status})"
-                    ),
+                    f"Custom image is not ready (status: {custom_image.status})",
                 )
         else:
             extra_state = extra_state or {}
@@ -8429,11 +8426,7 @@ def run_task(
         )
         if sandbox_environment is None:
             if sandbox_environment_id_supplied_by_user:
-                return _refuse_task_run(
-                    task,
-                    "invalid_sandbox_environment",
-                    contracts.TaskValidationError(kind="detail", detail="Invalid sandbox_environment_id"),
-                )
+                return _refuse_task_run_detail(task, "invalid_sandbox_environment", "Invalid sandbox_environment_id")
         else:
             extra_state = extra_state or {}
             extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
@@ -8451,14 +8444,11 @@ def run_task(
     if pending_user_artifact_ids:
         staged_artifacts, missing_artifact_ids = get_task_staged_artifacts(task, pending_user_artifact_ids)
         if missing_artifact_ids:
-            return _refuse_task_run(
+            return _refuse_task_run_detail(
                 task,
                 "invalid_staged_artifacts",
-                contracts.TaskValidationError(
-                    kind="detail",
-                    detail="Some pending_user_artifact_ids are invalid or expired",
-                    missing_artifact_ids=missing_artifact_ids,
-                ),
+                "Some pending_user_artifact_ids are invalid or expired",
+                missing_artifact_ids=missing_artifact_ids,
             )
 
     logger.info("Creating task run for task %s with mode=%s, branch=%s", task.id, mode, branch)
@@ -8478,7 +8468,7 @@ def run_task(
             ),
         )
     except TaskOwnershipChangedError:
-        task.capture_event("task_run_start_refused", {"reason": "task_ownership_changed"})
+        _capture_run_start_refused(task, "task_ownership_changed")
         return None
     if is_pi_task and resume_from_run_id:
         assert previous_run is not None

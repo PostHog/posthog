@@ -623,6 +623,10 @@ class Task(DeletedMetaFields, models.Model):
             return None
         return [str(i) for i in ids] if isinstance(ids, list) else []
 
+    @property
+    def is_import(self) -> bool:
+        return IMPORTED_FROM_STATE_KEY in (self.state or {})
+
     def capture_event(
         self, event: str, properties: dict | None = None, capture_fn: Callable[..., None] | None = None
     ) -> None:
@@ -661,11 +665,6 @@ class Task(DeletedMetaFields, models.Model):
             )
         except Exception as e:
             logger.warning("task.capture_event_failed", analytics_event=event, error=str(e))
-
-    @property
-    def is_import(self) -> bool:
-        """True when this task only hosts a transcript imported from another product."""
-        return IMPORTED_FROM_STATE_KEY in (self.state or {})
 
     def _track_task_created(self) -> None:
         self.capture_event(
