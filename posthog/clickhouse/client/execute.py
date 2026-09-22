@@ -309,7 +309,9 @@ def default_settings() -> dict:
         "distributed_replica_max_ignored_errors": 1000,
         # max_query_size can't be set in a query, because it determines the size of the buffer used to parse the query
         # https://clickhouse.com/docs/en/operations/settings/settings#max_query_size
-        "max_query_size": 1048576,
+        # Every property read on the native-JSON events table expands to a few hundred bytes of SQL, so a query that
+        # reads many properties (the bot-traffic classifier is ~2 MB) needs more room than the 1 MB that fit before.
+        "max_query_size": 8 * 1024 * 1024,
     }
 
 
