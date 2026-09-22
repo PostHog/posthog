@@ -986,8 +986,12 @@ export default function FeatureFlagSchedule(): JSX.Element {
                     {/* Warning when the added condition is already covered by what the flag serves */}
                     {conditionReachesNobodyNew && (
                         <LemonBanner type="warning">
-                            This flag already serves {servedToEveryone}% of everyone, and release conditions are
-                            combined with OR. A condition at {scheduledConditionRollout}% will not change who sees the
+                            {/* Both percentages move while the banner stays up, so each is its own element rather
+                                than a bare text node among siblings. A page-translation extension swaps such a node
+                                for a <font>, and React then writes the new number to the detached one. */}
+                            This flag already serves <span translate="no">{`${servedToEveryone}%`}</span> of everyone,
+                            and release conditions are combined with OR. A condition at{' '}
+                            <span translate="no">{`${scheduledConditionRollout}%`}</span> will not change who sees the
                             flag when this change runs. To stage a rollout, lower the existing condition first, then
                             schedule the increases.
                         </LemonBanner>
