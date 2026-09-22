@@ -1,25 +1,30 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { SelectorMatchChangeNotice } from 'scenes/insights/SelectorMatchChangeNotice'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { BaseMathType } from '~/types'
 
+import { ActionSelectorMatchChangeApi } from 'products/actions/frontend/generated/api.schemas'
+
 const insightProps = { dashboardItemId: 'new' as const }
 
 describe('SelectorMatchChangeNotice', () => {
     const actionsRequest = jest.fn(() => [200, { results: [] }])
-    const selectorMatchChangesRequest = jest.fn((_context: { request: Request }) => [200, []])
+    let selectorMatchChanges: ActionSelectorMatchChangeApi[] = []
+    const selectorMatchChangesRequest = jest.fn((_context: { request: Request }) => [200, selectorMatchChanges])
 
     beforeEach(() => {
+        selectorMatchChanges = []
         useMocks({
             get: {
                 '/api/projects/:team_id/actions/': actionsRequest,
@@ -71,5 +76,25 @@ describe('SelectorMatchChangeNotice', () => {
         const requestUrl = selectorMatchChangesRequest.mock.lastCall?.[0].request.url
         expect(requestUrl).not.toBeUndefined()
         expect(new URL(requestUrl ?? 'http://localhost').searchParams.get('action_ids')).toBe('42')
+    })
+
+    it('names each affected action, links to it, and lists its selectors', async () => {
+        selectorMatchChanges = [
+            { action_id: 42, action_name: 'Signup button clicked', selectors: ['div.btn.primary', '.cta > span'] },
+        ]
+        setup(true, 42)
+
+        const actionLink = await screen.findByText('Signup button clicked')
+        expect(actionLink.closest('a')).toHaveAttribute('href', expect.stringContaining(urls.action(42)))
+        expect(screen.getByText('div.btn.primary')).toBeInTheDocument()
+        expect(screen.getByText('.cta > span')).toBeInTheDocument()
+        expect(screen.getByText('Read more about action selector matching')).toBeInTheDocument()
+    })
+
+    it('renders nothing when no action in the insight is affected', async () => {
+        setup(true, 42)
+
+        await waitFor(() => expect(selectorMatchChangesRequest).toHaveBeenCalledTimes(1))
+        expect(screen.queryByText(/Counts in this insight are lower/)).not.toBeInTheDocument()
     })
 })
