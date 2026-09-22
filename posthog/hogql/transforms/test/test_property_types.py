@@ -295,7 +295,7 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 True,
                 {RestrictedProperty(name="$active_feature_flags", property_type=PropertyDefinition.Type.EVENT)},
                 None,
-                (),
+                ("ifNull(equals(NULL, %(hogql_val_0)s), 0)",),
                 ("events.properties.`$feature_flags`",),
             ),
             (
@@ -305,7 +305,7 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 True,
                 {RestrictedProperty(name="$feature_flags", property_type=PropertyDefinition.Type.EVENT)},
                 None,
-                (),
+                ("SELECT NULL AS `$active_feature_flags`, NULL AS `$feature/checkout`, NULL, 0 ",),
                 ("events.properties.`$feature_flags`",),
             ),
             (
@@ -323,7 +323,7 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 False,
                 None,
                 PropertyGroupsMode.DISABLED,
-                (),
+                ("JSONExtractRaw(events.properties, %(hogql_val_0)s)",),
                 ("events.properties_group_feature_flags",),
             ),
         ]
@@ -365,6 +365,31 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
 
         assert "notIn(events.properties.`$feature_flags`[" in where, printed
         assert "mapFilter(" not in where, printed
+
+    @parameterized.expand(
+        [
+            ("in", "properties.$active_feature_flags IN ('checkout', 'variant')", "hasAny(mapKeys(mapFilter("),
+            ("not_in", "properties.$active_feature_flags NOT IN ('checkout')", "not(hasAny(mapKeys(mapFilter("),
+            (
+                "ilike",
+                "properties.$active_feature_flags ILIKE 'check%'",
+                "arrayExists(v -> ifNull(ilike(v, %(hogql_val_0)s), 0), mapKeys(mapFilter(",
+            ),
+            (
+                "multi_search",
+                "multiSearchAnyCaseInsensitive(properties.$active_feature_flags, ['check']) > 0",
+                "arrayExists(v -> ifNull(greater(multiSearchAnyCaseInsensitive(v, [%(hogql_val_0)s]), 0), 0), mapKeys(",
+            ),
+        ]
+    )
+    def test_active_feature_flag_operator_families_read_the_filtered_keys(
+        self, _name: str, where_clause: str, expected_fragment: str
+    ) -> None:
+        printed = self._print_select(f"SELECT count() FROM events WHERE {where_clause}", use_new_events_schema=True)
+        where = printed.split("WHERE", 1)[1]
+
+        assert expected_fragment in where, printed
+        assert "events.properties.`$active_feature_flags`" not in where, printed
 
     def test_exception_types_use_array_subcolumn(self) -> None:
         printed = self._print_select("select count() from events where properties.$exception_types = 'TypeError'")
@@ -1586,6 +1611,17 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCa
         assert native.results[0][5] == "checkout"
         assert native.results[0][6] == 0
         assert native.results[0][7:] == ('"control"', "control")
+
+        operators = execute_hogql_query(
+            "SELECT properties.$active_feature_flags IN ('only-in-map', 'missing'), "
+            "properties.$active_feature_flags NOT IN ('checkout'), "
+            "properties.$active_feature_flags ILIKE 'vari%', "
+            "multiSearchAnyCaseInsensitive(properties.$active_feature_flags, ['ONLY-IN']) > 0 "
+            f"FROM events WHERE uuid = '{native_uuid}'",
+            team=self.team,
+            context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True),
+        )
+        assert operators.results == [(1, 0, 1, 1)]
 
         restricted_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True)
         restricted_context.restricted_properties = {

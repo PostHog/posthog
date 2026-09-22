@@ -544,16 +544,10 @@ def _feature_flags_map(field_type: ast.FieldType, context: HogQLContext) -> ast.
             else None
         )
 
-    if (
-        context.modifiers.materializationMode == MaterializationMode.DISABLED
-        or context.modifiers.propertyGroupsMode not in (PropertyGroupsMode.ENABLED, PropertyGroupsMode.OPTIMIZED)
-    ):
+    if context.modifiers.materializationMode == MaterializationMode.DISABLED:
         return None
-
-    column = next(
-        iter(property_groups.get_property_group_columns("events", "properties", FEATURE_FLAG_PROPERTY_PREFIX)), None
-    )
-    return _synthetic_column_field(field_type, column, is_nullable=False) if column is not None else None
+    source = resolve_property_group_source(field_type, FEATURE_FLAG_PROPERTY_PREFIX, context)
+    return _synthetic_column_field(field_type, source.column, is_nullable=False) if source is not None else None
 
 
 def _restricted_feature_flag_keys(field_type: ast.FieldType, context: HogQLContext) -> list[str]:
@@ -1011,7 +1005,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             return expr
         return None
 
-    def _single_key_property(self, expr: ast.Expr) -> tuple[ast.FieldType, str] | None:
+    def _property_operand(self, expr: ast.Expr) -> tuple[ast.FieldType, str] | None:
         """The (blob `FieldType`, property name) of a single-key property operand, or None.
 
         Only a single-key access (`properties.x`, no deeper `.a.b`) maps to one backing column. A multi-key access reads
@@ -1024,9 +1018,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         if node is not None and len(node.keys) == 1:
             field_type = _blob_field_type_of(node)
             if field_type is not None:
-                property_name = str(node.keys[0])
-                if not self._is_virtual_feature_flag_property(field_type, property_name):
-                    return field_type, property_name
+                return field_type, str(node.keys[0])
 
         # The operand can also carry the property on its resolved type rather than as a bare `PropertyAccess`: a
         # reference to a select alias over a property read (`SELECT properties.x AS a ... WHERE a = 'v'`) resolves
@@ -1042,9 +1034,15 @@ class ClickHousePropertyResolver(CloningVisitor):
             and len(prop_type.chain) == 1
             and prop_type.joined_subquery is None
             and self._property_table_in_scope(prop_type.field_type)
-            and not self._is_virtual_feature_flag_property(prop_type.field_type, str(prop_type.chain[0]))
         ):
             return prop_type.field_type, str(prop_type.chain[0])
+        return None
+
+    def _single_key_property(self, expr: ast.Expr) -> tuple[ast.FieldType, str] | None:
+        """`_property_operand` for a property with its own backing column; virtual feature-flag properties have none."""
+        single = self._property_operand(expr)
+        if single is not None and not self._is_virtual_feature_flag_property(*single):
+            return single
         if isinstance(expr, ast.Call) and expr.name.lower() == "tobool" and len(expr.args) == 1:
             return self._single_key_property_from_boolean_conversion(expr.args[0])
         return None
@@ -1697,21 +1695,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         ):
             unwrapped = unwrapped.args[0]
 
-        single: tuple[ast.FieldType, str] | None = None
-        property_access = self._lowered_property_operand(unwrapped)
-        if property_access is not None and len(property_access.keys) == 1:
-            field_type = _blob_field_type_of(property_access)
-            if field_type is not None:
-                single = field_type, str(property_access.keys[0])
-        if single is None:
-            prop_type = resolve_field_type(unwrapped)
-            if (
-                isinstance(prop_type, ast.PropertyType)
-                and len(prop_type.chain) == 1
-                and prop_type.joined_subquery is None
-                and self._property_table_in_scope(prop_type.field_type)
-            ):
-                single = prop_type.field_type, str(prop_type.chain[0])
+        single = self._property_operand(unwrapped)
         if single is None:
             return None
 
