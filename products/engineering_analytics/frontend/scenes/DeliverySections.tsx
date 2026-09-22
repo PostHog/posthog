@@ -25,7 +25,6 @@ export function DeliverySections({
 }: {
     /** An author or a GitHub team; the summary endpoint rejects a single pull request. */
     scope: DeliveryScope
-    /** The row label for the scope's bars, e.g. "This author" or "This team". */
     scopeLabel: string
     sourceId: string | null
     /** An author's comparison with their own team, which adds the team's row to the ready-to-merge card. */

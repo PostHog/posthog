@@ -526,6 +526,7 @@ async def test_blocker_aware_routing(
             assert persist_input.investigation_summary in persist_input.reply
     last_triage = mock_record_triage.call_args_list[-1][0][0].patch
     assert last_triage["result"] == expected_result
+    assert last_triage["citations"] == sample_chunk_ids
     assert "draft_confidence" in last_triage
     assert "validator_confidence" in last_triage
     assert "blocker" in last_triage

@@ -1723,19 +1723,44 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         assert no_user_payload["restricted_resources"] == ["*"]
         assert self._runner(None, base).get_cache_key() != self._runner(self.user, base).get_cache_key()
 
-    def test_hogql_query_runner_partitions_cache_on_access_control(self):
+    @parameterized.expand(
+        [
+            ("notebooks", "notebook"),
+            ("_account_tagged_items", "account"),
+            ("_account_resource_notebooks", "account"),
+            ("_ticket_tagged_items", "ticket"),
+            ("_ticket_assignments", "ticket"),
+            ("_ticket_assignee_roles", "ticket"),
+            ("_task_public_channels", "task"),
+        ]
+    )
+    def test_hogql_query_runner_partitions_cache_on_access_control(self, table: str, scope: str) -> None:
         # Raw HogQL is the only way to reach access-controlled system.* tables.
-        query = {"kind": "HogQLQuery", "query": "select * from system.notebooks"}
+        query = {"kind": "HogQLQuery", "query": f"select * from system.{table}"}
 
-        self._ac(resource="notebook", access_level="none")
+        resource = "customer_analytics" if scope == "account" else scope
+        self._ac(resource=resource, access_level="none")
         denied_runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
-        assert "notebook" in (denied_runner.get_cache_payload().get("restricted_resources") or [])
+        assert scope in (denied_runner.get_cache_payload().get("restricted_resources") or [])
         key_denied = denied_runner.get_cache_key()
 
-        self._ac(resource="notebook", access_level="editor")
+        self._ac(resource=resource, access_level="editor")
         key_granted = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
 
         assert key_denied != key_granted
+
+    def test_default_denied_resource_partitions_cache_without_access_control(self):
+        self.organization.available_product_features = []
+        self.organization.save()
+        query = {"kind": "HogQLQuery", "query": "select * from system.data_deletion_requests"}
+
+        member_key = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        admin_key = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
+
+        assert member_key != admin_key
 
     @parameterized.expand(RUNNER_BASES)
     def test_query_reading_no_access_controlled_tables_shares_cache(self, _name, base):
@@ -2023,7 +2048,7 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         self.organization.available_product_features = []
         self.organization.save()
 
-        runner = self._runner(self.user, base=AnalyticsQueryRunner)
+        runner = self._runner(self.user, base=AnalyticsQueryRunner, queried_resources=set())
         with CaptureQueriesContext(connection) as ctx:
             runner.get_cache_key()
 

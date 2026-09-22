@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-09-18 20:02:33 UTC
+// Generated at: 2026-09-21 10:06:19 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -128,9 +128,7 @@ export type CanonicalProvider =
     | 'moonshotai-int4'
     | 'moonshotai-mxfp4'
     | 'morph'
-    | 'morph-bf16'
     | 'morph-fast'
-    | 'morph-fp8'
     | 'near-ai-fp8'
     | 'nebius-fp4'
     | 'nebius-fp8'
@@ -147,6 +145,7 @@ export type CanonicalProvider =
     | 'novita-int4'
     | 'nvidia'
     | 'nvidia-nvfp4'
+    | 'open-inference-fp4'
     | 'open-inference-fp8'
     | 'openai'
     | 'openai-default'
@@ -172,6 +171,7 @@ export type CanonicalProvider =
     | 'relace-fp8'
     | 'sail-research-fp4'
     | 'sail-research-fp8'
+    | 'sail-research-int4'
     | 'sail-research-us'
     | 'sakana'
     | 'sambanova'
