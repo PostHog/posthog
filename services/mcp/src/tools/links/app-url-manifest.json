@@ -1299,6 +1299,11 @@
         "params": [],
         "scope": "global"
     },
+    "projectFiles": {
+        "template": "/files",
+        "params": [],
+        "scope": "project"
+    },
     "projectHomepage": {
         "template": "/home",
         "params": [],

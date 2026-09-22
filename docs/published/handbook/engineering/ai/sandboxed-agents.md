@@ -627,10 +627,10 @@ for readiness before signaling completion, then checks persisted status, error, 
 sandbox shutdown. It does not test Django API authentication or LLM task execution.
 
 These tests consume the published sandbox image, not the agent source in the checkout.
-An agent release triggers a separate sandbox image build that installs the published
-package and updates the shared image. Running backend tests against that image alone
-does not validate an unpublished agent change. A release check must exercise the
-candidate image before promoting it to the shared tag.
+The image pins the agent version in `Dockerfile.sandbox-base`.
+An agent release opens a pull request that bumps that pin, and merging it rebuilds the shared image.
+That build checks the installed agent against the pin and starts the `agent-server` entrypoint on both architectures before the image is promoted.
+Running backend tests against that image alone does not validate an unpublished agent change.
 
 ## Questions?
 

@@ -56595,6 +56595,7 @@ export namespace Schemas {
       readonly template_auth_type: MCPAuthTypeEnum | null;
       /** How members connect to this server: the template's type for catalog servers, or the type the custom server was added with. Null only for custom servers registered before the type was recorded; members then choose. */
       readonly auth_type: MCPAuthTypeEnum | null;
+      /** True when this server is enabled and available to the project. */
       readonly is_team_enabled: boolean;
       /** Deprecated brand icon key from the linked template. Empty for custom servers. */
       readonly icon_key: string;
@@ -106806,6 +106807,13 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type FileSystemDestroyParams = {
+    /**
+     * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
+     */
+    recursive?: boolean;
     };
 
     export type FileSystemShortcutListParams = {
