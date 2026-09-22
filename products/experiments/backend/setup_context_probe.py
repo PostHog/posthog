@@ -2,31 +2,18 @@
 
 Two numbers decide whether a section earns its tokens: how often it comes back `ok`, and how often
 it carries a fact a rule branches on. A section that answers for every project but decides nothing
-is as useless as one that times out. `SetupContextScorecard` reports both, so a later iteration can
-compare the same two quantities instead of writing production SQL again.
+costs as much as one that times out.
 
-Two more quantities belong to the same measurement and cannot live here:
-
-- Precedent deviation by creation source. For experiments created in a project that already has at
-  least five, how often the new one differs from that project's strong majority on persistence,
-  bucketing, custom exposure, test-account filter, shared-metric reuse and primary metric type.
-  It needs the creation source, which only the production event stream carries, so it is run as
-  read-only production SQL. That comparison runs over a different set of projects for each source,
-  so it cannot separate "agents configure worse" from "different projects use agents". Treat it as
-  a signal to investigate, never as a verdict on a creation path, until a within-project version
-  exists that reads only projects creating through both an agent and the UI.
-- Launched experiments with zero, and with under 100, analyzed exposures four days after launch.
-  This is the harm measure, and `PreviousExperimentsSummary` already counts both over a project's
-  listed experiments.
-
-The output carries ids, counts and booleans only. No experiment name, metric name or other
-user-authored string reaches it, so a scorecard is safe to paste into an internal discussion.
+Every fact reports a denominator as well as a count, because a fact whose section did not run is
+unmeasured rather than absent. "0 of 25 projects cross identification" and "0 of 0" are different
+answers, and only the second one means nothing was read.
 """
 
 import logging
 import dataclasses
 from collections.abc import Iterable, Sequence
 from statistics import median
+from typing import Final
 
 from django.db.models import Max
 
@@ -44,11 +31,12 @@ from products.experiments.backend.setup_context import (
     SharedMetrics,
     TargetSurface,
     build_setup_context,
+    clear_cached_sections,
 )
 
 logger = logging.getLogger(__name__)
 
-SECTION_NAMES: tuple[str, ...] = (
+SECTION_NAMES: Final[tuple[str, ...]] = (
     "team_defaults",
     "sdk_profile",
     "target_surface",
@@ -60,9 +48,9 @@ SECTION_NAMES: tuple[str, ...] = (
 # The band where a surface crosses identification, which is the one place the bucketing rules ask
 # for more than the user id. Kept in step with "Bucketing and persistence" in
 # products/experiments/skills/creating-experiments/references/setup-decisions.md.
-IDENTITY_BAND = (0.1, 0.9)
+IDENTITY_BAND: Final[tuple[float, float]] = (0.1, 0.9)
 # "Near 1" in the device-id bucketing step.
-DEVICE_ID_SHARE_FLOOR = 0.95
+DEVICE_ID_SHARE_FLOOR: Final = 0.95
 
 
 @frozen
@@ -82,8 +70,20 @@ class DecisiveFacts:
     anonymous_share_crosses_identification: bool
     device_id_bucketing_plausible: bool
     server_lib_evaluates_locally: bool
-    previous_experiment_count: int
-    shared_metric_count: int
+    previous_experiments_listed: int
+    shared_metrics_listed: int
+
+
+FACT_SECTIONS: Final[dict[str, tuple[str, ...]]] = {
+    "sdk_libs_empty": ("sdk_profile",),
+    "libs_on_any_event_used": ("sdk_profile",),
+    "anonymous_share_null": ("target_surface",),
+    "anonymous_share_crosses_identification": ("target_surface",),
+    "device_id_bucketing_plausible": ("sdk_profile", "target_surface"),
+    "server_lib_evaluates_locally": ("sdk_profile",),
+    "previous_experiments_listed": ("previous_experiments",),
+    "shared_metrics_listed": ("shared_metrics",),
+}
 
 
 @frozen
@@ -104,24 +104,37 @@ class SectionScore:
 
 
 @frozen
+class FactCoverage:
+    name: str
+    present: int
+    measured: int
+
+
+@frozen
 class SetupContextScorecard:
     teams: int
     failed_teams: int
+    cold: bool
     sections: list[SectionScore]
-    # Fact name to the number of teams it held for. An int fact counts the teams above zero.
-    fact_coverage: dict[str, int]
+    facts: list[FactCoverage]
     readings: list[TeamReading]
 
 
 class SetupContextProbe:
     """Build the setup context for many projects and score what came back."""
 
-    def __init__(self, *, target_event: str | None = None, metric_event: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        target_event: str | None = None,
+        metric_event: str | None = None,
+        cold: bool = False,
+    ) -> None:
         self.inputs = SetupContextInputs(target_event=target_event, metric_event=metric_event)
+        self.cold = cold
 
     def run(self, teams: Sequence[Team]) -> SetupContextScorecard:
-        readings = [self.read_team(team) for team in teams]
-        return self.score(readings)
+        return self.score([self.read_team(team) for team in teams])
 
     def read_team(self, team: Team) -> TeamReading:
         sections: dict[str, SectionReading] = {}
@@ -130,6 +143,8 @@ class SetupContextProbe:
             sections[name] = SectionReading(status=status, duration_ms=duration_ms)
 
         try:
+            if self.cold:
+                clear_cached_sections(team, self.inputs)
             context = build_setup_context(
                 team=team,
                 inputs=self.inputs,
@@ -154,10 +169,6 @@ class SetupContextProbe:
         shared: SharedMetrics | None = context.shared_metrics.data
 
         anonymous_share = target_surface.anonymous_share if target_surface else None
-        device_id_shares = [
-            *(lib.device_id_share for lib in (sdk_profile.libs if sdk_profile else [])),
-            *(lib.device_id_share for lib in (target_surface.libs if target_surface else [])),
-        ]
         return DecisiveFacts(
             sdk_libs_empty=sdk_profile is not None and not sdk_profile.libs,
             libs_on_any_event_used=bool(sdk_profile and sdk_profile.libs_on_any_event),
@@ -165,7 +176,7 @@ class SetupContextProbe:
             anonymous_share_crosses_identification=(
                 anonymous_share is not None and IDENTITY_BAND[0] <= anonymous_share <= IDENTITY_BAND[1]
             ),
-            device_id_bucketing_plausible=any(share > DEVICE_ID_SHARE_FLOOR for share in device_id_shares),
+            device_id_bucketing_plausible=self.device_id_bucketing_plausible(sdk_profile, target_surface),
             server_lib_evaluates_locally=bool(
                 sdk_profile
                 and any(
@@ -173,17 +184,34 @@ class SetupContextProbe:
                     for lib in sdk_profile.libs
                 )
             ),
-            previous_experiment_count=len(previous.experiments) if previous else 0,
-            shared_metric_count=len(shared.metrics) if shared else 0,
+            previous_experiments_listed=len(previous.experiments) if previous else 0,
+            shared_metrics_listed=len(shared.metrics) if shared else 0,
         )
+
+    @staticmethod
+    def device_id_bucketing_plausible(sdk_profile: SdkProfile | None, target_surface: TargetSurface | None) -> bool:
+        """Step 1 of the bucketing rules, read exactly as that step reads it.
+
+        The surface's own share has to be near 1, at least one profiled SDK has to be one that
+        reached the surface, and every such SDK has to be near 1 on its flag calls. An `any()` over
+        the two lists merged would pass on one high row from an SDK the surface never sees.
+        """
+        if sdk_profile is None or target_surface is None:
+            return False
+        if target_surface.device_id_share is None or target_surface.device_id_share <= DEVICE_ID_SHARE_FLOOR:
+            return False
+        surface_libs = {lib.lib for lib in target_surface.libs}
+        matching = [lib for lib in sdk_profile.libs if lib.lib in surface_libs]
+        return bool(matching) and all(lib.device_id_share > DEVICE_ID_SHARE_FLOOR for lib in matching)
 
     def score(self, readings: Sequence[TeamReading]) -> SetupContextScorecard:
         read = [reading for reading in readings if not reading.failed]
         return SetupContextScorecard(
             teams=len(readings),
             failed_teams=len(readings) - len(read),
+            cold=self.cold,
             sections=[self.score_section(name, read) for name in SECTION_NAMES],
-            fact_coverage=self.count_facts(read),
+            facts=[self.score_fact(field.name, read) for field in dataclasses.fields(DecisiveFacts)],
             readings=list(readings),
         )
 
@@ -198,23 +226,28 @@ class SetupContextProbe:
             p95_ms=self.percentile(durations, 0.95),
         )
 
+    def score_fact(self, name: str, readings: Sequence[TeamReading]) -> FactCoverage:
+        measured = [reading for reading in readings if reading.facts is not None and self.fact_measured(reading, name)]
+        return FactCoverage(
+            name=name,
+            present=sum(1 for reading in measured if bool(getattr(reading.facts, name))),
+            measured=len(measured),
+        )
+
+    @staticmethod
+    def fact_measured(reading: TeamReading, name: str) -> bool:
+        return all(
+            section in reading.sections and reading.sections[section].status == SetupContextSectionStatus.OK
+            for section in FACT_SECTIONS[name]
+        )
+
     @staticmethod
     def percentile(sorted_values: Sequence[float], share: float) -> float | None:
         if not sorted_values:
             return None
         # Nearest-rank, so a handful of projects still gives an honest tail rather than an average.
-        index = min(len(sorted_values) - 1, int(round(share * (len(sorted_values) - 1))))
+        index = min(len(sorted_values) - 1, round(share * (len(sorted_values) - 1)))
         return sorted_values[index]
-
-    @staticmethod
-    def count_facts(readings: Sequence[TeamReading]) -> dict[str, int]:
-        facts = [reading.facts for reading in readings if reading.facts is not None]
-        if not facts:
-            return {}
-        return {
-            field.name: sum(1 for fact in facts if bool(getattr(fact, field.name)))
-            for field in dataclasses.fields(DecisiveFacts)
-        }
 
 
 def teams_with_recent_experiments(limit: int) -> list[Team]:

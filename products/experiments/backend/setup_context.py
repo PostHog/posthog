@@ -40,7 +40,7 @@ from posthog.exceptions import (
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.production_event_activation import MOBILE_SIDE_LIBS, SERVER_SIDE_LIBS
 from posthog.models.team.team import Team
-from posthog.utils import get_safe_cache, safe_cache_set
+from posthog.utils import get_safe_cache, safe_cache_delete, safe_cache_set
 
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
@@ -788,6 +788,21 @@ def _target_cache_inputs(team: Team, inputs: SetupContextInputs) -> dict[str, An
         "filter_test_accounts": bool(_new_experiment_exposure_criteria().get("filterTestAccounts")),
         "test_account_filters": team.test_account_filters if isinstance(team.test_account_filters, list) else [],
     }
+
+
+def clear_cached_sections(team: Team, inputs: SetupContextInputs) -> None:
+    """Drop the cached ClickHouse sections for this team and these inputs.
+
+    A caller that measures how long a section takes needs a cold read. The three cached sections
+    answer from the cache for hours, so a second measurement of the same team reports the cache.
+    """
+    target_inputs = _target_cache_inputs(team, inputs)
+    for section, key_inputs in (
+        ("sdk_profile", {}),
+        ("target_surface", target_inputs),
+        ("candidate_metric", target_inputs),
+    ):
+        safe_cache_delete(_cache_key(team, section, key_inputs))
 
 
 def get_target_surface(team: Team, inputs: SetupContextInputs) -> TargetSurface:
