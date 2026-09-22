@@ -1,3 +1,5 @@
+from django.db.models import Q
+
 import structlog
 
 from posthog.job_owners import JobOwners
@@ -60,17 +62,20 @@ class WebhookSubscriptionStaleCheck(HealthCheck):
         )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
-        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.facade.models import HogFunction
         from products.data_warehouse.backend.logic.external_data_source.webhooks import get_webhook_url
         from products.warehouse_sources.backend.facade.source_management import SourceRegistry, WebhookSource
 
-        stale_schemas = ExternalDataSchema.objects.filter(
-            team_id__in=team_ids,
-            deleted=False,
-            should_sync=True,
-            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
-            last_synced_at__isnull=True,
-        ).select_related("source")
+        stale_schemas = (
+            ExternalDataSchema.objects.filter(
+                team_id__in=team_ids,
+                deleted=False,
+                should_sync=True,
+                sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+            )
+            .filter(Q(table__isnull=True) | Q(table__row_count=0))
+            .select_related("source")
+        )
 
         schemas_by_source: dict[str, list[ExternalDataSchema]] = {}
         sources: dict[str, ExternalDataSource] = {}
@@ -112,7 +117,7 @@ class WebhookSubscriptionStaleCheck(HealthCheck):
                 logger.warning(
                     "webhook_subscription_stale: could not read webhook info",
                     source_id=source_pk,
-                    error=str(e),
+                    error_type=type(e).__name__,
                 )
                 continue
 

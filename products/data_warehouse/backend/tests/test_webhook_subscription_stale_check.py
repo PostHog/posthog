@@ -1,5 +1,4 @@
 import uuid
-import datetime as dt
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -13,6 +12,7 @@ from products.data_warehouse.backend.temporal.health_checks.webhook_subscription
 )
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ExternalWebhookInfo
 
 SOURCE_MGMT = "products.warehouse_sources.backend.facade.source_management"
@@ -66,8 +66,13 @@ class TestWebhookSubscriptionStaleCheck(BaseTest):
         )
         return source
 
+    def _table_with_rows(self, name: str, row_count: int) -> DataWarehouseTable:
+        return DataWarehouseTable.objects.create(
+            team=self.team, name=name, columns={"id": "String"}, row_count=row_count
+        )
+
     def _create_webhook_schema(
-        self, source: ExternalDataSource, name: str, last_synced_at: dt.datetime | None
+        self, source: ExternalDataSource, name: str, table: DataWarehouseTable | None = None
     ) -> ExternalDataSchema:
         return ExternalDataSchema.objects.create(
             name=name,
@@ -75,7 +80,7 @@ class TestWebhookSubscriptionStaleCheck(BaseTest):
             source=source,
             sync_type=ExternalDataSchema.SyncType.WEBHOOK,
             should_sync=True,
-            last_synced_at=last_synced_at,
+            table=table,
         )
 
     def _detect(self, source_impl: _FakeStripeSource) -> list[dict]:
@@ -99,7 +104,7 @@ class TestWebhookSubscriptionStaleCheck(BaseTest):
         self, _name: str, enabled_events: list[str], flagged: bool
     ) -> None:
         source = self._create_webhook_source()
-        self._create_webhook_schema(source, "charge", last_synced_at=None)
+        self._create_webhook_schema(source, "charge")
 
         payloads = self._detect(_FakeStripeSource(enabled_events))
 
@@ -113,8 +118,8 @@ class TestWebhookSubscriptionStaleCheck(BaseTest):
 
     def test_only_flags_schemas_whose_own_events_are_unsubscribed(self) -> None:
         source = self._create_webhook_source()
-        self._create_webhook_schema(source, "charge", last_synced_at=None)
-        self._create_webhook_schema(source, "customer", last_synced_at=None)
+        self._create_webhook_schema(source, "charge")
+        self._create_webhook_schema(source, "customer")
 
         payloads = self._detect(_FakeStripeSource(["charge.succeeded"]))
 
@@ -122,14 +127,19 @@ class TestWebhookSubscriptionStaleCheck(BaseTest):
         assert payloads[0]["affected_schemas"] == ["customer"]
         assert payloads[0]["missing_events"] == ["customer.created"]
 
-    def test_schema_that_has_ever_synced_is_not_a_candidate(self) -> None:
+    def test_row_count_gates_candidacy(self) -> None:
         source = self._create_webhook_source()
-        self._create_webhook_schema(source, "charge", last_synced_at=dt.datetime(2026, 1, 1, tzinfo=dt.UTC))
+        self._create_webhook_schema(source, "charge", table=self._table_with_rows("charge_tbl", 0))
+        self._create_webhook_schema(source, "customer", table=self._table_with_rows("customer_tbl", 5))
 
-        assert self._detect(_FakeStripeSource(["invoice.paid"])) == []
+        payloads = self._detect(_FakeStripeSource([]))
+
+        assert len(payloads) == 1
+        assert payloads[0]["affected_schemas"] == ["charge"]
+        assert payloads[0]["missing_events"] == ["charge.succeeded"]
 
     def test_unreadable_endpoint_is_skipped(self) -> None:
         source = self._create_webhook_source()
-        self._create_webhook_schema(source, "charge", last_synced_at=None)
+        self._create_webhook_schema(source, "charge")
 
         assert self._detect(_FakeStripeSource(None, exists=False, error="cannot read webhook endpoint")) == []
