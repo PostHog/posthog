@@ -1,16 +1,22 @@
-# The proxy in front of vLLM on a decision instance: a certificate issued off the box, the per-instance bearer on
-# every request, and only the decision endpoint, health and metrics exposed. vLLM itself binds loopback (see
-# bin/serve.sh).
+# The proxy in front of vLLM on a decision instance: a Let's Encrypt certificate obtained and renewed through a
+# DNS-01 challenge, the per-instance bearer on every request, and only the decision endpoint, health and metrics
+# exposed. vLLM itself binds loopback (see bin/serve.sh).
 #
-# Environment (from /etc/kev-vllm/env): INSTANCE_HOST is the instance's DNS name, TLS_CERT and TLS_KEY the
-# certificate chain and key that the runbook issues with a DNS-01 challenge, KEV_BEARER the per-instance bearer.
-# The certificate never comes from this host, so nothing listens on port 80: no ACME responder and no redirect.
+# Environment (from /etc/kev-vllm/env): INSTANCE_HOST is the instance's DNS name, ACME_EMAIL the certificate contact,
+# ROUTE53_ZONE_ID the zone the name lives in, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY a credential that can write
+# only the _acme-challenge TXT record for this name, KEV_BEARER the per-instance bearer. Nothing listens on port 80:
+# the challenge is a DNS record, so there is no ACME responder and no redirect.
 {
+	email {$ACME_EMAIL}
 	auto_https disable_redirects
 }
 
 {$INSTANCE_HOST} {
-	tls {$TLS_CERT} {$TLS_KEY}
+	tls {
+		dns route53 {
+			hosted_zone_id {$ROUTE53_ZONE_ID}
+		}
+	}
 
 	@unauthorized {
 		not header Authorization "Bearer {$KEV_BEARER}"
