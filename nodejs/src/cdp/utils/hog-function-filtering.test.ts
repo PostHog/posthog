@@ -248,7 +248,7 @@ describe('hog-function-filtering', () => {
 
     describe('Filter globals', () => {
         // Django rejects a filter whose globals the runtime cannot resolve, and reads the set from
-        // this file. A Record over the type makes tsc fail when a global is added and not listed,
+        // this file, which sits in its package so it ships with the image that needs it. A Record over the type makes tsc fail when a global is added and not listed,
         // so the file cannot go stale in either direction.
         const EVERY_GLOBAL: Record<keyof HogFunctionFilterGlobals, true> = {
             $group_0: true,
@@ -279,7 +279,7 @@ describe('hog-function-filtering', () => {
 
         it('matches the set Django validates against', () => {
             const shared = parseJSON(
-                readFileSync(join(__dirname, '../../../../products/cdp/filter_globals.json'), 'utf8')
+                readFileSync(join(__dirname, '../../../../posthog/cdp/filter_globals.json'), 'utf8')
             )
             expect(Object.keys(EVERY_GLOBAL).sort()).toEqual([...shared.roots].sort())
         })

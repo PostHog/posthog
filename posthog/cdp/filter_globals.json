@@ -1,5 +1,5 @@
 {
-    "$comment": "The globals the CDP filter runtime provides. Mirrors HogFunctionFilterGlobals in nodejs/src/cdp/types.ts, which a test in that package pins to this file. Python reads it to reject a filter that cannot be evaluated.",
+    "$comment": "The globals the CDP filter runtime provides. Mirrors HogFunctionFilterGlobals in nodejs/src/cdp/types.ts, which a test in that package pins to this file. It lives here because Django reads it at runtime and this is the package that ships with it.",
     "roots": [
         "$group_0",
         "$group_1",

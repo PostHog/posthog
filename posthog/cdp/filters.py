@@ -363,9 +363,7 @@ class _LowerConstantMembership(CloningVisitor):
 
 # Loaded rather than listed: the set belongs to the runtime, and a stale copy here would reject a
 # filter people can legitimately write. A test in the nodejs package pins the file to the type.
-FILTER_GLOBALS: set[str] = set(
-    json.loads((Path(__file__).parents[2] / "products" / "cdp" / "filter_globals.json").read_text())["roots"]
-)
+FILTER_GLOBALS: set[str] = set(json.loads((Path(__file__).parent / "filter_globals.json").read_text())["roots"])
 
 _UNKNOWN_GLOBAL = "Unknown global variable: "
 
