@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import openai
 import anthropic
+from opentelemetry.sdk.trace import TracerProvider
 from parameterized import parameterized
 
 from posthog.schema import AssistantEventType, FailureMessage
@@ -823,3 +824,47 @@ class TestRunnerClientToolCallInterrupt(BaseTest):
 
         self.assertTrue(any(getattr(m, "content", None) == "Please clarify your request" for m in messages))
         mock_graph.aupdate_state.assert_called_once()
+
+
+class TestRunnerTraceContext(BaseTest):
+    async def test_ai_events_carry_the_active_otel_span_ids(self):
+        from ee.hogai.core.runner import BaseAgentRunner
+
+        class TestRunner(BaseAgentRunner):
+            def get_initial_state(self):
+                return AssistantState(messages=[])
+
+            def get_resumed_state(self):
+                return PartialAssistantState(messages=[])
+
+        with (
+            patch("ee.hogai.core.runner.is_cloud", return_value=True),
+            patch("ee.hogai.core.runner.get_instance_region", return_value="US"),
+        ):
+            runner = TestRunner(
+                team=self.team,
+                conversation=await Conversation.objects.acreate(team=self.team, user=self.user),
+                user=self.user,
+                graph_class=cast(type[BaseAssistantGraph], MagicMock()),
+                state_type=AssistantState,
+                partial_state_type=PartialAssistantState,
+                stream_processor=MagicMock(),
+                use_checkpointer=False,
+            )
+
+        client = runner._callback_handlers[0]._ph_client
+        tracer = TracerProvider().get_tracer(__name__)
+
+        with patch.object(client, "_enqueue", return_value=None) as enqueue:
+            with tracer.start_as_current_span("backend-request") as span:
+                client.capture_ai(
+                    "$ai_generation",
+                    distinct_id=self.user.distinct_id,
+                    properties={"$ai_trace_id": "conversation-trace"},
+                )
+
+        span_context = span.get_span_context()
+        properties = enqueue.call_args[0][0]["properties"]
+        self.assertEqual(properties["$trace_id"], f"{span_context.trace_id:032x}")
+        self.assertEqual(properties["$span_id"], f"{span_context.span_id:016x}")
+        self.assertEqual(properties["$ai_trace_id"], "conversation-trace")

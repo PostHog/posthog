@@ -235,11 +235,15 @@ class BaseAgentRunner(ABC):
 
             # flush_at=1 flushes each event immediately so traces deliver before short runs end;
             # before_send truncates oversized AI blobs so they clear the SDK's per-event size drop.
+            # capture_trace_context attaches the active OTel span's $trace_id and $span_id, so an AI
+            # event joins to the backend spans of the same request. Explicit properties win, so
+            # $ai_trace_id and the generation IDs keep the values set above.
             def make_client(region: str):
                 return get_client(
                     region,
                     flush_at=1,
                     before_send=ai_event_truncator,
+                    capture_trace_context=True,
                 )
 
             # Local deployment or hobby
