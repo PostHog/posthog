@@ -1,0 +1,348 @@
+# This pull_request_target workflow runs from the base revision. It must never check out
+# or execute pull request code because it holds credentials that write GitHub checks and
+# pull request comments. The Backend CI workflow supplies report data through artifacts.
+# Scope DEPOT_CI_BACKEND_TRUSTED_TOKEN and GH_APP_POSTHOG_TESTS_* to PostHog/posthog,
+# master, and this trusted workflow. Do not configure broader fallback secrets.
+name: Backend CI Depot migration reports
+
+on:
+    pull_request_target:
+        branches: [master]
+        types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+    checks: read
+    pull-requests: read
+
+jobs:
+    report-migrations:
+        if: >-
+            github.event.pull_request.head.repo.full_name == github.repository
+            && (github.event.pull_request.draft != true || !contains(github.event.pull_request.labels.*.name, 'no-ci'))
+        name: Report Depot migration results
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 90
+        steps:
+            - name: Find the handed-off Depot migration run
+              id: source
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  EVENT_AT: ${{ github.event.pull_request.updated_at }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  HANDOFF_CHECK: Hand off backend tests to Depot CI
+                  MIGRATION_CHECK: Backend CI on Depot / Validate migrations
+                  GITHUB_ACTIONS_APP_ID: '15368'
+                  DEPOT_APP_ID: '219785'
+              run: |
+                  set -euo pipefail
+
+                  read_check() {
+                      local url=$1
+                      local body=$2
+                      local code
+                      code=$(curl -s -o "$body" -w '%{http_code}' --max-time 15 \
+                          -H "Authorization: Bearer $GH_TOKEN" \
+                          -H "Accept: application/vnd.github+json" "$url")
+                      if [ "$code" != 200 ]; then
+                          echo "::warning::check-runs API returned $code"
+                          return 1
+                      fi
+                  }
+
+                  check_url() {
+                      local app_id=$1
+                      local name=$2
+                      printf 'https://api.github.com/repos/%s/commits/%s/check-runs?app_id=%s&check_name=%s' \
+                          "$REPO" "$HEAD_SHA" "$app_id" "$(jq -rn --arg n "$name" '$n | @uri')"
+                  }
+
+                  handoff_url=$(check_url "$GITHUB_ACTIONS_APP_ID" "$HANDOFF_CHECK")
+                  handoff=absent
+                  for _ in $(seq 1 45); do
+                      if read_check "$handoff_url" /tmp/handoff-checks.json; then
+                          handoff=$(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" '
+                              [.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))]
+                              | max_by(.id)
+                              | if . == null then "absent" elif .status == "completed" then .conclusion else .status end
+                          ' /tmp/handoff-checks.json)
+                      fi
+                      case "$handoff" in
+                          success) break ;;
+                          absent|queued|in_progress|pending|waiting|requested) sleep 20 ;;
+                          *)
+                              echo "handed_off=false" >> "$GITHUB_OUTPUT"
+                              echo "GitHub Actions kept the backend tests (hand-off check: $handoff)."
+                              exit 0
+                              ;;
+                      esac
+                  done
+                  if [ "$handoff" != success ]; then
+                      echo "::error::Backend routing did not resolve within 15 minutes"
+                      exit 1
+                  fi
+                  echo "handed_off=true" >> "$GITHUB_OUTPUT"
+
+                  migration_url=$(check_url "$DEPOT_APP_ID" "$MIGRATION_CHECK")
+                  migration_state=absent
+                  details_url=''
+                  for _ in $(seq 1 210); do
+                      if read_check "$migration_url" /tmp/migration-checks.json; then
+                          readarray -t check < <(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" '
+                              [.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))]
+                              | max_by(.id)
+                              | if . == null then "absent", "" else (if .status == "completed" then .conclusion else .status end), (.details_url // "") end
+                          ' /tmp/migration-checks.json)
+                          migration_state=${check[0]:-absent}
+                          details_url=${check[1]:-}
+                      fi
+                      case "$migration_state" in
+                          success|failure|neutral|cancelled|skipped) break ;;
+                          absent|queued|in_progress|pending|waiting|requested) sleep 20 ;;
+                          *) echo "::error::Unexpected migration check state: $migration_state"; exit 1 ;;
+                      esac
+                  done
+                  echo "migration_state=$migration_state" >> "$GITHUB_OUTPUT"
+                  case "$migration_state" in
+                      success|failure|neutral) ;;
+                      cancelled|skipped)
+                          echo "No completed migration report is available (migration check: $migration_state)."
+                          exit 0
+                          ;;
+                      *) echo "::error::Depot migration check did not finish within 70 minutes"; exit 1 ;;
+                  esac
+
+                  if [[ "$details_url" =~ ^https://depot.dev/orgs/[^/]+/workflows/([a-z0-9]+) ]]; then
+                      echo "workflow_id=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "::error::Unexpected Depot migration check URL"
+                      exit 1
+                  fi
+
+            - name: Set up Depot CLI
+              if: steps.source.outputs.workflow_id != ''
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
+            - name: Download migration report artifacts
+              if: steps.source.outputs.workflow_id != ''
+              id: artifacts
+              env:
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_BACKEND_TRUSTED_TOKEN }}
+                  WORKFLOW_ID: ${{ steps.source.outputs.workflow_id }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  REPO: ${{ github.repository }}
+                  DEPOT_ORG: ntsdt08fpt
+              run: |
+                  set -euo pipefail
+                  if [ -z "$DEPOT_TOKEN" ]; then
+                      echo "::error::DEPOT_CI_BACKEND_TRUSTED_TOKEN is not configured for this trusted workflow"
+                      exit 1
+                  fi
+
+                  depot ci workflow show "$WORKFLOW_ID" --org "$DEPOT_ORG" --output json > /tmp/depot-workflow.json
+                  RUN_ID=$(jq -r --arg workflow "$WORKFLOW_ID" --arg repo "$REPO" --arg sha "$HEAD_SHA" '
+                      select(.workflow.workflow_id == $workflow and .run.repo == $repo and .run.head_sha == $sha)
+                      | .run.run_id
+                  ' /tmp/depot-workflow.json)
+                  if [[ ! "$RUN_ID" =~ ^[a-z0-9]+$ ]]; then
+                      echo "::error::Depot workflow metadata does not match this pull request"
+                      exit 1
+                  fi
+
+                  depot ci artifacts list "$RUN_ID" --org "$DEPOT_ORG" --output json > /tmp/depot-artifacts.json
+                  mkdir -p /tmp/depot-migration-artifacts
+                  download_artifact() {
+                      local name=$1
+                      local output=$2
+                      local max_size=$3
+                      local record
+                      record=$(jq -c --arg workflow "$WORKFLOW_ID" --arg name "$name" '
+                          [.artifacts[]
+                           | select(.workflow_id == $workflow and .job_key == "ci-backend.yml:check-migrations" and .name == $name)]
+                          | sort_by(.attempt, .created_at)
+                          | last // empty
+                      ' /tmp/depot-artifacts.json)
+                      if [ -z "$record" ]; then
+                          return 0
+                      fi
+                      local size
+                      size=$(jq -r '.size_bytes' <<< "$record")
+                      if [[ ! "$size" =~ ^[0-9]+$ ]] || [ "$size" -gt "$max_size" ]; then
+                          echo "::error::$name artifact exceeds its size limit"
+                          exit 1
+                      fi
+                      local artifact_id
+                      artifact_id=$(jq -r '.artifact_id' <<< "$record")
+                      depot ci artifacts download "$artifact_id" --org "$DEPOT_ORG" --output-file "$output"
+                  }
+
+                  download_artifact migration-analysis /tmp/depot-migration-artifacts/migration-analysis.zip 2000000
+                  download_artifact ch-migration-report /tmp/depot-migration-artifacts/ch-migration-report.zip 500000
+
+            - name: Validate inert migration report data
+              if: steps.source.outputs.workflow_id != ''
+              id: validate
+              run: |
+                  set -euo pipefail
+                  mkdir -p /tmp/depot-migration-report
+                  python3 - <<'PY'
+                  import zipfile
+                  from pathlib import Path, PurePosixPath
+
+                  output = Path("/tmp/depot-migration-report")
+                  archives = {
+                      Path("/tmp/depot-migration-artifacts/migration-analysis.zip"): {
+                          "django-migration-sql.json": 512_000,
+                          "django-migration-risk.json": 1_000_000,
+                      },
+                      Path("/tmp/depot-migration-artifacts/ch-migration-report.zip"): {
+                          "ch-migration-sql.json": 500_000,
+                      },
+                  }
+                  for archive, expected in archives.items():
+                      if not archive.exists():
+                          continue
+                      with zipfile.ZipFile(archive) as uploaded:
+                          entries = [entry for entry in uploaded.infolist() if not entry.is_dir()]
+                          if len(entries) > len(expected):
+                              raise SystemExit(f"{archive.name} contains unexpected entries")
+                          seen = set()
+                          for entry in entries:
+                              basename = PurePosixPath(entry.filename).name
+                              if basename not in expected or basename in seen:
+                                  raise SystemExit(f"{archive.name} contains an unexpected or duplicate entry")
+                              seen.add(basename)
+                              limit = expected[basename]
+                              if entry.file_size > limit:
+                                  raise SystemExit(f"{basename} is larger than its size limit")
+                              with uploaded.open(entry) as source:
+                                  data = source.read(limit + 1)
+                              if len(data) > limit or len(data) != entry.file_size:
+                                  raise SystemExit(f"{basename} does not match its declared size")
+                              (output / basename).write_bytes(data)
+                  PY
+                  echo "validated=true" >> "$GITHUB_OUTPUT"
+
+            - name: Checkout trusted report scripts # nosemgrep: yaml.github-actions.security.pull-request-target-code-checkout.pull-request-target-code-checkout
+              if: steps.validate.outputs.validated == 'true'
+              # v6.0.2 checks out only the trusted base SHA below, never pull request code.
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+              with:
+                  repository: ${{ github.repository }}
+                  ref: ${{ github.event.pull_request.base.sha }}
+                  path: trusted-reporter
+                  sparse-checkout: |
+                      .nvmrc
+                      .github/scripts/render-depot-migration-report.mjs
+                      .github/scripts/post-django-migration-section.mjs
+                      .github/scripts/post-ch-migration-section.mjs
+                      frontend/bin/ci-report
+                  sparse-checkout-cone-mode: false
+                  persist-credentials: false
+
+            - name: Set up Node.js
+              if: steps.validate.outputs.validated == 'true'
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: trusted-reporter/.nvmrc
+
+            - name: Render validated migration reports
+              if: steps.validate.outputs.validated == 'true'
+              env:
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  node trusted-reporter/.github/scripts/render-depot-migration-report.mjs \
+                      /tmp/depot-migration-report /tmp/depot-migration-rendered "$REPO" "$HEAD_SHA"
+
+            - name: Get app token for migration reports
+              if: steps.validate.outputs.validated == 'true'
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  permission-checks: write
+                  permission-pull-requests: write
+
+            - name: Publish Migration risk check
+              if: steps.validate.outputs.validated == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+                  metadata=/tmp/depot-migration-rendered/metadata.json
+                  CONCLUSION=$(jq -r '.riskConclusion' "$metadata")
+                  TITLE=$(jq -r '.riskTitle' "$metadata")
+                  ANALYZED_PATHS=$(jq -c '.analyzedPaths' "$metadata")
+                  REPORT_BODY=$(cat /tmp/depot-migration-rendered/migration-risk-check.md)
+                  MARKER="<!-- stamphog:v1 ${ANALYZED_PATHS} -->"
+                  SUMMARY=$(printf '%s\n%s' "$MARKER" "$REPORT_BODY")
+                  jq -n \
+                      --arg name "Migration risk" \
+                      --arg head_sha "$HEAD_SHA" \
+                      --arg conclusion "$CONCLUSION" \
+                      --arg title "$TITLE" \
+                      --arg summary "$SUMMARY" \
+                      '{name: $name, head_sha: $head_sha, status: "completed",
+                        conclusion: $conclusion, output: {title: $title, summary: $summary}}' \
+                      | gh api "repos/$REPO/check-runs" --method POST --input -
+
+            - name: Update migration sections in the CI report
+              if: steps.validate.outputs.validated == 'true'
+              working-directory: trusted-reporter
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+                  IS_TRUNK: ${{ startsWith(github.event.pull_request.head.ref, 'trunk-merge/') }}
+              run: |
+                  set -euo pipefail
+                  data=/tmp/depot-migration-rendered
+                  metadata="$data/metadata.json"
+                  post_django() {
+                      node .github/scripts/post-django-migration-section.mjs "$@"
+                  }
+
+                  if [ "$(jq -r '.djangoSqlAvailable' "$metadata")" = true ]; then
+                      count=$(jq -r '.djangoMigrationCount' "$metadata")
+                      if [ "$count" -eq 0 ]; then
+                          post_django sql clear ok "no new migrations" "$data/django-migration-sql.md"
+                      elif [ "$count" -eq 1 ]; then
+                          post_django sql post warn "1 new migration to review" "$data/django-migration-sql.md"
+                      else
+                          post_django sql post warn "$count new migrations to review" "$data/django-migration-sql.md"
+                      fi
+                  fi
+
+                  risk_exit=$(jq -r '.riskExitCode' "$metadata")
+                  migration_count=$(jq -r '.riskMigrationCount' "$metadata")
+                  if [ "$risk_exit" -ne 0 ]; then
+                      max_level=$(jq -r '.riskMaxLevel // "none"' "$metadata")
+                      if [ "$max_level" = Blocked ]; then
+                          post_django risk post fail "blocked migration detected" "$data/django-migration-risk.md"
+                      else
+                          post_django risk post fail "migration analysis failed" "$data/django-migration-risk.md"
+                      fi
+                  elif [ "$migration_count" -eq 0 ]; then
+                      post_django risk clear ok "no migrations to analyze" "$data/django-migration-risk.md"
+                  else
+                      post_django risk post ok "migration analysis complete" "$data/django-migration-risk.md"
+                  fi
+
+                  if [ "$IS_TRUNK" != true ] && [ "$(jq -r '.chAvailable' "$metadata")" = true ]; then
+                      count=$(jq -r '.chMigrationCount' "$metadata")
+                      if [ "$count" -gt 0 ]; then
+                          cp "$data/ch-migration-sql.md" ch_migration_sql_comment.md
+                          HAS_CHANGES=true CH_MIGRATION_COUNT="$count" node .github/scripts/post-ch-migration-section.mjs
+                      else
+                          HAS_CHANGES=false CH_MIGRATION_COUNT=0 node .github/scripts/post-ch-migration-section.mjs
+                      fi
+                  fi
+                  node frontend/bin/ci-report/delete-legacy-comments.mjs

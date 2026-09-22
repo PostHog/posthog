@@ -13,6 +13,7 @@
                 "backend/max_tools.py",
                 "backend/temporal/**",
                 "backend/tasks/**",
+                "backend/webhook_consumers.py",
                 "backend/models.py",
                 "backend/migrations/**"
             ],
