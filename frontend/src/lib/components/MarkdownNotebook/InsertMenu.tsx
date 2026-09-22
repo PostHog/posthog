@@ -625,7 +625,7 @@ export function buildInsertCommands(
             ? [
                   {
                       key: 'ai-btw',
-                      label: 'Btw mode',
+                      label: 'BTW',
                       category: commonCategory,
                       description: 'Ask a side question about this notebook',
                       aliases: ['btw', 'by the way', 'question'],

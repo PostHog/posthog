@@ -114,7 +114,9 @@ The notebook's inline **Ask AI** uses LangGraph and receives widget authoring in
 The bookmark toggle **Keep question with answer** is on by default, retaining the question and the submitting user's name above the answer. Turning it off saves `keepQuestion={false}` on that prompt.
 **Ask AI** is disabled until the organization approves AI data processing, including submission from saved prompt blocks.
 
-**Btw mode** opens a separate PostHog AI conversation for side questions.
+**BTW** opens a separate PostHog AI conversation for side questions in a sidebar beside the notebook.
+When the notebook area is too narrow for both, the conversation opens in a modal.
+Resizing between these layouts keeps the conversation and any unsent question.
 It is the second option in the notebook's `/` menu, after **Ask AI**, and the last action in the text selection toolbar and a component block's **More actions** menu.
 The conversation receives the current notebook and any selected content as context; replies are not inserted into the notebook.
 The agent is instructed to answer without edits, and the conversation remains available in AI history after closing it.

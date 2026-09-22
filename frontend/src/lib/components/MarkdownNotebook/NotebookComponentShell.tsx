@@ -191,7 +191,7 @@ export function NotebookComponentShell({
             : []),
         ...(toolbarExtras?.menuItems ?? []),
         ...(mode === 'edit' ? (toolbarExtras?.editMenuItems ?? []) : []),
-        mode === 'edit' && onBtw ? { label: 'Btw mode', onClick: onBtw, disabledReason: askAIDisabledReason } : null,
+        mode === 'edit' && onBtw ? { label: 'BTW', onClick: onBtw, disabledReason: askAIDisabledReason } : null,
     ])
     const hasToolbarMenu = toolbarMenuItems.some(Boolean)
     const [titleDraft, setTitleDraft] = useState<string | null>(null)

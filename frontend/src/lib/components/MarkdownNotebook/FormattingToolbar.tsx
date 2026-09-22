@@ -359,13 +359,13 @@ export function FormattingToolbar({
                 <LemonButton
                     size="xsmall"
                     icon={<IconSparkles />}
-                    tooltip="Btw mode"
-                    aria-label="Btw mode"
+                    tooltip="BTW"
+                    aria-label="BTW"
                     data-attr="notebook-btw-selection"
                     disabledReason={askAIDisabledReason}
                     onClick={btwAboutSelection}
                 >
-                    Btw
+                    BTW
                 </LemonButton>
             ) : null}
             {showInlineActions && isLinkEditorOpen ? (

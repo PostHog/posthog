@@ -4634,7 +4634,7 @@ aXbc
             button.textContent?.trim()
         )
         expect(menuItems.slice(0, btw ? 4 : 3)).toEqual(
-            btw ? ['Ask AI', 'Btw mode', 'Text', 'SQL'] : ['Ask AI', 'Text', 'SQL']
+            btw ? ['Ask AI', 'BTW', 'Text', 'SQL'] : ['Ask AI', 'Text', 'SQL']
         )
 
         const trendButton = Array.from(container.querySelectorAll('.MarkdownNotebook__insert-item')).find(
@@ -6026,7 +6026,7 @@ First paragraph
                 true
             )
             const toolbar = container.querySelector('.MarkdownNotebook__format-toolbar')!
-            const button = toolbar.querySelector('button[aria-label="Btw mode"]') as HTMLButtonElement
+            const button = toolbar.querySelector('button[aria-label="BTW"]') as HTMLButtonElement
             expect(toolbar.querySelectorAll('button')[toolbar.querySelectorAll('button').length - 1]).toBe(button)
             fireEvent.click(button)
             if (askAIDisabledReason) {
@@ -6778,7 +6778,7 @@ second line
         const textBlock = getBodyTextBlock(container)
         updateContentEditableText(textBlock, '/btw')
         const option = Array.from(container.querySelectorAll('.MarkdownNotebook__insert-item')).find(
-            (button) => button.textContent === 'Btw mode'
+            (button) => button.textContent === 'BTW'
         ) as HTMLButtonElement
         fireEvent.click(option)
         expect(onBtw).toHaveBeenCalledWith({ markdown: withNotebookTitle(' ') })
@@ -6795,7 +6795,7 @@ second line
         const value = withNotebookTitle(block)
         const { container } = render(createElement(MarkdownNotebook, { value, onBtw, onChange }))
         fireEvent.click(container.querySelector('button[aria-label="More actions"]') as HTMLButtonElement)
-        fireEvent.click(screen.getByText('Btw mode'))
+        fireEvent.click(screen.getByText('BTW'))
         expect(onBtw).toHaveBeenCalledWith({ markdown: value, selectedMarkdown: block })
         expect(onChange).not.toHaveBeenCalled()
     })

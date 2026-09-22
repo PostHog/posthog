@@ -376,7 +376,7 @@ export const BtwSelection: Story = {
 
 export const BtwSlashMenu: Story = {
     args: {
-        value: '# Btw mode\n\n ',
+        value: '# BTW\n\n ',
         initialInsertMenu: { nodeIndex: 1, query: '' },
         onBtw: fn(),
     },
