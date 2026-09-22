@@ -66,7 +66,7 @@ def notify_source_auto_disabled(*, team_id: int, source_id: UUID, disable_event_
             log.info("custom_property_source_disabled.team_gone")
             return
 
-        access = UserAccessControl(user=owner, team=team, organization_id=team.organization_id)
+        access = UserAccessControl(user=owner, team=team, organization_id=str(team.organization_id))
         if not access.has_project_access:
             log.info("custom_property_source_disabled.owner_without_project_access")
             return
@@ -134,7 +134,7 @@ def _open_owner_task(
         access = UserAccessControl(
             user=owner,
             team=canonical_team,
-            organization_id=canonical_team.organization_id,
+            organization_id=str(canonical_team.organization_id),
         )
         if not access.has_project_access or not access.check_access_level_for_resource("customer_task", "editor"):
             log.info("custom_property_source_disabled.tasks_unavailable")
