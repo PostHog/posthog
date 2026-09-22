@@ -171,8 +171,8 @@ describe('runCancellationLogic', () => {
         }
         await expectLogic(logic, () => logic.actions.requestCancellation()).toFinishAllListeners()
         expect(logic.values.cancellationState).toBeNull()
-        expect(jest.mocked(lemonToast.error).mock.calls.length > 0).toBe(reported)
-        expect(jest.mocked(posthog.captureException).mock.calls.length > 0).toBe(reported)
+        expect(lemonToast.error).toHaveBeenCalledTimes(reported ? 1 : 0)
+        expect(posthog.captureException).toHaveBeenCalledTimes(reported ? 1 : 0)
         await expectLogic(logic, () => logic.actions.requestCancellation()).toFinishAllListeners()
         expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(2)
         expect(logic.values.cancellationState).toBe('sending')
