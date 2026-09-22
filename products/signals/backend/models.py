@@ -1110,6 +1110,7 @@ class SignalReportArtefact(UUIDModel):
         CODE_REVIEW = "code_review"
         RELATED_TO = "related_to"
         REPORT_LINK = "report_link"
+        AUTOSTART_SKIP = "autostart_skip"
         WORK_CLAIM = "work_claim"
         WORK_RELEASE = "work_release"
         PULL_REQUEST = "pull_request"
@@ -1164,6 +1165,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.CODE_REVIEW,
             ArtefactType.RELATED_TO,
             ArtefactType.REPORT_LINK,
+            ArtefactType.AUTOSTART_SKIP,
             ArtefactType.IMPLEMENTATION_REPLACEMENT,
             ArtefactType.IMPLEMENTATION_HANDOVER,
             ArtefactType.WORK_CLAIM,
@@ -1555,13 +1557,15 @@ class SignalReportArtefact(UUIDModel):
             raise ValueError(f"{type(content).__name__} is not a log artefact content model")
         if isinstance(content, ReportLink):
             with cls.validated_report_link_write(team_id=team_id, report_id=str(report_id), content=content):
-                return cls._create(
+                artefact = cls._create(
                     team_id=team_id,
                     report_id=report_id,
                     content=content,
                     attribution=attribution,
                     claim_id=claim_id,
                 )
+            cls._capture_report_linked(artefact, content)
+            return artefact
         artefact = cls._create(
             team_id=team_id, report_id=report_id, content=content, attribution=attribution, claim_id=claim_id
         )
@@ -1575,6 +1579,31 @@ class SignalReportArtefact(UUIDModel):
                 attribution=attribution,
             )
         return artefact
+
+    @staticmethod
+    def _capture_report_linked(artefact: "SignalReportArtefact", content: ReportLink) -> None:
+        """Count the link after it commits, from the one write path every producer shares.
+
+        Scheduled on commit so a rolled-back write is never counted, and imported lazily to avoid a
+        models <-> report_links import cycle.
+        """
+
+        def _run() -> None:
+            from products.signals.backend.report_links import ReportEdge, capture_report_linked
+
+            capture_report_linked(
+                team_id=artefact.team_id,
+                edge=ReportEdge(
+                    source_id=str(artefact.report_id),
+                    kind=content.kind,
+                    target_id=content.report_id,
+                    reason=content.reason,
+                ),
+                actor_kind=artefact.actor_kind,
+                actor_agent=artefact.actor_agent,
+            )
+
+        transaction.on_commit(_run)
 
     @classmethod
     def append(

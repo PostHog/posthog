@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
+from posthog.dataclasses import frozen
+
 # Canonical homes of the judgment/finding shapes are the artefact content schemas (they are
 # persisted as artefacts); re-exported here because this module is where research callers and
 # prompts historically import them from.
@@ -20,6 +22,7 @@ from products.signals.backend.artefact_schemas import (
     PriorityAssessment,
     SignalFinding,
 )
+from products.signals.backend.enums import REPORT_LINK_KIND_LABELS, ReportLinkKind
 
 # Dependency-light on purpose (see its module docstring): safe to import here without dragging
 # `posthog.schema` onto the research path.
@@ -456,6 +459,71 @@ def _render_resolved_report_context(resolved_title: str | None, resolved_summary
     return "\n".join(parts) + "\n"
 
 
+@frozen
+class LinkedReportContext:
+    """A report this one is typed-linked to, flattened for the research prompt."""
+
+    kind: ReportLinkKind
+    report_id: str
+    title: str | None
+    summary: str | None
+    reason: str | None
+    code_paths: list[str]
+    pull_requests: list[str]
+
+
+# What the agent is expected to do with each kind of edge. A `part_of` parent is the plan, so the
+# child's job is to stay inside its own step; a `depends_on` target is somebody else's work already
+# in flight, so duplicating it wastes a pull request.
+_LINK_KIND_PROTOCOL: dict[ReportLinkKind, str] = {
+    ReportLinkKind.FOLLOW_UP_OF: (
+        "Start from what that report already established and from its pull request, rather than "
+        "re-deriving it. Name that pull request in your finding, and say what it left undone."
+    ),
+    ReportLinkKind.DEPENDS_ON: (
+        "That report's work has to land first. Scope this report to what the dependency does not "
+        "cover, and do not repeat its fix."
+    ),
+    ReportLinkKind.PART_OF: (
+        "That report is the plan this one is a step in. Stay inside this step, and say in your "
+        "finding how it fits the plan."
+    ),
+}
+
+
+def _render_linked_report_context(linked: list[LinkedReportContext]) -> str:
+    """Render the reports this one is linked to, grouped by what the link claims.
+
+    Every linked report is context the pipeline already paid for. Handing it over is what keeps a
+    follow-up from investigating its predecessor's ground a second time.
+    """
+    if not linked:
+        return ""
+    parts = ["\n---\n\n## Linked reports", ""]
+    for kind in (ReportLinkKind.FOLLOW_UP_OF, ReportLinkKind.DEPENDS_ON, ReportLinkKind.PART_OF):
+        group = [entry for entry in linked if entry.kind == kind]
+        if not group:
+            continue
+        parts.append(f"### {REPORT_LINK_KIND_LABELS[kind]}")
+        parts.append("")
+        parts.append(_LINK_KIND_PROTOCOL[kind])
+        parts.append("")
+        for entry in group:
+            parts.append(f"- **Report:** `{entry.report_id}`")
+            if entry.title:
+                parts.append(f"  - **Title:** {entry.title}")
+            if entry.summary:
+                parts.append(f"  - **Summary:** {entry.summary}")
+            if entry.reason:
+                parts.append(f"  - **Why they are linked:** {entry.reason}")
+            if entry.code_paths:
+                parts.append(f"  - **Code it already located:** {', '.join(entry.code_paths)}")
+            if entry.pull_requests:
+                parts.append(f"  - **Pull requests:** {', '.join(entry.pull_requests)}")
+        parts.append("")
+    return "\n".join(parts) + "\n"
+
+
 def _render_previous_finding_context(previous_finding: SignalFinding | None) -> str:
     if previous_finding is None:
         return ""
@@ -727,6 +795,7 @@ def build_initial_research_prompt(
     has_business_knowledge: bool = False,
     resolved_report_title: str | None = None,
     resolved_report_summary: str | None = None,
+    linked_reports: list[LinkedReportContext] | None = None,
     steering_section: str = "",
 ) -> str:
     """Build the opening prompt for the first signal in a multi-turn research session."""
@@ -743,6 +812,7 @@ def build_initial_research_prompt(
 
     existing_report_context = _render_existing_report_context(previous_report_id)
     resolved_report_context = _render_resolved_report_context(resolved_report_title, resolved_report_summary)
+    linked_report_context = _render_linked_report_context(linked_reports or [])
     previous_finding_context = _render_previous_finding_context(previous_finding)
     investigation_instruction = (
         "You will investigate **{total_signals} signal(s)** one at a time. I will send each signal in a separate "
@@ -766,6 +836,7 @@ def build_initial_research_prompt(
 {report_context}
 {existing_report_context}
 {resolved_report_context}
+{linked_report_context}
 ---
 
 {_RESEARCH_PROTOCOL}
@@ -1084,6 +1155,7 @@ async def run_multi_turn_research(
     has_business_knowledge: bool = False,
     resolved_report_title: str | None = None,
     resolved_report_summary: str | None = None,
+    linked_reports: list[LinkedReportContext] | None = None,
     metrics_enabled: bool = False,
     agent_checks_enabled: bool = False,
     steering_section: str = "",
@@ -1125,6 +1197,7 @@ async def run_multi_turn_research(
         has_business_knowledge=has_business_knowledge,
         resolved_report_title=resolved_report_title,
         resolved_report_summary=resolved_report_summary,
+        linked_reports=linked_reports,
         steering_section=steering_section,
     )
     session, first_response = await MultiTurnSession.start(

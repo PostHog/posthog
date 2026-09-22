@@ -628,6 +628,42 @@ class ReportLink(BaseModel):
             raise ValueError("must be a UUID")
 
 
+MAX_AUTOSTART_SKIP_DETAIL_LENGTH = 500
+
+
+class AutostartSkip(BaseModel):
+    """Content schema for an `autostart_skip` artefact: automatic implementation was held back by a
+    typed link to another report.
+
+    Only the link gates write this. The other auto-start skips are properties of the report itself
+    (not actionable, no priority, over quota), and a reader inspecting the report sees those
+    already. A link gate is the one case where the reason lives on a *different* report, so without
+    a row on the log the inbox can only show that nothing started.
+    """
+
+    skip_reason: Literal["duplicate_of", "blocked_by_dependency", "plan_parent"] = Field(
+        description="Which link gate held the report back."
+    )
+    linked_report_id: str | None = Field(
+        default=None,
+        description="UUID of the report the gate acted on, when one report decided it.",
+    )
+    detail: str = Field(
+        max_length=MAX_AUTOSTART_SKIP_DETAIL_LENGTH,
+        description="One line a reader can act on, naming what has to happen before work starts.",
+    )
+
+    @field_validator("linked_report_id")
+    @classmethod
+    def linked_report_id_must_be_a_uuid(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        try:
+            return str(UUID(v.strip()))
+        except ValueError:
+            raise ValueError("must be a UUID")
+
+
 class ImplementationTarget(BaseModel):
     task_id: UUID
     run_id: UUID
@@ -870,6 +906,7 @@ LogArtefactContent = (
     | CodeReview
     | RelatedTo
     | ReportLink
+    | AutostartSkip
     | WorkClaim
     | WorkRelease
     | PullRequestLink
@@ -903,6 +940,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "code_review": CodeReview,
     "related_to": RelatedTo,
     "report_link": ReportLink,
+    "autostart_skip": AutostartSkip,
     "work_claim": WorkClaim,
     "work_release": WorkRelease,
     "pull_request": PullRequestLink,
@@ -933,6 +971,8 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # still running.
 # `code_review` is likewise system-generated — the ReviewHog workflow is its only writer; accepting
 # it through the API would let a caller fabricate review receipts for reviews that never ran.
+# `autostart_skip` records a decision only auto-start can make. Accepting it through the API would
+# let a caller claim work was held back by a gate that never ran.
 # Replacement decisions, reservations, and outcomes authorize GitHub closures. Only the server
 # may write them; API writes would let callers fabricate automation provenance or completion.
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
@@ -950,6 +990,7 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "check_expired",
         "check_cancelled",
         "report_link",
+        "autostart_skip",
         "implementation_decision",
         "implementation_dispatch",
         "implementation_replacement",

@@ -483,6 +483,8 @@ The activity log shows PR references as title links with repository, number, and
 | `task_run`               | `{"task_id": "...", "run_id"?: "...", "product": "...", "type": "..."}` — a task run associated with the report (see below)                                                                                                                                                                                    |
 | `note`                   | `{"note": "...", "author"?: "..."}` — free-form note (markdown allowed)                                                                                                                                                                                                                                        |
 | `check_result`           | `{"check_id": "...", "kind": "...", "title": "...", "outcome": "passed"\|"failed"\|"errored", "explanation": "...", "observed_value"?, "baseline_value"?, "threshold"?, "run_id"?}` — one run of a report check                                                                                                |
+| `report_link`            | `{"kind": "depends_on"\|"part_of"\|"follow_up_of"\|"duplicate_of"\|"recurrence_of", "report_id": "...", "reason"?: "..."}` — a typed, directed link to another report in the same project (see Typed report links)                                                                                          |
+| `autostart_skip`         | `{"skip_reason": "duplicate_of"\|"blocked_by_dependency"\|"plan_parent", "linked_report_id"?: "...", "detail": "..."}` — a link gate held automatic implementation back (see Typed report links)                                                                                                            |
 
 **Content schemas.** `artefact_schemas.py` is the canonical, pydantic-only home of every content shape, collected in `ARTEFACT_CONTENT_SCHEMAS` (one model per type; a test asserts exact coverage). Raw payloads become typed models once, at the boundaries (`parse_artefact_content`); the model helpers derive a row's type from the content model's class (`artefact_type_for`), so a type can never mismatch its content. `repo_selection` reuses the tasks product's `RepoSelectionResult` DTO directly (kept in the dependency-light leaf module `repo_selection/types.py` so importing the schema registry doesn't pull in the sandbox runtime). Reads of legacy rows stay tolerant — parse failures are skipped or degraded, never raised.
 
@@ -512,7 +514,7 @@ Execution rides the scout coordinator tick (`run_due_signal_report_checks_activi
 
 A check written _before_ the fix exists has no date to carry. The research pipeline's verification turn is that case: it authors the check in the same pass that writes the report. Such a check is stored `pending` with a `soak_minutes` window, and the report's transition to `resolved` is what sets `next_run_at` — a merged pull request's webhook, a manual resolve in the inbox, and an MCP state write all end in the same `save`, so the resolve is the clock for every kind of fix, including the ones that never had a pull request. `receivers.arm_pending_checks_when_report_resolved` is the choke point. A pending check counts against the per-report cap, is never collected as due, and expires at the 90-day horizon if its report never resolves.
 
-A failed verdict on a resolved report is the one outcome nobody would otherwise read, because the inbox no longer lists the report. An `agent` check has a scout in the loop that can author a fresh one, so only the deterministic lane needs help: a `metric_threshold` breach on a `resolved` report emits a `source_product="signals_check"` signal carrying the verdict and the origin report id. The grouping stage then applies the rule it already applies to any signal landing on a resolved report — a fresh report, linked back by `related_to`. Nothing reopens the terminal one.
+A failed verdict on a resolved report is the one outcome nobody would otherwise read, because the inbox no longer lists the report. An `agent` check has a scout in the loop that can author a fresh one, so only the deterministic lane needs help: a `metric_threshold` breach on a `resolved` report emits a `source_product="signals_check"` signal carrying the verdict and the origin report id. The grouping stage then applies the rule it already applies to any signal landing on a resolved report — a fresh report, linked back by `related_to` and by a typed `follow_up_of` link carrying the verdict as its reason. Nothing reopens the terminal one. The two rows say different things: `related_to` (and `recurrence_of`) says the issue came back, `follow_up_of` says a measurement of the fix breached, and the research agent reads the typed one as context.
 
 Four best-effort events in `report_check_telemetry.py` follow a check: `signals_report_check_created` from the shared write, so every author is counted; `signals_report_check_dispatch` for each attempt to hand an `agent` check to a run, with the refusing gate as `reason` on a deferral; `signals_report_check_evaluated` for each verdict, where a `check_status` of `active` means the check looks again; and `signals_report_checks_expired`, one per project per sweep, whose `never_ran_count` is the checks that were written and never looked at.
 
@@ -1124,6 +1126,8 @@ All events use `distinct_id = team.uuid` and `groups(organization, team)`. Per-s
 - `signals_repo_research_started` / `signals_repo_research_completed` — repo selection stage (+ `report_id`, `result`: `reused` | `selected` | `no_repo` | `failed`, optional `failure_reason`: `no_github_integration` | `agentic_activity_error`)
 - `signal_report_completed` — terminal per run (+ `result`: `ready` | `failed` | `pending_input` | `not_actionable`, optional `failure_reason`)
 - `signals_autostart_steering_attached` — an implementation task was created (+ `report_id`, `task_id`, `notes_attached`, `scratchpad_available`, `memory_protocol`). Fires on every auto-start, so the share carrying fleet steering is readable. See Auto-Start Flow
+- `signals_autostart_skipped` — an auto-start evaluation started nothing (+ `report_id`, `skip_reason`: `not_actionable` | `already_addressed` | `no_priority` | `autostart_disabled` | `quota_exhausted` | `no_runner` | `free_trial` | `duplicate_of` | `blocked_by_dependency` | `plan_parent`, `linked_report_id` nullable). The idempotent "a task already exists" skip is deliberately not counted, because it fires on every re-evaluation of a report whose run already started. See Auto-Start Flow
+- `signals_report_linked` — a typed `report_link` was written (+ `report_id`, `linked_report_id`, `kind`, `has_reason`, `actor_kind`, `actor_agent`). Fired from the one write path every producer shares, so links get a denominator they do not otherwise have. See Typed report links
 
 **Tracing one signal:** filter on `properties.source_id = <id>` to follow it through the funnel, then pivot to `properties.report_id` from `signal_assigned_to_report` to see the report's lifecycle.
 
@@ -1274,6 +1278,7 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 - Report has suggested reviewers
 - No legacy `SignalReportTask` implementation row exists for the report (checked inside a `select_for_update` on the report row, so concurrent evaluations can't double-start)
 - The team's org is not on a Self-driving free trial, and not over its self-driving credits quota with enforcement on (see Billing limit enforcement)
+- No typed `report_link` holds the report back (see Typed report links)
 
 **User selection** via `_resolve_autostart_assignee()` in `backend/auto_start.py`:
 
@@ -1417,6 +1422,40 @@ Cleared for the team:
 | Wizard log         | `/tmp/posthog-wizard.log` → backed up to `/tmp/posthog-wizard-previous-<timestamp>.log` then removed (override `--wizard-log`, skip `--keep-log`)                                                                                                                                               |
 
 Preserved: canonical scouts and the `authoring-scouts` companion, identified by `metadata.seeded_by == "signals_scout_harness"`. That tag is the practical marker this DEBUG reset uses; it is not a perfect canonical test on its own — `_scout_origin` also requires the name to ship on disk, since `duplicate_skill` copies the tag verbatim — but the wizard authors custom scouts via `llma-skill-create` with no tag, so tag-only suffices here. The command does **not** touch `SignalTeamConfig` or `SignalUserAutonomyConfig` (autostart / per-user opt-in are set by `enable_signals_autonomy`, not the wizard); `llm_analytics` sources are gated by their `SignalSourceConfig` rows like any other source.
+
+---
+
+## Typed report links
+
+A `report_link` artefact is one directed row on the report the sentence starts from: "this report `kind` that report". Five kinds: `depends_on`, `part_of`, `follow_up_of`, `duplicate_of`, `recurrence_of`. Nothing is mirrored onto the target, because the direction is the payload, and writing the reverse row would assert the opposite relationship. `SignalReportArtefact` owns the write invariants (no self-link, one team, no cycle within a kind, checked under a per-team advisory lock), and they run on the common `add_log` path so every surface gets them. The type is unwritable through the artefact API: the pipeline and the scout tools are its only authors.
+
+`backend/report_links.py` is the read side, and every reader goes through it.
+
+- `outgoing_links` is a seek on `(report, type)`: what this report says about others.
+- `incoming_links` is a team-scoped scan, because `content` is a `TextField` and no row is mirrored. Candidates are narrowed with `content__contains` on the target's UUID and then confirmed by parsing, so a free-text `reason` that quotes a UUID is not an edge to it. A deleted source report is dropped by default; the recurrence chain is the one reader that asks for them, because it walks *through* deleted intermediates to find the live successor. If the scan ever shows up in query timings, the fix is a materialised target column or a JSON index, not a mirror row.
+- `duplicate_root` follows `duplicate_of` to the report that duplicates nothing. Every `duplicate_of` reader acts on the root, so a chain reaches the same verdict from any of its members.
+
+Rows that no longer parse name no edge, the same tolerance every other read of the artefact log has, and both readers are bounded by the graph budgets on `SignalReportArtefact`.
+
+### What reads them
+
+**Research context** (`_load_linked_report_context` in `temporal/agentic/report.py`). Outgoing `follow_up_of`, `depends_on` and `part_of` targets are loaded with their title, summary, the code paths their findings named, and their pull requests with state, and rendered into the research prompt grouped by kind with the link's `reason`. Each kind carries what the agent is expected to do with it: a `follow_up_of` report starts from the linked report's pull request and findings and names that pull request in its own finding, a `depends_on` report scopes itself to what the dependency does not cover, and a `part_of` child stays inside its step. Without this every pass re-derives an investigation the pipeline already paid for and usually misses its pull request. A safety-suppressed linked report is never read back into a prompt. `duplicate_of` is absent because a duplicate never reaches research, and `recurrence_of` has its own richer read (`_load_resolved_report_context`).
+
+**Auto-start gates** (`_evaluate_link_gates` in `backend/auto_start.py`), evaluated after the team's master switch and before the quota and runner gates. A team that opted out of auto-start entirely gets no gate reason at all, and a duplicate or a plan parent never counts as quota-held work, because the work was never this report's to do:
+
+| `skip_reason`           | Rule                                                                                               |
+| ----------------------- | -------------------------------------------------------------------------------------------------- |
+| `duplicate_of`          | The report has an outgoing `duplicate_of` edge, and its root is `resolved` or carries a pull request that is open, draft, or merged |
+| `blocked_by_dependency` | Some outgoing `depends_on` target carries no pull request that is open, draft, or merged            |
+| `plan_parent`           | The report has incoming `part_of` edges, so it is the plan and the steps do the work                |
+
+A gate returns `AutostartOutcome(status="blocked")`, writes an `autostart_skip` artefact naming the deciding report, and fires `signals_autostart_skipped`. The artefact exists only for the link gates: every other skip is a property of the report a reader can already see, while a link gate's reason lives on a different report. The gates hold the automatic path only, so pressing Implement in the inbox still starts a run. Nothing re-evaluates a blocked report when its dependency's pull request opens: a blocked child starts on the next pipeline evaluation of that report, or by hand.
+
+**Plan roll-up** (`backend/plan_rollup.py`). A `part_of` child carries the work and closes on its own pull request; the plan carries nothing, so without the roll-up it sits in the inbox forever after the last step lands. When every live step of a plan is closed, the plan takes their verdict: resolved when at least one resolved, suppressed when they all were, untouched while any step is open. A deleted step is not a verdict and is dropped. Archiving a resolved plan is refused, for the same reason `_apply_pr_report_state` refuses it. The walk continues up a plan of plans, bounded by `MAX_PLAN_ROLLUP_LEVELS`, and a plan with a pending replacement is skipped like any other report. It is hooked on `SignalReport`'s status change (`receivers.roll_up_plan_parents_when_report_closes`) rather than on the pull request webhook, so a merged pull request, a manual resolve, a bulk state change and an MCP state write all reach it. Plenty of steps close with no pull request at all.
+
+**The recurrence chain** (`backend/recurrence.py`) reads incoming `recurrence_of` edges to follow a forked report to its current live successor.
+
+The inbox renders both types in the work log: a `report_link` row shows its kind, reason, and a link to the other report, and an `autostart_skip` row says in plain words why nothing started and links the deciding report.
 
 ---
 
