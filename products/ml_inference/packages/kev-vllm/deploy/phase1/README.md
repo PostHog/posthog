@@ -34,4 +34,4 @@ The script installs Caddy if missing, copies the certificate and key where only 
 
 On the gateway side the host is a served host of kind `kev-vllm` with `base_url` `https://kev-1.<zone>/v1`, the bearer in `AI_GATEWAY_KEV_API_KEY`, and the enrolled teams in `AI_GATEWAY_SYSTEMONE_TEAM_IDS`.
 
-To try the Caddyfile without a DNS name, set `INSTANCE_HOST=localhost:8443` and point `TLS_CERT` and `TLS_KEY` at a self-signed pair (`openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -subj /CN=localhost -keyout key.pem -out cert.pem`), so a client that accepts that certificate can exercise the bearer check and the proxying on port 8443 against a vLLM already listening on 8000.
+To try the Caddyfile without a DNS name, set `INSTANCE_HOST=localhost:8443` and point `TLS_CERT` and `TLS_KEY` at a self-signed certificate for `localhost` with an unencrypted key, so a client that accepts that certificate can exercise the bearer check and the proxying on port 8443 against a vLLM already listening on 8000.
