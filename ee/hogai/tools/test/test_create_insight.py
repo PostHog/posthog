@@ -229,7 +229,7 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         await SharingConfiguration.objects.acreate(team=self.team, insight=insight, enabled=True)
 
         with patch(
-            "products.product_analytics.backend.facade.api.blocked_access_for_user", return_value=["restricted table"]
+            "posthog.api.sharing_publish_gate.blocked_access_for_user", return_value=["restricted table"]
         ):
             with self.assertRaisesRegex(MaxToolRetryableError, "publicly shared"):
                 await tool._save_insight_query(insight, {"kind": "TrendsQuery", "series": [], "interval": "week"})
