@@ -21,7 +21,11 @@ export function MarketingAnalyticsFreshness({ computedAt }: { computedAt: string
         <Tooltip
             title={
                 <div className="flex flex-col gap-1">
-                    <span>Marketing analytics refreshes about once an hour, so numbers can be up to 2 hours old.</span>
+                    <span>
+                        {isBehind
+                            ? 'Marketing analytics refreshes about once an hour. This data is older than that, so the refresh is running behind.'
+                            : 'Marketing analytics refreshes about once an hour, so numbers can be up to 2 hours old.'}
+                    </span>
                     <div className="flex items-center gap-1">
                         <span>Data from</span>
                         <TZLabel time={computedAt} showPopover={false} />
