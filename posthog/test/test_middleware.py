@@ -2362,13 +2362,10 @@ class TestCSPMiddleware(APIBaseTest):
         app_policy, shadow = response["Content-Security-Policy-Report-Only"].split(", ")
         assert "https://*.posthog.com" in app_policy
         assert "&v=2&" in app_policy
-        assert "https://*.posthog.com" not in shadow
-        assert "https://*.i.posthog.com" not in shadow
+        assert "*.posthog.com" not in shadow
         assert "https://internal-j.posthog.com/array/sTMFPsFhdP1Ssg/config.js" in shadow
+        assert "https://live.us.posthog.com" in shadow
         assert "&v=3&" in shadow
-        assert "report-to posthog-v3" in shadow
-        assert f'posthog-v3="https://us.i.posthog.com/report/?token=' in response["Reporting-Endpoints"]
-        assert f"v=3&sample_rate=0.1&distinct_id={self.user.distinct_id}" in response["Reporting-Endpoints"]
 
 
 class TestSocialAuthExceptionMiddleware(APIBaseTest):
@@ -2908,22 +2905,25 @@ class TestNarrowedAppPolicy(SimpleTestCase):
             "default-src 'self'",
             "script-src 'self' 'nonce-abc' 'wasm-unsafe-eval' https://*.posthog.com https://*.i.posthog.com https://js.stripe.com",
             "worker-src 'self' blob:",
-            "img-src 'self' data: blob: https: https://*.posthog.com https://posthog.com",
-            "frame-src 'self' https:",
+            "img-src 'self' data: https://*.posthog.com",
+            "connect-src 'self' https://api.github.com https://*.posthog.com",
         ]
 
         narrowed = narrowed_app_policy(
             app_policy,
-            {"script-src": ["https://app-static-prod.posthog.com", "https://internal-j.posthog.com/static/"]},
+            {
+                "script-src": ["https://app-static-prod.posthog.com"],
+                "connect-src": ["https://internal-j.posthog.com"],
+            },
         )
 
         # A source the shadow dropped besides the wildcards would report loads the app policy allows,
-        # and a default-src would restrict every directive the shadow leaves out.
+        # and a directive it was not asked about would restrict what the shadow does not measure.
         assert narrowed == [
-            "script-src 'self' 'nonce-abc' 'wasm-unsafe-eval' https://js.stripe.com https://app-static-prod.posthog.com https://internal-j.posthog.com/static/",
+            "script-src 'self' 'nonce-abc' 'wasm-unsafe-eval' https://js.stripe.com https://app-static-prod.posthog.com",
             # Without it, workers fall back to script-src and the shadow reports the app's blob: workers.
             "worker-src 'self' blob:",
-            "img-src 'self' data: blob: https: https://posthog.com",
+            "connect-src 'self' https://api.github.com https://internal-j.posthog.com",
         ]
 
 

@@ -487,7 +487,6 @@ def _read_preload_manifest(manifest_path: str, include_authenticated_shell: bool
 # PostHog's own posthog-js instance, which the app's CSP names by exact path.
 POSTHOG_JS_CLOUD_HOST = "https://internal-j.posthog.com"
 POSTHOG_JS_CLOUD_TOKEN = "sTMFPsFhdP1Ssg"
-POSTHOG_JS_E2E_TOKEN = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
 
 
 @tracer.start_as_current_span("template.context")
@@ -544,8 +543,8 @@ def _build_template_context(
 
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
-        context["js_posthog_api_key"] = POSTHOG_JS_E2E_TOKEN
-        context["js_posthog_host"] = POSTHOG_JS_CLOUD_HOST
+        context["js_posthog_api_key"] = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
+        context["js_posthog_host"] = "https://internal-j.posthog.com"
         context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     elif settings.SELF_CAPTURE:
