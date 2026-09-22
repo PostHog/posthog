@@ -200,7 +200,7 @@ def test_link_pull_request_appends_the_reference_once(team):
         issue_url="https://github.com/acme/web/issues/12",
     )
     pr_url = "https://github.com/acme/web/pull/50"
-    pull_request = {"number": 50, "body": "Fixes the thing"}
+    pull_request: dict[str, Any] = {"number": 50, "body": "Fixes the thing"}
 
     # GitHub sends an ETag on the GET but rejects a conditional header on the PATCH.
     def fake_github(method: str, path: str, *, headers: dict[str, str] | None = None, **kwargs: Any) -> MagicMock:
