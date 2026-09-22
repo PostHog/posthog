@@ -53,6 +53,40 @@ def _cases() -> list[str]:
     return sorted(path.stem for path in FIXTURES.glob("*.json") if not path.name.endswith(".roundtrip.json"))
 
 
+def _person_condition(name: str) -> dict:
+    return {
+        "name": name,
+        "filters": {"properties": [{"key": "plan", "operator": "exact", "value": ["pro"], "type": "person"}]},
+    }
+
+
+def _cohort_condition(name: str) -> dict:
+    return {"name": name, "filters": {"properties": [{"key": "id", "type": "cohort", "value": 5, "operator": "in"}]}}
+
+
+def _branch_workflow(conditions: list[dict], arm_targets: dict[int, str], branch_name: str = "Which") -> dict:
+    return {
+        "name": "Branchy",
+        "status": "draft",
+        "exit_condition": "exit_only_at_end",
+        "actions": [
+            {"id": "trigger_node", "name": "Trigger", "type": "trigger", "config": {"type": "schedule"}},
+            {"id": "which", "name": branch_name, "type": "conditional_branch", "config": {"conditions": conditions}},
+            {"id": "inside", "name": "Inside", "type": "delay", "config": {"delay_duration": "1d"}},
+            {"id": "exit_node", "name": "Exit", "type": "exit", "config": {"reason": "Done"}},
+        ],
+        "edges": [
+            {"from": "trigger_node", "to": "which", "type": "continue"},
+            {"from": "which", "to": "exit_node", "type": "continue"},
+            {"from": "inside", "to": "exit_node", "type": "continue"},
+            *[
+                {"from": "which", "to": arm_targets.get(index, "exit_node"), "type": "branch", "index": index}
+                for index in range(len(conditions))
+            ],
+        ],
+    }
+
+
 class TestCodeRenderer(SimpleTestCase):
     @parameterized.expand(_cases())
     def test_renders_fixture_byte_for_byte(self, case: str) -> None:
@@ -62,3 +96,60 @@ class TestCodeRenderer(SimpleTestCase):
 
         assert rendered.code == (FIXTURES / f"{case}.ts").read_text()
         assert [asdict(warning) for warning in rendered.warnings] == EXPECTED_WARNINGS.get(case, [])
+
+    @parameterized.expand(
+        [
+            (
+                "empty_arm_is_dropped_with_a_warning",
+                _branch_workflow(
+                    conditions=[_person_condition("Paid"), _person_condition("Free")], arm_targets={0: "inside"}
+                ),
+                ["then: path(delay('1d', { name: 'Inside' }))"],
+                ["then: path()"],
+                [
+                    {
+                        "action_id": "which",
+                        "message": 'The arm "Free" of "Which" has no steps, so it is dropped. A person who matches it continues after the branch either way.',
+                    }
+                ],
+            ),
+            (
+                "unsupported_condition_drops_the_arm_steps_out_loud",
+                _branch_workflow(conditions=[_cohort_condition("In cohort")], arm_targets={0: "inside"}),
+                ['// The conditional_branch step "Which" is kept as JSON.'],
+                ["delay('1d', { name: 'Inside' })"],
+                [
+                    {
+                        "action_id": "which",
+                        "message": 'The conditional_branch step "Which" has no constructor in @posthog/workflows. It is kept in place as a comment.',
+                    },
+                    {
+                        "action_id": "inside",
+                        "message": '"Inside" sits inside "Which", which is kept as a comment, so it is dropped.',
+                    },
+                ],
+            ),
+            (
+                "line_terminators_in_a_step_name_stay_inside_the_comment",
+                _branch_workflow(
+                    conditions=[_cohort_condition("In cohort")],
+                    arm_targets={0: "inside"},
+                    branch_name="Which\u2028import x from 'y'",
+                ),
+                ["// - which: The conditional_branch step \"Which\\u2028import x from 'y'\" has no constructor"],
+                ["\u2028"],
+                None,
+            ),
+        ]
+    )
+    def test_keeps_every_loss_visible(
+        self, _name: str, definition: dict, present: list[str], absent: list[str], warnings: list[dict] | None
+    ) -> None:
+        rendered = render_workflow_code(definition)
+
+        for text in present:
+            assert text in rendered.code, rendered.code
+        for text in absent:
+            assert text not in rendered.code, rendered.code
+        if warnings is not None:
+            assert [asdict(warning) for warning in rendered.warnings] == warnings
