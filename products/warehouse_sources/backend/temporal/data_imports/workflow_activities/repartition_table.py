@@ -735,11 +735,13 @@ def _handle_budget_exceeded(
     run and finishing nothing, because the cap could never count to three.
 
     Two shapes count as progress. A resumed attempt that appended rows extended what it inherited. And
-    a genuine first attempt — one with no prior checkpoint to inherit — that persisted a checkpoint the
+    a genuine first attempt — one with no checkpoint it could build on — that persisted a checkpoint the
     next run resumes from broke new ground, even though `resumed_from` is 0. `had_prior_checkpoint`
-    keeps that first attempt apart from a restart that inherited nothing because it discarded an
-    existing checkpoint: the restart re-covered ground the last attempt already covered, however much it
-    wrote, so only it (and an attempt that saved no checkpoint at all) falls through to `_handle_failure`.
+    keeps that first attempt apart from a restart that inherited nothing because it discarded a
+    checkpoint it could have resumed: the restart re-covered ground the last attempt already covered,
+    however much it wrote, so only it (and an attempt that saved no checkpoint at all) falls through to
+    `_handle_failure`. A checkpoint the resume path rejected does not make an attempt a restart, because
+    it was left by an attempt killed at an arbitrary point and the rows it covered measure nothing.
 
     Returns the metric outcome: "superseded" when a newer attempt owns the claim, "progressing" when
     the rewrite broke new ground, otherwise whatever `_handle_failure` returns.

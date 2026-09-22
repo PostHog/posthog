@@ -114,11 +114,10 @@ Use Docker for small smoke tests or when remote access is unavailable.
 Each container defaults to 16 GB, so host RAM is what bounds concurrency: the default cap is 4, and raising `--max-sandboxes` needs a big host.
 A case running notebook python or duckdb cells holds a second container on top of that (see [Notebook kernel sandboxes](#notebook-kernel-sandboxes)), which the sandbox cap does not count.
 
-Every docker run verifies the `posthog-sandbox-base` image is fresh before any case starts: it rebuilds when `@posthog/agent` has published a newer version than the one baked into the image, or when the Dockerfile changed since the image was built.
+Every docker run verifies the `posthog-sandbox-base` image is fresh before any case starts: it rebuilds when the `ARG AGENT_VERSION` pin in the Dockerfile differs from the version baked into the image, or when the Dockerfile changed since the image was built.
 An unchanged image passes the check in under a second, and even a rebuild is mostly layer-cached — only the npm install layer onward re-runs when the agent version moved.
-When npm is unreachable the check warns and reuses the existing image instead of failing the run.
 `--rebuild-sandbox-image` forces the rebuild regardless.
-(The modal DEBUG image is rebuilt by Modal whenever the Dockerfile or build context changes, but a new `@posthog/agent` publish alone does not invalidate it — a known limitation.)
+(Modal rebuilds the DEBUG image whenever the Dockerfile or build context changes, so a pin bump reaches it the same way.)
 
 **modal** runs sandboxes remotely.
 Modal's network cannot reach `localhost`, so the harness exposes the host services via Tailscale Funnel itself and points the sandbox at the public URLs.

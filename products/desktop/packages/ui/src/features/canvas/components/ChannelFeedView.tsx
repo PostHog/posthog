@@ -1420,11 +1420,34 @@ const FeedLogRow = memo(function FeedLogRow({
   );
 });
 
-// The optimistic kickoff row: the user's prompt as a "Starting…" card, shown
-// at the top of the feed the moment they submit. Deliberately dumb — no
-// per-task data hooks or polls (there's no task id to query yet); it's
-// replaced by a real FeedRow as soon as the task is created.
-function PendingFeedRow({ pending }: { pending: PendingKickoff }) {
+// The optimistic kickoff row: the user's prompt as a "Starting…" entry at the
+// top of the feed, shown the moment they submit. It takes the shape of the view
+// around it, and it stays deliberately dumb, with no per-task data hooks or
+// polls, because there is no task id to query yet. A real row replaces it as
+// soon as the task is created.
+function PendingFeedRow({
+  prompt,
+  listRow,
+}: {
+  prompt: string;
+  listRow: boolean;
+}) {
+  if (listRow) {
+    return (
+      <div className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px]">
+        <span className="flex size-3.5 shrink-0 items-center justify-center">
+          <Spinner size="sm" aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1 truncate font-medium">{prompt}</span>
+        <Badge variant="info">Starting…</Badge>
+        {/* The avatar and the time of a real row have nothing to show yet, so
+            the row holds their two columns open. This keeps the badge in the
+            badge column, and it keeps the row still when the real row arrives. */}
+        <span className="size-5 shrink-0" />
+        <span className="w-8 shrink-0" />
+      </div>
+    );
+  }
   return (
     <Card size="sm" className="my-1.5 w-full rounded-xl bg-(--gray-2) py-0">
       <CardContent className="flex flex-col px-4 pt-3.5 pb-3">
@@ -1438,7 +1461,7 @@ function PendingFeedRow({ pending }: { pending: PendingKickoff }) {
           </Badge>
         </div>
         <div className="mt-1.5 text-(--gray-9) text-xs leading-normal">
-          <ExpandablePrompt lines={2}>{pending.prompt}</ExpandablePrompt>
+          <ExpandablePrompt lines={2}>{prompt}</ExpandablePrompt>
         </div>
       </CardContent>
     </Card>
@@ -1722,7 +1745,7 @@ export function ChannelFeedView({
     [spaceItems],
   );
 
-  const entries = useMemo<readonly FeedEntry[]>(() => {
+  const orderedEntries = useMemo<readonly FeedEntry[]>(() => {
     const merged = mergeFeedEntries(
       visibleTasks,
       systemMessages ?? [],
@@ -1745,7 +1768,9 @@ export function ChannelFeedView({
             ? entry.report.title
             : entry.kind === "pr"
               ? (entry.pullRequest.title ?? entry.pullRequest.task.title)
-              : entry.message.text;
+              : entry.kind === "pending"
+                ? entry.prompt
+                : entry.message.text;
     return [...kept].sort((a, b) =>
       sort === "alpha"
         ? (title(a) ?? "").localeCompare(title(b) ?? "")
@@ -1763,6 +1788,26 @@ export function ChannelFeedView({
     sort,
     itemByKey,
   ]);
+
+  // A kickoff the user just submitted leads the list until its real card
+  // arrives. It is prepended instead of sorted in, because the client clock and
+  // the server clock can disagree, and an optimistic row must stay first under
+  // every sort the user can pick.
+  const entries = useMemo<readonly FeedEntry[]>(() => {
+    if (pending.length === 0) return orderedEntries;
+    const createdAt = new Date().toISOString();
+    const kickoffs = pending
+      .map(
+        (kickoff): FeedEntry => ({
+          kind: "pending",
+          id: kickoff.id,
+          createdAt,
+          prompt: kickoff.prompt,
+        }),
+      )
+      .reverse();
+    return [...kickoffs, ...orderedEntries];
+  }, [pending, orderedEntries]);
 
   // The channel's dominant repo: on a single-repo channel every card would
   // repeat the same chip, so the repo chip only renders on tasks that target a
@@ -1964,18 +2009,7 @@ export function ChannelFeedView({
   const now = new Date();
   const rows: ReactNode[] = [];
   const shownEntries = entries.slice(0, visibleCount);
-  // Pending kickoffs land at the top, newest first, under a "Today" separator.
   let lastDayLabel: string | null = null;
-  if (pending.length > 0) {
-    lastDayLabel = "Today";
-    rows.push(
-      <DaySeparator key="separator-pending" label="Today" compact={listRows} />,
-    );
-    for (let i = pending.length - 1; i >= 0; i--) {
-      const p = pending[i];
-      rows.push(<PendingFeedRow key={p.id} pending={p} />);
-    }
-  }
   const activityIso = (entry: FeedEntry): string => {
     if (sort === "created") return entry.createdAt;
     if (entry.kind === "canvas") {
@@ -2057,6 +2091,12 @@ export function ChannelFeedView({
             key={entry.id}
             report={entry.report}
             onOpenReport={onOpenReport ?? (() => {})}
+          />
+        ) : entry.kind === "pending" ? (
+          <PendingFeedRow
+            key={entry.id}
+            prompt={entry.prompt}
+            listRow={listRows}
           />
         ) : (
           <SystemFeedRow key={entry.id} message={entry.message} />

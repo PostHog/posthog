@@ -33,3 +33,13 @@ Generation evaluations extract message text without the per-message character cu
 They sample the combined input, tool definitions, and output only when that text exceeds 150,000 characters, with a final character slice enforcing the limit.
 
 Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_evaluation.py), [session judge](../../posthog/temporal/ai_observability/run_session_evaluation.py), and [generation judge](../../posthog/temporal/ai_observability/evaluation_llm_judge.py).
+
+## Model output limits
+
+When the judge reply reaches the model's output limit, the evaluation skips that item with `output_limit_exceeded`.
+For Anthropic structured replies, `stop_reason="max_tokens"` triggers this skip before JSON parsing.
+Historical runs still include these items, as they do for `unparsable_response`, because neither skip produces a verdict.
+Users do not need to include items that already have a result to retry them.
+
+A provider rejection of an invalid token setting does not count as a truncated reply.
+The playground keeps the provider's explanation so users can correct the setting before trying again.

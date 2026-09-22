@@ -31,7 +31,7 @@ export function SuggestedReviewerReasonGroup({
     }
 
     return (
-        <div className="mr-2 -ml-2 rounded border bg-primary">
+        <div className="-ml-2 rounded border bg-primary">
             <div className="flex flex-col p-1">
                 {reviewers.map((reviewer) => {
                     const displayName = getReviewerDisplayName(reviewer)
@@ -39,7 +39,7 @@ export function SuggestedReviewerReasonGroup({
                     return (
                         <div
                             key={reviewer.user?.uuid ?? reviewer.user_uuid ?? reviewer.github_login}
-                            className="group/member relative flex min-w-0 items-center rounded py-0.5 pr-7 pl-1.5 hover:bg-fill-highlight"
+                            className="group/member grid min-w-0 grid-cols-[minmax(0,1fr)_1.75rem] items-center gap-2 rounded py-0.5 pl-1.5 hover:bg-fill-highlight"
                         >
                             <Tooltip
                                 title={
@@ -58,15 +58,17 @@ export function SuggestedReviewerReasonGroup({
                                     />
                                 </span>
                             </Tooltip>
-                            <LemonButton
-                                type="tertiary"
-                                size="xsmall"
-                                icon={<IconX />}
-                                disabledReason={disabled ? 'Updating…' : undefined}
-                                onClick={() => onRemove(reviewer)}
-                                tooltip={`Remove ${displayName}`}
-                                className="pointer-coarse:opacity-100 absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-opacity group-focus-within/member:opacity-100 group-hover/member:opacity-100"
-                            />
+                            <div className="flex justify-self-end">
+                                <LemonButton
+                                    type="tertiary"
+                                    size="xsmall"
+                                    icon={<IconX />}
+                                    disabledReason={disabled ? 'Updating…' : undefined}
+                                    onClick={() => onRemove(reviewer)}
+                                    tooltip={`Remove ${displayName}`}
+                                    className="pointer-coarse:opacity-100 opacity-0 transition-opacity group-focus-within/member:opacity-100 group-hover/member:opacity-100"
+                                />
+                            </div>
                         </div>
                     )
                 })}
