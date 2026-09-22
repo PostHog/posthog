@@ -50,6 +50,18 @@ The PostHog web application, built with React and TypeScript. Uses [Kea](https:/
 The app-level Files scene lives in `src/scenes/project-files` and reuses the project tree from `src/layout/panel-layout/ProjectTree`.
 Open `/project/<project_id>/files` to browse the project, or add `?folder=Research` to start in a folder.
 
+The sidebar lives in `src/layout/panel-layout/navbar`.
+Global search sits beside the project menu as a compact button with its keyboard shortcut.
+Apps lists all available product and data pages from the product manifests, with feature flags and access controls applied.
+When enabled, Self-driving appears between Home and Activity with a beta label.
+Users can star apps and saved files for quick access; starred items use the existing project shortcuts.
+Row menus appear on hover or keyboard focus and include Add to starred or Remove from starred.
+Existing app and file menus keep their actions, with starring last below a separator.
+Files contains the project file tree, including search, filtering, sorting, folders, and recent items.
+The Files filter, sort, and action menus sit beside its search field.
+Chat keeps the conversation list in its own tab.
+Add navigation destinations to the product manifest so they appear in Apps automatically.
+
 ### `posthog`
 
 The Django backend application. Key subdirectories:
