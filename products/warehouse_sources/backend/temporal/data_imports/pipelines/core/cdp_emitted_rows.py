@@ -13,6 +13,8 @@ the ids this run suppressed, so a row that keeps coming back stays suppressed fo
 does, and a row that stops coming back drops out after one run.
 """
 
+from itertools import batched
+
 from prometheus_client import Counter
 from structlog.types import FilteringBoundLogger
 
@@ -57,7 +59,7 @@ class EmittedRowStore:
         self._at_limit = False
 
     async def load(self) -> None:
-        if self._key is None:
+        if not self._enabled:
             return
 
         try:
@@ -89,7 +91,7 @@ class EmittedRowStore:
         Written to a scratch key and renamed, so a failure part way through leaves the previous
         run's record in place instead of a half-written one.
         """
-        if self._key is None or not self._enabled:
+        if not self._enabled:
             return
 
         if self._at_limit:
@@ -104,11 +106,14 @@ class EmittedRowStore:
                 return
 
             scratch_key = f"{self._key}:writing"
-            await client.delete(scratch_key)
-            members = list(self._current)
-            for start in range(0, len(members), _WRITE_CHUNK_SIZE):
-                await client.sadd(scratch_key, *members[start : start + _WRITE_CHUNK_SIZE])
-            await client.expire(scratch_key, EMITTED_ROWS_TTL_SECONDS)
-            await client.rename(scratch_key, self._key)
+            # One flush rather than a round trip per chunk, which at the tracked-row limit would be
+            # hundreds of them at the end of every run.
+            pipeline = client.pipeline(transaction=True)
+            pipeline.delete(scratch_key)
+            for chunk in batched(self._current, _WRITE_CHUNK_SIZE, strict=False):
+                pipeline.sadd(scratch_key, *chunk)
+            pipeline.expire(scratch_key, EMITTED_ROWS_TTL_SECONDS)
+            pipeline.rename(scratch_key, self._key)
+            await pipeline.execute()
         except Exception as e:
             await self._logger.awarning(f"Could not record produced view rows; repeats may not be suppressed: {e}")

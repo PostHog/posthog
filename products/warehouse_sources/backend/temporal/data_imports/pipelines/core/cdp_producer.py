@@ -344,9 +344,6 @@ class CDPProducer:
                             for row in batch.to_pylist():
                                 event_id = self._build_event_id(row)
                                 if emitted_rows.is_repeat(event_id):
-                                    # An earlier run produced this exact row. Producing it again
-                                    # runs every subscribed workflow and destination a second time,
-                                    # which for an outbound message means sending it twice.
                                     suppressed_rows += 1
                                     continue
 

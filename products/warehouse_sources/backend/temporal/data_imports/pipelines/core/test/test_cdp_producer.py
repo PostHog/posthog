@@ -1248,41 +1248,33 @@ def _view_producer_for_id(saved_query_id: str, job_id: str = "job_1") -> CDPProd
     )
 
 
+@pytest.mark.parametrize(
+    "runs,produced_by_the_last_run",
+    [
+        # A view's incremental window is inclusive of the watermark, so the boundary rows come back
+        # unchanged every run. Producing them again runs every subscribed workflow again, which for
+        # an outbound message means sending it again every sync period.
+        ([[{"id": 1, "total": 5}, {"id": 2, "total": 7}]] * 2, []),
+        # A row whose content changed is a real change, so it still goes out.
+        (
+            [[{"id": 1, "total": 5}, {"id": 2, "total": 7}], [{"id": 1, "total": 9}, {"id": 2, "total": 7}]],
+            [{"id": 1, "total": 9}],
+        ),
+        # The record holds a run's suppressed rows as well as its produced ones. Without that, a row
+        # that sits on the boundary for many runs comes back on every other run.
+        ([[{"id": 1, "total": 5}]] * 3, []),
+    ],
+    ids=["unchanged rows", "one changed row", "a row that keeps coming back"],
+)
 @pytest.mark.asyncio
-async def test_a_view_row_an_earlier_run_produced_is_not_produced_again():
-    # A view's incremental window is inclusive of the watermark, so the boundary rows come back
-    # unchanged every run. Producing them again runs every subscribed workflow again, which for an
-    # outbound message means sending it again every sync period.
-    view_id = str(uuid.uuid4())
-    rows = [{"id": 1, "total": 5}, {"id": 2, "total": 7}]
-
-    assert await _produce_staged_rows(_view_producer_for_id(view_id), rows) == rows
-    assert await _produce_staged_rows(_view_producer_for_id(view_id, "job_2"), rows) == []
-
-
-@pytest.mark.asyncio
-async def test_a_changed_view_row_is_produced_again():
+async def test_what_a_later_view_run_produces(runs, produced_by_the_last_run):
     view_id = str(uuid.uuid4())
 
-    await _produce_staged_rows(_view_producer_for_id(view_id), [{"id": 1, "total": 5}, {"id": 2, "total": 7}])
-    produced = await _produce_staged_rows(
-        _view_producer_for_id(view_id, "job_2"), [{"id": 1, "total": 9}, {"id": 2, "total": 7}]
-    )
+    produced: list[dict] = []
+    for run, rows in enumerate(runs):
+        produced = await _produce_staged_rows(_view_producer_for_id(view_id, f"job_{run}"), rows)
 
-    assert produced == [{"id": 1, "total": 9}]
-
-
-@pytest.mark.asyncio
-async def test_a_view_row_stays_suppressed_while_it_keeps_coming_back():
-    # The record holds a run's suppressed rows as well as its produced ones. Without that, a row
-    # that sits on the boundary for many runs comes back on every other run.
-    view_id = str(uuid.uuid4())
-    rows = [{"id": 1, "total": 5}]
-
-    await _produce_staged_rows(_view_producer_for_id(view_id), rows)
-    await _produce_staged_rows(_view_producer_for_id(view_id, "job_2"), rows)
-
-    assert await _produce_staged_rows(_view_producer_for_id(view_id, "job_3"), rows) == []
+    assert produced == produced_by_the_last_run
 
 
 @pytest.mark.asyncio
