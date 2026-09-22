@@ -21,11 +21,12 @@ const notebook = {
 
 function WidgetNotebook(): JSX.Element {
     const logic = useMountedLogic(notebookLogic({ shortId, mode: 'notebook' }))
-    const { loadNotebook, setEditable } = useActions(logic)
+    const { clearLocalContent, loadNotebook, setEditable } = useActions(logic)
     useEffect(() => {
+        clearLocalContent()
         loadNotebook()
         setEditable(true)
-    }, [loadNotebook, setEditable])
+    }, [clearLocalContent, loadNotebook, setEditable])
     return (
         <BindLogic logic={notebookLogic} props={logic.props}>
             <div className="max-w-3xl mx-auto p-4">
