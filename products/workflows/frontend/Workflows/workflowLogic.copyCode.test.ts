@@ -1,0 +1,153 @@
+import { expectLogic } from 'kea-test-utils'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
+import { HogFlowCodeApi } from 'products/workflows/frontend/generated/api.schemas'
+
+import { HogFlow } from './hogflows/types'
+import { workflowLogic } from './workflowLogic'
+
+jest.mock('lib/utils/copyToClipboard', () => ({ copyToClipboard: jest.fn() }))
+
+const WORKFLOW_ID = 'wf-copy-code-1'
+const CODE = "export const wf = workflow({ key: 'wf' })"
+
+const SAVED_WORKFLOW: HogFlow = {
+    id: WORKFLOW_ID,
+    name: 'Copy code test',
+    actions: [
+        {
+            id: 'trigger_node',
+            type: 'trigger',
+            name: 'Trigger',
+            description: '',
+            created_at: 0,
+            updated_at: 0,
+            config: { type: 'event', filters: {} },
+        },
+        {
+            id: 'exit_node',
+            type: 'exit',
+            name: 'Exit',
+            description: '',
+            created_at: 0,
+            updated_at: 0,
+            config: { reason: 'Default exit' },
+        },
+    ],
+    edges: [{ from: 'trigger_node', to: 'exit_node', type: 'continue' }],
+    conversion: { window_minutes: null, filters: [] },
+    exit_condition: 'exit_only_at_end',
+    version: 1,
+    status: 'draft',
+    team_id: 1,
+    trigger: { type: 'event', filters: {} } as HogFlow['trigger'],
+    created_at: '2026-05-01T00:00:00.000Z',
+    updated_at: '2026-05-01T00:00:00.000Z',
+}
+
+describe('workflowLogic copy code', () => {
+    let logic: ReturnType<typeof workflowLogic.build>
+    let codeCalls: number
+    let codeResponse: () => [number, HogFlowCodeApi | { detail: string }]
+    const copyToClipboardMock = copyToClipboard as jest.MockedFunction<typeof copyToClipboard>
+
+    beforeEach(async () => {
+        codeCalls = 0
+        codeResponse = () => [200, { language: 'typescript', code: CODE, warnings: [] }]
+        copyToClipboardMock.mockReset().mockResolvedValue(true)
+        jest.spyOn(lemonToast, 'warning').mockImplementation(() => 'toast-id')
+        jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': SAVED_WORKFLOW,
+                '/api/environments/:team_id/hog_flows/:id/schedules': { results: [] },
+                '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                '/api/projects/:team_id/hog_flows/:id/code/': () => {
+                    codeCalls += 1
+                    return codeResponse()
+                },
+            },
+        })
+        initKeaTests()
+        logic = workflowLogic({ id: WORKFLOW_ID })
+        logic.mount()
+        await logic.asyncActions.loadWorkflow()
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+        jest.restoreAllMocks()
+    })
+
+    it('copies the rendered source with the default toast when nothing was lost', async () => {
+        await logic.asyncActions.copyWorkflowCode()
+
+        expect(copyToClipboardMock).toHaveBeenCalledWith(CODE, 'workflow code', { silent: false })
+        expect(lemonToast.warning).not.toHaveBeenCalled()
+        expect(logic.values.copyCodePending).toBe(false)
+    })
+
+    it.each([
+        [
+            1,
+            'Copied the workflow code. 1 part of this workflow cannot be expressed in code. It is listed at the top of the file.',
+        ],
+        [
+            2,
+            'Copied the workflow code. 2 parts of this workflow cannot be expressed in code. They are listed at the top of the file.',
+        ],
+    ])('replaces the default toast with one that counts %i lost part(s)', async (count, message) => {
+        codeResponse = () => [
+            200,
+            {
+                language: 'typescript',
+                code: CODE,
+                warnings: Array.from({ length: count }, (_, i) => ({ action_id: `step_${i}`, message: 'lost' })),
+            },
+        ]
+
+        await logic.asyncActions.copyWorkflowCode()
+
+        expect(copyToClipboardMock).toHaveBeenCalledWith(CODE, 'workflow code', { silent: true })
+        expect(lemonToast.warning).toHaveBeenCalledWith(message)
+    })
+
+    it('copies nothing and points to a retry when the endpoint fails', async () => {
+        codeResponse = () => [500, { detail: 'boom' }]
+
+        await logic.asyncActions.copyWorkflowCode()
+
+        expect(copyToClipboardMock).not.toHaveBeenCalled()
+        expect(lemonToast.error).toHaveBeenCalledWith('Could not copy the workflow code. Please try again.')
+        expect(logic.values.copyCodePending).toBe(false)
+    })
+
+    it('sends one request when the button is clicked twice while the first copy is in flight', async () => {
+        logic.actions.copyWorkflowCode()
+        expect(logic.values.copyCodePending).toBe(true)
+        logic.actions.copyWorkflowCode()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(codeCalls).toBe(1)
+        expect(copyToClipboardMock).toHaveBeenCalledTimes(1)
+        expect(logic.values.copyCodePending).toBe(false)
+    })
+
+    it('refuses to copy while the form holds unsaved changes', async () => {
+        // Auto-save would clear the dirty state on its own a few seconds later.
+        logic.actions.setAutoSaveEnabled(false)
+        logic.actions.setWorkflowValue('name', 'Still typing')
+        expect(logic.values.copyCodeDisabledReason).toBe('Save your changes first')
+
+        await logic.asyncActions.copyWorkflowCode()
+
+        expect(codeCalls).toBe(0)
+        expect(copyToClipboardMock).not.toHaveBeenCalled()
+    })
+})
