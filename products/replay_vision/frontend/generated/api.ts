@@ -1562,6 +1562,10 @@ export const getVisionScannersInlineScanCreateUrl = (projectId: string) => {
  *
  * The config resolves to a scanner minted on first use, so asking the same question twice reuses
  * the observations it already has, while a different question about the same session gets its own.
+ *
+ * With `scanner_type` set to `summarizer`, this is how you get PostHog's own AI summary for a
+ * recording ID. It resolves to the Summarize button's own scanner only when the prompt and
+ * `scanner_config` match what the button sends, since the config is what the key fingerprints.
  */
 export const visionScannersInlineScanCreate = async (
     projectId: string,

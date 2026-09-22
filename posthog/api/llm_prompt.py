@@ -60,6 +60,7 @@ from posthog.api.services.llm_prompt import (
     set_prompt_label,
 )
 from posthog.auth import (
+    DelegatedOAuthAccessTokenAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -141,6 +142,18 @@ class LLMPromptViewSet(
         if view.action in ["get_by_name", "update_by_name"]:
             return ["llm_prompt:write"] if request.method == "PATCH" else ["llm_prompt:read"]
         return None
+
+    def _is_browser_session(self, request: Request) -> bool:
+        # A delegated OAuth token is a service acting for a user, not the user's
+        # browser, and its authenticator subclasses the OAuth one, so exclude it first.
+        if isinstance(request.successful_authenticator, DelegatedOAuthAccessTokenAuthentication):
+            return False
+        # A session cookie means a browser, and so does an OAuth token, which the app
+        # frontend uses when Django does not serve it. OAuth also carries third-party
+        # API clients; missing their unlabeled list reads costs less than counting
+        # every prompts page view as a fetch. A JWT is a background job impersonating
+        # a user, which reads prompts like any other API caller.
+        return isinstance(request.successful_authenticator, SessionAuthentication | OAuthAccessTokenAuthentication)
 
     def _ensure_web_authenticated(self, request: Request) -> Response | None:
         if not isinstance(
@@ -258,7 +271,7 @@ class LLMPromptViewSet(
 
         report_team_action(self.team, "llma prompt fetched", properties)
 
-    def _track_labeled_list_fetch(self, prompts: Sequence[LLMPrompt], label: str) -> None:
+    def _track_list_fetch(self, prompts: Sequence[LLMPrompt], label: str | None) -> None:
         # One event per request, not per prompt: the event is billed into the calling
         # team's own project, so a page of N prompts would bill N events per call.
         properties = {
@@ -760,9 +773,11 @@ class LLMPromptViewSet(
         serializer = LLMPromptListSerializer(prompts, many=True, context=context)
 
         label = self._get_list_params(request).get("label")
-        if label:
-            # The unlabeled list backs the prompts UI page and stays untracked.
-            self._track_labeled_list_fetch(prompts, label)
+        if label or not self._is_browser_session(request):
+            # The unlabeled list also backs the prompts UI page, where reading the
+            # page is not a prompt fetch. The browser session separates a prompt
+            # served to an application from someone looking at the list.
+            self._track_list_fetch(prompts, label)
 
         if page is not None:
             return self.get_paginated_response(serializer.data)

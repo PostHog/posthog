@@ -1,6 +1,13 @@
 import dataclasses
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 from typing import Any, Optional
+from urllib.parse import parse_qs, urlsplit
+
+import structlog
+from requests import Response
+from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -19,10 +26,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.settings import MAILERSEND_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.settings import (
+    MAILERSEND_ENDPOINTS,
+    MailerSendEndpointConfig,
+)
+
+logger = structlog.get_logger(__name__)
 
 # MailerSend serves every account from a single global base URL (no per-account hostname).
 MAILERSEND_BASE_URL = "https://api.mailersend.com/v1"
+
+# Every MailerSend list endpoint is page based and accepts page numbers 1 to 1000. The API keeps
+# advertising a `links.next` on page 1000, so following it asks for page 1001 and the request is
+# rejected with a 422. Stop at the cap instead and finish the table.
+MAILERSEND_MAX_PAGE = 1000
+
+# Fallback lookback for a date-filtered endpoint that declares no retention tiers.
+MAILERSEND_DEFAULT_ACTIVITY_DAYS = 30
 
 # Parent resource name for the Activity fan-out. include_from_parent=["id"] injects the parent
 # domain's id as `_domains_id`; a data_map renames it to `domain_id` so each activity row carries
@@ -30,7 +50,7 @@ MAILERSEND_BASE_URL = "https://api.mailersend.com/v1"
 _DOMAINS_PARENT = "domains"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class MailerSendResumeConfig:
     # Legacy fields kept (with defaults) so resume state saved by the pre-migration source still
     # deserializes via `dataclass(**saved)`. New runs checkpoint through `fanout_state` — the
@@ -39,6 +59,35 @@ class MailerSendResumeConfig:
     next_page: int = 1
     domain_id: str | None = None
     fanout_state: dict[str, Any] | None = None
+
+
+def _page_number(url: Optional[str]) -> int:
+    """The page a MailerSend pagination link points at; 1 when the link carries no page param."""
+    if not url:
+        return 1
+    values = parse_qs(urlsplit(url).query).get("page")
+    if not values:
+        return 1
+    try:
+        return int(values[0])
+    except ValueError:
+        return 1
+
+
+class MailerSendPaginator(JSONResponsePaginator):
+    """Follows `links.next` but never past MailerSend's last accepted page."""
+
+    def __init__(self) -> None:
+        super().__init__(next_url_path="links.next")
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self._has_next_page and _page_number(self._next_url) > MAILERSEND_MAX_PAGE:
+            logger.warning(
+                "mailersend.page_cap_reached",
+                max_page=MAILERSEND_MAX_PAGE,
+            )
+            self._has_next_page = False
 
 
 def _to_datetime(value: Any) -> datetime:
@@ -60,16 +109,18 @@ def _activity_date_window(
 ) -> SyncWindow[int]:
     """Build the required date_from/date_to window for the Activity endpoint as Unix timestamps.
 
-    MailerSend requires both bounds and rejects date_from >= date_to. On the first sync (or a full
-    refresh) we look back `lookback_days`, capped to the activity retention window the plan allows.
-    On incremental syncs the window starts at the last-seen created_at; merge upsert dedupes the
-    inclusive boundary row.
+    MailerSend requires both bounds, rejects date_from >= date_to, and rejects a window that
+    reaches back further than the account's activity retention. `lookback_days` is the retention
+    tier being tried, so it bounds the first-sync lookback and also clamps an incremental cursor
+    that has fallen behind retention. On incremental syncs the window starts at the last-seen
+    created_at; merge upsert dedupes the inclusive boundary row.
     """
     now = datetime.now(UTC)
+    earliest = now - timedelta(days=lookback_days)
     if should_use_incremental_field and db_incremental_field_last_value is not None:
-        date_from = _to_datetime(db_incremental_field_last_value)
+        date_from = max(_to_datetime(db_incremental_field_last_value), earliest)
     else:
-        date_from = now - timedelta(days=lookback_days)
+        date_from = earliest
 
     if date_from >= now:
         # A future-dated cursor would make date_from >= date_to and 422 the request; clamp it.
@@ -111,13 +162,114 @@ def _client_config(api_token: str) -> ClientConfig:
         "headers": {"Accept": "application/json", "Content-Type": "application/json"},
         "auth": {"type": "bearer", "token": api_token},
         # MailerSend returns the next page as a full URL under `links.next`, null on the last page.
-        "paginator": JSONResponsePaginator(next_url_path="links.next"),
+        "paginator": MailerSendPaginator(),
         # `links.next` is followed verbatim, so pin every request (and the Bearer token) to
         # api.mailersend.com and refuse redirects — a tampered/off-host `links.next` or a 3xx can't
         # retarget the credentialed request. `allowed_hosts=[]` means base-host only.
         "allowed_hosts": [],
         "allow_redirects": False,
     }
+
+
+def _activity_resource(
+    api_token: str,
+    endpoint: str,
+    config: MailerSendEndpointConfig,
+    team_id: int,
+    job_id: str,
+    window: SyncWindow[int],
+    resume_hook: Callable[[Optional[dict[str, Any]]], None],
+    initial_state: Optional[dict[str, Any]],
+) -> Any:
+    rest_config: RESTAPIConfig = {
+        "client": _client_config(api_token),
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": _DOMAINS_PARENT,
+                "endpoint": {
+                    "path": "/domains",
+                    "params": {"limit": config.page_size},
+                    "data_selector": "data",
+                },
+            },
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {
+                        "domain_id": {
+                            "type": "resolve",
+                            "resource": _DOMAINS_PARENT,
+                            "field": "id",
+                        },
+                        "limit": config.page_size,
+                        # The window is computed once per run and rides as static query params —
+                        # MailerSend filters server-side on created_at within [date_from, date_to].
+                        "date_from": window.start,
+                        "date_to": window.end,
+                    },
+                    "data_selector": "data",
+                },
+                "include_from_parent": ["id"],
+                # activity ids are only unique within a domain, so stamp each row with its
+                # domain_id — the [domain_id, id] primary key stays unique table-wide.
+                "data_map": rename_parent_fields(_DOMAINS_PARENT, {"id": "domain_id"}),
+            },
+        ],
+    }
+    resources = {
+        resource.name: resource
+        for resource in rest_api_resources(
+            rest_config,
+            team_id,
+            job_id,
+            None,
+            resume_hook=resume_hook,
+            initial_paginator_state=initial_state,
+        )
+    }
+    return resources[endpoint]
+
+
+def _activity_pages(
+    api_token: str,
+    endpoint: str,
+    config: MailerSendEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resume_hook: Callable[[Optional[dict[str, Any]]], None],
+    initial_state: Optional[dict[str, Any]],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[Any]]:
+    """Page the Activity endpoint, narrowing the date window when MailerSend rejects it.
+
+    How far back activity can be read is set by the account's plan and no endpoint reports it, so
+    the only way to find it is to ask. Start at the widest retention tier and step down a tier each
+    time a request comes back rejected, so an account on any plan syncs the activity it does keep.
+    Once rows have come back the window was accepted, and a later rejection is a real failure.
+    """
+    tiers = config.window_tiers_days or (MAILERSEND_DEFAULT_ACTIVITY_DAYS,)
+    for index, lookback_days in enumerate(tiers):
+        window = _activity_date_window(should_use_incremental_field, db_incremental_field_last_value, lookback_days)
+        rows_yielded = False
+        try:
+            for page in _activity_resource(
+                api_token, endpoint, config, team_id, job_id, window, resume_hook, initial_state
+            ):
+                rows_yielded = rows_yielded or bool(page)
+                yield page
+            return
+        except HTTPError as error:
+            window_rejected = error.response is not None and error.response.status_code == 422
+            if rows_yielded or not window_rejected or index == len(tiers) - 1:
+                raise
+            logger.warning(
+                "mailersend.activity_window_narrowed",
+                rejected_lookback_days=lookback_days,
+                next_lookback_days=tiers[index + 1],
+            )
 
 
 def mailersend_source(
@@ -143,59 +295,20 @@ def mailersend_source(
         if state is not None:
             resumable_source_manager.save_state(MailerSendResumeConfig(fanout_state=state))
 
+    items: Callable[[], Any]
     if config.fan_out_over_domains:
-        window = _activity_date_window(
-            should_use_incremental_field, db_incremental_field_last_value, config.default_lookback_days or 30
+        items = partial(
+            _activity_pages,
+            api_token=api_token,
+            endpoint=endpoint,
+            config=config,
+            team_id=team_id,
+            job_id=job_id,
+            resume_hook=save_checkpoint,
+            initial_state=initial_state,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=db_incremental_field_last_value,
         )
-        rest_config: RESTAPIConfig = {
-            "client": _client_config(api_token),
-            "resource_defaults": {},
-            "resources": [
-                {
-                    "name": _DOMAINS_PARENT,
-                    "endpoint": {
-                        "path": "/domains",
-                        "params": {"limit": config.page_size},
-                        "data_selector": "data",
-                    },
-                },
-                {
-                    "name": endpoint,
-                    "endpoint": {
-                        "path": config.path,
-                        "params": {
-                            "domain_id": {
-                                "type": "resolve",
-                                "resource": _DOMAINS_PARENT,
-                                "field": "id",
-                            },
-                            "limit": config.page_size,
-                            # The window is computed once per run and rides as static query params —
-                            # MailerSend filters server-side on created_at within [date_from, date_to].
-                            "date_from": window.start,
-                            "date_to": window.end,
-                        },
-                        "data_selector": "data",
-                    },
-                    "include_from_parent": ["id"],
-                    # activity ids are only unique within a domain, so stamp each row with its
-                    # domain_id — the [domain_id, id] primary key stays unique table-wide.
-                    "data_map": rename_parent_fields(_DOMAINS_PARENT, {"id": "domain_id"}),
-                },
-            ],
-        }
-        resources = {
-            resource.name: resource
-            for resource in rest_api_resources(
-                rest_config,
-                team_id,
-                job_id,
-                None,
-                resume_hook=save_checkpoint,
-                initial_paginator_state=initial_state,
-            )
-        }
-        resource = resources[endpoint]
     else:
         simple_config: RESTAPIConfig = {
             "client": _client_config(api_token),
@@ -219,10 +332,11 @@ def mailersend_source(
             resume_hook=save_checkpoint,
             initial_paginator_state=initial_state,
         )
+        items = lambda: resource
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=items,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
