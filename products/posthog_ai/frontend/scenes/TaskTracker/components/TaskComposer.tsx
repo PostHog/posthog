@@ -2,6 +2,8 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useRef } from 'react'
 
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
@@ -47,6 +49,7 @@ export function TaskComposer(): JSX.Element {
         // Permission modes belong to the harness, so they follow the model actually shown — the
         // server-resolved default's own runtime when nothing is picked, the pick's otherwise.
         composerAdapter,
+        taskCreationBlockedReason,
     } = useValues(taskTrackerSceneLogic)
     const { catalogue } = useValues(modelCatalogueLogic)
     const { myConfigLoading } = useValues(taskRunDefaultsLogic)
@@ -87,6 +90,11 @@ export function TaskComposer(): JSX.Element {
                 >
                     {/* Repo/branch picker sits 8px above the input it configures. */}
                     <div className="w-full flex flex-col gap-2">
+                        {taskCreationBlockedReason && (
+                            <LemonBanner type="warning" data-attr="task-composer-access-blocked">
+                                {taskCreationBlockedReason}
+                            </LemonBanner>
+                        )}
                         {!composerOverride?.hideRepositorySelector && (
                             <RepositorySelector
                                 value={newTaskData.repositoryConfig}
@@ -105,6 +113,7 @@ export function TaskComposer(): JSX.Element {
                             onChange={draft.onChange}
                             onSubmit={() => draft.submit(submitNewTask)}
                             loading={isSubmittingTask}
+                            disabledReason={taskCreationBlockedReason ?? undefined}
                             textAreaRef={textAreaRef}
                         >
                             <Composer.Frame>

@@ -45,7 +45,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/code/invites/check-access/': { has_access: true },
+                '/api/projects/:team/desktop/access/': { allowed: true, reason: null },
                 '/api/projects/:team/tasks/': { results: [], count: 0 },
                 '/api/projects/:team/tasks/repositories/': { repositories: [] },
                 '/api/projects/:team/tasks/@me/config/': { ai_run_preferences: {}, resolved_ai_run_defaults: {} },

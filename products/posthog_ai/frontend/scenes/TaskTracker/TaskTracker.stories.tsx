@@ -179,7 +179,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
+                '/api/projects/:team_id/desktop/access/': { allowed: true, reason: null },
                 '/api/projects/:team_id/tasks/': listResponse(TASKS),
                 '/api/projects/:team_id/tasks/repositories/': { repositories: ['PostHog/posthog'] },
                 // nosemgrep: no-environments-api-urls-frontend -- Storybook mock for the shared AI navigation.
@@ -204,6 +204,18 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Composer: Story = {}
+
+// The organization can't start PostHog AI tasks: the composer explains why instead of accepting a send
+// that the cloud compute gate refuses with a 403.
+export const ComposerAccessBlocked: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/desktop/access/': { allowed: false, reason: 'startup_plan' },
+            },
+        }),
+    ],
+}
 
 export const UnifiedNavigation: Story = {
     render: () => <UnifiedNavigationStory />,

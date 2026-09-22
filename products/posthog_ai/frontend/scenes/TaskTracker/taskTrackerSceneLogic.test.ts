@@ -64,7 +64,7 @@ describe('taskTrackerSceneLogic', () => {
         runBody = null
         useMocks({
             get: {
-                '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
+                '/api/projects/:team/desktop/access/': { allowed: true, reason: null },
                 '/api/projects/:team/tasks/': { results: [], count: 0 },
                 '/api/projects/:team/tasks/repositories/': { repositories: [] },
                 '/api/projects/:team/tasks/@me/config/': myConfigResponse(null),
@@ -228,9 +228,46 @@ describe('taskTrackerSceneLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.hasDesktopAccess).toBe(true)
+        expect(logic.values.taskCreationBlockedReason).toBeNull()
 
-        logic.actions.loadDesktopAccessSuccess({ has_access: false, has_loops_access: false })
+        logic.actions.loadDesktopAccessSuccess({ allowed: false, reason: 'startup_plan' })
         expect(logic.values.hasDesktopAccess).toBe(false)
+        expect(logic.values.taskCreationBlockedReason).toContain('Startup or YC program')
+    })
+
+    // A failed access check leaves the answer unknown, so blocking the composer on it would stop people
+    // the gate would have let through.
+    it('leaves task creation unblocked when the access check fails', async () => {
+        useMocks({ get: { '/api/projects/:team/desktop/access/': () => [503, { detail: 'nope' }] } })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.taskCreationBlockedReason).toBeNull()
+    })
+
+    // The gate refuses Startup and YC program organizations on the create call. Without this the thread
+    // opens optimistically, tears itself down, and nothing tells the person what happened.
+    it('explains the refusal when the cloud compute gate blocks task creation', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/': () => [
+                    403,
+                    { type: 'authentication_error', code: 'code_access_required', reason: 'startup_plan' },
+                ],
+            },
+        })
+        const toastError = jest.spyOn(lemonToast, 'error')
+        logic.mount()
+        logic.actions.setNewTaskData({ description: 'Explain the example chart' })
+        logic.actions.submitNewTask()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastError).toHaveBeenCalledWith(expect.stringContaining('Startup or YC program'))
+        expect(logic.values.activeCreation).toBeNull()
+        expect(logic.values.newTaskData.description).toBe('Explain the example chart')
+        expect(logic.values.isSubmittingTask).toBe(false)
     })
 
     it.each(['task', 'run', 'missing_run'] as const)(
