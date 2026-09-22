@@ -52,7 +52,12 @@ export function ReportTaskRow({
     const taskUrl = runId ? combineUrl(urls.taskDetail(task.id), { runId }).url : urls.taskDetail(task.id)
 
     const expandButton = (
-        <button type="button" onClick={onToggle} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+        <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={expanded}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        >
             {expanded ? (
                 <IconChevronDown className="shrink-0 text-tertiary" />
             ) : (

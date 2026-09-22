@@ -2,6 +2,8 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { IconTerminal } from '@posthog/icons'
 
+import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+
 import { mockTask } from '../../__mocks__/inboxMocks'
 import type { ReportTaskEntry } from '../../logics/inboxReportDetailLogic'
 import { DetailSection } from './DetailSection'
@@ -15,7 +17,12 @@ view answers 400 instead.
 
 Branch: inbox/fix-invites — PR #12001. Ran the invites API tests locally; they pass.`
 
-function entry(taskId: string, purposeLabel: string, summary: string | null, runStatus?: string): ReportTaskEntry {
+function entry(
+    taskId: string,
+    purposeLabel: string,
+    summary: string | null,
+    runStatus?: TaskRunStatus
+): ReportTaskEntry {
     const task = mockTask(taskId, runStatus)
     return {
         task: { ...task, latest_run: { ...task.latest_run, task_summary: summary } },
@@ -65,7 +72,7 @@ type Story = StoryObj<typeof RunsSection>
 export const WithAndWithoutSummaries: Story = {
     args: {
         entries: [
-            entry('impl-task', 'Implementation', implementationSummary, 'completed'),
+            entry('impl-task', 'Implementation', implementationSummary, TaskRunStatus.COMPLETED),
             entry('research-task', 'Research', null),
         ],
     },
@@ -75,7 +82,7 @@ export const NarrowRail: Story = {
     parameters: { railWidth: 'narrow' },
     args: {
         entries: [
-            entry('impl-task', 'Implementation', implementationSummary, 'completed'),
+            entry('impl-task', 'Implementation', implementationSummary, TaskRunStatus.COMPLETED),
             entry('research-task', 'Research', null),
         ],
     },

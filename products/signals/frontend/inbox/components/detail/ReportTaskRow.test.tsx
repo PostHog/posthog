@@ -25,7 +25,7 @@ function entry(taskSummary: string | null): ReportTaskEntry {
     }
 }
 
-function summaryCaptures(): Record<string, any>[] {
+function summaryCaptures(): Record<string, unknown>[] {
     return (posthog.capture as jest.Mock).mock.calls
         .filter(([event]) => event === INBOX_EVENTS.RUN_SUMMARY_VIEWED)
         .map(([, properties]) => properties)
@@ -57,6 +57,7 @@ describe('ReportTaskRow', () => {
 
         await reveal(screen.getByRole('button'))
 
+        expect(screen.getByTestId('report-run-summary')).toHaveTextContent('Implementation')
         expect(await screen.findByText(/Rejected the blank recipient/)).toHaveTextContent('PR #12001')
         expect(summaryCaptures()).toEqual([
             expect.objectContaining({
