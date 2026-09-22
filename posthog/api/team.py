@@ -2837,6 +2837,7 @@ class TeamViewSet(
             item_ids=[str(team.pk)],
             limit=page_params.limit,
             page=page_params.page,
+            user=request.user,
         )
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
