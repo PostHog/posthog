@@ -48,7 +48,7 @@ This creates an OAuth application with:
    - **Algorithm**: `RS256`
 4. Save
 
-> **Important**: The client ID must be exactly `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ`. The value is defined in `packages/agent-contracts/src/oauth.ts`.
+> **Important**: The client ID must be exactly `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ`. The value is defined in `packages/agent/packages/agent-contracts/src/oauth.ts`.
 
 ### 2. Configure RSA keys in PostHog
 
@@ -261,7 +261,7 @@ The OAuth application in your local PostHog must have the client ID `DC5uRLVbGI0
 
 ### "OAuth error: invalid_scope" or "Couldn't check Desktop access"
 
-PostHog Desktop requests an explicit scope list (`OAUTH_SCOPES` in `packages/agent-contracts/src/oauth.ts`),
+PostHog Desktop requests an explicit scope list (`OAUTH_SCOPES` in `packages/agent/packages/agent-contracts/src/oauth.ts`),
 which includes the privileged scope `llm_gateway:read`.
 `/authorize` never rejects a request over scopes: it clamps the request to the application's
 scope ceiling (`OAuthApplication.scopes`) and grants whatever falls inside
