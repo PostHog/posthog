@@ -85,7 +85,8 @@ export function drawSankeyHover(
     // layer and does not dim at all.
     for (const link of layout.links) {
         if (!activeLinks.has(link)) {
-            strokeLink(ctx, link, mixColors(link.color, dimTarget, dim), options.linkOpacity)
+            const resting = mixColors(dimTarget, link.color, options.linkOpacity)
+            strokeLink(ctx, link, mixColors(resting, dimTarget, dim), 1)
         }
     }
     for (const node of layout.nodes) {
