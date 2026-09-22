@@ -104,7 +104,7 @@ class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
 
         # Step 3: Assemble a recalculation per experiment from the points this run wrote, so the latest read
         # serves them without a recompute. Points are matched against the run start, so the stamp is taken
-        # before discovery. Patched: an execution that started before this step existed replays without it.
+        # before discovery. The patch gate keeps replay of histories recorded without this step deterministic.
         recalculations_synced = 0
         if temporalio.workflow.patched("experiment-timeseries-recalculation-sync-2026-09"):
             recalculations_synced = await _create_recalculations_from_timeseries(
@@ -192,7 +192,7 @@ class ExperimentSavedMetricsWorkflow(PostHogWorkflow):
 
         # Step 3: Assemble a recalculation per experiment from the points this run wrote, so the latest read
         # serves them without a recompute. Points are matched against the run start, so the stamp is taken
-        # before discovery. Patched: an execution that started before this step existed replays without it.
+        # before discovery. The patch gate keeps replay of histories recorded without this step deterministic.
         recalculations_synced = 0
         if temporalio.workflow.patched("experiment-timeseries-recalculation-sync-2026-09"):
             recalculations_synced = await _create_recalculations_from_timeseries(
