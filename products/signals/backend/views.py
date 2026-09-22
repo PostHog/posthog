@@ -495,6 +495,8 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = SignalTeamConfigSerializer
     queryset = SignalTeamConfig.objects.all()
     scope_object = "task"
+    # The read returns the singleton, so the inherited limit and offset params are noise.
+    pagination_class = None
 
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
         if request.method in ("GET", "HEAD", "OPTIONS"):
@@ -508,11 +510,15 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # notification channel) would 404.
         return get_or_create_team_extension(self.team, SignalTeamConfig)
 
-    @extend_schema(exclude=True)
+    @extend_schema(summary="Read the project's signals config")
     def list(self, request: Request, *args, **kwargs) -> Response:
         return Response(SignalTeamConfigSerializer(self._get_config()).data)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        summary="Update the project's signals config",
+        description="Partial update of the per-project singleton. Omitted fields keep their value.",
+        responses={200: SignalTeamConfigSerializer},
+    )
     def create(self, request: Request, *args, **kwargs) -> Response:
         config = self._get_config()
         serializer = self.get_serializer(config, data=request.data, partial=True)
@@ -891,8 +897,25 @@ def _is_person_at_the_ui(request: Request) -> bool:
     )
 
 
+class SignalReportWorkflowStatusSerializer(serializers.Serializer):
+    """Envelope returned by the report actions that only kick off a Temporal workflow."""
+
+    status = serializers.CharField(
+        help_text="Outcome of the request: the workflow was started, or one was already running."
+    )
+    report_id = serializers.UUIDField(help_text="Report the workflow runs against.")
+
+
 @extend_schema_view(
-    destroy=extend_schema(exclude=True),
+    destroy=extend_schema(
+        summary="Delete a signal report",
+        responses={
+            200: OpenApiResponse(
+                response=SignalReportWorkflowStatusSerializer, description="A deletion is already running."
+            ),
+            202: OpenApiResponse(response=SignalReportWorkflowStatusSerializer, description="Deletion started."),
+        },
+    ),
 )
 class SignalReportViewSet(
     TeamAndOrgViewSetMixin,
@@ -2165,7 +2188,35 @@ class SignalReportViewSet(
             return self.get_paginated_response(data)
         return Response(data)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        summary="List the org members who can be suggested as reviewers",
+        parameters=[
+            OpenApiParameter(
+                name="query",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive filter on name or email.",
+            )
+        ],
+        # A map keyed by user UUID, so there is no serializer shape to declare.
+        responses={
+            200: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Member's full name."},
+                            "email": {"type": "string", "description": "Member's email address."},
+                        },
+                        "required": ["name", "email"],
+                    },
+                },
+                description="Candidate reviewers keyed by user UUID.",
+            )
+        },
+    )
     @action(detail=False, methods=["get"], url_path="available_reviewers", required_scopes=["task:read"])
     def available_reviewers(self, request, **kwargs):
         with tracer.start_as_current_span("signals.available_reviewers") as span:
@@ -2228,7 +2279,11 @@ class SignalReportViewSet(
 
             return Response(reviewers)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        summary="Set a report's suggested reviewers",
+        request=SignalReportArtefactWriteSerializer,
+        responses={200: SignalReportArtefactSerializer},
+    )
     @action(detail=True, methods=["put"], url_path="reviewers", required_scopes=["task:write"])
     def reviewers(self, request, **kwargs):
         """Set a report's suggested reviewers (full-replacement PUT), whether or not the report already
@@ -3134,7 +3189,16 @@ class SignalReportViewSet(
             }
         )
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        summary="Re-ingest a report's signals",
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=SignalReportWorkflowStatusSerializer, description="A re-ingestion is already running."
+            ),
+            202: OpenApiResponse(response=SignalReportWorkflowStatusSerializer, description="Re-ingestion started."),
+        },
+    )
     @action(detail=True, methods=["post"], url_path="reingest", required_scopes=["task:write"])
     def reingest(self, request, pk=None, **kwargs):
         """Re-ingest a report's signals (same team access as other report actions)."""

@@ -8,7 +8,7 @@ from django.db.models import TextChoices
 from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 from rest_framework.request import Request
 
@@ -287,6 +287,9 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
 MAX_AUTOSTART_BASE_BRANCH_ENTRIES = 500
 
 
+# many=False: the read action is named `list` for routing, but the config is a per-project
+# singleton. Without this drf-spectacular types the response as a paginated list.
+@extend_schema_serializer(many=False)
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
     issue_tracking_integration = TeamScopedPrimaryKeyRelatedField(
         queryset=Integration.objects.all(),
