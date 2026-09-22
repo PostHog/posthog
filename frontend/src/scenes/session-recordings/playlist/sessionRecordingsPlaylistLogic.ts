@@ -2438,6 +2438,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                               duration: params.filters.duration ?? [],
                           }
                         : {}),
+                    // A URL that names no filters is a plain visit to the list, so a link's empty
+                    // duration must not follow the viewer there. Only a link produces one, and the
+                    // viewer keys say whether this one is still the link's.
+                    ...(!params.filters &&
+                    !values.filters.duration?.length &&
+                    !values.viewerFilterKeys.includes('duration')
+                        ? { duration: DEFAULT_RECORDING_FILTERS.duration }
+                        : {}),
                     ...(params.order && !equal(params.order, values.filters.order) ? { order: params.order } : {}),
                     ...(params.order_direction && !equal(params.order_direction, values.filters.order_direction)
                         ? { order_direction: params.order_direction }

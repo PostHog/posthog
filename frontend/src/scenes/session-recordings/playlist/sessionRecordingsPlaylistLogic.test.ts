@@ -724,6 +724,32 @@ describe('sessionRecordingsPlaylistLogic', () => {
             expect(convertUniversalFiltersToRecordingsQuery(logic.values.filters).having_predicates).toEqual([])
         })
 
+        it('restores the default duration when the next URL names no filters', async () => {
+            router.actions.push('/replay', {
+                filters: {
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
+                            },
+                        ],
+                    },
+                },
+            })
+            await expectLogic(logic).toDispatchActions(['setFilters'])
+            expect(logic.values.filters.duration).toEqual([])
+
+            router.actions.push('/replay/home')
+
+            await expectLogic(logic)
+                .toDispatchActions(['setFilters'])
+                .toMatchValues({
+                    filters: expect.objectContaining({ duration: DEFAULT_RECORDING_FILTERS.duration }),
+                })
+        })
+
         it.each<[string, Partial<RecordingUniversalFilters>]>([
             ['date_from', { date_from: '-30d' }],
             ['filter_test_accounts', { filter_test_accounts: true }],
