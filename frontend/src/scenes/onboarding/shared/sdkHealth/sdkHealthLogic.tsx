@@ -4,6 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -68,6 +69,7 @@ export interface sdkHealthLogicValues {
     currentTeamId: number | null // teamLogic
     augmentedData: AugmentedTeamSdkVersionsInfo
     hasErrors: boolean
+    isSnoozed: boolean
     needsAttention: boolean
     needsUpdatingCount: number
     report: SdkHealthReportApi | null
@@ -112,7 +114,8 @@ export interface sdkHealthLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         augmentedData: (report: SdkHealthReportApi | null) => AugmentedTeamSdkVersionsInfo
         needsUpdatingCount: (report: SdkHealthReportApi | null) => number
-        needsAttention: (report: SdkHealthReportApi | null, snoozedUntil: string | null) => boolean
+        isSnoozed: (snoozedUntil: string | null) => boolean
+        needsAttention: (report: SdkHealthReportApi | null, isSnoozed: boolean) => boolean
         sdkHealth: (report: SdkHealthReportApi | null) => SdkHealthStatus
         hasErrors: (report: SdkHealthReportApi | null, reportLoading: boolean) => boolean
     }
@@ -238,10 +241,17 @@ export const sdkHealthLogic = kea<sdkHealthLogicType>([
             (report: SdkHealthReportApi | null): number => report?.needs_updating_count ?? 0,
         ],
 
+        // An expired snooze must stop counting even before afterMount's unsnooze runs, so the
+        // date is compared here rather than treating any stored value as "still snoozed".
+        isSnoozed: [
+            (s) => [s.snoozedUntil],
+            (snoozedUntil: string | null): boolean => !!snoozedUntil && dayjs(snoozedUntil).isAfter(dayjs()),
+        ],
+
         needsAttention: [
-            (s) => [s.report, s.snoozedUntil],
-            (report: SdkHealthReportApi | null, snoozedUntil: string | null): boolean => {
-                if (snoozedUntil !== null) {
+            (s) => [s.report, s.isSnoozed],
+            (report: SdkHealthReportApi | null, isSnoozed: boolean): boolean => {
+                if (isSnoozed) {
                     return false
                 }
                 return report?.overall_health === 'needs_attention'
