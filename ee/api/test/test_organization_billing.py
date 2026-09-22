@@ -311,6 +311,12 @@ class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         response = self.client.get(self._url("usage/"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+        # A failure inside billing is not the caller's to fix, so it never reads as a bad request.
+        mock_get.return_value = _response({"type": "server_error", "code": "response_invalid"}, 500)
+        response = self.client.get(self._url("features/"))
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.json()["code"], "billing_service_error")
+
         # A proxy in front of billing answers HTML, not JSON. The refusal still maps to itself
         # rather than becoming a 500 on the way through.
         not_json = MagicMock(status_code=403)
