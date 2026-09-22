@@ -409,10 +409,8 @@ class _FakeS3:
     async def _rm(self, paths, recursive=False):
         for path in [paths] if isinstance(paths, str) else paths:
             key = aps._s3_key(path)
-            if key not in self.store:
-                raise FileNotFoundError(path)
-            self.store.pop(key)
-            self.times.pop(key)
+            self.store.pop(key, None)
+            self.times.pop(key, None)
 
 
 def _fake_s3_patch(fake: _FakeS3):
@@ -448,29 +446,28 @@ async def test_snapshot_read_skips_file_deleted_by_concurrent_compaction() -> No
     fake = _FakeS3()
     await _write(fake, "job-1", {"a": "h1"})
     prefix = account_property_snapshot_prefix(7, _SNAPSHOT_BINDING, "src", _SEGMENT.value)
-    with _fake_s3_patch(fake):
-        listed = await _list_snapshot_files(fake, prefix)
-        await fake._rm(listed)
+    listed = await _list_snapshot_files(fake, prefix)
+    await fake._rm(listed)
 
-        assert await _merge_snapshot_files(fake, listed) == {}
+    assert await _merge_snapshot_files(fake, listed) == {}
 
 
 @pytest.mark.asyncio
-async def test_snapshot_write_survives_stale_file_deleted_by_concurrent_compaction() -> None:
+async def test_snapshot_write_survives_file_deleted_by_concurrent_compaction() -> None:
     fake = _FakeS3()
-    await _write(fake, "job-1", {"a": "h1"})
-    stale_key = next(iter(fake.store))
+    prefix = account_property_snapshot_prefix(7, _SNAPSHOT_BINDING, "src", _SEGMENT.value)
+    await fake._pipe_file(f"{prefix}/job-1.parquet", aps._encode_snapshot({"a": "h1"}))
+    await fake._pipe_file(f"{prefix}/job-2.parquet", aps._encode_snapshot({"b": "h2"}))
+    doomed_key = f"{prefix}/job-2.parquet"
 
     original_cat_file = fake._cat_file
 
-    async def _cat_then_vanish(path):
+    async def _cat_then_compact(path):
         data = await original_cat_file(path)
-        fake.store.pop(stale_key, None)
-        fake.times.pop(stale_key, None)
+        await fake._rm([doomed_key])
         return data
 
-    fake._cat_file = _cat_then_vanish  # type: ignore[method-assign]
-    await _write(fake, "job-2", {"b": "h2"})
-    fake._cat_file = original_cat_file  # type: ignore[method-assign]
+    with patch.object(fake, "_cat_file", _cat_then_compact):
+        await _write(fake, "job-3", {"c": "h3"})
 
-    assert await _read(fake) == {"a": "h1", "b": "h2"}
+    assert await _read(fake) == {"a": "h1", "c": "h3"}

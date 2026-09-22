@@ -198,9 +198,8 @@ async def _merge_snapshot_files(s3_client, file_keys: list[str]) -> dict[str, st
         try:
             data = await s3_client._cat_file(_s3_uri(key))
         except FileNotFoundError:
-            # A concurrent _write_snapshot_hashes merged this file into a new one and deleted it
-            # after we listed the folder. Its rows survive in that new file, so skip the vanished
-            # file rather than fail the whole segment.
+            # A concurrent writer compacted this file away after we listed the folder. Its rows
+            # are in the file that replaced it, so skip it rather than fail the whole segment.
             continue
         for row in await asyncio.to_thread(_decode_parquet_rows, data):
             hashes[str(row["external_id"])] = str(row["value_hash"])
@@ -239,7 +238,7 @@ async def _write_snapshot_hashes(
             try:
                 await s3_client._rm([_s3_uri(file_path) for file_path in stale])
             except FileNotFoundError:
-                # A concurrent writer already deleted a file we listed. Nothing is lost.
+                # Defensive: s3fs batch delete is idempotent, but not every S3-compatible store is.
                 pass
 
 
