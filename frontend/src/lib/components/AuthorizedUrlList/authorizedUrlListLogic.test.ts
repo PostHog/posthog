@@ -160,6 +160,28 @@ describe('the authorized urls list logic', () => {
             })
         })
 
+        it('lands both edits when two saves are dispatched back to back', async () => {
+            let storedUrls = [...MOCK_DEFAULT_TEAM.app_urls]
+            useMocks({
+                get: { '/api/environments/@current/': () => [200, { ...MOCK_DEFAULT_TEAM, app_urls: storedUrls }] },
+                patch: {
+                    '/api/environments/:team_id/': async ({ request }) => {
+                        storedUrls = (await request.json()).app_urls
+                        return [200, { ...MOCK_DEFAULT_TEAM, app_urls: storedUrls }]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.addUrl('https://one.example.com')
+                logic.actions.addUrl('https://two.example.com')
+            }).toFinishAllListeners()
+
+            const expected = [...MOCK_DEFAULT_TEAM.app_urls, 'https://one.example.com', 'https://two.example.com']
+            expect(storedUrls).toEqual(expected)
+            expect(logic.values.authorizedUrls).toEqual(expected)
+        })
+
         it('does not save at all when the current list cannot be read', async () => {
             useMocks({ get: { '/api/environments/@current/': () => [500, { detail: 'nope' }] } })
             jest.spyOn(api, 'update')

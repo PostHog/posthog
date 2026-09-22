@@ -312,7 +312,7 @@ export function rebaseAuthorizedUrls(serverUrls: string[], knownUrls: string[], 
  * server stored. The resync is also what rolls an optimistic edit back when the server rejects
  * the save, because `currentTeam` is unchanged in that case.
  */
-async function saveAuthorizedUrls(
+async function writeAuthorizedUrls(
     type: AuthorizedUrlListType,
     intendedUrls: string[],
     setAuthorizedUrls: (urls: string[]) => void
@@ -323,6 +323,9 @@ async function saveAuthorizedUrls(
 
     let serverUrls: string[]
     try {
+        // nosemgrep: no-environments-api-urls-frontend -- this list is per environment, and
+        // /api/projects/ serves app_urls from the project's passthrough team, so it would rebase
+        // on the wrong environment. teamLogic reads and writes the same environment path.
         serverUrls = readTeamUrls(await api.get<TeamType>('api/environments/@current'), field)
     } catch {
         // Without the server's list we could only send a stale whole array, which is the lost
@@ -348,6 +351,25 @@ async function saveAuthorizedUrls(
     const savedUrls = readTeamUrls(teamLogic.values.currentTeam, field)
     setAuthorizedUrls(savedUrls)
     return savedUrls
+}
+
+/**
+ * Saves run one at a time. Two overlapping `updateCurrentTeam` calls cancel the earlier one
+ * through kea-loaders' breakpoint, so its response never reaches `currentTeam` and the resync
+ * would then read a list the server has already moved past.
+ */
+let saveQueue: Promise<unknown> = Promise.resolve()
+
+function saveAuthorizedUrls(
+    type: AuthorizedUrlListType,
+    intendedUrls: string[],
+    setAuthorizedUrls: (urls: string[]) => void
+): Promise<string[]> {
+    // The intended list is captured now, not when the turn runs, because an earlier save's
+    // resync overwrites the local list with the server's copy before this one starts.
+    const save = saveQueue.then(() => writeAuthorizedUrls(type, intendedUrls, setAuthorizedUrls))
+    saveQueue = save.catch(() => undefined)
+    return save
 }
 
 export const NEW_URL = 'https://'

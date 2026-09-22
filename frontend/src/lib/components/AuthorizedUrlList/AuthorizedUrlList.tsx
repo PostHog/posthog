@@ -15,7 +15,7 @@ import { AuthorizedUrlForm } from './AuthorizedUrlForm'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from './authorizedUrlListLogic'
 import { EmptyState } from './EmptyState'
 
-/** A save reads the saved list before it writes, so a second save would rebase on a list about to change. */
+/** Saves queue behind each other, so a click during one only looks like it did nothing. */
 const SAVE_IN_FLIGHT_REASON = 'Waiting for the last change to save'
 
 export interface AuthorizedUrlListProps {
