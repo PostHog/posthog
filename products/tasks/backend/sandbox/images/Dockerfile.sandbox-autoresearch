@@ -11,11 +11,13 @@ FROM ${BASE_IMAGE}
 # time, so these must be present on the default interpreter path. PEP 668 marks the
 # system environment as externally managed; --break-system-packages is the documented
 # escape hatch for purpose-built images like this one.
+# Pinned to the versions in the repo's uv.lock, so the sandbox trains on the same libraries
+# the worker's own fit path runs, and a rebuild cannot change the training environment.
 RUN pip install --break-system-packages --no-cache-dir \
-    numpy \
-    pandas \
-    scikit-learn \
-    pyarrow \
-    scipy
+    numpy==2.3.5 \
+    pandas==2.3.3 \
+    scikit-learn==1.7.2 \
+    pyarrow==23.0.1 \
+    scipy==1.16.3
 
 CMD ["/bin/bash"]
