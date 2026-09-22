@@ -6692,6 +6692,7 @@ mod tests {
             !result.matches,
             "an unpinned variant reads the hash, so it must not fall back to distinct_id"
         );
+        assert_eq!(result.reason, FeatureFlagMatchReason::OutOfRolloutBound);
     }
 
     #[tokio::test]
