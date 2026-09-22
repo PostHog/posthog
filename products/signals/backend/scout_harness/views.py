@@ -1101,7 +1101,6 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 team=self.team,
                 run=run,
                 description=data["description"],
-                confidence=data.get("confidence"),
                 evidence=evidence,
                 hypothesis=data.get("hypothesis") or None,
                 severity=data.get("severity") or None,
