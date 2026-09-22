@@ -1,10 +1,8 @@
-import tempfile
 import subprocess
-from pathlib import Path
 from typing import Any
 
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
@@ -18,6 +16,7 @@ from posthog.hogql.database.models import DatabaseField, StringDatabaseField, UU
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.escape_sql import escape_param_clickhouse
 
+from posthog.clickhouse.client import sync_execute
 from posthog.exceptions import ClickHouseAtCapacity
 
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
@@ -259,18 +258,22 @@ class TestRunChdbQuery:
             assert DataWarehouseTable()._is_suppressed_chdb_error(exc_info.value) is suppressed
 
 
-class TestStructureAgainstTheEngine(BaseTest):
-    # chdb embeds the same ClickHouse engine that introspects a table and that every warehouse read
-    # runs against, over local files instead of S3. These cases therefore prove what the engine does
-    # with a structure we built, which no mock-based test can. They go through run_chdb_query so that
-    # a hung embedded query fails the test instead of wedging the job, and the timeout is generous
-    # because importing chdb alone costs seconds.
-    CHDB_TIMEOUT_SECONDS = 120.0
-
-    def _json_file(self, lines: list[str], name: str = "rows.json", directory: Path | None = None) -> Path:
-        path = (directory or Path(tempfile.mkdtemp())) / name
-        path.write_text("".join(f"{line}\n" for line in lines))
-        return path
+class TestStructureAgainstTheEngine(ClickhouseTestMixin, BaseTest):
+    # A warehouse read pins the stored structure as the `structure` argument of s3(), so what the engine
+    # does with that string decides whether a column is readable. These cases send the structure the model
+    # builds to ClickHouse and read rows back through it, which no mock-based test can do. They run on the
+    # cluster because that is where a read runs, and they send no settings for the same reason.
+    # `format()` stands in for s3() so the case needs no bucket: both take the same format and structure,
+    # and the parsing under test is the format reader's.
+    def _read_through_structure(self, table: DataWarehouseTable, select: str, rows: list[str]) -> list[tuple[Any, ...]]:
+        definition = table.hogql_definition()
+        assert isinstance(definition, HogQLDataWarehouseTable)
+        assert definition.structure is not None
+        return sync_execute(
+            f"SELECT {select} FROM format(JSONEachRow, "
+            f"{escape_param_clickhouse(definition.structure)}, "
+            f"{escape_param_clickhouse(''.join(f'{row}\n' for row in rows))}) ORDER BY id"
+        )
 
     def test_array_of_objects_is_readable_through_the_stored_structure(self) -> None:
         # The element names are what makes the column parseable. Without them ClickHouse reads
@@ -290,29 +293,14 @@ class TestStructureAgainstTheEngine(BaseTest):
                 },
             },
         )
-        path = self._json_file(['{"id": 1, "items": [{"sku": "widget", "qty": 2}]}'])
 
-        definition = table.hogql_definition()
-        assert isinstance(definition, HogQLDataWarehouseTable)
-        assert definition.structure is not None
-        result = run_chdb_query(
-            f"SELECT items.sku FROM file({escape_param_clickhouse(str(path))}, JSONEachRow, "
-            f"{escape_param_clickhouse(definition.structure)})",
-            timeout=self.CHDB_TIMEOUT_SECONDS,
-        )
+        result = self._read_through_structure(table, "items.sku", ['{"id": 1, "items": [{"sku": "widget", "qty": 2}]}'])
 
-        assert "widget" in result
+        assert result == [(["widget"],)]
 
     def test_a_key_outside_the_schema_reads_through_a_json_column(self) -> None:
-        # Introspection samples one file, so the second file's key is absent from the stored schema and still reads.
-        # A Tuple of the sampled keys drops it at parse time instead.
-        directory = Path(tempfile.mkdtemp())
-        self._json_file(['{"id": 1, "usage": {"inputTokens": 10}}'], name="a.json", directory=directory)
-        self._json_file(
-            ['{"id": 2, "usage": {"inputTokens": 20, "cacheWriteInputTokenCount": 5}}'],
-            name="b.json",
-            directory=directory,
-        )
+        # Introspection samples part of the data, so the second row's key is absent from the stored schema
+        # and still reads. A Tuple of the sampled keys drops it at parse time instead.
         table = DataWarehouseTable(
             name="runs",
             format=DataWarehouseTable.TableFormat.JSON,
@@ -324,20 +312,17 @@ class TestStructureAgainstTheEngine(BaseTest):
             },
         )
 
-        definition = table.hogql_definition()
-        assert isinstance(definition, HogQLDataWarehouseTable)
-        assert definition.structure is not None
-        glob = escape_param_clickhouse(str(directory / "*.json"))
-        result = run_chdb_query(
-            # The engine chdb embeds still treats the JSON type as experimental, so it needs the setting to create
-            # the column. The cluster enables the type by default and the read path sets nothing.
-            "SET allow_experimental_json_type=1; SELECT id, usage.cacheWriteInputTokenCount AS written FROM "
-            f"file({glob}, JSONEachRow, {escape_param_clickhouse(definition.structure)}) ORDER BY id",
-            timeout=self.CHDB_TIMEOUT_SECONDS,
+        result = self._read_through_structure(
+            table,
+            "id, toString(usage.cacheWriteInputTokenCount) AS written",
+            [
+                '{"id": 1, "usage": {"inputTokens": 10}}',
+                '{"id": 2, "usage": {"inputTokens": 20, "cacheWriteInputTokenCount": 5}}',
+            ],
         )
 
-        # The file that carries the key reads it; the file that does not reads NULL rather than failing.
-        assert result.splitlines() == ["1,\\N", "2,5"]
+        # The row that carries the key reads it; the row that does not reads empty rather than failing.
+        assert result == [(1, ""), (2, "5")]
 
 
 class TestSchemaInferenceMode(BaseTest):
