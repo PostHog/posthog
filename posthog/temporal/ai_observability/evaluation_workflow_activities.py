@@ -127,9 +127,10 @@ async def disable_evaluation_activity(
 ) -> bool:
     """Transition an evaluation into the ERROR state when the workflow hits a terminal skippable error.
 
-    Returns True only for the first workflow that disables the evaluation. Later in-flight
+    Returns True only for the first workflow that disables a running evaluation. Later in-flight
     workflows can hit the same terminal error after the first transition, but shouldn't send
-    duplicate disabled notifications or write duplicate activity log rows.
+    duplicate disabled notifications or write duplicate activity log rows. An evaluation that was
+    already off keeps its new error state, but returns False, because nothing was disabled.
     """
 
     def _disable() -> bool:
@@ -142,8 +143,9 @@ async def disable_evaluation_activity(
             if evaluation.status == EvaluationStatus.ERROR and not evaluation.enabled:
                 return False
 
+            was_enabled = evaluation.enabled
             evaluation.set_status("error", reason, status_reason_detail)
-            return True
+            return was_enabled
 
     return await database_sync_to_async(_disable)()
 

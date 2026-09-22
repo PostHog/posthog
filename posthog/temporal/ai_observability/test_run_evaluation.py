@@ -1672,6 +1672,23 @@ class TestRunEvaluationWorkflow:
         assert disabled_again is False
         assert logs_after_retry == 1
 
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_disable_evaluation_activity_does_not_report_a_paused_evaluation_as_disabled(self, setup_data):
+        evaluation = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        await sync_to_async(lambda: evaluation.set_status("paused"))()
+
+        disabled = await disable_evaluation_activity(
+            str(evaluation.id), team.id, "provider_key_invalid", "Incorrect API key provided"
+        )
+
+        await sync_to_async(evaluation.refresh_from_db)()
+        assert disabled is False
+        assert evaluation.status == "error"
+        assert evaluation.status_reason == "provider_key_invalid"
+
     @pytest.mark.django_db(transaction=True)
     def test_successful_execution_does_not_disable_evaluation(self, setup_data):
         evaluation = setup_data["evaluation"]
