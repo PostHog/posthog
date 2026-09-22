@@ -704,10 +704,11 @@ export const HomeWatchFeedEmpty: StoryObj = {
     },
 }
 
-// Test arm of the Usage tab: absorbs the observations chart and enabled-scanners card.
-export const UsageTabRedesigned: StoryObj = {
+// Test arm of the scanners list: the observations chart and enabled-scanners card sit above the table,
+// with the paused banner in place of the spend card. The test arm opens on the feed, so set the tab.
+export const ScannersListRedesigned: StoryObj = {
     parameters: {
-        pageUrl: `${urls.replayVision()}?tab=usage`,
+        pageUrl: `${urls.replayVision()}?tab=scanners`,
         featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
     },
 }
