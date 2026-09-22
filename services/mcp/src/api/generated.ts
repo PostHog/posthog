@@ -11399,6 +11399,40 @@ export namespace Schemas {
       P4: 'P4',
     } as const;
 
+    export type AutoresearchIterationRecipeSnapshotFeatureTransformsItem = { [key: string]: unknown };
+
+    /**
+     * Compact recipe snapshot at time of iteration. Full artifact lives in the model row.
+     */
+    export type AutoresearchIterationRecipeSnapshot = {
+      /** A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id. */
+      feature_sql: string;
+      /**
+         * Transforms the bundle applies to the feature columns; null or absent means none, and the in-process path accepts none.
+         * @nullable
+         */
+      feature_transforms?: AutoresearchIterationRecipeSnapshotFeatureTransformsItem[] | null;
+    };
+
+    /**
+     * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+     * @nullable
+     */
+    export type AutoresearchIterationModelSpecModelParams = { [key: string]: unknown } | null;
+
+    /**
+     * Model class and hyperparameters tried in this iteration.
+     */
+    export type AutoresearchIterationModelSpec = {
+      /** Dotted path of the estimator class. */
+      model_class: string;
+      /**
+         * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+         * @nullable
+         */
+      model_params?: AutoresearchIterationModelSpecModelParams;
+    };
+
     /**
      * * `kept` - Kept
      * * `discarded` - Discarded
@@ -11412,6 +11446,40 @@ export namespace Schemas {
       Discarded: 'discarded',
       Crashed: 'crashed',
     } as const;
+
+    export interface AutoresearchIteration {
+      readonly id: string;
+      pipeline: string;
+      training_run: string;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      iteration_number: number;
+      /** @maxLength 64 */
+      recipe_hash: string;
+      /** Compact recipe snapshot at time of iteration. Full artifact lives in the model row. */
+      recipe_snapshot: AutoresearchIterationRecipeSnapshot;
+      /** Model class and hyperparameters tried in this iteration. */
+      model_spec: AutoresearchIterationModelSpec;
+      /** @nullable */
+      train_score?: number | null;
+      /** @nullable */
+      holdout_score?: number | null;
+      status: AutoresearchIterationStatusEnum;
+      agent_description?: string;
+      /**
+         * Agent's self-assessed confidence 0–1
+         * @nullable
+         */
+      agent_confidence?: number | null;
+      /**
+         * UUID of the steering suggestion this iteration was spawned from, if any.
+         * @nullable
+         */
+      parent_suggestion?: string | null;
+      readonly created_at: string;
+    }
 
     /**
      * Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata.
@@ -11856,6 +11924,25 @@ export namespace Schemas {
     }
 
     /**
+     * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+     * @nullable
+     */
+    export type IterationTrailModelSpecModelParams = { [key: string]: unknown } | null;
+
+    /**
+     * Model class and hyperparameters tried in this iteration.
+     */
+    export type IterationTrailModelSpec = {
+      /** Dotted path of the estimator class. */
+      model_class: string;
+      /**
+         * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+         * @nullable
+         */
+      model_params?: IterationTrailModelSpecModelParams;
+    };
+
+    /**
      * Compact, read-only view of one iteration for the cross-run history feed and the Training tab.
      */
     export interface IterationTrail {
@@ -11884,7 +11971,7 @@ export namespace Schemas {
       /** The agent's one-line rationale for what it tried and why. */
       agent_description?: string;
       /** Model class and hyperparameters tried in this iteration. */
-      model_spec: unknown;
+      model_spec: IterationTrailModelSpec;
     }
 
     export interface AutoresearchTrainingRun {
@@ -19763,40 +19850,80 @@ export namespace Schemas {
       _create_static_person_ids?: string[];
     }
 
-    export type CohortPersonResultProperties = { [key: string]: unknown };
-
-    export type CohortPersonResultMatchedRecordingsItem = { [key: string]: unknown };
+    /**
+     * Minimal serializer for cohort references, read by the person cohorts endpoint.
+     */
+    export interface CohortMinimal {
+      readonly id: number;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      count?: number | null;
+    }
 
     /**
-     * * `person` - person
+     * Marks this actor as a person.
      */
-    export type CohortPersonResultTypeEnum = typeof CohortPersonResultTypeEnum[keyof typeof CohortPersonResultTypeEnum];
+    export type SerializedPersonActorType = typeof SerializedPersonActorType[keyof typeof SerializedPersonActorType];
 
 
-    export const CohortPersonResultTypeEnum = {
+    export const SerializedPersonActorType = {
       Person: 'person',
     } as const;
 
-    export interface CohortPersonResult {
+    /**
+     * The actor's properties.
+     */
+    export type SerializedPersonActorProperties = { [key: string]: unknown };
+
+    export type SerializedPersonActorMatchedRecordingsItem = { [key: string]: unknown };
+
+    export interface SerializedPersonActor {
+      /** The person's UUID, or the group's key. */
       id: string;
-      uuid: string;
-      type: CohortPersonResultTypeEnum;
-      name: string;
-      distinct_ids: string[];
-      properties: CohortPersonResultProperties;
-      /** @nullable */
+      /** The actor's properties. */
+      properties: SerializedPersonActorProperties;
+      /**
+         * When the actor was first seen.
+         * @nullable
+         */
       created_at: string | null;
-      /** @nullable */
-      last_seen_at: string | null;
-      /** @nullable */
-      is_identified: boolean | null;
-      matched_recordings: CohortPersonResultMatchedRecordingsItem[];
-      /** @nullable */
+      /** Recordings that matched the query. Empty unless the endpoint asks for them. */
+      matched_recordings: SerializedPersonActorMatchedRecordingsItem[];
+      /**
+         * The actor's value at the data point it was queried for. Null unless the query computes one.
+         * @nullable
+         */
       value_at_data_point: number | null;
+      /** Marks this actor as a person. */
+      type: SerializedPersonActorType;
+      /** The person's UUID. Same value as `id`. */
+      uuid: string;
+      /** Display name, resolved from the person's properties or distinct IDs. */
+      name: string;
+      /** The person's distinct IDs, newest first. */
+      distinct_ids: string[];
+      /**
+         * When the person was last seen.
+         * @nullable
+         */
+      last_seen_at: string | null;
+      /**
+         * Whether the person has been identified.
+         * @nullable
+         */
+      is_identified: boolean | null;
     }
 
     export interface CohortPersonsResponse {
-      results: CohortPersonResult[];
+      results: SerializedPersonActor[];
       /** @nullable */
       next: string | null;
       /** @nullable */
@@ -20201,6 +20328,34 @@ export namespace Schemas {
     export interface CompareItem {
       label: string;
       value: string;
+    }
+
+    /**
+     * Global feature importance / directionality bundle for the champion model card.
+     */
+    export type CompleteTrainingRunModelExplanation = { [key: string]: unknown };
+
+    /**
+     * Input for finalizing a training run. The backend selects/promotes the champion.
+     */
+    export interface CompleteTrainingRun {
+      /**
+         * Advisory nomination. The server promotes the kept iteration with the highest holdout_score; this id only breaks a tie at that score, and a lower-scoring nomination is logged and ignored.
+         * @nullable
+         */
+      best_iteration_id?: string | null;
+      /** Global feature importance / directionality bundle for the champion model card. */
+      model_explanation?: CompleteTrainingRunModelExplanation;
+      /**
+         * What a future run should try next, given what this run learned. Stored in the run summary so the next run reads it during orientation. Keep it short and concrete; max 2000 characters.
+         * @maxLength 2000
+         */
+      recommended_next?: string;
+      /**
+         * A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters.
+         * @maxLength 2000
+         */
+      distillation?: string;
     }
 
     export interface ComposeTicket {
@@ -45271,6 +45426,26 @@ export namespace Schemas {
       add_images_to_comment_on_pr?: boolean;
     }
 
+    /**
+     * The group's properties.
+     */
+    export type FindGroupGroupProperties = { [key: string]: unknown };
+
+    export interface FindGroup {
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      group_type_index: number;
+      /** @maxLength 400 */
+      group_key: string;
+      /** The group's properties. */
+      group_properties: FindGroupGroupProperties;
+      readonly created_at: string;
+      /** @nullable */
+      readonly notebook: string | null;
+    }
+
     export interface FlagValueItem {
       name: unknown;
     }
@@ -46414,6 +46589,11 @@ export namespace Schemas {
       Symbol: 'symbol',
     } as const;
 
+    /**
+     * The group's properties.
+     */
+    export type GroupGroupProperties = { [key: string]: unknown };
+
     export interface Group {
       /**
          * @minimum -2147483648
@@ -46422,8 +46602,14 @@ export namespace Schemas {
       group_type_index: number;
       /** @maxLength 400 */
       group_key: string;
-      group_properties?: unknown;
+      /** The group's properties. */
+      group_properties: GroupGroupProperties;
       readonly created_at: string;
+    }
+
+    export interface GroupDeleteProperty {
+      /** Name of the property to delete. */
+      $unset: string;
     }
 
     export interface GroupType {
@@ -46445,6 +46631,18 @@ export namespace Schemas {
       default_columns?: string[] | null;
       /** @nullable */
       created_at?: string | null;
+    }
+
+    /**
+     * Value to set. Any JSON value other than null.
+     */
+    export type GroupUpdatePropertyRequestValue = string | number | boolean | { [key: string]: unknown } | unknown[];
+
+    export interface GroupUpdatePropertyRequest {
+      /** Name of the property to set. */
+      key: string;
+      /** Value to set. Any JSON value other than null. */
+      value: GroupUpdatePropertyRequestValue;
     }
 
     /**
@@ -47082,14 +47280,14 @@ export namespace Schemas {
       /** Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]. */
       events?: HogFlowConversionEvent[];
       /**
-         * How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. Omit it to use the default window. Set this or 'window_minutes', not both.
+         * How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both.
          * @maxLength 32
          * @nullable
          * @pattern ^(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)[dhms]$
          */
       window?: string | null;
       /**
-         * DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default window. Set this or 'window', not both.
+         * DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both.
          * @nullable
          */
       window_minutes?: number | null;
@@ -51525,7 +51723,7 @@ export namespace Schemas {
          * @maxLength 20000
          */
       prompt: string;
-      /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt.
+      /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.
        *
        * * `monitor` - Monitor
        * * `classifier` - Classifier
@@ -52250,6 +52448,74 @@ export namespace Schemas {
       readonly complaint_base: number;
       /** Rates AWS did not return for this provider, from `delivery`, `bounce`, `transient_bounce` and `complaint`. A rate named here is missing, not zero, and the UI says so rather than showing a number. */
       readonly unavailable: readonly string[];
+    }
+
+    /**
+     * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+     * @nullable
+     */
+    export type IterationTrailWithRecipeModelSpecModelParams = { [key: string]: unknown } | null;
+
+    /**
+     * Model class and hyperparameters tried in this iteration.
+     */
+    export type IterationTrailWithRecipeModelSpec = {
+      /** Dotted path of the estimator class. */
+      model_class: string;
+      /**
+         * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+         * @nullable
+         */
+      model_params?: IterationTrailWithRecipeModelSpecModelParams;
+    };
+
+    export type IterationTrailWithRecipeRecipeSnapshotFeatureTransformsItem = { [key: string]: unknown };
+
+    /**
+     * The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them.
+     */
+    export type IterationTrailWithRecipeRecipeSnapshot = {
+      /** A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id. */
+      feature_sql: string;
+      /**
+         * Transforms the bundle applies to the feature columns; null or absent means none, and the in-process path accepts none.
+         * @nullable
+         */
+      feature_transforms?: IterationTrailWithRecipeRecipeSnapshotFeatureTransformsItem[] | null;
+    };
+
+    /**
+     * The trail with each iteration's recipe, for history only: a run list page would otherwise carry every recipe of every run.
+     */
+    export interface IterationTrailWithRecipe {
+      /**
+         * Order of this attempt within its run (0-based).
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      iteration_number: number;
+      /** Whether this recipe was kept (improved the best score), discarded, or crashed.
+       *
+       * * `kept` - Kept
+       * * `discarded` - Discarded
+       * * `crashed` - Crashed */
+      status: AutoresearchIterationStatusEnum;
+      /**
+         * Holdout AUC this iteration achieved. Null if it was skipped/degenerate.
+         * @nullable
+         */
+      holdout_score?: number | null;
+      /**
+         * Train-fold AUC for this iteration, if recorded.
+         * @nullable
+         */
+      train_score?: number | null;
+      /** The agent's one-line rationale for what it tried and why. */
+      agent_description?: string;
+      /** Model class and hyperparameters tried in this iteration. */
+      model_spec: IterationTrailWithRecipeModelSpec;
+      /** The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them. */
+      recipe_snapshot: IterationTrailWithRecipeRecipeSnapshot;
     }
 
     export interface JiraIssueSignalExtra {
@@ -59168,6 +59434,18 @@ export namespace Schemas {
     }
 
     /**
+     * Input for opening an agent-driven training run.
+     */
+    export interface OpenTrainingRun {
+      /**
+         * Iteration budget for this run. Defaults to the pipeline's iteration_budget if omitted.
+         * @minimum 1
+         * @maximum 500
+         */
+      iteration_budget?: number;
+    }
+
+    /**
      * * `latest` - latest
      * * `earliest` - earliest
      */
@@ -63027,6 +63305,9 @@ export namespace Schemas {
      * * `work_release` - Work Release
      * * `pull_request` - Pull Request
      * * `check_result` - Check Result
+     * * `check_scheduled` - Check Scheduled
+     * * `check_expired` - Check Expired
+     * * `check_cancelled` - Check Cancelled
      * * `implementation_decision` - Implementation Decision
      * * `implementation_dispatch` - Implementation Dispatch
      * * `implementation_replacement` - Implementation Replacement
@@ -63058,6 +63339,9 @@ export namespace Schemas {
       WorkRelease: 'work_release',
       PullRequest: 'pull_request',
       CheckResult: 'check_result',
+      CheckScheduled: 'check_scheduled',
+      CheckExpired: 'check_expired',
+      CheckCancelled: 'check_cancelled',
       ImplementationDecision: 'implementation_decision',
       ImplementationDispatch: 'implementation_dispatch',
       ImplementationReplacement: 'implementation_replacement',
@@ -75919,6 +76203,11 @@ export namespace Schemas {
       deletion_errors?: PersonBulkDeleteResponseDeletionErrorsItem[];
     }
 
+    export interface PersonCohortsResponse {
+      /** Cohorts the person currently belongs to. */
+      results: CohortMinimal[];
+    }
+
     export interface PersonDeletePropertyRequest {
       /** A property key, or a list of property keys, to remove from this person. */
       $unset: string | string[];
@@ -81971,6 +82260,107 @@ export namespace Schemas {
       recorded: boolean;
     }
 
+    export type RecordIterationRecipeSnapshotFeatureTransformsItem = { [key: string]: unknown };
+
+    /**
+     * Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms.
+     */
+    export type RecordIterationRecipeSnapshot = {
+      /** A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id. */
+      feature_sql: string;
+      /**
+         * Transforms the bundle applies to the feature columns; null or absent means none, and the in-process path accepts none.
+         * @nullable
+         */
+      feature_transforms?: RecordIterationRecipeSnapshotFeatureTransformsItem[] | null;
+    };
+
+    /**
+     * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+     * @nullable
+     */
+    export type RecordIterationModelSpecModelParams = { [key: string]: unknown } | null;
+
+    /**
+     * model_class and model_params tried this iteration. Any class is accepted here; the sklearn/xgboost allowlist applies at completion, to a run that uploaded no bundle.
+     */
+    export type RecordIterationModelSpec = {
+      /** Dotted path of the estimator class. */
+      model_class: string;
+      /**
+         * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+         * @nullable
+         */
+      model_params?: RecordIterationModelSpecModelParams;
+    };
+
+    /**
+     * * `kept` - kept
+     * * `discarded` - discarded
+     * * `crashed` - crashed
+     */
+    export type RecordIterationStatusEnum = typeof RecordIterationStatusEnum[keyof typeof RecordIterationStatusEnum];
+
+
+    export const RecordIterationStatusEnum = {
+      Kept: 'kept',
+      Discarded: 'discarded',
+      Crashed: 'crashed',
+    } as const;
+
+    /**
+     * Input for recording one training iteration. Validated against the recipe allowlist.
+     */
+    export interface RecordIteration {
+      /**
+         * Zero-based index of this iteration within the run. Re-sending the same number updates that iteration (idempotent).
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      iteration_number: number;
+      /** Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms. */
+      recipe_snapshot: RecordIterationRecipeSnapshot;
+      /** model_class and model_params tried this iteration. Any class is accepted here; the sklearn/xgboost allowlist applies at completion, to a run that uploaded no bundle. */
+      model_spec: RecordIterationModelSpec;
+      /** 'kept' if this iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure.
+       *
+       * * `kept` - kept
+       * * `discarded` - discarded
+       * * `crashed` - crashed */
+      status: RecordIterationStatusEnum;
+      /**
+         * Training-set AUC for this iteration (0-1).
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      train_score?: number | null;
+      /**
+         * Held-out AUC for this iteration (0-1). Used to pick the champion at completion.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      holdout_score?: number | null;
+      /**
+         * Agent's plain-English rationale for this iteration. Max 2000 characters.
+         * @maxLength 2000
+         */
+      agent_description?: string;
+      /**
+         * Agent's self-assessed confidence (0-1) that this iteration helps.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      agent_confidence?: number | null;
+      /**
+         * UUID of the steering suggestion this iteration was spawned from, if any. Set it whenever the iteration acts on a pending suggestion — it links the iteration back to the suggestion for attribution and advances the suggestion to 'acted_on'.
+         * @nullable
+         */
+      parent_suggestion?: string | null;
+    }
+
     /**
      * The record itself, as a JSON object. Must validate against the scout config's `structured_output_schema` (shown in the run prompt); any invalid record fails the whole call with nothing written.
      */
@@ -82026,6 +82416,50 @@ export namespace Schemas {
     export const RedshiftDestinationRequestTypeEnum = {
       Redshift: 'Redshift',
     } as const;
+
+    /**
+     * Marks this actor as a group.
+     */
+    export type SerializedGroupActorType = typeof SerializedGroupActorType[keyof typeof SerializedGroupActorType];
+
+
+    export const SerializedGroupActorType = {
+      Group: 'group',
+    } as const;
+
+    /**
+     * The actor's properties.
+     */
+    export type SerializedGroupActorProperties = { [key: string]: unknown };
+
+    export type SerializedGroupActorMatchedRecordingsItem = { [key: string]: unknown };
+
+    export interface SerializedGroupActor {
+      /** The person's UUID, or the group's key. */
+      id: string;
+      /** The actor's properties. */
+      properties: SerializedGroupActorProperties;
+      /**
+         * When the actor was first seen.
+         * @nullable
+         */
+      created_at: string | null;
+      /** Recordings that matched the query. Empty unless the endpoint asks for them. */
+      matched_recordings: SerializedGroupActorMatchedRecordingsItem[];
+      /**
+         * The actor's value at the data point it was queried for. Null unless the query computes one.
+         * @nullable
+         */
+      value_at_data_point: number | null;
+      /** Marks this actor as a group. */
+      type: SerializedGroupActorType;
+      /** Key identifying the group within its group type. */
+      group_key: string;
+      /** Index of the group type this group belongs to. */
+      group_type_index: number;
+    }
+
+    export type RelatedActor = SerializedPersonActor | SerializedGroupActor;
 
     export interface RelationshipReject {
       /** Why the proposal is rejected. Persisted so it is never re-proposed. */
@@ -84238,6 +84672,7 @@ export namespace Schemas {
      * * `evaluation` - evaluation
      * * `event` - event
      * * `insight` - insight
+     * * `instructions` - instructions
      * * `notebook` - notebook
      * * `text` - text
      */
@@ -84251,6 +84686,7 @@ export namespace Schemas {
       Evaluation: 'evaluation',
       Event: 'event',
       Insight: 'insight',
+      Instructions: 'instructions',
       Notebook: 'notebook',
       Text: 'text',
     } as const;
@@ -84263,7 +84699,7 @@ export namespace Schemas {
      * the live path wraps context client-side (`products/posthog_ai/frontend/utils/posthogContextBlock.ts`).
      */
     export interface SandboxAttachedContextItem {
-      /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.
+      /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` and `instructions` carry `value`. `instructions` is the caller's own guidance and renders into the trusted context block; every other kind renders into the untrusted block, which tells the agent to read it as data.
        *
        * * `action` - action
        * * `dashboard` - dashboard
@@ -84271,6 +84707,7 @@ export namespace Schemas {
        * * `evaluation` - evaluation
        * * `event` - event
        * * `insight` - insight
+       * * `instructions` - instructions
        * * `notebook` - notebook
        * * `text` - text */
       type: SandboxAttachedContextItemTypeEnum;
@@ -84278,7 +84715,7 @@ export namespace Schemas {
       id?: unknown;
       /** Optional human-readable label rendered in the context block. */
       name?: string;
-      /** Free-text content. Only for `text` attachments. */
+      /** Free-text content. Only for `text` and `instructions` attachments. */
       value?: string;
     }
 
@@ -84879,6 +85316,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly status_changed_at: string | null;
+      /** Who last moved `status`, when a person did it through this API. Null for a system transition such as an automatic pause, for a row whose status never changed, and for a caller that may not read member identities. Pair it with `status` to say who turned a scout off, instead of only when it went off. */
+      readonly status_changed_by: UserBasic | null;
       /** Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. Only ever set explicitly: re-enabling a swept scout instead grants a fresh grace window before the sweep may judge it again. */
       readonly auto_pause_exempt: boolean;
       /** Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter. */
@@ -95430,6 +95869,46 @@ export namespace Schemas {
       queue_id?: string | null;
     }
 
+    /**
+     * One prior completed training run plus its full iteration trail.
+     */
+    export interface TrainingRunHistoryEntry {
+      /** UUID of the completed training run. */
+      run_id: string;
+      /** UUID of the pipeline this run belongs to. */
+      pipeline_id: string;
+      /** True if this run is from the pipeline you are training; False if it is a same-target sibling pipeline on the team. */
+      is_current_pipeline: boolean;
+      /** Target event this run's pipeline predicts. */
+      target_event: string;
+      /** Prediction horizon (days) of this run's pipeline. */
+      horizon_days: number;
+      /**
+         * Best holdout AUC achieved across this run's iterations.
+         * @nullable
+         */
+      best_holdout_score: number | null;
+      /** Number of iterations recorded in this run. */
+      iteration_count: number;
+      /**
+         * When this run completed.
+         * @nullable
+         */
+      completed_at: string | null;
+      /** Distilled tier-1 summary of this run — read this first to orient. Null for older runs without one. */
+      summary: TrainingRunSummary | null;
+      /** The iteration trail: every recipe tried, kept or discarded, with rationale and score. */
+      iterations: IterationTrailWithRecipe[];
+    }
+
+    /**
+     * Cross-run learning memory: prior runs the agent should read before iterating.
+     */
+    export interface TrainingRunHistory {
+      /** Recent completed training runs — the current pipeline first, then same-target sibling pipelines on the team — newest first. Mine these to reuse winning features and avoid repeating discarded approaches. */
+      runs: TrainingRunHistoryEntry[];
+    }
+
     export interface TranslateRequest {
       /**
          * The text to translate
@@ -101668,6 +102147,15 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type AutoresearchTrainingRunsHistoryRetrieveParams = {
+    /**
+     * Maximum number of prior runs to return (default 5, at most 20).
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number;
+    };
+
     export type BatchExportsListParams = {
     /**
      * Number of results to return per page.
@@ -105734,11 +106222,11 @@ export namespace Schemas {
     skip_create_notebook?: boolean;
     };
 
-    export type GroupsRelatedRetrieveParams = {
+    export type GroupsRelatedListParams = {
     /**
-     * Specify the group type to find
+     * Group type of the actor to find related actors for. Omit when the actor is a person.
      */
-    group_type_index: number;
+    group_type_index?: number;
     /**
      * Specify the id of the user to find groups for
      */
