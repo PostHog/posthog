@@ -50,6 +50,13 @@ class TestDecideRequestValidation(SimpleTestCase):
         assert not serializer.is_valid()
         assert "questions" in serializer.errors
 
+    def test_caps_the_number_of_questions(self) -> None:
+        too_many = {f"q{i}": {"type": "noul", "instructions": "Is it?"} for i in range(33)}
+        serializer = DecideRequestSerializer(data={"state": "text", "questions": too_many})
+
+        assert not serializer.is_valid()
+        assert "questions" in serializer.errors
+
     def test_defaults_the_model(self) -> None:
         serializer = DecideRequestSerializer(data={"state": "text", "questions": QUESTIONS})
 

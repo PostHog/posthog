@@ -32,6 +32,9 @@ class DecisionGatewayError(Exception):
         self.detail = detail
 
 
+MAX_QUESTIONS_PER_REQUEST = 32
+
+
 @dataclass(frozen=True)
 class DecisionQuestion:
     type: DecisionQuestionType
@@ -55,6 +58,10 @@ class DecisionRequest:
     state: str
     questions: dict[str, DecisionQuestion]
     model: str = DEFAULT_DECISION_MODEL
+
+    def __post_init__(self) -> None:
+        if len(self.questions) > MAX_QUESTIONS_PER_REQUEST:
+            raise ValueError(f"a request takes at most {MAX_QUESTIONS_PER_REQUEST} questions")
 
 
 @dataclass(frozen=True)

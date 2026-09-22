@@ -63,10 +63,10 @@ function namedOptions(question: PlaygroundQuestion): PlaygroundOption[] {
     return question.options.filter((option) => option.name.trim())
 }
 
-function wireCriteria(question: PlaygroundQuestion): Record<string, string> | string[] | undefined {
+function wireCriteria(question: PlaygroundQuestion): Record<string, string> | string[] | null {
     switch (question.type) {
         case 'noul':
-            return undefined
+            return null
         case 'choice':
             return Object.fromEntries(
                 namedOptions(question).map((option) => [
@@ -81,14 +81,17 @@ function wireCriteria(question: PlaygroundQuestion): Record<string, string> | st
 
 function buildQuestions(questions: PlaygroundQuestion[]): DecideRequestApi['questions'] {
     return Object.fromEntries(
-        questions.map((question) => [
-            question.key,
-            {
-                type: question.type,
-                instructions: question.instructions,
-                ...(question.type === 'noul' ? {} : { criteria: wireCriteria(question) }),
-            },
-        ])
+        questions.map((question) => {
+            const criteria = wireCriteria(question)
+            return [
+                question.key,
+                {
+                    type: question.type,
+                    instructions: question.instructions,
+                    ...(criteria === null ? {} : { criteria }),
+                },
+            ]
+        })
     )
 }
 

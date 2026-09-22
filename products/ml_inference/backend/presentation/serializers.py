@@ -3,7 +3,7 @@ from typing import Any
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from ..facade.contracts import DEFAULT_DECISION_MODEL
+from ..facade.contracts import DEFAULT_DECISION_MODEL, MAX_QUESTIONS_PER_REQUEST
 from ..facade.enums import DecisionQuestionType
 
 
@@ -65,12 +65,20 @@ class DecideRequestSerializer(serializers.Serializer):
     )
     questions = serializers.DictField(
         child=DecisionQuestionSerializer(),
-        help_text="The questions to ask, keyed by an id of your choice. Answers come back under the same ids.",
+        help_text=(
+            "The questions to ask, keyed by an id of your choice, at most "
+            f"{MAX_QUESTIONS_PER_REQUEST} per request. Answers come back under the same ids."
+        ),
     )
     model = serializers.CharField(
         default=DEFAULT_DECISION_MODEL,
         help_text="The decision model to ask, as a gateway model id.",
     )
+
+    def validate_questions(self, questions: dict[str, Any]) -> dict[str, Any]:
+        if len(questions) > MAX_QUESTIONS_PER_REQUEST:
+            raise serializers.ValidationError(f"A request takes at most {MAX_QUESTIONS_PER_REQUEST} questions.")
+        return questions
 
 
 class DecisionAnswerSerializer(serializers.Serializer):
