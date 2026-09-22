@@ -46,6 +46,16 @@ else:
     _GenericViewSet = object
 
 
+def _team_governing(obj: Model, url_team: Team) -> Team:
+    """The team whose access control rows govern `obj`. Dashboards and insights are addressed
+    through any environment of their project, so the object can live in a sibling of the URL team,
+    and a rule read or written there must still hit the object's own team."""
+    object_team_id = getattr(obj, "team_id", None)
+    if object_team_id is None or object_team_id == url_team.id:
+        return url_team
+    return cast(Team, obj.team)  # type: ignore[attr-defined]
+
+
 def _inherited_source_display_name(obj: Model, access: ResolvedAccess) -> str | None:
     """A human name for the parent object an inherited level comes through, so the UI can say
     which one. Only object-scoped sources have one, and the parent is always the object's own
@@ -191,8 +201,8 @@ class AccessControlSerializer(serializers.ModelSerializer):
 
         # We assume the highest level is required for the given resource to edit access controls
         required_level = highest_access_level(resource)
-        team = context["view"].team
         the_object = context["view"].get_object()
+        team = _team_governing(the_object, context["view"].team)
 
         # Role-backed access controls require the ROLE_BASED_ACCESS feature — same gate
         # as the UI's "Roles" blocks and the runtime enforcement in UserTeamPermissions.
@@ -379,6 +389,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
         obj = self.get_object()
         resource_id = obj.id
+        team = _team_governing(obj, team)
 
         if is_resource_level:
             # If resource level then we are getting all controls for the project that aren't specific to a resource
@@ -436,6 +447,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             raise exceptions.NotFound("User access information is not available for this resource.")
 
         obj = self.get_object()
+        team = _team_governing(obj, team)
 
         org_memberships = (
             OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True)
@@ -506,7 +518,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
         obj = self.get_object()
         resource_id = str(obj.id)
-        team = cast(Team, self.team)  # type: ignore
+        team = _team_governing(obj, cast(Team, self.team))  # type: ignore[attr-defined]
 
         # Generically validate the incoming data
         if not is_resource_level:

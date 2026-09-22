@@ -1740,6 +1740,7 @@ class InsightViewSet(
     scope_object = "insight"
     # Record a tags change per insight when bulk_update_tags mutates it, matching the single-object path.
     bulk_tag_activity_scope = "Insight"
+    queryset_spans_project = True
     serializer_class = InsightSerializer
     throttle_classes = [
         ClickHouseBurstRateThrottle,

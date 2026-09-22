@@ -150,6 +150,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     required_scopes: Optional[list[str]] = None
     sharing_enabled_actions: list[str] = []
 
+    # Set on a viewset whose queryset lists objects from every environment of the project, so the
+    # list filter resolves each object's access controls against the object's own team rather
+    # than the URL team
+    queryset_spans_project: bool = False
+
     def __init_subclass__(cls, **kwargs):
         """
         This class plays a crucial role in ensuring common permissions, authentication and filtering.
@@ -395,7 +400,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             include_all_if_admin = True
 
         return self.user_access_control.filter_queryset_by_access_level(
-            queryset, include_all_if_admin=include_all_if_admin
+            queryset, include_all_if_admin=include_all_if_admin, spans_project=self.queryset_spans_project
         )
 
     def dangerously_get_object(self) -> Any:
