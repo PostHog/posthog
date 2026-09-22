@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import type {
@@ -15,11 +15,9 @@ import type {
     WorkflowEmailSendingRatesApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
+import { FINDING_TYPE_LABELS, RATE_THRESHOLDS, formatRate } from './emailReputation'
+import { WorkflowsEmailSuspendedBanner } from './WorkflowsEmailSuspendedBanner'
 import { workflowsReputationLogic } from './workflowsReputationLogic'
-
-function formatRate(rate: number): string {
-    return percentage(rate, 2, true)
-}
 
 const HEALTH_TAG: Record<AwsTenantReputationHealthEnumApi, { label: string; type: LemonTagType }> = {
     healthy: { label: 'Healthy', type: 'success' },
@@ -31,19 +29,6 @@ const HEALTH_TAG: Record<AwsTenantReputationHealthEnumApi, { label: string; type
 // Per-workflow rate classification. Reserved words like "Warning" / "Critical" belong to the
 // tenant-level AWS verdict (HEALTH_TAG above) — these coarser buckets are just a triage aid for
 // spotting which workflows are pulling the project's numbers in the wrong direction.
-//
-// Thresholds mirror SES's account-level reputation dashboard warning lines (bounce: 5% review /
-// 10% pause; complaint: 0.1% review / 0.5% pause), deliberately conservative early warnings.
-// Actual tenant enforcement (the Standard reputation policy) pauses much higher — high-severity
-// findings at >15% bounce / >1% complaint — so a "high" rate here means "fix this now", not
-// "sending is about to stop". Sources:
-// https://docs.aws.amazon.com/ses/latest/dg/reputationdashboardmessages.html (dashboard lines)
-// https://aws.amazon.com/blogs/messaging-and-targeting/implement-tenants-in-your-amazon-ses-environment-part-3-implementation-guide/ (tenant policy lines)
-const RATE_THRESHOLDS = {
-    bounce: { elevated: 0.03, high: 0.05 },
-    complaint: { elevated: 0.001, high: 0.005 },
-} as const
-
 type RateLevel = 'healthy' | 'elevated' | 'high'
 
 // Below this much volume one event on its own clears the elevated line, so a tag would be
@@ -129,17 +114,6 @@ function RateCell({
             </span>
         </Tooltip>
     )
-}
-
-const FINDING_TYPE_LABELS: Record<string, string> = {
-    DKIM: 'DKIM setup',
-    DMARC: 'DMARC setup',
-    SPF: 'SPF setup',
-    BIMI: 'BIMI setup',
-    COMPLAINT: 'Spam complaints',
-    BOUNCE: 'Bounces',
-    FEEDBACK_3P: 'Third-party feedback',
-    IP_LISTING: 'Blocklist listing',
 }
 
 // Must match the endpoint's window (HogFlowViewSet.REPUTATION_WINDOW_DAYS) and cap
@@ -482,13 +456,7 @@ export function WorkflowsReputation(): JSX.Element {
 
     return (
         <div className="space-y-4" data-attr="workflows-reputation">
-            {awsReputation?.sending_status === 'DISABLED' && (
-                <LemonBanner type="error" data-attr="workflows-reputation-disabled-banner">
-                    {awsReputation.findings.length > 0
-                        ? 'Email sending is paused for this project because of reputation problems. Fix the open findings below, then contact support to get sending re-enabled.'
-                        : 'Email sending is paused for this project. Contact support to get sending re-enabled.'}
-                </LemonBanner>
-            )}
+            <WorkflowsEmailSuspendedBanner />
             <LemonBanner type="info" data-attr="workflows-reputation-beta-banner">
                 Sending health is shown for transparency: high bounce or spam complaint rates hurt email deliverability.
                 We judge and enforce reputation per project.

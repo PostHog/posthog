@@ -305,7 +305,7 @@ export const WORKFLOW_EMAIL_METRICS: Record<
     email_suspended: {
         name: 'Suspended',
         description:
-            'Total number of emails that were not sent because email sending is suspended for this project. Contact support to get sending re-enabled.',
+            'Total number of emails that were not sent because email sending is suspended for this project. The Reputation tab shows what to fix and lets you request a review.',
         color: METRIC_COLORS['Suspended'],
         metricNames: ['email_suspended'],
     },

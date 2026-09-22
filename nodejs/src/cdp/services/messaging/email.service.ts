@@ -403,11 +403,13 @@ export class EmailService {
             // gating here turns wasted invocations into one clear skip.
             const suspensionCause = await this.teamWorkflowsConfigService.getEmailSendingSuspension(invocation.teamId)
             if (suspensionCause) {
+                const suspensionDetail =
+                    suspensionCause === 'staff'
+                        ? 'PostHog suspended email sending for this project'
+                        : 'our email provider paused sending for this project'
                 addLog(
                     'warn',
-                    suspensionCause === 'staff'
-                        ? 'Skipping send: email sending is suspended for this project. Contact support to get sending re-enabled.'
-                        : 'Skipping send: our email provider paused sending for this project. Check the Reputation tab to see what to fix.'
+                    `Skipping send: ${suspensionDetail}. The Reputation tab shows what to fix and lets you request a review.`
                 )
                 logger.warn('Skipping email send for a suspended team', {
                     teamId: invocation.teamId,
