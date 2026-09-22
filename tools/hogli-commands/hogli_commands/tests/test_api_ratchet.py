@@ -384,6 +384,37 @@ class TestBaselineFixModes:
         assert runner.invoke(cmd_lint_api_ratchet, []).exit_code == 0
 
 
+class TestNamespaceMembers:
+    # alerts() branches on an optional id, so api.alerts.list() must get the collection
+    # route and not the detail one, or the report names the wrong generated function.
+    def test_a_member_gets_the_route_its_arguments_select(self, tmp_path: Path) -> None:
+        api_ts = API_TS_FIXTURE.replace(
+            "const api = {",
+            "const api = {\n"
+            "    alerts: {\n"
+            "        async list(): Promise<any> {\n"
+            "            return await new ApiRequest().alerts().get()\n"
+            "        },\n"
+            "        async get(alertId: string): Promise<any> {\n"
+            "            return await new ApiRequest().alerts(alertId).get()\n"
+            "        },\n"
+            "    },",
+        ).replace(
+            "    public hogFlows(): ApiRequest {",
+            "    public alerts(alertId?: string, teamId?: TeamType['id']): ApiRequest {\n"
+            "        if (alertId) {\n"
+            "            return this.projectsDetail(teamId).addPathComponent('alerts').addPathComponent(alertId)\n"
+            "        }\n"
+            "        return this.projectsDetail(teamId).addPathComponent('alerts')\n"
+            "    }\n\n"
+            "    public hogFlows(): ApiRequest {",
+        )
+        _write_repo(tmp_path, api_ts=api_ts)
+        members = Ratchet(tmp_path).namespace_members()
+        assert members["alerts.list"].template == ("projects", "{}", "alerts")
+        assert members["alerts.get"].template == ("projects", "{}", "alerts", "{}")
+
+
 class TestSemgrepRules:
     def test_rules_are_scoped_to_the_owning_product(self, tmp_path: Path) -> None:
         _write_repo(tmp_path)

@@ -646,6 +646,19 @@ def _split_members(block: str) -> list[MemberSource]:
     ]
 
 
+def _first_argument(argument: str) -> str:
+    """The first argument of a call, empty when it takes none."""
+    depth = 0
+    for index, char in enumerate(argument):
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        elif char == "," and depth == 0:
+            return argument[:index].strip()
+    return argument.strip()
+
+
 def _argument_segments_after(text: str, offset: int) -> tuple[str, ...]:
     """The segments the `withAction` calls after ``offset`` append."""
     segments: list[str] = []
@@ -705,13 +718,20 @@ class Ratchet:
         return members
 
     def _member_route(self, body: str) -> tuple[str, ...] | None:
-        """The route a member builds: its path method plus any action it appends."""
+        """The route a member builds: its path method plus any action it appends.
+
+        A path method that branches on an optional id builds a collection route and a
+        detail route, and which one the member gets depends on what it passes:
+        `api.alerts.list()` calls `alerts()` empty and gets the collection.
+        """
         for call in _MEMBER_CALL.finditer(body):
             templates = self._resolver.templates(call.group(1))
             if not templates:
                 continue
+            passes_id = _first_argument(_read_call_argument(body, call.end() - 1)) != ""
+            chosen = max(templates, key=len) if passes_id else min(templates, key=len)
             tail = _argument_segments_after(body, call.end())
-            return normalize_template((*templates[0], *tail))
+            return normalize_template((*chosen, *tail))
         return None
 
     def namespaces(self) -> dict[str, frozenset[str]]:
