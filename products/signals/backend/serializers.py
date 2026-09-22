@@ -159,13 +159,6 @@ class _SourceConfigField(serializers.JSONField):
     plain JSONField; steering-key validation stays in the serializer's `validate`."""
 
 
-# The three states get_status maps the warehouse import's status down to. Declared so the generated
-# client narrows to them rather than to a bare string, which is what the frontend already does by
-# hand. `status` is too generic a field name for drf-spectacular to name a set on its own, so the
-# name comes from ENUM_NAME_OVERRIDES.
-SIGNAL_SOURCE_CONFIG_STATUSES = ["running", "completed", "failed"]
-
-
 class SignalSourceConfigSerializer(serializers.ModelSerializer):
     status = serializers.SerializerMethodField(
         help_text=(
@@ -195,7 +188,6 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         # Absent key means "not read yet", a `None` value means the read failed.
         self._data_import_statuses_by_team: dict[int, dict[_DataImportSchema, set[str]] | None] = {}
 
-    @extend_schema_field(serializers.ChoiceField(choices=SIGNAL_SOURCE_CONFIG_STATUSES, allow_null=True))
     def get_status(self, obj: SignalSourceConfig) -> str | None:
         schema = _DATA_IMPORT_SOURCE_MAP.get((obj.source_product, obj.source_type))
         if schema is None:
