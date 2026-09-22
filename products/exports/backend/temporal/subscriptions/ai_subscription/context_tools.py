@@ -1,5 +1,6 @@
 import json
 import asyncio
+from collections.abc import Collection
 from copy import deepcopy
 from dataclasses import field
 from typing import Any, Literal
@@ -20,6 +21,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.facade.auth import creator_can_query
+from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.models.subscription_context import (
     MAX_CONTEXT_READ_BUDGET,
     MAX_SELECTED_CONTEXTS,
@@ -35,7 +37,6 @@ from products.product_analytics.backend.facade.models import Insight
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.utils.query import validate_assistant_query
 
-CONTEXT_TOOL_NAMES = ("list_selected_contexts", "fetch_insight", "fetch_dashboard")
 MAX_TOOL_ROUNDS = 8
 MAX_CONCURRENT_CONTEXT_FETCHES = 5
 REPORT_CONTEXT_SCHEMA_CHAR_BUDGET = 12_000
@@ -67,8 +68,7 @@ class FetchInsightArgs(BaseModel):
     """Execute one attached saved insight's current query and return its formatted results."""
 
     # bind_tools() names the tool after the schema's title, not its class name; the title must
-    # match the CONTEXT_TOOL_NAMES entry dispatch() switches on, or a real model's tool call
-    # never reaches it.
+    # match the tool name dispatch() switches on, or a real model's tool call never reaches it.
     model_config = ConfigDict(title="fetch_insight")
 
     insight_id: int
@@ -117,6 +117,36 @@ def _validated_saved_query(insight: Insight) -> BaseModel | None:
 
 def _can_view(access_control: UserAccessControl, resource: Model) -> bool:
     return access_control.check_access_level_for_object(resource, "viewer")
+
+
+def creator_can_access_report_context(
+    subscription: Subscription, *, dashboard_ids: Collection[int], insight_ids: Collection[int]
+) -> bool:
+    expected_dashboard_ids = set(dashboard_ids)
+    expected_insight_ids = set(insight_ids)
+    if not creator_can_query(user=subscription.created_by, team=subscription.team):
+        return False
+    assert subscription.created_by is not None
+    access_control = UserAccessControl(user=subscription.created_by, team=subscription.team)
+    if not expected_dashboard_ids and not expected_insight_ids:
+        return True
+
+    context_team_id = subscription.team.parent_team_id or subscription.team_id
+    dashboards = list(
+        Dashboard.objects_including_soft_deleted.filter(id__in=expected_dashboard_ids, team_id=context_team_id)
+    )
+    insights = list(
+        insights_including_soft_deleted_for_team(
+            team_id=context_team_id,
+            insight_ids=expected_insight_ids,
+        )
+    )
+    return (
+        {dashboard.id for dashboard in dashboards if not dashboard.deleted} == expected_dashboard_ids
+        and {insight.id for insight in insights if not insight.deleted} == expected_insight_ids
+        and all(_can_view(access_control, dashboard) for dashboard in dashboards)
+        and all(_can_view(access_control, insight) for insight in insights)
+    )
 
 
 def _truncate_content(content: str, remaining: int) -> tuple[str, bool]:

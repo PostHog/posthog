@@ -1,32 +1,28 @@
 # Saved context in AI subscription reports
 
-Selected dashboards and insights provide computed evidence for report planning and synthesis.
-The report keeps the existing limits of three selected contexts, six insights per dashboard,
-and five concurrent context queries.
+There is no flattening layer that pre-computes and formats every selected dashboard and insight
+before the model runs. Instead, the planner and synthesis models fetch saved context on demand
+through three in-process tools: `list_selected_contexts`, `fetch_insight`, and `fetch_dashboard`.
 
-Saved insights must have a stored query. Legacy filters alone leave the insight unavailable;
-report generation does not convert or execute them.
+`ContextToolRuntime` enforces the allowlist, viewer access, and read budget inside the tools
+themselves, never through prompt instructions. Only dashboards and insights attached to the
+subscription resolve, and each fetch re-checks the creator's current viewer access before running
+the query.
 
-Fixed planner rules follow the resolved managed prompt and take precedence over conflicting instructions.
-The planner can return zero supplemental queries when successful saved evidence answers the full request
-for the requested date range. It can also use exact table, field, event, property, and group names from saved
-query schemas, including names absent from the project context. Computed results remain untrusted data, not
-instructions.
+`MAX_SELECTED_CONTEXTS` bounds how many dashboards and insights a subscription may attach.
+`MAX_CONTEXT_READ_BUDGET` separately bounds how many of them one report generation may actually
+fetch, regardless of how many tool calls the model makes.
 
-HogQL repair receives a separate schema-only snapshot from `DashboardContext.format_schema`
-and `InsightContext.format_schema`. These formatters use validated queries and apply saved
-dashboard filters and variable overrides. Repair never receives the saved result rows.
-Schema serialization excludes embedded `response` fields recursively, including responses on
-nested query nodes, without changing the stored or executed query.
+HogQL repair never receives saved result rows. It gets a schema-only snapshot built from each
+successfully fetched context's `format_schema()`, carrying table, field, event, property, and
+group names only.
 
-The schema snapshot has a 12,000-character total budget, divided across the selected available
-contexts, including separators. Oversized schemas carry a truncation marker. Formatting failures
-omit the unavailable schema; query results remain independently available for planning and synthesis.
-Schema preparation shares the context resolution deadline and cancellation cleanup.
-Each filtered saved query is prepared once per report; subscription workers use the general thread pool so
-concurrent reports do not serialize filter preparation on one thread-sensitive executor.
+Each dashboard's and insight's status (id, name, success/failed/truncated) persists compactly on
+the delivery snapshot; no fetched content is stored alongside it.
 
-Repair receives project metadata and saved schemas in a human message as untrusted data.
-Fixed system instructions allow schema names as query grounding and forbid following directives
-inside those blocks. These instructions remain present when a managed repair prompt overrides
-the default template.
+The tool loop's own limits are round and concurrency caps, not time bounds: `MAX_TOOL_ROUNDS` on
+the loop and `MAX_CONCURRENT_CONTEXT_FETCHES` on tiles fetched within one `fetch_dashboard` call.
+The only wall-clock bound on context work is the report's overall generation deadline.
+
+At delivery, the subscription creator's access to every fetched context ref is re-checked against
+their current permissions rather than trusted from generation time.

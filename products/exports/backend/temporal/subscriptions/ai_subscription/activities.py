@@ -19,6 +19,9 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.temporal.subscriptions.ai_subscription.context_tools import (
+    creator_can_access_report_context,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     QueryAccessRevokedError,
     build_ai_subscription_report,
@@ -27,9 +30,6 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
     send_email_ai_subscription_credit_limited,
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
-)
-from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
-    creator_can_access_report_context,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
