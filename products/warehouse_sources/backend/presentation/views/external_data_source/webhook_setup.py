@@ -380,9 +380,6 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
                 missing_events = self._compute_missing_webhook_events(source, config, instance, external_status)
             except Exception as e:
                 base.capture_exception(e)
-                # Leaving external_status None renders in the UI as "no webhook", hiding a broken
-                # endpoint and the reconcile that would heal it. Surface the failure instead. Use a
-                # fixed message so provider internals in the raw error never reach the user.
                 external_status = ExternalWebhookInfo(
                     exists=False,
                     error="PostHog couldn't read this source's webhook to check its status. Check the source's credentials, then reload.",
