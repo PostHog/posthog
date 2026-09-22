@@ -139,6 +139,17 @@ export interface insightSceneLogicValues {
         | ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => Record<string, any>)
         | undefined
     insightId: InsightId | null
+    insightLoading: boolean
+    insightLoadingSelector: ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => boolean) | undefined
+    insightLoadError:
+        | {
+              status: number | null
+          }
+        | null
+        | undefined
+    insightLoadErrorSelector:
+        | ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => { status: number | null } | null)
+        | undefined
     insightLogicRef: {
         logic: BuiltLogic<insightLogicType>
         unmount: () => void
@@ -270,6 +281,24 @@ export interface insightSceneLogicMeta {
         insight: (
             arg: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined
         ) => Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined
+        insightLoadingSelector: (
+            insightLogicRef: {
+                logic: BuiltLogic<insightLogicType>
+                unmount: () => void
+            } | null
+        ) => ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => boolean) | undefined
+        insightLoading: (arg: boolean | undefined) => boolean
+        insightLoadErrorSelector: (
+            insightLogicRef: {
+                logic: BuiltLogic<insightLogicType>
+                unmount: () => void
+            } | null
+        ) =>
+            | ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => { status: number | null } | null)
+            | undefined
+        insightLoadError: (
+            arg: { status: number | null } | null | undefined
+        ) => { status: number | null } | null | undefined
         dashboardBackPath: (
             dashboardId: number | null,
             variablesOverride: Record<string, HogQLVariable> | null,
@@ -523,6 +552,50 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 },
             ],
             (insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined) => insight,
+        ],
+        insightLoadingSelector: [
+            (s) => [s.insightLogicRef],
+            (
+                insightLogicRef: {
+                    logic: BuiltLogic<insightLogicType>
+                    unmount: () => void
+                } | null
+            ) => insightLogicRef?.logic.selectors.insightLoading,
+        ],
+        insightLoading: [
+            (s) => [
+                (state, props) => {
+                    try {
+                        return s.insightLoadingSelector?.(state, props)?.(state, props)
+                    } catch {
+                        // Sometimes the insight logic hasn't mounted yet
+                        return false
+                    }
+                },
+            ],
+            (insightLoading: boolean | undefined) => insightLoading ?? false,
+        ],
+        insightLoadErrorSelector: [
+            (s) => [s.insightLogicRef],
+            (
+                insightLogicRef: {
+                    logic: BuiltLogic<insightLogicType>
+                    unmount: () => void
+                } | null
+            ) => insightLogicRef?.logic.selectors.insightLoadError,
+        ],
+        insightLoadError: [
+            (s) => [
+                (state, props) => {
+                    try {
+                        return s.insightLoadErrorSelector?.(state, props)?.(state, props)
+                    } catch {
+                        // Sometimes the insight logic hasn't mounted yet
+                        return null
+                    }
+                },
+            ],
+            (insightLoadError: { status: number | null } | null | undefined) => insightLoadError,
         ],
         // The insight and the dashboard name the same overrides differently, so a link back to the dashboard
         // has to translate them. Take the filters from the url instead of from `filtersOverride`, because an

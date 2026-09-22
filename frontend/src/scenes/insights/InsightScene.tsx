@@ -4,18 +4,30 @@ import { useEffect } from 'react'
 
 import { NotFound } from 'lib/components/NotFound'
 import { InsightAsScene } from 'scenes/insights/InsightAsScene'
+import { InsightLoadError } from 'scenes/insights/InsightLoadError'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
-import { ItemMode } from '~/types'
+import { InsightShortId, ItemMode } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 export function InsightScene(): JSX.Element {
-    const { insightId, insight, insightLogicRef, insightMode, dashboardId } = useValues(insightSceneLogic)
+    const {
+        insightId,
+        insight,
+        insightLogicRef,
+        insightMode,
+        dashboardId,
+        insightLoading,
+        insightLoadError,
+        filtersOverride,
+        variablesOverride,
+        tileFiltersOverride,
+    } = useValues(insightSceneLogic)
 
     useAttachedContext(
         insight?.short_id && insight?.query
@@ -46,8 +58,25 @@ export function InsightScene(): JSX.Element {
         return <InsightAsScene insightId={insightId} attachTo={insightSceneLogic} />
     }
 
-    if (insightLogicRef?.logic?.values?.insightLoading) {
+    if (insightLoading) {
         return <InsightSkeleton />
+    }
+
+    // A failed read says nothing about whether the insight exists, so "not found" would be a guess.
+    if (insightLoadError) {
+        return (
+            <InsightLoadError
+                status={insightLoadError.status}
+                onRetry={() =>
+                    insightLogicRef?.logic.actions.loadInsight(
+                        insightId as InsightShortId,
+                        filtersOverride,
+                        variablesOverride,
+                        tileFiltersOverride
+                    )
+                }
+            />
+        )
     }
 
     return <NotFound object="insight" />

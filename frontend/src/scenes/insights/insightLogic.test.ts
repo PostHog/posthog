@@ -1266,6 +1266,39 @@ describe('insightLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadInsightFailure'])
 
             expect(logic.values.insightMissing).toBe(true)
+            expect(logic.values.insightLoadError).toBeNull()
+        })
+    })
+
+    describe('insightLoadError', () => {
+        // A server error is not a missing insight. Without this flag the scene reads the empty
+        // insight as "not found" and tells the user their insight is gone.
+        it('records the status when the read fails on the server', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': () => [500, ''],
+                },
+            })
+            logic = insightLogic({ dashboardItemId: Insight42 })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsightFailure'])
+
+            expect(logic.values.insightLoadError).toEqual({ status: 500 })
+            expect(logic.values.insightMissing).toBe(false)
+        })
+
+        it('clears on a retry', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': () => [500, ''],
+                },
+            })
+            logic = insightLogic({ dashboardItemId: Insight42 })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsightFailure'])
+
+            logic.actions.loadInsight(Insight42)
+            expect(logic.values.insightLoadError).toBeNull()
         })
     })
 
