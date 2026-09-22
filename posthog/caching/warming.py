@@ -117,15 +117,20 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
             insight_ids_single.add(insight_id)
 
     if insight_ids_single:
-        single_insight_q_filter = Q(
-            team=team,
+        # The view and sharing joins both fan out, so the ids come from a subquery: Postgres
+        # answers `IN` with a semi-join, which returns each insight once without the `DISTINCT`
+        # sort the outer query used to pay for. Neither join is team-scoped — an insight view
+        # can carry no team — so the team filter stays on the outer query.
+        viewed_recently_q = Q(
             insightviewed__last_viewed_at__gte=threshold,
             pk__in=insight_ids_single,
         )
         if shared_only:
-            single_insight_q_filter &= Q(sharingconfiguration__enabled=True)
+            viewed_recently_q &= Q(sharingconfiguration__enabled=True)
 
-        single_insight_ids = Insight.objects.filter(single_insight_q_filter).distinct().values_list("id", flat=True)
+        single_insight_q_filter = Q(team=team, pk__in=Insight.objects.filter(viewed_recently_q).values("pk"))
+
+        single_insight_ids = Insight.objects.filter(single_insight_q_filter).values_list("id", flat=True)
         for single_insight_id in single_insight_ids:
             yield single_insight_id, None
 

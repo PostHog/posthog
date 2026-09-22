@@ -3,10 +3,13 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.hogql.errors import QueryError
 
 from posthog.caching.warming import insights_to_keep_fresh, schedule_warming_for_teams_task, warm_insight_cache_task
 from posthog.exceptions import ClickHouseAtCapacity
+from posthog.models.user import User
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -57,8 +60,20 @@ class TestWarming(APIBaseTest):
         insights = list(insights_to_keep_fresh(self.team))
         self.assertEqual(insights, [])
 
+    @parameterized.expand([("one viewer", 0), ("three viewers", 2)])
     @patch("posthog.caching.warming.get_stale_insights")
-    def test_insights_to_keep_fresh_no_stale_dashboard_insights(self, mock_get_stale_insights):
+    def test_insights_to_keep_fresh_no_stale_dashboard_insights(
+        self, _name: str, extra_viewers: int, mock_get_stale_insights
+    ):
+        # Every viewer adds an InsightViewed row, so the insight must still yield one tuple —
+        # a duplicate id schedules the same warming task several times.
+        for index in range(extra_viewers):
+            viewer = User.objects.create_and_join(self.organization, f"viewer{index}@example.com", None)
+            record_insight_views(
+                team_id=self.team.id,
+                user_id=viewer.id,
+                last_viewed_at_by_insight_id={self.insight2.id: datetime.now(UTC) - timedelta(days=3)},
+            )
         mock_get_stale_insights.return_value = [
             "2345:",
         ]
