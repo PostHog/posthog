@@ -11,7 +11,8 @@
 # - The `wait-for-handoff` job waits for GitHub Actions to hand the event off and exposes
 #   `handed_off`, true only when GitHub Actions handed the tests to this engine. Canonical's
 #   `Django Tests Pass` gate then relays this workflow's gate verdict. Neither the hand-off
-#   job nor the relay has a counterpart here.
+#   job nor the relay has a counterpart here. A GitHub rerun does not restart this workflow,
+#   so the relay's failure log prints the `depot ci` commands that retry it.
 # - runs-on: depot-* labels instead of GitHub-hosted ubuntu-24.04
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
 #   setup-sqlx-cli, setup-python-cached, setup-uv, setup-turbo, and paths-filter mirror
@@ -66,7 +67,8 @@
 # - GitHub App tokens: the mint steps' vars.* / secrets.* resolve from Depot's store, not
 #   GitHub's. A name missing there makes the setup-action mints (continue-on-error) fall
 #   back to the ambient GITHUB_TOKEN, the Depot Code Access installation token that every
-#   Depot CI job across repos shares, and fails the paths-filter mint outright. The trusted migration reporter publishes the migration-risk
+#   Depot CI job across repos shares, and fails the paths-filter mint outright. The trusted
+#   migration reporter publishes the migration-risk
 #   check because stamphog waits for it on every pull request.
 # - check-migrations uploads inert Django and ClickHouse migration report data. The
 #   pull_request_target workflow in ci-backend-report.yml validates that data and posts it
@@ -2283,6 +2285,13 @@ jobs:
                   echo "drifted-files=$DRIFTED_FILES" >> $GITHUB_OUTPUT
                   echo "needs-commit=true" >> $GITHUB_OUTPUT
 
+            # Deterministic = the OpenAPI check step itself failed (not a transient
+            # setup or commit-step failure), so a retry can't fix it. Mirrors repo-checks.
+            - name: Flag deterministic failure
+              id: deterministic-failure
+              if: failure() && steps.openapi-check.outcome == 'failure'
+              run: echo "deterministic_failure=true" >> "$GITHUB_OUTPUT"
+
             - name: Get app token for OpenAPI type commits
               if: steps.openapi-check.outputs.needs-commit == 'true'
               id: openapi-app-token
@@ -2308,12 +2317,6 @@ jobs:
                   file_pattern: ${{ steps.openapi-check.outputs.drifted-files }}
               env:
                   GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
-            # Deterministic = the OpenAPI check step itself failed (not a transient
-            # setup or commit-step failure), so a retry can't fix it. Mirrors repo-checks.
-            - name: Flag deterministic failure
-              id: deterministic-failure
-              if: failure() && steps.openapi-check.outcome == 'failure'
-              run: echo "deterministic_failure=true" >> "$GITHUB_OUTPUT"
 
     cancel-backend-on-openapi-check-failure:
         needs: [check-openapi-types]
@@ -2740,7 +2743,6 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
-                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
@@ -3836,100 +3838,6 @@ jobs:
                   check_required_result "Snapshot commit job" "${{ needs.handle-snapshots.result }}"
 
                   echo "All backend and product checks passed."
-    backend-coverage-report:
-        name: Backend coverage report
-        needs: [changes, turbo-tests, django_tests, turbo-discover]
-        runs-on: depot-ubuntu-24.04
-        continue-on-error: true
-        timeout-minutes: 10
-        permissions:
-            contents: read
-        if: >-
-            !cancelled() &&
-            github.event_name == 'pull_request' &&
-            github.event.pull_request.draft == false &&
-            needs.turbo-discover.outputs.mode != 'selected' &&
-            github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
-            (needs.turbo-tests.result != 'skipped' || needs.django_tests.result != 'skipped')
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 0
-                  filter: blob:none
-            - name: Check for coverage reporter
-              id: reporter
-              shell: bash
-              run: |
-                  if [[ -f .github/scripts/coverage_report.py ]]; then
-                      echo "available=true" >> "$GITHUB_OUTPUT"
-                  else
-                      echo "available=false" >> "$GITHUB_OUTPUT"
-                      echo "Coverage reporter not present on this ref; skipping (branch may predate the check)."
-                  fi
-            - name: Download coverage artifacts
-              if: steps.reporter.outputs.available == 'true'
-              continue-on-error: true
-              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
-              with:
-                  path: ./cov-artifacts
-                  pattern: coverage-xml-*
-            - name: Download core coverage artifacts
-              if: steps.reporter.outputs.available == 'true'
-              continue-on-error: true
-              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
-              with:
-                  path: ./core-artifacts
-                  pattern: coverage-core-*
-            - uses: ./.depot/actions/setup-uv
-              with:
-                  enable-cache: false
-              if: steps.reporter.outputs.available == 'true'
-            - name: Build coverage report
-              if: steps.reporter.outputs.available == 'true'
-              run: |
-                  mkdir -p cov-artifacts core-artifacts
-                  git fetch --no-tags --filter=blob:none --quiet origin master
-                  uv run --script .github/scripts/coverage_report.py \
-                      --artifacts cov-artifacts \
-                      --core-artifacts core-artifacts \
-                      --combined-out combined-coverage.xml \
-                      --compare-branch origin/master \
-                      --patch-json-out patch-coverage.json \
-                      --out coverage-comment.md
-            - name: Get app token for CI report
-              if: steps.reporter.outputs.available == 'true'
-              id: ci-report-app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-                  permission-pull-requests: write
-            - name: Set up Node.js
-              if: steps.reporter.outputs.available == 'true'
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  token: ${{ steps.ci-report-app-token.outputs.token }}
-            - name: Post to CI report comment
-              if: steps.reporter.outputs.available == 'true'
-              env:
-                  GITHUB_TOKEN: ${{ steps.ci-report-app-token.outputs.token }}
-              run: |
-                  if [ -f .github/scripts/post-coverage-section.mjs ]; then
-                      node .github/scripts/post-coverage-section.mjs coverage-comment.md patch-coverage.json
-                  fi
-            - name: Upload patch coverage payload
-              if: ${{ always() && steps.reporter.outputs.available == 'true' }}
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              with:
-                  name: patch-coverage
-                  path: |
-                      patch-coverage.json
-                      combined-coverage.xml
-                      coverage-comment.md
-                  if-no-files-found: ignore
-                  retention-days: 2
-                  overwrite: true
     test-selection-verdict:
         needs: [django, turbo-tests, changes, turbo-discover]
         name: Test selection verdict
@@ -4132,5 +4040,100 @@ jobs:
                   uv run --script .github/scripts/report_test_timings.py \
                       --min-duration-seconds=0.5 \
                       ./junit-artifacts
+
+    backend-coverage-report:
+        name: Backend coverage report
+        needs: [changes, turbo-tests, django_tests, turbo-discover]
+        runs-on: depot-ubuntu-24.04
+        continue-on-error: true
+        timeout-minutes: 10
+        permissions:
+            contents: read
+        if: >-
+            !cancelled() &&
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.draft == false &&
+            needs.turbo-discover.outputs.mode != 'selected' &&
+            github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
+            (needs.turbo-tests.result != 'skipped' || needs.django_tests.result != 'skipped')
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+            - name: Check for coverage reporter
+              id: reporter
+              shell: bash
+              run: |
+                  if [[ -f .github/scripts/coverage_report.py ]]; then
+                      echo "available=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "available=false" >> "$GITHUB_OUTPUT"
+                      echo "Coverage reporter not present on this ref; skipping (branch may predate the check)."
+                  fi
+            - name: Download coverage artifacts
+              if: steps.reporter.outputs.available == 'true'
+              continue-on-error: true
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              with:
+                  path: ./cov-artifacts
+                  pattern: coverage-xml-*
+            - name: Download core coverage artifacts
+              if: steps.reporter.outputs.available == 'true'
+              continue-on-error: true
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              with:
+                  path: ./core-artifacts
+                  pattern: coverage-core-*
+            - uses: ./.depot/actions/setup-uv
+              with:
+                  enable-cache: false
+              if: steps.reporter.outputs.available == 'true'
+            - name: Build coverage report
+              if: steps.reporter.outputs.available == 'true'
+              run: |
+                  mkdir -p cov-artifacts core-artifacts
+                  git fetch --no-tags --filter=blob:none --quiet origin master
+                  uv run --script .github/scripts/coverage_report.py \
+                      --artifacts cov-artifacts \
+                      --core-artifacts core-artifacts \
+                      --combined-out combined-coverage.xml \
+                      --compare-branch origin/master \
+                      --patch-json-out patch-coverage.json \
+                      --out coverage-comment.md
+            - name: Get app token for CI report
+              if: steps.reporter.outputs.available == 'true'
+              id: ci-report-app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  permission-pull-requests: write
+            - name: Set up Node.js
+              if: steps.reporter.outputs.available == 'true'
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ steps.ci-report-app-token.outputs.token }}
+            - name: Post to CI report comment
+              if: steps.reporter.outputs.available == 'true'
+              env:
+                  GITHUB_TOKEN: ${{ steps.ci-report-app-token.outputs.token }}
+              run: |
+                  if [ -f .github/scripts/post-coverage-section.mjs ]; then
+                      node .github/scripts/post-coverage-section.mjs coverage-comment.md patch-coverage.json
+                  fi
+            - name: Upload patch coverage payload
+              if: ${{ always() && steps.reporter.outputs.available == 'true' }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: patch-coverage
+                  path: |
+                      patch-coverage.json
+                      combined-coverage.xml
+                      coverage-comment.md
+                  if-no-files-found: ignore
+                  retention-days: 2
+                  overwrite: true
 
     # calculate-running-time is omitted so Depot runs are not recorded as canonical CI data.

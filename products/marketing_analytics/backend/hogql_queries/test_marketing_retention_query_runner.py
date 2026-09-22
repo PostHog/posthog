@@ -1,3 +1,6 @@
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
 import pytest
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -109,25 +112,34 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
         return MarketingAnalyticsRetentionQueryRunner(query=self._query(*args, **kwargs), team=self.team).calculate()
 
-    @parameterized.expand([("unfolded", 20), ("folded", 1)])
+    @parameterized.expand([("unfolded", 20, "UTC"), ("folded", 1, "UTC"), ("local_day", 20, "America/Los_Angeles")])
     @time_machine.travel("2023-03-15T12:00:00Z", tick=False)
-    def test_summary_counts_second_sessions_and_pools_return_times(self, _name: str, limit: int) -> None:
+    def test_summary_counts_later_day_sessions_and_pools_return_times(
+        self, _name: str, limit: int, timezone: str
+    ) -> None:
+        self.team.timezone = timezone
+        self.team.save()
+        started = datetime(2023, 1, 4, 15, tzinfo=ZoneInfo(timezone))
         for person in ["fast", "slow", "never", "tail"]:
             create_person(team=self.team, distinct_ids=[person])
-            session_id = self._session(person, WEEK_0, utm_source="other-source" if person == "tail" else "newsletter")
+            session_id = self._session(
+                person, started.isoformat(), utm_source="other-source" if person == "tail" else "newsletter"
+            )
+            if person in ("fast", "never"):
+                self._session(person, (started + timedelta(hours=2)).isoformat())
             if person == "never":
                 _create_event(
                     team=self.team,
                     event="$pageview",
                     distinct_id=person,
-                    timestamp="2023-01-04T12:05:00Z",
+                    timestamp=(started + timedelta(minutes=5)).isoformat(),
                     properties={"$session_id": session_id},
                 )
-        self._session("fast", "2023-01-06T12:00:00Z", utm_source="different-source")
-        self._session("fast", "2023-01-07T12:00:00Z", utm_source="different-source")
-        self._session("slow", "2023-01-24T12:00:00Z")
-        self._session("tail", "2023-02-03T12:00:00Z")
-        self._session("never", "2023-02-04T12:00:00Z")
+        self._session("fast", (started + timedelta(hours=10)).isoformat(), utm_source="different-source")
+        self._session("fast", (started + timedelta(days=3)).isoformat(), utm_source="different-source")
+        self._session("slow", (started + timedelta(days=20)).isoformat())
+        self._session("tail", (started + timedelta(days=30)).isoformat())
+        self._session("never", (started + timedelta(days=31)).isoformat())
         flush_persons_and_events()
         query = self._query(date_from="2023-01-04", date_to="2023-01-04", breakdown_limit=limit)
         query.summary = True
@@ -139,7 +151,7 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(row.returners, 2)
         assert row.medianReturnDays is not None
-        self.assertAlmostEqual(row.medianReturnDays, 11)
+        self.assertAlmostEqual(row.medianReturnDays, 10.5)
         tail = rows["other-source" if limit == 20 else BREAKDOWN_OTHER_STRING_LABEL]
         self.assertEqual((tail.returned7d, tail.returned30d, tail.medianReturnDays), (0, 1, 30))
         self.assertEqual(response.totalCohortSize, 4)
@@ -156,6 +168,8 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
             self._session(person, returned)
         create_person(team=self.team, distinct_ids=["no-return"])
         self._session("no-return", "2023-02-04T12:00:00Z", utm_source="new-source")
+        self._session("no-return", "2023-02-04T18:00:00Z")
+        self._session("previous", "2022-12-20T18:00:00Z")
         flush_persons_and_events()
         query = self._query(date_from="2023-01-04", date_to="2023-02-04")
         query.summary = True
@@ -169,6 +183,7 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(current.returners, 2)
         self.assertEqual((previous.acquired, previous.returned7d, previous.returned30d), (1, 1, 1))
+        self.assertEqual(previous.medianReturnDays, 1)
         no_return = next(row for row in response.summary or [] if row.breakdownValue == "new-source")
         self.assertEqual((no_return.eligible7d, no_return.eligible30d, no_return.returners), (0, 0, 0))
         self.assertIsNone(no_return.medianReturnDays)
