@@ -37,7 +37,9 @@ export const scene: SceneExport<AuthorLogicProps> = {
 }
 
 export function EngineeringAnalyticsAuthorScene(): JSX.Element {
-    const { handle, sourceId, deliveryScope, workflowCosts, workflowCostsLoading } = useValues(authorLogic)
+    const { handle, sourceId, deliveryScope, workflowCosts, workflowCostsLoading, workflowCostsFailed } =
+        useValues(authorLogic)
+    const { loadWorkflowCosts } = useActions(authorLogic)
     const { summary, summaryLoading } = useValues(deliverySummaryLogic({ scope: deliveryScope, sourceId }))
     const { comparison, comparisonLoading, comparisonFailed } = useValues(
         deliveryComparisonLogic({ author: handle, sourceId })
@@ -120,7 +122,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                         <div className="flex flex-col gap-2">
                             <RedTimeByCauseCard
                                 redTime={redTime}
-                                loading={timelinesLoading && !timelines}
+                                loading={timelinesLoading}
                                 jobsAvailable={!!timelines?.jobs_available}
                             />
                             <PullRequestDayView
@@ -154,6 +156,8 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                                 </div>
                             ))}
                         </LemonCard>
+                    ) : workflowCostsFailed ? (
+                        <CIAnalyticsLoadError onRetry={loadWorkflowCosts} />
                     ) : workflowCosts.length > 0 ? (
                         <LemonCard hoverEffect={false} className="p-4">
                             <div className="mb-2 flex items-center justify-between gap-2">

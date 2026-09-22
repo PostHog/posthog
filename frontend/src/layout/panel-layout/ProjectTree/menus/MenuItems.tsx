@@ -13,6 +13,7 @@ import {
 
 import { linkToLogic } from 'lib/components/FileSystem/LinkTo/linkToLogic'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -70,7 +71,8 @@ export function MenuItems({
     showSelectMenuOption = true,
 }: MenuItemsProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
-    const { shortcutNonFolderPaths } = useValues(projectTreeDataLogic)
+    const { shortcutNonFolderPaths, shortcutData, shortcutEntryIdMap, shortcutDataLoading } =
+        useValues(projectTreeDataLogic)
     const { deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
     const { groupTypes } = useValues(groupAnalyticsConfigLogic)
     const { deleteGroupType } = useActions(groupAnalyticsConfigLogic)
@@ -154,9 +156,20 @@ export function MenuItems({
             </>
         ) : null
 
+    const isSimpleSidepanelEnabled = useFeatureFlag('SIMPLE_SIDEPANEL')
     const isItemAFolder = item.record?.type === 'folder'
     const itemShortcutPath = joinPath([splitPath(item.record?.path).pop() ?? 'Unnamed'])
     const isItemAlreadyInShortcut = !isItemAFolder && shortcutNonFolderPaths.has(itemShortcutPath)
+    const shortcutId =
+        shortcutEntryIdMap.get(item.id) ??
+        shortcutData.find((entry) =>
+            isItemAFolder
+                ? entry.type === 'folder' && entry.ref === item.record?.path
+                : entry.type !== 'folder' &&
+                  (item.record?.ref
+                      ? entry.type === item.record.type && entry.ref === item.record.ref
+                      : entry.path === itemShortcutPath)
+        )?.id
 
     return (
         <>
@@ -184,7 +197,7 @@ export function MenuItems({
                         MenuItem={MenuItem}
                         resetPanelLayout={resetPanelLayout}
                     />
-                    <MenuSeparator />
+                    {!isSimpleSidepanelEnabled && <MenuSeparator />}
                 </>
             ) : null}
 
@@ -240,7 +253,7 @@ export function MenuItems({
                     <MenuSeparator />
                 </>
             ) : null}
-            {item.record?.path ? (
+            {!isSimpleSidepanelEnabled && item.record?.path ? (
                 (root === 'shortcuts://' || root === 'custom-products://') &&
                 (item.id.startsWith('shortcuts://') || item.id.startsWith('shortcuts/')) ? (
                     <MenuItem
@@ -453,6 +466,37 @@ export function MenuItems({
                 >
                     <ButtonPrimitive menuItem>Delete group type</ButtonPrimitive>
                 </MenuItem>
+            ) : null}
+            {isSimpleSidepanelEnabled && item.record?.path && (shortcutId || root !== 'custom-products://') ? (
+                <>
+                    {(!isItemAFolder || !shortcutEntryIdMap.has(item.id) || checkedItemCountNumeric > 0) && (
+                        <MenuSeparator />
+                    )}
+                    <MenuItem
+                        asChild
+                        disabled={shortcutDataLoading}
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            if (!shortcutDataLoading && item.record) {
+                                if (shortcutId) {
+                                    deleteShortcut(shortcutId)
+                                } else {
+                                    addShortcutItem(item.record as FileSystemEntry)
+                                }
+                            }
+                        }}
+                        data-attr={
+                            shortcutId
+                                ? 'tree-item-menu-remove-from-shortcuts-button'
+                                : 'tree-item-menu-add-to-shortcuts-button'
+                        }
+                    >
+                        <ButtonPrimitive menuItem disabled={shortcutDataLoading}>
+                            <IconStar className="size-4 text-tertiary" />
+                            <span>{shortcutId ? 'Remove from starred' : 'Add to starred'}</span>
+                        </ButtonPrimitive>
+                    </MenuItem>
+                </>
             ) : null}
         </>
     )
