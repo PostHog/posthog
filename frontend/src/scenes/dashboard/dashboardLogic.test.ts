@@ -1524,6 +1524,46 @@ describe('dashboardLogic', () => {
             expect(successToast).toHaveBeenCalledWith('Dashboard saved')
         })
 
+        it('preserves a tile layout when the grid update omits that tile', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const [omittedTile, movedTile] = logic.values.dashboard!.tiles
+            const originalLayouts = logic.values.dashboardLayouts[omittedTile.id]
+            const currentLayouts = logic.values.layouts
+            const changedLayouts = {
+                ...currentLayouts,
+                sm: currentLayouts.sm
+                    ?.filter((layout) => layout.i !== String(omittedTile.id))
+                    .map((layout) =>
+                        layout.i === String(movedTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                    ),
+            }
+            const movedLayout = changedLayouts.sm!.find((layout) => layout.i === String(movedTile.id))!
+
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts(changedLayouts)
+                logic.actions.saveLayoutChanges()
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboard?.tiles.find((tile) => tile.id === omittedTile.id)?.layouts).toEqual(
+                originalLayouts
+            )
+            expect(api.update).toHaveBeenCalledWith(
+                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                expect.objectContaining({
+                    tiles: expect.arrayContaining([
+                        expect.objectContaining({ id: omittedTile.id, layouts: originalLayouts }),
+                        expect.objectContaining({
+                            id: movedTile.id,
+                            layouts: {
+                                sm: movedLayout,
+                            },
+                        }),
+                    ]),
+                })
+            )
+        })
+
         it('does not show a success toast when exiting edit mode with no changes', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
