@@ -176,8 +176,6 @@ export function DashboardsTable({
                     <ObjectTags
                         tags={[...tags].sort()}
                         staticOnly
-                        maxVisibleTags={2}
-                        showOverflowLabel
                         wrap
                         data-attr="dashboard-tags"
                         onTagClick={(tag) => setFilters({ tags: [tag] })}

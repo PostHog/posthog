@@ -149,7 +149,7 @@ describe('DashboardsTable move to folder', () => {
         expect(setFilters).toHaveBeenCalledWith({ tags: ['finance'] })
     })
 
-    it('shows overflow tags in a popover and filters by them', () => {
+    it('shows all tags and filters by them', () => {
         const setFilters = jest.fn()
         ;(useActions as jest.Mock).mockReturnValue({
             unpinDashboard: jest.fn(),
@@ -186,8 +186,6 @@ describe('DashboardsTable move to folder', () => {
         expect(document.querySelector('[data-attr="dashboard-tags"]')).toHaveClass('max-w-full')
         expect(screen.getByText('analytics-platform')).toHaveClass('LemonTag--wrap')
         expect(screen.getByText('beta')).toBeInTheDocument()
-        expect(screen.getByText('+4 more')).toBeInTheDocument()
-        fireEvent.click(screen.getByText('+4 more'))
         fireEvent.click(screen.getByText('zeta'))
 
         expect(setFilters).toHaveBeenCalledWith({ tags: ['zeta'] })
