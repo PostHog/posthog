@@ -624,8 +624,8 @@ class TestMarketo:
         assert [len(batch) for batch in batches] == [BULK_CHUNK_ROWS, 5]
 
     def test_download_empty_export_body_yields_no_rows(self) -> None:
-        # A real urllib3 stream (not the BytesIO fake) closes itself at EOF, so an empty export
-        # body used to raise "I/O operation on closed file" instead of finishing with no rows.
+        # A real urllib3 stream (unlike the BytesIO fake) closes itself at EOF, so an empty export
+        # body must finish with no rows rather than raising "I/O operation on closed file".
         response = Response()
         response.status_code = 200
         response.headers = CaseInsensitiveDict({"Content-Type": "text/csv;charset=UTF-8"})
