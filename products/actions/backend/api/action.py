@@ -80,7 +80,9 @@ def _compile_selector_uncached(selector_str: str) -> tuple[str | None, str | Non
     try:
         selector = Selector(selector_str, escape_slashes=False)
         warning = None
-        if selector.has_unsupported_syntax():
+        if selector.is_unsatisfiable():
+            warning = "This selector sets the same attribute or position twice with different values, so it cannot match any events. Remove one of them."
+        elif selector.has_unsupported_syntax():
             warning = "This selector uses CSS we cannot match on. Try matching on the element tag, id, or class."
         return build_selector_regex(selector), warning
     except Exception:

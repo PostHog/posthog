@@ -144,9 +144,18 @@ def _chain_attribute_order(key: str) -> str:
 _QUOTED_VALUE = r'"(?:\\.|[^"])*"'
 _WITHIN_ELEMENT = r'(?:[^;"]|' + _QUOTED_VALUE + r")*?"
 _WHOLE_ELEMENTS = r'(?:(?:[^;"]|' + _QUOTED_VALUE + r")*;)*"
+# A class token ends at the dot before the next class or at the colon that opens the
+# attributes, and elements_to_string always writes that colon. Without the boundary,
+# .btn also matches an element whose only class is btn-primary.
+_CLASS_BOUNDARY = r"[.:]"
+# ClickHouse runs these through RE2, which has no negative lookahead. A class that
+# excludes both whitespace and non-whitespace matches no character at all.
+_MATCHES_NOTHING = r"[^\s\S]"
 
 
 def build_selector_regex(selector: Selector) -> str:
+    if selector.is_unsatisfiable():
+        return _MATCHES_NOTHING
     regex = r""
     for index, tag in enumerate(selector.parts):
         if index > 0 and not tag.direct_descendant:
@@ -163,6 +172,7 @@ def build_selector_regex(selector: Selector) -> str:
                 _WITHIN_ELEMENT
                 + r"\."
                 + (r"\." + _WITHIN_ELEMENT).join([re.escape(s) for s in sorted(tag.data["attr_class__contains"])])
+                + _CLASS_BOUNDARY
             )
         if tag.ch_attributes:
             regex += _WITHIN_ELEMENT

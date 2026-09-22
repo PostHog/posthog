@@ -465,6 +465,9 @@ export class ActionMatcher {
             }
             const directDescendant = partIndex > 0 && tags[partIndex - 1] === '>'
             const part = new SelectorPart(tag, directDescendant, escapeSlashes)
+            if (part.unsatisfiable) {
+                return false
+            }
             part.uniqueOrder = parts.filter((p) => equal(p.requirements, part.requirements)).length
             parts.push(part)
         }
@@ -554,6 +557,7 @@ class SelectorPart {
     directDescendant: boolean
     uniqueOrder: number
     requirements: Partial<Element>
+    unsatisfiable: boolean
 
     constructor(tag: string, directDescendant: boolean, escapeSlashes: boolean) {
         // Non-greedy and quote-balanced, so two attribute selectors on one element are
@@ -565,6 +569,7 @@ class SelectorPart {
         this.directDescendant = directDescendant
         this.uniqueOrder = 0
         this.requirements = {}
+        this.unsatisfiable = false
 
         let attributeSelector = tag.match(ATTRIBUTE_SELECTOR_REGEX)
         while (attributeSelector) {
@@ -575,15 +580,16 @@ class SelectorPart {
             const attributeValue = attributeSelector[3]
             switch (attribute) {
                 case 'id':
-                    this.requirements.attr_id = attributeValue.toLowerCase()
+                    this.require('attr_id', attributeValue.toLowerCase())
                     break
                 case 'href':
-                    this.requirements.href = attributeValue
+                    this.require('href', attributeValue)
                     break
                 default:
                     if (!this.requirements.attributes) {
                         this.requirements.attributes = {}
                     }
+                    this.recordConflict(this.requirements.attributes[attribute], attributeValue)
                     this.requirements.attributes[attribute] = attributeValue
                     break
             }
@@ -603,10 +609,10 @@ class SelectorPart {
             }
             switch (colonSelector[1]) {
                 case 'nth-child':
-                    this.requirements.nth_child = parsedArgument
+                    this.require('nth_child', parsedArgument)
                     break
                 case 'nth-of-type':
-                    this.requirements.nth_of_type = parsedArgument
+                    this.require('nth_of_type', parsedArgument)
                     break
                 default:
                     continue // unsupported selector
@@ -624,6 +630,20 @@ class SelectorPart {
         const finalTag = tag.match(FINAL_TAG_REGEX)
         if (finalTag) {
             this.requirements.tag_name = finalTag[1]
+        }
+    }
+
+    private require<K extends keyof Element>(key: K, value: Partial<Element>[K]): void {
+        this.recordConflict(this.requirements[key], value)
+        this.requirements[key] = value
+    }
+
+    // One selector part is a conjunction, so the same requirement written twice with two
+    // values describes an element that cannot exist. Letting the later value overwrite the
+    // earlier one would turn an impossible selector into a match.
+    private recordConflict(existing: unknown, value: unknown): void {
+        if (existing !== undefined && existing !== value) {
+            this.unsatisfiable = true
         }
     }
 
