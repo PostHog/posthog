@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "return_type": "boolean",
+  "default_value": false,
+  "rules": [
+    {
+      "id": "rule-1",
+      "rule_type": "targeted_release",
+      "targeting": {
+        "properties": []
+      },
+      "value": true
+    }
+  ]
+}

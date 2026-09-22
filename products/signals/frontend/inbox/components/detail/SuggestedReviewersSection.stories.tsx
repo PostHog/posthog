@@ -49,6 +49,20 @@ const sharedReasonSuggestions: EnrichedReviewer[] = [
     })
 )
 
+const longReason =
+    'These reviewers maintain the request parser and retry handling. Review the long configuration path before release because it affects several report views.'
+
+const longReasonSuggestions: EnrichedReviewer[] = [
+    ['casey', 'Casey Morgan'],
+    ['jamie', 'Jamie Kim'],
+].map(([id, name]) =>
+    reviewer(id, name, `${id}@example.com`, {
+        source_skill: 'signals-scout-agent-feedback',
+        source_label: 'Agent feedback scout',
+        explanation: longReason,
+    })
+)
+
 const meta: Meta<typeof SuggestedReviewersSectionMockup> = {
     title: 'Scenes-App/Inbox/Detail/Suggested reviewers mockup',
     component: SuggestedReviewersSectionMockup,
@@ -154,15 +168,32 @@ export const NarrowPanelMixedProvenance: Story = {
     },
 }
 
+export const WidePanelLongReason: Story = {
+    args: { suggestions: longReasonSuggestions },
+}
+
 export const NarrowPanelLongReason: Story = {
     parameters: { mockupWidth: 'narrow' },
+    args: { suggestions: longReasonSuggestions },
+}
+
+export const GroupedAndIndividualReviewers: Story = {
     args: {
         suggestions: [
-            reviewer('casey', 'Casey Morgan', 'casey@example.com', {
-                source_skill: 'signals-scout-agent-feedback',
-                source_label: 'Agent feedback scout',
-                explanation:
-                    'Recently maintained the request parser and retry handling. Review the long configuration path before release because it affects several report views.',
+            ...sharedReasonSuggestions.slice(0, 5),
+            reviewer('skyler', 'Skyler Ellis', 'skyler@example.com', {
+                source_skill: 'signals-scout-runtime-ownership',
+                source_label: 'Runtime ownership scout',
+                explanation: 'Owns the report routing and review path.',
+            }),
+            reviewer('maya', 'Maya Rivera', 'maya@example.com', {
+                source_label: 'Code history',
+                explanation: 'Changed the request handler where this issue occurs.',
+            }),
+            reviewer('quinn', 'Quinn Foster', 'quinn@example.com', {
+                source_skill: 'signals-scout-runtime-ownership',
+                source_label: 'Runtime ownership scout',
+                explanation: 'Joined the review path after a teammate correction.',
             }),
         ],
     },

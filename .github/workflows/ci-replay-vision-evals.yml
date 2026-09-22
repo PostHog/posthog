@@ -76,7 +76,7 @@ jobs:
     golden-eval:
         name: Golden-dataset scanner eval
         timeout-minutes: 60
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         # Approval-gated: the job's steps run PR-controlled code with repository secrets.
         environment: replay-vision-evals
         env:

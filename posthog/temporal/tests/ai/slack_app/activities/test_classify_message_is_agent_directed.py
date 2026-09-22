@@ -61,6 +61,19 @@ class TestClassifyMessageIsAgentDirected:
         assert options["timeout"] < POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS
         assert options["max_retries"] * options["timeout"] < POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS
 
+    def test_token_cap_uses_the_reasoning_model_parameter(self):
+        # A rejected `max_tokens` would read as "not agent directed" on every untagged reply.
+        client = self._fake_client('{"agent_directed": false}')
+        with patch(
+            "posthog.temporal.ai.slack_app.activities.classifiers.build_openai_client",
+            return_value=client,
+        ):
+            classify_message_is_agent_directed("lunch in 5?", TASK_TITLE, THREAD)
+
+        kwargs = client.chat.completions.create.call_args.kwargs
+        assert "max_tokens" not in kwargs
+        assert kwargs["max_completion_tokens"] > 0
+
     def test_reply_is_pinned_to_a_single_boolean(self):
         # The schema, not the prompt, is what stops a reasoning model answering with its
         # reasoning — prose parses to nothing, which reads as a refused call.

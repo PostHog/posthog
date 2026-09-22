@@ -52,6 +52,8 @@ from products.engineering_analytics.backend.logic.views import (
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
+_QUERY_PAGE_SIZE = 5000
+
 
 @dataclass(frozen=True, kw_only=True)
 class _IssueEventsWindow:
@@ -70,6 +72,17 @@ class DeploySources:
 
 
 _READY_BY_PR_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
+_PUSH_RUN_PREDICATE = "pr_number > 0 AND NOT is_merge_queue"
+
+
+def push_rows_select(*, runs_source: str, run_filter: str) -> str:
+    """One row per authored commit that reached CI. Skipped workflows still prove the push."""
+    return f"""
+        SELECT pr_number, head_sha, min(coalesce(created_at, run_started_at)) AS pushed_at
+        FROM {runs_source} AS r
+        WHERE {_PUSH_RUN_PREDICATE} AND ({run_filter})
+        GROUP BY pr_number, head_sha
+    """
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -243,11 +256,20 @@ class CuratedGitHubSource:
 
     def issue_events_source(self, *, created_floor: bool = False) -> str | None:
         """Curated PR draft/ready transitions ``SELECT`` subquery, or None when the optional
-        issue-events table isn't synced. ``created_floor`` adds the raw-string scan floor — callers
-        must register {event_created_floor} (see run_started_floor_constant)."""
+        issue-events table isn't synced. ``created_floor`` adds the raw-string scan floor, so callers
+        must register {event_created_floor} (see ``run_started_floor_constant``)."""
         if not self._tables.issue_events:
             return None
         return f"({issue_events.build_query(self._tables.issue_events, created_floor=created_floor)})"
+
+    def team_review_requests_source(self, *, created_floor: bool = False) -> str | None:
+        """Curated team review requests ``SELECT`` subquery, or None when the issue events hold none.
+        ``created_floor`` adds the raw-string scan floor; callers must then register {event_created_floor}
+        (see run_started_floor_constant)."""
+        if not (self._tables.issue_events and self._tables.issue_events_team_requests):
+            return None
+        query = issue_events.build_team_review_requests_query(self._tables.issue_events, created_floor=created_floor)
+        return f"({query})"
 
     def reviews_source(self) -> str | None:
         """Curated submitted-reviews ``SELECT`` subquery, or None when the optional reviews table
@@ -272,7 +294,7 @@ class CuratedGitHubSource:
         a constant NULL when the optional issue-events table isn't synced, so every consumer reads
         the measure the same way."""
         window = self._issue_events_window()
-        cte = self._ready_by_pr_cte()
+        cte = self.ready_by_pr_cte()
         if window is None or cte is None:
             return _READY_TO_MERGE_UNOBSERVABLE
         return ReadyToMergeSql(cte=cte, join=_READY_BY_PR_JOIN, expr=_ready_to_merge_expr(window))
@@ -289,8 +311,9 @@ class CuratedGitHubSource:
             end=f"({issue_events.build_window_end_query(self._tables.issue_events)})",
         )
 
-    def _ready_by_pr_cte(self) -> str | None:
-        """CTE: each PR's last observed draft-state transition, or None when the table isn't synced.
+    def ready_by_pr_cte(self, *, created_floor: bool = False) -> str | None:
+        """CTE: each PR's last observed draft-state transition and last ready event, or None when the
+        table isn't synced. ``created_floor`` works as in ``issue_events_source``.
 
         Only the LAST switch counts: for a merged PR the newest transition is necessarily the ready
         that preceded the merge (a draft can't merge); an open PR goes false while re-drafted. The
@@ -298,8 +321,12 @@ class CuratedGitHubSource:
         ``pr_number`` alone, unlike ``runs_by_pr``: a run's association can list the fork network's
         PRs (which is why that rollup needs the repo qualifier), whereas every row of a resolved
         issue-events table belongs to that one repo by table construction.
+
+        The events table and the pull requests table sync independently, so a timestamp here can run
+        ahead of what a PR's own row reports. A consumer that compares one against a PR's end must
+        bound it. ``last_ready_at`` is safe against ``merged_at`` alone, because a draft cannot merge.
         """
-        source = self.issue_events_source()
+        source = self.issue_events_source(created_floor=created_floor)
         if source is None:
             return None
         return f"""
@@ -307,7 +334,11 @@ class CuratedGitHubSource:
                 SELECT
                     pr_number,
                     argMax(event, tuple(created_at, id)) = '{issue_events.READY_FOR_REVIEW_EVENT}' AS last_is_ready,
-                    max(created_at) AS last_transition_at
+                    max(created_at) AS last_transition_at,
+                    -- OrNull, not maxIf: a plain maxIf falls back to the epoch default when no row
+                    -- matches, and that default would pass the caller's last_ready_at IS NOT NULL
+                    -- filter as if it were a real event (see dora.py's deploys CTE for the same hazard).
+                    maxOrNullIf(created_at, event = '{issue_events.READY_FOR_REVIEW_EVENT}') AS last_ready_at
                 FROM {source} AS se
                 GROUP BY pr_number
             )
@@ -445,7 +476,7 @@ class CuratedGitHubSource:
                     count(DISTINCT head_sha) AS pushes,
                     countIf(run_attempt > 1) AS rerun_cycles
                 FROM runs AS r
-                WHERE pr_number > 0 AND NOT is_merge_queue
+                WHERE {_PUSH_RUN_PREDICATE}
                     AND pr_number IN (SELECT number FROM pr_scope)
                 GROUP BY repo_owner, repo_name, pr_number
             )
@@ -469,6 +500,22 @@ class CuratedGitHubSource:
     def _compose_pr_query(self, ctes: list[str], select: str) -> str:
         """Prefix ``select`` with the given CTEs and fill its ``__PR_SOURCE__`` placeholder with the PR source."""
         return f"WITH {', '.join(ctes)} {select}".replace("__PR_SOURCE__", self.pr_source())
+
+    def run_paged(self, sql: str, *, query_type: str, placeholders: dict[str, ast.Expr]) -> list[tuple]:
+        """Read every row of a query with a stable ORDER BY, without the per-query result cap."""
+        rows: list[tuple] = []
+        offset = 0
+        while True:
+            response = self.run(
+                f"{sql}\nLIMIT {_QUERY_PAGE_SIZE} OFFSET {offset}",
+                query_type=query_type,
+                placeholders=placeholders,
+            )
+            page = list(response.results or [])
+            rows.extend(page)
+            if len(page) < _QUERY_PAGE_SIZE:
+                return rows
+            offset += len(page)
 
     def run(
         self,

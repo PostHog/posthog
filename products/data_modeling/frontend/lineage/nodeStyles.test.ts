@@ -1,6 +1,17 @@
-import { STATUS_MARK_BACKGROUNDS, STATUS_TAG_SETTINGS, statusBackgroundClass } from './nodeStyles'
+import { NodeTypeEnumApi } from 'products/data_modeling/frontend/generated/api.schemas'
+
+import {
+    NODE_TYPE_TAG_SETTINGS,
+    STATUS_MARK_BACKGROUNDS,
+    STATUS_TAG_SETTINGS,
+    statusBackgroundClass,
+} from './nodeStyles'
 
 describe('nodeStyles', () => {
+    it('gives every node type the API can return a label and a color', () => {
+        expect(Object.keys(NODE_TYPE_TAG_SETTINGS).sort()).toEqual(Object.values(NodeTypeEnumApi).sort())
+    })
+
     describe('statusBackgroundClass', () => {
         it.each([
             ['Completed', 'bg-success'],

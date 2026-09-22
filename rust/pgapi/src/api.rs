@@ -7,12 +7,22 @@ use crate::AppState;
 use axum::{
     extract::{Extension, Path, Query, State},
     http::StatusCode,
+    middleware::map_response,
     response::{IntoResponse, Json, Response},
     routing::get,
     Router,
 };
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::sync::Arc;
+
+/// A page left open across a deploy sees a new token on its next API call and reloads,
+/// instead of running the old script against the new API.
+async fn stamp_build(mut res: Response) -> Response {
+    res.headers_mut()
+        .insert("x-pgapi-build", crate::ui::BUILD_TOKEN.clone());
+    res
+}
 
 type S = State<Arc<AppState>>;
 
@@ -40,10 +50,13 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/me", get(me))
         .route("/servers", get(servers))
         .route("/servers/:server/overview", get(overview))
+        .route("/servers/:server/load", get(load))
         .route("/servers/:server/queries", get(top_queries))
         .route("/servers/:server/queries/:queryid", get(query_detail))
         .route("/servers/:server/tags", get(tags))
         .route("/servers/:server/waits", get(waits))
+        .route("/servers/:server/locks", get(locks))
+        .route("/servers/:server/sessions/:pid", get(session_history))
         .route("/servers/:server/activity", get(activity))
         .route("/servers/:server/tables", get(tables))
         .route("/servers/:server/indexes", get(indexes))
@@ -56,6 +69,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/collector/health", get(collector_health))
         .route("/sql", get(sql))
         .route("/stats-schema", get(stats_schema))
+        .layer(map_response(stamp_build))
 }
 
 async fn me(Extension(p): Extension<Principal>) -> R {
@@ -163,9 +177,64 @@ async fn query_detail(
         .await?,
     ))
 }
+async fn load(State(s): S, Path(server): Path<String>, Query(p): Query<BucketQ>) -> R {
+    let (f, t) = p.range.resolve()?;
+    Ok(Json(q::db_load(&s.db, &server, f, t, &p.bucket).await?))
+}
 async fn waits(State(s): S, Path(server): Path<String>, Query(p): Query<BucketQ>) -> R {
     let (f, t) = p.range.resolve()?;
     Ok(Json(q::wait_events(&s.db, &server, f, t, &p.bucket).await?))
+}
+#[derive(Deserialize)]
+struct LocksQ {
+    #[serde(flatten)]
+    range: Range,
+    #[serde(default = "d_bucket")]
+    bucket: String,
+    #[serde(default = "d_limit")]
+    limit: i64,
+}
+async fn locks(State(s): S, Path(server): Path<String>, Query(p): Query<LocksQ>) -> R {
+    let (f, t) = p.range.resolve()?;
+    Ok(Json(
+        q::lock_waits(&s.db, &server, f, t, &p.bucket, p.limit.clamp(1, 500)).await?,
+    ))
+}
+#[derive(Deserialize)]
+struct SessionQ {
+    #[serde(flatten)]
+    range: Range,
+    #[serde(default = "d_instance")]
+    instance: String,
+    /// The backend's start time, which tells a reused pid apart from the one asked about.
+    backend_start: Option<DateTime<Utc>>,
+    /// Without `backend_start`, the backend sampled nearest to this time is the one returned.
+    at: Option<DateTime<Utc>>,
+}
+fn d_instance() -> String {
+    "writer".into()
+}
+async fn session_history(
+    State(s): S,
+    Path((server, pid)): Path<(String, i64)>,
+    Query(p): Query<SessionQ>,
+) -> R {
+    let (f, t) = p.range.resolve()?;
+    Ok(Json(
+        q::session_history(
+            &s.db,
+            &server,
+            &p.instance,
+            pid,
+            q::SessionWindow {
+                from: f,
+                to: t,
+                backend_start: p.backend_start,
+                at: p.at,
+            },
+        )
+        .await?,
+    ))
 }
 async fn activity(State(s): S, Path(server): Path<String>) -> R {
     Ok(Json(q::current_activity(&s.db, &server).await?))
@@ -195,6 +264,8 @@ struct OptDbQ {
     range: Range,
     datname: Option<String>,
     kind: Option<String>,
+    /// Comma-separated `LIKE` patterns of event kinds to leave out, applied before the limit.
+    exclude: Option<String>,
     relname: Option<String>,
     #[serde(default = "d_limit")]
     limit: i64,
@@ -216,6 +287,7 @@ async fn events(State(s): S, Path(server): Path<String>, Query(p): Query<OptDbQ>
             f,
             t,
             p.kind.as_deref(),
+            &q::split_list(p.exclude.as_deref()),
             p.limit.clamp(1, 1000),
         )
         .await?,

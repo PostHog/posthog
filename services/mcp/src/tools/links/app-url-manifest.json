@@ -254,6 +254,21 @@
         "params": [],
         "scope": "project"
     },
+    "broadcast": {
+        "template": "/workflows/broadcasts/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "broadcastNew": {
+        "template": "/workflows/broadcasts/new",
+        "params": [],
+        "scope": "project"
+    },
+    "broadcasts": {
+        "template": "/workflows/broadcasts",
+        "params": [],
+        "scope": "project"
+    },
     "businessKnowledge": {
         "template": "/business-knowledge",
         "params": [],
@@ -661,11 +676,6 @@
     },
     "errorTrackingIssue": {
         "template": "/error_tracking/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "errorTrackingIssueFingerprints": {
-        "template": "/error_tracking/{id}/fingerprints",
         "params": ["id"],
         "scope": "project"
     },
@@ -1259,6 +1269,11 @@
         "params": [],
         "scope": "project"
     },
+    "precomputeDebug": {
+        "template": "/debug/precompute",
+        "params": [],
+        "scope": "project"
+    },
     "preflight": {
         "template": "/preflight",
         "params": [],
@@ -1717,6 +1732,11 @@
     "visualReviewSnapshotOverview": {
         "template": "/visual_review/repos/{repoId}/snapshots",
         "params": ["repoId"],
+        "scope": "project"
+    },
+    "warehouseDestinations": {
+        "template": "/data-management/warehouse-destinations",
+        "params": [],
         "scope": "project"
     },
     "warehouseProperties": {

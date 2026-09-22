@@ -1,11 +1,10 @@
-import posthog, { BeforeSendFn, BrowserMetricsConfig, PostHogInterface, SessionRecordingOptions } from 'posthog-js'
+import posthog, { BeforeSendFn, BrowserMetricsConfig, SessionRecordingOptions } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
-import { startFramerateTracking } from './framerateTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-05-30'
 
@@ -18,13 +17,6 @@ export function isInDeferredInitSample(sessionId: string): boolean {
         hash |= 0
     }
     return Math.abs(hash) % 100 < 50
-}
-
-const shouldTrackFramerate = (loadedInstance: PostHogInterface): boolean => {
-    return (
-        !!window.POSTHOG_APP_CONTEXT?.preflight?.is_debug ||
-        !!loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_REACT_FRAMERATE)
-    )
 }
 
 export interface LoadPostHogJSOptions {
@@ -80,11 +72,6 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
                     loadedInstance.opt_out_capturing()
                 } else {
                     loadedInstance.opt_in_capturing()
-
-                    if (shouldTrackFramerate(loadedInstance)) {
-                        console.info('tracking react framerate')
-                        startFramerateTracking(loadedInstance)
-                    }
 
                     if (
                         !!window.POSTHOG_APP_CONTEXT?.preflight?.is_debug ||
