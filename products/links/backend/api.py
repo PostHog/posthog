@@ -47,6 +47,9 @@ class LinkSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at"]
         extra_kwargs = {
             "redirect_url": {"help_text": "Destination the short link redirects to."},
+            # The model's help text still names hog.gg, but create() accepts only phog.gg.
+            # Overriding here keeps the published schema honest without a migration.
+            "short_link_domain": {"help_text": "Domain the short link is hosted on. Only phog.gg is accepted."},
             "description": {"help_text": "Free-form note about what the link is for."},
         }
 
@@ -76,11 +79,6 @@ class LinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = LinkSerializer
     lookup_field = "id"
     permission_classes = [IsAuthenticated]
-    # Use the team from the user's current context when not in a team-specific route
-    param_derived_from_user_current_team = "team_id"
-    # OpenAPI skips viewsets that derive their team from the current user, which would leave the
-    # frontend with no generated client for links at all.
-    force_include_in_api_docs = True
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.team_id).order_by("-created_at")
