@@ -1,7 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
-import posthog from 'posthog-js'
 
 import api, { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -277,6 +276,13 @@ export const groupLogic = kea<groupLogicType>([
             null as { mrr: number | null; lifetimeValue: number | null } | null,
             {
                 loadGroupRevenueAnalyticsData: async () => {
+                    // Notebook group cards mount this logic from node attributes, which can carry an
+                    // empty key. `JSON.stringify` then drops the placeholder and the backend rejects
+                    // the query, so skip the request instead.
+                    if (!props.groupKey) {
+                        return null
+                    }
+
                     try {
                         const response = await api.query<HogQLQuery>({
                             kind: NodeKind.HogQLQuery,
@@ -300,9 +306,8 @@ export const groupLogic = kea<groupLogicType>([
                             mrr: row[0] ?? null,
                             lifetimeValue: row[1] ?? null,
                         }
-                    } catch (error) {
+                    } catch {
                         // Silently fall back to group properties
-                        posthog.captureException(error, { tag: 'group_revenue_analytics_data_query_failed' })
                         return null
                     }
                 },
