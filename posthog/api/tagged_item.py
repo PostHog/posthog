@@ -475,3 +475,6 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         paginator.max_limit = 100
         page = paginator.paginate_queryset(tags, request, view=self)
         return paginator.get_paginated_response(page)
+
+
+DEPOT_COVERAGE_PROBE = True
