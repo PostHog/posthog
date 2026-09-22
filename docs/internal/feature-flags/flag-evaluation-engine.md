@@ -80,6 +80,9 @@ The evaluator has no database access, writes, events, identity allocation, or ga
 Experiment/variant/holdout/group/cohort/dependency families and non-boolean values remain unsupported.
 Public response projection and mixed-format service-cache/fallback integration require separate consumers.
 The evaluator corpus pin records an exact unreleased companion revision; release and consumer repinning remain required before that dependency is merge-ready.
+The vendored directory contains the subset listed in `SOURCE.json`.
+Its README, manifest, and checksum index retain the upstream bytes and describe the full upstream package.
+The integrity test verifies the source index digest and each selected file against that index; the directory is not a complete source distribution.
 Rollback can remove this dormant consumer while retaining the format-aware readers and rejection required by stored data.
 
 The production `v1_bucketing` functions accept prescribed hashes for contract tests.

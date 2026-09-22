@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+pub(crate) const ESTIMATED_COMPILED_REGEX_BYTES: usize = 2048;
+
 // Keep in sync with FEATURE_FLAG_SUPPORTED_OPERATORS, defined in
 // products/feature_flags/backend/api/filters_schema.py (used there by the filters serializer
 // and by the write-path serde guard in feature_flag.py — issue #50084). This enum is

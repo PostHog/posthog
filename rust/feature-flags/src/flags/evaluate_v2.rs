@@ -14,7 +14,9 @@ use crate::properties::property_matching::{
     match_property_input, FlagMatchingError, PropertyMatchInput, PropertyMatchingContext,
     REGEX_BACKTRACK_LIMIT,
 };
-use crate::properties::property_models::{CompiledRegex, OperatorType};
+use crate::properties::property_models::{
+    CompiledRegex, OperatorType, ESTIMATED_COMPILED_REGEX_BYTES,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RuleKind {
@@ -135,7 +137,7 @@ impl<'a> Evaluator<'a> {
                             .iter()
                             .filter(|regex| matches!(regex, Some(CompiledRegex::Compiled(_))))
                             .count()
-                            * 2048
+                            * ESTIMATED_COMPILED_REGEX_BYTES
                 })
                 .sum::<usize>()
     }

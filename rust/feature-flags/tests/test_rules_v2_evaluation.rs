@@ -14,7 +14,7 @@ pub mod common;
 mod corpus;
 
 #[test]
-fn pinned_evaluation_artifacts_are_complete_and_intact() {
+fn pinned_evaluation_artifact_subset_is_intact() {
     let source = corpus::load("SOURCE.json");
     let revision = source["source_revision"].as_str().unwrap();
     assert_eq!(revision.len(), 40);

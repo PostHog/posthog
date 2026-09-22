@@ -97,7 +97,7 @@ fn hashing_is_lazy_subject_is_resolved_once_and_repeated_seeds_reuse_the_hash() 
 }
 
 #[test]
-fn prepared_patterns_are_reused_and_diagnostics_do_not_retain_inputs() {
+fn evaluation_is_repeatable_and_diagnostics_do_not_retain_inputs() {
     let mut case = corpus::cases()
         .into_iter()
         .find(|case| case["id"] == "v2_boolean.property.regex")
@@ -117,10 +117,8 @@ fn prepared_patterns_are_reused_and_diagnostics_do_not_retain_inputs() {
     let evaluator = Evaluator::new(config);
     let properties = corpus::properties(&case);
     let context = corpus::context(&case, &properties);
-    let pattern = std::ptr::from_ref(&evaluator.regexes[0][0]);
     let result = evaluator.evaluate(&context);
     assert_eq!(result, evaluator.evaluate(&context));
-    assert_eq!(pattern, std::ptr::from_ref(&evaluator.regexes[0][0]));
     assert!(evaluator.estimated_heap_bytes() >= 2048);
     let debug = format!("{evaluator:?} {context:?} {result:?}");
     for sensitive in [

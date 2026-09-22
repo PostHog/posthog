@@ -157,6 +157,25 @@
                   "value",
                   "reason"
                 ],
+                "if": {
+                  "properties": {
+                    "reason": {
+                      "const": "no_rule_match"
+                    }
+                  }
+                },
+                "then": {
+                  "not": {
+                    "required": [
+                      "rule"
+                    ]
+                  }
+                },
+                "else": {
+                  "required": [
+                    "rule"
+                  ]
+                },
                 "additionalProperties": false
               },
               {
