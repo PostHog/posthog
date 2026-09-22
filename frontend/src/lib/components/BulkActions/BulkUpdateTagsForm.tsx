@@ -23,6 +23,7 @@ export type BulkTaggableResource =
     | 'insights'
     | 'event_definitions'
     | 'conversations/tickets'
+    | 'experiments'
 
 export interface BulkUpdateTagsFormProps {
     resource: BulkTaggableResource

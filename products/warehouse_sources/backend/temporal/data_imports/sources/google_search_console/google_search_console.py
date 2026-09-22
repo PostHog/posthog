@@ -10,7 +10,7 @@ from django.db import OperationalError, close_old_connections
 
 import requests
 import structlog
-from google.auth.exceptions import RefreshError
+from google.auth.exceptions import RefreshError, TransportError
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials as OAuthCredentials
 
@@ -116,6 +116,19 @@ class GoogleSearchConsoleResumeConfig:
     start_row: int  # next startRow within current_date
 
 
+SEARCH_CONSOLE_UI_PREFIX = "https://search.google.com/"
+
+
+def is_search_console_ui_url(site: str) -> bool:
+    """True when the value addresses Search Console itself rather than one of the account's properties.
+
+    ``normalize_site_url`` lifts the property out of a UI URL that carries a ``resource_id``.
+    Whatever is left on ``search.google.com`` names no property and never will, so no amount of
+    re-checking account access can make it validate.
+    """
+    return site.strip().lower().startswith(SEARCH_CONSOLE_UI_PREFIX)
+
+
 def normalize_site_url(raw: str) -> str:
     """Coerce a user-entered property URL toward Google's canonical form.
 
@@ -130,7 +143,7 @@ def normalize_site_url(raw: str) -> str:
     site = raw.strip()
 
     # The Search Console UI URL carries the property in its `resource_id` query param.
-    if site.startswith("https://search.google.com/"):
+    if is_search_console_ui_url(site):
         resource_id = parse_qs(urlparse(site).query).get("resource_id")
         if resource_id:
             site = resource_id[0].strip()
@@ -373,6 +386,24 @@ def _query_search_analytics(
             wait = QUOTA_BACKOFF_BASE_SECONDS * (2**attempt)
             logger.warning(
                 "GSC token refresh transient error, backing off",
+                site_url=site_url,
+                attempt=attempt,
+                wait_seconds=wait,
+            )
+            time.sleep(wait)
+            continue
+        except TransportError:
+            # Raised by AuthorizedSession's internal token-refresh request when the underlying
+            # HTTP call itself fails (connection reset, proxy error, DNS failure, timeout) before
+            # any response exists — google-auth wraps `requests.RequestException` in this class
+            # rather than raising it directly, so it never reaches the ConnectionError/Timeout
+            # handling above. Always a network-layer failure, same transient class, so retry
+            # inline like a 5xx rather than crashing the activity on the first blip.
+            if attempt == QUOTA_MAX_RETRIES:
+                raise
+            wait = QUOTA_BACKOFF_BASE_SECONDS * (2**attempt)
+            logger.warning(
+                "GSC token refresh transport error, backing off",
                 site_url=site_url,
                 attempt=attempt,
                 wait_seconds=wait,

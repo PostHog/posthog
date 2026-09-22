@@ -9,7 +9,7 @@ from prometheus_client import Histogram
 from pydantic import BaseModel
 from rest_framework.exceptions import APIException, NotFound
 
-from posthog.schema import ClickhouseQueryProgress, QueryStatus
+from posthog.schema import ClickhouseQueryProgress, QueryScanSummary, QueryStatus
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
@@ -206,6 +206,17 @@ def _shared_link_user_for(sharing_configuration_id: int, team: "Team") -> Option
     return cast("User", SharedLinkUser(sharing_configuration))
 
 
+def _query_scan_from_error(err: Exception) -> Optional[QueryScanSummary]:
+    """The scan summary the query runner put on a killed run, if this failure carries one."""
+    summary = getattr(err, "query_scan", None)
+    if summary is None:
+        return None
+    try:
+        return QueryScanSummary.model_validate(summary)
+    except Exception:
+        return None
+
+
 def execute_process_query(
     team_id: int,
     user_id: Optional[int],
@@ -301,6 +312,11 @@ def execute_process_query(
         is_user_safe_error = isinstance(
             err, APIException | ExposedHogQLError | ExposedCHQueryError | UserAccessControlError
         )
+        # A stopped run's scan rides on the status so a dead tile can show the advice, with the cache key
+        # for polling. Only for a real user: a shared link must not see the project's data volume.
+        if user_id:
+            query_status.cache_key = getattr(err, "cache_key", None)
+            query_status.query_scan = _query_scan_from_error(err)
         if is_user_safe_error or is_staff_user:
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)

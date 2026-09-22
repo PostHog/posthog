@@ -47,6 +47,24 @@ Few things to note:
 - Placeholders like `{where}` are just nodes of type `ast.Placeholder(field='where')`. You can leave them in, and call `stmt = replace_placeholders(stmt, { where: parse_expr('1') })` later.
 - We wrote one AST node ourselves: `ast.Constant(value=num_last_days)`. We did it to sanitize the value by make sure it's treated as a constant. We might simplify constants further (e.g. `parse_const` or just `{days: 2}`), but we're not there yet.
 
+Placeholder expansion allows at most 1,000 placeholders and shares a five-second deadline across the query.
+All placeholders also share a 64 MiB budget in Hog VM memory units, charged using each expression's peak stack usage, including temporary values.
+This accounting is not a limit on Python process memory.
+The `range()` builtin checks its result size against the remaining VM allowance before allocating the list.
+Queries that exceed these limits fail during expansion; reduce the number or size of the placeholder expressions to stay within them.
+
+## Pattern matching during query preparation
+
+Expressions inside HogQL placeholders execute in the Python HogVM.
+Its regex and LIKE functions and operators accept patterns up to 16,384 characters.
+Larger patterns raise a `HogVMException`; shorten the pattern before matching.
+Subject strings have no separate matching limit and use the VM's existing 64 MiB stack memory budget, so matching can process multi-megabyte response bodies.
+These limits also apply to `extractRegex`, which still returns an empty string for invalid regex syntax.
+Regex matching uses RE2 syntax, so backreferences and lookaround are unsupported.
+
+SQL LIKE and ILIKE patterns sent to ClickHouse are not subject to these VM limits.
+For non-nullable materialized columns, patterns above 16,384 characters skip the optional sentinel-based rewrite and use the normal property read.
+
 ## AST nodes
 
 If you want more control, you can build the AST nodes directly. The same query above can be written as:
@@ -74,6 +92,12 @@ query_result.columns == ['event', 'timestamp']  # might be useful if you select 
 ```
 
 You can mix and match `parse_expr` and `ast` nodes as you please. The example above _still_ took a shortcut for the where clause because it was easier to write.
+
+## Snowflake date formatting
+
+For direct Snowflake queries, `formatDateTime` requires a literal format string and translates supported strftime specifiers into Snowflake format elements.
+The printer binds the translated format as a query parameter, preserving literal quotes and backslashes in the parameter value.
+Pass the printed SQL and `HogQLContext.values` together to the database driver.
 
 ## Database schema and features
 

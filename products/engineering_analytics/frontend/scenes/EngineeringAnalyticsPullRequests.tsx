@@ -252,6 +252,11 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                         { value: 'passing', label: 'CI: passing', labelInMenu: 'Passing' },
                         { value: 'failing', label: 'CI: failing', labelInMenu: 'Failing' },
                         { value: 'running', label: 'CI: running', labelInMenu: 'Running' },
+                        {
+                            value: 'inconclusive',
+                            label: 'CI: no verdict',
+                            labelInMenu: 'No verdict',
+                        },
                         { value: 'none', label: 'CI: none', labelInMenu: 'No CI' },
                     ]}
                 />

@@ -96,6 +96,21 @@ ISSUE_EVENTS_COLUMNS: dict[str, dict[str, str]] = {
     "actor": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "issue": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "created_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    # GitHub adds this object only to a team review request, so a repo where no pull request asked a team
+    # lands no such column. The source resolver checks for it.
+    "requested_team": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+}
+
+# Contract for the ``github_reviews`` warehouse source: one row per submitted review, fanned out
+# over pull requests with the parent's number injected as ``pr_number``. ``user`` is the reviewer
+# object verbatim as JSON. Same Nullable/string discipline as above.
+REVIEWS_COLUMNS: dict[str, dict[str, str]] = {
+    "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "pr_number": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
+    "user": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "state": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "commit_id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "submitted_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
 }
 
 # Contract for the ``github_team_members`` warehouse source (org team membership). Member rows

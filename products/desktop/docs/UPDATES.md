@@ -34,6 +34,7 @@ Remote announcements can drive this flow: a `required-update` announcement block
 - The title bar shows a compact chip for the same states while the sidebar is collapsed, peeked away or absent, so only one copy is on screen at a time.
 - Both surfaces open the update modal, which shows the release notes and holds the Download and Restart actions. The sidebar card also has its own Restart button for a staged update.
 - "Check for Updates..." in the app menu runs a check. It shows a toast when the app is up to date or the check fails, and opens the update modal when the check finds an available, downloading or staged update.
+- Manual update results remain visible when toast notifications are disabled, including in Command Center. Background notifications still follow that setting.
 - The modal is mounted in the app shell above the router, so it also opens from the sign-in, access and consent screens.
 
 ## How it works
@@ -61,6 +62,16 @@ git push origin desktop-v0.16
 ```
 
 The next `desktop-tag.yml` run releases `desktop-v0.16.N`.
+
+A tag ruleset protects `desktop-v*` and `agent-v*` tags, because pushing one publishes a release.
+Only a repository admin can push a base tag.
+`desktop-tag.yml` and `desktop-agent-tag.yml` push release tags through the Releaser GitHub App, which the ruleset allows.
+
+## Agent package releases
+
+Agent releases are separate from desktop app releases. Changes to `products/desktop/packages/agent` or `products/desktop/packages/harness` on `master` trigger an agent release.
+The patch version counts commits that change either package since the agent base tag. A commit that changes both packages counts once.
+See the [agent release process](../packages/agent/README.md#releasing) for the tag and publish steps.
 
 ## Checking current version
 

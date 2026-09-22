@@ -1,28 +1,38 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldFileUploadConfig,
     SourceFieldFileUploadJsonFormatConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
     SourceFieldSwitchGroupConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_API_VERSION_V2,
     BIGQUERY_CREDENTIALS_REJECTED_ERROR,
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
+    BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
+    BIGQUERY_IMPERSONATION_UNAVAILABLE_ERROR,
+    BIGQUERY_INTEGRATION_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
     BIGQUERY_INVALID_KEY_FILE_ERROR,
     BIGQUERY_INVALID_TOKEN_URI_ERROR,
+    BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR,
+    BIGQUERY_NO_CREDENTIALS_ERROR,
     BIGQUERY_ON_DEMAND_RATIO_EXCEEDED_ERROR,
+    BIGQUERY_OWNERSHIP_UNVERIFIED_ERROR_PREFIX,
     BIGQUERY_RESOURCES_EXCEEDED_ERROR,
+    BIGQUERY_SERVICE_ACCOUNT_NOT_FOUND_ERROR,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryImplementation,
     build_destination_table_prefix,
+    classify_bigquery_validation_error,
+    resolve_bigquery_auth,
     validate_bigquery_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -60,7 +70,14 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "PermissionDenied: 403 request failed": "BigQuery permission denied. Please check that your service account has the necessary permissions.",
+            # google-api-core raises `PermissionDenied` from the Storage Read API's
+            # `create_read_session`, whose message is the gRPC form "403 request failed: the user
+            # does not have '<permission>' permission for '<resource>'". Reading a table that way
+            # needs dataset read access and permission to open a read session on the project the
+            # read bills to, and the denial names only whichever one it hit first — so name both
+            # roles rather than leaving the customer to work out which grant is missing. Matched on
+            # the stable status wording, not the volatile permission and resource ids.
+            "PermissionDenied: 403 request failed": "BigQuery denied your service account access while reading your data. Grant it the BigQuery Data Viewer role on the dataset you're syncing and the Read Session User role on its project, then reconnect the source.",
             # OAuth2 error code returned by Google's token endpoint when the service account grant
             # is rejected — a rotated/revoked private key ("Invalid JWT Signature") or a deleted
             # service account ("account not found"). Raised as a `RefreshError` while refreshing the
@@ -79,6 +96,22 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # Raised before any request when the key file's token endpoint is not Google's. The key
             # file is the problem, so retrying cannot help; the user must re-upload an unedited key.
             BIGQUERY_INVALID_TOKEN_URI_ERROR: BIGQUERY_INVALID_TOKEN_URI_ERROR,
+            # Raised by `resolve_bigquery_auth` before any request, when the source's stored
+            # credentials cannot produce an identity to sync as: the service account integration was
+            # disconnected, the uploaded key file lost fields, the instance can't impersonate, or the
+            # source has no credentials at all. Each is a config problem the user has to fix in the
+            # source, so retrying only repeats the same failure every run.
+            BIGQUERY_INTEGRATION_NOT_FOUND_ERROR: BIGQUERY_INTEGRATION_NOT_FOUND_ERROR,
+            BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR: BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR,
+            BIGQUERY_IMPERSONATION_UNAVAILABLE_ERROR: BIGQUERY_IMPERSONATION_UNAVAILABLE_ERROR,
+            BIGQUERY_NO_CREDENTIALS_ERROR: BIGQUERY_NO_CREDENTIALS_ERROR,
+            # Raised when PostHog impersonates the customer's service account but Google Cloud
+            # rejects the ownership check that guards impersonation — the account is gone, PostHog
+            # can't read it, or its description doesn't name the connecting organization. All three
+            # need a change in the customer's Google Cloud project, so retrying can't recover them.
+            BIGQUERY_SERVICE_ACCOUNT_NOT_FOUND_ERROR: BIGQUERY_SERVICE_ACCOUNT_NOT_FOUND_ERROR,
+            BIGQUERY_IMPERSONATION_PERMISSION_ERROR: BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
+            BIGQUERY_OWNERSHIP_UNVERIFIED_ERROR_PREFIX: None,
             # Writing query results into the `__posthog_import_...` temp tables PostHog creates
             # (`WRITE_TRUNCATE` in `_run_destination_query_with_job_retry`, on incremental / view /
             # row-filtered reads) needs write access on the dataset those tables live in. When the
@@ -199,6 +232,12 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             BIGQUERY_INVALID_IDENTIFIER_ERROR: BIGQUERY_INVALID_IDENTIFIER_ERROR,
             "Invalid dataset ID": BIGQUERY_INVALID_IDENTIFIER_ERROR,
             "Invalid project ID": BIGQUERY_INVALID_IDENTIFIER_ERROR,
+            # `bq.dataset(...)`-based REST calls (`list_tables`, used by temp-table cleanup and
+            # credential validation) reject a malformed project/dataset ID with this resource-name
+            # wording instead of "Invalid project ID"/"Invalid dataset ID", which only query jobs
+            # raise for the same misconfiguration. Matched on the stable wording, not the volatile
+            # offending id.
+            "Invalid resource name": BIGQUERY_INVALID_IDENTIFIER_ERROR,
             # Raised as a 400 BadRequest from job creation (POST .../jobs) when the location the
             # client runs in — the custom region from the source form, or the dataset's own location
             # auto-detected in `connect` — isn't a region BigQuery can run query jobs in, e.g.
@@ -350,6 +389,27 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             "do not exist in the table schema": "BigQuery couldn't read this table because it referenced columns that no longer exist on it — usually columns selected for syncing were renamed or removed. Retrying won't help — please update the source's column selection to match the table's current schema, then reconnect the source.",
         }
 
+    def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
+        is_valid, errors = super().validate_config(job_inputs)
+
+        # The credential fields under each option are optional on the form, because the option the
+        # user did not pick must not block the save. That makes this the only check that stops a
+        # source being created with no credentials at all.
+        auth_type = job_inputs.get("auth_type")
+        if not isinstance(auth_type, dict):
+            return is_valid, errors
+
+        if auth_type.get("selection") == "key_file":
+            key_file = auth_type.get("key_file")
+            if not isinstance(key_file, dict) or not any(key_file.values()):
+                errors.append("Upload a Google Cloud service account JSON key file.")
+                is_valid = False
+        elif auth_type.get("google_cloud_service_account_integration_id") in (None, ""):
+            errors.append("Pick a Google Cloud service account.")
+            is_valid = False
+
+        return is_valid, errors
+
     def validate_credentials(
         self,
         config: BigQuerySourceConfig,
@@ -357,6 +417,11 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        try:
+            auth = resolve_bigquery_auth(config, team_id)
+        except Exception as e:
+            return False, classify_bigquery_validation_error(e)
+
         region: str | None = None
         if (
             config.use_custom_region
@@ -367,13 +432,8 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             region = config.use_custom_region.region
         return validate_bigquery_credentials(
             config.dataset_id,
-            {
-                "project_id": config.key_file.project_id,
-                "private_key": config.key_file.private_key,
-                "private_key_id": config.key_file.private_key_id,
-                "client_email": config.key_file.client_email,
-                "token_uri": config.key_file.token_uri,
-            },
+            auth.project_id,
+            auth.credentials,
             config.dataset_project.dataset_project_id if config.dataset_project else None,
             region,
         )
@@ -381,7 +441,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BIG_QUERY,
+            name=ExternalDataSourceType.BIGQUERY,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["bq", "gbq", "sql", "gcp", "google cloud"],
             featured=True,
@@ -394,14 +454,52 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldFileUploadConfig(
-                        name="key_file",
-                        label="Google Cloud JSON key file",
-                        fileFormat=SourceFieldFileUploadJsonFormatConfig(
-                            format=".json",
-                            keys=["project_id", "private_key", "private_key_id", "client_email", "token_uri"],
-                        ),
+                    SourceFieldSelectConfig(
+                        name="auth_type",
+                        label="Authentication type",
                         required=True,
+                        defaultValue="service_account",
+                        options=[
+                            SourceFieldSelectConfigOption(
+                                label="Google Cloud service account",
+                                value="service_account",
+                                fields=cast(
+                                    list[FieldType],
+                                    [
+                                        SourceFieldOauthConfig(
+                                            name="google_cloud_service_account_integration_id",
+                                            label="Google Cloud service account",
+                                            required=False,
+                                            kind="google-cloud-service-account",
+                                        ),
+                                    ],
+                                ),
+                            ),
+                            SourceFieldSelectConfigOption(
+                                label="JSON key file",
+                                value="key_file",
+                                fields=cast(
+                                    list[FieldType],
+                                    [
+                                        SourceFieldFileUploadConfig(
+                                            name="key_file",
+                                            label="Google Cloud JSON key file",
+                                            fileFormat=SourceFieldFileUploadJsonFormatConfig(
+                                                format=".json",
+                                                keys=[
+                                                    "project_id",
+                                                    "private_key",
+                                                    "private_key_id",
+                                                    "client_email",
+                                                    "token_uri",
+                                                ],
+                                            ),
+                                            required=False,
+                                        ),
+                                    ],
+                                ),
+                            ),
+                        ],
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="use_custom_region",

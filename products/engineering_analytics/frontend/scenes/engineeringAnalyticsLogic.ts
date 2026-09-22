@@ -70,6 +70,8 @@ export interface PullRequestRow {
     passing: number
     failing: number
     pending: number
+    /** Runs that settled without a verdict: cancelled, skipped, neutral, action required. */
+    inconclusive: number
     /** Workflow names behind `failing`, sorted. */
     failingWorkflows: string[]
     /** Distinct head SHAs across the PR's workflow runs. Fork PRs unattributed. */
@@ -216,6 +218,7 @@ export function toPullRequestRow(it: PullRequestListItemApi): PullRequestRow {
         passing: it.ci.passing,
         failing: it.ci.failing,
         pending: it.ci.pending,
+        inconclusive: it.ci.inconclusive,
         failingWorkflows: it.ci.failing_workflows ?? [],
         pushes: it.pushes ?? 0,
         pushHistory: it.push_history ?? [],
@@ -377,6 +380,9 @@ export interface TrunkQuarantineData {
     trunkUrl: string | null
     teams: TrunkQuarantineTeamRow[]
     tests: TrunkQuarantinedTestRow[]
+    /** True when more tests are quarantined than `limit`; `tests` and the team counts are then lower bounds. */
+    truncated: boolean
+    limit: number
 }
 
 /**
@@ -823,6 +829,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                             ttlDays: data.ttl_days,
                             repository: data.repository,
                             trunkUrl: data.trunk_url ?? null,
+                            truncated: data.truncated,
+                            limit: data.limit,
                             teams: data.teams.map(
                                 (it): TrunkQuarantineTeamRow => ({
                                     ownerTeam: it.owner_team,

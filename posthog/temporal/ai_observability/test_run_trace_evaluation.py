@@ -1,5 +1,6 @@
 import json
 import uuid
+import tracemalloc
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -158,12 +159,45 @@ class TestFormatTraceForJudge:
 
         assert "search_docs" in transcript
 
-    def test_truncates_long_event_io(self):
-        trace = create_trace([create_trace_event("$ai_generation", **{"$ai_input": "x" * 50_000})])
+    @pytest.mark.parametrize("output_property", ["$ai_output", "$ai_output_choices"])
+    @pytest.mark.parametrize(
+        "content_length,output_length,should_truncate,should_truncate_output",
+        [(50_000, 4_000, False, False), (200_000, 4_000, True, False), (200_000, 200_000, True, True)],
+    )
+    def test_truncates_long_event_io_only_when_the_trace_exceeds_budget(
+        self,
+        output_property: str,
+        content_length: int,
+        output_length: int,
+        should_truncate: bool,
+        should_truncate_output: bool,
+    ) -> None:
+        content = "start " + "x" * (content_length // 2) + " critical evidence " + "y" * (content_length // 2) + " end"
+        output = "a" * (output_length // 2) + "\n- Required output evidence.\n" + "b" * (output_length // 2)
+        output_value = (
+            output
+            if output_property == "$ai_output"
+            else [{"role": "assistant", "content": [{"type": "text", "text": output}]}]
+        )
+        trace = create_trace(
+            [
+                create_trace_event(
+                    "$ai_generation",
+                    **{"$ai_input": [{"role": "user", "content": content}], output_property: output_value},
+                )
+            ]
+        )
 
         transcript = format_trace_for_judge(trace)
 
-        assert "chars truncated" in transcript
+        assert ("chars truncated" in transcript) == should_truncate
+        assert ("critical evidence" in transcript) == (not should_truncate)
+        assert ("- Required output evidence." in transcript) == (not should_truncate_output)
+        if not should_truncate_output:
+            assert all(line in transcript for line in output.splitlines())
+        assert "start " in transcript
+        assert " end" in transcript
+        assert len(transcript) <= JUDGE_TRACE_MAX_CHARS
 
     def test_bounds_output_to_max_chars(self):
         # 200 large generations would blow well past the cap without sampling.
@@ -174,6 +208,29 @@ class TestFormatTraceForJudge:
         transcript = format_trace_for_judge(create_trace(events))
 
         assert len(transcript) <= JUDGE_TRACE_MAX_CHARS
+        assert "SAMPLED VIEW" in transcript
+
+    @pytest.mark.parametrize("message_property", ["$ai_input", "$ai_output_choices"])
+    @pytest.mark.parametrize("event_count,message_count", [(50, 1), (1, 50)])
+    def test_oversized_messages_do_not_allocate_the_full_transcript(
+        self, message_property: str, event_count: int, message_count: int
+    ) -> None:
+        content = "start " + "x" * 500_000 + " end"
+        messages = [{"role": "user", "content": content} for _ in range(message_count)]
+        trace = create_trace(
+            [create_trace_event("$ai_generation", **{message_property: messages}) for _ in range(event_count)]
+        )
+
+        tracemalloc.start()
+        try:
+            transcript = format_trace_for_judge(trace)
+            _, peak_bytes = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+
+        assert "chars truncated" in transcript
+        assert len(transcript) <= JUDGE_TRACE_MAX_CHARS
+        assert peak_bytes < 10_000_000
 
     def test_marks_errored_events(self):
         trace = create_trace(
@@ -606,7 +663,7 @@ class TestEmitTraceEvaluationEventActivity:
         }
 
         with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value=team.api_token):
-            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
+            with patch("posthog.temporal.ai_observability.team_capture.capture_ai_internal") as mock_capture:
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
                 await emit_trace_evaluation_event_activity(
@@ -662,7 +719,7 @@ class TestEmitTraceEvaluationEventActivity:
         with (
             time_machine.travel(FROZEN_NOW, tick=False),
             patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value=team.api_token),
-            patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture,
+            patch("posthog.temporal.ai_observability.team_capture.capture_ai_internal") as mock_capture,
         ):
             mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
@@ -733,7 +790,9 @@ class TestEmitTraceEvaluationEventActivity:
         )
 
         with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value=team.api_token):
-            with patch("posthog.temporal.ai_observability.team_capture.capture_internal", return_value=capture_result):
+            with patch(
+                "posthog.temporal.ai_observability.team_capture.capture_ai_internal", return_value=capture_result
+            ):
                 if should_raise:
                     with pytest.raises(CaptureInternalError):
                         await emit_trace_evaluation_event_activity(inputs)
@@ -766,7 +825,7 @@ class TestEmitSessionEvaluationEvent:
 
         with (
             patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value="phc_test"),
-            patch("posthog.temporal.ai_observability.team_capture.capture_internal", side_effect=_capture),
+            patch("posthog.temporal.ai_observability.team_capture.capture_ai_internal", side_effect=_capture),
         ):
             async_to_sync(emit_trace_evaluation_event_activity)(
                 EmitTraceEvaluationEventInputs(
@@ -803,7 +862,7 @@ class TestEmitSessionEvaluationEvent:
 
         with (
             patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value="phc_test"),
-            patch("posthog.temporal.ai_observability.team_capture.capture_internal", side_effect=_capture),
+            patch("posthog.temporal.ai_observability.team_capture.capture_ai_internal", side_effect=_capture),
         ):
             async_to_sync(emit_trace_evaluation_event_activity)(
                 EmitTraceEvaluationEventInputs(

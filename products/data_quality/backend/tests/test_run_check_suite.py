@@ -1,7 +1,9 @@
+from contextlib import nullcontext
+from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
@@ -10,6 +12,7 @@ from temporalio import workflow as temporal_workflow
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import (
     CheckRunStatus,
+    CheckSeverity,
     CheckType,
     SubjectType,
     SuiteRunStatus,
@@ -17,12 +20,14 @@ from products.data_quality.backend.facade.enums import (
 )
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from products.data_quality.backend.temporal.activities.finalize_check_suite import _finalize
+from products.data_quality.backend.temporal.activities.notify_failing_checks import _notify_failing_checks
 from products.data_quality.backend.temporal.activities.prepare_check_suite import _prepare
 from products.data_quality.backend.temporal.activities.run_check_batch import _run_batch
 from products.data_quality.backend.temporal.contracts import (
     BatchOutcome,
     CheckSuiteResult,
     FinalizeCheckSuiteInputs,
+    NotifyFailingChecksInputs,
     PreparedSuite,
     RunCheckBatchInputs,
     RunCheckSuiteInputs,
@@ -32,7 +37,10 @@ from products.data_quality.backend.temporal.workflows.run_check_suite import Run
 RUNNER_QUERY = "products.data_quality.backend.logic.runner.execute_hogql_query"
 ACTIVITY_INFO = "products.data_quality.backend.temporal.activities.prepare_check_suite.activity.info"
 PREPARE_FLAG = (
-    "products.data_quality.backend.temporal.activities.prepare_check_suite.is_data_quality_checks_enabled_for_team_id"
+    "products.data_quality.backend.temporal.activities.prepare_check_suite.get_data_quality_checks_flag_for_team_id"
+)
+NOTIFY_ONE_CHECK = (
+    "products.data_quality.backend.temporal.activities.notify_failing_checks.notify_check_started_failing"
 )
 
 
@@ -70,6 +78,7 @@ class TestCheckSuiteActivities(BaseTest):
         return DataQualityCheck.objects.for_team(self.team.id).create(**{**defaults, **kwargs})
 
     def _prepare(self, **kwargs) -> PreparedSuite:
+        schedule_enabled = kwargs.pop("schedule_enabled", True)
         inputs = RunCheckSuiteInputs(
             team_id=self.team.id,
             trigger=kwargs.pop("trigger", SuiteRunTrigger.MANUAL),
@@ -77,7 +86,7 @@ class TestCheckSuiteActivities(BaseTest):
             **kwargs,
         )
         with patch(ACTIVITY_INFO, return_value=_ActivityInfo()):
-            return _prepare(inputs)
+            return _prepare(inputs, schedule_enabled=schedule_enabled)
 
     def test_a_subject_with_no_checks_produces_no_batches(self) -> None:
         prepared = self._prepare()
@@ -118,6 +127,27 @@ class TestCheckSuiteActivities(BaseTest):
         assert suite_run.subject_type == SubjectType.TABLE
         assert suite_run.subject_uuid == table_id
 
+    def test_scheduled_metric_suite_selects_checks_and_reuses_history_on_retry(self) -> None:
+        metric_id = uuid4()
+        on_metric = self._check(saved_query_id=None, metric_id=metric_id, subject_type=SubjectType.METRIC)
+        self._check()
+
+        prepared = self._prepare(
+            saved_query_ids=[],
+            metric_ids=[str(metric_id)],
+            trigger=SuiteRunTrigger.SCHEDULED,
+        )
+        assert prepared.batches == [[str(on_metric.id)]]
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).get(id=prepared.suite_run_id)
+        assert suite.subject_type == SubjectType.METRIC
+        assert suite.subject_uuid == metric_id
+        retried = self._prepare(
+            saved_query_ids=[],
+            metric_ids=[str(metric_id)],
+            trigger=SuiteRunTrigger.SCHEDULED,
+        )
+        assert retried.suite_run_id == prepared.suite_run_id
+
     def test_mixed_metric_and_view_suite_has_no_single_subject(self) -> None:
         prepared = self._prepare(metric_ids=[str(uuid4())])
         suite = DataQualitySuiteRun.objects.for_team(self.team.id).get(id=prepared.suite_run_id)
@@ -130,6 +160,32 @@ class TestCheckSuiteActivities(BaseTest):
             prepared = self._prepare()
 
         assert prepared.batches == []
+
+    def test_a_paused_schedule_prepares_no_batches(self) -> None:
+        metric_id = uuid4()
+        self._check(saved_query_id=None, metric_id=metric_id, subject_type=SubjectType.METRIC)
+
+        prepared = self._prepare(
+            saved_query_ids=[],
+            schedule_enabled=False,
+            metric_ids=[str(metric_id)],
+            trigger=SuiteRunTrigger.SCHEDULED,
+        )
+
+        assert prepared.batches == []
+
+    def test_an_unreadable_flag_fails_instead_of_preparing_an_empty_suite(self) -> None:
+        metric_id = uuid4()
+        self._check(saved_query_id=None, metric_id=metric_id, subject_type=SubjectType.METRIC)
+
+        with patch(PREPARE_FLAG, return_value=None), self.assertRaises(RuntimeError):
+            self._prepare(
+                saved_query_ids=[],
+                metric_ids=[str(metric_id)],
+                trigger=SuiteRunTrigger.SCHEDULED,
+            )
+
+        assert not DataQualitySuiteRun.objects.for_team(self.team.id).exists()
 
     def test_a_batch_counts_each_outcome_and_records_a_run_per_check(self) -> None:
         passing = self._check()
@@ -152,7 +208,6 @@ class TestCheckSuiteActivities(BaseTest):
 
         assert (outcome.passed, outcome.failed, outcome.errored) == (1, 1, 1)
         assert outcome.failed_blocking == 1
-        assert outcome.newly_failing_check_ids == [str(failing.id)]
         runs = DataQualityCheckRun.objects.for_team(self.team.id).filter(suite_run_id=prepared.suite_run_id)
         assert runs.count() == 3
         assert runs.get(quality_check=erroring).status == CheckRunStatus.ERRORED
@@ -198,6 +253,117 @@ class TestCheckSuiteActivities(BaseTest):
         assert run.status == CheckRunStatus.ERRORED
         assert "staged files" in run.error
 
+    def _fail_checks(self, checks: list[DataQualityCheck]) -> str:
+        suite_run_id = self._prepare(created_by_id=self.user.id).suite_run_id
+        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [4, 4])):
+            _run_batch(
+                RunCheckBatchInputs(
+                    team_id=self.team.id,
+                    suite_run_id=suite_run_id,
+                    check_ids=[str(check.id) for check in checks],
+                )
+            )
+        return suite_run_id
+
+    def _notify(self, suite_run_id: str) -> MagicMock:
+        with patch(NOTIFY_ONE_CHECK, return_value=1) as notify:
+            _notify_failing_checks(NotifyFailingChecksInputs(team_id=self.team.id, suite_run_id=suite_run_id))
+        return notify
+
+    @parameterized.expand(
+        [
+            ("error_severity_first_failure", CheckSeverity.ERROR, None, "", True),
+            ("warn_severity", CheckSeverity.WARN, None, "", False),
+            ("a_streak_opened_before_this_run", CheckSeverity.ERROR, timedelta(minutes=-5), "", False),
+            ("a_streak_reopened_after_this_run", CheckSeverity.ERROR, timedelta(milliseconds=1), "", False),
+            ("an_overlapping_run_errored_after_this_one", CheckSeverity.ERROR, None, CheckRunStatus.ERRORED, True),
+            ("the_check_has_since_passed", CheckSeverity.ERROR, None, CheckRunStatus.PASSED, False),
+        ]
+    )
+    def test_only_the_checks_this_suite_moved_into_failing_are_notified(
+        self, _name: str, severity: CheckSeverity, streak_shift: timedelta | None, newest_status: str, expected: bool
+    ) -> None:
+        check = self._check(severity=severity)
+        suite_run_id = self._fail_checks([check])
+        if newest_status:
+            updates: dict = {"last_status": newest_status}
+            if newest_status == CheckRunStatus.PASSED:
+                updates["failing_since"] = None
+            DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(**updates)
+        if streak_shift is not None:
+            run = DataQualityCheckRun.objects.for_team(self.team.id).get(suite_run_id=suite_run_id)
+            assert run.finished_at is not None
+            DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(
+                failing_since=run.finished_at + streak_shift
+            )
+
+        notify = self._notify(suite_run_id)
+
+        assert notify.call_count == (1 if expected else 0)
+
+    @parameterized.expand(
+        [("lowered_to_warn", CheckSeverity.WARN, True), ("raised_to_error", CheckSeverity.ERROR, False)]
+    )
+    def test_a_severity_edit_after_the_batch_does_not_change_what_the_suite_reports(
+        self, _name: str, edited_to: CheckSeverity, expected: bool
+    ) -> None:
+        check = self._check(severity=CheckSeverity.ERROR if expected else CheckSeverity.WARN)
+        suite_run_id = self._fail_checks([check])
+        DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(severity=edited_to)
+
+        notify = self._notify(suite_run_id)
+
+        assert notify.call_count == (1 if expected else 0)
+
+    def test_the_idempotency_key_names_the_check_and_the_streak_it_opened(self) -> None:
+        check = self._check()
+        suite_run_id = self._fail_checks([check])
+
+        notify = self._notify(suite_run_id)
+
+        check.refresh_from_db()
+        assert check.failing_since is not None
+        assert notify.call_args.kwargs["idempotency_key"] == (
+            f"check-failing-{check.id}-{check.failing_since.isoformat()}"
+        )
+
+    @parameterized.expand([("pinned", False), ("unpinnable", True)])
+    def test_the_references_the_run_pinned_are_handed_to_the_notice(self, _name: str, unpinnable: bool) -> None:
+        check = self._check(check_type=CheckType.CUSTOM_SQL, column_name="", config={"query": "SELECT 1 FROM orders"})
+        pinning = (
+            patch("products.data_quality.backend.logic.runner.pin_referenced_subjects", return_value=None)
+            if unpinnable
+            else nullcontext()
+        )
+        with pinning:
+            suite_run_id = self._fail_checks([check])
+
+        notify = self._notify(suite_run_id)
+
+        expected = None if unpinnable else [{"subject_type": SubjectType.VIEW, "subject_uuid": str(self.view.id)}]
+        assert notify.call_args.kwargs["executed_references"] == expected
+
+    def test_the_checks_of_one_activity_share_one_access_lookup_per_member(self) -> None:
+        first = self._check()
+        second = self._check(column_name="total")
+        suite_run_id = self._fail_checks([first, second])
+
+        notify = self._notify(suite_run_id)
+
+        caches = [call.kwargs["access_cache"] for call in notify.call_args_list]
+        assert len(caches) == 2
+        assert caches[0] is caches[1]
+
+    def test_a_check_hard_deleted_after_its_batch_leaves_the_others_notified(self) -> None:
+        deleted = self._check()
+        survivor = self._check(column_name="total")
+        suite_run_id = self._fail_checks([deleted, survivor])
+        DataQualityCheck.objects.for_team(self.team.id).filter(id=deleted.id).delete()
+
+        notify = self._notify(suite_run_id)
+
+        assert [call.args[0].id for call in notify.call_args_list] == [survivor.id]
+
     def test_finalize_sums_batch_outcomes_into_the_report(self) -> None:
         prepared = self._prepare()
 
@@ -236,7 +402,12 @@ class TestCheckSuiteActivities(BaseTest):
 class TestRunCheckSuiteWorkflow(BaseTest):
     def _run(self, prepared: PreparedSuite, activity_results: list) -> tuple[CheckSuiteResult, AsyncMock]:
         execute_activity = AsyncMock(side_effect=[prepared, *activity_results])
-        with patch.object(temporal_workflow, "execute_activity", new=execute_activity):
+        # workflow.logger only resolves inside a real workflow event loop, and these drive the
+        # coroutine directly.
+        with (
+            patch.object(temporal_workflow, "execute_activity", new=execute_activity),
+            patch.object(temporal_workflow, "logger"),
+        ):
             result = async_to_sync(RunCheckSuiteWorkflow().run)(
                 RunCheckSuiteInputs(team_id=self.team.id, trigger=SuiteRunTrigger.MANUAL)
             )
@@ -253,9 +424,11 @@ class TestRunCheckSuiteWorkflow(BaseTest):
 
     def test_every_batch_is_run_and_folded_into_finalize(self) -> None:
         prepared = PreparedSuite(suite_run_id="s-1", batches=[["a"], ["b"]])
-        completed = CheckSuiteResult(suite_run_id="s-1", status=SuiteRunStatus.COMPLETED)
+        completed = CheckSuiteResult(suite_run_id="s-1", status=SuiteRunStatus.COMPLETED, checks_failed=1)
 
-        result, execute_activity = self._run(prepared, [BatchOutcome(passed=1), BatchOutcome(failed=1), completed])
+        result, execute_activity = self._run(
+            prepared, [BatchOutcome(passed=1), BatchOutcome(failed=1), completed, None]
+        )
 
         assert result.status == SuiteRunStatus.COMPLETED
         started = [call.args[0].__name__ for call in execute_activity.await_args_list]
@@ -264,9 +437,33 @@ class TestRunCheckSuiteWorkflow(BaseTest):
             "run_check_batch_activity",
             "run_check_batch_activity",
             "finalize_check_suite_activity",
+            "notify_failing_checks_activity",
         ]
-        finalize_inputs = execute_activity.await_args_list[-1].args[1]
+        finalize_inputs = execute_activity.await_args_list[-2].args[1]
         assert [outcome.passed for outcome in finalize_inputs.outcomes] == [1, 0]
+        assert execute_activity.await_args_list[-1].args[1].suite_run_id == "s-1"
+
+    def test_a_suite_with_nothing_failing_does_not_notify(self) -> None:
+        prepared = PreparedSuite(suite_run_id="s-1", batches=[["a"]])
+        completed = CheckSuiteResult(suite_run_id="s-1", status=SuiteRunStatus.COMPLETED, checks_errored=1)
+
+        result, execute_activity = self._run(prepared, [BatchOutcome(errored=1), completed])
+
+        assert result.status == SuiteRunStatus.COMPLETED
+        started = [call.args[0].__name__ for call in execute_activity.await_args_list]
+        assert "notify_failing_checks_activity" not in started
+
+    def test_a_notify_failure_leaves_the_suite_completed(self) -> None:
+        prepared = PreparedSuite(suite_run_id="s-1", batches=[["a"]])
+        completed = CheckSuiteResult(suite_run_id="s-1", status=SuiteRunStatus.COMPLETED, checks_failed=1)
+
+        result, execute_activity = self._run(
+            prepared, [BatchOutcome(failed=1), completed, RuntimeError("the notifications backend is down")]
+        )
+
+        assert result.status == SuiteRunStatus.COMPLETED
+        started = [call.args[0].__name__ for call in execute_activity.await_args_list]
+        assert "mark_check_suite_failed_activity" not in started
 
     def test_a_failed_batch_marks_the_prepared_suite_failed_and_reraises(self) -> None:
         prepared = PreparedSuite(suite_run_id="s-1", batches=[["a"]])

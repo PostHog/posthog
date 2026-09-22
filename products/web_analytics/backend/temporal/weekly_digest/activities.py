@@ -1,4 +1,5 @@
 import time
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from itertools import batched
 
@@ -26,20 +27,19 @@ from posthog.tasks.email import NotificationSetting, should_send_notification
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.user_permissions import UserPermissions
 
+from products.web_analytics.backend import weekly_digest
 from products.web_analytics.backend.recap import recap_url_for_team
-from products.web_analytics.backend.temporal.digest_common import paginate_index, paginate_keyset
+from products.web_analytics.backend.temporal.digest_common import OrgBatchPageResult, paginate_index, paginate_keyset
 from products.web_analytics.backend.temporal.weekly_digest.types import (
     WA_DIGEST_EMAIL_UNAVAILABLE_TYPE,
     DigestBatchInput,
     DigestBatchResult,
     DigestOutcome,
     OrgBatchPageInput,
-    OrgBatchPageResult,
     OrgDigestCounts,
     SendTestDigestInput,
     WAWeeklyDigestInput,
 )
-from products.web_analytics.backend.weekly_digest import auto_select_project_for_user, build_team_digest
 
 logger = structlog.get_logger(__name__)
 
@@ -121,6 +121,7 @@ def _send_digest_for_user(
     date_suffix: str,
     dry_run: bool = False,
     test: bool = False,
+    failed_teams: Sequence[Team] = (),
 ) -> DigestOutcome:
     """`test=True` bypasses notification opt-ins and forces a unique
     campaign_key so dedupe never blocks delivery. Team-access checks are always
@@ -130,22 +131,25 @@ def _send_digest_for_user(
         return DigestOutcome.SKIPPED_OPTOUT
 
     user_perms = UserPermissions(user)
-    accessible_team_data: dict[int, dict] = {}
-    for team_id, data in team_digest_data.items():
-        team = data["team"]
-        if user_perms.team(team).effective_membership_level_for_parent_membership(org, membership) is not None:
-            accessible_team_data[team_id] = data
 
+    def has_access(team: Team) -> bool:
+        return user_perms.team(team).effective_membership_level_for_parent_membership(org, membership) is not None
+
+    def is_enabled(team_id: int) -> bool:
+        return test or should_send_notification(user, NotificationSetting.WEB_ANALYTICS_WEEKLY_DIGEST.value, team_id)
+
+    accessible_team_data = {team_id: data for team_id, data in team_digest_data.items() if has_access(data["team"])}
     if not accessible_team_data:
         return DigestOutcome.SKIPPED_NO_DATA
 
-    if auto_select_project_for_user(user, accessible_team_data):
+    accessible_failed_teams = [team for team in failed_teams if has_access(team)]
+    if not accessible_failed_teams and weekly_digest.auto_select_project_for_user(user, accessible_team_data):
         user.refresh_from_db(fields=["partial_notification_settings"])
 
     user_team_sections = []
     disabled_team_names = []
     for team_id, data in accessible_team_data.items():
-        if test or should_send_notification(user, NotificationSetting.WEB_ANALYTICS_WEEKLY_DIGEST.value, team_id):
+        if is_enabled(team_id):
             user_team_sections.append(data)
         else:
             disabled_team_names.append(data["team"].name)
@@ -161,6 +165,8 @@ def _send_digest_for_user(
 
     if dry_run:
         return DigestOutcome.DRY_RUN
+
+    unavailable_team_names = [team.name for team in accessible_failed_teams if is_enabled(team.id)]
 
     # When the recap experience is enabled for this user, the email CTA points at the recap page.
     recap_enabled = _is_user_recap_enabled(user, str(org.id))
@@ -179,6 +185,7 @@ def _send_digest_for_user(
                 "organization": org,
                 "project_sections": user_team_sections,
                 "disabled_project_names": disabled_team_names,
+                "unavailable_project_names": unavailable_team_names,
                 "recap_enabled": recap_enabled,
                 "settings_url": f"{settings.SITE_URL}/settings/user-notifications?highlight=wa-weekly-digest",
             },
@@ -255,9 +262,10 @@ def _build_and_send_for_org(org_id: str, dry_run: bool = False) -> OrgDigestCoun
         return counts
 
     build_start = time.monotonic()
-    team_digest_data: dict[int, dict] = {team.id: build_team_digest(team) for team in all_org_teams}
+    build = weekly_digest.build_team_digests(all_org_teams)
     counts.build_duration = time.monotonic() - build_start
-    counts.team_count = len(team_digest_data)
+    counts.team_count = len(build.digests)
+    counts.teams_failed = len(build.failed_teams)
 
     date_suffix = timezone.now().strftime("%Y-%W")
 
@@ -267,9 +275,10 @@ def _build_and_send_for_org(org_id: str, dry_run: bool = False) -> OrgDigestCoun
             user=membership.user,
             org=org,
             membership=membership,
-            team_digest_data=team_digest_data,
+            team_digest_data=build.digests,
             date_suffix=date_suffix,
             dry_run=dry_run,
+            failed_teams=build.failed_teams,
         )
         if outcome in (DigestOutcome.SENT, DigestOutcome.DRY_RUN):
             counts.sent += 1
@@ -289,6 +298,7 @@ def _build_and_send_for_org(org_id: str, dry_run: bool = False) -> OrgDigestCoun
         skipped_no_data=counts.skipped_no_data,
         failed=counts.failed,
         team_count=counts.team_count,
+        teams_failed=counts.teams_failed,
     )
     return counts
 
@@ -322,6 +332,7 @@ def _run_wa_digest_batch(input: DigestBatchInput) -> DigestBatchResult:
         totals.emails_skipped_optout += org_counts.skipped_optout
         totals.emails_skipped_no_data += org_counts.skipped_no_data
         totals.emails_failed += org_counts.failed
+        totals.teams_failed += org_counts.teams_failed
         totals.build_duration += org_counts.build_duration
         totals.send_duration += org_counts.send_duration
 
@@ -444,7 +455,7 @@ def _send_test_digest(email: str, team_id: int | None = None) -> None:
             user=user,
             org=team.organization,
             membership=membership,
-            team_digest_data={team.id: build_team_digest(team)},
+            team_digest_data={team.id: weekly_digest.build_team_digest(team)},
             date_suffix=date_suffix,
             test=True,
         )
@@ -470,7 +481,7 @@ def _send_test_digest(email: str, team_id: int | None = None) -> None:
         org_teams = list(Team.objects.filter(organization_id=org.id))
         if not org_teams:
             continue
-        team_digest_data = {t.id: build_team_digest(t) for t in org_teams}
+        team_digest_data = {t.id: weekly_digest.build_team_digest(t) for t in org_teams}
         outcome = _send_digest_for_user(
             user=user,
             org=org,

@@ -500,7 +500,7 @@ export function CreateChannelModal({
               </Item>
               <Item variant="outline">
                 <ItemContent>
-                  <ItemTitle>Repositories</ItemTitle>
+                  <ItemTitle className="text-xs">Repositories</ItemTitle>
                   <ItemDescription>
                     New tasks in this {spacesLayout ? "space" : "channel"} can
                     use these repositories. You can change them later.

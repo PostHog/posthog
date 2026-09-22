@@ -693,6 +693,52 @@ class TestUserAccessControlSerializer(BaseUserAccessControlTest):
         assert serializer.get_user_access_level(self.dashboard) == "manager"
 
 
+@pytest.mark.ee
+class TestObjectDefaultDenyBeatsResourceGrant(BaseUserAccessControlTest):
+    def setUp(self):
+        super().setUp()
+        # The current user is not the creator, so the creator bypass does not apply
+        self.private_dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
+        self.organization.uses_most_specific_access_resolution = False
+        self.organization.save()
+        self.user_access_control = UserAccessControl(self.user, self.team)
+
+    def _make_private_with_resource_grant(self) -> None:
+        self._create_access_control(resource="dashboard", access_level="editor")
+        self._create_access_control(
+            resource="dashboard", resource_id=str(self.private_dashboard.id), access_level="none"
+        )
+        self._clear_uac_caches()
+
+    def test_retrieve_denies_private_object(self):
+        self._make_private_with_resource_grant()
+
+        assert self.user_access_control.get_user_access_level(self.private_dashboard) == "none"
+        assert self.user_access_control.check_access_level_for_object(self.private_dashboard, "viewer") is False
+        assert self.user_access_control.check_access_level_for_object(self.private_dashboard, "editor") is False
+
+    def test_list_hides_private_object(self):
+        self._make_private_with_resource_grant()
+
+        visible = self.user_access_control.filter_queryset_by_access_level(Dashboard.objects.all())
+
+        assert self.private_dashboard.id not in set(visible.values_list("id", flat=True))
+
+    def test_explicit_member_grant_still_wins(self):
+        self._make_private_with_resource_grant()
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.private_dashboard.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+        self._clear_uac_caches()
+
+        assert self.user_access_control.get_user_access_level(self.private_dashboard) == "viewer"
+        assert self.user_access_control.check_access_level_for_object(self.private_dashboard, "viewer") is True
+        assert self.user_access_control.check_access_level_for_object(self.private_dashboard, "editor") is False
+
+
 class TestUserAccessControlAccessSource(BaseUserAccessControlTest):
     """Test the get_access_source_for_object method"""
 

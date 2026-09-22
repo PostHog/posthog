@@ -1,5 +1,8 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
+from parameterized import parameterized
+from rest_framework import serializers as drf_serializers
+
 from posthog.schema import HogQLQuery
 
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -7,6 +10,7 @@ from posthog.models import Organization, Team
 
 from products.actions.backend.models.action import Action
 from products.autoresearch.backend.dataset.labeling import build_target_condition
+from products.autoresearch.backend.presentation.views.serializers import resolve_target
 from products.autoresearch.backend.query import run_hogql_rows
 from products.autoresearch.backend.testing import TeamScopedTestMixin
 
@@ -73,6 +77,73 @@ class TestBuildTargetCondition(TeamScopedTestMixin, APIBaseTest):
         with self.assertRaises(ValueError):
             build_target_condition(
                 target_event="", target_definition={"type": "action", "action_id": action.id}, team=self.team
+            )
+
+
+class TestResolveTarget(TeamScopedTestMixin, APIBaseTest):
+    def test_event_target_normalizes_definition(self):
+        event, definition = resolve_target(team=self.team, target_event="$pageview", target_definition=None)
+        assert event == "$pageview"
+        assert definition == {"type": "event"}
+
+    def test_empty_event_target_raises(self):
+        with self.assertRaises(drf_serializers.ValidationError):
+            resolve_target(team=self.team, target_event="", target_definition=None)
+
+    def test_action_target_backfills_event_from_action_name(self):
+        action = Action.objects.create(
+            team=self.team, name="Interacted with file", steps_json=[{"event": "uploaded_file"}]
+        )
+        event, definition = resolve_target(
+            team=self.team, target_event="", target_definition={"type": "action", "action_id": action.id}
+        )
+        assert event == "Interacted with file"
+        assert definition == {"type": "action", "action_id": action.id}
+
+    def test_action_target_keeps_explicit_event_label(self):
+        action = Action.objects.create(team=self.team, name="Some action", steps_json=[{"event": "uploaded_file"}])
+        event, definition = resolve_target(
+            team=self.team,
+            target_event="custom label",
+            target_definition={"type": "action", "action_id": action.id},
+        )
+        assert event == "custom label"
+
+    def test_missing_action_id_raises(self):
+        with self.assertRaises(drf_serializers.ValidationError):
+            resolve_target(team=self.team, target_event="", target_definition={"type": "action"})
+
+    def test_action_in_a_sibling_environment_of_the_project_resolves(self):
+        other_environment = Team.objects.create(organization=self.organization, project=self.project, name="Other env")
+        action = Action.objects.create(team=self.team, name="Root team action", steps_json=[{"event": "uploaded_file"}])
+        event, definition = resolve_target(
+            team=other_environment, target_event="", target_definition={"type": "action", "action_id": action.id}
+        )
+        assert event == "Root team action"
+        assert definition == {"type": "action", "action_id": action.id}
+
+    @parameterized.expand(
+        [
+            ("names_the_prediction_event", [{"event": "autoresearch_prediction"}]),
+            ("matches_any_event", [{"url": "/app", "url_matching": "contains"}]),
+            ("one_step_of_several", [{"event": "uploaded_file"}, {"event": "autoresearch_prediction"}]),
+        ]
+    )
+    def test_action_that_can_match_the_prediction_event_raises(self, _name: str, steps_json: list[dict]):
+        action = Action.objects.create(team=self.team, name="Broad", steps_json=steps_json)
+        with self.assertRaises(drf_serializers.ValidationError) as ctx:
+            resolve_target(
+                team=self.team, target_event="", target_definition={"type": "action", "action_id": action.id}
+            )
+        assert "target_definition" in ctx.exception.detail
+
+    def test_foreign_action_raises(self):
+        other_org = Organization.objects.create(name="Other")
+        other_team = Team.objects.create(organization=other_org, name="Other")
+        action = Action.objects.create(team=other_team, name="Foreign", steps_json=[{"event": "uploaded_file"}])
+        with self.assertRaises(drf_serializers.ValidationError):
+            resolve_target(
+                team=self.team, target_event="", target_definition={"type": "action", "action_id": action.id}
             )
 
 

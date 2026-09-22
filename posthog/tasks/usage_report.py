@@ -35,6 +35,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models import OrganizationMembership, User
+from posthog.models.ai_events.sql import TABLE_BASE_NAME as AI_EVENTS_TABLE
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.models.group_type_mapping import count_group_type_mappings_per_team, get_group_types_for_team
 from posthog.models.organization import Organization
@@ -49,7 +50,8 @@ from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import DayRange, get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
+from products.batch_exports.backend.billing import exclude_non_billable_runs
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.models.plugin import PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -1847,9 +1849,16 @@ def _get_teams_with_ai_credits_for_products(
     trace_id_expr, _ = get_property_string_expr(
         "events", "$ai_trace_id", "'$ai_trace_id'", "properties", use_new_events_schema=use_new
     )
-    output_state_expr, _ = get_property_string_expr(
-        "events", "$ai_output_state", "'$ai_output_state'", "properties", use_new_events_schema=use_new
-    )
+    output_state_expr, _ = get_property_string_expr("events", "$ai_output_state", "'$ai_output_state'", "properties")
+    trace_events_table = events_table
+    trace_analysis_id_expr = trace_id_expr
+    trace_region_expr = region_expr
+    if use_new:
+        # Native shared events omit the output state needed to identify free tool calls.
+        trace_events_table = AI_EVENTS_TABLE
+        trace_analysis_id_expr = "trace_id"
+        trace_region_expr = "JSONExtractString(properties, %(region_group_property)s)"
+        output_state_expr = "ifNull(output_state, '')"
     customer_team_id_expr, _ = get_property_string_expr(
         "events", "team_id", "'team_id'", "properties", use_new_events_schema=use_new
     )
@@ -1896,7 +1905,7 @@ def _get_teams_with_ai_credits_for_products(
                     ) AS is_billable
                 FROM (
                     SELECT
-                        {trace_id_expr} AS trace_id,
+                        {trace_analysis_id_expr} AS trace_id,
                         arrayFlatten(
                             arrayMap(
                                 msg -> JSONExtractArrayRaw(msg, 'tool_calls'),
@@ -1912,11 +1921,11 @@ def _get_teams_with_ai_credits_for_products(
                             )
                         ) AS tool_calls,
                         arrayMap(tc -> JSONExtractString(tc, 'name'), tool_calls) AS tool_names
-                    FROM {events_table}
+                    FROM {trace_events_table}
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
-                        AND {region_expr} = %(region_url)s
+                        AND {trace_region_expr} = %(region_url)s
                         AND timestamp >= %(begin)s
                         AND timestamp < %(end)s
                         AND event = '$ai_trace'
@@ -2112,25 +2121,13 @@ def get_teams_with_free_historical_rows_synced_in_period(begin: datetime, end: d
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> list:
+    completed_runs = BatchExportRun.objects.filter(
+        finished_at__gte=begin,
+        finished_at__lte=end,
+        status=BatchExportRun.Status.COMPLETED,
+    )
     return list(
-        BatchExportRun.objects.filter(
-            finished_at__gte=begin,
-            finished_at__lte=end,
-            status=BatchExportRun.Status.COMPLETED,
-        )
-        .filter(Q(batch_export__deleted=False) | Q(batch_export_on_demand__deleted=False))
-        .exclude(
-            batch_export__destination__type__in=[
-                BatchExportDestination.Destination.HTTP,
-                BatchExportDestination.Destination.WORKFLOWS,
-            ]
-        )
-        .exclude(
-            batch_export_on_demand__destination__type__in=[
-                BatchExportDestination.Destination.HTTP,
-                BatchExportDestination.Destination.WORKFLOWS,
-            ]
-        )
+        exclude_non_billable_runs(completed_runs)
         .values(team_id=Coalesce(F("batch_export__team_id"), F("batch_export_on_demand__team_id")))
         .annotate(total=Sum("records_completed"))
     )
@@ -2481,7 +2478,7 @@ def get_teams_with_workflow_billable_invocations_in_period(
             """
             SELECT team_id, SUM(count) as count
             FROM app_metrics2
-            WHERE app_source='hog_flow' AND metric_name IN ('billable_invocation') AND metric_kind IN ('fetch') AND timestamp >= %(begin)s AND timestamp < %(end)s
+            WHERE app_source='hog_flow' AND metric_name IN ('billable_invocation') AND metric_kind IN ('fetch', 'push') AND timestamp >= %(begin)s AND timestamp < %(end)s
             GROUP BY team_id
         """,
             {"begin": begin, "end": end},

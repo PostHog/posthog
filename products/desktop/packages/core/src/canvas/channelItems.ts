@@ -236,9 +236,12 @@ export type EnvironmentFilter = "any" | ChannelItemEnvironment;
 export type SourceFilter = string;
 export type ChannelItemSort = "recent" | "created" | "alpha";
 
+export type KindFilter = "any" | "task" | "canvas";
+
 export const ANY_SOURCE = "any";
 
 export interface ChannelItemFilters {
+  kind: KindFilter;
   createdBy: CreatedByFilter;
   attention: AttentionFilter;
   pinned: PinnedFilter;
@@ -247,6 +250,7 @@ export interface ChannelItemFilters {
 }
 
 export const DEFAULT_CHANNEL_ITEM_FILTERS: ChannelItemFilters = {
+  kind: "any",
   createdBy: "anyone",
   attention: "any",
   pinned: "any",
@@ -269,7 +273,7 @@ export function channelItemSortEvent(
 }
 
 /** What the list's section headers stand for. */
-export type ChannelItemGrouping = "date" | "repository";
+export type ChannelItemGrouping = "date" | "repository" | "space";
 
 /** Days, because when something happened is what a session list is scanned by. */
 export const DEFAULT_CHANNEL_ITEM_GROUPING: ChannelItemGrouping = "date";
@@ -283,6 +287,7 @@ export function hasActiveChannelItemFilters(
   filters: ChannelItemFilters,
 ): boolean {
   return (
+    filters.kind !== "any" ||
     filters.createdBy !== "anyone" ||
     filters.attention !== "any" ||
     filters.pinned !== "any" ||
@@ -326,6 +331,7 @@ export function filterChannelItems(
     ) {
       return false;
     }
+    if (filters.kind !== "any" && item.kind !== filters.kind) return false;
     if (filters.createdBy !== "anyone") {
       // An item with no creator uuid (e.g. the backend returns `created_by:
       // null` once a creator is deleted) belongs to neither bucket: it isn't
@@ -410,6 +416,7 @@ export function groupChannelItems(
   sort: ChannelItemSort,
   now: Date = new Date(),
   grouping: ChannelItemGrouping = DEFAULT_CHANNEL_ITEM_GROUPING,
+  spaceOf?: (item: ChannelItemModel) => ChannelItemGroupKey | null,
 ): ChannelItemSection[] {
   const sections: ChannelItemSection[] = [];
 
@@ -422,6 +429,10 @@ export function groupChannelItems(
   if (rest.length === 0) return sections;
   if (grouping === "repository") {
     sections.push(...repositorySections(rest));
+    return sections;
+  }
+  if (grouping === "space" && spaceOf) {
+    sections.push(...spaceSections(rest, spaceOf));
     return sections;
   }
   if (sort === "alpha") {
@@ -445,34 +456,63 @@ export function groupChannelItems(
   return sections;
 }
 
-/** The repository a row belongs under, or null where it names none. */
-const NO_REPOSITORY_KEY = "repo:none";
+export interface ChannelItemGroupKey {
+  key: string;
+  label: string;
+}
 
-/**
- * One section per repository, in the order the sorted list first reaches each
- * one — so a repository-grouped list still opens on the most recent work rather
- * than on whichever repository sorts first alphabetically. Sessions with no
- * repository are a run of their own at the end, where they don't interrupt the
- * named ones.
- */
-function repositorySections(
+function keyedSections(
   items: readonly ChannelItemModel[],
+  resolve: (item: ChannelItemModel) => ChannelItemGroupKey | null,
+  fallback: ChannelItemGroupKey,
 ): ChannelItemSection[] {
-  const byRepo = new Map<string, ChannelItemSection>();
+  const byKey = new Map<string, ChannelItemSection>();
   for (const item of items) {
-    const key = item.repository
-      ? `repo:${item.repository.key}`
-      : NO_REPOSITORY_KEY;
-    const label = item.repository?.label ?? "No repository";
-    const open = byRepo.get(key);
+    const group = resolve(item) ?? fallback;
+    const open = byKey.get(group.key);
     if (open) {
       open.items.push(item);
       continue;
     }
-    byRepo.set(key, { key, label, items: [item] });
+    byKey.set(group.key, { key: group.key, label: group.label, items: [item] });
   }
+  const sections = [...byKey.values()];
+  return [
+    ...sections.filter((s) => s.key !== fallback.key),
+    ...sections.filter((s) => s.key === fallback.key),
+  ];
+}
 
-  const sections = [...byRepo.values()];
-  const unnamed = sections.filter((s) => s.key === NO_REPOSITORY_KEY);
-  return [...sections.filter((s) => s.key !== NO_REPOSITORY_KEY), ...unnamed];
+const NO_REPOSITORY: ChannelItemGroupKey = {
+  key: "repo:none",
+  label: "No repository",
+};
+
+const NO_SPACE: ChannelItemGroupKey = { key: "space:none", label: "No space" };
+
+function repositorySections(
+  items: readonly ChannelItemModel[],
+): ChannelItemSection[] {
+  return keyedSections(
+    items,
+    (item) =>
+      item.repository
+        ? { key: `repo:${item.repository.key}`, label: item.repository.label }
+        : null,
+    NO_REPOSITORY,
+  );
+}
+
+function spaceSections(
+  items: readonly ChannelItemModel[],
+  spaceOf: (item: ChannelItemModel) => ChannelItemGroupKey | null,
+): ChannelItemSection[] {
+  return keyedSections(
+    items,
+    (item) => {
+      const space = spaceOf(item);
+      return space ? { key: `space:${space.key}`, label: space.label } : null;
+    },
+    NO_SPACE,
+  );
 }

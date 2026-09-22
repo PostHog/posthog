@@ -2846,6 +2846,34 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
                 records_completed=100 * (i + 1),  # 100, 200, 300
             )
 
+        # The HogQL model is free while it is in closed beta, so its rows are not counted.
+        hogql_batch_export = BatchExport.objects.create(
+            team_id=3,
+            name="Test HogQL export",
+            destination=batch_export_destination,
+            paused=False,
+            model=BatchExport.Model.HOGQL,
+        )
+        with team_scope(team_id=3, canonical=True):
+            hogql_batch_export_on_demand = BatchExportOnDemand.objects.create(
+                team_id=3,
+                destination=batch_export_on_demand_destination,
+                model=BatchExportOnDemand.Model.HOGQL,
+            )
+
+        for hogql_export_kwargs in (
+            {"batch_export": hogql_batch_export},
+            {"batch_export_on_demand": hogql_batch_export_on_demand},
+        ):
+            BatchExportRun.objects.create(
+                data_interval_end=now(),
+                data_interval_start=now() - timedelta(hours=1),
+                finished_at=now(),
+                status=BatchExportRun.Status.COMPLETED,
+                records_completed=5000,
+                **hogql_export_kwargs,
+            )
+
         period = get_previous_day(at=now() + relativedelta(days=1))
         all_reports = _get_all_org_reports(period=period)
 
@@ -3395,23 +3423,25 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
         assert org_1_report["organization_name"] == "Org 1"
 
-        # Test org-level workflow metrics (sum of both teams)
+        # Test org-level workflow metrics (sum of both teams).
+        # Push bills as a destination for now, so it counts toward workflow_billable_invocations
+        # while still reporting separately under workflow_push_sent.
         assert org_1_report["workflow_emails_sent_in_period"] == 25  # 10 + 15
         assert org_1_report["workflow_push_sent_in_period"] == 12  # 5 + 7
         assert org_1_report["workflow_sms_sent_in_period"] == 5  # 3 + 2
-        assert org_1_report["workflow_billable_invocations_in_period"] == 20  # 8 + 12
+        assert org_1_report["workflow_billable_invocations_in_period"] == 32  # fetch 8 + 12, push 5 + 7
 
         # Test team 1 workflow metrics
         assert org_1_report["teams"]["3"]["workflow_emails_sent_in_period"] == 10
         assert org_1_report["teams"]["3"]["workflow_push_sent_in_period"] == 5
         assert org_1_report["teams"]["3"]["workflow_sms_sent_in_period"] == 3
-        assert org_1_report["teams"]["3"]["workflow_billable_invocations_in_period"] == 8
+        assert org_1_report["teams"]["3"]["workflow_billable_invocations_in_period"] == 13  # fetch 8, push 5
 
         # Test team 2 workflow metrics
         assert org_1_report["teams"]["4"]["workflow_emails_sent_in_period"] == 15
         assert org_1_report["teams"]["4"]["workflow_push_sent_in_period"] == 7
         assert org_1_report["teams"]["4"]["workflow_sms_sent_in_period"] == 2
-        assert org_1_report["teams"]["4"]["workflow_billable_invocations_in_period"] == 12
+        assert org_1_report["teams"]["4"]["workflow_billable_invocations_in_period"] == 19  # fetch 12, push 7
 
     @parameterized.expand(
         [

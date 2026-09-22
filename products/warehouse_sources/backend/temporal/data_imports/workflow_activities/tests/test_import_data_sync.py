@@ -10,9 +10,10 @@ from unittest import mock
 
 from django.db import InterfaceError, InternalError, OperationalError
 
+import redis.exceptions as redis_exceptions
 from jsonpath_ng.exceptions import JsonPathParserError
 from parameterized import parameterized
-from requests.exceptions import HTTPError
+from requests.exceptions import HTTPError, ProxyError
 
 from posthog.integration_secrets.errors import (
     IntegrationServiceMisconfiguredError,
@@ -25,6 +26,10 @@ from posthog.temporal.common.errors import NonReportableError
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
+    NEW_TABLE_NOT_READY_MESSAGE,
+    _transient_error_message,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
@@ -33,6 +38,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
     RESTClientRetryableError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    UNKNOWN_RESOURCE_PREFIX,
+    UnknownResourceError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import (
     NonRetryableException,
@@ -292,6 +301,32 @@ async def test_source_classified_retryable_error_logged_as_warning_not_exception
 
 
 @pytest.mark.asyncio
+async def test_unknown_resource_error_reraised_as_non_reportable():
+    # The web pods and the data-import workers deploy separately, so for about an hour after a new
+    # table ships the schema picker offers one the worker cannot resolve. Left unclassified the
+    # lookup failure disables nothing but reports as a bug and reaches the customer as raw Python;
+    # the next attempt lands on a rolled-out worker, so it must retry as a warning instead.
+    error = UnknownResourceError(f"{UNKNOWN_RESOURCE_PREFIX} ad_stats_by_link_url")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(NonReportableError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value.__cause__ is error
+    assert _transient_error_message(str(exc_info.value)) == NEW_TABLE_NOT_READY_MESSAGE
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_temporary_host_resolution_error_reraised_as_non_reportable():
     # The host policy's own lookup answered "try again" rather than a verdict on the host, so the
     # source is fine and a fresh attempt recovers. The message carries the host, so no source could
@@ -316,6 +351,66 @@ async def test_temporary_host_resolution_error_reraised_as_non_reportable():
     assert "db.example.com" in str(exc_info.value)
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
+
+
+@parameterized.expand(
+    [
+        (
+            "tunnel_429",
+            "HTTPSConnectionPool(host='api.example.com', port=443): Max retries exceeded with url: /v1/things "
+            "(Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: 429 Too Many Requests')))",
+        ),
+        (
+            "connect_refused",
+            "HTTPSConnectionPool(host='login.example.com', port=443): Max retries exceeded with url: /oauth2/token "
+            "(Caused by ProxyError('Cannot connect to proxy.', NewConnectionError('<urllib3.connection.HTTPSConnection "
+            "object at 0x7f>: Failed to establish a new connection: [Errno 111] Connection refused')))",
+        ),
+    ]
+)
+@pytest.mark.asyncio
+async def test_transient_egress_proxy_error_reraised_as_non_reportable_without_source_opt_in(_name: str, message: str):
+    error = ProxyError(message)
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(NonReportableError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value.__cause__ is error
+    assert str(exc_info.value) == message
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_proxy_auth_failure_is_still_reported():
+    error = ProxyError(
+        "HTTPSConnectionPool(host='api.example.com', port=443): Max retries exceeded with url: /v1/things "
+        "(Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: 407 Proxy Authentication Required')))"
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(ProxyError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value is error
+    logger.aexception.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -530,6 +625,66 @@ async def test_transient_object_store_error_reraised_as_non_reportable():
     assert exc_info.value.__cause__ is error
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
+
+
+@parameterized.expand(
+    [
+        (
+            "connection_error",
+            redis_exceptions.ConnectionError,
+            "Error 111 connecting to localhost:6379. Connection refused.",
+        ),
+        ("timeout_error", redis_exceptions.TimeoutError, "Timeout connecting to server"),
+    ]
+)
+@pytest.mark.asyncio
+async def test_data_warehouse_redis_error_reraised_as_non_reportable(
+    _name: str, error_cls: type[Exception], message: str
+):
+    # ResumableSourceManager._get_redis (and row tracking, sync locks) talk to PostHog's own
+    # DATA_WAREHOUSE_REDIS instance, never anything a customer's source touches. Left unclassified,
+    # a connection blip there escapes the activity as a raw redis exception, spending the whole retry
+    # budget as a captured error-tracking issue instead of the benign, self-recovering blip it is.
+    error = error_cls(message)
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(NonReportableError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value.__cause__ is error
+    assert str(exc_info.value) == message
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_redis_response_error_is_still_reported():
+    # ResponseError (e.g. a malformed command) is a real defect, not a connectivity blip — it must
+    # keep reaching error tracking rather than being swept into the same bucket as ConnectionError.
+    error = redis_exceptions.ResponseError("wrong number of arguments")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(redis_exceptions.ResponseError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value is error
+    logger.aexception.assert_awaited_once()
 
 
 @pytest.mark.asyncio
