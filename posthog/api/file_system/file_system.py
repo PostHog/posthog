@@ -89,7 +89,10 @@ def validate_file_system_path(path: Any) -> str:
 class FileSystemDeleteQuerySerializer(serializers.Serializer):
     recursive = serializers.BooleanField(
         default=True,
-        help_text="Delete folder contents too. Set false to reject nonempty folders without deleting their contents.",
+        help_text=(
+            "Delete folder contents too (default: true). Set false to delete only empty folders. "
+            "Nonempty folders return HTTP 409 with code directory_not_empty."
+        ),
     )
 
 

@@ -5355,7 +5355,7 @@ export type FileSystemListParams = {
 
 export type FileSystemDestroyParams = {
     /**
-     * Delete folder contents too. Set false to reject nonempty folders without deleting their contents.
+     * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
      */
     recursive?: boolean
 }
