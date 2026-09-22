@@ -520,6 +520,9 @@ function stemVariants(token: string): string[] {
     if (!suffix) {
         return [token]
     }
+    if (suffix === 's' && ['is', 'ss', 'us'].some((ending) => token.endsWith(ending))) {
+        return [token]
+    }
     const stem = token.slice(0, -suffix.length)
     const variants = [token, stem]
     if (stem.length >= 2 && stem.at(-1) === stem.at(-2)) {

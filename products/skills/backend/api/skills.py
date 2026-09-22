@@ -225,6 +225,8 @@ def _skill_search_variants(token: str) -> tuple[str, ...]:
     )
     if suffix is None:
         return (token,)
+    if suffix == "s" and token.endswith(("is", "ss", "us")):
+        return (token,)
 
     stem = token[: -len(suffix)]
     variants = [token, stem]

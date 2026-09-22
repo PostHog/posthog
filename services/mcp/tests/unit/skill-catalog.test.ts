@@ -304,6 +304,21 @@ describe('SkillCatalog and exec learn', () => {
         }
     })
 
+    it('does not stem singular words ending in s', () => {
+        const catalog = SkillCatalog.fromZip(
+            makeArchive({
+                'statue/SKILL.md': makeSkill('statue', 'Sculpture reference.', '# Statue'),
+                'support-workflow/SKILL.md': makeSkill(
+                    'support-workflow',
+                    'Track support status.',
+                    '# Support workflow'
+                ),
+            })
+        )
+
+        expect(catalog.searchResults('status').map((result) => result.identifier)).toEqual(['support-workflow'])
+    })
+
     it('excludes SKILL.md frontmatter from snippets while keeping raw line numbers', () => {
         const catalog = SkillCatalog.fromZip(
             makeArchive({

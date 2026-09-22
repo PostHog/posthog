@@ -702,6 +702,15 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == []
 
+    def test_search_skills_does_not_stem_singular_s_words(self):
+        self.create_skill(name="statue", description="Sculpture reference.", body="# Statue")
+        self.create_skill(name="support-workflow", description="Track support status.", body="# Support workflow")
+
+        response = self.client.get(self._url("search?query=status"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["name"] for result in response.json()["results"]] == ["support-workflow"]
+
     def test_search_skills_limits_file_queries_to_remaining_matches(self):
         path_skill = self.create_skill(name="path-skill", body="# Path\nContains needle.")
         content_skill = self.create_skill(name="content-skill", description="Contains needle.")
