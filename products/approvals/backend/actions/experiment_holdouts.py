@@ -37,6 +37,9 @@ class ExperimentHoldoutActionBase(BaseAction):
     """
 
     resource_type = "experiment_holdout"
+    # TODO(experiment-approval-policies): until experiment-owned flags leave `feature_flag.*`
+    # scope, an organization's flag policy still gates the flag writes a holdout change makes.
+    fallback_policy_action_keys = ("feature_flag.update",)
 
     @classmethod
     def _holdout(cls, view, *args, **kwargs):
