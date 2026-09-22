@@ -2835,6 +2835,8 @@ class TestSignalReportMergeAPI(APIBaseTest):
         assert payload["sources"] == [
             {"id": str(source.id), "artefacts_moved": 1, "signals_moved": 2, "released_claim": False}
         ]
+        # The response renders the survivor as it stands after the merge, counters included.
+        assert (payload["report"]["id"], payload["report"]["signal_count"]) == (str(survivor.id), 5)
 
         survivor.refresh_from_db()
         source.refresh_from_db()
