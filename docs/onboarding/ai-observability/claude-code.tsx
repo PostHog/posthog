@@ -13,7 +13,7 @@ export const getClaudeCodeSteps = (ctx: OnboardingComponentsContext): StepDefini
                 <>
                     <Markdown>
                         {dedent`
-                            [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) is Anthropic's agentic coding tool that runs in your terminal. The [PostHog plugin](https://github.com/PostHog/ai-plugin) captures every Claude Code session as structured AI Observability events: generations, tool executions, and traces. You can install the full plugin, or capture on its own.
+                            [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) is Anthropic's agentic coding tool that runs in your terminal. The [PostHog plugin](https://github.com/PostHog/ai-plugin) captures every Claude Code session as structured AI Observability events: generations, tool executions, and traces. You can install the full plugin, or a second plugin that only captures sessions.
 
                             This is useful for:
 
@@ -50,9 +50,9 @@ export const getClaudeCodeSteps = (ctx: OnboardingComponentsContext): StepDefini
                     </Markdown>
                     <Markdown>
                         {dedent`
-                            ### Capture sessions without the rest of the plugin
+                            ### Install session capture on its own
 
-                            To capture sessions without the skills, slash commands, and MCP server, install the capture plugin instead of the full one. It registers the \`SessionEnd\` hook and nothing else, so it adds nothing to the context of a session.
+                            To capture sessions without the skills, slash commands, and MCP server, install PostHog session capture instead of the full plugin. It registers the \`SessionEnd\` hook and nothing else, so it adds nothing to what Claude reads at the start of each session.
                         `}
                     </Markdown>
                     <CodeBlock
@@ -64,12 +64,13 @@ export const getClaudeCodeSteps = (ctx: OnboardingComponentsContext): StepDefini
                     />
                     <Markdown>
                         Both plugins send the same `$ai_generation`, `$ai_span`, and `$ai_trace` events, and they read
-                        the same environment variables. The capture plugin needs the Python standard library only.
+                        the same environment variables. PostHog session capture needs the Python standard library only.
                     </Markdown>
                     <Blockquote>
                         <Markdown>
-                            **Note:** Install one or the other. Both register the same hook, so running both sends every
-                            session to PostHog twice.
+                            **Note:** Install one or the other. Both register the same hook, so both upload every
+                            session. PostHog keeps one copy of each event, but the upload happens twice. To switch,
+                            remove the one you no longer want with `claude plugin uninstall`.
                         </Markdown>
                     </Blockquote>
                 </>
@@ -148,7 +149,7 @@ export const getClaudeCodeSteps = (ctx: OnboardingComponentsContext): StepDefini
                             /posthog:llma-cc-status
                         `}
                     />
-                    <Markdown>Either plugin writes the same status to `~/.claude/posthog-llma-status.json`.</Markdown>
+                    <Markdown>Either plugin writes the status to `~/.claude/posthog-llma-status.json`.</Markdown>
                 </>
             ),
         },
@@ -182,7 +183,7 @@ export const getClaudeCodeSteps = (ctx: OnboardingComponentsContext): StepDefini
 
                             ### Ingest past sessions
 
-                            To send data from Claude Code sessions that happened before you set up capture, use the ingestion command below.
+                            To send data from Claude Code sessions that happened before you set up capture, use the ingestion command below. It ships with the full plugin.
                         `}
                     </Markdown>
                     <CodeBlock
@@ -192,14 +193,15 @@ export const getClaudeCodeSteps = (ctx: OnboardingComponentsContext): StepDefini
                         `}
                     />
                     <Markdown>
-                        The capture plugin ships no slash commands. To backfill with it, clone the repository and run
-                        the ingestion script. Add `--list` to see recent sessions first:
+                        PostHog session capture ships no slash commands. To backfill with it, clone the repository and
+                        run the ingestion script. List the recent sessions first, then send one:
                     </Markdown>
                     <CodeBlock
                         language="bash"
                         code={dedent`
                             git clone --depth 1 https://github.com/PostHog/ai-plugin.git
-                            python3 ai-plugin/telemetry/scripts/llma_cc_ingest.py
+                            python3 ai-plugin/telemetry/scripts/llma_cc_ingest.py --list
+                            python3 ai-plugin/telemetry/scripts/llma_cc_ingest.py <session-id>
                         `}
                     />
                     <Markdown>
