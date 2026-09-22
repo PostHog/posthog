@@ -68,6 +68,10 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
+from products.experiments.backend.facade.legacy_migration import (
+    LegacyMigrationError,
+    migrate_experiment as migrate_legacy_experiment,
+)
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
@@ -1038,6 +1042,43 @@ class EnterpriseExperimentsViewSet(
         return Response(
             ExperimentSerializer(duplicate_experiment, context=self.get_serializer_context()).data, status=201
         )
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def migrate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Move a legacy experiment onto the new experiments engine.
+
+        Creates a new experiment with the same configuration and its metrics converted
+        to the new format, and returns it. The legacy experiment is left untouched and
+        keeps its results, so the project ends up with two experiments. Both point at
+        the same feature flag, so no new rollout is needed and users keep the variant
+        they already have.
+
+        Legacy shared metrics used by the experiment are converted as part of the same
+        call. Each one gets a new shared metric, and the new experiment links to that.
+
+        Calling this again returns the experiment created the first time instead of
+        making another copy.
+
+        Returns 400 if the experiment already uses the new engine.
+        """
+        experiment: Experiment = self.get_object()
+
+        if not experiment_has_legacy_metrics(experiment):
+            raise ValidationError(
+                "This experiment already uses the new experiments engine, so there is nothing to migrate."
+            )
+
+        try:
+            migration = migrate_legacy_experiment(experiment.id, self.team.id, migrate_shared_metrics=True)
+        except (LegacyMigrationError, ValueError) as e:
+            raise ValidationError(f"Couldn't migrate this experiment: {e}. Contact support if it keeps happening.")
+
+        return Response(ExperimentSerializer(migration.experiment, context=self.get_serializer_context()).data)
 
     @extend_schema(
         request=CreateFromPromptInputSerializer,
