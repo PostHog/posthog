@@ -76,3 +76,15 @@ workflow({
     steps: path(wait),
     exit: { reason: 'Done' },
 })
+
+// A conversion exit needs a conversion goal, and the compiler emits none, so the exit
+// would never fire.
+workflow({
+    key: 'converts',
+    name: 'Converts',
+    // @ts-expect-error - the conversion variants arrive together with the goal
+    exitCondition: 'exit_on_conversion',
+    on: onSchedule(),
+    steps: path(wait),
+    exit: { reason: 'Done' },
+})

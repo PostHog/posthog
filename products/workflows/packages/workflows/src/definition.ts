@@ -192,15 +192,11 @@ export type Edge =
 /**
  * When a person leaves the workflow early.
  *
- * `exit_only_at_end` is the default and needs nothing else. The `conversion` variants
- * need a conversion goal, which this package does not yet emit, so a workflow that
- * picks one has no goal and the early exit never fires.
+ * `exit_only_at_end` is the default and needs nothing else. PostHog also knows the two
+ * `conversion` variants, which need a conversion goal this package does not emit; without
+ * the goal the early exit never fires, so they arrive together with it.
  */
-export type ExitCondition =
-    | 'exit_only_at_end'
-    | 'exit_on_conversion'
-    | 'exit_on_trigger_not_matched'
-    | 'exit_on_trigger_not_matched_or_conversion'
+export type ExitCondition = 'exit_only_at_end' | 'exit_on_trigger_not_matched'
 
 /**
  * Whether the workflow runs.
