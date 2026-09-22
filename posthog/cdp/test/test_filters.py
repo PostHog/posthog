@@ -136,6 +136,15 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
         assert "bytecode_error" not in response
 
+    def test_filters_allow_group_globals(self):
+        response = compile_filters_bytecode(
+            filters={
+                "properties": [{"type": "hogql", "key": "group_0.properties.name = 'a' and $group_1 is not null"}]
+            },
+            team=self.team,
+        )
+        assert "bytecode_error" not in response
+
     def test_filters_allow_a_lambda_parameter(self):
         # The parameter is a local, not a global. Reading the chain off the AST would reject this.
         response = compile_filters_bytecode(

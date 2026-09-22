@@ -1,4 +1,8 @@
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import { register } from 'prom-client'
+
+import { parseJSON } from '~/common/utils/json-parse'
 
 import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent } from '../../types'
 import { HogFunctionFilterGlobals, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
@@ -239,6 +243,45 @@ describe('hog-function-filtering', () => {
             expect(result.elements_chain_texts).toEqual(['Click me'])
             expect(result.elements_chain_ids).toEqual(['button1'])
             expect(result.elements_chain_elements).toEqual(['a', 'button'])
+        })
+    })
+
+    describe('Filter globals', () => {
+        // Django rejects a filter whose globals the runtime cannot resolve, and reads the set from
+        // this file. A Record over the type makes tsc fail when a global is added and not listed,
+        // so the file cannot go stale in either direction.
+        const EVERY_GLOBAL: Record<keyof HogFunctionFilterGlobals, true> = {
+            $group_0: true,
+            $group_1: true,
+            $group_2: true,
+            $group_3: true,
+            $group_4: true,
+            cohort_ids: true,
+            distinct_id: true,
+            elements_chain: true,
+            elements_chain_elements: true,
+            elements_chain_href: true,
+            elements_chain_ids: true,
+            elements_chain_texts: true,
+            event: true,
+            group_0: true,
+            group_1: true,
+            group_2: true,
+            group_3: true,
+            group_4: true,
+            pdi: true,
+            person: true,
+            properties: true,
+            timestamp: true,
+            uuid: true,
+            variables: true,
+        }
+
+        it('matches the set Django validates against', () => {
+            const shared = parseJSON(
+                readFileSync(join(__dirname, '../../../../products/cdp/filter_globals.json'), 'utf8')
+            )
+            expect(Object.keys(EVERY_GLOBAL).sort()).toEqual([...shared.roots].sort())
         })
     })
 

@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from typing import Any, Optional
 
 from django.conf import settings
@@ -359,25 +361,11 @@ class _LowerConstantMembership(CloningVisitor):
         return super().visit_compare_operation(node)
 
 
-# The globals the CDP filter path builds, mirrored from HogFunctionFilterGlobals in
-# nodejs/src/cdp/types.ts. A root outside this set compiles to a GET_GLOBAL the runtime cannot
-# resolve, so the filter raises on every event rather than failing at save.
-FILTER_GLOBALS = {
-    "event",
-    "uuid",
-    "timestamp",
-    "elements_chain",
-    "elements_chain_href",
-    "elements_chain_texts",
-    "elements_chain_ids",
-    "elements_chain_elements",
-    "properties",
-    "distinct_id",
-    "person",
-    "pdi",
-    "variables",
-    "cohort_ids",
-}
+# Loaded rather than listed: the set belongs to the runtime, and a stale copy here would reject a
+# filter people can legitimately write. A test in the nodejs package pins the file to the type.
+FILTER_GLOBALS: set[str] = set(
+    json.loads((Path(__file__).parents[2] / "products" / "cdp" / "filter_globals.json").read_text())["roots"]
+)
 
 _UNKNOWN_GLOBAL = "Unknown global variable: "
 

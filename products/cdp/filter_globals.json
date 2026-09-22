@@ -1,0 +1,29 @@
+{
+    "$comment": "The globals the CDP filter runtime provides. Mirrors HogFunctionFilterGlobals in nodejs/src/cdp/types.ts, which a test in that package pins to this file. Python reads it to reject a filter that cannot be evaluated.",
+    "roots": [
+        "$group_0",
+        "$group_1",
+        "$group_2",
+        "$group_3",
+        "$group_4",
+        "cohort_ids",
+        "distinct_id",
+        "elements_chain",
+        "elements_chain_elements",
+        "elements_chain_href",
+        "elements_chain_ids",
+        "elements_chain_texts",
+        "event",
+        "group_0",
+        "group_1",
+        "group_2",
+        "group_3",
+        "group_4",
+        "pdi",
+        "person",
+        "properties",
+        "timestamp",
+        "uuid",
+        "variables"
+    ]
+}
