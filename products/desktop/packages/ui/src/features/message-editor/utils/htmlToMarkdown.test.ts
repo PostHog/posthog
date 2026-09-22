@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { htmlToMarkdown } from "./htmlToMarkdown";
+import { convertClipboardHtml, htmlToMarkdown } from "./htmlToMarkdown";
 
 describe("htmlToMarkdown", () => {
   it.each([
@@ -73,5 +73,22 @@ describe("htmlToMarkdown", () => {
     expect(htmlToMarkdown(html, "See item_1. in arr[0]")).toBe(
       "See **item_1.** in arr[0]",
     );
+  });
+
+  it.each([
+    [
+      "a standalone code block as plain text",
+      '<div class="selection"><pre><code><span>const x = 1;</span></code></pre></div>',
+      "const x = 1;",
+      { text: "const x = 1;", kind: "plain" },
+    ],
+    [
+      "a code block with surrounding prose as markdown",
+      "<p>Example:</p><pre><code>const x = 1;</code></pre>",
+      "Example:\nconst x = 1;",
+      { text: "Example:\n\n```\nconst x = 1;\n```", kind: "markdown" },
+    ],
+  ])("converts %s", (_name, html, plainText, expected) => {
+    expect(convertClipboardHtml(html, plainText)).toEqual(expected);
   });
 });
