@@ -1,4 +1,6 @@
 import shlex
+import subprocess
+from pathlib import Path
 
 import pytest
 from unittest.mock import patch
@@ -8,6 +10,7 @@ from parameterized import parameterized
 from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX
 from products.tasks.backend.exceptions import SandboxExecutionError
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
+from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
 
 
@@ -19,6 +22,35 @@ def sandbox() -> DockerSandbox:
 
 def _log_result() -> ExecutionResult:
     return ExecutionResult(stdout="agent-server log", stderr="", exit_code=0)
+
+
+def _ok_result() -> ExecutionResult:
+    return ExecutionResult(stdout="", stderr="", exit_code=0)
+
+
+@pytest.mark.parametrize(
+    ("capabilities", "expected"),
+    [
+        ("", False),
+        ("prewarmedResumeIdle", False),
+        ("prewarmedResumeIdle prewarmedResumeMessageDriven", True),
+    ],
+)
+def test_prewarmed_resume_requires_message_driven_agent(
+    sandbox: DockerSandbox, tmp_path: Path, capabilities: str, expected: bool
+) -> None:
+    binary = tmp_path / "agent-server"
+    binary.write_text(capabilities)
+
+    def execute_probe(command: str, *, timeout_seconds: int) -> ExecutionResult:
+        args = shlex.split(command)
+        assert args[-1] == "/scripts/node_modules/.bin/agent-server"
+        args[-1] = str(binary)
+        result = subprocess.run(args, capture_output=True, text=True, timeout=timeout_seconds)
+        return ExecutionResult(stdout=result.stdout, stderr=result.stderr, exit_code=result.returncode)
+
+    with patch.object(sandbox, "execute", side_effect=execute_probe):
+        assert sandbox.agent_server_supports_prewarmed_resume_message_driven() is expected
 
 
 def test_wait_for_agent_server_ready_timeout_is_retryable_and_not_captured(sandbox: DockerSandbox):
@@ -38,7 +70,7 @@ def test_wait_for_agent_server_ready_timeout_is_retryable_and_not_captured(sandb
 def test_start_agent_server_health_check_timeout_is_retryable_and_not_captured(sandbox: DockerSandbox):
     with (
         patch.object(sandbox, "is_running", return_value=True),
-        patch.object(sandbox, "write_file"),
+        patch.object(sandbox, "write_file", return_value=_ok_result()),
         patch.object(sandbox, "_build_agent_server_command", return_value="run-agent-server"),
         patch.object(sandbox, "_launch_and_check", return_value=False),
         patch.object(sandbox, "execute", return_value=_log_result()),
@@ -86,12 +118,19 @@ def test_build_agent_server_command_gates_connected_project_operations(sandbox: 
 
 def test_start_agent_server_launch_failure_is_captured(sandbox: DockerSandbox):
     failed = ExecutionResult(stdout="", stderr="boom", exit_code=1)
+
+    def execute(command: str, **kwargs) -> ExecutionResult:
+        # Only the launch fails; the bundled-skills clear and the launch prep that precede it succeed.
+        if ENV_DISABLE_BUNDLED_SKILLS in command or command.startswith("chmod "):
+            return _ok_result()
+        return failed
+
     with (
         patch.object(sandbox, "is_running", return_value=True),
-        patch.object(sandbox, "write_file"),
+        patch.object(sandbox, "write_file", return_value=_ok_result()),
         patch.object(sandbox, "_build_agent_server_command", return_value="run-agent-server") as build_command,
         patch.object(sandbox, "agent_server_supports_exec_permission_regex", return_value=True),
-        patch.object(sandbox, "execute", return_value=failed),
+        patch.object(sandbox, "execute", side_effect=execute),
         patch("products.tasks.backend.exceptions.capture_exception") as capture_exception,
         pytest.raises(SandboxExecutionError),
     ):
@@ -119,4 +158,5 @@ def test_write_file_creates_the_temp_file_before_moving_it(_name: str, payload: 
 
     assert result.exit_code == 0
     assert any("EOF_SANDBOX_WRITE" in command for command in commands), "temp file was never written"
-    assert commands[-1].startswith("mv ")
+    assert commands[-1].startswith("umask 077 && rm -f /tmp/creds.env.tmp-* && ")
+    assert " && mv /tmp/creds.env.tmp-" in commands[-1]

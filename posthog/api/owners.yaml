@@ -8,7 +8,7 @@ rules:
     - match: '/documentation.py'
       owners: team-devex
     - match: '/test/dashboards/'
-      owners: team-analytics-platform
+      owners: team-product-analytics
     - match: ['/element.py', '/event.py', '/event_definition.py']
       owners: team-product-analytics
     - match: '/mixins.py'
@@ -18,6 +18,6 @@ rules:
     - match: ['/proxy_record.py', '/proxy_record_diagnostics.py', '/resource_transfer.py']
       owners: team-platform-features
     - match: '/schema_property_group.py'
-      owners: team-analytics-platform
+      owners: team-product-analytics
     - match: ['/test/test_proxy_record.py', '/test/test_proxy_record_diagnostics.py']
       owners: team-platform-features

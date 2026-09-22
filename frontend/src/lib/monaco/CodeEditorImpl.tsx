@@ -4,7 +4,7 @@ import MonacoEditor, { type EditorProps, Monaco, DiffEditor as MonacoDiffEditor 
 import { BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
 import * as monacoModule from 'monaco-editor'
 import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import 'lib/monaco/monacoEnvironment'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -418,31 +418,45 @@ export function CodeEditor({
         }
     }, [editor, enableVimMode, vimCommandHistory, appendVimCommand])
 
-    const editorOptions: editor.IStandaloneEditorConstructionOptions = {
-        minimap: {
-            enabled: false,
-        },
-        scrollBeyondLastLine: false,
-        automaticLayout: true,
-        fixedOverflowWidgets: true,
-        glyphMargin: false,
-        folding: true,
-        wordWrap: 'off',
-        lineNumbers: 'on',
-        tabFocusMode: false,
-        overviewRulerBorder: true,
-        hideCursorInOverviewRuler: false,
-        overviewRulerLanes: 3,
-        overflowWidgetsDomNode: monacoRoot,
-        ...options,
-        padding: { bottom: enableVimMode ? 28 : 8, top: 8 },
-        scrollbar: {
-            vertical: scrollbarRendering,
-            horizontal: scrollbarRendering,
-            alwaysConsumeMouseWheel: false,
-            ...options?.scrollbar,
-        },
-    }
+    // The wrapper calls `editor.updateOptions` whenever this object's identity changes, and
+    // Monaco revalidates every option on each call, so only rebuild it when an input changes.
+    const editorOptions = useMemo<editor.IStandaloneEditorConstructionOptions>(
+        () => ({
+            minimap: {
+                enabled: false,
+            },
+            scrollBeyondLastLine: false,
+            automaticLayout: true,
+            fixedOverflowWidgets: true,
+            glyphMargin: false,
+            folding: true,
+            wordWrap: 'off',
+            lineNumbers: 'on',
+            tabFocusMode: false,
+            overviewRulerBorder: true,
+            hideCursorInOverviewRuler: false,
+            overviewRulerLanes: 3,
+            overflowWidgetsDomNode: monacoRoot,
+            ...options,
+            padding: { bottom: enableVimMode ? 28 : 8, top: 8 },
+            scrollbar: {
+                vertical: scrollbarRendering,
+                horizontal: scrollbarRendering,
+                alwaysConsumeMouseWheel: false,
+                ...options?.scrollbar,
+            },
+        }),
+        [options, enableVimMode, scrollbarRendering, monacoRoot]
+    )
+    const diffEditorOptions = useMemo<editor.IStandaloneDiffEditorConstructionOptions>(
+        () => ({
+            ...editorOptions,
+            renderSideBySide: false,
+            acceptSuggestionOnEnter: 'on',
+            renderGutterMenu: false,
+        }),
+        [editorOptions]
+    )
 
     const editorOnMount = (editor: importedEditor.IStandaloneCodeEditor, monaco: Monaco): void => {
         // The lazy Suspense facade can resolve after the component has already
@@ -631,12 +645,7 @@ export function CodeEditor({
                     theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                     original={originalValue}
                     modified={value}
-                    options={{
-                        ...editorOptions,
-                        renderSideBySide: false,
-                        acceptSuggestionOnEnter: 'on',
-                        renderGutterMenu: false,
-                    }}
+                    options={diffEditorOptions}
                     onMount={diffEditorOnMount}
                     {...editorProps}
                     // Own model disposal ourselves via `disposeTrackedModels`. Left to the library,

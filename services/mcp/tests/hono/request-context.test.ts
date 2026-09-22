@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const { mockMe, mockApiClientCtor } = vi.hoisted(() => {
+const { mockMe, mockApiClientCtor, mockCapture } = vi.hoisted(() => {
     const mockMe = vi.fn()
     const mockApiClientCtor = vi.fn().mockImplementation(function (config) {
         return {
@@ -8,15 +8,20 @@ const { mockMe, mockApiClientCtor } = vi.hoisted(() => {
             users: () => ({ me: mockMe }),
         }
     })
-    return { mockMe, mockApiClientCtor }
+    return { mockMe, mockApiClientCtor, mockCapture: vi.fn() }
 })
 
 vi.mock('@/api/client', () => ({
     ApiClient: mockApiClientCtor,
 }))
 
+vi.mock('@/lib/posthog', () => ({
+    getPostHogClient: () => ({ capture: mockCapture }),
+}))
+
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { RequestContext } from '@/hono/request-context'
+import { AnalyticsEvent } from '@/lib/posthog/analytics'
 import type { RequestProperties } from '@/lib/request-properties'
 
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
@@ -70,6 +75,34 @@ function makeProps(overrides: Partial<RequestProperties> = {}): RequestPropertie
 }
 
 describe('RequestContext', () => {
+    it.each([true, false, undefined])('passes cached impersonation=%s to captured events', async (impersonated) => {
+        mockCapture.mockClear()
+        const ctx = new RequestContext(fakeRedis(), env, makeProps())
+        if (impersonated !== undefined) {
+            await ctx.tokenCache.set('apiKey', {
+                scopes: [],
+                scoped_teams: [],
+                scoped_organizations: [],
+                is_impersonated: impersonated,
+            })
+        }
+
+        await ctx.trackEvent(
+            AnalyticsEvent.MCP_FEEDBACK_SUBMITTED,
+            { is_impersonated: !impersonated },
+            undefined,
+            undefined,
+            'user-123'
+        )
+
+        expect(mockCapture).toHaveBeenCalledWith(
+            expect.objectContaining({
+                event: AnalyticsEvent.MCP_FEEDBACK_SUBMITTED,
+                properties: expect.objectContaining({ is_impersonated: impersonated === true }),
+            })
+        )
+    })
+
     describe('ApiClient construction', () => {
         const originalEnv = { ...process.env }
 
@@ -169,6 +202,43 @@ describe('RequestContext', () => {
                 mcpClientVersion: '2.0',
                 mcpProtocolVersion: '2025-03-26',
             })
+        })
+    })
+
+    // `agent-feedback` and the context-switch events capture through `trackEvent`, which
+    // reads these properties. `clientInfo` arrives on `initialize` only, so reading the
+    // request alone records no client for every call after the first.
+    describe('buildClientProperties', () => {
+        it('falls back to the session client identity mid-session', () => {
+            const ctx = new RequestContext(fakeRedis(), env, makeProps({ mcpClientName: undefined }))
+            ctx.setMcpContexts(
+                { authMethod: 'personal_api_key', mcpClientName: undefined },
+                {
+                    mcpClientName: 'claude-code',
+                    mcpClientVersion: '1.0',
+                    mcpProtocolVersion: '2025-03-26',
+                    mcpConsumer: 'plugin',
+                    mcpVendorClient: 'ClaudeCode',
+                }
+            )
+
+            expect(ctx.buildClientProperties()).toMatchObject({
+                $mcp_client_name: 'claude-code',
+                $mcp_client_version: '1.0',
+                $mcp_protocol_version: '2025-03-26',
+                $mcp_consumer: 'plugin',
+                $mcp_vendor_client: 'ClaudeCode',
+            })
+        })
+
+        it('keeps the live request identity when the call carries one', () => {
+            const ctx = new RequestContext(fakeRedis(), env, makeProps({ mcpClientName: 'cursor' }))
+            ctx.setMcpContexts(
+                { authMethod: 'personal_api_key', mcpClientName: 'cursor' },
+                { mcpClientName: 'claude-code' }
+            )
+
+            expect(ctx.buildClientProperties()).toMatchObject({ $mcp_client_name: 'cursor' })
         })
     })
 
@@ -326,7 +396,7 @@ describe('RequestContext', () => {
                 $mcp_client_name: 'Claude Desktop',
                 $mcp_client_version: '2.0',
                 $mcp_consumer: 'request-consumer',
-                mcp_vendor_client: 'ClaudeAI',
+                $mcp_vendor_client: 'ClaudeAI',
                 mcp_session_client_name: 'claude-code',
                 mcp_session_client_version: '1.0',
                 mcp_session_consumer: 'session-consumer',

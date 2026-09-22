@@ -20,7 +20,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
-import { isDashboardFilterEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
+import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import {
     SEARCH_PARAM_FILTERS_KEY,
@@ -285,7 +285,8 @@ export interface insightSceneLogicMeta {
             dashboardId: number | null,
             dashboardName: string | null,
             sceneSource: InsightSceneSource | null,
-            dashboardBackPath: string | null
+            dashboardBackPath: string | null,
+            arg: string | undefined
         ) => Breadcrumb[]
         projectTreeRef: (insightId: InsightId) => ProjectTreeRef
         sidePanelContext: (
@@ -553,6 +554,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 s.dashboardName,
                 s.sceneSource,
                 s.dashboardBackPath,
+                (state, props) => s.insightLogicRef(state, props)?.logic.selectors.insightName(state, props),
             ],
             (
                 insightLogicRef: {
@@ -564,7 +566,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 dashboardId: DashboardType['id'] | null,
                 dashboardName: DashboardType['name'] | null,
                 sceneSource: InsightSceneSource | null,
-                dashboardBackPath: string | null
+                dashboardBackPath: string | null,
+                insightName: string | undefined
             ): Breadcrumb[] => {
                 const dashboardLabel = dashboardName ?? 'Dashboard'
                 return [
@@ -615,7 +618,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                           ]),
                     {
                         key: [Scene.Insight, insight?.short_id || 'new'],
-                        name: insightLogicRef?.logic.values.insightName,
+                        name: insightName,
                         forceEditMode: insightLogicRef?.logic.values.canEditInsight,
                         iconType: getInsightIconTypeFromQuery(insightQuery),
                     },
@@ -682,9 +685,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 variablesOverride: Record<string, HogQLVariable> | null,
                 tileFiltersOverride: TileFilters | null
             ) =>
-                !isDashboardFilterEmpty(filtersOverride) ||
+                !isDashboardFilterOverrideEmpty(filtersOverride) ||
                 (isObject(variablesOverride) && !isEmptyObject(variablesOverride)) ||
-                !isDashboardFilterEmpty(tileFiltersOverride),
+                !isDashboardFilterOverrideEmpty(tileFiltersOverride),
         ],
     }),
     sharedListeners(({ actions, values }) => ({
@@ -894,9 +897,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     itemId,
                     alert_id,
                     // Only pass filters/variables if overrides exist
-                    filtersOverride && isDashboardFilterEmpty(filtersOverride) ? undefined : filtersOverride,
+                    filtersOverride && isDashboardFilterOverrideEmpty(filtersOverride) ? undefined : filtersOverride,
                     variablesOverride && !isEmptyObject(variablesOverride) ? variablesOverride : undefined,
-                    tileFiltersOverride && isDashboardFilterEmpty(tileFiltersOverride)
+                    tileFiltersOverride && isDashboardFilterOverrideEmpty(tileFiltersOverride)
                         ? undefined
                         : tileFiltersOverride,
                     dashboard,

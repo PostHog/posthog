@@ -12,6 +12,30 @@ The channel is granted via the skill's frontmatter `allowed_tools` — **every s
 > like every `scout-*` tool, **both report tools require the current `run_id`** (the run
 > you're executing in) on every call — omitting it fails validation.
 
+## Contents
+
+- [Author vs. edit](#author-vs-edit)
+- [`emit_report` — author a full report](#emit_report--author-a-full-report)
+  - [Measuring impact](#measuring-impact)
+    - [Choosing the kind](#choosing-the-kind)
+    - [Keeping the query live and bounded](#keeping-the-query-live-and-bounded)
+    - [Keeping semantics separate from formatting](#keeping-semantics-separate-from-formatting)
+    - [Titling and captioning](#titling-and-captioning)
+    - [Snapshots are optional cached fallbacks, not estimates](#snapshots-are-optional-cached-fallbacks-not-estimates)
+    - [A reader may see the tile without its data](#a-reader-may-see-the-tile-without-its-data)
+    - [Caps, and what an edit does](#caps-and-what-an-edit-does)
+  - [Attaching charts](#attaching-charts)
+  - [Suggesting follow-up prompts](#suggesting-follow-up-prompts)
+  - [Opening a draft PR (autostart)](#opening-a-draft-pr-autostart)
+- [Choosing `suggested_reviewers` — how a report gets assigned to a human](#choosing-suggested_reviewers--how-a-report-gets-assigned-to-a-human)
+- [`edit_report` — update an existing report](#edit_report--update-an-existing-report)
+  - [Replacing the report's pull request](#replacing-the-reports-pull-request)
+  - [Re-confirming a report you already filed](#re-confirming-a-report-you-already-filed)
+- [Finding "the report I made last time"](#finding-the-report-i-made-last-time)
+- [Dedup: the retry is covered, the near-duplicate is not](#dedup-the-retry-is-covered-the-near-duplicate-is-not)
+- [The pipeline may rewrite what you authored (accepted)](#the-pipeline-may-rewrite-what-you-authored-accepted)
+- [Granting the tools](#granting-the-tools)
+
 ## Author vs. edit
 
 | You have…                                                                                                       | Use                                                                                                             |
@@ -34,8 +58,9 @@ Judges the report for safety, then persists it at the judged status.
 | `summary`                   | string                  | The report body prose — one tight passage a busy human can act on: a **quantified hook** (what's happening, with numbers), the **pattern** that makes it signal rather than noise, the suspected-cause **hypothesis**, and the **recommendation**. Cite entities inline as markdown links so the reader pivots straight to source (see below). |
 | `evidence`                  | list, 1–50              | Each `{description, source_id}`. Becomes a bound signal row backing the report. `source_id` is the citable entity id. Hard cap of **50** — summarize/trim before calling; a longer list fails validation before the report is judged or persisted.                                                                                             |
 | `actionability_explanation` | string                  | One sentence justifying the actionability call below.                                                                                                                                                                                                                                                                                          |
-| `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it.                                                                                                                                                                                                                |
+| `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it. See _Choosing actionability_ below.                                                                                                                                                                            |
 | `already_addressed`         | bool, default `false`   | Set when the underlying issue is already handled and you're filing for the record.                                                                                                                                                                                                                                                             |
+| `metrics`                   | list, ≤6, optional      | Typed impact measurements the inbox shows as tiles. The report's full set. Each `{metric_id, title, kind, query, role?, value?, value_at?, series?, value_format?, unit?, caption?}`. See _Measuring impact_ below.                                                                                                                            |
 | `charts`                    | list, ≤20, optional     | Queries the inbox draws on the report — the report's full set, replacing any it already had. Each `{chart_id, title, query, caption?, size?}`. See _Attaching charts_ below.                                                                                                                                                                   |
 | `suggested_prompts`         | list, ≤3, optional      | Follow-up prompts the inbox offers above the report's `Ask AI` box (questions to ask, or next-step actions to request), each ≤200 characters and all distinct. See _Suggesting follow-up prompts_ below.                                                                                                                                       |
 
@@ -59,7 +84,227 @@ Leave a blank line above each label, since a label the line above runs onto is p
 | safe         | `not_actionable`         | `SUPPRESSED`     | no                 |
 | unsafe       | (any)                    | `SUPPRESSED`     | no                 |
 
+**Choosing actionability.** The harness prompt carries the full criteria; the call comes down to what a person would have to supply.
+
+1. `immediately_actionable` — a coding agent could take concrete, useful action right now: a bug fix, an experiment reaction, a flag cleanup, a UX fix, or a deep investigation with a clear jumping-off point.
+   An unknown root cause does not disqualify a report. When you name the evidence, the code surface, or a failure path someone can reproduce, the investigation is the action.
+2. `requires_human_input` — a code change is plausible, but a person must first make a call only a person can make: a product decision, a trade-off between valid approaches, business context that is not in the data or the code.
+   Name that decision in `actionability_explanation`. If you cannot name it, the report is not waiting on a human.
+3. `not_actionable` — no answer would lead to code work.
+
+In doubt between the first two, pick `immediately_actionable`; in doubt between the last two, pick `not_actionable`.
+It is not a free hedge: autostart only considers an immediately-actionable report, so parking one costs it the draft PR a person then has to start by hand.
+
 The result tells you what happened: `report_id` (always set when a report was persisted — **even when suppressed**, so you can edit or dedup against it), `report_status` (the birth status — `ready` / `pending_input` / `suppressed` — the field is named `report_status` in the response, not `status`), `emitted` (true only when it actually surfaced — `READY` / `PENDING_INPUT`), `safety_explanation`, and `skipped_reason` (set only when a preflight gate stopped the call before any report was created — the AI-data-processing / source-enabled gates that govern every scout write).
+
+### Measuring impact
+
+`metrics` carries the typed measurements that tell a reader what the observation changes, and how many people it reaches.
+A consumer draws each one as a tile: the figure with its unit, the title, the window the query covers, and a small trend strip.
+Use one `primary` metric for the key observation, and `supporting` metrics for the facts around it.
+
+The Inbox shows live metrics on report rows and in report detail when `signals-report-metrics` is enabled.
+The server checks this organization-level flag on each scout write that supplies a non-empty metric list.
+The flag is independent of `signals-report-charts`.
+
+When the flag is off or its check fails:
+
+- `emit_report(metrics=[...])` stores the report without the supplied metrics.
+- `edit_report(metrics=[...])` ignores the supplied metrics and preserves the report's existing set.
+- `edit_report(metrics=[])` still clears the set. Omitting `metrics` preserves it.
+
+The server drops gated metrics before the safety judge.
+Keep the report useful without metrics, and do not retry a write to bypass the flag.
+Local development with `DEBUG=True` enables the metric write path without a flag check.
+
+**Omit a metric you cannot measure honestly.**
+A weak number is worse than none.
+One support ticket and a single migration crash tell the reader nothing.
+Nor does a rate over a handful of attempts, or a count with no person context.
+
+| Field          | Type                | Notes                                                                                                                                                                         |
+| -------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `metric_id`    | string, required    | Your own slug (lowercase letters, numbers, `_`, `-`, starting with a letter or number), ≤100 characters. Unique within the report, and the key a later edit updates it under. |
+| `title`        | string, required    | What was observed, and for whom, in one line: `Users who hit "Not found" opening a shared chat link`, not a label such as `Users affected`. ≤200 characters.                  |
+| `kind`         | enum, required      | What the value measures. See _Choosing the kind_ below.                                                                                                                       |
+| `query`        | object, required    | The bounded live query behind the figure. See _Keeping the query live and bounded_ below.                                                                                     |
+| `role`         | enum, default       | `primary` for the report's key observation, else `supporting` (the default). At most one `primary` per report.                                                                |
+| `value`        | number, optional    | A snapshot you measured in this run. Optional cached fallback only. Pair it with `value_at`.                                                                                  |
+| `value_at`     | timestamp, optional | When you measured `value`. ISO-8601 with a timezone, and not in the future.                                                                                                   |
+| `series`       | list, optional      | Trailing per-bucket values from the same run, oldest first, ≤14 points. Part of the snapshot, so it needs `value` and `value_at`.                                             |
+| `value_format` | enum, default       | How to print the figure: `count`, `percentage`, `percentage_scaled`, `duration`, `currency`, or `number` (the default).                                                       |
+| `unit`         | string, optional    | Short suffix that completes the figure, ≤40 characters. See _Keeping semantics separate from formatting_ below.                                                               |
+| `caption`      | string, optional    | Only what the tile cannot show, ≤500 characters. See below.                                                                                                                   |
+| `comparison`   | object, optional    | Legacy. Leave it unset.                                                                                                                                                       |
+
+A primary affected-users metric and a supporting rate, as they arrive in `metrics`:
+
+```json
+[
+  {
+    "metric_id": "people-hitting-not-found",
+    "title": "Users who hit \"Not found\" opening a shared chat link",
+    "kind": "affected_users",
+    "role": "primary",
+    "value": 412,
+    "value_at": "2026-06-18T09:00:00Z",
+    "value_format": "count",
+    "unit": "users",
+    "series": [38, 41, 55, 60, 49, 52, 58, 61, 57, 63, 66, 71, 68, 74],
+    "query": {
+      "kind": "InsightVizNode",
+      "source": {
+        "kind": "TrendsQuery",
+        "dateRange": { "date_from": "-13d" },
+        "interval": "day",
+        "series": [
+          {
+            "kind": "EventsNode",
+            "event": "shared_link_failed",
+            "math": "dau",
+            "properties": [{ "type": "event", "key": "reason", "operator": "exact", "value": ["not_found"] }]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "metric_id": "shared-link-failure-rate",
+    "title": "Shared chat links that fail to open",
+    "kind": "error_rate",
+    "value_format": "percentage_scaled",
+    "unit": "failure",
+    "caption": "Production traffic only.",
+    "query": {
+      "kind": "InsightVizNode",
+      "source": {
+        "kind": "TrendsQuery",
+        "dateRange": { "date_from": "-13d" },
+        "interval": "day",
+        "series": [
+          {
+            "kind": "EventsNode",
+            "event": "shared_link_opened",
+            "math": "total",
+            "properties": [{ "type": "event", "key": "environment", "operator": "exact", "value": ["production"] }]
+          },
+          {
+            "kind": "EventsNode",
+            "event": "shared_link_failed",
+            "math": "total",
+            "properties": [{ "type": "event", "key": "environment", "operator": "exact", "value": ["production"] }]
+          }
+        ],
+        "trendsFilter": { "formula": "B / A", "aggregationAxisFormat": "percentage_scaled" }
+      }
+    }
+  }
+]
+```
+
+#### Choosing the kind
+
+Choose by what the reader will ask, not by what the source makes easy.
+
+| Kind                | Use it for                                                                                                                                                                                                        | Query shape                                                                                                                                                 |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `affected_users`    | Anything a person experiences: a captured exception with person context, a dead click, a rage click, a failed request on a surface, a broken URL.                                                                 | Exactly one series, `math: "dau"`. `value_format: "count"`.                                                                                                 |
+| `affected_sessions` | A source that establishes sessions but not people.                                                                                                                                                                | Exactly one series, `math: "unique_session"`. `value_format: "count"`.                                                                                      |
+| `occurrences`       | Noise, and backend failures: a report asking the team to stop reporting something as an error, a Temporal, Celery, or job exception with no person on the event, or a volume counter such as tool calls per week. | Total count. `value_format: "count"`.                                                                                                                       |
+| `error_rate`        | A flow that fails.                                                                                                                                                                                                | Two series plus one formula such as `B / A`, with percentage formatting.                                                                                    |
+| `conversion_rate`   | A flow that stalls.                                                                                                                                                                                               | Same shape as `error_rate`.                                                                                                                                 |
+| `duration`          | A source that measures time.                                                                                                                                                                                      | A numeric property aggregation such as `avg` or `p95` with `math_property`. `value_format: "duration"`, `unit` of `ms` or `s`, and a non-negative snapshot. |
+| `revenue`           | A source that measures money.                                                                                                                                                                                     | A `sum` over the amount property with `math_property`. `value_format: "currency"`, `unit` of an uppercase three-letter ISO code such as `USD`.              |
+| `custom`            | A measurement that no kind above covers.                                                                                                                                                                          | Still needs a live event or action query.                                                                                                                   |
+
+**A figure with no event or action query behind it stays in the prose.**
+A database statistic, a build time read from another tool, or a number quoted from an external source has no query, so it cannot be a metric.
+
+**A noise report where nobody was hurt takes `occurrences`, never `affected_users`.**
+
+**The server checks the aggregation for `affected_users` and `affected_sessions` only.**
+A plain event count formatted as `duration` or `revenue` passes validation and then prints a count beside a time or currency unit, so pick the aggregation from the row above rather than relying on the refusal.
+
+**An `affected_users` metric means distinct PostHog people**, not sessions, events, requests, traces, groups, or the report's signal count.
+`affected_sessions` means distinct sessions.
+Group math and a formula are refused on both, because the total comes from the series math alone.
+
+#### Keeping the query live and bounded
+
+The query is the source of truth; it runs again every time a reader opens the report.
+So attach a query you ran successfully in this session, the same rule the charts carry.
+
+- **One `InsightVizNode` wrapping one `TrendsQuery`.** Any other node kind is refused at write time.
+- **Event and action series only.** Every source series must be an `EventsNode` with a non-empty `event`, or an `ActionsNode` with a positive integer `id`. This is what lets the server check a reader's access without an unbounded query fan-out.
+- **A relative window that advances with time.** `dateRange.date_from` must be relative (`-13d`, `-30d`), at most 366 days, and `date_to` must be empty. Default to `date_from: "-13d"` with `interval: "day"`, which gives 14 inclusive daily buckets including today. `interval` accepts `second` through `year`.
+- **At most 1,000 estimated longitudinal points**, counting the current partial bucket. One hourly series over roughly six weeks fits.
+- **Exactly one output series.** Without a formula that means exactly one source series. A rate may combine up to 10 source series with exactly one formula. A breakdown and compare mode are both refused, because either can multiply the output at run time.
+- **Keep the filters that reproduce the observation**, so the figure measures the thing the report describes.
+
+**Consumers own the display.** The report derives two shapes from the stored query: `BoldNumber` for the whole-window `aggregated_value`, and `ActionsBar` for the longitudinal buckets.
+The display you author does not control how the report draws the metric.
+Run the total-value shape when you measure a snapshot, because a bar or line response gives no whole-window total.
+Never sum distinct-user buckets, since one person can appear in several.
+
+#### Keeping semantics separate from formatting
+
+`kind` says what the metric measures. `value_format` says how to print it.
+
+- A non-currency `unit` is one lowercase word that completes the figure, because the report prints it next to the number: `users`, `sessions`, `events`, `runs`, `calls`.
+- For a rate, name what the share means: `failure` for an error rate, `conversion` for a conversion rate. `%` is redundant and is dropped.
+- Use `percentage` for percentage points (`34` means 34%) and `percentage_scaled` for 0–1 ratios (`0.34` means 34%).
+- **A percentage query must set `aggregationAxisFormat` to exactly the same value as `value_format`.** A missing or numeric axis format is invalid.
+
+#### Titling and captioning
+
+The tile prints the figure, the unit, the title, and the window together, so never state one fact twice across them.
+
+Leave `caption` empty unless it carries something the reader needs and cannot see:
+
+- a filter that narrows the count (`Production only, excluding internal users`),
+- why a longer window was needed,
+- a caveat on the data (`Person context is missing on about a third of these events`).
+
+A caption that restates the title, the unit, or the window is noise.
+The strip shows at most the trailing 14 buckets, so a window longer than 14 days needs the caption that explains it.
+
+#### Snapshots are optional cached fallbacks, not estimates
+
+A snapshot keeps an inbox list read cheap.
+It never replaces the required live query.
+
+- Send a snapshot only for a value you measured in this run. Zero is a real measurement; null means unavailable.
+- A `count` snapshot and series must be non-negative whole numbers. A rate snapshot must sit inside its format's range (0–100 for `percentage`, 0–1 for `percentage_scaled`).
+- **Never author a snapshot-only or queryless row.** Those shapes are legacy or malformed, and the server always redacts them.
+- **Leave `comparison` unset.** The server does not yet keep an adjacent comparison window live, so an authored comparison is stored and never shown.
+
+A refresh replaces `value`, `value_at`, and `series`, and clears `comparison`.
+It runs only when a client posts to the report's `refresh_metrics` endpoint; reading a report does not refresh anything on its own.
+Listing reports never executes a metric query: a row carries the metric metadata and any readable cached snapshot, but no query definition.
+
+#### A reader may see the tile without its data
+
+A metric snapshot is measured without a requesting user, while a report read is authorized as the viewer.
+When the server cannot prove the two are equivalent, the metric stays in the response with its data-bearing fields redacted.
+
+- **A cohort reference, including a nested one, hides the metric from every reader.** There is no cohort object access policy to prove access against, so this is an intentional safety limit rather than a display bug. Keep a cohort filter out of a metric query.
+- A reader can also lose the query, the snapshot, or both for access reasons you cannot see while authoring: a property restriction, a missing token scope, an action they cannot read, or an unfamiliar filter shape.
+
+So a metric is not a way to deliver a number to a reader who could not run the query themselves.
+Keep the figure the report's argument depends on in the `summary` prose, where every reader gets it.
+
+#### Caps, and what an edit does
+
+At most one `affected_users` metric, and 60,000 characters of query JSON across the report.
+Prefer the few measurements that change the decision.
+
+**`metrics` on an edit is the report's whole set, not an addition**, exactly like `charts`.
+Omit the field to keep the metrics the report has, send the complete replacement list to change them, or send `metrics: []` to clear them.
+Re-send a `metric_id` with a newer query or snapshot to replace that metric.
+Read the report first (`inbox-reports-retrieve` returns its metrics) when you mean to add one.
+**A metric that comes back with a null `query` is redacted, not empty.** You cannot re-send it, because the write shape requires a query, and leaving it out deletes that tile. Omit `metrics` altogether on such a report, and leave the change to a reader who can see every row.
+
+When the flag permits a metric write, every metric title, caption, snapshot, and query goes before the safety judge, the same as the report prose.
 
 ### Attaching charts
 
@@ -131,7 +376,7 @@ A reference inside a code span, a table cell, or a heading has no room to draw �
 Only `InsightVizNode` and `SavedInsightNode` charts render there, at most three per report with referenced charts first; a `DataVisualizationNode` chart shows only in the inbox.
 "Signups fell 60% over the week" survives that; "the chart below shows the drop" leaves a Slack reader with nothing.
 
-**Pin the window** to absolute dates wherever the node supports it, so a reader opening the report days later sees the data you wrote about rather than whatever a relative range resolves to then.
+**Pin the window** to absolute dates wherever the node supports it, so a reader opening the report days later sees the data you wrote about rather than whatever a relative range resolves to then. This holds for charts alone. A metric and a follow-up check measure the period before each run, so each one needs a relative `dateRange.date_from` and an empty `date_to`. An absolute window is refused there.
 
 **`charts` on an edit is the report's whole set, not an addition.**
 It replaces what the report had, the way `summary` replaces the summary — so send every chart you want kept, and re-send an id under a newer window to refresh that chart.
@@ -203,9 +448,9 @@ Each entry identifies one reviewer by **`github_login`**, **`user_uuid`**, or bo
 - **`github_login`** — a **bare, lowercase GitHub login** (e.g. `octocat`, not `@OctoCat`).
   Internal assignment matches it against each user's linked GitHub login by exact, lowercased comparison, so a mis-cased handle, an `@`-prefix, a display name, a CODEOWNERS **team** slug, or an email won't set `is_suggested_reviewer` for anyone (autostart's PR-selection path is more lenient, but the assignment path is not).
 - **`user_uuid`** — a **PostHog user UUID**.
-  The server resolves it to that org member's linked GitHub login for you (and it wins if you also pass a `github_login`).
-  Use this whenever your evidence already names a PostHog user — an account owner, an entity's `created_by`, a CSM — so you can route to them without ever looking up their handle.
-  A `user_uuid` that isn't an org member of this team **with a linked GitHub identity** is rejected (the whole call fails), so it never silently drops.
+  The server resolves it to that org member. It wins if you also pass a `github_login`.
+  Use this whenever your evidence already names a PostHog user. It works without a linked GitHub account.
+  A `user_uuid` that is not an org member of this team is rejected, so it never silently drops.
 
 So you have two routes to a reviewer.
 If you already hold a PostHog user UUID, prefer passing it as `user_uuid` — it's the most reliable.
@@ -219,7 +464,7 @@ Otherwise resolve a `github_login`, cheapest source first:
    `.github/CODEOWNERS` for the owning path, or the last `git log` author for the file.
    Neither usually hands you a usable login directly: CODEOWNERS entries are often **team** slugs (`@your-org/team-name`) and `git log` gives a name + email — both must be resolved to an **individual** GitHub login before you write the reviewer (a team slug or an email won't match any user).
 4. **`scout-members-list`** — the in-run roster lookup, for the cold-start case where the cheaper paths above don't resolve an owner.
-   It returns this project's members, each with `user_uuid`, `email`, name, and a resolved `github_login` (pass `search=` to narrow); match the owner and route to their `github_login`, or hand the `user_uuid` straight through and let the server resolve it.
+   It returns this project's members, each with `user_uuid`, email, name, and a resolved `github_login`. Pass `search=` to narrow the result. Match the owner and route with `user_uuid`.
    The org-scoped `org-members-list` / `org-member-get-github-login` tools are **not available in a scout run** — a scoped-team token can't reach the org-nested endpoint, so don't build a scout's reviewer recipe around them.
 
 **If you can't confidently identify a reviewer, leave `suggested_reviewers` empty** — the report still surfaces for a human to grab.
@@ -231,9 +476,9 @@ The fleet's reviewer map should compound over time.
 
 ## `edit_report` — update an existing report
 
-Rewrite `title`/`summary`, append evidence or a note, set `suggested_reviewers`, and/or replace `charts` / `suggested_prompts` on a report that already exists.
-Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `append_evidence`, `suggested_reviewers`, `charts`, `suggested_prompts`.
-An edit that supplies content (`title`, `summary`, `charts`, `suggested_prompts`, `append_note`, `append_evidence`, or a reviewer `reason`) passes the same safety judge as `emit_report`; an unsafe edit is rejected whole and the report keeps what it had.
+Rewrite `title`/`summary`, append evidence or a note, set `suggested_reviewers`, and/or replace `metrics` / `charts` / `suggested_prompts` on a report that already exists.
+Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `append_evidence`, `suggested_reviewers`, `metrics`, `charts`, `suggested_prompts`.
+An edit that supplies content (`title`, `summary`, `metrics`, `charts`, `suggested_prompts`, `append_note`, `append_evidence`, or a reviewer `reason`) passes the same safety judge as `emit_report`; an unsafe edit is rejected whole and the report keeps what it had.
 
 `edit_report` can target **any** of the team's inbox reports — not just ones a scout authored.
 That makes it the right tool when a later run learns something about a report the pipeline (or another scout) created.
@@ -253,6 +498,29 @@ Rules of good behavior:
 - **Use `suggested_reviewers` to rescue an unrouted report.** Setting reviewers (same `{github_login?, user_uuid?}` shape as `emit_report`) replaces the report's reviewer list and re-runs autostart — so a report that surfaced routed to no one can be assigned to an owner you resolved later, and a now-actionable report with a repo + priority can open a draft PR.
   An empty list is a no-op (it never clears existing reviewers).
 
+### Replacing the report's pull request
+
+A report that autostarted has an open draft PR built from the summary as it read at the time.
+When your rewrite changes what the fix should be, set `supersedes_implementation: true` alongside the `title` / `summary` you are changing.
+This records a replacement decision for a ready report. Autostart checks policy and eligibility before starting a replacement from your new summary. Technical failures retry automatically; a policy block waits for a new edit or research trigger. The existing PR stays open until the replacement succeeds with a verified open PR.
+
+Set it only when the fix itself changed: a different root cause, a different file or layer, a materially wider or narrower scope.
+More evidence for the same fix is not a reason — the open PR already implements it, and replacing it throws away review someone may already have done.
+An `append_note` is the right move there instead.
+
+Two things bound it, and the response tells you which one applied:
+
+- It is only honored alongside a rewrite that actually changed the title or summary. Restating the text the report already holds is not a revision, and neither is a note or a reviewer change. `is_content_revision` in the response says whether yours counted.
+- Only the first four content revisions can request replacements. `content_revision_count` counts every title or summary rewrite, including ones that did not request replacement. Past four your rewrite still lands, but it cannot request a replacement. `supersedes_implementation` in the response is `true` only when the decision was recorded.
+
+### Re-confirming a report you already filed
+
+Appending a note that says the finding still holds is worth doing, and it is not a revision — it leaves `content_revision_count` alone.
+Free-form `append_note` text always remains in the work log, including recovery details and observations beyond the evidence cap. Set `corroboration_only: true` only for a confirmation with no new information. A report keeps its first four confirmations as separate entries and counts later confirmations; the web and desktop inboxes show the collapsed count.
+The call still succeeds, and `corroboration_collapsed` in the response tells you it happened.
+
+A replacement request that cannot bind verified predecessor PRs, or whose report changes during verification, fails without saving the edit. Retry the same edit to resolve the context again.
+
 ## Finding "the report I made last time"
 
 There is no scout-specific report search — use the **vanilla inbox tools** the scout already has.
@@ -261,11 +529,14 @@ Before authoring, list the team's existing reports so you reconcile against one 
 - `inbox-reports-list` — filter by title/summary free-text (`search`), `status`, `source_product`, or your own `task_id`; newest-updated first.
 - `inbox-reports-retrieve` — fetch a single report by id (use the `report_id` you stashed in the scratchpad last run).
 
-## Dedup: the channel is NOT idempotent
+## Dedup: the retry is covered, the near-duplicate is not
 
-`emit_report` is **not idempotent** — a retried call authors a _second_ report.
-There is no server-side dedup key.
-The dedup story is two-sided and the scout owns it:
+`emit_report` carries an emit key, so resending a call that timed out returns the report the first one authored (`idempotent_replay` true) rather than a twin.
+The key is the `idempotency_key` you pass, or the report's own content when you pass none, and it is scoped to your run.
+Pass one when a retry might reword the report, since a reworded report is a different content key.
+
+That barrier covers the transport failure and nothing else.
+A report on a topic an earlier run already filed is a fresh emission with a fresh key, so the cross-run dedup is still two-sided and the scout owns it:
 
 1. **Before authoring**, `inbox-reports-list` for a prior report on the same topic.
    Found one?
@@ -273,8 +544,8 @@ The dedup story is two-sided and the scout owns it:
 2. **After authoring**, write a `report:<domain>:<entity>` scratchpad entry recording the `report_id` so the next run finds it (via `inbox-reports-retrieve`) without a title-search guess.
    (This is the report-channel member of the scratchpad key-prefix vocabulary — see [`dedupe-and-memory.md`](dedupe-and-memory.md).)
 
-**Never retry an `emit_report` / `edit_report` call that may have succeeded** — a transport error after the write commits, retried, double-files.
-If you're unsure whether a call landed, `inbox-reports-list` to check before retrying.
+`edit_report` has no such barrier: **never retry an `edit_report` call that may have succeeded**, since a transport error after the write commits, retried, appends a second note.
+If you're unsure whether an edit landed, `inbox-reports-retrieve` to check before retrying.
 
 ## The pipeline may rewrite what you authored (accepted)
 

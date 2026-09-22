@@ -354,6 +354,8 @@ export function NotificationsSettings() {
                         completionSound,
                         completionVolume,
                         customSounds,
+                        1,
+                        "settings_preview",
                       )
                     }
                   >
@@ -740,7 +742,13 @@ function CustomSoundRow({
           size="icon-sm"
           aria-label={`Play ${sound.name}`}
           onClick={() =>
-            playCompletionSound(`custom:${sound.id}`, volume, [sound])
+            playCompletionSound(
+              `custom:${sound.id}`,
+              volume,
+              [sound],
+              1,
+              "settings_preview",
+            )
           }
         >
           <Play weight="fill" size={11} />
@@ -776,6 +784,7 @@ function TestSection({
 
   const testToast = () =>
     bus?.notify({
+      reason: "settings_test",
       body: "Test notification",
       toast: {
         level: "success",
@@ -788,6 +797,7 @@ function TestSection({
   const testToastDeepLink = () => {
     if (!bus || !deepLinkTask) return;
     bus.notify({
+      reason: "settings_test",
       body: `"${deepLinkTask.title}"`,
       target: { kind: "task", taskId: deepLinkTask.id },
       toast: {

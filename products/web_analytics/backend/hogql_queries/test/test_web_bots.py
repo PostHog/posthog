@@ -1,7 +1,7 @@
 import re
 from typing import Any, Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -113,14 +113,14 @@ class TestWebBotsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_only_bot_traffic_grouped_by_breakdown(
         self, breakdown_by: WebBotsBreakdown, expected_first_value: str
     ) -> None:
-        with freeze_time("2026-01-10T11:00:00Z"):
+        with time_machine.travel("2026-01-10T11:00:00Z", tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["bot"], properties={})
             _create_person(team_id=self.team.pk, distinct_ids=["human"], properties={})
         self._create_pageview("bot", GOOGLEBOT_UA, "/pricing")
         self._create_pageview("bot", GOOGLEBOT_UA, "/pricing")
         self._create_pageview("human", HUMAN_UA, "/pricing")
 
-        with freeze_time("2026-01-15T00:00:00Z"):
+        with time_machine.travel("2026-01-15T00:00:00Z", tick=False):
             results = self._run(breakdown_by)
 
         self.assertEqual(len(results), 1)
@@ -129,11 +129,11 @@ class TestWebBotsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0][requests_column], 2)  # human pageview excluded
 
     def test_date_range_excludes_outside_events(self) -> None:
-        with freeze_time("2026-01-10T11:00:00Z"):
+        with time_machine.travel("2026-01-10T11:00:00Z", tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["bot"], properties={})
         self._create_pageview("bot", GOOGLEBOT_UA, "/pricing")
 
-        with freeze_time("2026-03-15T00:00:00Z"):
+        with time_machine.travel("2026-03-15T00:00:00Z", tick=False):
             query = WebBotsTableQuery(
                 breakdownBy=WebBotsBreakdown.CRAWLER,
                 dateRange=DateRange(date_from="2026-03-01", date_to="2026-03-31"),

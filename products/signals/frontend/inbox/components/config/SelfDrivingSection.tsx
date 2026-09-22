@@ -1,31 +1,31 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlus, IconRocket, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { IconPlus, IconX } from '@posthog/icons'
 import {
-    Button,
-    ButtonGroup,
-    Collapsible,
-    CollapsibleContent,
-    CollapsibleTrigger,
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from '@posthog/quill'
+    LemonButton,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonSkeleton,
+    LemonSwitch,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { JiraProjectPicker } from 'lib/integrations/JiraIntegrationHelpers'
+import { LinearTeamPicker } from 'lib/integrations/LinearIntegrationHelpers'
+import { urls } from 'scenes/urls'
 
-import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
+import { IntegrationType } from '~/types'
+
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { PRIORITY_THRESHOLD_OPTIONS, SignalReportPriority } from '../../types'
+import { AutonomySettingGroup } from './AutonomySettingGroup'
+import { AutonomySettingRow } from './AutonomySettingRow'
 
 /** Compact segmented-control label per priority. P4 (the lowest bar) reads as "All". */
 const THRESHOLD_SEGMENT_LABELS: Record<SignalReportPriority, string> = {
@@ -44,7 +44,14 @@ const THRESHOLD_SEGMENTS = PRIORITY_THRESHOLD_OPTIONS.map(({ value }) => ({
 const MY_THRESHOLD_DEFAULT_VALUE = '__default__'
 const MY_THRESHOLD_SEGMENTS = [{ value: MY_THRESHOLD_DEFAULT_VALUE, label: 'Default' }, ...THRESHOLD_SEGMENTS]
 
-function BaseBranchOverrideRows(): JSX.Element | null {
+const PR_STATE_SEGMENTS = [
+    { value: 'draft', label: 'Draft' },
+    { value: 'ready', label: 'Ready for review' },
+]
+const MY_PR_STATE_DEFAULT_VALUE = '__default__'
+const MY_PR_STATE_SEGMENTS = [{ value: MY_PR_STATE_DEFAULT_VALUE, label: 'Default' }, ...PR_STATE_SEGMENTS]
+
+function BaseBranchOverrideList(): JSX.Element | null {
     const { baseBranchOverrides, teamConfigUpdating } = useValues(signalTeamConfigLogic)
     const { updateBaseBranchOverride, removeBaseBranchOverride } = useActions(signalTeamConfigLogic)
     const { githubIntegrations } = useValues(integrationsLogic)
@@ -60,43 +67,45 @@ function BaseBranchOverrideRows(): JSX.Element | null {
     )
 
     return (
-        <div className="flex flex-col gap-1">
+        <ul className="m-0 flex list-none flex-col gap-1 p-0">
             {baseBranchOverrides.map(({ repo, branch }) => {
                 const integration = integrationsByOwner.get(repo.split('/')[0])
                 return (
-                    <div key={repo} className="flex items-center gap-1">
-                        <span className="text-xs text-default min-w-0 flex-1 truncate" title={repo}>
+                    <li key={repo} className="flex flex-wrap items-center gap-2">
+                        <span className="min-w-0 flex-1 basis-40 truncate text-sm text-default" title={repo}>
                             {repo}
                         </span>
-                        {integration ? (
-                            <GitHubBranchCombobox
-                                integrationId={integration.id}
-                                repo={repo}
-                                value={branch}
-                                allowCustomValues={false}
-                                disabled={teamConfigUpdating}
-                                onChange={(next) => {
-                                    if (next) {
-                                        updateBaseBranchOverride(repo, next)
-                                    }
-                                }}
+                        <div className="flex items-center gap-1">
+                            {integration ? (
+                                <GitHubBranchCombobox
+                                    integrationId={integration.id}
+                                    repo={repo}
+                                    value={branch}
+                                    allowCustomValues={false}
+                                    disabled={teamConfigUpdating}
+                                    onChange={(next) => {
+                                        if (next) {
+                                            updateBaseBranchOverride(repo, next)
+                                        }
+                                    }}
+                                />
+                            ) : (
+                                <span className="text-xs text-secondary">{branch}</span>
+                            )}
+                            <LemonButton
+                                type="tertiary"
+                                size="small"
+                                icon={<IconX />}
+                                loading={teamConfigUpdating}
+                                aria-label={`Remove base branch override for ${repo}`}
+                                data-attr="signals-base-branch-override-remove"
+                                onClick={() => removeBaseBranchOverride(repo)}
                             />
-                        ) : (
-                            <span className="text-xs text-muted shrink-0">{branch}</span>
-                        )}
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            loading={teamConfigUpdating}
-                            aria-label={`Remove base branch override for ${repo}`}
-                            onClick={() => removeBaseBranchOverride(repo)}
-                        >
-                            <IconX />
-                        </Button>
-                    </div>
+                        </div>
+                    </li>
                 )
             })}
-        </div>
+        </ul>
     )
 }
 
@@ -108,8 +117,13 @@ function BaseBranchOverridePicker(): JSX.Element {
         addBaseBranchOverrideDisabledReason,
         teamConfigUpdating,
     } = useValues(signalTeamConfigLogic)
-    const { setDraftBaseBranchIntegrationId, setDraftBaseBranchRepo, setDraftBaseBranchBranch, addBaseBranchOverride } =
-        useActions(signalTeamConfigLogic)
+    const {
+        setDraftBaseBranchIntegrationId,
+        setDraftBaseBranchRepo,
+        setDraftBaseBranchBranch,
+        addBaseBranchOverride,
+        clearDraftBaseBranch,
+    } = useActions(signalTeamConfigLogic)
     const { githubIntegrations } = useValues(integrationsLogic)
 
     const integrationId = draftBaseBranchIntegrationId ?? githubIntegrations[0].id
@@ -117,112 +131,332 @@ function BaseBranchOverridePicker(): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-1">
             {githubIntegrations.length > 1 && (
-                <DropdownMenu>
-                    <DropdownMenuTrigger
-                        render={
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                aria-label="GitHub organization"
-                                disabled={teamConfigUpdating}
-                            >
-                                <span className="min-w-0 truncate">
-                                    {githubIntegrations.find((integration) => integration.id === integrationId)
-                                        ?.display_name ?? 'GitHub'}
-                                </span>
-                            </Button>
-                        }
-                    />
-                    <DropdownMenuContent>
-                        {githubIntegrations.map((integration) => (
-                            <DropdownMenuItem
-                                key={integration.id}
-                                onClick={() => setDraftBaseBranchIntegrationId(integration.id)}
-                            >
-                                {integration.display_name}
-                            </DropdownMenuItem>
-                        ))}
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                <LemonSelect
+                    size="small"
+                    value={integrationId}
+                    options={githubIntegrations.map((integration) => ({
+                        value: integration.id,
+                        label: integration.display_name,
+                    }))}
+                    disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
+                    onChange={(next) => next != null && setDraftBaseBranchIntegrationId(next)}
+                    aria-label="GitHub organization"
+                />
             )}
-            <ButtonGroup>
-                <GitHubRepositoryCombobox
+            <GitHubRepositoryCombobox
+                integrationId={integrationId}
+                value={draftBaseBranchRepo}
+                disabled={teamConfigUpdating}
+                onChange={(repo) => setDraftBaseBranchRepo(repo ?? '')}
+                placeholder="Repository"
+            />
+            {draftBaseBranchRepo ? (
+                <GitHubBranchCombobox
                     integrationId={integrationId}
-                    value={draftBaseBranchRepo}
+                    repo={draftBaseBranchRepo}
+                    value={draftBaseBranchBranch}
+                    allowCustomValues={false}
                     disabled={teamConfigUpdating}
-                    onChange={(repo) => setDraftBaseBranchRepo(repo ?? '')}
-                    placeholder="Repository"
+                    onChange={(branch) => setDraftBaseBranchBranch(branch ?? '')}
                 />
-                {draftBaseBranchRepo ? (
-                    <GitHubBranchCombobox
-                        integrationId={integrationId}
-                        repo={draftBaseBranchRepo}
-                        value={draftBaseBranchBranch}
-                        allowCustomValues={false}
-                        disabled={teamConfigUpdating}
-                        onChange={(branch) => setDraftBaseBranchBranch(branch ?? '')}
-                    />
-                ) : null}
-            </ButtonGroup>
-            <Tooltip>
-                <TooltipTrigger
-                    render={
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={!!addBaseBranchOverrideDisabledReason}
-                            loading={teamConfigUpdating}
-                            aria-label="Add base branch override"
-                            onClick={() => addBaseBranchOverride()}
-                        >
-                            <IconPlus />
-                            Add
-                        </Button>
-                    }
-                />
-                <TooltipContent>{addBaseBranchOverrideDisabledReason ?? 'Add base branch override'}</TooltipContent>
-            </Tooltip>
+            ) : null}
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconPlus />}
+                disabledReason={addBaseBranchOverrideDisabledReason ?? undefined}
+                loading={teamConfigUpdating}
+                data-attr="signals-base-branch-override-add"
+                onClick={() => addBaseBranchOverride()}
+            >
+                Add
+            </LemonButton>
+            <LemonButton
+                type="tertiary"
+                size="small"
+                disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
+                onClick={() => clearDraftBaseBranch()}
+            >
+                Cancel
+            </LemonButton>
         </div>
     )
 }
 
 /**
- * Collapsed by default, because targeting anything but the repo's default branch is the exception.
- * Opens on its own when overrides exist, so a configured team isn't left to discover them behind a
- * chevron; the count keeps that state readable even once collapsed again.
+ * Where agents branch from, per repository. Renders regardless of the auto-start toggle, because the
+ * inbox "Create PR" button resolves the same overrides for a PR opened by hand. The list stays in
+ * view so a configured team can read its overrides without opening anything. The picker mounts on
+ * request, because the repository combobox loads the repository list as soon as it renders.
  */
-function BaseBranchOverrides(): JSX.Element {
-    const { baseBranchOverrides } = useValues(signalTeamConfigLogic)
+function BaseBranchesRow(): JSX.Element {
     const { githubIntegrations } = useValues(integrationsLogic)
+    const { baseBranchOverrides, baseBranchPickerOpen } = useValues(signalTeamConfigLogic)
+    const { setBaseBranchPickerOpen } = useActions(signalTeamConfigLogic)
 
-    // The Collapsible root fills itself with --muted while open or hovered, which reads as an
-    // off-color patch against the card. The trigger owns the hover instead.
     return (
-        <Collapsible defaultOpen={baseBranchOverrides.length > 0} className="bg-transparent hover:bg-transparent">
-            {/* px-2.5/py-1.5 matches the Threshold row above; the Button's own fill is dropped so the
-                row reads as a label, not a band, leaving only the hover as the affordance. */}
-            <CollapsibleTrigger className="w-full h-auto px-2.5 py-1.5 text-xs text-secondary font-normal bg-transparent hover:bg-[var(--fill-hover)]">
-                <span className="flex-1 text-left">Base branch overrides</span>
-                {baseBranchOverrides.length > 0 && (
-                    <span className="text-tertiary tabular-nums">{baseBranchOverrides.length}</span>
-                )}
-            </CollapsibleTrigger>
-            {/* Padding goes on the panel itself rather than a nested wrapper, which would stack with
-                the panel's own inset. Same 10px/6px as the trigger and the Threshold row. */}
-            <CollapsibleContent className="flex flex-col gap-1.5 px-2.5 pb-1.5">
-                <p className="text-[11px] text-tertiary leading-snug mb-0">
-                    Otherwise, PRs use GitHub's default branch.
-                </p>
-                <BaseBranchOverrideRows />
-                {githubIntegrations.length > 0 ? (
-                    <BaseBranchOverridePicker />
+        <AutonomySettingRow
+            title="Base branches"
+            description={
+                githubIntegrations.length > 0 ? (
+                    'PRs target the default branch of each repository. Add an override for a repository that needs a different branch.'
                 ) : (
-                    <p className="text-[11px] text-tertiary leading-snug mb-0">
-                        Connect GitHub above to add an override.
+                    // One element around the whole sentence, so the swap never removes a bare text
+                    // node a translation extension replaced (frontend/src/AGENTS.md, rule 7).
+                    <span>
+                        PRs target the default branch of each repository.{' '}
+                        <Link to={urls.settings('project-integrations')}>Connect GitHub</Link> to add an override.
+                    </span>
+                )
+            }
+        >
+            {/* Stored overrides stay in view without an integration, so a team can still read and remove them. */}
+            {(githubIntegrations.length > 0 || baseBranchOverrides.length > 0) && (
+                <div className="flex flex-col gap-2 py-3">
+                    <BaseBranchOverrideList />
+                    {githubIntegrations.length > 0 &&
+                        (baseBranchPickerOpen ? (
+                            <BaseBranchOverridePicker />
+                        ) : (
+                            <div>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconPlus />}
+                                    data-attr="signals-base-branch-override-open"
+                                    onClick={() => setBaseBranchPickerOpen(true)}
+                                >
+                                    Add override
+                                </LemonButton>
+                            </div>
+                        ))}
+                </div>
+            )}
+        </AutonomySettingRow>
+    )
+}
+
+/** Providers that can hold a tracker issue, with the label the picker shows for each. */
+const ISSUE_TRACKER_LABELS: Partial<Record<IntegrationType['kind'], string>> = {
+    github: 'GitHub issues',
+    linear: 'Linear',
+    jira: 'Jira',
+    gitlab: 'GitLab issues',
+}
+
+/** LemonSelect has no null option value, so "off" needs a sentinel that no integration id can take. */
+const ISSUE_TRACKER_OFF = -1
+
+/**
+ * Where inside the chosen tracker the issues land. The shape follows the provider, so this renders
+ * one picker per provider. GitLab needs no pick at all: its integration is already bound to one
+ * project.
+ */
+function IssueTrackerTarget({
+    integration,
+    target,
+    disabled,
+    onSave,
+}: {
+    integration: IntegrationType
+    target: Record<string, string>
+    disabled: boolean
+    onSave: (config: Record<string, string>) => void
+}): JSX.Element | null {
+    if (integration.kind === 'github') {
+        return (
+            <GitHubRepositoryCombobox
+                integrationId={integration.id}
+                // Stored bare so the issue link can re-prefix the account that owns it, while the
+                // picker works in the `owner/repo` form it shows.
+                value={target.repository ? `${integration.display_name}/${target.repository}` : ''}
+                disabled={disabled}
+                placeholder="Repository"
+                onChange={(repo) => repo && onSave({ ...target, repository: repo.split('/')[1] })}
+            />
+        )
+    }
+    if (integration.kind === 'linear') {
+        return (
+            <LinearTeamPicker
+                integration={integration}
+                value={target.team_id}
+                disabled={disabled}
+                onChange={(teamId) => teamId && onSave({ team_id: teamId })}
+            />
+        )
+    }
+    if (integration.kind === 'jira') {
+        return (
+            <JiraProjectPicker
+                integrationId={integration.id}
+                value={target.project_key ?? ''}
+                disabled={disabled}
+                onChange={(projectKey) => projectKey && onSave({ project_key: projectKey })}
+            />
+        )
+    }
+    return <p className="m-0 text-xs text-secondary">Issues go to {integration.display_name}.</p>
+}
+
+/** One sentence for a saved target, so the section reads it without mounting the picker. */
+function describeIssueTrackerTarget(integration: IntegrationType, target: Record<string, string>): string | null {
+    if (integration.kind === 'github' && target.repository) {
+        return `Issues go to ${integration.display_name}/${target.repository}.`
+    }
+    if (integration.kind === 'jira' && target.project_key) {
+        return `Issues go to project ${target.project_key}.`
+    }
+    // Linear stores only the team id, which means nothing to a reader. The picker shows the name.
+    if (integration.kind === 'linear' && target.team_id) {
+        return `Issues go to a team in ${integration.display_name}.`
+    }
+    return null
+}
+
+/**
+ * The saved target as text with a Change button, or the picker. The Linear and Jira pickers call
+ * the provider for their option lists as soon as they mount, so the picker only renders once a
+ * person asks to change the target, or when the chosen tracker has no target yet.
+ */
+function IssueTrackerTargetRow({
+    integration,
+    target,
+    disabled,
+    onSave,
+}: {
+    integration: IntegrationType
+    target: Record<string, string>
+    disabled: boolean
+    onSave: (config: Record<string, string>) => void
+}): JSX.Element | null {
+    const { issueTrackerTargetPickerOpen } = useValues(signalTeamConfigLogic)
+    const { setIssueTrackerTargetPickerOpen } = useActions(signalTeamConfigLogic)
+
+    const summary = describeIssueTrackerTarget(integration, target)
+    if (summary === null || issueTrackerTargetPickerOpen) {
+        return <IssueTrackerTarget integration={integration} target={target} disabled={disabled} onSave={onSave} />
+    }
+    return (
+        <div className="flex flex-wrap items-center gap-2">
+            <p className="m-0 text-xs text-secondary">{summary}</p>
+            <LemonButton
+                type="secondary"
+                size="small"
+                disabledReason={disabled ? 'Saving changes' : undefined}
+                data-attr="signals-issue-tracker-target-change"
+                onClick={() => setIssueTrackerTargetPickerOpen(true)}
+            >
+                Change
+            </LemonButton>
+        </div>
+    )
+}
+
+/**
+ * Per-project switch for the change-management control some teams work under: a pull request can
+ * only merge when a tracked work item points at it. Off unless a tracker is picked, so one field is
+ * both the switch and the target and the two can never disagree.
+ */
+function IssueTrackerRow(): JSX.Element {
+    const { issueTrackerConfig, issueTrackerIntegrationId, selectedIssueTrackerIntegrationId, teamConfigUpdating } =
+        useValues(signalTeamConfigLogic)
+    const { patchTeamConfig, setDraftIssueTrackerIntegrationId } = useActions(signalTeamConfigLogic)
+    const { integrations, integrationsLoading } = useValues(integrationsLogic)
+    const { loadIntegrations } = useActions(integrationsLogic)
+
+    const trackers = (integrations ?? []).filter((integration) => integration.kind in ISSUE_TRACKER_LABELS)
+    const selected = trackers.find((integration) => integration.id === selectedIssueTrackerIntegrationId) ?? null
+    // A freshly picked provider has no target yet, so the stored one belongs to the old provider.
+    const target = selectedIssueTrackerIntegrationId === issueTrackerIntegrationId ? issueTrackerConfig : {}
+
+    const saveTarget = (config: Record<string, string>): void => {
+        if (selected) {
+            patchTeamConfig({
+                issue_tracking_integration: selected.id,
+                issue_tracking_config: { ...target, ...config },
+            })
+        }
+    }
+
+    const chooseTracker = (next: number): void => {
+        if (next === ISSUE_TRACKER_OFF) {
+            setDraftIssueTrackerIntegrationId(null)
+            patchTeamConfig({ issue_tracking_integration: null, issue_tracking_config: {} })
+            return
+        }
+
+        setDraftIssueTrackerIntegrationId(next)
+        if (trackers.find((integration) => integration.id === next)?.kind === 'gitlab') {
+            patchTeamConfig({ issue_tracking_integration: next, issue_tracking_config: {} })
+        }
+    }
+
+    let control: JSX.Element
+    if (integrations === null) {
+        control = integrationsLoading ? (
+            <LemonSkeleton className="h-8 w-40" />
+        ) : (
+            <LemonButton size="small" type="secondary" onClick={() => loadIntegrations()}>
+                Retry
+            </LemonButton>
+        )
+    } else if (trackers.length === 0) {
+        control = (
+            <LemonButton
+                size="small"
+                type="secondary"
+                to={urls.settings('project-integrations')}
+                data-attr="signals-issue-tracker-connect"
+            >
+                Connect a tracker
+            </LemonButton>
+        )
+    } else {
+        control = (
+            <LemonSelect
+                size="small"
+                value={selectedIssueTrackerIntegrationId ?? ISSUE_TRACKER_OFF}
+                options={[
+                    { value: ISSUE_TRACKER_OFF, label: 'Off' },
+                    ...trackers.map((integration) => ({
+                        value: integration.id,
+                        label: `${ISSUE_TRACKER_LABELS[integration.kind]} · ${integration.display_name}`,
+                    })),
+                ]}
+                disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
+                onChange={chooseTracker}
+                aria-label="Issue tracker"
+            />
+        )
+    }
+
+    // One string rather than conditional text siblings, so the description keeps a sole text node
+    // that a translation extension cannot detach from React (frontend/src/AGENTS.md, rule 7).
+    let description =
+        'Open an issue for every PR agents make, and link the two. Use this when a PR can only merge with a tracked work item behind it.'
+    if (integrations !== null && trackers.length === 0) {
+        description += ' Works with GitHub, GitLab, Linear, and Jira.'
+    } else if (integrations === null && !integrationsLoading) {
+        description += ' Could not load integrations.'
+    }
+
+    return (
+        <AutonomySettingRow title="Issue tracker" description={description} control={control}>
+            {selected && (
+                <div className="flex flex-col gap-2 py-3">
+                    <IssueTrackerTargetRow
+                        integration={selected}
+                        target={target}
+                        disabled={teamConfigUpdating}
+                        onSave={saveTarget}
+                    />
+                    <p className="m-0 text-xs leading-snug text-secondary">
+                        If the tracker fails, the PR still opens and the report shows that the issue is missing.
                     </p>
-                )}
-            </CollapsibleContent>
-        </Collapsible>
+                </div>
+            )}
+        </AutonomySettingRow>
     )
 }
 
@@ -231,11 +465,10 @@ function BaseBranchOverrides(): JSX.Element {
  * than the billing usage card: it is "how much should the agents do", not "what does the plan
  * allow", and placing it next to plan usage read as if the two limits were one system. Renders
  * regardless of the auto-start toggle, since the cap pauses report generation, not just PRs.
- * While the billing quota has the pipeline paused, the live count is withheld so remaining daily
- * headroom is not advertised on a day when nothing will arrive. Same collapsed-by-default shape
- * as Base branch overrides: the trigger's count keeps the state readable without opening.
+ * The billing quota deliberately does not overwrite this row: it caps pull requests, not reports,
+ * so stamping its pause here reported the wrong limit as the reason nothing arrived.
  */
-function DailyReportLimit(): JSX.Element {
+function DailyReportLimitRow(): JSX.Element {
     const {
         maxReportsPerDay,
         reportsGeneratedToday,
@@ -245,77 +478,276 @@ function DailyReportLimit(): JSX.Element {
         teamConfigUpdating,
     } = useValues(signalTeamConfigLogic)
     const { setDraftMaxReportsPerDay, saveDraftMaxReportsPerDay } = useActions(signalTeamConfigLogic)
-    const { quotaLimited } = useValues(inboxUsageLogic)
 
-    const summary = quotaLimited
-        ? 'Paused by plan limit'
-        : maxReportsPerDay != null
-          ? `${Math.min(reportsGeneratedToday, maxReportsPerDay)} / ${maxReportsPerDay} today`
-          : null
+    const usage =
+        maxReportsPerDay != null
+            ? `${Math.min(reportsGeneratedToday, maxReportsPerDay)} of ${maxReportsPerDay} reports today.`
+            : null
 
     return (
-        <>
-            <Collapsible className="bg-transparent hover:bg-transparent">
-                <CollapsibleTrigger className="w-full h-auto px-2.5 py-1.5 text-xs text-secondary font-normal bg-transparent hover:bg-[var(--fill-hover)]">
-                    <span className="flex-1 text-left">Daily report limit</span>
-                    {summary && <span className="text-tertiary tabular-nums">{summary}</span>}
-                </CollapsibleTrigger>
-                <CollapsibleContent className="flex flex-col gap-1.5 px-2.5 pb-1.5">
-                    <p className="text-[11px] text-tertiary leading-snug mb-0">
-                        Pause new report generation after this many reports in a day. Leave empty for no limit.
-                    </p>
-                    <div className="flex items-center gap-1">
-                        <LemonInput
-                            type="number"
-                            min={1}
-                            step={1}
-                            size="small"
-                            placeholder="No limit"
-                            value={draftMaxReportsPerDay ?? undefined}
-                            onChange={(value) => setDraftMaxReportsPerDay(value ?? null)}
-                            onPressEnter={saveDraftMaxReportsPerDay}
-                            fullWidth
-                        />
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={saveDraftMaxReportsPerDay}
-                            loading={teamConfigUpdating}
-                            disabledReason={saveMaxReportsPerDayDisabledReason ?? undefined}
-                            data-attr="signals-daily-report-limit-save"
-                        >
-                            Save
-                        </LemonButton>
-                    </div>
-                </CollapsibleContent>
-            </Collapsible>
-            {dailyReportLimitReached && !quotaLimited && (
-                <p className="text-xs font-medium text-danger mb-0 px-2.5 pb-1.5">
-                    Daily report limit reached. New reports resume at midnight in your project's timezone.
-                </p>
-            )}
-        </>
+        <AutonomySettingRow
+            title="Daily report limit"
+            description={
+                <>
+                    Pause new reports after this many in a day. Leave empty for no limit.
+                    {usage && (
+                        <>
+                            {' '}
+                            <span className="text-default tabular-nums" translate="no">
+                                {usage}
+                            </span>
+                        </>
+                    )}
+                    {dailyReportLimitReached && (
+                        <span className="block font-medium text-danger">
+                            Daily report limit reached. New reports resume at midnight in your project's timezone.
+                        </span>
+                    )}
+                </>
+            }
+            control={
+                <>
+                    <LemonInput
+                        type="number"
+                        min={1}
+                        step={1}
+                        size="small"
+                        className="w-28"
+                        placeholder="No limit"
+                        value={draftMaxReportsPerDay ?? undefined}
+                        onChange={(value) => setDraftMaxReportsPerDay(value ?? null)}
+                        onPressEnter={saveDraftMaxReportsPerDay}
+                        aria-label="Daily report limit"
+                    />
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={saveDraftMaxReportsPerDay}
+                        loading={teamConfigUpdating}
+                        disabledReason={saveMaxReportsPerDayDisabledReason ?? undefined}
+                        data-attr="signals-daily-report-limit-save"
+                    >
+                        Save
+                    </LemonButton>
+                </>
+            }
+        />
+    )
+}
+
+/**
+ * Team-wide opt-in to commenting back on a GitHub issue that raised a report. Off by default,
+ * because the comment is public on the issue thread. It carries a link to the report and nothing
+ * else, so what the report says stays behind the project's own access check.
+ */
+function GitHubIssueWritebackRow(): JSX.Element {
+    const { githubIssueWritebackEnabled, teamConfigUpdating } = useValues(signalTeamConfigLogic)
+    const { patchTeamConfig } = useActions(signalTeamConfigLogic)
+
+    return (
+        <AutonomySettingRow
+            title="Comment back on GitHub issues"
+            description="When a GitHub issue creates a report, comment on that issue with a link to the report. Everybody watching the issue can see the comment."
+            control={
+                <LemonSwitch
+                    checked={githubIssueWritebackEnabled}
+                    loading={teamConfigUpdating}
+                    onChange={(enabled) => patchTeamConfig({ github_issue_writeback_enabled: enabled })}
+                    aria-label="Comment back on GitHub issues that create reports"
+                    data-attr="signals-github-issue-writeback"
+                />
+            }
+        />
+    )
+}
+
+/**
+ * Per-user opt-in to being added as a GitHub assignee on the implementation PR for reports that
+ * suggest this user as reviewer. Off by default, because being assigned is visible to everybody on
+ * the pull request. Renders regardless of the auto-start toggle: a PR opened by hand from the inbox
+ * assigns reviewers too.
+ */
+function GitHubAssignmentRow(): JSX.Element {
+    const { autonomyConfig, autonomyConfigLoading, githubAssignUpdating } = useValues(userAutonomyLogic)
+    const { setGithubAssignOnPullRequest } = useActions(userAutonomyLogic)
+
+    return (
+        <AutonomySettingRow
+            title="Assign me on GitHub"
+            description="Add you as an assignee on the PRs agents open for your reports."
+            control={
+                <LemonSwitch
+                    checked={autonomyConfig?.github_assign_on_pull_request ?? false}
+                    loading={githubAssignUpdating}
+                    disabledReason={autonomyConfigLoading && autonomyConfig === null ? 'Loading settings' : undefined}
+                    onChange={setGithubAssignOnPullRequest}
+                    aria-label="Assign me on GitHub pull requests"
+                    data-attr="signals-github-assign-on-pull-request"
+                />
+            }
+        />
+    )
+}
+
+/**
+ * Whether self-driving PRs skip the draft state. Draft stays the default because a ready PR runs
+ * the full CI matrix on every push. Renders regardless of the auto-start toggle: a PR opened by
+ * hand from the inbox goes through the same transition.
+ */
+function ProjectPullRequestStateRow(): JSX.Element {
+    const { defaultOpenPullRequestReady, teamConfigUpdating } = useValues(signalTeamConfigLogic)
+    const { patchTeamConfig } = useActions(signalTeamConfigLogic)
+
+    return (
+        <AutonomySettingRow
+            title="Open PRs as"
+            description="Draft lets your team inspect the change first. Ready for review can run more checks and request reviews, as your repository settings allow."
+            control={
+                <LemonSegmentedButton
+                    size="small"
+                    fullWidth
+                    value={defaultOpenPullRequestReady ? 'ready' : 'draft'}
+                    options={PR_STATE_SEGMENTS}
+                    disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
+                    onChange={(next) => patchTeamConfig({ default_open_pull_request_ready: next === 'ready' })}
+                />
+            }
+        />
+    )
+}
+
+/** The personal counterpart: one reviewer's workflow differs from their teammate's, so it wins. */
+function MyPullRequestStateRow(): JSX.Element {
+    const { autonomyConfig, autonomyConfigLoading, openPullRequestReadyUpdating } = useValues(userAutonomyLogic)
+    const { setOpenPullRequestReady } = useActions(userAutonomyLogic)
+
+    const mine = autonomyConfig?.github_open_pull_request_ready
+    const myState = mine == null ? MY_PR_STATE_DEFAULT_VALUE : mine ? 'ready' : 'draft'
+
+    return (
+        <AutonomySettingRow
+            title="Open PRs as"
+            description="Default follows the project setting. A PR stays in draft if someone moves it back to draft."
+            control={
+                <LemonSegmentedButton
+                    size="small"
+                    fullWidth
+                    value={myState}
+                    options={MY_PR_STATE_SEGMENTS}
+                    disabledReason={
+                        openPullRequestReadyUpdating
+                            ? 'Saving changes'
+                            : autonomyConfigLoading && autonomyConfig === null
+                              ? 'Loading settings'
+                              : undefined
+                    }
+                    onChange={(next) =>
+                        setOpenPullRequestReady(next === MY_PR_STATE_DEFAULT_VALUE ? null : next === 'ready')
+                    }
+                />
+            }
+        />
+    )
+}
+
+/** The team default; a teammate's personal threshold takes precedence for reports suggesting them. */
+function ProjectThresholdRow(): JSX.Element {
+    const { defaultAutostartPriority, teamConfigUpdating } = useValues(signalTeamConfigLogic)
+    const { patchTeamConfig } = useActions(signalTeamConfigLogic)
+
+    return (
+        <AutonomySettingRow
+            title="Priority threshold"
+            description="Agents open PRs for reports at this priority or higher."
+            control={
+                <LemonSegmentedButton
+                    size="small"
+                    fullWidth
+                    value={defaultAutostartPriority}
+                    options={THRESHOLD_SEGMENTS}
+                    disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
+                    onChange={(next) => patchTeamConfig({ default_autostart_priority: next })}
+                />
+            }
+        />
+    )
+}
+
+function MyThresholdRow(): JSX.Element {
+    const { autonomyConfig, autonomyConfigLoading, autostartPriorityUpdating } = useValues(userAutonomyLogic)
+    const { setAutostartPriority } = useActions(userAutonomyLogic)
+    const myThreshold = autonomyConfig?.autostart_priority ?? MY_THRESHOLD_DEFAULT_VALUE
+
+    return (
+        <AutonomySettingRow
+            title="Priority threshold"
+            description="Default follows the project threshold."
+            control={
+                <LemonSegmentedButton
+                    size="small"
+                    fullWidth
+                    value={myThreshold}
+                    options={MY_THRESHOLD_SEGMENTS}
+                    disabledReason={
+                        autostartPriorityUpdating
+                            ? 'Saving changes'
+                            : autonomyConfigLoading
+                              ? 'Loading settings'
+                              : undefined
+                    }
+                    onChange={(next) =>
+                        setAutostartPriority(
+                            next === MY_THRESHOLD_DEFAULT_VALUE ? null : (next as SignalReportPriority)
+                        )
+                    }
+                />
+            }
+        />
     )
 }
 
 /**
  * Team-wide PR-generation control, backed by `autostart_enabled` and `default_autostart_priority`
- * on `signalTeamConfigLogic`. The inline switch is the master opt-out for autonomous inbox PRs;
- * reports keep generating and notifying either way. The threshold is the team default; a teammate's
- * personal threshold takes precedence for reports suggesting them as reviewer.
- *
- * A standalone card rather than a `SetupWidgetCard` because it hosts inline controls (the switch and
- * threshold) that can't live inside that card's single button/link wrapper.
+ * on `signalTeamConfigLogic`. The switch is the master opt-out for autonomous inbox PRs; reports
+ * keep generating and notifying either way. The threshold only matters while it is on, so it nests
+ * under it.
+ */
+function PullRequestGenerationRow(): JSX.Element {
+    const { teamConfigUpdating, autostartEnabled } = useValues(signalTeamConfigLogic)
+    const { patchTeamConfig } = useActions(signalTeamConfigLogic)
+
+    return (
+        <AutonomySettingRow
+            title="PR generation"
+            description={
+                autostartEnabled
+                    ? 'Agents open PRs for actionable reports.'
+                    : 'Reports still arrive and notify your team. Turn this on to let agents open PRs for actionable reports.'
+            }
+            control={
+                <LemonSwitch
+                    checked={autostartEnabled}
+                    loading={teamConfigUpdating}
+                    onChange={(enabled) => patchTeamConfig({ autostart_enabled: enabled })}
+                    aria-label="Generate PRs for actionable reports automatically"
+                    data-attr="signals-autostart-enabled"
+                />
+            }
+        >
+            {autostartEnabled && <ProjectThresholdRow />}
+        </AutonomySettingRow>
+    )
+}
+
+/**
+ * The Autonomy settings: what agents do on their own for this project, the current user's personal
+ * overrides, and the daily report cap. Rows group by scope so a setting does not have to say who it
+ * applies to, and every row shares one shape (`AutonomySettingRow`).
  */
 export function SelfDrivingSection(): JSX.Element {
     // The Settings tab wraps this in its own card; the legacy setup rail does not.
     const redesign = useFeatureFlag('INBOX_REDESIGN')
-    const { teamConfig, teamConfigLoading, teamConfigUpdating, autostartEnabled, defaultAutostartPriority } =
-        useValues(signalTeamConfigLogic)
-    const { patchTeamConfig } = useActions(signalTeamConfigLogic)
-    const { autonomyConfig, autonomyConfigLoading, autostartPriorityUpdating } = useValues(userAutonomyLogic)
-    const { setAutostartPriority } = useActions(userAutonomyLogic)
-    const myThreshold = autonomyConfig?.autostart_priority ?? MY_THRESHOLD_DEFAULT_VALUE
+    const { teamConfig, teamConfigLoading } = useValues(signalTeamConfigLogic)
 
     if (teamConfigLoading && teamConfig === null) {
         return <LemonSkeleton className="h-20 w-full rounded" />
@@ -325,87 +757,28 @@ export function SelfDrivingSection(): JSX.Element {
         <div
             className={
                 redesign
-                    ? '-mx-2.5 flex flex-col'
-                    : 'flex flex-col rounded border border-primary bg-surface-primary overflow-hidden'
+                    ? 'flex flex-col divide-y divide-primary'
+                    : 'flex flex-col divide-y divide-primary rounded border border-primary bg-surface-primary px-3 py-3'
             }
         >
-            <div className="flex items-start gap-2 px-2.5 py-2">
-                <span className="flex size-7 shrink-0 items-center justify-center rounded bg-surface-secondary text-default [&_svg]:size-4">
-                    <IconRocket />
-                </span>
-                <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                        <span className="text-[13px] font-semibold text-default">PR generation</span>
-                        <LemonSwitch
-                            checked={autostartEnabled}
-                            loading={teamConfigUpdating}
-                            onChange={(enabled) => patchTeamConfig({ autostart_enabled: enabled })}
-                            aria-label="Generate PRs for actionable reports automatically"
-                        />
-                    </div>
-                    <p className="text-xs text-tertiary leading-snug mb-0">Agents open PRs for actionable reports.</p>
-                </div>
-            </div>
-
-            <div className={redesign ? 'border-t border-primary' : 'border-t border-primary bg-surface-secondary'}>
-                {autostartEnabled ? (
-                    <>
-                        {/* Label above the control rather than beside it: the rail is narrow enough that a
-                            five- or six-segment row alongside a label overflows the card. `fullWidth` keeps the
-                            segments even, capped so the same markup doesn't stretch in the wide stacked layout. */}
-                        <div className="flex flex-col gap-2 px-2.5 py-1.5">
-                            <div className="flex flex-col gap-1">
-                                <span className="text-xs text-secondary">Project threshold</span>
-                                <LemonSegmentedButton
-                                    size="xsmall"
-                                    fullWidth
-                                    className="max-w-xs"
-                                    value={defaultAutostartPriority}
-                                    options={THRESHOLD_SEGMENTS}
-                                    disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
-                                    onChange={(next) => patchTeamConfig({ default_autostart_priority: next })}
-                                />
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <span className="text-xs text-secondary">My threshold</span>
-                                <LemonSegmentedButton
-                                    size="xsmall"
-                                    fullWidth
-                                    className="max-w-xs"
-                                    value={myThreshold}
-                                    options={MY_THRESHOLD_SEGMENTS}
-                                    disabledReason={
-                                        autostartPriorityUpdating
-                                            ? 'Saving changes'
-                                            : autonomyConfigLoading
-                                              ? 'Loading settings'
-                                              : undefined
-                                    }
-                                    onChange={(next) =>
-                                        setAutostartPriority(
-                                            next === MY_THRESHOLD_DEFAULT_VALUE ? null : (next as SignalReportPriority)
-                                        )
-                                    }
-                                />
-                                <p className="text-[11px] text-tertiary leading-snug mb-0">
-                                    Overrides the project threshold for reports that suggest you as reviewer. It applies
-                                    across all your projects.
-                                </p>
-                            </div>
-                        </div>
-                        <div className="border-t border-primary">
-                            <BaseBranchOverrides />
-                        </div>
-                    </>
-                ) : (
-                    <p className="text-xs text-secondary mb-0 px-2.5 py-1.5">
-                        Reports still arrive and notify your team.
-                    </p>
-                )}
-                <div className="border-t border-primary">
-                    <DailyReportLimit />
-                </div>
-            </div>
+            <AutonomySettingGroup title="Pull requests" description="Applies to everyone in this project.">
+                <PullRequestGenerationRow />
+                <BaseBranchesRow />
+                <ProjectPullRequestStateRow />
+                <GitHubIssueWritebackRow />
+                <IssueTrackerRow />
+            </AutonomySettingGroup>
+            <AutonomySettingGroup
+                title="Your overrides"
+                description="For reports that suggest you as reviewer, in every project you belong to. These override the project settings."
+            >
+                <MyThresholdRow />
+                <MyPullRequestStateRow />
+                <GitHubAssignmentRow />
+            </AutonomySettingGroup>
+            <AutonomySettingGroup title="Reports" description="Applies to everyone in this project.">
+                <DailyReportLimitRow />
+            </AutonomySettingGroup>
         </div>
     )
 }

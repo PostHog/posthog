@@ -45,6 +45,25 @@ import {
   type SDKUserMessage,
   type SlashCommand,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
+import {
+  createEnrichment,
+  type Enrichment,
+  type FileEnrichmentDeps,
+} from "@posthog/harness/extensions/enrichment";
+import {
+  isCloudRun,
+  LOCAL_TOOLS_MCP_NAME,
+  type LocalToolCtx,
+  resolveGithubToken,
+} from "@posthog/harness/extensions/local-tools";
+import {
+  classifyPostHogExecCall,
+  isUnclassifiedPostHogSubTool,
+  POSTHOG_PRODUCTS,
+  type PostHogProductId,
+  resolvePostHogExecPermissionRegex,
+} from "@posthog/harness/extensions/posthog-mcp-policy";
 import { leadingSlashCommand, serializeError } from "@posthog/shared";
 import { v7 as uuidv7 } from "uuid";
 import packageJson from "../../../package.json" with { type: "json" };
@@ -55,33 +74,14 @@ import {
   type SteerDeclineCause,
   steerDeclined,
 } from "../../acp-extensions";
-import {
-  createEnrichment,
-  type Enrichment,
-  type FileEnrichmentDeps,
-} from "../../enrichment/file-enricher";
 import { PostHogAPIClient } from "../../posthog-api";
-import { resolvePostHogExecPermissionRegex } from "../../posthog-exec-permission";
-import {
-  classifyPostHogExecCall,
-  isUnclassifiedPostHogSubTool,
-  POSTHOG_PRODUCTS,
-  type PostHogProductId,
-} from "../../posthog-products";
-import type { ContextWikiEnv, PostHogAPIConfig } from "../../types";
+import type { PostHogAPIConfig } from "../../types";
 import { text } from "../../utils/acp-content";
-import {
-  isCloudRun,
-  unreachable,
-  withAbort,
-  withTimeout,
-} from "../../utils/common";
-import { resolveGithubToken } from "../../utils/github-token";
+import { unreachable, withAbort, withTimeout } from "../../utils/common";
 import { Logger } from "../../utils/logger";
 import { Pushable } from "../../utils/streams";
 import { BaseAcpAgent } from "../base-acp-agent";
 import { isLocalSkillCommandChunk } from "../local-skill";
-import { LOCAL_TOOLS_MCP_NAME, type LocalToolCtx } from "../local-tools";
 import { visiblePromptBlocks } from "../prompt-blocks";
 import {
   resolveBedrockGatewayVariant,
@@ -119,7 +119,15 @@ import {
   setMcpToolApprovalStates,
 } from "./mcp/tool-metadata";
 import { canUseTool } from "./permissions/permission-handlers";
+import {
+  type AssistantUsageLike,
+  type BudgetSteerMode,
+  type BudgetSteerStage,
+  type BudgetThresholdEvent,
+  RunBudgetGuard,
+} from "./session/budget-guard";
 import { getAvailableSlashCommands } from "./session/commands";
+import { SessionInitialization } from "./session/initialization";
 import { getSessionJsonlPath } from "./session/jsonl-hydration";
 import { parseMcpServers } from "./session/mcp-config";
 import {
@@ -165,6 +173,7 @@ import type {
   BackgroundTerminal,
   EffortLevel,
   NewSessionMeta,
+  PendingSteer,
   SDKMessageFilter,
   Session,
   ToolUpdateMeta,
@@ -256,6 +265,54 @@ function declinePendingSteers(turn: Turn, cause: SteerDeclineCause): void {
     steer.settle(false, cause);
   }
   turn.pendingSteers.clear();
+}
+
+function hasUnconsumedBackgroundSteers(session: Session): boolean {
+  for (const steer of session.backgroundSteers?.values() ?? []) {
+    if (!steer.consumed) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function clearBackgroundSteerTimer(session: Session): void {
+  if (session.backgroundSteerTimer) {
+    clearTimeout(session.backgroundSteerTimer);
+    session.backgroundSteerTimer = undefined;
+  }
+}
+
+function confirmConsumedBackgroundSteers(session: Session): void {
+  const steers = session.backgroundSteers;
+  if (!steers) {
+    return;
+  }
+  for (const [uuid, steer] of steers) {
+    if (steer.consumed) {
+      steer.settle(true);
+      steers.delete(uuid);
+    }
+  }
+}
+
+function declineBackgroundSteers(
+  session: Session,
+  cause: SteerDeclineCause,
+  options: { onlyUnconsumed?: boolean } = {},
+): void {
+  clearBackgroundSteerTimer(session);
+  const steers = session.backgroundSteers;
+  if (!steers) {
+    return;
+  }
+  for (const [uuid, steer] of steers) {
+    if (options.onlyUnconsumed && steer.consumed) {
+      continue;
+    }
+    steer.settle(false, cause);
+    steers.delete(uuid);
+  }
 }
 
 function isSdkMcpServer(
@@ -364,6 +421,7 @@ async function fetchContextUsedTokens(
 }
 
 export interface ClaudeAcpAgentOptions {
+  startupLogger?: Logger;
   onProcessSpawned?: (info: ProcessSpawnedInfo) => void;
   onProcessExited?: (pid: number) => void;
   onMcpServersReady?: (serverNames: string[]) => void;
@@ -407,7 +465,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     this.emittedToolCalls = new Set();
     this.toolUseStreamCache = new Map();
     this.logger = new Logger({ debug: true, prefix: "[ClaudeAcpAgent]" });
-    this.enrichment = createEnrichment(options?.posthogApiConfig, this.logger);
+    this.enrichment = createEnrichment(options?.posthogApiConfig);
   }
 
   protected getEnrichmentDeps(): FileEnrichmentDeps | undefined {
@@ -595,6 +653,96 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     return this.listSessions(params);
   }
 
+  private budgetSteerTail: Promise<void> = Promise.resolve();
+
+  private deliverBudgetSteer(
+    session: Session,
+    sessionId: string,
+    event: BudgetThresholdEvent,
+  ): Promise<void> {
+    const run = this.budgetSteerTail.then(() =>
+      this.sendBudgetSteer(session, sessionId, event),
+    );
+    this.budgetSteerTail = run.catch(() => undefined);
+    return run;
+  }
+
+  private async sendBudgetSteer(
+    session: Session,
+    sessionId: string,
+    event: BudgetThresholdEvent,
+  ): Promise<void> {
+    const guard = session.budgetGuard;
+    if (!guard || this.session !== session) return;
+    const stage = guard.takePendingSteer();
+    if (!stage) return;
+    const summary = `[BudgetGuard] ${stage}: $${event.spentUsd.toFixed(2)} of $${event.capUsd.toFixed(2)} spent, steering the turn`;
+    this.logger.warn(summary);
+    let delivered = false;
+    try {
+      const result = await this.prompt({
+        sessionId,
+        prompt: [
+          {
+            type: "text",
+            text: guard.steerText(stage),
+            _meta: { ui: { hidden: true }, budgetGuard: stage },
+          },
+        ],
+        _meta: { steer: true },
+      });
+      const meta = result._meta as
+        | { steer?: boolean; steerDeclineCause?: string }
+        | undefined;
+      delivered = meta?.steer === true;
+      if (!delivered) {
+        this.logger.warn("[BudgetGuard] Steer not delivered", {
+          stage,
+          cause: meta?.steerDeclineCause,
+        });
+      }
+    } catch (error) {
+      this.logger.warn("[BudgetGuard] Steer failed", { error });
+    }
+    if (this.session !== session) {
+      this.logger.warn("[BudgetGuard] Session replaced during the steer", {
+        stage,
+      });
+      return;
+    }
+    if (!delivered) {
+      guard.markUndelivered(stage);
+    }
+    await this.reportBudgetSteer(guard, sessionId, stage, delivered, summary);
+  }
+
+  private async reportBudgetSteer(
+    guard: RunBudgetGuard,
+    sessionId: string,
+    stage: BudgetSteerStage,
+    delivered: boolean,
+    summary: string,
+  ): Promise<void> {
+    const record = guard.recordSteer(stage, delivered);
+    try {
+      await this.client.extNotification(POSTHOG_NOTIFICATIONS.CONSOLE, {
+        sessionId,
+        level: "warn",
+        message: `${summary} (delivered=${delivered})`,
+      });
+      await this.client.extNotification(POSTHOG_NOTIFICATIONS.BUDGET_STEER, {
+        sessionId,
+        stage,
+        delivered,
+        spent_usd: record.spent_usd,
+        cap_usd: guard.capUsd,
+        mode: guard.mode,
+      });
+    } catch (error) {
+      this.logger.warn("[BudgetGuard] Failed to report the steer", { error });
+    }
+  }
+
   async prompt(params: PromptRequest): Promise<PromptResponse> {
     // Detect local-only slash commands that return results without model invocation
     const command = promptSlashCommand(params);
@@ -606,6 +754,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       return this.clearConversation(params);
     }
 
+    const budgetSteerMode = (
+      params._meta as { budgetSteerMode?: unknown } | undefined
+    )?.budgetSteerMode;
+    if (budgetSteerMode === "publish" || budgetSteerMode === "wrap_up") {
+      this.session.budgetGuard?.setMode(budgetSteerMode);
+    }
     const userMessage = promptToClaude(params);
     const promptUuid = randomUUID();
     userMessage.uuid = promptUuid;
@@ -662,6 +816,25 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       return ack;
     }
     if (isSteer) {
+      if (this.session.backgroundTurnActive && !this.session.compacting) {
+        const session = this.session;
+        session.backgroundSteers ??= new Map<string, PendingSteer>();
+        const backgroundSteers = session.backgroundSteers;
+        const ack = new Promise<PromptResponse>((resolve) => {
+          backgroundSteers.set(promptUuid, {
+            consumed: false,
+            settle: (reachedModel, cause) =>
+              resolve(
+                reachedModel
+                  ? { stopReason: "end_turn", _meta: { steer: true } }
+                  : steerDeclined(cause ?? "turn_ended_first"),
+              ),
+          });
+        });
+        session.input.push(userMessage);
+        await this.broadcastUserMessage(params);
+        return ack;
+      }
       return steerDeclined(
         this.session.compacting ? "compacting" : "no_in_flight_turn",
       );
@@ -730,7 +903,29 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const input = head.pendingInput;
     head.pendingInput = undefined;
     head.dispatchedAt = performance.now();
+    const guard = session.budgetGuard;
+    const steer = guard && !head.commandName ? guard.takePendingSteer() : null;
+    if (guard && steer) {
+      const steerBlock = {
+        type: "text" as const,
+        text: guard.steerText(steer),
+      };
+      const content = input.message.content;
+      input.message.content =
+        typeof content === "string"
+          ? [{ type: "text", text: content }, steerBlock]
+          : [...content, steerBlock];
+    }
     session.input.push(input);
+    if (guard && steer) {
+      void this.reportBudgetSteer(
+        guard,
+        this.sessionId,
+        steer,
+        true,
+        `[BudgetGuard] ${steer}: steer attached to the next turn`,
+      );
+    }
   }
 
   /** Time the window between handing a prompt to the SDK and the SDK's first
@@ -801,6 +996,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   private closeQueryStream(session: Session): void {
     session.queryClosed = true;
     session.consumer = undefined;
+    declineBackgroundSteers(session, "turn_ended_first");
     if (session.forceCancelTimer) {
       clearTimeout(session.forceCancelTimer);
       session.forceCancelTimer = undefined;
@@ -1268,6 +1464,30 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             const isTaskNotification =
               (message as { origin?: { kind?: string } }).origin?.kind ===
               "task-notification";
+            if (isTaskNotification) {
+              session.backgroundTurnActive = false;
+              if (hasUnconsumedBackgroundSteers(session)) {
+                session.backgroundSteerTimer ??= setTimeout(() => {
+                  session.backgroundSteerTimer = undefined;
+                  this.logger.warn("Background steer never reached the model", {
+                    sessionId,
+                  });
+                  declineBackgroundSteers(session, "turn_ended_first", {
+                    onlyUnconsumed: true,
+                  });
+                }, STEER_DELIVERY_GRACE_MS);
+              }
+            } else {
+              confirmConsumedBackgroundSteers(session);
+            }
+            const settledBudgetEvent = session.budgetGuard?.calibrate(
+              message.total_cost_usd,
+            );
+            if (settledBudgetEvent) {
+              this.logger.warn(
+                `[BudgetGuard] ${settledBudgetEvent.stage} at turn end: $${settledBudgetEvent.spentUsd.toFixed(2)} of $${settledBudgetEvent.capUsd.toFixed(2)} spent`,
+              );
+            }
 
             if (!isTaskNotification) {
               await this.syncFastModeState(
@@ -1357,6 +1577,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                   cachedWriteTokens: message.usage.cache_creation_input_tokens,
                 },
                 cost: message.total_cost_usd,
+                budget: session.budgetGuard?.snapshot(),
                 breakdown: buildBreakdown(
                   session.contextBreakdownBaseline ?? emptyBaseline(),
                   breakdownInputTokens,
@@ -1393,7 +1614,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               break;
             }
 
-            const result = handleResultMessage(message);
+            const result = handleResultMessage(
+              message,
+              session.activeTurn?.madeProgress === true,
+            );
             if (result.error) {
               if (!isTaskNotification) {
                 failActive(result.error);
@@ -1521,10 +1745,27 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
           case "user":
           case "assistant": {
+            if (
+              message.type === "user" &&
+              (message as { origin?: { kind?: string } }).origin?.kind ===
+                "task-notification"
+            ) {
+              session.backgroundTurnActive = true;
+            }
             // A user echo promotes its queued turn (handing off any still-
             // active one first), then drops from the feed. Runs before the
             // cancelled guard so a turn enqueued after a cancel still starts.
             if (message.type === "user" && "uuid" in message && message.uuid) {
+              const backgroundSteer = session.backgroundSteers?.get(
+                message.uuid,
+              );
+              if (backgroundSteer) {
+                backgroundSteer.consumed = true;
+                if (!hasUnconsumedBackgroundSteers(session)) {
+                  clearBackgroundSteerTimer(session);
+                }
+                break;
+              }
               const steer = session.activeTurn?.pendingSteers.get(message.uuid);
               if (steer) {
                 steer.consumed = true;
@@ -1570,6 +1811,15 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
             if (message.type === "assistant") {
               this.timeFirstModelOutput(session, sessionId);
+              const budgetEvent = session.budgetGuard?.recordAssistantMessage(
+                message.message as AssistantUsageLike,
+              );
+              if (budgetEvent) {
+                void this.deliverBudgetSteer(session, sessionId, budgetEvent);
+              }
+              if (message.parent_tool_use_id === null) {
+                confirmConsumedBackgroundSteers(session);
+              }
               // Subagent output is a separate model context, so it is no
               // evidence the steer reached this turn's model.
               if (session.activeTurn && message.parent_tool_use_id === null) {
@@ -1619,6 +1869,18 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                   },
                 });
               }
+            }
+
+            if (
+              session.activeTurn &&
+              message.parent_tool_use_id === null &&
+              Array.isArray(message.message.content) &&
+              message.message.content.some(
+                (block) =>
+                  block.type === "tool_use" || block.type === "tool_result",
+              )
+            ) {
+              session.activeTurn.madeProgress = true;
             }
 
             const result = await handleUserAssistantMessage(message, context);
@@ -1838,6 +2100,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     session.queryGeneration += 1;
     const oldConsumer = session.consumer;
     session.consumer = undefined;
+    session.backgroundTurnActive = false;
+    declineBackgroundSteers(session, "turn_ended_first");
     session.cancelController?.abort();
     session.cancelController = undefined;
 
@@ -1981,6 +2245,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       newQuery = query({ prompt: newInput, options: newOptions });
 
       session.query = newQuery;
+      session.budgetGuard?.onConversationCleared();
       session.input = newInput;
       session.queryOptions = newOptions;
       session.abortController = newAbortController;
@@ -2154,6 +2419,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     const abortController = new AbortController();
     this.sideQuestionAbort = abortController;
+    const session = this.session;
+    const guard = session.budgetGuard;
+    const sessionId = this.sessionId;
     try {
       // Drop `sessionId` (identity comes from `resume`), `hooks` (they close
       // over live-session caches and task state), and `outputFormat` (a
@@ -2212,7 +2480,15 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       });
 
       const answer = await withTimeout(
-        collectSideQuestionAnswer(oneShot),
+        collectSideQuestionAnswer(oneShot, (message) => {
+          const event = guard?.recordAssistantMessage(
+            message.message as AssistantUsageLike,
+            "side",
+          );
+          if (event) {
+            void this.deliverBudgetSteer(session, sessionId, event);
+          }
+        }),
         SIDE_QUESTION_TIMEOUT_MS,
       );
 
@@ -2324,6 +2600,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       newQuery = query({ prompt: newInput, options: newOptions });
 
       prev.query = newQuery;
+      prev.budgetGuard?.onQueryReset();
       prev.input = newInput;
       prev.queryOptions = newOptions;
       prev.abortController = newAbortController;
@@ -2693,6 +2970,17 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     // Gate signed-commit wiring on cloud-run detection so the desktop (which
     // signs via CommitSaga) is untouched.
     const cloudRun = isCloudRun(meta);
+    const budgetSteerMode: BudgetSteerMode =
+      meta?.budgetSteer?.mode === "publish" ? "publish" : "wrap_up";
+    const budgetGuard = cloudRun
+      ? RunBudgetGuard.fromEnv(process.env, this.logger, budgetSteerMode)
+      : null;
+    if (budgetGuard) {
+      this.logger.info("[BudgetGuard] Armed", {
+        capUsd: budgetGuard.capUsd,
+        mode: budgetGuard.mode,
+      });
+    }
     const effort = meta?.claudeCode?.options?.effort as EffortLevel | undefined;
 
     // We want to create a new session id unless it is resume,
@@ -2818,6 +3106,23 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     const taskState: TaskState = new Map();
     const traceparentHookNonce = generateTraceparentHookNonce();
+    const startupLogger = this.options?.startupLogger ?? this.logger;
+    const initialization = new SessionInitialization((initializationPhase) => {
+      startupLogger.info("Session initialization phase changed", {
+        sessionId,
+        taskId,
+        taskRunId: meta?.taskRunId,
+        initializationPhase,
+      });
+      void this.client
+        .extNotification(POSTHOG_NOTIFICATIONS.STATUS, {
+          taskRunId: meta?.taskRunId,
+          status: initializationPhase,
+        })
+        .catch(() => {
+          startupLogger.warn("Failed to publish session startup phase");
+        });
+    });
     const options = buildSessionOptions({
       cwd,
       mcpServers,
@@ -2845,10 +3150,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       onPostHogResourceUsed: this.createOnPostHogResourceUsed(),
       onProcessSpawned: this.options?.onProcessSpawned,
       onProcessExited: this.options?.onProcessExited,
+      onStartupOutput: (stdout) => initialization.observe(stdout),
       effort,
       enrichmentDeps: this.enrichment?.deps,
       enrichedReadCache: this.enrichedReadCache,
       cloudMode: cloudRun,
+      budgetGuard: budgetGuard ?? undefined,
       onEnsureLocalToolsConnected: () =>
         this.ensureLocalToolsConnected("guard-hook"),
       taskState,
@@ -2887,6 +3194,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       cloudMode: cloudRun,
       posthogExecPermissionRegex,
       abortController,
+      budgetGuard: budgetGuard ?? undefined,
       accumulatedUsage: {
         inputTokens: 0,
         outputTokens: 0,
@@ -2927,14 +3235,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       // Resume must block on initialization to validate the session is still alive.
       // For stale sessions this throws (e.g. "No conversation found").
       try {
-        const result = await withTimeout(
-          q.initializationResult(),
-          SESSION_VALIDATION_TIMEOUT_MS,
-        );
+        const result = await initialization.wait(q.initializationResult());
         if (result.result === "timeout") {
           throw new RequestError(
             -32603,
-            `Session ${forkSession ? "fork" : "resumption"} timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
+            `Session ${result.phase === "setup_hooks" ? "setup hooks" : forkSession ? "fork" : "resumption"} timed out after ${result.timeoutMs}ms`,
             { sessionId, taskId, taskRunId: meta?.taskRunId },
           );
         }
@@ -2953,7 +3258,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         ) {
           throw RequestError.resourceNotFound(sessionId);
         }
-        this.logger.error(
+        startupLogger.error(
           forkSession ? "Session fork failed" : "Session resumption failed",
           {
             sessionId,
@@ -2970,7 +3275,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     // with the model config fetch below (the gateway REST call is independent).
     const initStartedAt = Date.now();
     const initPromise = !isResume
-      ? withTimeout(q.initializationResult(), SESSION_VALIDATION_TIMEOUT_MS)
+      ? initialization.wait(q.initializationResult())
       : undefined;
     const requestedModel =
       meta?.model || settingsManager.getSettings().model || undefined;
@@ -3005,12 +3310,16 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       : rawModelOptions;
 
     if (initPromise) {
+      let initializationPhase = initialization.phase;
+      let timeoutMs = SESSION_VALIDATION_TIMEOUT_MS;
       try {
         const initResult = await initPromise;
         if (initResult.result === "timeout") {
+          initializationPhase = initResult.phase;
+          timeoutMs = initResult.timeoutMs;
           throw new RequestError(
             -32603,
-            `Session initialization timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
+            `Session ${initializationPhase === "setup_hooks" ? "setup hooks" : "initialization"} timed out after ${timeoutMs}ms`,
             { sessionId, taskId, taskRunId: meta?.taskRunId },
           );
         }
@@ -3020,7 +3329,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         session.fastModeEnabled = fastModeStateEnabled(
           initResult.value.fast_mode_state,
         );
-        this.logger.info("Session initialized", {
+        startupLogger.info("Session initialized", {
           sessionId,
           taskId,
           taskRunId: meta?.taskRunId,
@@ -3031,12 +3340,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         settingsManager.dispose();
         this.terminateQuery(q, abortController);
         const initMs = Date.now() - initStartedAt;
-        this.logger.error("Session initialization failed", {
+        startupLogger.error("Session initialization failed", {
           sessionId,
           taskId,
           taskRunId: meta?.taskRunId,
-          initializationPhase: "sdk_initialization",
-          timeoutMs: SESSION_VALIDATION_TIMEOUT_MS,
+          initializationPhase,
+          timeoutMs,
           modelConfigMs,
           initMs,
           requestedModel: requestedModel ?? null,
@@ -3627,7 +3936,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   }
 
   private async broadcastUserMessage(params: PromptRequest): Promise<void> {
-    for (const chunk of params.prompt) {
+    for (const chunk of visiblePromptBlocks(params.prompt)) {
       const notification = {
         sessionId: params.sessionId,
         update: {

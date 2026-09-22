@@ -256,11 +256,13 @@ class TestPlanSuggestionRuns(BaseTest):
         super().setUp()
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
+        self.team.ingested_event = True
+        self.team.save()
         self.now = timezone.now()
 
-    def _team(self, name: str, *, approved: bool = True) -> Team:
+    def _team(self, name: str, *, approved: bool = True, ingested: bool = True) -> Team:
         organization = Organization.objects.create(name=name, is_ai_data_processing_approved=approved)
-        return Team.objects.create(organization=organization, name=name)
+        return Team.objects.create(organization=organization, name=name, ingested_event=ingested)
 
     def _enable_scout(self, team: Team, *, engaged: bool) -> None:
         config = SignalScoutConfig.objects.create(team=team, skill_name="signals-scout-general", enabled=True)
@@ -440,6 +442,30 @@ class TestPlanSuggestionRuns(BaseTest):
         planned = plan_suggestion_runs(SuggestionSettings(enabled=True, eligibility_tier=2), self.now)
         self.assertEqual([(run.team_id, run.tier) for run in planned], [(project.id, 2)])
 
+    def test_a_project_that_never_ingested_an_event_is_planned_once_it_does(self):
+        empty = self._team("never-ingested", ingested=False)
+        self._enable_scout(empty, engaged=True)
+        settings = SuggestionSettings(enabled=True, eligibility_tier=2)
+
+        self.assertEqual(plan_suggestion_runs(settings, self.now), [])
+
+        Team.objects.filter(pk=empty.pk).update(ingested_event=True)
+        self.assertEqual([run.team_id for run in plan_suggestion_runs(settings, self.now)], [empty.id])
+
+    def test_an_allowlisted_project_is_planned_with_no_data(self):
+        empty = self._team("allowlisted-empty", ingested=False)
+
+        planned = plan_suggestion_runs(SuggestionSettings(enabled=True, team_allowlist=frozenset({empty.id})), self.now)
+        self.assertEqual([(run.team_id, run.tier) for run in planned], [(empty.id, 0)])
+
+    def test_ingestion_in_a_child_environment_keeps_the_project_planned(self):
+        project = self._team("child-ingestion", ingested=False)
+        Team.objects.create(organization=project.organization, name="prod", parent_team=project, ingested_event=True)
+        self._enable_scout(project, engaged=True)
+
+        planned = plan_suggestion_runs(SuggestionSettings(enabled=True), self.now)
+        self.assertEqual([run.team_id for run in planned], [project.id])
+
 
 class TestManualSuggestionsDispatch(BaseTest):
     def test_manual_dispatch_stamps_planner_state(self):
@@ -584,6 +610,28 @@ async def test_runner_records_a_cancelled_scan_as_a_failure(asuggestion_team):
 
     row = await database_sync_to_async(SignalScoutSuggestionSet.all_teams.get)(team=asuggestion_team)
     assert (row.status, row.consecutive_failures) == (SignalScoutSuggestionSet.Status.FAILED, 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_runner_scans_a_project_that_is_over_its_pr_quota(asuggestion_team):
+    # A scan opens no pull request, so it charges nothing against the self-driving credits meter,
+    # and a skip would still cost the team the whole refresh window stamped at dispatch. Patched
+    # at the limiter read every quota gate bottoms out on, so re-adding one in any form fails here.
+    batch = ScoutSuggestionBatch(suggestions=[_custom()])
+    with (
+        patch("products.signals.backend.quota.is_team_limited", return_value=True),
+        patch(
+            f"{_RUNNER}.MultiTurnSession.start", new_callable=AsyncMock, return_value=(_fake_session(), batch)
+        ) as start,
+        patch(f"{_RUNNER}.get_or_create_signals_sandbox_env", return_value="env"),
+        patch(f"{_RUNNER}.resolve_acting_user_id_for_team", return_value=42),
+        patch("products.signals.backend.scout_harness.suggestions.discover_canonical_skills", return_value=()),
+    ):
+        result = await arun_scout_suggestions(asuggestion_team.id)
+
+    assert (result.status, result.skip_reason) == ("completed", None)
+    start.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -781,6 +829,24 @@ class TestScoutSuggestionsAPI(APIBaseTest):
         mock_start.assert_called_once()
         # The scan must act as the caller, not a resolved (possibly more privileged) member.
         self.assertEqual(mock_start.call_args.kwargs["acting_user_id"], self.user.pk)
+
+    @patch("products.signals.backend.scout_suggestions_api.sync_connect", return_value=MagicMock())
+    @patch(
+        "products.signals.backend.temporal.agentic.scout_suggestions.start_manual_scout_suggestions_run",
+        return_value="wf-1",
+    )
+    @patch(
+        "products.signals.backend.scout_suggestions_api.read_suggestion_settings",
+        return_value=SuggestionSettings(enabled=True),
+    )
+    def test_refresh_dispatches_for_a_project_over_its_pr_quota(self, _settings, mock_start, _connect):
+        # The refresh cannot mint a pull request, so the credits limit must not throttle it.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        with patch("products.signals.backend.quota.is_team_limited", return_value=True):
+            response = self.client.post(f"/api/projects/{self.team.id}/signals/scout/suggestions/refresh/")
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        mock_start.assert_called_once()
 
     @patch("products.signals.backend.scout_suggestions_api.sync_connect", return_value=MagicMock())
     @patch("products.signals.backend.temporal.agentic.scout_suggestions.start_manual_scout_suggestions_run")

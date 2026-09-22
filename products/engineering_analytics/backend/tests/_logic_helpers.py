@@ -80,8 +80,8 @@ def _ago(days: int) -> str:
 
 
 def _ago_with_duration(days: int, duration_seconds: int) -> tuple[str, str]:
-    # Seed dates relative to real time: HogQL now() runs server-side and ignores
-    # freezegun, so window/age assertions must share the clock the query uses.
+    # Seed dates relative to real time: HogQL now() runs server-side and ignores the
+    # frozen clock, so window/age assertions must share the clock the query uses.
     started_at = _seed_now() - timedelta(days=days)
     updated_at = started_at + timedelta(seconds=duration_seconds)
     fmt = "%Y-%m-%d %H:%M:%S"

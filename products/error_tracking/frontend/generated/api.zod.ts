@@ -13,7 +13,7 @@ export const errorTrackingAlertsCreateBodyNameMax = 400
 
 export const errorTrackingAlertsCreateBodyThrottleSecondsDefault = 0
 export const errorTrackingAlertsCreateBodyThrottleSecondsMin = 0
-export const errorTrackingAlertsCreateBodyThrottleSecondsMax = 2147483647
+export const errorTrackingAlertsCreateBodyThrottleSecondsMax = 2592000
 
 export const ErrorTrackingAlertsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(errorTrackingAlertsCreateBodyNameMax).describe('Human-readable name of the alert.'),
@@ -52,7 +52,9 @@ export const ErrorTrackingAlertsCreateBody = /* @__PURE__ */ zod.object({
         .min(errorTrackingAlertsCreateBodyThrottleSecondsMin)
         .max(errorTrackingAlertsCreateBodyThrottleSecondsMax)
         .default(errorTrackingAlertsCreateBodyThrottleSecondsDefault)
-        .describe('Minimum seconds between thread-opening notifications per issue. 0 disables the throttle.'),
+        .describe(
+            'Minimum seconds between thread-opening notifications per issue, at most 30 days. 0 disables the throttle.'
+        ),
     destinations: zod
         .array(
             zod.object({
@@ -82,7 +84,7 @@ export const errorTrackingAlertsUpdateBodyNameMax = 400
 
 export const errorTrackingAlertsUpdateBodyThrottleSecondsDefault = 0
 export const errorTrackingAlertsUpdateBodyThrottleSecondsMin = 0
-export const errorTrackingAlertsUpdateBodyThrottleSecondsMax = 2147483647
+export const errorTrackingAlertsUpdateBodyThrottleSecondsMax = 2592000
 
 export const errorTrackingAlertsUpdateBodyEnabledDefault = true
 
@@ -123,7 +125,9 @@ export const ErrorTrackingAlertsUpdateBody = /* @__PURE__ */ zod.object({
         .min(errorTrackingAlertsUpdateBodyThrottleSecondsMin)
         .max(errorTrackingAlertsUpdateBodyThrottleSecondsMax)
         .default(errorTrackingAlertsUpdateBodyThrottleSecondsDefault)
-        .describe('Minimum seconds between thread-opening notifications per issue. 0 disables the throttle.'),
+        .describe(
+            'Minimum seconds between thread-opening notifications per issue, at most 30 days. 0 disables the throttle.'
+        ),
     destinations: zod
         .array(
             zod.object({
@@ -156,7 +160,7 @@ export const ErrorTrackingAlertsUpdateBody = /* @__PURE__ */ zod.object({
 export const errorTrackingAlertsPartialUpdateBodyNameMax = 400
 
 export const errorTrackingAlertsPartialUpdateBodyThrottleSecondsMin = 0
-export const errorTrackingAlertsPartialUpdateBodyThrottleSecondsMax = 2147483647
+export const errorTrackingAlertsPartialUpdateBodyThrottleSecondsMax = 2592000
 
 export const ErrorTrackingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -204,7 +208,9 @@ export const ErrorTrackingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .min(errorTrackingAlertsPartialUpdateBodyThrottleSecondsMin)
         .max(errorTrackingAlertsPartialUpdateBodyThrottleSecondsMax)
         .optional()
-        .describe('Minimum seconds between thread-opening notifications per issue. Omit to keep the current value.'),
+        .describe(
+            'Minimum seconds between thread-opening notifications per issue, at most 30 days. Omit to keep the current value.'
+        ),
     destinations: zod
         .array(
             zod.object({
@@ -318,9 +324,10 @@ export const ErrorTrackingAssignmentRulesPartialUpdateBody = /* @__PURE__ */ zod
 })
 
 export const ErrorTrackingAssignmentRulesReorderPartialUpdateBody = /* @__PURE__ */ zod.object({
-    filters: zod.unknown().optional(),
-    order_key: zod.number().optional(),
-    disabled_data: zod.unknown().optional(),
+    orders: zod
+        .record(zod.string(), zod.number())
+        .optional()
+        .describe('Mapping from assignment rule UUID to its new evaluation order.'),
 })
 
 export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
@@ -353,20 +360,10 @@ export const ErrorTrackingBypassRulesPartialUpdateBody = /* @__PURE__ */ zod.obj
 })
 
 export const ErrorTrackingBypassRulesReorderPartialUpdateBody = /* @__PURE__ */ zod.object({
-    filters: zod
-        .unknown()
+    orders: zod
+        .record(zod.string(), zod.number())
         .optional()
-        .describe('Property-group filters that define which incoming error events bypass rate limiting.'),
-    order_key: zod
-        .number()
-        .optional()
-        .describe("Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order."),
-    disabled_data: zod
-        .unknown()
-        .optional()
-        .describe(
-            'Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active.'
-        ),
+        .describe('Mapping from bypass rule UUID to its new evaluation order.'),
 })
 
 export const ErrorTrackingExternalReferencesCreateBody = /* @__PURE__ */ zod
@@ -398,7 +395,7 @@ export const ErrorTrackingExternalReferencesLinkIssueCreateBody = /* @__PURE__ *
     external_context: zod
         .record(zod.string(), zod.unknown())
         .describe(
-            'Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.'
+            'Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.'
         ),
 })
 
@@ -459,10 +456,10 @@ export const ErrorTrackingGroupingRulesPartialUpdateBody = /* @__PURE__ */ zod.o
 })
 
 export const ErrorTrackingGroupingRulesReorderPartialUpdateBody = /* @__PURE__ */ zod.object({
-    filters: zod.unknown().optional(),
-    description: zod.string().nullish(),
-    order_key: zod.number().optional(),
-    disabled_data: zod.unknown().optional(),
+    orders: zod
+        .record(zod.string(), zod.number())
+        .optional()
+        .describe('Mapping from grouping rule UUID to its new evaluation order.'),
 })
 
 export const ErrorTrackingIssuesUpdateBody = /* @__PURE__ */ zod.object({
@@ -513,49 +510,9 @@ export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod.ob
         .describe('Assignment target. Set to null or omit to remove the current assignment.'),
 })
 
-export const ErrorTrackingIssuesCohortUpdateBody = /* @__PURE__ */ zod
-    .object({
-        id: zod.uuid(),
-        status: zod.string(),
-        severity: zod
-            .union([zod.enum(['low', 'medium', 'high', 'critical']), zod.null()])
-            .describe('Issue severity, or null when no severity is assigned.'),
-        name: zod.string().nullable(),
-        description: zod.string().nullable(),
-        first_seen: zod.iso.datetime({ offset: true }).nullable(),
-        assignee: zod.union([
-            zod.object({
-                id: zod.union([zod.number(), zod.string(), zod.null()]),
-                type: zod.string(),
-            }),
-            zod.null(),
-        ]),
-        external_issues: zod.array(
-            zod
-                .object({
-                    id: zod.uuid().describe('Unique ID of the external reference.'),
-                    integration: zod
-                        .object({
-                            id: zod.number().describe('ID of the integration backing this external reference.'),
-                            kind: zod
-                                .string()
-                                .describe("Integration provider, e.g. 'github', 'gitlab', 'linear', or 'jira'."),
-                            display_name: zod.string().describe('Human-readable name of the connected integration.'),
-                        })
-                        .describe('The connected integration this reference was created through.'),
-                    external_url: zod.string().describe("URL of the linked external issue in the provider's system."),
-                })
-                .describe('Read-only shape of an external reference, shared by every response.')
-        ),
-        cohort: zod.union([
-            zod.object({
-                id: zod.number(),
-                name: zod.string(),
-            }),
-            zod.null(),
-        ]),
-    })
-    .describe('Read-only serializer for issue contract types returned by the facade.')
+export const ErrorTrackingIssuesCohortUpdateBody = /* @__PURE__ */ zod.object({
+    cohortId: zod.number().describe('ID of the cohort to attach to the issue.'),
+})
 
 export const ErrorTrackingIssuesMergeCreateBody = /* @__PURE__ */ zod.object({
     ids: zod.array(zod.uuid()).describe('IDs of the issues to merge into the current issue.'),
@@ -580,49 +537,35 @@ export const ErrorTrackingIssuesSplitCreateBody = /* @__PURE__ */ zod.object({
         .describe('Fingerprints to split into new issues. Each fingerprint becomes its own new issue.'),
 })
 
-export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod
-    .object({
-        id: zod.uuid(),
-        status: zod.string(),
-        severity: zod
-            .union([zod.enum(['low', 'medium', 'high', 'critical']), zod.null()])
-            .describe('Issue severity, or null when no severity is assigned.'),
-        name: zod.string().nullable(),
-        description: zod.string().nullable(),
-        first_seen: zod.iso.datetime({ offset: true }).nullable(),
-        assignee: zod.union([
-            zod.object({
-                id: zod.union([zod.number(), zod.string(), zod.null()]),
-                type: zod.string(),
-            }),
-            zod.null(),
-        ]),
-        external_issues: zod.array(
-            zod
-                .object({
-                    id: zod.uuid().describe('Unique ID of the external reference.'),
-                    integration: zod
-                        .object({
-                            id: zod.number().describe('ID of the integration backing this external reference.'),
-                            kind: zod
-                                .string()
-                                .describe("Integration provider, e.g. 'github', 'gitlab', 'linear', or 'jira'."),
-                            display_name: zod.string().describe('Human-readable name of the connected integration.'),
-                        })
-                        .describe('The connected integration this reference was created through.'),
-                    external_url: zod.string().describe("URL of the linked external issue in the provider's system."),
-                })
-                .describe('Read-only shape of an external reference, shared by every response.')
+export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod.object({
+    action: zod
+        .enum(['set_status', 'assign'])
+        .describe('\* `set_status` - set_status\n\* `assign` - assign')
+        .describe(
+            'Which mutation to apply to every listed issue.\n\n\* `set_status` - set_status\n\* `assign` - assign'
         ),
-        cohort: zod.union([
+    ids: zod.array(zod.uuid()).describe('IDs of the issues to update.'),
+    status: zod
+        .enum(['active', 'resolved', 'suppressed'])
+        .describe('\* `active` - active\n\* `resolved` - resolved\n\* `suppressed` - suppressed')
+        .optional()
+        .describe(
+            'Status to set. Required when action is set_status.\n\n\* `active` - active\n\* `resolved` - resolved\n\* `suppressed` - suppressed'
+        ),
+    assignee: zod
+        .union([
             zod.object({
-                id: zod.number(),
-                name: zod.string(),
+                id: zod.union([zod.number(), zod.string()]).describe('User ID or role UUID to assign the issue to.'),
+                type: zod
+                    .enum(['user', 'role'])
+                    .describe('\* `user` - user\n\* `role` - role')
+                    .describe('Assignment target type: user or role.\n\n\* `user` - user\n\* `role` - role'),
             }),
             zod.null(),
-        ]),
-    })
-    .describe('Read-only serializer for issue contract types returned by the facade.')
+        ])
+        .optional()
+        .describe('Assignment target. Required when action is assign; null unassigns.'),
+})
 
 /**
  * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline.
@@ -1300,14 +1243,48 @@ export const ErrorTrackingSuppressionRulesPartialUpdateBody = /* @__PURE__ */ zo
 })
 
 export const ErrorTrackingSuppressionRulesReorderPartialUpdateBody = /* @__PURE__ */ zod.object({
-    filters: zod.unknown().optional(),
-    order_key: zod.number().optional(),
-    disabled_data: zod.unknown().optional(),
-    sampling_rate: zod.number().optional(),
+    orders: zod
+        .record(zod.string(), zod.number())
+        .optional()
+        .describe('Mapping from suppression rule UUID to its new evaluation order.'),
 })
 
 export const ErrorTrackingSymbolSetsFinishUploadUpdateBody = /* @__PURE__ */ zod.object({
     content_hash: zod.string().describe('Hash of the uploaded symbol set content.'),
+})
+
+/**
+ * Report which of the given symbol sets still need `bulk_start_upload`. Symbol sets already uploaded with identical content are omitted and marked as still in use.
+ */
+export const errorTrackingSymbolSetsBulkCheckUploadCreateBodyForceDefault = false
+export const errorTrackingSymbolSetsBulkCheckUploadCreateBodySkipOnConflictDefault = false
+
+export const ErrorTrackingSymbolSetsBulkCheckUploadCreateBody = /* @__PURE__ */ zod.object({
+    symbol_sets: zod
+        .array(
+            zod.object({
+                chunk_id: zod.string().describe('Symbol set reference to upload.'),
+                release_id: zod
+                    .string()
+                    .nullish()
+                    .describe('Optional error tracking release ID associated with this symbol set.'),
+                content_hash: zod
+                    .string()
+                    .nullish()
+                    .describe('Optional hash of the symbol set content, used to skip unchanged uploads.'),
+            })
+        )
+        .describe(
+            'Symbol sets the client intends to upload, with per-symbol release IDs and content hashes. Send at most 1000 per request.'
+        ),
+    force: zod
+        .boolean()
+        .default(errorTrackingSymbolSetsBulkCheckUploadCreateBodyForceDefault)
+        .describe('Whether to overwrite uploaded symbol sets whose content hash changed.'),
+    skip_on_conflict: zod
+        .boolean()
+        .default(errorTrackingSymbolSetsBulkCheckUploadCreateBodySkipOnConflictDefault)
+        .describe('Whether to skip uploaded symbol sets whose content hash changed instead of failing.'),
 })
 
 export const ErrorTrackingSymbolSetsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
@@ -1322,11 +1299,6 @@ export const errorTrackingSymbolSetsBulkStartUploadCreateBodyForceDefault = fals
 export const errorTrackingSymbolSetsBulkStartUploadCreateBodySkipOnConflictDefault = false
 
 export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ zod.object({
-    chunk_ids: zod
-        .array(zod.string())
-        .optional()
-        .describe('Legacy list of symbol set references to upload, all associated with `release_id`.'),
-    release_id: zod.string().nullish().describe('Optional error tracking release ID used with `chunk_ids`.'),
     symbol_sets: zod
         .array(
             zod.object({
@@ -1351,4 +1323,9 @@ export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ 
         .boolean()
         .default(errorTrackingSymbolSetsBulkStartUploadCreateBodySkipOnConflictDefault)
         .describe('Whether to skip uploaded symbol sets whose content hash changed instead of failing.'),
+    chunk_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe('Legacy list of symbol set references to upload, all associated with `release_id`.'),
+    release_id: zod.string().nullish().describe('Optional error tracking release ID used with `chunk_ids`.'),
 })

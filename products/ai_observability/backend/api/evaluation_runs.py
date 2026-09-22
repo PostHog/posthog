@@ -5,7 +5,6 @@ from datetime import timedelta
 from django.conf import settings
 
 import structlog
-from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import APIException, NotFound, ValidationError
@@ -16,26 +15,19 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.clickhouse.client import query_with_columns
-from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.ai_table_resolver import AIEventsExpiredError, AIEventsNotFoundError
-from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, HEAVY_COLUMN_TO_PROPERTY, merge_heavy_properties
 from posthog.permissions import AccessControlPermission
+from posthog.temporal.ai_observability.evaluation_types import EVALUATION_WORKFLOW_PREFIXES
 from posthog.temporal.ai_observability.run_evaluation import RunEvaluationInputs
 from posthog.temporal.common.client import sync_connect
 
+from products.ai_observability.backend.ai_event_lookup import fetch_ai_event
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
 from ..models.evaluations import Evaluation, EvaluationTarget
 
 logger = structlog.get_logger(__name__)
-
-EVALUATION_WORKFLOW_PREFIXES = {
-    "hog": "llma-hog-eval",
-    "llm_judge": "llma-llm-eval",
-    "sentiment": "llma-sentiment-eval",
-}
 
 
 def _evaluation_workflow_prefix(evaluation_type: str) -> str:
@@ -59,11 +51,23 @@ class EvaluationRunRequestSerializer(serializers.Serializer):
     )
 
 
+class EvaluationRunEvaluationSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="UUID of the evaluation being run.")
+    name = serializers.CharField(help_text="Display name of the evaluation being run.")
+
+
+class EvaluationRunResponseSerializer(serializers.Serializer):
+    workflow_id = serializers.CharField(help_text="Temporal workflow ID of the enqueued run.")
+    status = serializers.CharField(help_text="Workflow status at the time of the response.")
+    evaluation = EvaluationRunEvaluationSerializer(help_text="Evaluation selected for this run.")
+    target_event_id = serializers.UUIDField(help_text="UUID of the event being evaluated.")
+
+
 class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "evaluation"
     permission_classes = [IsAuthenticated, AccessControlPermission]
 
-    @extend_schema(request=EvaluationRunRequestSerializer, responses={200: OpenApiTypes.OBJECT})
+    @extend_schema(request=EvaluationRunRequestSerializer, responses={202: EvaluationRunResponseSerializer})
     @llma_track_latency("llma_evaluation_runs_create")
     @monitor(feature=None, endpoint="llma_evaluation_runs_create", method="POST")
     def create(self, request: Request, **kwargs) -> Response:
@@ -120,7 +124,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             params["distinct_id"] = distinct_id
 
         try:
-            event_data = self._fetch_event_for_evaluation(where_clauses, params)
+            event_data = fetch_ai_event(self.team_id, where_clauses, params)
         except AIEventsExpiredError:
             raise NotFound(
                 f"Event {target_event_id} is past the ai_events retention window and can no longer be evaluated"
@@ -200,57 +204,3 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             # The frontend prefixes this with the action name, so "Failed to start evaluation" here
             # would read back as "Run evaluation failed: Failed to start evaluation".
             raise APIException("The evaluation service is unavailable. Try again in a moment.") from e
-
-    def _fetch_event_for_evaluation(self, where_clauses: list[str], params: dict[str, object]) -> dict:
-        """Fetch the target event with its heavy AI columns from ai_events.
-
-        An evaluation grades the heavy $ai_input / $ai_output, which live only on the
-        dedicated ai_events table. That table has a retention TTL, so when the event is
-        absent we probe the long-lived events table purely to classify the miss — a
-        stripped events row can't be evaluated either way.
-
-        Raises AIEventsExpiredError if the event is gone from ai_events but still in
-        events (aged past the TTL), or AIEventsNotFoundError if it is in neither.
-        """
-        heavy_cols = ",\n                    ".join(HEAVY_COLUMN_NAMES)
-        # Tag these direct ClickHouse reads so the manual-eval-trigger lookup is attributed
-        # to AI observability in query-usage analysis alongside the rest of the product.
-        with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=self.team_id):
-            rows = query_with_columns(
-                f"""
-                SELECT
-                    uuid,
-                    event,
-                    properties,
-                    timestamp,
-                    team_id,
-                    distinct_id,
-                    person_id,
-                    {heavy_cols}
-                FROM ai_events
-                WHERE {" AND ".join(where_clauses)}
-                LIMIT 1
-                """,
-                params,
-                team_id=self.team_id,
-            )
-            if not rows:
-                exists_in_events = query_with_columns(
-                    f"""
-                    SELECT 1
-                    FROM events
-                    WHERE {" AND ".join(where_clauses)}
-                    LIMIT 1
-                    """,
-                    params,
-                    team_id=self.team_id,
-                )
-                if exists_in_events:
-                    raise AIEventsExpiredError("target event has aged past the ai_events retention window")
-                raise AIEventsNotFoundError("target event not found")
-
-        event_data = rows[0]
-        # Merge heavy columns back into properties for the evaluation workflow.
-        heavy_columns = {col: event_data.pop(col, "") for col in HEAVY_COLUMN_TO_PROPERTY}
-        event_data["properties"] = merge_heavy_properties(event_data["properties"], heavy_columns)
-        return event_data

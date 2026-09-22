@@ -20,7 +20,9 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
-# Two-tier classification thresholds, applied by `diffing.classify_compare_result`:
+from .enums import ShiftBandKind
+
+# Classification thresholds, applied by `diffing.classify_compare_result`:
 #
 # 1. Pixel diff ratio — fast path for obvious changes. Snapshots above
 #    this are immediately classified as CHANGED.
@@ -29,6 +31,8 @@ from pydantic.dataclasses import dataclass
 #    a measurable structural shift that SSIM catches.
 #
 # Only when both are below threshold is the snapshot reclassified as UNCHANGED.
+# When the pair aligned, both are measured after alignment, so a vertical
+# shift is judged on what actually changed rather than on everything below it.
 #
 # They live here rather than next to the classifier because they are also what
 # `FlakinessEntry.headroom` is measured against, so a consumer reading that
@@ -36,6 +40,17 @@ from pydantic.dataclasses import dataclass
 # libraries onto the web request path.
 PIXEL_DIFF_THRESHOLD_PERCENT = 2.5
 SSIM_DISSIMILARITY_THRESHOLD = 0.01  # 1% structural difference
+
+# How many inserted or deleted rows the classifier absorbs as noise before it
+# calls the change a layout change.
+#
+# Every run measures its shift against the committed baseline, not against the
+# previous run, so an absorbed shift cannot accumulate into a page that has
+# quietly moved by twenty rows. Two rows is also the point where the change
+# stops being actionable: a reviewer cannot do anything about one or two pixels
+# of spacing, but a taller band is a block that appeared or disappeared and
+# somebody should look at it.
+SHIFT_ABSORB_MAX_ROWS = 2
 
 # --- Input DTOs ---
 
@@ -135,6 +150,7 @@ class AddSnapshotsInput:
 
     snapshots: list[SnapshotManifestItem]
     baseline_hashes: dict[str, str] = field(default_factory=dict)
+    story_index_hash: str = ""
 
 
 @dataclass(frozen=True)
@@ -143,6 +159,7 @@ class AddSnapshotsResult:
 
     added: int
     uploads: list[UploadTarget]
+    story_index_upload: UploadTarget | None = None
 
 
 @dataclass(frozen=True)
@@ -206,6 +223,49 @@ class ClusterSummary:
 
 
 @dataclass(frozen=True)
+class ShiftBand:
+    """One run of rows the current image gained or lost.
+
+    A deleted band has no rows of its own in the current image, so `y` is the
+    seam the removed rows left behind and `rows` counts what went away.
+    """
+
+    y: int
+    rows: int
+    kind: ShiftBandKind
+
+
+@dataclass(frozen=True)
+class RowShift:
+    """A vertical shift between baseline and current, separated from the real change.
+
+    Row alignment pairs the rows that exist in both images, so the pixels
+    below an inserted row stop counting as differences. `residual_percentage`
+    is what survives that pairing. The snapshot's `diff_percentage` adds the
+    area of the rows the shift added or removed, and that combined number is
+    what the pixel threshold judges. `raw_diff_percentage` is what the same
+    pair measured without alignment, which is how the UI can say what the
+    shift would otherwise have cost.
+    """
+
+    inserted_rows: int
+    deleted_rows: int
+    residual_percentage: float
+    raw_diff_percentage: float
+    bands: list[ShiftBand]
+
+    @property
+    def shifted_rows(self) -> int:
+        """How far the rows moved. What the absorb cap judges.
+
+        A page that grew has only inserts and one that shrank has only deletes.
+        A same-height translation shows up as both, so the larger side is the
+        movement, not the sum.
+        """
+        return max(self.inserted_rows, self.deleted_rows)
+
+
+@dataclass(frozen=True)
 class Snapshot:
     """A snapshot with its comparison results."""
 
@@ -239,6 +299,10 @@ class Snapshot:
     change_kind: str = ""
     cluster_summary: ClusterSummary | None = None
     size_mismatch: bool = False
+    # The vertical shift the diff pipeline measured, if it could align the
+    # pair. Present on absorbed (UNCHANGED) snapshots as well, because a shift
+    # small enough to absorb is still the only trace of why the pixels moved.
+    row_shift: RowShift | None = None
 
 
 @dataclass(frozen=True)
@@ -386,6 +450,7 @@ class UpdateRepoRequestInput:
 
     baseline_file_paths: dict[str, str] | None = None
     enable_pr_comments: bool | None = None
+    debt_digest_enabled: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -395,6 +460,7 @@ class UpdateRepoInput:
     repo_id: UUID
     baseline_file_paths: dict[str, str] | None = None
     enable_pr_comments: bool | None = None
+    debt_digest_enabled: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -419,6 +485,9 @@ class SnapshotHistoryEntry:
     ssim_score: float | None = None
     change_kind: str = ""
     size_mismatch: bool = False
+    # Same meaning as on `Snapshot`, and present on absorbed rows too, so the
+    # history view can show which runs only moved rather than changed.
+    row_shift: RowShift | None = None
 
 
 @dataclass(frozen=True)
@@ -431,6 +500,7 @@ class Repo:
     repo_full_name: str
     baseline_file_paths: dict[str, str]
     enable_pr_comments: bool
+    debt_digest_enabled: bool
     created_at: datetime
 
 
@@ -445,6 +515,11 @@ BASELINE_OVERVIEW_MAX_ENTRIES = 5000
 # so a busy repo doesn't drag in proportionally more rows. ~10 runs is enough
 # to wash out a single jittery render while staying responsive on real changes.
 BASELINE_DRIFT_RECENT_RUN_COUNT = 10
+
+# Accepted variants against one current baseline at which the baseline stops describing one
+# rendering and starts describing a set. Three is the point where a reader can no longer hold what
+# "the baseline" means for that snapshot, and the same floor the frequently-tolerated stat uses.
+VARIANT_PILEUP_MIN = 3
 
 
 @dataclass(frozen=True)
@@ -481,6 +556,11 @@ class BaselineEntry:
     height: int | None
     tolerate_count_30d: int
     tolerate_count_90d: int
+    # Accepted variants still recorded against the hash this baseline currently holds. Distinct
+    # from the two counts above, which measure how often somebody accepted drift in a rolling
+    # window. A baseline change drops this to zero, because a toleration is recorded against the
+    # baseline hash it was decided for and stops matching when that hash moves.
+    active_variants_current_baseline: int
     is_quarantined: bool
     last_run_at: datetime
     # Lifetime count of YAML baseline flips on master/main for this identifier.
@@ -511,6 +591,8 @@ class BaselineTotals:
     recently_tolerated: int
     frequently_tolerated: int
     currently_quarantined: int
+    # Baselines carrying at least `VARIANT_PILEUP_MIN` accepted variants of their current hash.
+    variant_pileups: int
     by_run_type: dict[str, int]
 
 
@@ -632,6 +714,9 @@ class FlakinessEntry:
     # between extending it and lifting it.
     needs_decision: bool
     quarantine: BaselineQuarantineSummary | None = None
+    # Team that owns the story file, `UNOWNED_TEAM` when no entry covers it, and None when
+    # ownership is unknown.
+    owner_team: str | None = None
 
 
 @dataclass(frozen=True)

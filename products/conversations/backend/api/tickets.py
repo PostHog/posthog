@@ -41,6 +41,7 @@ from posthog.api.tagged_item import (
     BulkUpdateTagsUUIDResponseSerializer,
     TaggedItemSerializerMixin,
     TaggedItemViewSetMixin,
+    normalize_tag_names,
     set_tags_on_object,
 )
 from posthog.dataclasses import frozen
@@ -61,6 +62,8 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.conversations.backend.ai.evidence import citations_for_ticket, hydrate_ai_sources
+from products.conversations.backend.ai.human_outcome import AiDraftHumanOutcome, record_human_outcome
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
 from products.conversations.backend.api.ticket_filters import (
     AI_TRIAGE_FILTER_VALUES,
@@ -113,8 +116,8 @@ TicketAssignee = UserTicketAssignee | RoleTicketAssignee
 
 
 class TicketErrorSerializer(serializers.Serializer):
-    detail = serializers.CharField()
-    error_type = serializers.CharField(required=False)
+    detail = serializers.CharField(help_text="Human-readable error message.")
+    error_type = serializers.CharField(required=False, help_text="Machine-readable error code.")
 
 
 class TicketMessageSerializer(serializers.Serializer):
@@ -224,6 +227,16 @@ class AiFeedbackRequestSerializer(serializers.Serializer):
     rating = serializers.ChoiceField(choices=["good", "bad"], help_text="Reviewer rating: good or bad.")
     feedback_text = serializers.CharField(
         required=False, allow_blank=True, max_length=2000, help_text="Optional text explaining a bad rating."
+    )
+
+
+class AiHumanOutcomeRequestSerializer(serializers.Serializer):
+    """Payload for recording whether a human adopted an AI draft."""
+
+    message_id = serializers.CharField(max_length=200, help_text="ID of the private AI draft being adopted.")
+    outcome = serializers.ChoiceField(
+        choices=AiDraftHumanOutcome.choices,
+        help_text="used when the human inserts the draft as-is; edited after they change it in the composer.",
     )
 
 
@@ -435,9 +448,26 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
                 "Null when organization_id is unset."
             },
             "ai_triage": {
-                "help_text": "AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.)."
+                "help_text": (
+                    "AI support pipeline triage and outcome (status, result, ticket_type, confidence, "
+                    "attempts, verdict, blocker, sources). Retrieve hydrates sources from citations."
+                )
             },
         }
+
+    def to_representation(self, instance: Ticket) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        view = self.context.get("view")
+        if getattr(view, "action", None) != "retrieve":
+            return data
+        triage = dict(data.get("ai_triage") or {})
+        citations = citations_for_ticket(instance, triage)
+        if citations:
+            triage["sources"] = [
+                source.to_dict() for source in hydrate_ai_sources(team_id=instance.team_id, citations=citations)
+            ]
+            data["ai_triage"] = triage
+        return data
 
     def get_email_to(self, obj: Ticket) -> str | None:
         config = getattr(obj, "email_config", None)
@@ -518,6 +548,12 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
     def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
         validated_data.pop("assignee", None)
         return super().update(instance, validated_data)
+
+
+class TicketUnreadCountResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField(
+        min_value=0, help_text="Unread messages across the non-resolved tickets the caller can see."
+    )
 
 
 TICKET_ID_PARAM = OpenApiParameter(
@@ -664,6 +700,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         "compose",
         "reply",
         "ai_feedback",
+        "ai_human_outcome",
         "note",
         "delete_note",
     ]
@@ -1264,6 +1301,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         return Response({"updated": len(changed), "ids": [str(t.id) for t, _ in changed]})
 
+    @extend_schema(
+        summary="Count unread tickets",
+        responses={200: TicketUnreadCountResponseSerializer},
+    )
     @action(detail=False, methods=["get"])
     def unread_count(self, request, *args, **kwargs):
         """
@@ -1318,7 +1359,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 deleted=False,
             )
             .select_related("created_by")
-            .order_by("created_at")
+            # id breaks ties so separate page queries agree on the order of
+            # messages that share a created_at.
+            .order_by("created_at", "id")
         )
 
         page = self.paginate_queryset(comments)
@@ -1389,6 +1432,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             or item_context.get("slack_author_name")
             or item_context.get("teams_author_name")
             or item_context.get("teams_author_email")
+            or item_context.get("github_login")
             or item_context.get("email_from_name")
         )
 
@@ -1519,15 +1563,17 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         item_context = {"author_type": "support", "is_private": data["is_private"]}
 
         def create_comment() -> Comment:
-            return Comment.objects.create(
-                team=self.team,
-                created_by=request.user,
-                scope="conversations_ticket",
-                item_id=str(ticket.id),
-                content=data["message"],
-                rich_content=data.get("rich_content"),
-                item_context=item_context,
-            )
+            # ATOMIC_REQUESTS is off, so wrap the comment insert with the email-outbox write.
+            with transaction.atomic():
+                return Comment.objects.create(
+                    team=self.team,
+                    created_by=request.user,
+                    scope="conversations_ticket",
+                    item_id=str(ticket.id),
+                    content=data["message"],
+                    rich_content=data.get("rich_content"),
+                    item_context=item_context,
+                )
 
         fingerprint = reply_dedupe.ReplyFingerprint.build(
             team_id=self.team_id,
@@ -1706,10 +1752,49 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         return Response(status=drf_status.HTTP_202_ACCEPTED)
 
     @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        request=AiHumanOutcomeRequestSerializer,
+        responses={
+            202: AiHumanOutcomeRequestSerializer,
+            409: OpenApiResponse(response=TicketErrorSerializer),
+        },
+    )
+    @action(detail=True, methods=["post"])
+    def ai_human_outcome(self, request, *args, **kwargs):
+        """Record that a human used or edited the latest AI draft."""
+        ticket = self.get_object()
+        serializer = AiHumanOutcomeRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        outcome = serializer.validated_data["outcome"]
+        recorded = record_human_outcome(
+            team_id=self.team_id,
+            ticket_id=str(ticket.id),
+            draft_message_id=serializer.validated_data["message_id"],
+            outcome=outcome,
+        )
+        if not recorded:
+            return Response(
+                {
+                    "detail": "The AI draft is no longer current or its outcome is already recorded.",
+                    "error_type": "ai_draft_outcome_conflict",
+                },
+                status=drf_status.HTTP_409_CONFLICT,
+            )
+        return Response(serializer.data, status=drf_status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
         request=ComposeTicketSerializer,
         responses={
-            201: OpenApiResponse(response=ComposeTicketResponseSerializer),
+            201: OpenApiResponse(response=ComposeTicketResponseSerializer, description="Ticket created."),
+            200: OpenApiResponse(
+                response=ComposeTicketResponseSerializer,
+                description="An identical compose was already handled; the existing ticket is returned.",
+            ),
             400: OpenApiResponse(response=TicketErrorSerializer),
+            409: OpenApiResponse(
+                response=TicketErrorSerializer,
+                description="An identical compose is still being created by another request.",
+            ),
         },
     )
     @action(
@@ -1719,7 +1804,12 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         throttle_classes=[ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle],
     )
     def compose(self, request, *args, **kwargs):
-        """Create a new outbound ticket and send the first message to the customer."""
+        """Create a new outbound ticket and send the first message to the customer.
+
+        Idempotent within a short window: an identical compose retried while the first is still
+        in flight returns 409, and one retried after it committed returns the same ticket with a
+        200. Only a genuinely new request creates a ticket and emails the customer.
+        """
         serializer = ComposeTicketSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -1773,51 +1863,82 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                     status=drf_status.HTTP_400_BAD_REQUEST,
                 )
 
-        with transaction.atomic():
-            ticket = Ticket.objects.create_with_number(
-                team=team,
-                channel_source=Channel.EMAIL,
-                distinct_id=distinct_id,
-                status=Status.OPEN,
-                widget_session_id=str(uuid.uuid4()),
-                email_config=email_config,
-                email_from=recipient_email,
-                email_subject=data.get("email_subject", ""),
-                # Ticket search, the person display and restore-by-email all read the
-                # customer's address from traits, so outbound tickets must carry it too.
-                anonymous_traits={"email": recipient_email},
-                # The recipient hasn't proven control of this address — a team member just typed it —
-                # so leave identity unknown. It's promoted to verified if/when they reply and authenticate.
-                identity_verified=None,
-            )
+        def create_ticket() -> Ticket:
+            with transaction.atomic():
+                ticket = Ticket.objects.create_with_number(
+                    team=team,
+                    channel_source=Channel.EMAIL,
+                    distinct_id=distinct_id,
+                    status=Status.OPEN,
+                    widget_session_id=str(uuid.uuid4()),
+                    email_config=email_config,
+                    email_from=recipient_email,
+                    email_subject=data.get("email_subject", ""),
+                    # Ticket search, the person display and restore-by-email all read the
+                    # customer's address from traits, so outbound tickets must carry it too.
+                    anonymous_traits={"email": recipient_email},
+                    # The recipient hasn't proven control of this address — a team member just typed it —
+                    # so leave identity unknown. It's promoted to verified if/when they reply and authenticate.
+                    identity_verified=None,
+                )
 
-            Comment.objects.create(
-                team=team,
-                created_by=request.user,
-                scope="conversations_ticket",
-                item_id=str(ticket.id),
-                content=data["message"],
-                rich_content=data.get("rich_content"),
-                item_context={"author_type": "human", "is_private": False},
-            )
+                Comment.objects.create(
+                    team=team,
+                    created_by=request.user,
+                    scope="conversations_ticket",
+                    item_id=str(ticket.id),
+                    content=data["message"],
+                    rich_content=data.get("rich_content"),
+                    item_context={"author_type": "human", "is_private": False},
+                )
 
-            if data.get("tags"):
-                set_tags_on_object(data["tags"], ticket)
+                if data.get("tags"):
+                    set_tags_on_object(data["tags"], ticket)
+            return ticket
 
-        try:
-            report_user_action(
-                request.user,
-                "support ticket composed",
-                {"channel_source": Channel.EMAIL},
-                team=team,
-                request=request,
+        # message, recipient_email, and email_config are all validated above, so build never
+        # returns None here.
+        fingerprint = reply_dedupe.ComposeFingerprint.build(
+            team_id=team.id,
+            email_config_id=str(email_config.id),
+            recipient_email=recipient_email,
+            email_subject=data.get("email_subject", ""),
+            message=data["message"],
+            rich_content=data.get("rich_content"),
+            distinct_id=distinct_id,
+            creator_id=request.user.id if request.user and request.user.is_authenticated else None,
+            tags=normalize_tag_names(data.get("tags") or []),
+        )
+        assert fingerprint is not None
+        guarded = reply_dedupe.create_ticket_deduplicated(fingerprint, create_ticket)
+        if guarded.outcome is reply_dedupe.CreateOutcome.CONFLICT:
+            return Response(
+                {
+                    "detail": reply_dedupe.COMPOSE_IN_PROGRESS_DETAIL,
+                    "error_type": reply_dedupe.COMPOSE_IN_PROGRESS_ERROR_TYPE,
+                },
+                status=drf_status.HTTP_409_CONFLICT,
             )
-        except Exception as e:
-            capture_exception(e, {"ticket_id": str(ticket.id)})
+        ticket = cast(Ticket, guarded.ticket)
+        created = guarded.outcome is reply_dedupe.CreateOutcome.CREATED
+
+        # A replay already reported this action and already emailed the customer, so only a genuine
+        # create repeats either.
+        if created:
+            try:
+                report_user_action(
+                    request.user,
+                    "support ticket composed",
+                    {"channel_source": Channel.EMAIL},
+                    team=team,
+                    request=request,
+                )
+            except Exception as e:
+                capture_exception(e, {"ticket_id": str(ticket.id)})
 
         return Response(
-            {"id": str(ticket.id), "ticket_number": ticket.ticket_number},
-            status=drf_status.HTTP_201_CREATED,
+            ComposeTicketResponseSerializer(ticket).data,
+            status=drf_status.HTTP_201_CREATED if created else drf_status.HTTP_200_OK,
         )
 
 

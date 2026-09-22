@@ -90,7 +90,7 @@ def _pr_list_item() -> contracts.PullRequestListItem:
         open_to_merge_seconds=None,
         ready_to_merge_seconds=None,
         labels=["bug"],
-        ci=contracts.CIStatusRollup(runs=3, passing=2, failing=1, pending=0),
+        ci=contracts.CIStatusRollup(runs=3, passing=2, failing=1, pending=0, inconclusive=0),
         pushes=4,
         rerun_cycles=1,
         estimated_cost_usd=None,
@@ -210,6 +210,7 @@ def _workflow_run() -> contracts.WorkflowRunDetail:
         run_attempt=2,
         pr_number=42,
         commit_pr_number=None,
+        is_merge_queue=False,
     )
 
 
@@ -598,8 +599,6 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         ]
     )
     def test_400_on_invalid_run_scope(self, action: str, params: dict[str, str]) -> None:
-        # A typo'd scope must 400 on every endpoint that accepts it, not silently return the
-        # all-runs population as a 200.
         response = self.client.get(self._url(action), {**params, "run_scope": "bogus"})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST

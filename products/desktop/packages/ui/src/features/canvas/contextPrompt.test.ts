@@ -14,9 +14,9 @@ describe("buildContextGenerationPrompt", () => {
       contextLayerEnabled: true,
     });
 
-    expect(prompt).toContain("context-wiki-channel-resolve");
-    expect(prompt).toContain("context-wiki-page-retrieve");
-    expect(prompt).toContain("context-wiki-page-update");
+    expect(prompt).toContain("task-context-wiki-channel-resolve");
+    expect(prompt).toContain("task-context-wiki-page-retrieve");
+    expect(prompt).toContain("task-context-wiki-page-update");
     expect(prompt).toContain(`channel_id: ${input.channelId}`);
     expect(prompt).not.toContain("channel-instructions-update");
     expect(prompt).toContain("Do not call any `loop-*` context tool");

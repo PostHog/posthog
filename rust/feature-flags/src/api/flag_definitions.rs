@@ -39,7 +39,7 @@ const ALLOWLIST_TTL_SECS: u64 = 60;
 /// time in epoch millis). Must stay in sync with `REBUILD_REQUESTS_ZSET` in
 /// `products/feature_flags/backend/rebuild_queue.py` (pinned by the Python test
 /// `test_request_zset_key_matches_rust_contract`).
-const FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET: &str = "flag_definitions:rebuild_requests";
+pub(crate) const FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET: &str = "flag_definitions:rebuild_requests";
 static CONSTANCE_KEY: Lazy<String> = Lazy::new(|| constance_key("RATE_LIMITING_ALLOW_LIST_TEAMS"));
 
 /// Refresh the rate limit allowlist from the database if stale, then update the limiter.
@@ -195,7 +195,37 @@ pub async fn flags_definitions(
 
     let client_etag = extract_etag_from_header(headers.get("if-none-match"));
     let team_key = KeyType::team(team.clone());
-    let current_etag = get_etag_from_redis(&state, &team_key).await;
+    let current_etag = match state
+        .flags_with_cohorts_hypercache_reader
+        .get_etag(&team_key)
+        .await
+    {
+        Ok(Some(etag)) => Some(etag),
+        Ok(None) => {
+            // Redis answered and held no ETag key for this team. Counted apart from a
+            // cluster fault because the two need opposite responses: rebuild the cache
+            // tier, or treat Redis as the fault.
+            inc(
+                FLAG_DEFINITIONS_ETAG_COUNTER,
+                &[("result".to_string(), "redis_missing".to_string())],
+                1,
+            );
+            None
+        }
+        Err(e) => {
+            warn!(
+                team_id = team.id,
+                error = %e,
+                "Failed to read flag definitions ETag"
+            );
+            inc(
+                FLAG_DEFINITIONS_ETAG_COUNTER,
+                &[("result".to_string(), "redis_error".to_string())],
+                1,
+            );
+            None
+        }
+    };
 
     // If client sent a matching ETag, short-circuit with 304 (skip full data fetch)
     if let (Some(ref client_val), Some(ref current_val)) = (&client_etag, &current_etag) {
@@ -295,46 +325,6 @@ pub(crate) fn extract_etag_from_header(header: Option<&axum::http::HeaderValue>)
         None
     } else {
         Some(etag.to_string())
-    }
-}
-
-/// Read the ETag for a team's flag definitions from Redis.
-///
-/// Django stores ETags as separate Redis keys with an `:etag` suffix,
-/// pickle-serialized via Django's cache framework. Returns `None` if the
-/// ETag is unavailable (cache miss, Redis error, deserialization error)
-/// — this gracefully degrades to always returning 200 with full data.
-async fn get_etag_from_redis(state: &AppState, team_key: &KeyType) -> Option<String> {
-    let config = state.flags_with_cohorts_hypercache_reader.config();
-    let cache_key = config.get_redis_cache_key(team_key);
-    let etag_key = format!("{}:etag", cache_key);
-
-    match state.redis_client.get_raw_bytes(etag_key.clone()).await {
-        Ok(raw_bytes) => match serde_pickle::from_slice::<String>(&raw_bytes, Default::default()) {
-            Ok(etag) if !etag.is_empty() => Some(etag),
-            Ok(_) => None,
-            Err(e) => {
-                warn!(
-                    etag_key = %etag_key,
-                    error = %e,
-                    "Failed to deserialize ETag from Redis"
-                );
-                None
-            }
-        },
-        Err(e) => {
-            warn!(
-                etag_key = %etag_key,
-                error = %e,
-                "Failed to read ETag from Redis"
-            );
-            inc(
-                FLAG_DEFINITIONS_ETAG_COUNTER,
-                &[("result".to_string(), "redis_error".to_string())],
-                1,
-            );
-            None
-        }
     }
 }
 
@@ -471,14 +461,30 @@ async fn get_from_cache(
 
 /// Fire-and-forget enqueue of a flag-definitions rebuild request on cache miss.
 ///
-/// Writes to a Redis sorted set on `state.redis_client` — the same shared client
-/// the flags-with-cohorts HyperCacheReader is built from (see `server.rs`), so the
-/// queue can never point at a different Redis than the one the cache lives in.
+/// Writes to a Redis sorted set on the flags-namespace client, because that is where the
+/// Django writer lives. The Celery drain derives its Redis from
+/// `flag_definitions_hypercache.redis_url` (`rebuild_queue.py`), which resolves from the same
+/// `FLAGS_REDIS_URL`. A request written to any other cluster is never drained and the team
+/// never gets rebuilt.
+///
+/// The two ends agree on configuration, not on connection state. A process that cannot reach
+/// the dedicated cluster at startup falls back to the shared one and enqueues there for its
+/// whole life, while Celery keeps draining the dedicated one. Those teams wait for the hourly
+/// verifier instead. The same startup failure already sends the flags.json, team-metadata, and
+/// remote-config readers to the shared cluster, where Django writes nothing, so it degrades
+/// more than this queue.
+///
+/// This is deliberately not the client the payload and the ETag are read from. The reader has its
+/// own cluster switch (`FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED`, resolved in `server.rs`), so
+/// during the cutover it can sit on either cluster while the queue must stay on the one Celery
+/// drains. Unifying the queue with the reader severs the queue from the drain whenever the two
+/// clusters differ.
+///
 /// Re-enqueuing a team only updates its score, so a client polling a missing team
 /// every ~30s occupies a single slot. Spawned so it never adds latency to (or
 /// changes) the failing response.
 fn enqueue_flag_definitions_rebuild(state: &AppState, team_id: i32) {
-    let redis = state.redis_client.clone();
+    let redis = state.flags_namespace_redis_client();
     tokio::spawn(async move {
         let score = SystemTime::now()
             .duration_since(UNIX_EPOCH)

@@ -41,6 +41,7 @@ from products.engineering_analytics.backend.logic.views import (
     issue_events,
     job_costs,
     pull_requests,
+    reviews,
     team_members,
     trunk_merge_queue,
     trunk_quarantined_tests,
@@ -240,12 +241,29 @@ class CuratedGitHubSource:
             return None
         return f"({team_members.build_query(self._tables.team_members)})"
 
-    def issue_events_source(self) -> str | None:
+    def issue_events_source(self, *, created_floor: bool = False) -> str | None:
         """Curated PR draft/ready transitions ``SELECT`` subquery, or None when the optional
-        issue-events table isn't synced."""
+        issue-events table isn't synced. ``created_floor`` adds the raw-string scan floor, so callers
+        must register {event_created_floor} (see ``run_started_floor_constant``)."""
         if not self._tables.issue_events:
             return None
-        return f"({issue_events.build_query(self._tables.issue_events)})"
+        return f"({issue_events.build_query(self._tables.issue_events, created_floor=created_floor)})"
+
+    def team_review_requests_source(self, *, created_floor: bool = False) -> str | None:
+        """Curated team review requests ``SELECT`` subquery, or None when the issue events hold none.
+        ``created_floor`` adds the raw-string scan floor; callers must then register {event_created_floor}
+        (see run_started_floor_constant)."""
+        if not (self._tables.issue_events and self._tables.issue_events_team_requests):
+            return None
+        query = issue_events.build_team_review_requests_query(self._tables.issue_events, created_floor=created_floor)
+        return f"({query})"
+
+    def reviews_source(self) -> str | None:
+        """Curated submitted-reviews ``SELECT`` subquery, or None when the optional reviews table
+        isn't synced."""
+        if not self._tables.reviews:
+            return None
+        return f"({reviews.build_query(self._tables.reviews)})"
 
     def deploy_sources(self) -> "DeploySources | None":
         """The curated deploy ``SELECT`` subqueries, or None when the optional deploy pair isn't
@@ -263,7 +281,7 @@ class CuratedGitHubSource:
         a constant NULL when the optional issue-events table isn't synced, so every consumer reads
         the measure the same way."""
         window = self._issue_events_window()
-        cte = self._ready_by_pr_cte()
+        cte = self.ready_by_pr_cte()
         if window is None or cte is None:
             return _READY_TO_MERGE_UNOBSERVABLE
         return ReadyToMergeSql(cte=cte, join=_READY_BY_PR_JOIN, expr=_ready_to_merge_expr(window))
@@ -280,8 +298,9 @@ class CuratedGitHubSource:
             end=f"({issue_events.build_window_end_query(self._tables.issue_events)})",
         )
 
-    def _ready_by_pr_cte(self) -> str | None:
-        """CTE: each PR's last observed draft-state transition, or None when the table isn't synced.
+    def ready_by_pr_cte(self, *, created_floor: bool = False) -> str | None:
+        """CTE: each PR's last observed draft-state transition and last ready event, or None when the
+        table isn't synced. ``created_floor`` works as in ``issue_events_source``.
 
         Only the LAST switch counts: for a merged PR the newest transition is necessarily the ready
         that preceded the merge (a draft can't merge); an open PR goes false while re-drafted. The
@@ -289,8 +308,12 @@ class CuratedGitHubSource:
         ``pr_number`` alone, unlike ``runs_by_pr``: a run's association can list the fork network's
         PRs (which is why that rollup needs the repo qualifier), whereas every row of a resolved
         issue-events table belongs to that one repo by table construction.
+
+        The events table and the pull requests table sync independently, so a timestamp here can run
+        ahead of what a PR's own row reports. A consumer that compares one against a PR's end must
+        bound it. ``last_ready_at`` is safe against ``merged_at`` alone, because a draft cannot merge.
         """
-        source = self.issue_events_source()
+        source = self.issue_events_source(created_floor=created_floor)
         if source is None:
             return None
         return f"""
@@ -298,7 +321,11 @@ class CuratedGitHubSource:
                 SELECT
                     pr_number,
                     argMax(event, tuple(created_at, id)) = '{issue_events.READY_FOR_REVIEW_EVENT}' AS last_is_ready,
-                    max(created_at) AS last_transition_at
+                    max(created_at) AS last_transition_at,
+                    -- OrNull, not maxIf: a plain maxIf falls back to the epoch default when no row
+                    -- matches, and that default would pass the caller's last_ready_at IS NOT NULL
+                    -- filter as if it were a real event (see dora.py's deploys CTE for the same hazard).
+                    maxOrNullIf(created_at, event = '{issue_events.READY_FOR_REVIEW_EVENT}') AS last_ready_at
                 FROM {source} AS se
                 GROUP BY pr_number
             )
@@ -369,6 +396,11 @@ class CuratedGitHubSource:
                     -- s IS NULL: run_started_at parses to NULL on a bad/missing timestamp, and argMax
                     -- over an all-NULL group returns NULL — count those as pending, not vanished.
                     countIf(s IS NULL OR s != 'completed') AS pending,
+                    -- Completes the partition, so an all-cancelled PR is not read as passing.
+                    countIf(
+                        s = 'completed'
+                        AND ifNull(c, '') NOT IN ('success', {DECISIVE_FAILURE_CONCLUSIONS_SQL})
+                    ) AS inconclusive,
                     -- The names behind `failing`, sorted for a stable order — the UI shows what is
                     -- failing under the CI tag instead of a bare count.
                     arraySort(groupArrayIf(workflow_name, s = 'completed' AND c IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}))) AS failing_workflows

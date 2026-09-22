@@ -30,6 +30,7 @@ from posthog.hogql.printer.redshift import RedshiftPrinter
 from posthog.hogql.printer.snowflake import SnowflakePrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
+from posthog.hogql.transforms.events_read_in_order import order_events_reads_by_sort_key
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.json_property_pushdown import (
     has_rewritable_json_extract,
@@ -192,6 +193,7 @@ def prepare_ast_for_printing(
                 user=context.user,
                 timings=context.timings,
                 bypass_warehouse_access_control=context.bypass_warehouse_access_control,
+                use_cached_sources=context.use_cached_sources,
                 trigger="printer",
             )
     if context.direct_postgres_connection_metadata is None and context.database is not None:
@@ -306,7 +308,8 @@ def prepare_ast_for_printing(
 
     if dialect == "trino":
         with context.timings.measure("trino_structural_lowering"):
-            node = cast(_T_AST, normalize_trino_ast(node, context))
+            # The next resolver pass looks up logical schema keys, which may differ from physical column names.
+            node = cast(_T_AST, normalize_trino_ast(node, context, physical_names=False))
         with context.timings.measure("resolve_types_after_trino_structural_lowering"):
             node = clone_expr(node, clear_types=True)
             node = resolve_types(
@@ -410,6 +413,11 @@ def prepare_ast_for_printing(
             )
 
             node = clickhouse_property_resolution(node, context)
+
+        if context.order_events_reads_by_sort_key:
+            # After property resolution, so the timestamp column is already wrapped and every table type is final.
+            with context.timings.measure("events_read_in_order"):
+                node = order_events_reads_by_sort_key(node)
 
         # We support global query settings, and local subquery settings.
         # If the global query is a select query with settings, merge the two.

@@ -35,8 +35,14 @@ function StripState({
         logic.actions.showStrip()
         logic.actions.setCollapsed(collapsed)
         if (refreshing) {
-            logic.actions.requestRefresh()
+            const baseline = mockScoutSuggestionSet()
+            logic.actions.startRefreshPolling({
+                startedAt: Date.now(),
+                baselineGeneratedAt: baseline.generated_at,
+                baselineStatus: baseline.status,
+            })
         }
+        return () => logic.actions.refreshFinished()
     }, [logic, collapsed, refreshing])
     return <>{children}</>
 }
@@ -99,6 +105,29 @@ export const Stale: Story = {
     ],
 }
 
+// One long motivation beside two short ones: the check that a row no longer stretches to its tallest card.
+export const UnevenMotivations: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                [SUGGESTIONS_URL]: () => [
+                    200,
+                    mockScoutSuggestionSet({
+                        items: [
+                            {
+                                ...mockScoutSuggestions[0],
+                                why_here:
+                                    'Checkout is the slowest page in this project on every Core Web Vital, and it has been getting slower for three weeks. Nothing in your fleet reads web vitals today, so a regression here only shows up once someone opens web analytics and looks.',
+                            },
+                            ...mockScoutSuggestions.slice(1),
+                        ],
+                    }),
+                ],
+            },
+        }),
+    ],
+}
+
 // A batch shrinks on its own as its picks get created, so one card has to look deliberate.
 export const SingleCard: Story = {
     decorators: [
@@ -127,8 +156,21 @@ export const NothingLeft: Story = {
     ],
 }
 
-// What the header button opens on a project with nothing to suggest: skeletons until the scan lands.
+// A scan over a batch that already has picks: they stay readable until it replaces them.
 export const Scanning: Story = {
+    parameters: { stripRefreshing: true },
+    decorators: [mswDecorator({ get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet()] } })],
+}
+
+// The strip opens collapsed, so this is where most Refresh presses land: the picks stay named and
+// the scan says how long it has been going.
+export const ScanningCollapsed: Story = {
+    parameters: { stripCollapsed: true, stripRefreshing: true },
+    decorators: [mswDecorator({ get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet()] } })],
+}
+
+// The one case skeletons are left for: every pick was acted on while the scan ran.
+export const ScanningWithNothingToShow: Story = {
     parameters: { stripRefreshing: true },
     decorators: [
         mswDecorator({

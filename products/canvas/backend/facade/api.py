@@ -1,3 +1,12 @@
+from products.canvas.backend.connectors import (
+    ConnectorCallStatus as ConnectorCallStatus,
+    ConnectorKind as ConnectorKind,
+    call_connector_tool as call_connector_tool,
+    canvas_connectors_enabled as canvas_connectors_enabled,
+    connector_listings as connector_listings,
+    mcp_provider_host as mcp_provider_host,
+    native_connector_listings as native_connector_listings,
+)
 from products.canvas.backend.layout import (
     CANVAS_LAYOUT_SCHEMA_VERSION as CANVAS_LAYOUT_SCHEMA_VERSION,
     MAX_LAYOUT_PATCH_OPERATIONS as MAX_LAYOUT_PATCH_OPERATIONS,
@@ -9,6 +18,7 @@ from products.canvas.backend.layout import (
     validate_layout as validate_layout,
     validate_layout_references as validate_layout_references,
 )
+from products.canvas.backend.state_reads import CanvasStateReader as CanvasStateReader
 from products.canvas.backend.teaching import (
     RESERVED_TEMPLATE_IDS as RESERVED_TEMPLATE_IDS,
     TEACHING_CANVAS_NAME as TEACHING_CANVAS_NAME,

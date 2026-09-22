@@ -2692,7 +2692,10 @@ describe.each([
                     .build(),
             ]
 
-            await ingester.handleKafkaBatch(createKafkaMessages(events, token))
+            // Different distinct IDs run concurrently within a batch, but this login sequence requires ordered events.
+            for (const event of events) {
+                await ingester.handleKafkaBatch(createKafkaMessages([event], token))
+            }
             await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
@@ -3574,7 +3577,6 @@ describe.each([
             const p2DistinctId = 'p2_distinct_id'
             const p2NewDistinctId = 'new_distinct_id'
 
-            // Batch 1: anonymous event, identify, event, second person event, second identify, event
             const events = [
                 new EventBuilder(team, anonymousId).withEvent('event 1').build(),
                 new EventBuilder(team, initialDistinctId)
@@ -3590,7 +3592,10 @@ describe.each([
                 new EventBuilder(team, p2NewDistinctId).withEvent('event 4').build(),
             ]
 
-            await ingester.handleKafkaBatch(createKafkaMessages(events, token))
+            // Different distinct IDs run concurrently within a batch, but this login sequence requires ordered events.
+            for (const event of events) {
+                await ingester.handleKafkaBatch(createKafkaMessages([event], token))
+            }
             await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
@@ -3599,7 +3604,7 @@ describe.each([
                 expect(persons.every((p) => p.is_identified)).toBe(true)
             })
 
-            // Batch 2: try to alias back to initialDistinctId (should fail — both already identified)
+            // Both persons must be identified before attempting to alias back to initialDistinctId.
             await ingester.handleKafkaBatch(
                 createKafkaMessages(
                     [

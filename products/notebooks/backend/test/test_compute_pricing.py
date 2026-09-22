@@ -1,7 +1,10 @@
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -16,6 +19,7 @@ from products.notebooks.backend.compute_pricing import (
 )
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config
 from products.notebooks.backend.models import KernelRuntime, Notebook
+from products.tasks.backend.facade.sandbox import SandboxStatus
 
 
 class TestComputePricing(SimpleTestCase):
@@ -313,6 +317,30 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         payload = self.client.get(f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/kernel/status/").json()
 
         assert payload["hourly_price"] == get_compute_rates().hourly_price(cpu_cores=8, memory_gb=16)
+
+    @parameterized.expand(
+        [
+            ("past_its_lifetime_right_after_use", -60, "timed_out"),
+            ("stopped_before_its_lifetime", 1800, "stopped"),
+        ]
+    )
+    @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
+    def test_status_times_out_a_kernel_at_its_lifetime_not_after_its_last_use(
+        self, _name: str, seconds_until_lifetime_ends: int, expected_status: str, mock_runtime: MagicMock
+    ) -> None:
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, kernel_cpu_cores=1, kernel_memory_gb=2)
+        runtime = self._live_kernel(notebook)
+        KernelRuntime.objects.filter(pk=runtime.pk).update(
+            sandbox_id="sb-notebook-kernel",
+            last_used_at=timezone.now(),
+            ttl_expires_at=timezone.now() + timedelta(seconds=seconds_until_lifetime_ends),
+        )
+        sandbox_class = mock_runtime.return_value.service._get_sandbox_class.return_value
+        sandbox_class.get_by_id.return_value.get_status.return_value = SandboxStatus.SHUTDOWN
+
+        payload = self.client.get(f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/kernel/status/").json()
+
+        assert payload["status"] == expected_status
 
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
