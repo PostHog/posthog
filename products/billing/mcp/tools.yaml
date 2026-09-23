@@ -48,24 +48,6 @@ tools:
     billing-alerts-update:
         operation: billing_alerts_update
         enabled: false
-    billing-catalog-get:
-        operation: billing_products_catalog_retrieve
-        enabled: true
-        scopes:
-            - billing:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get the product catalog
-        description: >
-            Every product with its add-ons and the names of its features, without prices or plans. Use it to find the
-            product, add-on or feature a question is about. A product or add-on says whether the organization subscribes
-            to it. A feature says whether it is available to the organization, trials and overrides included, and lists
-            the add-ons that carry it. For prices and plans, pass the product key to billing-product-get. Readable by
-            any member. Beta: behind the organization-billing-api flag, and the output shape may change while it is.
-        feature_flag: organization-billing-api
-        url_prefix: /organization/billing/overview
     billing-coupons-claim-create:
         operation: billing_coupons_claim_create
         enabled: false
@@ -211,13 +193,31 @@ tools:
         title: Get one product
         description: >
             One product by key, for example product_analytics or session_replay, with its add-ons, features, price
-            schedule and subscribed state. Call billing-catalog-get first to find the key. Pass include_plans=true for
-            the plan list. Readable by any member. Beta: behind the organization-billing-api flag, and the output shape
-            may change while it is.
+            schedule and subscribed state. Call billing-products-summary-get first to find the key. Pass
+            include_plans=true for the plan list. Readable by any member. Beta: behind the organization-billing-api
+            flag, and the output shape may change while it is.
         feature_flag: organization-billing-api
     billing-products-list:
         operation: billing_products_list
         enabled: false
+    billing-products-summary-get:
+        operation: billing_products_catalog_retrieve
+        enabled: true
+        scopes:
+            - billing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get every product in summary
+        description: >
+            Every product with its add-ons and the names of its features, without prices or plans. Use it to find the
+            product, add-on or feature a question is about. A product or add-on says whether the organization subscribes
+            to it. A feature says whether it is available to the organization, trials and overrides included, and lists
+            the add-ons that carry it. For prices and plans, pass the product key to billing-product-get. Readable by
+            any member. Beta: behind the organization-billing-api flag, and the output shape may change while it is.
+        feature_flag: organization-billing-api
+        url_prefix: /organization/billing/overview
     billing-projects-list:
         operation: billing_project_list
         enabled: true
@@ -393,8 +393,8 @@ tools:
             startup program labels and billing provider. One small read, readable by any member. Use it to answer "what
             plan is this organization on", "when does the billing period end" or "is there an active trial". For usage
             against limits call billing-usage-summary-get; to find a product, add-on or feature call
-            billing-catalog-get; for feature access call billing-features-get. Beta: behind the organization-billing-api
-            flag, and the output shape may change while it is.
+            billing-products-summary-get; for feature access call billing-features-get. Beta: behind the
+            organization-billing-api flag, and the output shape may change while it is.
         feature_flag: organization-billing-api
         url_prefix: /organization/billing/overview
     billing-subscription-switch-plan-create:

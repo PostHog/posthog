@@ -259,7 +259,7 @@ class BillingProductsSerializer(serializers.Serializer):
 
 class BillingCatalogFeatureSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="The feature key.")
-    name = serializers.CharField()
+    name = serializers.CharField(help_text="The feature name, as the billing page shows it.")
     included = serializers.BooleanField(
         help_text="Whether the feature is available to the organization, trials and overrides included."
     )
@@ -271,19 +271,32 @@ class BillingCatalogFeatureSerializer(serializers.Serializer):
 
 class BillingCatalogAddonSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="The add-on key.")
-    name = serializers.CharField()
-    description = serializers.CharField(allow_blank=True)
-    subscribed = serializers.BooleanField(allow_null=True, help_text="Whether the organization subscribes to it.")
+    name = serializers.CharField(help_text="The add-on name, as the billing page shows it.")
+    description = serializers.CharField(allow_blank=True, help_text="What the add-on does.")
+    subscribed = serializers.BooleanField(
+        allow_null=True, help_text="Whether the organization subscribes to the add-on."
+    )
 
 
 class BillingCatalogProductSerializer(BillingCatalogAddonSerializer):
     key = serializers.CharField(help_text="The product key. Pass it to the product route for prices and plans.")
-    addons = BillingCatalogAddonSerializer(many=True)
-    features = BillingCatalogFeatureSerializer(many=True)
+    name = serializers.CharField(help_text="The product name, as the billing page shows it.")
+    description = serializers.CharField(allow_blank=True, help_text="What the product does.")
+    subscribed = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "Whether the organization subscribes to the product. Null for an inclusion-only product that carries no "
+            "price of its own, such as Platform and support, where the plan the organization is on is what counts."
+        ),
+    )
+    addons = BillingCatalogAddonSerializer(many=True, help_text="The product's add-ons.")
+    features = BillingCatalogFeatureSerializer(
+        many=True, help_text="The features the product and its add-ons carry, each one listed once."
+    )
 
 
 class BillingCatalogSerializer(serializers.Serializer):
-    results = BillingCatalogProductSerializer(many=True)
+    results = BillingCatalogProductSerializer(many=True, help_text="Every product in the catalog.")
 
 
 class UsageKeySummarySerializer(serializers.Serializer):

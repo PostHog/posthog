@@ -12,21 +12,6 @@ import {
 import { omitResponseFields, withInformationalResponse, type WithInformationalResponse } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const BillingCatalogGetSchema = () => z.object({})
-
-const billingCatalogGet = (): ToolBase<ReturnType<typeof BillingCatalogGetSchema>, Schemas.BillingCatalog> => ({
-    name: 'billing-catalog-get',
-    schema: BillingCatalogGetSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof BillingCatalogGetSchema>>) => {
-        const orgId = await context.stateManager.getOrgID()
-        const result = await context.api.request<Schemas.BillingCatalog>({
-            method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/billing/products/catalog/`,
-        })
-        return result
-    },
-})
-
 const BillingFeaturesGetSchema = () => z.object({})
 
 const billingFeaturesGet = (): ToolBase<ReturnType<typeof BillingFeaturesGetSchema>, Schemas.BillingFeatures> => ({
@@ -137,6 +122,24 @@ const billingProductGet = (): ToolBase<ReturnType<typeof BillingProductGetSchema
             query: {
                 include_plans: params.include_plans,
             },
+        })
+        return result
+    },
+})
+
+const BillingProductsSummaryGetSchema = () => z.object({})
+
+const billingProductsSummaryGet = (): ToolBase<
+    ReturnType<typeof BillingProductsSummaryGetSchema>,
+    Schemas.BillingCatalog
+> => ({
+    name: 'billing-products-summary-get',
+    schema: BillingProductsSummaryGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof BillingProductsSummaryGetSchema>>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const result = await context.api.request<Schemas.BillingCatalog>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/billing/products/catalog/`,
         })
         return result
     },
@@ -467,12 +470,12 @@ const billingUsageTimeseriesGet = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'billing-catalog-get': billingCatalogGet,
     'billing-features-get': billingFeaturesGet,
     'billing-forecast-get': billingForecastGet,
     'billing-limits-get': billingLimitsGet,
     'billing-overview-get': billingOverviewGet,
     'billing-product-get': billingProductGet,
+    'billing-products-summary-get': billingProductsSummaryGet,
     'billing-projects-list': billingProjectsList,
     'billing-spend-get': billingSpendGet,
     'billing-spend-summary-get': billingSpendSummaryGet,

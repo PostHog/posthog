@@ -15478,10 +15478,12 @@ export namespace Schemas {
     export interface BillingCatalogAddon {
       /** The add-on key. */
       key: string;
+      /** The add-on name, as the billing page shows it. */
       name: string;
+      /** What the add-on does. */
       description: string;
       /**
-         * Whether the organization subscribes to it.
+         * Whether the organization subscribes to the add-on.
          * @nullable
          */
       subscribed: boolean | null;
@@ -15490,6 +15492,7 @@ export namespace Schemas {
     export interface BillingCatalogFeature {
       /** The feature key. */
       key: string;
+      /** The feature name, as the billing page shows it. */
       name: string;
       /** Whether the feature is available to the organization, trials and overrides included. */
       included: boolean;
@@ -15500,18 +15503,23 @@ export namespace Schemas {
     export interface BillingCatalogProduct {
       /** The product key. Pass it to the product route for prices and plans. */
       key: string;
+      /** The product name, as the billing page shows it. */
       name: string;
+      /** What the product does. */
       description: string;
       /**
-         * Whether the organization subscribes to it.
+         * Whether the organization subscribes to the product. Null for an inclusion-only product that carries no price of its own, such as Platform and support, where the plan the organization is on is what counts.
          * @nullable
          */
       subscribed: boolean | null;
+      /** The product's add-ons. */
       addons: BillingCatalogAddon[];
+      /** The features the product and its add-ons carry, each one listed once. */
       features: BillingCatalogFeature[];
     }
 
     export interface BillingCatalog {
+      /** Every product in the catalog. */
       results: BillingCatalogProduct[];
     }
 
