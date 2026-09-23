@@ -1,354 +1,258 @@
 # Capture outputs refactor — implementation plan
 
-Working contract for implementation agents. Steps 1–8 have shipped; each remaining step is one commit in its own PR.
+Working contract for implementation agents. Steps 1–8 have shipped. Each remaining step is one commit in its own PR.
 
-**Retirement.** This doc dies when it schedules nothing and owns no unsequenced objective. Step 17 closes the first objective (the manual fallback); the second (one produce surface) and third (automated fallback) are then sequenced in order by scheduling their steps, parity proofs intact. Whatever is still load-bearing at the end — the vocabulary rules, the ordering-vs-person-processing contract, the repartitioning design note — graduates into module docs or `v1/sinks/DESIGN.md` first, and only work serving no objective leaves as issues.
+This doc is deleted when it schedules nothing. Step 17 closes objective 1; objectives 2 and 3 are then scheduled in order. Before deletion, the parts still needed — the vocabulary rules, the ordering-vs-person-processing contract, the repartitioning note — move into module docs or `v1/sinks/DESIGN.md`, and unscheduled work becomes issues.
 
-## Motivation
+## Objectives
 
-**Three objectives, one mechanism: configuration lives with what uses it — a named producer owns its connection, an output owns its topics and names its producer.**
+1. **Manual fallback.** If MSK degrades, capture-analytics can produce to another cluster, with its own brokers, TLS, and topic names. One environment variable and a pod roll arm it, and boot-time checks prove the configuration is sound before any traffic moves. Steps 9–17.
+2. **One produce surface.** The v1 stack is live: capture-analytics and capture-import serve `/i/v1/analytics/events` through it, and capture-ai serves `/i/v1/ai/events`. It publishes through its own sinks, so a fallback in the outputs layer does not move its traffic. This objective moves v1 onto the outputs layer and deletes the v1 sink stack. Steps 18–21.
+3. **Automated fallback, capture side.** A separate circuit-breaker service decides when to switch. Capture sends producer health, receives switch signals, and applies them at runtime without a redeploy. Consumers are out of scope. It comes last because an automatic switch that moves only part of the traffic is worse than the manual one. Steps 22–24.
 
-**Objective 1 — ship a manual fallback.** If MSK degrades, capture-analytics must be able to produce to an alternative cluster — its brokers, its TLS, its own topic names — armed by one environment variable and a pod roll, and we must know the configuration is sound before any traffic moves. Running capture against a half-wired cluster is the risk this objective removes, and the boot-time checks that remove it (Steps 14 and 15) are only buildable once configuration is isolated per producer and output (Steps 9 and 10) and demanded per mode (Step 13): a single deployment-wide `KafkaConfig` with ten defaulted topic names is exactly what a startup check cannot verify, and a check that demands all ten rows on every pod can be armed nowhere. Steps 9–17 are its remaining work; Step 16 is the feature.
+All three use one mechanism:
 
-**Objective 2 — one produce surface.** The v1 stack is live in production — capture-analytics and capture-import serve `/i/v1/analytics/events` through it, capture-ai serves `/i/v1/ai/events` — and it publishes through its own sinks, so a fallback wired into the outputs layer moves none of its traffic. Convergence is therefore coverage, not hygiene. Objective 1 already puts both stacks on one config model (Step 11); this objective finishes the job — one publish surface, per-event results, the legacy v1 sink stack deleted (Steps 18–21).
+- A **producer** is named, holds only connection config, and is instantiated once.
+- An **output** holds its own topic names and the name of the producer it publishes through.
+- Every output a deployment can reach must be fully configured.
+- Each output's topics are checked against its producer's broker at boot.
 
-**Objective 3 — prepare capture for an automated fallback.** The switch decision moves to a separate circuit-breaker service; how that service decides is not this plan's concern. Capture's side of the contract is narrow: submit producer health metrics, receive switch signals, and apply a signal at runtime through the failover output it already has — no redeploy. Consumers are out of scope throughout; this plan is capture prep. Sequenced last: an automatic switch that moves only half the produce paths would be worse than the manual one, so objective 2 comes first.
+A fallback is then a configuration of an output's targets, not a new code path. `Output::failover` already composes two outputs; it needs targets that can be configured independently, and for objective 3, a target selection that can change at runtime.
 
-The mechanism all three objectives ride is the same: producers are named, carry their own connection configuration, and are instantiated once; an output pairs its own topic configuration with the name of the producer it publishes through; every output a deployment can reach must be fully configured; and each output's topics are verified against its producer's broker at boot. A fallback — manual or signal-driven — is then *a configuration of an output's targets*: no new policy, no new trait, no per-feature code path. `Output::failover` already composes two arbitrary outputs (Step 7); what it lacks is targets configurable independently of each other, and, for objective 3, a target selection that can change while the process runs.
+Today this is not possible. One deployment-wide `KafkaConfig` holds ten topic names, each with a compiled-in default, so a boot check cannot tell a configured topic from a missing one. The existing completeness flag demands all ten on every pod, so no deployment can enable it.
 
-Safety is why this plan is mostly refactoring. Moving production traffic between clusters tolerates no ambient state and no half-understood code path, so every step is one small commit, parity-proven by the Step-1 goldens, revertible by plain revert — and the steps that read as pure structure are what make the boot checks and the runtime switch possible at all.
-
-Steps 1–8 landed the structure: routing is a pure function, the lane decision is pipeline-layer code, sinks are backend mechanism over prepared payloads, and the outputs layer owns multi-target policy behind one produce surface. Cluster migration by split/dual-write and a protobuf cutover behind the serialization seam stay recorded under **Deferred work**: real, unscheduled, and cheaper once outputs are independently configurable, not more expensive.
+Every step is a small commit, proven by the Step-1 goldens, and reverted by plain revert. Cluster migration by split or dual-write, and a protobuf cutover, stay under **Deferred work**.
 
 ## Target architecture
-
-Layer `rust/capture`'s produce path with one-way dependencies, publishing through a pool of named producers:
 
 ```text
 edge              → Pipeline {Analytics, Ai, Heatmaps, Warnings, ErrorTracking, Replay}
 pipeline steps    → stamp intent (restrictions, overflow, historical)
 lane resolution   → Address {(Pipeline, Lane {Main, Overflow, Historical}) | Dlq | Custom(topic)}
-                     + key policy + headers
+                     + ordering guarantee + headers
 outputs           → Address → output = 1..n targets + selection policy
-                     (single | failover(health) | split(token) | dual-write(pct));
+                     (single | failover | split | dual-write);
                      target = own topics + a named producer
-serialization     → per-output: format (json | protobuf…) × envelope (none | lz4);
-                     stamps content-type/encoding headers; produces sink-agnostic payload
-sinks             → single backend: wrap payload into wire record (topic/key vs object key),
-                     enqueue, ack. Kafka, S3, print, noop.
-producers         → named connections (brokers, TLS, tuning), instantiated once;
+serialization     → per output: format (json | protobuf…) × envelope (none | lz4);
+                     stamps content-type/encoding headers
+sinks             → one backend: build the wire record, enqueue, ack. Kafka, S3, print, noop.
+producers         → named connections (brokers, TLS, tuning), instantiated once,
                      shared by every output that names them
 ```
 
-- **Pipeline** is decided at the edge (endpoint + event name) — the high-level "which product stream is this" classification.
-- **Lane** is decided once, at the end of a pipeline, by folding the intent stamped during processing (restrictions, overflow reasons, historical flag) through one precedence chain. Today that chain is `route()` inside the Kafka sink; it moves up and runs before anything is serialized.
-- **Output** is the named destination an event is published to, addressed by `(Pipeline, Lane)`. An output owns 1..n targets and the policy that picks between them per batch. All multi-target behavior lives here and only here. A target pairs its own topic names with the name of the producer it publishes through; connection config lives with the producer, never the output.
-- **Serialization** is a contract with the *consumers of a destination*, not a property of a transport. Each output names its format and envelope; the produced payload is sink-agnostic bytes plus the content headers that let old and new encodings coexist on a topic during migration (the existing replay lz4 `content-encoding` design, generalized).
-- **Sink** is a single backend. It turns an addressed, serialized payload into its wire shape and acks it. It reads no event metadata and makes no decision.
-- **Producer** is a named connection — brokers, TLS, client tuning — configured under its own namespace and instantiated once per deployment, the Node.js ingestion `KafkaProducerRegistry` model. Outputs reference producers by name and share the instance; no output opens its own connection. The ingestion-warnings producer (fire-and-forget, its own hosts) stays outside this model.
-
-## Starting point
-
-Steps 1–8 have shipped. Every v0 call site publishes through `OutputRegistry::publish`, which holds one deployment-wide `Output`: a Kafka leaf, or Kafka→S3 failover. The Kafka sink still resolves each event's address during prep and reads its topics from the one `KafkaConfig`, whose ten required topics all have compiled-in defaults. The v1 stack (enabled per deployment by `CAPTURE_V1_SINKS`) runs its own serialize-then-publish pipeline with a per-event response model.
+- **Pipeline** is decided at the edge, from endpoint and event name.
+- **Lane** is decided once, by `pipeline::resolve`, from the intent stamped during processing. Precedence: dlq > custom > historical > overflow > main.
+- **Output** is the destination for a `(Pipeline, Lane)`. It owns 1..n targets and the policy that picks between them per batch. All multi-target behavior lives here.
+- **Serialization** is a contract with a destination's consumers, not with a transport. Content headers let old and new encodings share a topic during a migration, as replay's lz4 `content-encoding` does today.
+- **Sink** is one backend. It turns a serialized payload into its wire shape and acks it. It makes no routing decision.
+- **Producer** is a named connection, configured under its own namespace, like Node.js ingestion's `KafkaProducerRegistry`. Outputs share producers by name and never open their own connection. The ingestion-warnings producer (fire-and-forget, its own hosts) stays outside this model.
 
 ### Vocabulary rules
 
-- An event's **Address** is a lane of its pipeline (lanes become typed per pipeline at Step 12 — `AnalyticsLane`, `AiLane`, `SessionReplayLane`, `BasicLane` — so invalid pairs are unrepresentable), or an admin **custom redirect** that carries its own topic outside the lane model. Pipeline and lane kind are projections; construction goes through `resolve`. Never reintroduce a flat destination enum that conflates pipeline and lane.
-- **Output** = the addressed destination: targets + selection policy + serializer. **OutputRegistry** = the `(Pipeline, Lane)` → output mapping; per-mode from Step 13. The Step-3 **TopicTable** (destination → topic) is absorbed into the registry's targets.
-- **Destination** = a routed topic slot (`AnalyticsMain`, `Dlq`, `AiEvents`, `Custom`). One word across both stacks: v0's `sinks::registry::Destination` and v1's `v1::sinks::types::Destination` are the same concept and converge at Steps 19–21. Never name a backend policy tree an `Output` *and* a routed topic an `Output`.
-- **Sink** = backend mechanism. Kafka, S3, print, noop. Nothing else is a sink; a thing that picks between sinks is an output policy.
-- **Producer** = a named, once-instantiated connection. Producer config never carries topic names, and an output block never carries connection config; an output that must move clusters changes which producer name it points at.
-- **Serializer** = format × envelope. Formats and envelopes compose; neither knows about sinks or outputs.
+- **Address** = a lane of a pipeline, or an admin redirect (`Dlq`, `Custom(topic)`) outside the lane model. Construct it only through `resolve`. Never reintroduce a flat enum that mixes pipeline and lane.
+- **Output** = targets + selection policy + serializer. **OutputRegistry** = the `(Pipeline, Lane)` → output map. The Step-3 **TopicTable** is absorbed into the registry's targets.
+- **Destination** = a routed topic slot. v0's `sinks::registry::Destination` and v1's `v1::sinks::types::Destination` are the same concept and merge at Steps 19–21. Never call both a policy tree and a routed topic an `Output`.
+- **Sink** = backend mechanism. Anything that picks between sinks is an output policy.
+- **Producer** config never carries topic names, and output config never carries connection config. An output moves clusters by naming a different producer.
+- **Serializer** = format × envelope. Neither knows about sinks or outputs.
 
 ### Invariants
 
-- Metric names and labels stay stable: `capture_events_rerouted_*`, `capture_primary_sink_health`, `capture_fallback_sink_failovers_total`, `capture_event_batch_size`. Renames are out of scope for every step.
-- Wire parity is proven by the Step-1 goldens and existing endpoint/integration tests passing **unmodified**, except where a step explicitly says otherwise.
+- Metric names and labels stay stable: `capture_events_rerouted_*`, `capture_primary_sink_health`, `capture_fallback_sink_failovers_total`, `capture_event_batch_size`.
+- Wire parity: the Step-1 goldens and existing endpoint and integration tests pass **unmodified**, unless a step says otherwise.
 - Never mix a mechanical move with a behavior change in one commit.
-- Every step ships green (`cargo test -p capture`, clippy `-D warnings`, fmt) and rolls back by plain revert.
-- The per-event response model (v1 `BatchResponse`) stays out of scope until objective 2 (Step 18); call sites keep folding per-event results into today's whole-request `CaptureError`.
+- Every step ships green (`cargo test -p capture`, clippy `-D warnings`, fmt).
+- Call sites keep the whole-request `CaptureError` until Step 18.
 - No new sink code reads `ProcessedEventMetadata`. The Kafka sink's prep path is the one remaining reader; Step 25 removes it.
 
-## Objective 1 — ship a manual fallback
+## Starting point
 
-Steps 1–8, shipped, landed the structure this objective stands on. The remaining committed work is a mechanism, not a feature: producers own their connections, outputs own their topics and name their producer. Once that holds, an emergency fallback to another cluster is *a configuration of an output's targets* rather than a code path — which is what the target architecture said all along.
+Steps 1–8 shipped the structure:
 
-Each step is small, ships green, and reverts by plain revert. Steps 9–11 put every output — v1's included — on one config model; Steps 12 and 13 make the reachable set a type; Steps 14 and 15 are the checks that type makes possible; Step 16 is the fallback itself; Step 17 removes what it replaces.
+- **1** — `assert_routing` goldens pin topic, partition key, headers, and reroute counters for every pipeline and lane.
+- **2, 5** — routing is the pure `pipeline::resolve(&metadata, ai_events_overflow_armed) -> AddressDecision { address, ordering }`. The Kafka sink still calls it during prep.
+- **3** — `TopicTable` maps each `Destination` to a topic. `check_complete` refuses to boot on an empty topic, behind `CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED` (default off).
+- **4** — `serialization`: `Format` × `Envelope` → `Serializer`.
+- **6** — the `Sink` trait takes `PreparedPayload`s. Kafka's `prepare_batch` is an inherent method.
+- **7** — `outputs.rs`: `Output` is a leaf or a `failover` over two outputs. `FallbackSink` is deleted. Accepted metric change: `capture_event_batch_size` now records on the S3 fallback path and on print/noop single sends.
+- **8** — every v0 call site publishes through `OutputRegistry::publish`. `State.outputs` is a concrete `Arc<OutputRegistry>`. The v0 `Event` trait is deleted. `kafka_send` stays on the one-event path: removing it adds a task spawn per event and drops the `ack_wait_one` span, so Step 25 takes it.
 
-### Step 1 · Consolidate the routing golden oracle
+Today the registry holds one deployment-wide `Output`: a Kafka leaf, or Kafka→S3 failover. v1 (`CAPTURE_V1_SINKS`) runs its own serialize-then-publish pipeline with per-event results.
 
-The `assert_routing` suite pins topic + partition key + every stamped header + the rerouted counters for all pipelines and lanes. It is the parity instrument for every later step.
+## Objective 1 — manual fallback
 
-### Step 2 · Extract routing into a pure `route()`
-
-`route(&ProcessedEventMetadata, ai_events_overflow_armed) -> Result<Route { target, ordering }, CaptureError>`, consulted by the sink.
-The decision is the target `Output` plus the customer-facing `OrderingGuarantee` the sink realizes as a partition key; side effects are implied by the target rather than carried as decision data, the AI overflow valve rides in as an explicit argument to keep the function pure, and a replay decision with no session id is rejected rather than returned unrealizable.
-This is the function Step 5 hoists out of the sink into lane resolution.
-
-### Step 3 · `TopicTable` + startup completeness check
-
-One destination→topic wiring point plus refuse-to-boot on a blank topic, gated behind `CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED` (default off; Step 14 replaces the flag).
-Step 7 absorbs it into the `OutputRegistry`; the mode-scoped demand is folded in at Step 14, where `(Pipeline, Lane)` makes the per-mode reachable set explicit.
-
-### Step 4 · Serialization layer: format × envelope
-
-- **Goal.** New `serialization` module: `Format` (event → payload bytes + `content-type`) with `Json` as the only impl, `Envelope` (bytes → bytes + `content-encoding`) with `None` and `Lz4` (the replay 4-byte LE size-prefix block format, moved verbatim), and a `Serializer` composing one of each. `prepare_record` calls the serializer instead of inlining `serde_json::to_string` + the lz4 branch. Replay's serializer is `Json × Lz4` when `kafka_replay_envelope_compression` says so; everything else `Json × None`.
-- **Explicitly not in the serializer:** partition keys, routing headers, topics. Bytes and content headers only.
-- **Files.** `rust/capture/src/serialization/` (new); `rust/capture/src/sinks/kafka.rs` (`prepare_record` consumes it).
-- **Parity proof.** Step-1 goldens unmodified — including the lz4 goldens and `content-encoding` assertions. New unit tests on format/envelope composition.
-- **Risk / rollback.** Low — mechanical hoist. Revert.
-- **Size.** M.
-
-### Step 5 · `Pipeline` + `Lane`; the lane decision becomes pipeline-layer code
-
-- **Goal.** Introduce the address pair and relocate the decision logic:
-  - `Pipeline { Analytics, Heatmaps, Warnings, ErrorTracking, Replay }` (`Ai` joined later, with the AI lane) (`Pipeline::from_data_type` extracts the pipeline half of `DataType`).
-  - `Lane { Main, Overflow, Historical }`, with `Address` carrying the admin redirects (`Dlq`, `Custom(topic)`) outside the lane model.
-  - `pipeline::resolve(&ProcessedEventMetadata) -> Result<AddressDecision { address, ordering }, CaptureError>` — Step-2's `route()` moved out of the sink module wholesale, precedence unchanged (dlq > custom > historical > overflow > main), pure (no counters, no headers, no I/O). `OrderingGuarantee` moves with it as decision *data*.
-  - The sink keeps a private `output_for((pipeline, lane)) -> Output` bridge and still *invokes* `resolve` from its prep path — the invocation site moves up in Step 7 when the outputs layer exists to own it. This keeps the commit a pure relocation: no metadata changes, no call-site changes, goldens byte-identical.
-- **Files.** `rust/capture/src/pipeline.rs` (new); `rust/capture/src/sinks/kafka.rs` (drops `route()`/`Route`/`OrderingGuarantee`, gains the `output_for` bridge); `rust/capture/src/lib.rs`.
-- **Parity proof.** Step-1 goldens unmodified. `route()`'s precedence tests move to `pipeline::tests` with assertions preserved, plus a pipeline classification test.
-- **Risk / rollback.** Low-medium — mechanical relocation. Revert.
-- **Size.** M/L.
-
-### Step 6 · Narrow the Kafka sink to backend mechanism
-
-- **Goal.** New `sinks/sink.rs`: `PreparedPayload { uuid, record: ProduceRecord }` (serialized, addressed) is the sink input; `trait Sink { publish(Vec<PreparedPayload>) -> Vec<SinkResult>; flush() }` — no prepare on the trait, no metadata access — plus `Outcome` and `fold_results` (first failure wins). Kafka: `prepare_batch` (serial <8 / scatter-gather ≥8, fail-fast) extracted from `send_batch` as an inherent method the outputs layer will call; `impl Sink` = serial enqueue + fail-fast ack drain, reporting batch-uniform per-event results (the per-event surface refines only with the response model). `Event::send_batch` becomes the bridge: prep → publish → fold. Kafka only — s3/print/noop gain mechanism impls with the outputs layer, which is what needs them.
-- **Sequencing decision.** `FallbackSink` is never ported onto the mechanism trait: the outputs layer owns multi-target policies (single | failover) from its first commit, built from the same config, and the Event-era composite is deleted when its last caller migrates. `SplitKafkaSink` is already gone — deleted with the retired AI secondary-cluster routing — so split survives only as a policy shape the outputs layer grows back when a cluster migration needs it.
-- **Files.** `rust/capture/src/sinks/sink.rs` (new), `rust/capture/src/sinks/kafka.rs`, `rust/capture/src/sinks/mod.rs`.
-- **Parity proof.** Step-1 goldens + `send_batch` three-phase suite unmodified (they now drive prep → publish → fold — the exact production path).
-- **Risk / rollback.** Medium-high — core mechanism. Revert.
-- **Size.** L.
-
-### Step 7 · Outputs layer with policies; composites retired
-
-- **Goal.** New `outputs` module — the produce surface, with multi-target policy ownership from day one:
-  - `Output`: a single backend, or a policy composing two *outputs* — today `failover` (health-gated Kafka→S3: skip primary while the advisory handle is unhealthy, re-publish the batch on a retriable failure, fatal never fails over). Targets are outputs themselves, so a future policy (a split for the next cluster migration) composes over pairs the way the old composites did. Policies operate on *events*, before prep — each target resolves topics and serializes for itself, exactly like the old per-sink `send_batch` paths, so parity is structural.
-  - Leaves run the dance internally via the `pub(crate)` `PublishEvents` trait (prep → publish → fold); no caller ever sees a two-phase protocol.
-  - `OutputRegistry`: the `(pipeline, lane)` → output handle the state holds; degenerate today (one deployment-wide output; per-lane topics resolve in prep via the `TopicTable`).
-  - `setup::create_output` builds the policy tree from the same config; **`FallbackSink` is deleted**, its tests re-expressed on `Output` with assertions preserved (+ a new fatal-no-failover case).
-  - Call sites are untouched: the table serves them through a transitional `Event` facade (which records `capture_event_batch_size`, where the old sink impls recorded it). Migration is Step 8.
-  - The facade is the only `dyn Event` the production call sites see, so the per-sink `Event` impls on s3, print, and noop are deleted here rather than rewired onto `PublishEvents`. `Event` survives only where callers still need it: the Kafka bridge and `MockSink`, both consumed by tests that Step 8 retypes.
-- **Files.** `rust/capture/src/outputs.rs` (new); `rust/capture/src/setup.rs`; `rust/capture/src/sinks/{mod,s3,print,noop,test_sink}.rs` (mechanism + `PublishEvents` impls); `fallback.rs` deleted.
-- **Parity proof.** Goldens + all integration suites unmodified. Known metrics-only deltas, accepted: the batch-size histogram now records on the fallback-to-S3 path (it silently didn't before), and print/noop single sends record it (they didn't).
-- **Risk / rollback.** Medium. Revert.
-- **Size.** L.
-
-### Step 8 · Call sites migrate to the table; `Event` retired
-
-- **Goal.** All four call sites (`events/analytics.rs`, `ai_endpoint.rs`, `otel/mod.rs`, `events/recordings.rs`) publish via `OutputRegistry::publish`, recording `capture_event_batch_size` at the call site; `State` and test mocks retype; then delete the v0 `Event` trait, its `Box<T>` blanket, the outputs facade, and the `Event` impls on Kafka, S3, print, noop, and the test mock.
-- **`State` drops its trait object.** `State.sink: Arc<dyn Event>` becomes `State.outputs: Arc<OutputRegistry>` — a concrete type, since `Output::single` already accepts any leaf. The substitution seam moves down to the leaf: `PublishEvents` and `Output::single` become `pub` so the `tests/` suites can stand their own capturing sinks in (`test_sink` is `cfg(test)`-gated and unreachable from there), and pipeline tests drive the real table and policy path instead of bypassing the outputs layer.
-- **`kafka_send` survives this step.** It is not reachable only from `Event::send`: `PublishEvents::publish_events` calls it on its one-event branch, and that is the production single-event path (recordings publishes one event per call). Deleting it means re-expressing that branch over `prepare_batch` + `Sink::publish` + `fold_results`, which adds a task spawn per single event and drops the `ack_wait_one` span — a behavior change, and this step is a mechanical move. Step 25 retires it with the prep hoist.
-- **Parity proof.** All endpoint/integration suites green; grep proves `Event` call-site-free before the deletion half.
-- **Size.** M/L. May split into per-call-site commits if the diff grows.
+Steps 9–11 put every output, v1's included, on one config model. Steps 12–13 make the set of reachable outputs a type. Steps 14–15 are the checks that type allows. Step 16 is the fallback. Step 17 deletes what it replaces.
 
 ### Step 9 · Named producers, instantiated once
 
-- **Goal.** Producers become named resources, mirroring the Node.js ingestion model (`KafkaProducerRegistry`): each producer is declared under its own env namespace (`CAPTURE_PRODUCER_<NAME>_*`), carries only connection config — brokers, TLS, client tuning — and is instantiated exactly once at startup; everything publishing through it holds the shared handle. The connection half of the deployment-wide `KafkaConfig` becomes the config of one named producer, and behavior is byte-identical.
-- **Why connections split from outputs.** Two outputs on the same cluster must not open two connections, and an output moving to another cluster must not drag its neighbors along — sharing by name makes both properties structural instead of setup-time bookkeeping. The namespaced parsing is v1's pattern (`Envconfig::init_from_hashmap` under a name prefix, as `CAPTURE_V1_SINK_MSK_KAFKA_HOSTS` → key `HOSTS` does today), reused rather than paralleled.
-- **Parity proof.** Step-1 goldens and integration suites unmodified; a construction test pins one producer instance in the no-override configuration.
+- **Goal.** Each producer is declared under `CAPTURE_PRODUCER_<NAME>_*`, holds only connection config (brokers, TLS, client tuning), and is instantiated once at startup. The connection half of `KafkaConfig` becomes one named producer. Behavior is byte-identical.
+- **Why.** Two outputs on one cluster must share one connection, and moving one output to another cluster must not move the others. Sharing by name makes both structural.
+- **How.** Reuse v1's namespaced parsing: `Envconfig::init_from_hashmap` under a name prefix, as `CAPTURE_V1_SINK_MSK_KAFKA_HOSTS` → `HOSTS` works today.
+- **Parity proof.** Goldens and integration suites unmodified. A construction test pins one producer instance in the default configuration.
 - **Size.** M.
 
 ### Step 10 · An output owns its topics and names its producer
 
-- **Goal.** Every leaf output is built from an output-scoped config block carrying that output's own topic names and the name of the producer it publishes through — instead of reading the one deployment-wide `KafkaConfig`. Connection config never appears in an output block: two outputs in the same tree can name different producers (different clusters) or the same one (one shared connection), and neither consults global state to find out where it produces.
-- **v1 keeps one model to converge onto.** `v1::sinks::kafka::Config` bundles connection and topics per sink. Splitting v0 into named producers and output blocks, reusing v1's namespaced parsing, keeps Step 11 a mapping onto one shared shape rather than a reconciliation of three. Topic defaults survive this step — deleting them is Step 14's job, once the reachable set is typed.
-- **Why this is the whole mechanism.** `Output::failover` already composes two arbitrary outputs (Step 7). It is typed Kafka→S3 today only because `setup` builds it that way. Once a leaf pairs its own topics with a producer name, a second cluster is one more named producer plus an output block naming it — a `setup` change and a values file, with no new trait and no per-feature plumbing.
+- **Goal.** Each leaf output is built from its own config block: its topic names and a producer name. It no longer reads `KafkaConfig`. Two outputs can name different producers (different clusters) or the same one (one connection).
+- **Why this is the whole mechanism.** `Output::failover` is Kafka→S3 only because `setup` builds it that way. After this step, a second cluster is one more producer and one more output block: a `setup` change and a values file.
+- **Topic defaults stay** until Step 14.
 - **Size.** M.
 
-### Step 11 · v1 converges on the shared config strata
+### Step 11 · v1 joins the shared config model
 
-- **Goal.** v1 joins the producers-and-outputs model: each `CAPTURE_V1_SINK_*` config splits into a named producer and that sink's output topic rows; v1's `Destination` bridges to `(Pipeline, Lane)`; v1 topic resolution goes through the shared table; v1's `serialize_batch` uses the Step-4 serializer. The v1 `Sink`/`Router` trait convergence stays with objective 2 (Steps 18–21).
-- **Why it sits here.** After Steps 9 and 10 a destination is topics plus a producer name everywhere but v1, whose per-sink config still bundles the two. Convergence is cheapest immediately after Step 10 and gets dearer with every step built over a model v1 has not joined — so it lands before the registry types and boot checks, which then demand and probe v1's topics too.
-- **Parity proof.** `v1_pipeline` and `v1_sink_integration` unmodified, plus `overflow_parity.rs` unmodified. That suite drives both pipelines end to end over the overflow and rate-limit matrix and is the oracle for the ordering-vs-person-processing contract this step has to carry across (see the Hazard note under "v1 convergence on the outputs machinery"). Both paths already share `OrderingGuarantee` from `crate::ordering`.
+- **Goal.** Each `CAPTURE_V1_SINK_*` config splits into a named producer and that sink's topic rows. v1's `Destination` maps to `(Pipeline, Lane)`, v1 resolves topics through the shared table, and `serialize_batch` uses the Step-4 serializer. v1's `Sink`/`Router` traits stay until objective 2.
+- **Why here.** v1's per-sink config is the last place that bundles connection and topics. Every later step built on a model v1 has not joined makes this step larger. Landing it before Steps 13–15 means those checks cover v1's topics too.
+- **Parity proof.** `v1_pipeline`, `v1_sink_integration`, and `overflow_parity.rs` unmodified. `overflow_parity.rs` is the oracle for the ordering contract in the Step 19 hazard note.
 - **Size.** M/L.
 
 ### Step 12 · Typed per-pipeline lanes
 
-- **Goal.** Lanes become types per pipeline — `AnalyticsLane`, `AiLane`, `SessionReplayLane`, `BasicLane` — so invalid `(pipeline, lane)` pairs are unrepresentable: the rest of the vocabulary rules above, made code (admin redirects already sit outside the lane model as `Address::Dlq` / `Address::Custom`). There is no `AiLane::Historical` — the AI divert wins over historical, matching v1. Pipeline and lane kind become projections.
-- **Why it sits here.** Step 13's registry rows demand topics per lane. With the flat `Lane`, the set of valid lanes per pipeline is runtime knowledge, and the registry keeps a fatal backstop for pairs routing never produces. Typed lanes make the demand total: the fields a row requires are exactly the addresses that exist.
-- **Scope.** The address model only.
-- **Parity proof.** Step-1 goldens unmodified; `resolve` precedence tests retyped with assertions preserved.
+- **Goal.** Replace the flat `Lane` with `AnalyticsLane`, `AiLane`, `SessionReplayLane`, `BasicLane`, so invalid `(pipeline, lane)` pairs cannot be built. There is no `AiLane::Historical`: the AI divert wins over historical, as in v1.
+- **Why.** Step 13's registry rows need one field per lane that exists. With a flat `Lane`, the registry needs a runtime error for pairs routing never produces.
+- **Parity proof.** Goldens unmodified; `resolve` precedence tests retyped with the same assertions.
 - **Size.** M/L.
 
 ### Step 13 · Per-mode output registries
 
-- **Goal.** The deployment's output registry becomes a concrete type per capture mode — `AnalyticsFamilyOutputs` (analytics, ai, heatmaps, warnings, error tracking rows) for Events/Ai/Import pods, `SessionReplayOutputs` for Recordings pods — with required fields, so the narrow list of what a deployment must wire is the type itself. Rows share producers by name — every row naming the same producer publishes through the one instance — so per-row policy trees behave as the single pre-table output did.
-- **Why it sits here.** Step 14's demand is per mode. Without registry types that demand is a hand-written `CaptureMode` → reachable-set map — the unarmable completeness flag reborn as glue the types would later delete. With them, the reachable set *is* the type, and Step 14 reduces to deleting defaults.
-- **Scope.** The registry types and their construction in `setup`. Binding handlers to sealed publish-capability traits over a generic `State<T>` stays deferred as Step 28.
-- **Parity proof.** Step-1 goldens and integration suites unmodified; per-mode construction tests.
+- **Goal.** One registry type per capture mode, with required fields: `AnalyticsFamilyOutputs` (analytics, ai, heatmaps, warnings, error tracking) for Events, Ai, and Import pods, and `SessionReplayOutputs` for Recordings pods. Rows naming the same producer share its one instance.
+- **Why.** Step 14 demands configuration per mode. Without these types, that demand is a hand-written mode → outputs map. With them, the type is the list.
+- **Out of scope.** Binding handlers to capability traits over a generic `State<T>` (Step 28).
+- **Parity proof.** Goldens and integration suites unmodified; per-mode construction tests.
 - **Size.** L.
 
 ### Step 14 · A reachable output must be configured
 
-- **Goal.** The configuration an output requires is required in code: an output the deployment's `CaptureMode` can reach must be fully configured — topics, and a producer name the deployment defines — or capture refuses to boot. Unreachable outputs are not asked for at all — a Recordings pod is never asked to name an error-tracking topic, because its Step-13 registry type has no such row.
-- **Defaults go.** The `#[envconfig(default = ...)]` on each topic field is what makes a missing or misspelled variable resolve to a compiled-in name instead of failing. A reachable output's topics stop being defaulted; an absent or empty value is a boot failure, which is the behaviour the check was always meant to have.
-- **Supersedes** the deployment-wide `CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED` flag, which demands all ten destinations on every pod and so can be armed nowhere.
-- **Parity proof.** Per-mode refusal tests, and anti-over-demand tests proving a mode is never asked for an output it cannot reach.
+- **Goal.** An output the deployment's mode can reach must have its topics and a defined producer name, or capture refuses to boot. An unreachable output is never asked for: a Recordings pod has no error-tracking row.
+- **Defaults go.** Delete `#[envconfig(default = ...)]` from reachable outputs' topic fields. Today a missing or misspelled variable silently resolves to a compiled-in name.
+- **Replaces** `CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED`.
+- **Parity proof.** Per-mode refusal tests, and tests proving no mode is asked for an output it cannot reach.
 - **Size.** M.
 
-### Step 15 · Verify an output's topics against its producer's broker
+Example of what this catches: until [charts#14941](https://github.com/PostHog/charts/pull/14941) (2026-09-01), capture-replay set its overflow topic under `KAFKA_OVERFLOW_TOPIC`, which replay does not read. Replay overflow went to the default `session_recording_snapshot_item_overflow`, and nothing failed. Step 14 refuses that at boot.
 
-- **Goal.** At boot, probe each reachable output's cluster metadata for the topics that output can produce to, and refuse to start on a missing one. Per output, against the broker of the producer it names — one probe per distinct producer — so a fallback pointed at a half-provisioned cluster fails before it can take traffic.
-- **Why it is separate from Step 14.** Step 14 is config-only and never touches a broker: it answers "is this wired", instantly, with no connect attempt. Step 15 answers "does this exist on the cluster we are about to produce to", which is the question that matters when the cluster is one this deployment has never written to.
-- **Default off**, armed per deployment: on brokers with topic auto-creation the metadata probe can create the topic it is checking, which makes a pass meaningless.
+### Step 15 · Check each output's topics against its producer's broker
+
+- **Goal.** At boot, read cluster metadata for every topic each reachable output can produce to, once per distinct producer, and refuse to start on a missing topic.
+- **Why separate from Step 14.** Step 14 checks config and never connects. Step 15 checks that the topics exist on the cluster, which matters most for a cluster this deployment has never written to.
+- **Off by default**, enabled per deployment: on brokers with topic auto-creation, the metadata request can create the topic it checks.
 - **Size.** M.
 
-### Step 16 · The capture-analytics emergency fallback
+### Step 16 · capture-analytics emergency fallback
 
-The consumer of Steps 9, 10, 14, and 15, and the reason they exist.
-
-- **Shape.** The deployment's outputs tree carries *both* Kafka outputs: the primary and a fallback. Each names its own producer, configured under that producer's Step-9 namespace (own brokers, own TLS), and carries its own topic names — the backup cluster does not have to mirror the primary's topic names, and should not have to.
-- **Arming.** One environment variable, matched exactly against a sentinel — not a truthy value. `"1"`, `"true"`, `"yes"` must not move a fleet's traffic, and any value other than the sentinel refuses to boot rather than quietly running on the primary. Unset is normal operation.
-- **The switch is static at boot.** Exactly one target publishes; arming means setting the variable and rolling the pods. This is deliberate: the failure it answers is "MSK is degraded and a human has decided to move", not a transient the process should react to on its own. Automatic switching is objective 3, and builds on this step's tree.
-- **Both targets are verified, including the dormant one.** capture-analytics turns Step 15's check on, and the tree holds the fallback whether or not it is armed, so every boot probes the fallback's cluster and topics. A misconfigured backup is then discovered on an ordinary deploy, months before the emergency — which is the entire point. Discovering it while arming is discovering it too late.
-- **Report which target is live** on a gauge, emitted in both states so a dashboard can tell "on the primary" from "pod not reporting".
-- **Scope.** capture-analytics. Other capture modes carry no fallback output and are not asked to configure one (Step 14).
-- **Known gaps to carry, not solve here.** Consumers have no equivalent switch, so a repoint is not symmetric; capture-import writes the same topics and must be stopped before any drain-to-zero gate; the AI lane's bridges read MSK-era names. And until Step 20, an armed fallback moves only traffic that publishes through the outputs layer — the v1 slice stays on the primary. These belong in the runbook, not the code.
+- **Shape.** The capture-analytics output tree holds two Kafka outputs, primary and fallback. Each names its own producer (own brokers, own TLS) and its own topic names. The fallback cluster does not have to copy the primary's topic names.
+- **Arming.** One environment variable, matched exactly against a sentinel value. `"1"`, `"true"`, or `"yes"` does not arm it; any value other than the sentinel refuses to boot. Unset is normal operation.
+- **Static at boot.** One target publishes; switching means setting the variable and rolling the pods. A person decides to move off a degraded MSK. Automatic switching is objective 3.
+- **The idle fallback is checked on every boot.** capture-analytics enables Step 15, and the tree always holds the fallback, so a broken fallback config fails an ordinary deploy, not the emergency.
+- **Gauge** for the live target, emitted in both states, so a dashboard can tell "on primary" from "not reporting".
+- **Scope.** capture-analytics only. Other modes have no fallback output and are not asked to configure one.
+- **Known gaps, for the runbook.** Consumers have no matching switch. capture-import writes the same topics and must be stopped before any drain-to-zero check. The AI lane's bridges read MSK topic names. Until Step 20, v1 traffic stays on the primary.
 - **Size.** M.
 
-### Step 17 · Retire the S3 fallback
+### Step 17 · Delete the S3 fallback
 
-- **Goal.** Delete `S3Sink`, its `PublishEvents` impl, the `s3_fallback_*` config, and the Kafka→S3 failover wiring in `setup`.
-- **Why it is safe.** It is off in every production deployment: six `S3_FALLBACK_ENABLED: "false"` across the charts apps against one `"true"`, and that one is `apps/capture-analytics/values.dev.yaml`. The capture-import values note the IAM role is "wired but unused". Retiring it removes dead break-glass machinery, not a live safety net.
-- **Why Step 16 replaces it.** A second Kafka cluster keeps events in the pipeline — consumers read them normally. S3 parks them behind a separate replay path that has never been exercised in production.
-- **The trade, stated plainly.** S3 failover is *automatic*: the advisory health handle flips and the fallback takes the batch, with no human and no redeploy. Step 16 is *configuration*: arm and roll. Retiring S3 therefore gives up an automatic response — one that is currently disabled everywhere, so nothing running is lost, but the capability is. Getting it back, done properly, is objective 3: the breaker service's signals drive Step 16's fallback through the Step-22 seam; the policy node already composes two outputs.
-- **Cross-repo.** Six chart values, the `CaptureAnalyticsV0S3FallbackActive` alert spec and its runbook, and the IAM role in cloud-infra all go with it.
+- **Goal.** Delete `S3Sink`, its `PublishEvents` impl, the `s3_fallback_*` config, and the Kafka→S3 wiring in `setup`.
+- **Why it is safe.** No production deployment enables it. The charts set `S3_FALLBACK_ENABLED: "false"` in six values files and `"true"` only in `apps/capture-analytics/values.dev.yaml`.
+- **Why Step 16 replaces it.** A second Kafka cluster keeps events flowing to consumers. S3 needs a separate replay path that has never run in production.
+- **What is lost.** S3 failover is automatic; Step 16 is manual. No deployment uses the automatic path today, but the capability goes. Objective 3 brings it back through Step 22.
+- **Cross-repo.** The seven charts values entries, the `CaptureAnalyticsV0S3FallbackActive` alert spec and runbook, and the IAM role in cloud-infra.
 - **Size.** M.
 
-### What Steps 14 and 15 would already have caught
+## Objective 2 — one produce surface (unscheduled)
 
-Until [charts#14941](https://github.com/PostHog/charts/pull/14941) (2026-09-01), capture-replay set its overflow topic under `KAFKA_OVERFLOW_TOPIC`, which replay does not read. `KAFKA_REPLAY_OVERFLOW_TOPIC` was unset, so replay overflow went to the compiled-in `session_recording_snapshot_item_overflow` and nothing failed.
-
-Step 14 fails that at boot: a reachable output with no configured topic. Step 15 fails it too, if the defaulted name is absent from the cluster.
-
-## Objective 2 — one produce surface (unsequenced)
-
-v1 publishes through the shared outputs machinery and the legacy v1 sink stack is deleted, so every policy — the manual fallback, and later the signal-driven switch — applies to all capture traffic uniformly. Objective 1's Step 11 does the config-level convergence; these steps finish it, sequenced when objective 1 closes.
+Scheduled when objective 1 closes.
 
 ### Step 18 · Per-event publish results
 
-`OutputRegistry::publish` reports per-event `SinkResult`s, with a provided fold collapsing to the v0 whole-request response for the call sites that keep it. This is the response-model gate that kept full convergence deferred: v1's `BatchResponse` needs per-event granularity, and after this step nothing is missing it.
+`OutputRegistry::publish` returns per-event `SinkResult`s, with a fold to the whole-request `CaptureError` for v0 call sites. v1's `BatchResponse` needs this before it can move.
 
-### v1 convergence on the outputs machinery (Steps 19–21)
+### Steps 19–21 · v1 publishes through the outputs layer
 
-Goal: v1 endpoints publish through the outputs layer like every other ingress, so fallback/split/dynamic policies apply uniformly. Plan:
+1. **Boundary mapping (19).** After v1 processing, map each publishable `WrappedEvent` to a `ProcessedEvent` whose metadata makes `resolve` reproduce v1's decision: AnalyticsMain → main, Overflow → `force_overflow`, Historical → historical data type, Dlq → `redirect_to_dlq`, Custom → `redirect_to_topic`. `Destination::Drop` events never reach the outputs layer.
+2. **Named outputs (20).** Each `CAPTURE_V1_SINKS` name becomes an output row built from that sink's config. The v1 `Router`, `Sink`, and `Event` traits and `serialize_batch` are deleted (21).
+3. **Parity (19, 21).** `v1_pipeline` and `v1_sink_integration` pass against the new path: payload bytes, headers, topics, keys. Known v1-vs-v0 header differences are kept in the mapping. The old serializer and header builder survive only as a frozen `cfg(test)` oracle.
 
-1. **Boundary mapping (19).** After v1 processing (destination decided, result stamped), map each publishable `WrappedEvent` into `ProcessedEvent`: the existing v1 serialize path already produces CapturedEvent-compatible payloads, so the mapping builds the `CapturedEvent` plus a `ProcessedEventMetadata` that makes `pipeline::resolve` reproduce the decided destination (AnalyticsMain → main; Overflow → force_overflow; Historical → historical data type; Dlq → redirect_to_dlq; Custom → redirect_to_topic). `Destination::Drop` events never reach the outputs layer — dropping is a processing decision, recorded in the response.
-2. **Named surfaces (20).** `CAPTURE_V1_SINKS` names become named output rows, each built from that sink's config; the v1 `Router`/`Sink`/`Event` traits and `serialize_batch` dissolve.
-3. **Parity oracle (19, 21).** The v1 pipeline tests and the real-Kafka `v1_sink_integration` suite must pass against the converged path — payload bytes, headers, topics, keys. Documented v1-vs-v0 header deltas (overflow/person-processing decoupling) must be preserved in the mapping, not silently erased. The legacy serializer/header builder survive only as a frozen `cfg(test)` oracle (`legacy_serialize`/`legacy_headers`) the parity suite compares against.
+**Hazard: overflow carries two separate decisions.** Whether person processing is disabled (the `force_disable_person_processing` header, which customers see) and whether the partition key is dropped (`OrderingGuarantee`, a load decision). Both stacks follow one rule:
 
-**Hazard.** The `Destination::Overflow` → metadata mapping must preserve the split between the two intents that ride together on this lane: whether person processing is disabled (a customer-visible instruction, the `force_disable_person_processing` header) and whether the partition key is dropped (a load decision, `OrderingGuarantee`). Both paths now state the same rule, so the mapping has one contract to satisfy rather than two dialects to reconcile:
+- The header follows the person-processing flag. A `ForceLimited` reason implies the flag (`person_processing_disabled`). v1 has no reason on the event; its one stamping site sets the flag.
+- The key is dropped on the analytics main and overflow lanes when the flag is set, and on the AI overflow lane when the flag or a spread decision is set. Nowhere else. Analytics consumers update persons by distinct id, so a person-on burst keeps its key; the AI overflow consumer only reads persons. Historical, dlq, custom, and AI main always keep the key.
 
-- The header follows the stamped person-processing intent: the flag, which a `ForceLimited` reason implies on its own (`person_processing_disabled`), so a v0 stamping site cannot keep person processing on for a force-limited key by forgetting the flag.
-  v1 carries no reason on the event — its one stamping site sets the flag directly.
-- The key is dropped on the analytics main/overflow lanes when the person-processing flag is set, and on the AI overflow lane when either the flag or a spread decision is set — nowhere else.
-  The analytics consumers update persons keyed on distinct id, so a person-on burst keeps its key there (spreading one distinct id across partitions contends those updates); the read-only AI overflow consumer takes keyless person-on records safely.
-  Historical, dlq, custom redirects and the AI main topic keep the key regardless.
+Extend `overflow_parity.rs` with the mapped v1 destinations; it pins lane, key presence, and header for both stacks.
 
-`overflow_parity.rs` is the oracle: it drives both pipelines over the overflow and rate-limit matrix and pins lane, key presence, and header. Extend it with the mapped v1 destinations rather than reasoning about the two paths separately.
+**Accepted differences:** `sent_at` fractional-second formatting (parses equal; v1 adopts v0's serializer), and v1's own sink metrics (`capture_v1_serialize_*`, per-sink publish metrics), replaced by the outputs-layer metrics.
 
-**Accepted deltas:** `sent_at` fractional-second formatting (parse-equal; v1 adopts v0's serializer) and the v1 sink-stage metrics (`capture_v1_serialize_*`, per-sink publish metrics), superseded by the outputs-layer metrics.
+## Objective 3 — automated fallback (unscheduled)
 
-## Objective 3 — automated fallback (unsequenced)
+A separate circuit-breaker service decides; how it decides is out of scope. Capture sends producer health and receives switch signals. These steps are scheduled with parity proofs once objectives 1 and 2 close.
 
-Capture's half of an automated fallback, and nothing more. The decision-maker is a separate circuit-breaker service; its internals — how it aggregates, when it trips, whether and how it probes — are outside this plan, and so are consumers. Capture's contract with the service is two channels: producer health metrics out, switch signals in. These steps are scheduled, with parity proofs, when the objectives before them close; until then they are shapes, not commitments.
+### Step 22 · Failover target selection at runtime
 
-### Step 22 · Failover target selection behind a control-plane seam
+The failover output's target selection becomes swappable state with no lock on the request path. Step 16's arming sets its boot value. A signal switches the target. No signal, or an unreachable control plane, keeps the current target: missing information must never move traffic. The Step-16 gauge reports the live target. With no service configured, behavior matches Step 16 exactly.
 
-The failover output's target selection becomes runtime-swappable state — no request-path locks, the pattern the repartitioning note reuses — with Step 16's static arming as the boot value. Applying a signal switches which target publishes; no signal, or a silent, dead, or unreachable control plane, holds the current selection, because the absence of a decision must never move traffic. The Step-16 live-target gauge reports whichever selection is in force. Dark: with no service endpoint configured, behavior is byte-identical to Step 16's static switch.
+### Step 23 · Producer health out
 
-### Step 23 · Producer health metrics out
-
-Each named producer reports its own produce-path health — delivery latency, error rates, queue depth — keyed by producer name, so the service sees the path each deployment actually experiences, the dormant fallback's producer included. Transport and cadence are sequencing-time decisions; the standing requirements are per-producer attribution and that reporting failure never degrades the produce path.
+Each named producer reports delivery latency, error rate, and queue depth under its name, including the idle fallback producer. Transport and cadence are decided when scheduled. Reporting must never slow the produce path.
 
 ### Step 24 · Switch signals in
 
-Capture receives switch signals from the service and feeds them to the Step-22 seam, acknowledging what it applied. The Step-16 arming variable stays authoritative as the manual override — a human's static decision outranks the service in both directions; exact precedence is settled at sequencing time.
-
-An earlier in-process breaker step (`FailoverMode::Breaker`) dissolved into this contract: trip/probe/recover logic is the service's concern, not capture's. What survives of it is the control-plane seam and the control-plane-down posture, both carried by Step 22.
+Capture applies the service's switch signals through Step 22 and acknowledges them. The Step-16 variable stays the manual override and outranks the service; exact precedence is decided when scheduled. The breaker logic that an earlier plan put inside capture (`FailoverMode::Breaker`) belongs to the service.
 
 ## Deferred work
 
-Not scheduled, and serving no objective directly. Revive a step by moving it under an objective above, with its parity proof intact. Step 31 is superseded rather than deferred — its boot verification became Step 15, and retargeting a row is plain configuration once outputs own their config (Steps 10 and 13).
+Unscheduled. To revive a step, move it under an objective with its parity proof.
 
-### Prep hoists into the outputs layer; `PublishEvents` retired (Step 25)
+### Step 25 · Prep moves into the outputs layer; `PublishEvents` deleted
 
-- **Goal.** Sinks take prepared payloads as input, full stop. `PrepSpec` (registry + per-destination serializers) moves payload assembly — lane resolution, serialization, header stamps, topic and partition key, and the scatter-gather batch prep — into the outputs layer; the `(pipeline, lane)` → output bridge and the `TopicTable` move with it (`outputs::topics`). The `PublishEvents` trait is deleted; every backend (Kafka, S3, print, noop) preps identically via its output's spec, and the Kafka sink is reduced to producer + enqueue + ack drain. The boot completeness check moves to `setup::create_output`.
-- **Test posture change (deliberate).** Capturing mocks intercept *published payloads*, not `ProcessedEvent`s, so ~60 assertions that read metadata stamps migrate to wire-level outcomes: topic, partition key, headers, and payload bytes (deserialized for content checks). The declarative `ExpectedEvent` checkers recompute the expected record from the same expectations, so test bodies stay put. Wire-level assertions also pin a semantic the metadata-level ones couldn't see: replay events redirected to dlq/custom topics partition on the event key, not the session id.
-- **Known deltas, accepted:** print/noop deployments run the real prep path (lane effects and their counters included), and prep can fail there (e.g. `MissingSessionId`) where the old passthrough couldn't. The prep histograms keep their `capture_kafka_*` names for dashboard continuity.
-- **Files.** `outputs/mod.rs`, `outputs/registry.rs` (moved), `sinks/*`, `setup.rs`, all capturing test mocks.
+- **Goal.** Sinks take only prepared payloads. A `PrepSpec` (registry + per-destination serializers) moves lane resolution, serialization, headers, topic, partition key, and batch prep into the outputs layer, with the `TopicTable` (`outputs::topics`). Every backend preps the same way; the Kafka sink keeps only producer, enqueue, and ack.
+- **Tests.** Capturing mocks see published payloads, not `ProcessedEvent`s, so about 60 metadata assertions become wire-level (topic, key, headers, payload). The `ExpectedEvent` checkers rebuild the expected record, so test bodies stay the same. This also pins that replay events redirected to dlq/custom partition on the event key, not the session id.
+- **Accepted differences.** print/noop run the real prep path, so they can now fail prep (e.g. `MissingSessionId`). Prep histograms keep their `capture_kafka_*` names.
 - **Size.** L.
 
-### Handlers bound by publish capabilities (Step 28)
+### Step 28 · Handlers bound by publish capabilities
 
-The half of the per-mode registries Step 13 leaves behind: handlers bind on sealed capability traits (`PublishesAnalyticsFamily`, `PublishesSessionReplay`); `State<T>` goes generic over the Step-13 registry and `setup` instantiates the monomorphized router per `CaptureMode` (`router` for the analytics family, `session_replay_router` for recordings) — mounting an ingress on a table that cannot publish its family is a compile error, and the registry's runtime fatal backstop for a pipeline without a row goes structurally dead.
+Handlers bind on sealed traits (`PublishesAnalyticsFamily`, `PublishesSessionReplay`). `State<T>` is generic over the Step-13 registry, and `setup` builds the router per mode. Mounting an ingress on a registry that cannot publish its pipeline becomes a compile error.
 
-### Per-pipeline output overrides and boot verification (Step 31 — superseded)
+### Steps 33–34 · Outputs as an open trait
 
-Each row of a deployment's table can be retargeted independently: `CAPTURE_OUTPUT_<PIPELINE>_BROKERS` points a pipeline's row at another cluster, `CAPTURE_OUTPUT_<PIPELINE>_TOPIC_<LANE>` renames a lane's topic in that row's namespace (existing `KAFKA_*` keys stay the defaults). The row factory builds one sink per pipeline, each with its own `TopicTable` (base config overlaid with that pipeline's overrides via `TopicTable::with_overrides`); producers are shared per distinct broker set, so the no-override configuration still opens exactly one connection. The gating liveness handle lands on the cluster carrying the deployment's ingress pipeline; other clusters' producers are non-gating. Overrides compose only with the plain per-row Kafka path — combining them with S3 fallback or AI secondary routing is refused at boot, since those policy trees assume every row shares one primary cluster.
+`Outputs` becomes an open trait replacing the closed policy enum: `KafkaOutputs`, `S3Outputs`, `PrintOutputs`/`NoopOutputs`, and `FailoverOutputs`/`SplitOutputs` over `Arc<dyn Outputs>`. Sinks become pure transport and never see an `Address`. A test-only prototype (`outputs::dynamic`, Step 34) has `DynamicKafkaOutputs` take config pushes from an in-process `KafkaManagerService` and switch topics and brokers partition by partition.
 
-`CAPTURE_VERIFY_TOPICS_ON_BOOT` (default off) probes cluster metadata for every topic a row can produce to — pipeline-scoped (`TopicTable::topics_for_pipeline`), so an overridden row probes only its own cluster's namespace — and refuses to start on a missing topic. Off by default because brokers with topic auto-creation make the check misleading (the metadata probe itself can create the topic).
-
-### Outputs as an open trait (Steps 33–34)
-
-`Outputs` is an open trait — a produce surface handling every destination its configuration maps — replacing the closed policy enum. Implementations own payload assembly, namespace realization, backend composition, and policy: `KafkaOutputs` (one cluster: prep + address→topic table + transport sink), `S3Outputs`, `PrintOutputs`/`NoopOutputs`, `FailoverOutputs` and `SplitOutputs` (policies over `Arc<dyn Outputs>`), and the per-mode tables themselves (dispatch-by-pipeline is just another surface; capability traits are markers over `Outputs`). Sinks are pure transport and never see an `Address`: the Kafka sink publishes realized records (concrete topic, key, payload, headers); namespace realization lives in the outputs layer. Per-event publish results are Step 18, promoted into **Objective 2**.
-
-A test-only prototype (`outputs::dynamic`) demonstrates the coordinator-managed surface: `DynamicKafkaOutputs` subscribes to an in-process `KafkaManagerService` (RPC-shaped, acked config pushes) and applies broker add/remove and mapping changes with an enabled-partition set per address — the incremental, key-deterministic drain-and-switch — with tests simulating a topic switchover and a broker switchover end to end.
+Steps 27, 29, 30, and 32 are listed in the tracker only. Step 31 (per-pipeline overrides and boot topic checks) is superseded by Steps 10, 13, and 15.
 
 ## Repartitioning coordinator (design note)
 
-Not scheduled; this note records where it plugs in so nothing already landed has to move. The goal: switch a deployment between clusters partition by partition — drain-and-switch with minimal delay — driven by a coordinator, with sinks staying pure mechanism.
+Unscheduled. This records where a coordinator plugs in, so nothing already landed has to move. The goal: move a deployment between clusters one partition at a time, with a short hold per partition.
 
-**Logical shards, decided before the sinks.** The coordinator owns a stable shard function: `shard = hash(key) % N` over the same partition key the sink would hash, with coordinator-owned `N` (not either cluster's partition count). The shard is stamped at prep time — `PreparedPayload` grows `shard: Option<u32>`, `None` meaning "let the producer partition as today". Stamping at prep keeps the decision above the sinks: both clusters of a failover pair see the same shard on the same payload, so a switchover decision is consistent across targets by construction.
-
-**A `ShardRouted` output policy.** Routing lives in the outputs layer as a policy node holding two child outputs (old cluster, new cluster) and a swappable assignment table `shard → Old | New` (an `ArcSwap`, updated by the coordinator's control plane the same way the Step-22 control-plane seam works). Batch publish splits by assignment and forwards — scatter-gather like the old `Split` composite, no serialization changes (both clusters share the prep/serialization contract, as the retired AI-secondary split proved).
-
-**Explicit partition pass-through in the sink.** `ProduceRecord` grows `partition: Option<i32>`; the Kafka sink maps `shard` to a concrete partition of its own topic (its table realizes the namespace; a shard→ partition map is the same kind of sink-side data as topic names) and sets it on the record. `None` keeps today's key hashing. The sink still makes no routing decisions — it realizes an address (topic) and a shard (partition) in its own namespace.
-
-**Per-partition fence (drain-and-switch).** Moving shard `s` from Old to New, without reordering a key's events across clusters:
-
-1. **Swap** the assignment entry for `s` — new publishes head to New but are *held* (the policy parks `s`-payloads in a short buffer).
-2. **Quiesce**: wait for in-flight `s`-publishes accepted before the swap to resolve (the outputs layer already tracks per-payload acks — `SinkResult` — so this is a count, not a scan).
-3. **Flush** Old's producer for the affected partition (producer-level `flush`, already a `Sink` trait method).
-4. **Watermark**: record Old's end offset for the partition; the consumer side treats it as the fence — consume Old to the watermark, then start New. Only then release the held `s`-payloads to New.
-5. **Handoff complete**; rollback is the same protocol with Old/New reversed. Failure inside the fence window falls back to releasing to the still-assigned side (the swap is not observable until step 4 completes).
-
-The hold window is per-shard and bounded by one producer flush — that is the "minimal delay" drain. Shards move independently, so the deployment migrates partition by partition.
-
-**Keyless traffic needs no fence.** `OrderingGuarantee::None` payloads (anonymous analytics without ordering constraints) have no per-key ordering contract — they switch clusters with a bare assignment swap, no hold/flush/watermark. Replay is keyed by session and follows the fenced path; dlq/custom redirects partition on the event key (`token:distinct_id`), same as main.
-
-**Seam inventory:**
-
-- `PreparedPayload` — carries key + topic; grows `shard`.
-- Outputs policy tree — `ShardRouted` slots in beside single/failover/split.
-- The Step-22 control-plane seam — the pattern for the coordinator's assignment updates (swappable state, no request-path locks).
-- `ProduceRecord` — grows `partition`; sinks realize shard → partition.
-- Per-mode registry rows over per-output config (Steps 10 and 13) — a coordinator can retarget one pipeline's row without touching the rest of the deployment.
+- **Shards decided above the sinks.** The coordinator owns `shard = hash(key) % N`, over the same key the sink hashes, with its own `N`. `PreparedPayload` gets `shard: Option<u32>` at prep time, so both targets of a pair see the same shard.
+- **A `ShardRouted` output policy** holds two child outputs (old, new) and a swappable `shard → Old | New` table (`ArcSwap`, updated like Step 22). A batch splits by assignment.
+- **Partition pass-through.** `ProduceRecord` gets `partition: Option<i32>`; the Kafka sink maps shard to a partition of its topic. `None` keeps key hashing.
+- **Fence per shard `s`, Old → New:**
+  1. Swap the entry for `s`; new `s` payloads are held.
+  2. Wait for in-flight `s` publishes to Old to resolve (a count of `SinkResult`s).
+  3. Flush Old's producer.
+  4. Record Old's end offset as the consumer-side watermark: consumers read Old to it, then start on New. Release the held payloads to New.
+  5. Rollback runs the same steps in reverse. A failure before step 4 releases to the still-assigned side.
+- The hold lasts at most one producer flush per shard.
+- **Keyless payloads** (`OrderingGuarantee::None`) switch with a bare swap. Replay follows the fence (keyed by session). dlq/custom follow it too (keyed by `token:distinct_id`).
 
 ## End state
 
 When the three objectives close:
 
-- **Pipelines and lanes.** `pipeline::resolve` is the one lane decision (dlq > custom > historical > overflow > main), pure over `ProcessedEventMetadata`; `Pipeline`/`Lane` are the event's address.
-- **Outputs are the produce surface.** Every pipeline publishes through the `OutputRegistry`; the `Output` policy tree (single | failover) owns all multi-target behavior, composing the way the old sink composites did. The v0 `Event` trait and `FallbackSink` are gone; `SplitKafkaSink` already is, deleted with the retired AI secondary-cluster routing.
-- **Producers are named and shared.** Connection config lives with a named producer, instantiated once per deployment; an output pairs its own topics with a producer name, so pointing an output at another cluster is a name swap plus that producer's config block.
-- **Serialization is a seam.** Format × envelope per destination, with content headers carrying encoding coexistence (the lz4 replay design, generalized).
-- **Sinks are mechanism.** A sink publishes prepared payloads and makes no routing decisions.
-- **The failover switch is signal-drivable.** The failover output's target selection sits behind the Step-22 control-plane seam; a separate circuit-breaker service supplies the switch signals, capture supplies producer health, and a silent control plane holds the current target.
-- **One produce surface.** v1 publishes through the shared outputs machinery (Steps 19–21); the legacy v1 sink stack, its `Router`/`Sink` traits, and `serialize_batch` are gone.
+- `pipeline::resolve` is the one lane decision, pure over `ProcessedEventMetadata`.
+- Every pipeline, v0 and v1, publishes through the `OutputRegistry`. The `Output` policy tree owns all multi-target behavior. The v1 sink stack is gone.
+- Connection config lives with named producers. Pointing an output at another cluster means naming another producer.
+- Serialization is format × envelope per destination.
+- Sinks publish prepared payloads and make no routing decisions.
+- The failover target can be switched at runtime by the breaker service, and a silent control plane keeps the current target.
 
 ## Agent conventions
 
-**Build / test.** Run cargo as `flox activate -d <worktree root> -- cargo <cmd>` from `rust/`.
+Run cargo as `flox activate -d <worktree root> -- cargo <cmd>` from `rust/`. Each step must pass:
 
-**Acceptance per step:**
+- `cargo test -p capture`. Scope to the named suites if the full run is slow; the Step-1 goldens always run.
+- `cargo clippy -p capture --all-targets -- -D warnings`
+- `cargo fmt`
 
-- `flox activate -- cargo test -p capture` — scope to the named suites where the full run is slow; the Step-1 goldens always run.
-- `flox activate -- cargo clippy -p capture --all-targets -- -D warnings`
-- `flox activate -- cargo fmt`
-
-**Git.** The orchestrator commits each step; one step = one commit, subject from the tracker below. No `--no-verify` — pre-commit hooks must pass.
+One step = one commit, subject from the tracker. No `--no-verify`.
 
 ## Progress tracker
 
@@ -373,7 +277,7 @@ When the three objectives close:
 | 15 · Verify topics against the producer's broker | pending | `feat(capture): verify each output's topics against its producer's broker at boot` |
 | 16 · capture-analytics emergency fallback | pending | `feat(capture): emergency fallback output for capture-analytics` |
 | 17 · Retire the S3 fallback | pending | `refactor(capture): delete the s3 fallback output` |
-| 18 · Per-event publish results | objective 2 | `refactor(capture): Outputs::publish reports per-event results` |
+| 18 · Per-event publish results | objective 2 | `refactor(capture): OutputRegistry::publish reports per-event results` |
 | 19 · v1 boundary mapping + parity oracle | objective 2 | `feat(capture): v1 boundary mapping onto the shared produce interchange` |
 | 20 · v1 publishes through shared outputs | objective 2 | `feat(capture): v1 endpoints publish through the shared outputs machinery` |
 | 21 · Legacy v1 sink stack deleted | objective 2 | `refactor(capture): delete the legacy v1 sink stack` |
