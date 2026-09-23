@@ -30,6 +30,7 @@ from products.posthog_ai.backend.turn_suggestions.verdict import OfferKind, Turn
 from products.signals.backend.facade.api import scout_creation_available
 from products.tasks.backend.facade.api import (
     TaskClientProvenance,
+    get_task_run_log_size,
     get_task_run_log_urls,
     parse_task_run_log_entries,
     publish_task_run_stream_notification,
@@ -43,6 +44,9 @@ logger = structlog.get_logger(__name__)
 TURN_SUGGESTIONS_FLAG = "posthog-ai-turn-suggestions"
 TURN_SUGGESTION_METHOD = "_posthog/turn_suggestion"
 TURN_SUGGESTION_RESOLVED_METHOD = "_posthog/turn_suggestion_resolved"
+
+# Past this many log bytes the conversation gets no card: the fold holds every log in worker memory.
+MAX_TRANSCRIPT_LOG_BYTES = 16 * 1024 * 1024
 
 # The offers whose text a language model writes after the judgment picks them.
 _DRAFTED_OFFERS = frozenset({OfferKind.SCOUT, OfferKind.NOTEBOOK})
@@ -78,15 +82,20 @@ def _read_log_entries(log_urls: list[str]) -> list[dict]:
     return list(parse_task_run_log_entries(read_task_run_log_content(log_urls))) if log_urls else []
 
 
-def _load_transcript(task_run: TaskRun) -> TurnTranscript:
+def _load_transcript(task_run: TaskRun) -> TurnTranscript | None:
     """Fold the whole resume chain, because the thread counts turns across it.
 
     Earlier runs come from their S3 logs. The current run comes from its live Redis stream, which
-    has the whole current turn, or from its own log once the stream expired.
+    has the whole current turn, or from its own log once the stream expired. Returns ``None``
+    without reading any log when the logs to read are over ``MAX_TRANSCRIPT_LOG_BYTES``.
     """
     log_urls = get_task_run_log_urls(task_run.id, task_run.task_id, task_run.team_id) or []
     current_entries = read_task_run_stream_entries(task_run.id, task_run.task_id, task_run.team_id)
-    if not build_turn_transcript(current_entries).human_messages:
+    stream_has_turn = bool(build_turn_transcript(current_entries).human_messages)
+    logs_to_read = log_urls[:-1] if stream_has_turn else log_urls
+    if logs_to_read and get_task_run_log_size(logs_to_read) > MAX_TRANSCRIPT_LOG_BYTES:
+        return None
+    if not stream_has_turn:
         current_entries = _read_log_entries(log_urls[-1:])
     return build_turn_transcript([*_read_log_entries(log_urls[:-1]), *current_entries])
 
@@ -192,6 +201,8 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
         return _skipped(early_refusal.value)
 
     transcript = _load_transcript(task_run)
+    if transcript is None:
+        return _skipped("log_too_large")
     if not transcript.human_messages:
         return _skipped("no_user_message")
     turn_index = len(transcript.human_messages) - 1
