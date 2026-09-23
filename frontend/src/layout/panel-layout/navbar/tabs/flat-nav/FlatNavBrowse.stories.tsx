@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
 
 import { FlatNavBrowse } from './FlatNavBrowse'
 
@@ -24,3 +25,7 @@ const meta: Meta<typeof FlatNavBrowse> = {
 export default meta
 
 export const Default: Story = {}
+
+export const ActiveToolNotPinned: Story = {
+    parameters: { pageUrl: urls.workflows() },
+}
