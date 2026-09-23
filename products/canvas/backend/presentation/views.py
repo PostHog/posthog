@@ -97,7 +97,8 @@ from products.canvas.backend.presentation.serializers import (
     CanvasViewResponseSerializer,
     canvas_url,
 )
-from products.canvas.backend.source import apply_source_edits, has_errors, validate_source_project
+from products.canvas.backend.source import has_errors, validate_source_project
+from products.canvas.backend.source_edits import apply_source_edits
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response
 
