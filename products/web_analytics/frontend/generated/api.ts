@@ -404,7 +404,7 @@ export const savedCaptureCreate = async (
         savedHeatmapCaptureRequestApi.widths.forEach((value) => formData.append(`widths`, value.toString()))
     }
     formData.append(`url`, savedHeatmapCaptureRequestApi.url)
-    if (savedHeatmapCaptureRequestApi.data_url !== undefined && savedHeatmapCaptureRequestApi.data_url !== null) {
+    if (savedHeatmapCaptureRequestApi.data_url !== undefined) {
         formData.append(`data_url`, savedHeatmapCaptureRequestApi.data_url)
     }
     if (savedHeatmapCaptureRequestApi.name !== undefined) {

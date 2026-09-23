@@ -18,6 +18,9 @@ The `HeatmapEntitlementsLoading` Storybook story keeps the entitlement request p
 
 ## Saved heatmap data URLs
 
+Capture requests reject malformed data URLs, using the same URL validation as other saved heatmap writes.
+Wildcards in the URL path are supported.
+
 Saving a heatmap from the toolbar keeps the captured page URL separate from the heatmap data URL.
 The saved data URL preserves the toolbar's selected URL pattern, including wildcards, for both responsive captures and the single-width fallback.
 Capture requests without a data URL keep using the exact page URL.

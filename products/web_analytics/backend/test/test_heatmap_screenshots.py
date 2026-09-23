@@ -546,7 +546,7 @@ class TestHeatmapToolbarCapture(APIBaseTest):
         data.update(overrides)
         return self.client.post(f"/api/environments/{self.team.id}/saved/capture/", data, format="multipart")
 
-    @parameterized.expand([(None,), ("https://app.example.com/*",)])
+    @parameterized.expand([(None,), ("",), ("https://app.example.com/dashboard",), ("https://app.example.com/*",)])
     def test_capture_creates_completed_toolbar_heatmap_and_serves_bytes(
         self, mock_task: MagicMock, data_url: str | None
     ) -> None:
@@ -729,16 +729,17 @@ class TestHeatmapToolbarCapture(APIBaseTest):
 class TestSavedHeatmapCaptureRequestSerializer(SimpleTestCase):
     @parameterized.expand(
         [
-            ("wildcard", "https://app.example.com/*"),
-            ("javascript_scheme", "javascript:alert"),
-            ("ftp_scheme", "ftp://app.example.com/x"),
-            ("no_scheme", "app.example.com/x"),
+            ("wildcard", "url", "https://app.example.com/*"),
+            ("javascript_scheme", "url", "javascript:alert"),
+            ("ftp_scheme", "url", "ftp://app.example.com/x"),
+            ("no_scheme", "url", "app.example.com/x"),
+            ("invalid_data_url", "data_url", "not-a-url"),
         ]
     )
-    def test_rejects_invalid_url(self, _name: str, url: str) -> None:
-        serializer = SavedHeatmapCaptureRequestSerializer(data={"url": url})
+    def test_rejects_invalid_url(self, _name: str, field: str, url: str) -> None:
+        serializer = SavedHeatmapCaptureRequestSerializer(data={field: url})
         self.assertFalse(serializer.is_valid())
-        self.assertIn("url", serializer.errors)
+        self.assertIn(field, serializer.errors)
 
     @parameterized.expand(
         [

@@ -167,7 +167,9 @@ export const savedCaptureCreateBodyWidthsMax = 16
 
 export const savedCaptureCreateBodyUrlMax = 2000
 
-export const savedCaptureCreateBodyDataUrlMax = 2000
+export const savedCaptureCreateBodyDataUrlOneMax = 2000
+
+export const savedCaptureCreateBodyDataUrlTwoMax = 0
 
 export const savedCaptureCreateBodyNameMax = 400
 
@@ -201,9 +203,11 @@ export const SavedCaptureCreateBody = /* @__PURE__ */ zod.object({
         .max(savedCaptureCreateBodyUrlMax)
         .describe('Exact page URL the screenshot was captured on. Wildcards are not allowed.'),
     data_url: zod
-        .string()
-        .max(savedCaptureCreateBodyDataUrlMax)
-        .nullish()
+        .union([
+            zod.url().max(savedCaptureCreateBodyDataUrlOneMax),
+            zod.string().max(savedCaptureCreateBodyDataUrlTwoMax),
+        ])
+        .optional()
         .describe(
             'URL or wildcard pattern used to select the heatmap data overlaid on the screenshot. Defaults to the captured page URL when omitted or empty.'
         ),

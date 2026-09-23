@@ -1459,10 +1459,9 @@ class SavedHeatmapCaptureRequestSerializer(serializers.Serializer):
         max_length=2000,
         help_text="Exact page URL the screenshot was captured on. Wildcards are not allowed.",
     )
-    data_url = serializers.CharField(
+    data_url = serializers.URLField(
         required=False,
         allow_blank=True,
-        allow_null=True,
         max_length=2000,
         help_text="URL or wildcard pattern used to select the heatmap data overlaid on the screenshot. "
         "Defaults to the captured page URL when omitted or empty.",

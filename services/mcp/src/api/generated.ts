@@ -86531,12 +86531,8 @@ export namespace Schemas {
          * @maxLength 2000
          */
       url: string;
-      /**
-         * URL or wildcard pattern used to select the heatmap data overlaid on the screenshot. Defaults to the captured page URL when omitted or empty.
-         * @maxLength 2000
-         * @nullable
-         */
-      data_url?: string | null;
+      /** URL or wildcard pattern used to select the heatmap data overlaid on the screenshot. Defaults to the captured page URL when omitted or empty. */
+      data_url?: string;
       /**
          * Human-readable label for the saved heatmap. Defaults to the URL when omitted.
          * @maxLength 400
