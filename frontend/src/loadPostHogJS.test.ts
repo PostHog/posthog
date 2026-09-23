@@ -18,34 +18,59 @@ describe('loadPostHogJS', () => {
             [
                 'an HTTP error',
                 ['api_error_503'],
-                { $feature_flag_error: 'api_error_503', status: 503, reachedPostHog: true },
+                {
+                    $feature_flag_error: 'api_error_503',
+                    feature_flag_error_status: 503,
+                    feature_flag_request_reached_posthog: true,
+                },
             ],
-            ['a timeout', ['timeout'], { $feature_flag_error: 'timeout', status: null, reachedPostHog: false }],
+            [
+                'a timeout',
+                ['timeout'],
+                {
+                    $feature_flag_error: 'timeout',
+                    feature_flag_error_status: null,
+                    feature_flag_request_reached_posthog: false,
+                },
+            ],
             [
                 'a blocked request',
                 ['connection_error'],
-                { $feature_flag_error: 'connection_error', status: null, reachedPostHog: false },
+                {
+                    $feature_flag_error: 'connection_error',
+                    feature_flag_error_status: null,
+                    feature_flag_request_reached_posthog: false,
+                },
+            ],
+            [
+                'an unclassified transport failure',
+                ['unknown_error'],
+                {
+                    $feature_flag_error: 'unknown_error',
+                    feature_flag_error_status: null,
+                    feature_flag_request_reached_posthog: false,
+                },
             ],
             [
                 'several codes',
                 ['api_error_500', 'errors_while_computing_flags'],
                 {
                     $feature_flag_error: 'api_error_500,errors_while_computing_flags',
-                    status: 500,
-                    reachedPostHog: true,
+                    feature_flag_error_status: 500,
+                    feature_flag_request_reached_posthog: true,
                 },
             ],
             [
                 'no persisted codes',
                 undefined,
-                { $feature_flag_error: 'unknown_error', status: null, reachedPostHog: false },
+                {
+                    $feature_flag_error: 'unknown_error',
+                    feature_flag_error_status: null,
+                    feature_flag_request_reached_posthog: false,
+                },
             ],
         ])('describes %s', (_name, sdkErrors, expected) => {
-            expect(describeFeatureFlagsFailure(sdkErrors)).toEqual({
-                $feature_flag_error: expected.$feature_flag_error,
-                feature_flag_error_status: expected.status,
-                feature_flag_request_reached_posthog: expected.reachedPostHog,
-            })
+            expect(describeFeatureFlagsFailure(sdkErrors)).toEqual(expected)
         })
     })
 
