@@ -6,6 +6,8 @@ import pytest
 import time_machine
 from unittest.mock import patch
 
+from django.core.exceptions import ValidationError
+
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from clickhouse_driver.errors import NetworkError, SocketTimeoutError
@@ -306,6 +308,11 @@ class TestPrepareAlert:
         else:
             # Non-advancing skip branches must leave next_check_at untouched.
             assert refreshed.next_check_at == setup_kwargs.get("next_check_at")
+
+    async def test_failed_preparation_frees_the_slot(self) -> None:
+        with pytest.raises(ValidationError):
+            await ActivityEnvironment().run(prepare_alert, PrepareAlertActivityInputs(alert_id="not-a-uuid"))
+        assert count_inflight_evaluations() == 0
 
     async def test_skip_leaves_the_slot_a_later_attempt_holds(self, ateam) -> None:
         a = await _create_alert(ateam, enabled=False)

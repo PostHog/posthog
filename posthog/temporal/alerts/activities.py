@@ -314,10 +314,14 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
     # The scheduler's reservation names no owner, and prepare_alert runs without a heartbeat timeout,
     # so a timed-out attempt that finishes late would otherwise remove the lease a retried attempt holds.
     held_until = await asyncio.to_thread(hold_evaluation_slot, inputs.alert_id)
-    async with Heartbeater():
-        result = await _prepare()
-    if result.action != PrepareAction.EVALUATE:
-        await asyncio.to_thread(release_evaluation_slot, inputs.alert_id, held_until=held_until)
+    keep_slot = False
+    try:
+        async with Heartbeater():
+            result = await _prepare()
+        keep_slot = result.action == PrepareAction.EVALUATE
+    finally:
+        if not keep_slot:
+            await asyncio.to_thread(release_evaluation_slot, inputs.alert_id, held_until=held_until)
     return result
 
 
