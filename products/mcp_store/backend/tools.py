@@ -50,8 +50,11 @@ HANDSHAKE_TIMEOUT = 10
 CALL_TIMEOUT = 60
 
 # Bounds how often a cache miss can reach upstream, so a caller looping on a
-# name the server does not have cannot open a handshake per call.
-RESYNC_THROTTLE_SECONDS = 60
+# name the server does not have cannot open a handshake per call. A re-listing
+# is three requests at HANDSHAKE_TIMEOUT each, inside the request that refuses
+# the call, so the window is wide. A person who cannot wait it out presses
+# "Refresh tools", which lists upstream directly and ignores this.
+RESYNC_THROTTLE_SECONDS = 60 * 60
 
 
 class ToolsFetchError(Exception):
