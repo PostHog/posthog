@@ -4,6 +4,13 @@ import {
   validateChannelName,
 } from "@posthog/core/canvas/channelName";
 import {
+  emptySpaceSetupDraft,
+  type SpaceSetupDraft,
+  spaceSetupDraftMissingField,
+  spaceSetupDraftToInput,
+  spaceSetupNeedsRepository,
+} from "@posthog/core/canvas/spaceSetup";
+import {
   Button,
   Dialog,
   DialogBody,
@@ -27,6 +34,7 @@ import {
   Switch,
   Textarea,
 } from "@posthog/quill";
+import { SPACE_SETUP_FLAG } from "@posthog/shared";
 import {
   ANALYTICS_EVENTS,
   type ChannelsSurface,
@@ -34,13 +42,25 @@ import {
 import type { UserBasic } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import {
+  type CreateStep,
+  type CreateStepContext,
+  createStepDirection,
+  nextCreateStep,
+  previousCreateStep,
+} from "@posthog/ui/features/canvas/components/createChannelSteps";
 import { MemberList } from "@posthog/ui/features/canvas/components/MemberList";
 import { MemberSearch } from "@posthog/ui/features/canvas/components/MemberSearch";
+import { SpaceFeatureFields } from "@posthog/ui/features/canvas/components/spaceSetup/SpaceFeatureFields";
+import { SpaceGoalFields } from "@posthog/ui/features/canvas/components/spaceSetup/SpaceGoalFields";
+import { SpaceSetupChoiceField } from "@posthog/ui/features/canvas/components/spaceSetup/SpaceSetupChoiceField";
 import { useChannelMutations } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useGenerateContext } from "@posthog/ui/features/canvas/hooks/useGenerateContext";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
+import { useSetupSpace } from "@posthog/ui/features/canvas/hooks/useSetupSpace";
 import { useUpdateTaskChannelRepositories } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { RepositoriesField } from "@posthog/ui/features/integrations/components/RepositoriesField";
 import { AnimatedHeight } from "@posthog/ui/primitives/AnimatedHeight";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -60,9 +80,6 @@ const DESCRIPTION_EXAMPLES = [
 ];
 
 const DESCRIPTION_ROTATION_INTERVAL_MS = 5000;
-
-const CREATE_STEPS = ["name", "describe", "repositories", "members"] as const;
-type CreateStep = (typeof CREATE_STEPS)[number];
 
 const EASE_OUT: [number, number, number, number] = [0.215, 0.61, 0.355, 1];
 const EASE_IN_OUT: [number, number, number, number] = [0.645, 0.045, 0.355, 1];
@@ -119,6 +136,8 @@ export function CreateChannelModal({
   const spacesLayout = useChannelsLayout();
   const { createChannel, isCreating } = useChannelMutations();
   const { generate, isStarting } = useGenerateContext();
+  const { setup, isStarting: isSettingUp } = useSetupSpace();
+  const setupEnabled = useFeatureFlag(SPACE_SETUP_FLAG);
   const linkRepositories = useUpdateTaskChannelRepositories();
   const navigate = useNavigate();
   const [name, setName] = useState("");
@@ -130,6 +149,8 @@ export function CreateChannelModal({
   const [star, setStar] = useState(true);
   const [visibility, setVisibility] = useState<"public" | "private">("public");
   const [memberIds, setMemberIds] = useState<number[]>([]);
+  const [setupDraft, setSetupDraft] =
+    useState<SpaceSetupDraft>(emptySpaceSetupDraft);
   const authClient = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client: authClient });
   const { members: orgMembers } = useOrgMembers();
@@ -149,12 +170,19 @@ export function CreateChannelModal({
   const reduceMotion = useReducedMotion();
   const stepDuration = reduceMotion ? 0 : STEP_DURATION;
 
-  const goToStep = (next: CreateStep) => {
-    setDirection(
-      CREATE_STEPS.indexOf(next) > CREATE_STEPS.indexOf(step) ? 1 : -1,
-    );
+  const stepContext: CreateStepContext = {
+    setupEnabled,
+    choice: setupDraft.choice,
+    visibility,
+  };
+
+  const goToStep = (next: CreateStep | null) => {
+    if (!next) return;
+    setDirection(createStepDirection(step, next));
     setStep(next);
   };
+  const goBack = () => goToStep(previousCreateStep(step, stepContext));
+  const goForward = () => goToStep(nextCreateStep(step, stepContext));
 
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
@@ -167,6 +195,7 @@ export function CreateChannelModal({
       setStar(true);
       setVisibility("public");
       setMemberIds([]);
+      setSetupDraft(emptySpaceSetupDraft());
       setStep("name");
     }
   }
@@ -176,9 +205,14 @@ export function CreateChannelModal({
   const remaining = MAX_CONTEXT_NAME_LENGTH - name.length;
   const nameError = isDescribeMode ? null : validateChannelName(trimmedName);
 
-  const busy = isCreating || isStarting || linkRepositories.isPending;
+  const busy =
+    isCreating || isStarting || isSettingUp || linkRepositories.isPending;
   const canAdvance = !busy && !!trimmedName && !nameError;
   const canDescribe = !busy && !!trimmedDescription;
+  const setupMissingField = spaceSetupDraftMissingField(setupDraft);
+  const repositoryMissing =
+    spaceSetupNeedsRepository(setupDraft) && repositories.length === 0;
+  const canCreate = canAdvance && !repositoryMissing;
 
   const submittingRef = useRef(false);
   const submitOnce = async (submit: () => Promise<void>) => {
@@ -232,7 +266,24 @@ export function CreateChannelModal({
       }
     }
 
-    if (trimmedDescription) {
+    const setupInput = spaceSetupDraftToInput(
+      setupDraft,
+      repositories[0] ?? null,
+    );
+    if (setupInput) {
+      track(ANALYTICS_EVENTS.CONTEXT_ACTION, {
+        action_type: "setup_started",
+        channel_id: contextId,
+        setup_kind: setupInput.kind,
+      });
+      try {
+        await setup({ channelId: contextId, setup: setupInput });
+      } catch (error) {
+        toast.error("Couldn't start the space setup", {
+          description: error instanceof Error ? error.message : String(error),
+        });
+      }
+    } else if (trimmedDescription) {
       track(ANALYTICS_EVENTS.CONTEXT_ACTION, {
         action_type: "generate_started",
         channel_id: contextId,
@@ -277,7 +328,7 @@ export function CreateChannelModal({
       await submitDescribe();
       return;
     }
-    if (canDescribe) goToStep("repositories");
+    if (canDescribe) goForward();
   };
 
   const aboutTitle = `What's this ${spacesLayout ? "space" : "channel"} about?`;
@@ -389,7 +440,7 @@ export function CreateChannelModal({
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
-                      if (canAdvance) goToStep("describe");
+                      if (canAdvance) goForward();
                     }
                   }}
                 />
@@ -417,7 +468,128 @@ export function CreateChannelModal({
               <Button
                 variant="primary"
                 disabled={!canAdvance}
-                onClick={() => goToStep("describe")}
+                onClick={goForward}
+              >
+                Next
+              </Button>
+            </DialogFooter>
+          </>
+        );
+      case "setup":
+        return (
+          <>
+            <DialogHeader>
+              <DialogTitle>What is this space for?</DialogTitle>
+              <DialogDescription>
+                A goal or a feature gets a context page filled in for you. A
+                goal also gets a tracking canvas and loops that work toward it.
+              </DialogDescription>
+            </DialogHeader>
+
+            <DialogBody viewportClassName="flex flex-col gap-4">
+              <SpaceSetupChoiceField
+                value={setupDraft.choice}
+                disabled={busy}
+                onChange={(choice) =>
+                  setSetupDraft((draft) => ({ ...draft, choice }))
+                }
+              />
+            </DialogBody>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                className="sm:mr-auto"
+                disabled={busy}
+                onClick={goBack}
+              >
+                Back
+              </Button>
+              <Button
+                variant="primary"
+                disabled={busy}
+                onClick={goForward}
+                data-attr="space-setup-next"
+              >
+                Next
+              </Button>
+            </DialogFooter>
+          </>
+        );
+      case "goal":
+        return (
+          <>
+            <DialogHeader>
+              <DialogTitle>Which metric should move?</DialogTitle>
+              <DialogDescription>
+                The setup task resolves the measure, records a baseline, links
+                related experiments and flags, and starts the loops.
+              </DialogDescription>
+            </DialogHeader>
+
+            <DialogBody viewportClassName="flex flex-col gap-4">
+              <SpaceGoalFields
+                value={setupDraft.goal}
+                disabled={busy}
+                onChange={(goal) =>
+                  setSetupDraft((draft) => ({ ...draft, goal }))
+                }
+              />
+            </DialogBody>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                className="sm:mr-auto"
+                disabled={busy}
+                onClick={goBack}
+              >
+                Back
+              </Button>
+              <Button
+                variant="primary"
+                disabled={busy || setupMissingField !== null}
+                onClick={goForward}
+              >
+                Next
+              </Button>
+            </DialogFooter>
+          </>
+        );
+      case "feature":
+        return (
+          <>
+            <DialogHeader>
+              <DialogTitle>Which feature is this about?</DialogTitle>
+              <DialogDescription>
+                The setup task fills the context page with the flag, an adoption
+                measure, and related errors and replays.
+              </DialogDescription>
+            </DialogHeader>
+
+            <DialogBody viewportClassName="flex flex-col gap-4">
+              <SpaceFeatureFields
+                value={setupDraft.feature}
+                disabled={busy}
+                onChange={(feature) =>
+                  setSetupDraft((draft) => ({ ...draft, feature }))
+                }
+              />
+            </DialogBody>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                className="sm:mr-auto"
+                disabled={busy}
+                onClick={goBack}
+              >
+                Back
+              </Button>
+              <Button
+                variant="primary"
+                disabled={busy || setupMissingField !== null}
+                onClick={goForward}
               >
                 Next
               </Button>
@@ -443,7 +615,7 @@ export function CreateChannelModal({
                 variant="outline"
                 className="sm:mr-auto"
                 disabled={busy}
-                onClick={() => goToStep("name")}
+                onClick={goBack}
               >
                 Back
               </Button>
@@ -452,7 +624,7 @@ export function CreateChannelModal({
                 disabled={busy}
                 onClick={() => {
                   setDescription("");
-                  goToStep("repositories");
+                  goForward();
                 }}
               >
                 Skip
@@ -505,6 +677,12 @@ export function CreateChannelModal({
                     New tasks in this {spacesLayout ? "space" : "channel"} can
                     use these repositories. You can change them later.
                   </ItemDescription>
+                  {repositoryMissing && (
+                    <FieldError>
+                      A goal needs a repository. Its loops open pull requests
+                      there.
+                    </FieldError>
+                  )}
                 </ItemContent>
                 <ItemActions>
                   <RepositoriesField
@@ -545,17 +723,17 @@ export function CreateChannelModal({
                 variant="outline"
                 className="sm:mr-auto"
                 disabled={busy}
-                onClick={() => goToStep("describe")}
+                onClick={goBack}
               >
                 Back
               </Button>
               <Button
                 variant="primary"
-                disabled={!canAdvance}
+                disabled={!canCreate}
                 loading={busy}
                 onClick={() => {
                   if (visibility === "private") {
-                    goToStep("members");
+                    goForward();
                   } else {
                     void submitOnce(submitCreate);
                   }
@@ -605,13 +783,13 @@ export function CreateChannelModal({
                 variant="outline"
                 className="sm:mr-auto"
                 disabled={busy}
-                onClick={() => goToStep("repositories")}
+                onClick={goBack}
               >
                 Back
               </Button>
               <Button
                 variant="primary"
-                disabled={!canAdvance}
+                disabled={!canCreate}
                 loading={busy}
                 onClick={() => void submitOnce(submitCreate)}
               >
@@ -630,7 +808,7 @@ export function CreateChannelModal({
       open={open}
       onOpenChange={(next) => {
         if (busy || next) return;
-        const previous = CREATE_STEPS[CREATE_STEPS.indexOf(step) - 1];
+        const previous = previousCreateStep(step, stepContext);
         if (previous) {
           goToStep(previous);
           return;

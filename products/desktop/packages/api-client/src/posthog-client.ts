@@ -61,6 +61,8 @@ import type {
   SignalUserAutonomyConfig,
   SlackChannelsQueryParams,
   SlackChannelsResponse,
+  SpaceSetupInput,
+  SpaceSetupStarted,
   SuggestedReviewersArtefact,
   SuggestedReviewerWriteEntry,
   Task,
@@ -3852,6 +3854,28 @@ export class PostHogAPIClient {
       throw new Error(`Failed to fetch channel feed: ${response.statusText}`);
     }
     return (await response.json()) as ChannelFeedMessage[];
+  }
+
+  // Start the task that sets a space up for a goal or a feature. The server builds
+  // the prompt and files the task into the channel.
+  async setupTaskChannel(
+    channelId: string,
+    input: SpaceSetupInput,
+  ): Promise<SpaceSetupStarted> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${channelId}/setup/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify(input),
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to set up space: ${response.statusText}`);
+    }
+    return (await response.json()) as SpaceSetupStarted;
   }
 
   // Post a system announcement into a channel's feed. The row is authored by the
