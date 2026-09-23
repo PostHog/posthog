@@ -28,16 +28,16 @@ tools:
             Reminders fire as in-app notifications when due. Proactively offer to create a reminder when the user
             mentions needing periodic checks, monitoring, recurring reviews, or follow-ups on a metric, dashboard, or
             task — reminders are how they get recurring in-app notifications without manual polling.
+        exclude_params:
+            - next_fire_at
+            - last_fired_at
+            - status
         param_overrides:
             organization:
                 description: |
                     Organization ID. If omitted, uses the active organization.
                 optional: true
                 fallback: orgId
-        exclude_params:
-            - next_fire_at
-            - last_fired_at
-            - status
     reminder-delete:
         operation: reminders_destroy
         enabled: true
