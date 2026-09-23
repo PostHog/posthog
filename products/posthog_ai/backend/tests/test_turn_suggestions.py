@@ -674,40 +674,21 @@ class TestGenerateTurnSuggestion(BaseTest):
         )
         self.task_run = task.create_run(mode="interactive")
 
-        self.stream = patch(f"{SERVICE}.read_task_run_stream_entries", return_value=_metric_turn())
-        self.publish = patch(
-            f"{SERVICE}.publish_task_run_stream_notification",
-            return_value=StreamNotificationDelivery(live=True, persisted=True),
-        )
-        self.classify = patch(f"{SERVICE}.classify_turn", return_value=_verdict())
-        self.scouts = patch(f"{SERVICE}.scout_creation_available", return_value=True)
-        self.flag = patch(f"{SERVICE}.feature_enabled_or_false", return_value=True)
-        self.judge = patch(f"{SERVICE}.judge_configured", return_value=True)
-        self.capture = patch(f"{SERVICE}.ph_scoped_capture")
-        self.log_size = patch(f"{SERVICE}.get_task_run_log_size", return_value=0)
-        self.mocks = {
-            name: patcher.start()
-            for name, patcher in {
-                "stream": self.stream,
-                "publish": self.publish,
-                "classify": self.classify,
-                "scouts": self.scouts,
-                "flag": self.flag,
-                "judge": self.judge,
-                "capture": self.capture,
-                "log_size": self.log_size,
-            }.items()
+        patchers = {
+            "stream": patch(f"{SERVICE}.read_task_run_stream_entries", return_value=_metric_turn()),
+            "publish": patch(
+                f"{SERVICE}.publish_task_run_stream_notification",
+                return_value=StreamNotificationDelivery(live=True, persisted=True),
+            ),
+            "classify": patch(f"{SERVICE}.classify_turn", return_value=_verdict()),
+            "scouts": patch(f"{SERVICE}.scout_creation_available", return_value=True),
+            "flag": patch(f"{SERVICE}.feature_enabled_or_false", return_value=True),
+            "judge": patch(f"{SERVICE}.judge_configured", return_value=True),
+            "capture": patch(f"{SERVICE}.ph_scoped_capture"),
+            "log_size": patch(f"{SERVICE}.get_task_run_log_size", return_value=0),
         }
-        for patcher in (
-            self.stream,
-            self.publish,
-            self.classify,
-            self.scouts,
-            self.flag,
-            self.judge,
-            self.capture,
-            self.log_size,
-        ):
+        self.mocks = {name: patcher.start() for name, patcher in patchers.items()}
+        for patcher in patchers.values():
             self.addCleanup(patcher.stop)
 
     def _generate(self) -> TurnSuggestionOutcome:
@@ -913,7 +894,7 @@ class TestGenerateTurnSuggestion(BaseTest):
 
     @parameterized.expand(
         [
-            ("muted", {"offers": [], "muted": True}, "dismissed"),
+            ("muted", {"offers": [{**_offer(0), "status": "dismissed"}]}, "dismissed"),
             ("budget_spent", {"offers": [_offer(0), _offer(1)]}, "offer_budget_spent"),
             ("card_on_the_previous_turn", {"offers": [_offer(0)]}, "follows_an_offer"),
             (

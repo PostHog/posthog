@@ -65,8 +65,19 @@ class OfferRecord:
 @frozen
 class OfferLedger:
     offers: tuple[OfferRecord, ...] = ()
-    muted: bool = False
     last_classified_turn: int = -1
+
+    @property
+    def muted(self) -> bool:
+        """A dismissed card mutes the rest of the conversation."""
+        return any(offer.status == OfferStatus.DISMISSED for offer in self.offers)
+
+    def offer_at(self, turn_index: int) -> OfferRecord | None:
+        return next((offer for offer in self.offers if offer.turn_index == turn_index), None)
+
+    def with_status(self, target: OfferRecord, status: OfferStatus) -> "tuple[OfferLedger, OfferRecord]":
+        updated = replace(target, status=status)
+        return replace(self, offers=tuple(updated if offer is target else offer for offer in self.offers)), updated
 
     @classmethod
     def from_json(cls, raw: Any) -> "OfferLedger":
@@ -78,14 +89,12 @@ class OfferLedger:
         last_classified_turn = raw.get("last_classified_turn")
         return cls(
             offers=offers,
-            muted=raw.get("muted") is True,
             last_classified_turn=last_classified_turn if isinstance(last_classified_turn, int) else -1,
         )
 
     def to_json(self) -> dict[str, Any]:
         return {
             "offers": [offer.to_json() for offer in self.offers],
-            "muted": self.muted,
             "last_classified_turn": self.last_classified_turn,
         }
 
@@ -180,13 +189,11 @@ def resolve_offer(
 
     def resolve(raw: Any) -> tuple[Any, OfferRecord | None]:
         ledger = OfferLedger.from_json(raw)
-        target = next((offer for offer in ledger.offers if offer.turn_index == turn_index), None)
+        target = ledger.offer_at(turn_index)
         if target is None or target.status != OfferStatus.OFFERED:
             return raw, None
-        resolved = replace(target, status=status)
-        offers = tuple(resolved if offer is target else offer for offer in ledger.offers)
-        muted = ledger.muted or status == OfferStatus.DISMISSED
-        return replace(ledger, offers=offers, muted=muted).to_json(), resolved
+        resolved_ledger, resolved = ledger.with_status(target, status)
+        return resolved_ledger.to_json(), resolved
 
     return update_task_state_entry(task_id, team_id, STATE_KEY, resolve)
 
@@ -200,13 +207,9 @@ def reopen_offer(task_id: UUID | str, team_id: int, *, turn_index: int) -> None:
 
     def reopen(raw: Any) -> tuple[Any, None]:
         ledger = OfferLedger.from_json(raw)
-        target = next((offer for offer in ledger.offers if offer.turn_index == turn_index), None)
+        target = ledger.offer_at(turn_index)
         if target is None or target.status == OfferStatus.OFFERED:
             return raw, None
-        reopened = replace(target, status=OfferStatus.OFFERED)
-        offers = tuple(reopened if offer is target else offer for offer in ledger.offers)
-        # Only a dismissal mutes, so the mute stays while another dismissed card remains.
-        muted = any(offer.status == OfferStatus.DISMISSED for offer in offers)
-        return replace(ledger, offers=offers, muted=muted).to_json(), None
+        return ledger.with_status(target, OfferStatus.OFFERED)[0].to_json(), None
 
     update_task_state_entry(task_id, team_id, STATE_KEY, reopen)

@@ -6,7 +6,7 @@ from parameterized import parameterized
 from posthog.models import User
 from posthog.models.scoping import team_scope
 
-from products.posthog_ai.backend.turn_suggestions.offer_ledger import STATE_KEY, OfferStatus, read_ledger
+from products.posthog_ai.backend.turn_suggestions.offer_ledger import STATE_KEY, OfferRecord, OfferStatus, read_ledger
 from products.tasks.backend.facade.contracts import StreamNotificationDelivery
 from products.tasks.backend.models import Channel, Task
 
@@ -14,7 +14,7 @@ SERVICE = "products.posthog_ai.backend.turn_suggestions.service"
 
 
 def _offer(turn_index: int, *, run_id: str) -> dict:
-    return {"turn_index": turn_index, "run_id": run_id, "kind": "scout", "status": "offered"}
+    return OfferRecord(turn_index=turn_index, run_id=run_id, kind="scout", status=OfferStatus.OFFERED).to_json()
 
 
 class TestResolveTurnSuggestion(APIBaseTest):

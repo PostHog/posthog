@@ -95,9 +95,7 @@ def _load_transcript(task_run: TaskRun) -> TurnTranscript | None:
     logs_to_read = log_urls[:-1] if stream_has_turn else log_urls
     if logs_to_read and get_task_run_log_size(logs_to_read) > MAX_TRANSCRIPT_LOG_BYTES:
         return None
-    if not stream_has_turn:
-        current_entries = _read_log_entries(log_urls[-1:])
-    return build_turn_transcript([*_read_log_entries(log_urls[:-1]), *current_entries])
+    return build_turn_transcript([*_read_log_entries(logs_to_read), *(current_entries if stream_has_turn else [])])
 
 
 def _turn_has_substance(transcript: TurnTranscript) -> bool:
