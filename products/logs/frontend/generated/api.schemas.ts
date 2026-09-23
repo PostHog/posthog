@@ -1607,7 +1607,7 @@ export interface _LogsCountResponseApi {
 }
 
 export interface _LogsQueryErrorApi {
-    /** Why the query could not run — a rejected filter expression, or a ClickHouse read cap the scanned window went past. Narrow the window or the filters and retry. */
+    /** Why the query could not run: a rejected filter expression, or a read cap the scanned window went past. Narrow the window or the filters, then retry. */
     error: string
 }
 
