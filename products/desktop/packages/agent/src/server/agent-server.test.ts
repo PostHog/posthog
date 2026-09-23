@@ -420,6 +420,7 @@ describe("AgentServer HTTP Mode", () => {
   let server: AgentServer | undefined;
   let mswServer: SetupServerApi;
   let appendLogCalls: unknown[][];
+  let updateTaskRunCalls: unknown[];
   let port: number;
 
   // msw patches fetch process-wide. A second listen() on an already-patched
@@ -429,6 +430,7 @@ describe("AgentServer HTTP Mode", () => {
       ...createPostHogHandlers({
         baseUrl: "http://localhost:8000",
         onAppendLog: (entries) => appendLogCalls.push(entries),
+        onUpdateTaskRun: (body) => updateTaskRunCalls.push(body),
       }),
     );
     mswServer.listen({ onUnhandledRequest: "bypass" });
@@ -441,6 +443,7 @@ describe("AgentServer HTTP Mode", () => {
   beforeEach(async () => {
     repo = await createTestRepo("agent-server-http");
     appendLogCalls = [];
+    updateTaskRunCalls = [];
     // Use a unique high port per test to avoid reuse and browser-blocked ports.
     port = getNextTestPort();
   }, 30_000);
@@ -4955,6 +4958,34 @@ describe("AgentServer HTTP Mode", () => {
         { timeout: 15000, interval: 100 },
       );
     }, 30000);
+
+    it.each([
+      ["a configured version", "9.9.9", "9.9.9"],
+      ["the package version", undefined, undefined],
+    ])(
+      "stamps %s on the in_progress run update",
+      async (_label, version, expected) => {
+        await createServer({ version }).start();
+
+        await vi.waitFor(
+          () => {
+            const inProgress = updateTaskRunCalls.find(
+              (body) => (body as { status?: string }).status === "in_progress",
+            ) as { state?: { agent_version?: unknown } } | undefined;
+            expect(inProgress).toBeDefined();
+            const agentVersion = inProgress?.state?.agent_version;
+            if (expected === undefined) {
+              expect(typeof agentVersion).toBe("string");
+              expect((agentVersion as string).length).toBeGreaterThan(0);
+            } else {
+              expect(agentVersion).toBe(expected);
+            }
+          },
+          { timeout: 15000, interval: 100 },
+        );
+      },
+      30000,
+    );
 
     it("emits a completed _posthog/progress for the agent step after session initialization", async () => {
       await createServer().start();

@@ -25,6 +25,7 @@ import { buildPosthogPropertyHeaderRecord } from "@posthog/shared/posthog-proper
 import type { TaskContext } from "@posthog/shared/task-context";
 import { Hono } from "hono";
 import { z } from "zod/v4";
+import packageJson from "../../package.json" with { type: "json" };
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import { buildLocalToolsServer } from "../adapters/codex-app-server/local-tools-mcp";
 import { OtelRunTelemetry } from "../otel-telemetry";
@@ -739,6 +740,7 @@ export class PiAgentServer {
     this.sessionInitMs = Date.now() - startedAt;
     await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
       status: "in_progress",
+      state: { agent_version: this.config.version ?? packageJson.version },
     });
     this.broadcast({
       type: "pi_run_started",
