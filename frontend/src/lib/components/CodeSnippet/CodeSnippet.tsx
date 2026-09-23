@@ -1,21 +1,15 @@
 import './CodeSnippet.scss'
 
 import clsx from 'clsx'
-import { useValues } from 'kea'
 import React, { Suspense, lazy, useState } from 'react'
 
 import { IconCollapse, IconCopy, IconExpand } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { themeLogic } from 'lib/logic/themeLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { retryImport } from 'lib/utils/retryImport'
 
-function PlainCodeLine({ text, className }: { text: string; className?: string }): JSX.Element {
-    const { isDarkModeOn } = useValues(themeLogic)
-
-    return <code className={clsx('hljs', isDarkModeOn && 'hljs-dark', className)}>{text}</code>
-}
+import { PlainCodeLine } from './PlainCodeLine'
 
 // highlight.js grammars are large, and markdown renders code snippets on pages that every
 // logged-in user loads. Show the plain text first and add the highlighting when it arrives.
