@@ -1208,6 +1208,9 @@ async function markRecording(
     data: Partial<SessionRecordingUpdateType>
 ): Promise<boolean> {
     try {
+        // PatchedSessionRecordingApi carries no `analyzed` or `player_metadata`, so the generated
+        // client cannot send this body yet.
+        // nosemgrep: prefer-codegen-api-namespaced-replay
         await api.recordings.update(sessionRecordingId, data)
         return true
     } catch (error) {
