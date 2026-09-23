@@ -149,11 +149,10 @@ def _describe(
         # With formulas, the alerted result is a formula over the series, and series_index
         # picks a formula, not a raw series. The alerted formula and its inputs come first:
         # the block is cut at a fixed size, and the other formulas are optional context.
-        alerted_lines, other_lines = _describe_formulas(formulas, series_index)
-        lines.extend(alerted_lines)
+        lines.append(_describe_alerted_formula(formulas, series_index))
         alerted = formulas[series_index][0] if 0 <= series_index < len(formulas) else ""
         lines.extend(_describe_series(series, series_index=None, keep=_formula_inputs(alerted)))
-        lines.extend(other_lines)
+        lines.extend(_describe_other_formulas(formulas, series_index))
     elif isinstance(series, list) and series:
         lines.extend(_describe_series(series, series_index))
     elif isinstance(clauses, list) and clauses:
@@ -202,26 +201,23 @@ def _formulas(source: dict[str, Any]) -> list[tuple[str, str | None]]:
     return [(str(formula), None)] if formula else []
 
 
-def _describe_formulas(formulas: list[tuple[str, str | None]], series_index: int) -> tuple[list[str], list[str]]:
-    """The alerted formula's line, then the lines for the other formulas, capped and clipped.
+def _describe_alerted_formula(formulas: list[tuple[str, str | None]], series_index: int) -> str:
+    if 0 <= series_index < len(formulas):
+        return _describe_formula(formulas[series_index], series_index, alerted=True)
+    return f"- (The alerted result index {series_index} is past the {len(formulas)} formulas defined.)"
+
+
+def _describe_other_formulas(formulas: list[tuple[str, str | None]], series_index: int) -> list[str]:
+    """The lines for the formulas other than the alerted one, capped.
 
     Custom names are unbounded, so each is clipped and the other formulas are capped:
     otherwise one long name ahead of the alerted formula could push it past the block's cut.
     """
-    alerted_lines: list[str] = []
-    other_lines: list[str] = []
     others = [index for index in range(len(formulas)) if index != series_index]
-    for index in others[:MAX_DESCRIBED_FORMULAS]:
-        other_lines.append(_describe_formula(formulas[index], index, alerted=False))
+    lines = [_describe_formula(formulas[index], index, alerted=False) for index in others[:MAX_DESCRIBED_FORMULAS]]
     if len(others) > MAX_DESCRIBED_FORMULAS:
-        other_lines.append(f"- ({len(others) - MAX_DESCRIBED_FORMULAS} further formulas omitted.)")
-    if 0 <= series_index < len(formulas):
-        alerted_lines.append(_describe_formula(formulas[series_index], series_index, alerted=True))
-    else:
-        alerted_lines.append(
-            f"- (The alerted result index {series_index} is past the {len(formulas)} formulas defined.)"
-        )
-    return alerted_lines, other_lines
+        lines.append(f"- ({len(others) - MAX_DESCRIBED_FORMULAS} further formulas omitted.)")
+    return lines
 
 
 def _describe_formula(formula: tuple[str, str | None], index: int, *, alerted: bool) -> str:
