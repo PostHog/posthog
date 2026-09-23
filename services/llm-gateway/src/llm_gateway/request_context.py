@@ -6,6 +6,9 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 import structlog
+from structlog.types import EventDict, WrappedLogger
+
+from llm_gateway.products.config import INTERNAL_RUN_SCOPE, get_product_config
 
 if TYPE_CHECKING:
     from fastapi import Request
@@ -40,6 +43,22 @@ throttle_context_var: ContextVar[ThrottleContext | None] = ContextVar("throttle_
 auth_user_var: ContextVar[AuthenticatedUser | None] = ContextVar("auth_user", default=None)
 time_to_first_token_var: ContextVar[float | None] = ContextVar("time_to_first_token", default=None)
 effort_var: ContextVar[str | None] = ContextVar("effort", default=None)
+
+
+def is_private_scout_request(user: AuthenticatedUser | None, product: str) -> bool:
+    config = get_product_config(product)
+    return bool(
+        product == "signals"
+        and config is not None
+        and config.credit_bucket is None
+        and user is not None
+        and user.auth_method == "oauth_access_token"
+        and user.sandbox_task_id
+        and user.team_id is not None
+        and user.application_id in (config.allowed_application_ids or frozenset())
+        and INTERNAL_RUN_SCOPE in (user.scopes or [])
+        and "scout_experiment_internal:read" in (user.scopes or [])
+    )
 
 
 def get_request_context() -> RequestContext | None:
@@ -195,6 +214,12 @@ def set_throttle_context(runner: ThrottleRunner, context: ThrottleContext) -> No
 
 def get_auth_user() -> AuthenticatedUser | None:
     return auth_user_var.get()
+
+
+def drop_private_scout_log(_logger: WrappedLogger, _method_name: str, event: EventDict) -> EventDict:
+    if is_private_scout_request(get_auth_user(), get_product()):
+        raise structlog.DropEvent
+    return event
 
 
 def set_auth_user(user: AuthenticatedUser) -> None:

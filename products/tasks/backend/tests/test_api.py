@@ -412,7 +412,13 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
                 search_text="saved scout result",
             )
 
-    def _trial_log_client(self, *, bound: bool = True, client_id: str = ARRAY_APP_CLIENT_ID_DEV) -> APIClient:
+    def _trial_log_client(
+        self,
+        *,
+        bound: bool = True,
+        client_id: str = ARRAY_APP_CLIENT_ID_DEV,
+        scopes: str = "task:read internal_run:read scout_experiment_internal:read",
+    ) -> APIClient:
         task, run = self.trial_tasks[0], self.trial_runs[0]
         assert task.origin_key is not None
         marker = {"version": 1, "launch_id": task.origin_key.removeprefix("scout-trial:")}
@@ -433,7 +439,7 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             task.id,
             bound=bound,
             client_id=client_id,
-            scopes="task:read internal_run:read scout_experiment_internal:read",
+            scopes=scopes,
         )
 
     def test_trial_can_append_own_log_without_general_task_write_access(self) -> None:
@@ -506,6 +512,7 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             ("wrong_origin",),
             ("wrong_marker",),
             ("foreign_client",),
+            ("gateway_only",),
         ]
     )
     def test_trial_log_append_requires_exact_trusted_run(self, case: str) -> None:
@@ -513,6 +520,11 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         client = self._trial_log_client(
             bound=case != "unbound",
             client_id="synthetic-foreign-client" if case == "foreign_client" else ARRAY_APP_CLIENT_ID_DEV,
+            scopes=(
+                "llm_gateway:read internal_run:read scout_experiment_internal:read"
+                if case == "gateway_only"
+                else "task:read internal_run:read scout_experiment_internal:read"
+            ),
         )
         if case == "sibling_task":
             task, run = self.trial_tasks[1], self.trial_runs[1]

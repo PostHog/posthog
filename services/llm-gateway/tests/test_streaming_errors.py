@@ -1,7 +1,7 @@
 import asyncio
 from collections.abc import AsyncGenerator
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from llm_gateway.api.handler import ANTHROPIC_CONFIG, handle_llm_request
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.metrics.prometheus import PROVIDER_ERRORS, REQUEST_COUNT
+from llm_gateway.products.config import SIGNALS_DEV_APP_ID
 
 
 class MockProviderError(Exception):
@@ -21,6 +22,77 @@ class MockProviderError(Exception):
 
 
 class TestStreamingErrorHandling:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("private_scout", [False, True])
+    @pytest.mark.parametrize("failure_at", ["nonstreaming", "stream_start", "stream_chunk"])
+    async def test_private_provider_errors_do_not_reach_capture_or_logs(
+        self,
+        mock_user: AuthenticatedUser,
+        private_scout: bool,
+        failure_at: str,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        mock_user.auth_method = "oauth_access_token"
+        mock_user.application_id = SIGNALS_DEV_APP_ID
+        mock_user.sandbox_task_id = "test-task"
+        mock_user.scopes = ["llm_gateway:read", "internal_run:read"]
+        if private_scout:
+            mock_user.scopes.append("scout_experiment_internal:read")
+
+        async def failing_stream() -> AsyncGenerator[bytes]:
+            yield b"data: started\n\n"
+            raise MockProviderError("synthetic-private-error-detail", 503)
+
+        async def provider(**_kwargs: object) -> AsyncGenerator[bytes]:
+            if failure_at == "stream_chunk":
+                return failing_stream()
+            raise MockProviderError("synthetic-private-error-detail", 503)
+
+        with (
+            patch("llm_gateway.observability.error_tracking.posthoganalytics") as capture,
+            patch(
+                "llm_gateway.observability.error_tracking.get_settings",
+                return_value=MagicMock(posthog_project_token="test-token"),
+            ),
+        ):
+            capsys.readouterr()
+            if failure_at == "stream_chunk":
+                response = await handle_llm_request(
+                    request_data={},
+                    user=mock_user,
+                    model="test-model",
+                    product="signals",
+                    is_streaming=True,
+                    provider_config=ANTHROPIC_CONFIG,
+                    llm_call=provider,
+                )
+                assert isinstance(response, StreamingResponse)
+                with pytest.raises(RuntimeError if private_scout else MockProviderError) as stream_error:
+                    async for _ in response.body_iterator:
+                        pass
+                if private_scout:
+                    assert str(stream_error.value) == "Upstream stream failed"
+                    assert stream_error.value.__suppress_context__
+            else:
+                with pytest.raises(HTTPException) as error:
+                    await handle_llm_request(
+                        request_data={},
+                        user=mock_user,
+                        model="test-model",
+                        product="signals",
+                        is_streaming=failure_at == "stream_start",
+                        provider_config=ANTHROPIC_CONFIG,
+                        llm_call=provider,
+                    )
+                assert error.value.status_code == 503
+
+        assert capture.capture_exception.call_count == (0 if private_scout else 1)
+        logs = capsys.readouterr().out
+        if private_scout:
+            assert logs == ""
+        else:
+            assert "synthetic-private-error-detail" in logs
+
     @pytest.fixture
     def mock_user(self) -> AuthenticatedUser:
         return AuthenticatedUser(

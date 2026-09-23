@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from llm_gateway.auth.models import AuthenticatedUser
+from llm_gateway.products.config import SIGNALS_DEV_APP_ID
 from llm_gateway.rate_limiting.denial_event import DENIAL_EVENT_NAME, PosthogDenialCapturer
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import Throttle, ThrottleContext, ThrottleResult
@@ -106,6 +107,25 @@ class TestRunnerCallsCapturer:
 
 
 class TestPosthogDenialCapturer:
+    @pytest.mark.parametrize("private_scout", [False, True])
+    def test_private_scout_denial_is_not_captured(self, capturer: PosthogDenialCapturer, private_scout: bool) -> None:
+        scopes = ["internal_run:read"]
+        if private_scout:
+            scopes.append("scout_experiment_internal:read")
+        user = AuthenticatedUser(
+            user_id=1,
+            team_id=1,
+            auth_method="oauth_access_token",
+            distinct_id="test-user",
+            application_id=SIGNALS_DEV_APP_ID,
+            sandbox_task_id="test-task",
+            scopes=scopes,
+        )
+        with patch("llm_gateway.rate_limiting.denial_event.Posthog") as client:
+            capturer(ThrottleContext(user=user, product="signals"), ThrottleResult.deny(retry_after=60), "product_cost")
+
+        assert client.return_value.capture.call_count == (0 if private_scout else 1)
+
     @pytest.fixture
     def capturer(self) -> PosthogDenialCapturer:
         return PosthogDenialCapturer(api_key="phc_test", host="https://us.i.posthog.com")

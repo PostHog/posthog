@@ -105,7 +105,6 @@ class TestScoutTrialAPI(APIBaseTest):
 @override_settings(
     SCOUT_LIVE_TRIALS_ENABLED=True,
     SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
-    SCOUT_LIVE_TRIALS_GATEWAY_URL="http://localhost:18001",
 )
 class TestScoutTrialLaunch(APIBaseTest):
     def setUp(self) -> None:
