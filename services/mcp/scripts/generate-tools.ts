@@ -1182,11 +1182,8 @@ function generateToolCode(
             // If the field was renamed, bf is the alias (used for params access)
             // and bodyKey is the original name (used as the HTTP body key).
             const bodyKey = composition.renamedFields[bf] ?? bf
-            // A body field with a state fallback was already resolved into a local
-            // above, which throws when neither the caller nor the state supplies a
-            // value — so it is always set and needs no guard. Reading `params.X`
-            // here instead would drop the resolved value.
-            if (composition.paramFallbacks[bf]) {
+            // A fallback param is already resolved into a guaranteed local above, so emit it unguarded.
+            if (localVarParams.has(bf)) {
                 handlerBody += `        body[${JSON.stringify(bodyKey)}] = ${bf}\n`
                 continue
             }
