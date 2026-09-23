@@ -5765,9 +5765,9 @@ snapshots:
     products-dashboards-add-insight-to-dashboard-modal--with-more-insight-types--light:
         hash: v1.k794b7964.6c001db5555f48832f11ae8d9dcc535dff4e22044bb6dfce15db3a2a522f1fa9.GQCxp64JkEqDCNEeSD6gPtc5rwlzjHFJ-QnZu4lRips
     products-dashboards-dashboard-widgets-overview--all-widget-types--dark:
-        hash: v1.k794b7964.0dc6c93831aac8ced60c1755761d80daa5e2460eeeb25ba032715b2ffbe8389f.VUPR5i-Wv-uSknUcmvpTwR_HfEBhII6D7BiO4IfoPkI
+        hash: v1.k794b7964.c8ccf56e7a97ed764ef1b9feff1fbefb1e3b8677fbf34e950adb91fb8ad0c65a.SP6nwmHbLhfX64P11e8X6ceeDvQynhdRrSCHXsblts8
     products-dashboards-dashboard-widgets-overview--all-widget-types--light:
-        hash: v1.k794b7964.ff282a9973ca858d711068f40c38476ca61718c14dc0192b04302179ba90e620.VxNKePplQsPhDiq_0V-OpyhiEQmqEJ6xpgddoddLkUY
+        hash: v1.k794b7964.76d3914773ce95c73661a095c09cd13d3886fc71ed8619b405b52d03af75309e.7h4Yavt5bAp86IDjoyzG4duYQRyU4pDb5kMndOnOut0
     products-dashboards-dashboard-widgets-widget-types-activity-recent-events--default--dark:
         hash: v1.k794b7964.c69d28ef03335511de9b7dd75d5ad1c0458272d5d8f340083cdb86acc3b3c888.KB3MNhE9xEjVSl9hmVpz2jLC0IAmOTvaVZBmrl3pNKs
     products-dashboards-dashboard-widgets-widget-types-activity-recent-events--default--light:
@@ -6292,6 +6292,22 @@ snapshots:
         hash: v1.k794b7964.769a69526cf676447319f587f24ed0d2670a137098867f8d3ee87ebda3415a70.3FGS0pbxxcrZUSto8SNCNHEkxaFXH6T8shqpdg5zzlQ
     products-mcp-analytics-routingbar--all-variants--light:
         hash: v1.k794b7964.7f57dacddb48fbad29a8614127d42d54425501b1f7755423d84316e1e937720e.thYPF2z3eMW5QvSe5SnvYtn35l6UCvUtsyx9EBLeqxk
+    products-notebooks-dashboard-widget--access-denied--dark:
+        hash: v1.k794b7964.f166ae35267cad98f4faa92f4bfa7b53d80ca29e574606564b169ec15f64188d.upH0yKaZnjGL1k6D38T4Vf73vaAB6Z6I6aQde3RLwc4
+    products-notebooks-dashboard-widget--access-denied--light:
+        hash: v1.k794b7964.7903050d051499ba3bd432601953d97202260986ad097c01bf839e960af2ea5c.cGSsCW_rFr30GLM1kbEZSdvOzbajYBBImLKHyrJ6Id4
+    products-notebooks-dashboard-widget--add-to-dashboard--dark:
+        hash: v1.k794b7964.e1e9abd7891a300978e51e623c332587ec7568420cb170009706384ff80b74b0.5c448IhZkYPk2SXSVsX9FSsQvLK7OavPyLzph0oR8Wo
+    products-notebooks-dashboard-widget--add-to-dashboard--light:
+        hash: v1.k794b7964.29e58e72d4e2ff8f28b1292691877e26c1adc8d1eb7e98c07c61da0fe84eb9ff.LdW-qZgy6jkmHz-YwzWsOWedq6W569RRnZAqoJYpBUs
+    products-notebooks-dashboard-widget--empty--dark:
+        hash: v1.k794b7964.e7e75b8936d25ad03371bad38d59b5221fee0f3212f629f47e14690320953cbd.9pDObv4PxunuTuvRYBjmsVtbIDz741nSFIlHQZeb5mI
+    products-notebooks-dashboard-widget--empty--light:
+        hash: v1.k794b7964.36a98ef64c584b87224c7d0485c0f929d0b0e5a6313d2bdfc798732929f4448b.kcM8Xfg22P-4lhP6q56hoZLOmtAOGxH-FxBGmBCHa2g
+    products-notebooks-dashboard-widget--saved-results--dark:
+        hash: v1.k794b7964.7cb8d80811349e0a548b269c086af94329bb6fb65427120375f8a2c268a3e9d7.xne9LlphNEo-i93dT-6_Ms8HXkPqow149FToQCGQiT8
+    products-notebooks-dashboard-widget--saved-results--light:
+        hash: v1.k794b7964.06ca88ee7d6018eb9a0f6eb9cbcaf96e541f73a5f05a1ec639d5832fa05ac143.Ofd732HpF8nFC5kJdS2R_1VP_Dyw9INz8UUHBwsny6w
     products-notebooks-notebook-widget-trust-controls--gate--dark:
         hash: v1.k794b7964.97a5e7b5f92071f677d09773a3dea88ead3c9a71e85dbd6f6de8875ffc7a3036.9u2VOZ-O_aSU002VK8iAydGcjIYBXzRIacAelaDLJ6Y
     products-notebooks-notebook-widget-trust-controls--gate--light:
