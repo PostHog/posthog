@@ -2270,22 +2270,22 @@ Note: Diffed against both machine-readable specs (v1: 1.6 MB, v2: 7.3 MB), 1062 
 
 ## DataForSEO — **thin**
 
-Today (11): `backlinks_history`, `backlinks_referring_domains`, `backlinks_summary`, `backlinks_timeseries_summary`, `categories`, `competitors_domain`, `domain_rank_overview`, `historical_rank_overview`, `locations_and_languages`, `ranked_keywords`, `relevant_pages`
+Today (15): `backlinks`, `backlinks_anchors`, `backlinks_history`, `backlinks_referring_domains`, `backlinks_summary`, `backlinks_timeseries_summary`, `categories`, `competitors_domain`, `domain_rank_overview`, `historical_rank_overview`, `historical_search_volume`, `locations_and_languages`, `ranked_keywords`, `relevant_pages`, `serp_organic`
 
 Diffed against: <https://docs.dataforseo.com/v3/wp-sitemap-posts-page-1.xml>
 
-- [ ] `POST /v3/backlinks/backlinks/live` — the individual backlink rows behind the backlinks_summary aggregate we already sync (high)
+- [x] `POST /v3/backlinks/backlinks/live` — the individual backlink rows behind the backlinks_summary aggregate we already sync (high). Sorted by rank and capped at the first few pages, because a large domain has millions of backlinks.
 - [x] `POST /v3/backlinks/referring_domains/live` — referring-domain breakdown with rank and spam score — the standard link-profile dimension table (high)
 - [x] `GET /v3/dataforseo_labs/locations_and_languages and /v3/dataforseo_labs/categories` — lookup tables resolving the location_code, language_code and category codes stamped on every row we already sync (high). Both are free GET lookups, not POST tasks as first recorded.
 - [x] `POST /v3/dataforseo_labs/google/relevant_pages/live` — top organic landing pages per domain with traffic and keyword counts (high)
 - [x] `POST /v3/backlinks/history/live and /v3/backlinks/timeseries_summary/live` — backlink profile over time and new/lost link trend, versus the single current snapshot we sync (high)
 - [ ] `POST /v3/keywords_data/google_ads/search_volume/live` — search volume, CPC and competition per keyword — the base metric for any SEO model (medium)
-- [ ] `POST /v3/dataforseo_labs/google/historical_search_volume/live` — monthly search volume history for tracked keywords (medium)
-- [ ] `POST /v3/backlinks/anchors/live` — anchor-text distribution for a target domain (medium)
+- [x] `POST /v3/dataforseo_labs/google/historical_search_volume/live` — monthly search volume history for tracked keywords (medium). Keyword-scoped, not domain-scoped: it needs keywords configured on the source, and one request covers up to 700 of them.
+- [x] `POST /v3/backlinks/anchors/live` — anchor-text distribution for a target domain (medium)
 - [ ] `POST /v3/dataforseo_labs/google/domain_intersection/live and /page_intersection/live` — keyword-gap analysis against the competitors we already sync in competitors_domain (medium)
 - [ ] `POST /v3/dataforseo_labs/google/keyword_ideas/live, /keyword_suggestions/live, /related_keywords/live` — keyword expansion sets for opportunity sizing (medium)
 - [ ] `POST /v3/backlinks/domain_pages_summary/live and /domain_pages/live` — per-page backlink counts, the page-level breakdown of the domain summary (medium)
-- [ ] `POST /v3/serp/google/organic/live/advanced` — raw SERP snapshots per keyword, the source of rank tracking over time (medium)
+- [x] `POST /v3/serp/google/organic/live/advanced` — raw SERP snapshots per keyword, the source of rank tracking over time (medium). Keyword-scoped and billed per keyword per sync, so it covers the first results page only.
 
 Note: DataForSEO docs are a WordPress site with no OpenAPI, llms.txt or sitemap index; I enumerated all 691 endpoint doc pages from /v3/wp-sitemap-posts-page-1.xml and spot-verified the URL format on https://docs.dataforseo.com/v3/backlinks/backlinks/live/ (POST https://api.dataforseo.com/v3/backlinks/backlinks/live). The API spans SERP (157 pages), DataForSEO Labs (85), Keywords Data (69), AI Optimization (69), Business Data (58), Merchant (47), App Data (36), On-Page (33) and Backlinks (25); five synced tables is a small fraction. Whole families are absent: On-Page site audit, Business Data (Google Business Profile reviews), Merchant, App Data, Content Analysis and Domain Analytics technologies.
 
@@ -2329,20 +2329,20 @@ Note: Diffed against the vendor's own OpenAPI specs (openapi-v2.yaml, openapi-v3
 
 ## Debugbear — gaps
 
-Today (2): `PageMetrics`, `Projects`
+Today (6): `Annotations`, `PageMetrics`, `Pages`, `Projects`, `RumMetrics`, `RumPageViews`
 
 Diffed against: <https://www.debugbear.com/docs/api>
 
-- [ ] `GET /api/v1/project/{projectId}/rumMetrics` — real-user Core Web Vitals aggregates — DebugBear's headline product, with nothing synced today (high)
-- [ ] `GET /api/v1/project/{projectId}/rumPageViews` — page-view-grain RUM data for slicing real-user performance by page, device and country (high)
-- [ ] `GET /api/v1/projects/{projectId}/pages` — lookup resolving the page IDs that every PageMetrics row is keyed on (URL, name, test settings) (high)
+- [x] `GET /api/v1/project/{projectId}/rumMetrics` — real-user Core Web Vitals aggregates — DebugBear's headline product, with nothing synced today (high) — added as `rum_metrics`, one row per metric per day (`groupByTime=day`)
+- [x] `GET /api/v1/project/{projectId}/rumPageViews` — page-view-grain RUM data for slicing real-user performance by page, device and country (high) — added as `rum_page_views`
+- [x] `GET /api/v1/projects/{projectId}/pages` — lookup resolving the page IDs that every PageMetrics row is keyed on (URL, name, test settings) (high) — added as `pages`. That path is documented for POST only; the readable representation of a page is the `pages` array on each project in `GET /api/v1/projects`, which is where the table reads from.
 - [ ] `GET /api/v1/analysis/{analysisId}` — individual lab test results behind the aggregated page metrics, including test metadata and status (medium)
 - [ ] `GET /api/v1/analysis/{analysisId}/requests` — request-level waterfall breakdown — which resources drive the page weight and load time (medium)
-- [ ] `GET /api/v1/project/{projectId}/annotations` — timeline annotations (deploy markers) needed to attribute metric changes to releases (medium)
+- [x] `GET /api/v1/project/{projectId}/annotations` — timeline annotations (deploy markers) needed to attribute metric changes to releases (medium) — added as `annotations`
 - [ ] `GET /api/v1/analysis/{analysisId}/lhr` — full Lighthouse report per test, including audit-level scores (low)
 - [ ] `GET /api/v1/project/{projectId}/quickTests` — one-off test results run outside monitored pages (low)
 
-Note: Enumerated all five API areas from the docs index (/docs/api) and extracted paths from each sub-page: projects-api, lab-test-api, quick-tests-api, rum-api, timeline-annotation-api. Twelve documented paths in total; the source syncs two. The RUM API being absent is the biggest miss since real-user monitoring is half the product.
+Note: Enumerated all five API areas from the docs index (/docs/api) and extracted paths from each sub-page: projects-api, lab-test-api, quick-tests-api, rum-api, timeline-annotation-api. Twelve documented paths in total; the source synced two when the sweep ran.
 
 ## Decagon — could not verify
 
@@ -2421,14 +2421,14 @@ Note: The v2 Deploy API is tiny — 15 GET operations. Everything queryable as a
 
 ## Descope — gaps
 
-Today (5): `AccessKeys`, `Audit`, `Roles`, `Tenants`, `Users`
+Today (9): `AccessKeys`, `Analytics`, `Audit`, `Groups`, `Permissions`, `Roles`, `Tenants`, `UserHistory`, `Users`
 
 Diffed against: <https://docs.descope.com/examples/Descope_API.yaml>
 
-- [ ] `/v1/mgmt/permission/all` — lookup table for the permission names referenced by every synced role (high)
-- [ ] `/v2/mgmt/user/history` — per-user authentication history — sign-in events, method and device, the core auth analytics fact (high)
-- [ ] `/v1/mgmt/analytics/search` — Descope's own aggregated auth analytics (sign-ins, conversions) over a time range (high)
-- [ ] `/v1/mgmt/group/all and /v1/mgmt/group/members (+ /v1/mgmt/group/member/all)` — tenant group membership — the user-to-group join table missing from users/tenants (medium)
+- [x] `/v1/mgmt/permission/all` — lookup table for the permission names referenced by every synced role (high)
+- [x] `/v2/mgmt/user/history` — per-user authentication history — sign-in events, method and device, the core auth analytics fact (high)
+- [x] `/v1/mgmt/analytics/search` — Descope's own aggregated auth analytics (sign-ins, conversions) over a time range (high)
+- [x] `/v1/mgmt/group/all and /v1/mgmt/group/members (+ /v1/mgmt/group/member/all)` — tenant group membership — the user-to-group join table missing from users/tenants (medium)
 - [ ] `/v1/mgmt/projects/list` — project lookup so multi-project tenants can attribute users and audit rows (medium)
 - [ ] `/v1/mgmt/sso/idp/apps/load and /v1/mgmt/thirdparty/apps/load` — SSO and third-party application registry that resolves app IDs seen in audit events (medium)
 - [ ] `/v1/mgmt/thirdparty/consents/search` — user consent grants per third-party app — auditable authorization state (medium)
@@ -2439,16 +2439,18 @@ Diffed against: <https://docs.descope.com/examples/Descope_API.yaml>
 
 Note: The downloadable spec (Descope_API.yaml, 474 paths, 318 under /mgmt) is a POST-heavy RPC-style API, so 'endpoints' here are search/load operations rather than REST collections. Flows, themes, JWT templates, management keys, MCP servers and outbound apps were excluded as config/plumbing.
 
+Note: `Groups` covers all three group operations. `/v1/mgmt/group/all` returns each group with its `members` array already attached, so `/v1/mgmt/group/members` and `/v1/mgmt/group/member/all` only re-return filtered views of the same rows and were not given tables of their own.
+
 ## DevinAI — **thin**
 
-Today (4): `knowledge_notes`, `playbooks`, `secrets`, `sessions`
+Today (9): `consumption_daily`, `consumption_daily_users`, `knowledge_notes`, `members`, `playbooks`, `secrets`, `session_insights`, `session_messages`, `sessions`
 
 Diffed against: <https://docs.devin.ai/llms.txt>
 
-- [ ] `/v3/organizations/{org_id}/members/users (and /members/{id})` — lookup table resolving the user IDs on every session; without it sessions cannot be attributed to people (high)
-- [ ] `/v3/organizations/{org_id}/consumption/daily (+ /daily/users, /daily/sessions, /daily/service-users, /consumption/cycles)` — ACU consumption per day, user and session — the headline cost metric for Devin (high)
-- [ ] `/v3/organizations/{org_id}/sessions/{session_id}/messages` — the conversation transcript inside a session; sessions alone carry no content (high)
-- [ ] `/v3/organizations/{org_id}/sessions/insights (and /sessions/{id}/insights)` — per-session outcome and quality insights, the vendor's own success measure (high)
+- [x] `/v3/organizations/{org_id}/members/users (and /members/{id})` — lookup table resolving the user IDs on every session; without it sessions cannot be attributed to people (high) — already synced as `members`, off the v3beta1 org-scoped users listing, which is the only org-scoped path this listing has. `/members/{id}` is a single-record lookup of the same rows.
+- [x] `/v3/organizations/{org_id}/consumption/daily (+ /daily/users, /daily/sessions, /daily/service-users, /consumption/cycles)` — ACU consumption per day, user and session — the headline cost metric for Devin (high) — added as `consumption_daily` and `consumption_daily_users`. `/daily/sessions/{id}` is redundant: every session row already carries `acus_consumed`. `/daily/service-users/{id}` has no org-scoped service-user listing to fan out from, and `/consumption/cycles` only exists at enterprise scope — both need an enterprise service user this source does not hold.
+- [x] `/v3/organizations/{org_id}/sessions/{session_id}/messages` — the conversation transcript inside a session; sessions alone carry no content (high) — added as `session_messages`, fanned out over `sessions`. Off by default: it costs one request per session in the org's history.
+- [x] `/v3/organizations/{org_id}/sessions/insights (and /sessions/{id}/insights)` — per-session outcome and quality insights, the vendor's own success measure (high) — added as `session_insights`. `/sessions/{id}/insights` returns the same record one session at a time, so the list endpoint covers it.
 - [ ] `/v3/organizations/{org_id}/pr-reviews` — PR review activity and outcomes, a primary Devin use case not represented at all today (high)
 - [ ] `/v3/organizations/{org_id}/audit-logs (and enterprise audit logs)` — who did what in the org — standard governance table (medium)
 - [ ] `/v3/organizations/{org_id}/metrics/sessions, /metrics/prs, /metrics/usage, /metrics/dau|wau|mau, /metrics/sessions-by-category` — pre-aggregated adoption and throughput metrics that avoid recomputing them from raw sessions (medium)
@@ -2458,7 +2460,7 @@ Diffed against: <https://docs.devin.ai/llms.txt>
 - [ ] `/v3/organizations/{org_id}/guardrail-violations` — policy violations raised during sessions — compliance reporting (medium)
 - [ ] `/v3/organizations/{org_id}/knowledge/folders` — folder lookup that gives the synced knowledge notes their hierarchy (low)
 
-Note: docs.devin.ai/llms.txt enumerates every v1/v2/v3 API reference page; v3 alone spans sessions, consumption, metrics, users, repositories, pr-reviews, audit-logs, code-scans, guardrails and more, so 4 synced tables (one of which, secrets, is plumbing) is a small fraction.
+Note: docs.devin.ai/llms.txt enumerates every v1/v2/v3 API reference page; v3 alone spans sessions, consumption, metrics, users, repositories, pr-reviews, audit-logs, code-scans, guardrails and more, so 9 synced tables (one of which, secrets, is plumbing) is still a small fraction.
 
 ## DigitalOcean — gaps
 
@@ -2466,11 +2468,11 @@ Today (16): `apps`, `billing_history`, `databases`, `domains`, `droplets`, `imag
 
 Diffed against: <https://api-engineering.nyc3.cdn.digitaloceanspaces.com/spec-ci/DigitalOcean-public.v2.yaml>
 
-- [ ] `/v2/customers/my/invoices/{invoice_uuid} (invoice items) and /invoices/{invoice_uuid}/summary` — per-resource invoice line items; invoices are synced as headers only, so spend cannot be attributed to droplets or databases (high)
-- [ ] `/v2/sizes` — lookup resolving the droplet size slug on every droplet into vCPU, memory, disk and hourly/monthly price (high)
-- [ ] `/v2/regions` — lookup resolving the region slug carried by droplets, databases, load balancers and volumes (high)
+- [x] `/v2/customers/my/invoices/{invoice_uuid} (invoice items) and /invoices/{invoice_uuid}/summary` — per-resource invoice line items; invoices are synced as headers only, so spend cannot be attributed to droplets or databases (high)
+- [x] `/v2/sizes` — lookup resolving the droplet size slug on every droplet into vCPU, memory, disk and hourly/monthly price (high)
+- [x] `/v2/regions` — lookup resolving the region slug carried by droplets, databases, load balancers and volumes (high)
 - [ ] `/v2/projects/{project_id}/resources (and /v2/projects/default/resources)` — the join table mapping every synced resource URN to a project — projects are synced but the membership is not (high)
-- [ ] `/v2/actions (and /v2/droplets/{droplet_id}/actions)` — account-wide action history: creates, resizes, power cycles with status and timing — the state-transition log for infrastructure (high)
+- [x] `/v2/actions (and /v2/droplets/{droplet_id}/actions)` — account-wide action history: creates, resizes, power cycles with status and timing — the state-transition log for infrastructure (high)
 - [ ] `/v2/apps/{app_id}/deployments (+ /v2/apps/{app_id}/events)` — App Platform deployment history and phase transitions; apps are synced but not their deploy activity (medium)
 - [ ] `/v2/kubernetes/clusters/{cluster_id}/node_pools` — node pool sizing per cluster, needed to explain Kubernetes cost and capacity (medium)
 - [ ] `/v2/tags/{tag_id}/resources` — resolves tags (already synced as names) to the resources they are applied to (medium)
