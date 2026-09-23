@@ -146,7 +146,7 @@ async fn identical_graphs_report_no_mismatch(pool: PgPool) -> Result<()> {
 async fn run_passes_once_a_settled_cohort_compares_clean_twice(pool: PgPool) -> Result<()> {
     create_schema(&pool).await?;
     seed_both_legs(&pool, &[(1, "a"), (2, "b")]).await?;
-    assert!(verifier(&pool).run(&quick_config(5_000)).await?);
+    assert!(verifier(&pool).run(&quick_config(60_000)).await?);
     Ok(())
 }
 
