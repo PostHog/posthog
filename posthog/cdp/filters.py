@@ -454,9 +454,12 @@ def compile_filters_bytecode(
         expr = _LowerConstantMembership().visit(expr)
         # Declaring the globals turns the compiler's field resolution into a check: it warns on a
         # root that is neither a local, an upvalue, nor one of ours.
-        context = HogQLContext(
-            team_id=team.id, globals=dict.fromkeys(FILTER_GLOBALS), allowed_functions=FILTER_FUNCTIONS
-        )
+        declared_globals = dict.fromkeys(FILTER_GLOBALS)
+        if cohort_membership_supported:
+            # The runtime prefetches the person's memberships under this name for the generated
+            # inCohort/notInCohort calls; it is not part of the shared filter globals.
+            declared_globals["cohort_ids"] = None
+        context = HogQLContext(team_id=team.id, globals=declared_globals, allowed_functions=FILTER_FUNCTIONS)
         filters["bytecode"] = create_bytecode(
             expr,
             context=context,

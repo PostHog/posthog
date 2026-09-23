@@ -1828,7 +1828,7 @@ class TestHogFlowAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("filters_is_a_string", "not-a-dict"),
-            ("action_id_not_an_integer", {"actions": [{"id": "not-an-integer"}]}),
+            ("action_id_not_an_integer", {"actions": [{"id": "not-an-integer", "type": "actions"}]}),
             ("action_entry_not_a_dict", {"actions": ["bogus"]}),
         ]
     )
