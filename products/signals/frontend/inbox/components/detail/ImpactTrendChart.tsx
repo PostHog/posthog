@@ -5,7 +5,7 @@ import { useChartTheme } from 'lib/charts/hooks'
 
 import type { FollowUpStage, ImpactFollowUpExample } from '../../__mocks__/impactFollowUpConceptMocks'
 
-export function ImpactTrendChart({ example, stage }: { example: ImpactFollowUpExample; stage: FollowUpStage }): JSX.Element {
+export function ImpactTrendChart({ example, stage, compact = false }: { example: ImpactFollowUpExample; stage: FollowUpStage; compact?: boolean }): JSX.Element {
     const theme = useChartTheme()
     const shownDays = stage === 'planned' ? 0 : stage === 'watching' ? example.elapsedDays : example.windowDays
     const labels = [
@@ -33,25 +33,27 @@ export function ImpactTrendChart({ example, stage }: { example: ImpactFollowUpEx
 
     return (
         <div className="flex min-w-0 flex-col gap-2" aria-label={`${example.chartLabel}, before and after release`}>
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                <span className="font-semibold">{example.chartLabel}</span>
-                <span className="text-secondary">{example.chartGoalLabel}</span>
-            </div>
-            <div className="flex h-44 min-w-0 flex-col">
+            {!compact && (
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="font-semibold">{example.chartLabel}</span>
+                    <span className="text-secondary">{example.chartGoalLabel}</span>
+                </div>
+            )}
+            <div className={`flex min-w-0 flex-col ${compact ? 'h-24' : 'h-44'}`}>
                 <TimeSeriesLineChart
                     series={series}
                     labels={labels}
                     theme={theme}
                     config={{
-                        xAxis: {
+                        xAxis: compact ? { hide: true } : {
                             tickFormatter: (_, index) =>
                                 index === 0 ? 'Before' : index === example.beforeTrend.length ? 'Release' : index === labels.length - 1 ? 'End' : null,
                         },
-                        yAxis: { startAtZero: true, showGrid: true },
-                        showAxisLines: { x: true, y: false },
+                        yAxis: { startAtZero: true, showGrid: !compact, hide: compact },
+                        showAxisLines: compact ? false : { x: true, y: false },
                         showCrosshair: true,
                         goalLines:
-                            example.chartGoal === null ? [] : [{ value: example.chartGoal, label: example.chartGoalLabel }],
+                            example.chartGoal === null ? [] : [{ value: example.chartGoal, label: example.chartGoalLabel, displayLabel: !compact }],
                         tooltip: { pinnable: false },
                     }}
                 />

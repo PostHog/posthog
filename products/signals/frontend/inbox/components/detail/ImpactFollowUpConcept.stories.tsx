@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { impactFollowUpExamples } from '../../__mocks__/impactFollowUpConceptMocks'
 import type { FollowUpStage } from '../../__mocks__/impactFollowUpConceptMocks'
 import { ImpactFollowUpConcept } from './ImpactFollowUpConcept'
+import type { ImpactFollowUpConceptProps } from './ImpactFollowUpConcept'
 
 const meta: Meta = {
     title: 'Scenes-App/Inbox/Impact follow-up concepts',
@@ -12,13 +13,30 @@ export default meta
 
 type Story = StoryObj
 
-function gallery(stage: FollowUpStage, version: 'trend' | 'countdown' | 'checkpoints'): JSX.Element {
+export const AtAGlance: Story = {
+    render: () => (
+        <div className="min-h-screen bg-primary p-6">
+            <div className="mx-auto flex max-w-5xl flex-col gap-5">
+                <div>
+                    <h1 className="mb-1 text-xl font-semibold">Impact at a glance</h1>
+                    <p className="m-0 text-sm text-secondary">Early signs and final results · five illustrative reports · invented data</p>
+                </div>
+                {impactFollowUpExamples.map((example, index) => (
+                    <ImpactFollowUpConcept key={example.id} example={example} stage={index < 2 ? 'finished' : 'watching'} version="inbox" />
+                ))}
+            </div>
+        </div>
+    ),
+}
+
+function gallery(stage: FollowUpStage, version: ImpactFollowUpConceptProps['version']): JSX.Element {
+    const names = { beacon: 'A · The beacon', scoreboard: 'B · The scoreboard', inbox: 'C · The inbox strip', two_signals: 'D · Change + proof' }
     return (
         <div className="min-h-screen bg-primary p-6">
             <div className="mx-auto flex max-w-5xl flex-col gap-8">
                 <div>
                     <h1 className="mb-1 text-xl font-semibold">
-                        {version === 'trend' ? 'A · The trend' : version === 'countdown' ? 'B · The countdown' : 'C · The checkpoints'} ·{' '}
+                        {names[version]} ·{' '}
                         {stage === 'planned' ? 'Before merge' : stage === 'watching' ? 'Watching after merge' : 'After the window'}
                     </h1>
                     <p className="m-0 text-sm text-secondary">
@@ -33,14 +51,18 @@ function gallery(stage: FollowUpStage, version: 'trend' | 'countdown' | 'checkpo
     )
 }
 
-export const TrendBeforeMerge: Story = { render: () => gallery('planned', 'trend') }
-export const TrendWatching: Story = { render: () => gallery('watching', 'trend') }
-export const TrendAfterWindow: Story = { render: () => gallery('finished', 'trend') }
+export const BeaconBeforeMerge: Story = { render: () => gallery('planned', 'beacon') }
+export const BeaconWatching: Story = { render: () => gallery('watching', 'beacon') }
+export const BeaconAfterWindow: Story = { render: () => gallery('finished', 'beacon') }
 
-export const CountdownBeforeMerge: Story = { render: () => gallery('planned', 'countdown') }
-export const CountdownWatching: Story = { render: () => gallery('watching', 'countdown') }
-export const CountdownAfterWindow: Story = { render: () => gallery('finished', 'countdown') }
+export const ScoreboardBeforeMerge: Story = { render: () => gallery('planned', 'scoreboard') }
+export const ScoreboardWatching: Story = { render: () => gallery('watching', 'scoreboard') }
+export const ScoreboardAfterWindow: Story = { render: () => gallery('finished', 'scoreboard') }
 
-export const CheckpointsBeforeMerge: Story = { render: () => gallery('planned', 'checkpoints') }
-export const CheckpointsWatching: Story = { render: () => gallery('watching', 'checkpoints') }
-export const CheckpointsAfterWindow: Story = { render: () => gallery('finished', 'checkpoints') }
+export const InboxBeforeMerge: Story = { render: () => gallery('planned', 'inbox') }
+export const InboxWatching: Story = { render: () => gallery('watching', 'inbox') }
+export const InboxAfterWindow: Story = { render: () => gallery('finished', 'inbox') }
+
+export const ChangeAndProofBeforeMerge: Story = { render: () => gallery('planned', 'two_signals') }
+export const ChangeAndProofWatching: Story = { render: () => gallery('watching', 'two_signals') }
+export const ChangeAndProofAfterWindow: Story = { render: () => gallery('finished', 'two_signals') }
