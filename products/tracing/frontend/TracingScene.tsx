@@ -3,12 +3,13 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useCallback, useMemo } from 'react'
 
-import { LemonBanner, LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconFeedback } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -35,7 +36,7 @@ import { tracingDataLogic } from './tracingDataLogic'
 import { TracingDisplayBar } from './TracingDisplayBar'
 import { TracingFilterBar } from './TracingFilterBar'
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
-import { tracingSceneLogic } from './tracingSceneLogic'
+import { type TracingSceneTab, tracingSceneLogic } from './tracingSceneLogic'
 import { TracingSparkline } from './TracingSparkline'
 import { tracingViewerLogic } from './tracingViewerLogic'
 import type { Span, SpanInspectorTab } from './types'
@@ -115,6 +116,8 @@ function TracingSceneContents(): JSX.Element {
         showHeatmap,
         activeTracingTab,
         compareActive,
+        sceneTabsEnabled,
+        activeSceneTab,
     } = useValues(tracingSceneLogic())
     const { featureFlags } = useValues(featureFlagLogic)
     const {
@@ -132,6 +135,7 @@ function TracingSceneContents(): JSX.Element {
         setSort,
         setChartType,
         applyHeatmapBrush,
+        selectSceneTab,
     } = useActions(tracingSceneLogic())
     const { addProductIntent } = useActions(teamLogic)
     const { facetRailCollapsed } = useValues(tracingConfigLogic)
@@ -242,7 +246,18 @@ function TracingSceneContents(): JSX.Element {
             >
                 Tracing is now in beta. Please share feedback on how to improve the product.
             </LemonBanner>
-            <>
+            {sceneTabsEnabled && (
+                <LemonTabs<TracingSceneTab>
+                    activeKey={activeSceneTab}
+                    onChange={selectSceneTab}
+                    tabs={[
+                        { key: 'viewer', label: 'Viewer' },
+                        { key: 'sql', label: 'SQL' },
+                    ]}
+                    sceneInset
+                />
+            )}
+            <div className={cn('flex flex-col gap-y-4 flex-1 min-h-0', activeSceneTab !== 'viewer' && 'hidden')}>
                 <TracingFilterBar />
                 <SceneDivider />
                 <TracingSparkline
@@ -321,7 +336,7 @@ function TracingSceneContents(): JSX.Element {
                         )}
                     </div>
                 </div>
-            </>
+            </div>
             <TraceDrawer
                 isOpen={isTraceOpen}
                 traceId={selectedTraceId}
