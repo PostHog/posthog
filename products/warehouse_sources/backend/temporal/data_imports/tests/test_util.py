@@ -245,6 +245,12 @@ class TestPrepareS3FilesForQuerying:
             # translates every back-off response code to, so a store whose wording the message
             # needles don't match is still retried rather than failing the sync.
             ("throttled", OSError(errno.EBUSY, "Reduce your request rate for this prefix.")),
+            # AWS omits the error code from a HeadObject response body, so s3fs's _cp_file (which
+            # HEADs the destination) raises the same bare PermissionError for a brief
+            # credential-resolution race as it does for a genuine denial. Regression: this used to
+            # fail the whole sync on the first attempt instead of retrying, unlike the identical
+            # ambiguity _purge_s3_prefix already retries.
+            ("credential_resolution_race", PermissionError("Forbidden")),
         ]
     )
     async def test_retries_transient_s3_error_during_copy(self, name: str, transient_error: OSError):
