@@ -1,7 +1,7 @@
 // `init` writes the one file a customer starts from, with the key already filled in, so nobody
 // has to invent an identity by hand or copy the placeholder out of the documentation.
 
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path'
 
 import { WorkflowError } from '../errors.js'
@@ -24,6 +24,20 @@ function camelCase(parts: readonly string[]): string {
 function sentenceCase(parts: readonly string[]): string {
     const joined = parts.join(' ').toLowerCase()
     return `${joined[0]!.toUpperCase()}${joined.slice(1)}`
+}
+
+function exportName(parts: readonly string[]): string {
+    const name = camelCase(parts)
+    return /^[A-Za-z_$]/.test(name) ? name : `workflow${name}`
+}
+
+function fileExists(shown: string): WorkflowError {
+    return new WorkflowError({
+        status: 'file_exists',
+        message: `${shown} already exists.`,
+        why: 'init writes a starter workflow, and overwriting the file would throw away what is in it.',
+        fix: `Pick another path, or edit ${shown} directly.`,
+    })
 }
 
 function starter(exportName: string, key: string, name: string): string {
@@ -55,19 +69,17 @@ export function runInit(options: { path: string; cwd: string; io: Io }): number 
             fix: 'Run init with a file name such as flows/onboarding.ts.',
         })
     }
-    if (existsSync(absolute)) {
-        throw new WorkflowError({
-            status: 'file_exists',
-            message: `${shown} already exists.`,
-            why: 'init writes a starter workflow, and overwriting the file would throw away what is in it.',
-            fix: `Pick another path, or edit ${shown} directly.`,
-        })
-    }
-
     const key = parts.join('-').toLowerCase()
     const name = sentenceCase(parts)
     mkdirSync(dirname(absolute), { recursive: true })
-    writeFileSync(absolute, starter(camelCase(parts), key, name))
+    try {
+        writeFileSync(absolute, starter(exportName(parts), key, name), { flag: 'wx' })
+    } catch (error) {
+        if (error instanceof Error && (error as NodeJS.ErrnoException).code === 'EEXIST') {
+            throw fileExists(shown)
+        }
+        throw error
+    }
 
     options.io.out(`Wrote ${shown} with the key "${key}".`)
     options.io.out(`Next: edit the steps, then run posthog-workflows check ${shown}`)

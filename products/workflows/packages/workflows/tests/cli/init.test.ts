@@ -25,6 +25,16 @@ describe('init', () => {
         assert.match(written, /export const onboardingNudge = workflow\(\{/)
     })
 
+    it('prefixes an export name that would start with a digit', async () => {
+        const workspace = makeWorkspace()
+
+        const result = await runCli(['init', 'flows/2024-recap.ts'], { workspace })
+
+        assert.equal(result.code, 0)
+        const written = readFileSync(join(workspace.dir, 'flows', '2024-recap.ts'), 'utf8')
+        assert.match(written, /export const workflow2024Recap = workflow\(\{/)
+    })
+
     it('writes a file the CLI then loads', async () => {
         const workspace = makeWorkspace()
         await runCli(['init', 'flows/onboarding.ts'], { workspace })
