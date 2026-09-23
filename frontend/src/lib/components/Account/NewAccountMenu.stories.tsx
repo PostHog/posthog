@@ -42,7 +42,7 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
         useEffect(() => setAccountMenuOpen(true), [setAccountMenuOpen])
 
         return (
-            <div className="w-[230px]">
+            <div className="w-56">
                 <NewAccountMenu isLayoutNavCollapsed={false} />
             </div>
         )

@@ -134,6 +134,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                     <Menu.Backdrop className="fixed inset-0 z-[var(--z-modal)]" />
 
                     <Menu.Positioner className="z-[var(--z-popover)]" sideOffset={4}>
+                        {/* 260px is the narrowest width that keeps "Organization" and "New organization" on one line */}
                         <Menu.Popup className="primitive-menu-content max-h-[calc(var(--available-height)-4px)] min-w-[260px] w-full">
                             <ScrollableShadows
                                 direction="vertical"
