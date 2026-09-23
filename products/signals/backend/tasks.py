@@ -13,10 +13,12 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
-from posthog.models.integration import SlackIntegration
+from posthog.models.github_integration_base import GitHubIntegrationError
+from posthog.models.integration import GitHubIntegration, SlackIntegration
 from posthog.models.organization import BillingPeriod
 from posthog.models.scoping import with_team_scope
 from posthog.ph_client import ph_scoped_capture
@@ -30,6 +32,7 @@ from products.signals.backend.implementation_dispatch_tasks import (
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
 from products.signals.backend.models import (
     SignalReport,
+    SignalReportPullRequest,
     SignalReportRefund,
     SignalReportTrackerIssue,
     SignalRepositoryAreaActivity,
@@ -39,6 +42,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.pr_origin import write_origin_section
 from products.signals.backend.pull_request_body import BodyEditOutcome
+from products.signals.backend.pull_requests import update_pull_request_review_decision
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_KEEP_WARM_WINDOW,
     rebuild_repository_activity,
@@ -67,6 +71,51 @@ from products.signals.backend.tracker_issues import close_tracker_issue_for_repo
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.refresh_pull_request_review_decision",
+    ignore_result=True,
+    autoretry_for=(GitHubEgressBudgetExhausted, GitHubIntegrationError, GitHubRateLimitError),
+    retry_backoff=True,
+    max_retries=5,
+)
+@with_team_scope()
+def refresh_pull_request_review_decision(team_id: int, repository: str, pr_number: int) -> None:
+    pr = (
+        SignalReportPullRequest.objects.for_team(team_id)
+        .filter(repository=repository.lower(), number=pr_number)
+        .first()
+    )
+    if pr is None:
+        return
+
+    github = GitHubIntegration.first_for_team_repository(
+        team_id,
+        repository,
+        source="signals_pr_review_decision",
+        priority=Priority.BATCH,
+    )
+    if github is None:
+        return
+    snapshot = github.get_pull_request_snapshot(pr.url)
+    if not snapshot.get("success"):
+        logger.warning(
+            "signals_pr_review_decision_refresh_failed",
+            team_id=team_id,
+            repository=repository,
+            pr_number=pr_number,
+            error=snapshot.get("error"),
+        )
+        return
+    raw_review_decision = snapshot.get("review_decision")
+    review_decision = raw_review_decision if isinstance(raw_review_decision, str) else None
+    update_pull_request_review_decision(
+        team_id=team_id,
+        repository=repository,
+        number=pr_number,
+        review_decision=review_decision,
+    )
 
 
 @shared_task(

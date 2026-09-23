@@ -64601,6 +64601,20 @@ export namespace Schemas {
       Merged: 'merged',
     } as const;
 
+    /**
+     * * `approved` - Approved
+     * * `changes_requested` - Changes requested
+     * * `review_required` - Review required
+     */
+    export type SignalReportPullRequestReviewDecisionEnum = typeof SignalReportPullRequestReviewDecisionEnum[keyof typeof SignalReportPullRequestReviewDecisionEnum];
+
+
+    export const SignalReportPullRequestReviewDecisionEnum = {
+      Approved: 'approved',
+      ChangesRequested: 'changes_requested',
+      ReviewRequired: 'review_required',
+    } as const;
+
     export interface SignalReportPullRequestAttachedBy {
       /** Kind of actor who attached the PR. Null when legacy attribution is unknown.
        *
@@ -64641,6 +64655,17 @@ export namespace Schemas {
       state: SignalReportAssignmentPrStateEnum;
       /** Whether this PR merged. */
       merged: boolean;
+      /** Current GitHub code review decision: approved, changes_requested, or review_required. Null when GitHub does not provide a review decision.
+       *
+       * * `approved` - Approved
+       * * `changes_requested` - Changes requested
+       * * `review_required` - Review required */
+      review_decision: SignalReportPullRequestReviewDecisionEnum | null;
+      /**
+         * When GitHub reports that this pull request merged. Null when it has not merged or the time is unavailable.
+         * @nullable
+         */
+      merged_at: string | null;
       /** Who first attached this PR to the report, not necessarily its GitHub author. Task-output links identify the originating task. */
       readonly attached_by: SignalReportPullRequestAttachedBy | null;
       /**
@@ -97145,6 +97170,24 @@ export namespace Schemas {
       limit: number;
     }
 
+    export interface TwoFactorStatus {
+      /** Whether the user has any 2FA method enabled. */
+      is_enabled: boolean;
+      /** Number of unused backup codes. The codes themselves are only returned when they are generated. */
+      backup_codes_remaining: number;
+      /**
+         * The primary 2FA method: "TOTP" or "passkey". Null when 2FA is off.
+         * @nullable
+         */
+      method: string | null;
+      /** Whether the user has at least one verified passkey. */
+      has_passkeys: boolean;
+      /** Whether the user has an authenticator app set up. */
+      has_totp: boolean;
+      /** Whether passkeys count as a 2FA method. */
+      passkeys_enabled_for_2fa: boolean;
+    }
+
     export interface UnquarantineQuery {
       /**
          * Snapshot identifier to unquarantine
@@ -101319,6 +101362,58 @@ export namespace Schemas {
     export interface _TracingDurationHistogramRequest {
       /** The duration-histogram query to execute. */
       query: _TracingDurationHistogramQueryBody;
+    }
+
+    export interface _TracingErrorCountsRequest {
+      /**
+         * Hex trace IDs to count exceptions for, matched against the exception's `$trace_id` property. Case insensitive. At most 200 per request.
+         * @maxItems 200
+         */
+      traceIds?: string[];
+      /**
+         * Hex span IDs to count exceptions for, matched against the exception's `$span_id` property. Only counted within the requested traces, so `traceIds` is required alongside. At most 200 per request.
+         * @maxItems 200
+         */
+      spanIds?: string[];
+      /**
+         * Session IDs to count exceptions for. The fallback for exceptions that carry no trace ID. At most 200 per request.
+         * @maxItems 200
+         */
+      sessionIds?: string[];
+      /** Start of the window the exceptions must fall in. ISO 8601. */
+      dateFrom: string;
+      /** End of the window the exceptions must fall in. ISO 8601. */
+      dateTo: string;
+    }
+
+    export interface _TracingTraceErrorCount {
+      /** Exception events in the window that error tracking linked to an issue. */
+      exceptions: number;
+      /** The trace the exceptions belong to, lowercase hex. */
+      trace_id: string;
+    }
+
+    export interface _TracingSpanErrorCount {
+      /** Exception events in the window that error tracking linked to an issue. */
+      exceptions: number;
+      /** The span the exceptions belong to, lowercase hex. */
+      span_id: string;
+    }
+
+    export interface _TracingSessionErrorCount {
+      /** Exception events in the window that error tracking linked to an issue. */
+      exceptions: number;
+      /** The session the exceptions belong to. */
+      session_id: string;
+    }
+
+    export interface _TracingErrorCountsResponse {
+      /** One entry per requested trace that had exceptions. Traces with none are omitted. */
+      traceResults: _TracingTraceErrorCount[];
+      /** One entry per requested span that had exceptions. Spans with none are omitted. */
+      spanResults: _TracingSpanErrorCount[];
+      /** One entry per requested session that had exceptions. Sessions with none are omitted. */
+      sessionResults: _TracingSessionErrorCount[];
     }
 
     export interface _TracingImpactRequest {
