@@ -188,8 +188,7 @@
                     "enum": [
                       "missing_context",
                       "invalid_property",
-                      "invalid_regex",
-                      "hash"
+                      "invalid_regex"
                     ]
                   }
                 },

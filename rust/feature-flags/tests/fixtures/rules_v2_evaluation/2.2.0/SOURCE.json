@@ -1,13 +1,13 @@
 {
   "source_repository": "https://github.com/PostHog/posthog-sdk-test-harness",
-  "source_revision": "d4a2977a97e179579836138a9168cf31ea099a45",
-  "release_status": "unreleased",
+  "source_revision": "6054eaa7972980ceb3b991f9535b488880978ddc",
+  "release_status": "released",
   "contract_version": "2.2.0",
   "v2_boolean_evaluation_version": "1.0.0",
   "v1_corpus_version": "1.1.0",
   "registry_version": "2.0.0",
   "config_schema_version": "1.0.0",
-  "source_sha256sums_digest": "a34ef85200e33d7c55a565210e37e075c76fc64095db832ff3aa1a7d0b770f8c",
+  "source_sha256sums_digest": "6aa00e4879408ce245829ab0fa40d8abb8f520a0456a190a56f193b37c45db09",
   "files": [
     "README.md",
     "manifest.json",
@@ -16,7 +16,7 @@
     "schemas/v2_boolean_evaluation.schema.json",
     "corpus/v2_boolean_evaluation.json"
   ],
-  "follow_up": "Merge and release the companion artifact, then repin to its immutable release revision before marking the dependency complete.",
   "vendoring_scope": "subset",
-  "upstream_metadata": "README.md, manifest.json, and SHA256SUMS describe the full upstream package. Only the paths in files and the source checksum index are vendored here, unchanged."
+  "upstream_metadata": "README.md, manifest.json, and SHA256SUMS describe the full upstream package. Only the paths in files and the source checksum index are vendored here, unchanged.",
+  "source_release": "1.8.0"
 }

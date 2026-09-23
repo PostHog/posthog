@@ -79,7 +79,7 @@ Repeated seeds reuse their hash within one evaluation.
 The evaluator has no database access, writes, events, identity allocation, or gate decisions.
 Experiment/variant/holdout/group/cohort/dependency families and non-boolean values remain unsupported.
 Public response projection and mixed-format service-cache/fallback integration require separate consumers.
-The evaluator corpus pin records an exact unreleased companion revision; release and consumer repinning remain required before that dependency is merge-ready.
+The evaluator corpus pins contract 2.2.0 from harness release 1.8.0 at revision `6054eaa7972980ceb3b991f9535b488880978ddc`.
 The vendored directory contains the subset listed in `SOURCE.json`.
 Its README, manifest, and checksum index retain the upstream bytes and describe the full upstream package.
 The integrity test verifies the source index digest and each selected file against that index; the directory is not a complete source distribution.

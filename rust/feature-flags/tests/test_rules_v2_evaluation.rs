@@ -19,7 +19,8 @@ fn pinned_evaluation_artifact_subset_is_intact() {
     let revision = source["source_revision"].as_str().unwrap();
     assert_eq!(revision.len(), 40);
     assert!(revision.bytes().all(|c| c.is_ascii_hexdigit()));
-    assert_eq!(source["release_status"], "unreleased");
+    assert_eq!(source["release_status"], "released");
+    assert_eq!(source["source_release"], "1.8.0");
     let index = std::fs::read(corpus::root().join("SHA256SUMS")).unwrap();
     assert_eq!(
         hex::encode(Sha256::digest(&index)),
@@ -77,10 +78,10 @@ fn pinned_evaluation_artifact_subset_is_intact() {
         counts,
         BTreeMap::from([
             ("ordering", 18),
-            ("properties", 52),
+            ("properties", 67),
             ("context", 8),
             ("errors", 6),
-            ("hashing", 20),
+            ("hashing", 21),
             ("white_box", 10),
             ("eligibility", 3),
             ("parser", 2),
@@ -103,11 +104,10 @@ fn parsed_configs_match_every_core_case_without_mutating_cached_inputs() {
         let before = serde_json::to_value(&flag).unwrap();
         let cached = PreparedFlags::seal(vec![flag]);
         let retained = cached[0].filters.non_v1.as_ref().unwrap();
-        let parsed = retained.parsed_v2.as_ref().unwrap();
         if case["family"] == "parser" {
-            let kind = match parsed {
-                Err(ParseError::Malformed(_)) => "malformed",
-                Err(ParseError::Unsupported(_)) => "unsupported",
+            let kind = match retained.parsed_v2.as_ref() {
+                Some(Err(ParseError::Malformed(_))) => "malformed",
+                Some(Err(ParseError::Unsupported(_))) | None => "unsupported",
                 other => panic!("{id}: unexpected parse result {other:?}"),
             };
             assert_eq!(
@@ -118,6 +118,7 @@ fn parsed_configs_match_every_core_case_without_mutating_cached_inputs() {
             rejected += 1;
             continue;
         }
+        let parsed = retained.parsed_v2.as_ref().unwrap();
         let evaluator = Evaluator::new(parsed.as_ref().unwrap());
         let properties = corpus::properties(&case);
         let properties_before = properties.clone();
@@ -167,7 +168,7 @@ fn parsed_configs_match_every_core_case_without_mutating_cached_inputs() {
         }
         executed += 1;
     }
-    assert_eq!((executed, rejected), (104, 2));
+    assert_eq!((executed, rejected), (120, 2));
 }
 
 #[tokio::test]

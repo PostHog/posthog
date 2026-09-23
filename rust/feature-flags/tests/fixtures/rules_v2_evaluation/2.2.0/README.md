@@ -47,6 +47,7 @@ Percentage rollout inclusion maps to TARGETING_MATCH by contract choice; OpenFea
 - corpus/v1_evaluation.json contains lock-down fixtures for the frozen version 1 evaluation arm.
 - corpus/legacy_projection.json records how a version 1 outcome projects into each response protocol version.
 - schemas/hash_sha1_60_v1.schema.json, schemas/v1_evaluation.schema.json, and schemas/legacy_projection.schema.json are the companion schemas for the corpus files.
+- corpus/v2_boolean_evaluation.json contains the person boolean evaluation corpus, and schemas/v2_boolean_evaluation.schema.json is its companion schema.
 - manifest.json assigns stable fixture and case IDs and declares the compatibility policy.
 - SHA256SUMS records the SHA-256 digest for each package file except itself.
 
@@ -166,30 +167,68 @@ The verifier reads the archive without extraction, requires its checksum index t
 
 Contract 2.2.0 adds `corpus/v2_boolean_evaluation.json` and its schema as a separate 1.0.0 component.
 The frozen v1 corpus, hash/variant vectors, schemas, registry, and wire fixtures keep their published bytes and versions.
-A minor harness changeset requests the next release; an unreleased commit pin does not establish a released dependency.
 
 Each case supplies a full config, explicit person identifier and property completeness, team timezone, exact-matching setting, and fixed evaluation time.
 The core consumes the resolved person distinct ID without device or experience-continuity overrides.
 A complete property map can establish absence; a partial map cannot establish absence for an unknown key.
 An unavailable map fails only when evaluation reaches a predicate.
 Predicates are ANDed in stored order and short-circuit on a conclusive miss or an error.
-Negation applies once to conclusive results.
+Negation applies once to conclusive results; an absent or null `negation` means false.
 Malformed regex syntax and backtracking failures are evaluation errors, including under negation; this avoids turning an invalid pattern into a successful negative match.
 This is stricter than v1's invalid-pattern non-match behavior and does not change v1 expectations.
+A consumer may compile patterns when it loads a config, but an invalid pattern in a predicate that evaluation never reaches is not a parse error; the error surfaces only when evaluation reaches the predicate.
 Other operators reuse the existing property language, including null presence, case handling, semver normalization, and team-timezone date comparisons.
+
+### Regex coverage
+
+The shared regex cases use ASCII literals, `^`/`$` anchors, and ordinary capturing groups, with case-sensitive search semantics: an unanchored pattern may match a substring.
+`not_regex` complements a successful search result; predicate `negation` then complements that conclusive result once more.
+The unmatched `[` is a syntax error for both operators, and neither operator nor predicate negation converts that error to a match.
+These cases require no lookaround, backreferences, or engine-specific extensions.
+They do not define the complete regex dialect accepted by a consumer.
+
+Actual regex execution failures must remain errors, but this language-neutral corpus does not prescribe an execution budget or require a particular pattern to exhaust it.
+Engine-specific lookaround support and backtracking-limit tests belong with the implementation, where the engine and limit are known.
+A passing shared corpus alone does not establish support for those extensions.
+
+### Date comparisons
+
+Both the person property and filter value resolve to instants before comparison, using the same `context.now` and IANA `context.timezone`.
+`is_date_exact` compares instants for equality, including the time of day; it does not compare calendar dates or truncate to midnight.
+`is_date_before` and `is_date_after` use strict `<` and `>` comparisons, so equality matches neither.
+The `explicit_exact_matching` setting affects the separate `exact` operator, not these date operators.
+
+- A timestamp with `Z` or an explicit offset denotes that instant regardless of the team timezone.
+- A bare `YYYY-MM-DD` denotes midnight in the team timezone. A date and time without an offset denotes that wall-clock time in the team timezone.
+- Numeric person properties, including numeric strings, denote Unix epoch seconds.
+- Relative strings have the form `-?N[hdwmy]`, with an integer magnitude below 10,000. Both `1d` and `-1d` mean one day ago; the optional minus does not reverse the direction.
+- To resolve a relative value, first convert `context.now` to the team timezone and take its local wall clock. Subtract the magnitude there: hours, days, or seven-day weeks use wall-clock arithmetic; months and years subtract one calendar month or year at a time, clamping the day to the last valid day at each step. Preserve the time of day and fractional seconds. For example, two months before March 31, 2024 is January 29, 2024 after the intermediate February clamp.
+- Interpret the resulting wall clock in the team timezone, then convert it to an instant. During a fall-back overlap, choose the earlier instant. A spring-forward gap has no instant and produces a non-match. An unparseable property value also produces a non-match. Predicate negation applies afterwards to these conclusive non-matches.
+
+For `relative_dst`, `2024-03-31T12:00:00Z` is 14:00 in Oslo. Subtracting `-1d` gives March 30 at 14:00 local, or `2024-03-30T13:00:00Z`: 23 elapsed hours earlier.
+The paired miss case rejects `2024-03-30T12:00:00Z`, even though it is on the same local date and exactly 24 elapsed hours earlier.
+The fall-back cases similarly distinguish a 25-hour calendar day and the two occurrences of an overlapping wall-clock time; the gap case rejects a nonexistent time.
+
+These rules follow the reference consumer's [relative-date resolution](https://github.com/PostHog/posthog/blob/157973cc642c31bceb8fe00c566bb8aed0a3a38f/rust/feature-flags/src/properties/relative_date.rs) and [date comparisons](https://github.com/PostHog/posthog/blob/157973cc642c31bceb8fe00c566bb8aed0a3a38f/rust/feature-flags/src/properties/property_matching.rs).
+The corpus uses the explicit formats above; it does not require the reference consumer's additional best-effort absolute-date formats.
+
+### Terminal results and consumer scope
 
 `expected` is exhaustive: compare every field and reject unexpected fields.
 Success with a null value delegates to the caller default; success with false remains a configured result.
 `no_rule_match` carries no rule, while terminal matches and rollout misses carry the original UUID, kind, and zero-based index.
 Errors carry no successful value or rule context.
+The evaluation error kinds `missing_context`, `invalid_property`, and `invalid_regex` refine the registry's `error` reason code and share its OpenFeature mapping.
+Parse errors reject the document before evaluation: `malformed` for a document the config schema rejects, and `unsupported` for an unknown config version, the registry's `unknown_version_result`.
 The corpus does not define a new response protocol.
 
 Hash evidence records UTF-8 bytes, the real SHA1 digest, its first 60 bits, and binary64 hash/threshold bits.
 The meta-tests independently recompute these values with Python hashlib and binary64 arithmetic.
 Identifiers truncate to 200 Unicode scalar values without normalization; predicate values remain intact.
-Empty identifiers miss even at 100%; nonempty 100% bypasses hashing.
+The truncation and normalization cases use thresholds that separate the correct digest from UTF-8 byte, UTF-16 code unit, NFC, and NFD mistakes.
+Empty identifiers are rollout misses even at 100%, so `on_rollout_miss` decides whether evaluation continues or returns the default; nonempty 100% bypasses hashing.
 At 0%, the inclusive zero-hash edge remains included.
-`white_box` rows prescribe a hash only through a consumer's private test seam and record equal, below, or next-binary64-above threshold evidence.
+`white_box` rows replay through a consumer's private test-only hook that passes `white_box.hash01_binary64_hex` straight into the rollout threshold comparison, skipping identifier hashing; each row records equal, below, or next-binary64-above threshold evidence.
 They supplement real digest cases and must not become a public override API.
 
 Consumers must report the `ordering`, `properties`, `context`, `errors`, `hashing`, `white_box`, `eligibility`, and `parser` families separately.

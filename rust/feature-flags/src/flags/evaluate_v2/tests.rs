@@ -97,6 +97,37 @@ fn hashing_is_lazy_subject_is_resolved_once_and_repeated_seeds_reuse_the_hash() 
 }
 
 #[test]
+fn regex_execution_errors_are_not_inverted_by_negation() {
+    let mut case = corpus::cases()
+        .into_iter()
+        .find(|case| case["id"] == "v2_boolean.property.regex")
+        .unwrap();
+    case["config"]["rules"][0]["targeting"]["properties"][0]["value"] = json!(r"^(a+)+\1$");
+    case["context"]["properties"]["color"] = json!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!");
+    for negation in [false, true] {
+        case["config"]["rules"][0]["targeting"]["properties"][0]["negation"] = json!(negation);
+        let flag = corpus::read(&case);
+        let config = flag
+            .filters
+            .non_v1
+            .as_ref()
+            .unwrap()
+            .parsed_v2
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap();
+        let properties = corpus::properties(&case);
+        let context = corpus::context(&case, &properties);
+        assert_eq!(
+            Evaluator::new(config).evaluate(&context),
+            Err(EvaluationError::InvalidRegex),
+            "negation={negation}"
+        );
+    }
+}
+
+#[test]
 fn evaluation_is_repeatable_and_diagnostics_do_not_retain_inputs() {
     let mut case = corpus::cases()
         .into_iter()
