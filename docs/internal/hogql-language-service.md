@@ -415,10 +415,13 @@ Metadata also uses Python when `variables` is not null or `debug` is true.
 Expression languages and non-`HogQLQuery` source contexts remain on Python because they can require surrounding query resolution.
 Service failures preserve the original request, including its source context, for Python fallback.
 
-Go metadata returns diagnostics and logical table names, not the full Python compiler metadata.
+Go metadata returns diagnostics, logical table names, and source-positioned notices for resolved table and field references, not the full Python compiler metadata.
 `indexUsage: true` does not force Python fallback or enable index analysis in Go.
-Go-backed Django responses leave `index_usage`, `isUsingIndices`, and `ch_table_names` unset, and return an empty `notices` list until the adapter forwards service notices.
-Python-only heuristic warnings, type notices, and actionable index warnings are not added to a successful Go response.
+Go responses leave `index_usage`, `isUsingIndices`, and `ch_table_names` unset.
+The Django adapter maps Go notices into the existing metadata `notices` list, which the editor displays as hints.
+Older service responses without a `notices` field remain valid and produce an empty list.
+Malformed notices use the same Python fallback and sanitized error reporting as malformed diagnostics.
+Python-only heuristic warnings and actionable index warnings are not added to a successful Go response.
 Index analysis and compiler metadata parity remain separate follow-up work; this routing change does not add a second Python validation pass.
 
 ### Table and field notices
