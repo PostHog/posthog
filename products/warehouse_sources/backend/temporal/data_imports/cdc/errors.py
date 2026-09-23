@@ -178,9 +178,8 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         False,
     ),
     CDCErrorCategory.RESERVED_COLUMN_CONFLICT: (
-        "A source table has a column named _ph_cdc_seq, which PostHog reserves for ordering change "
-        "data. Rename that column on the source table, or contact support to keep this table on the "
-        "previous sync mode.",
+        "A source table has a column named _ph_cdc_seq, which PostHog uses for change data capture. "
+        "Rename the column on your database, or choose another sync method for that table.",
         False,
     ),
     CDCErrorCategory.UNKNOWN: (
