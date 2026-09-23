@@ -2,7 +2,9 @@ import { useMountedLogic } from 'kea'
 
 import { SidePanelRunner } from 'products/posthog_ai/frontend/api/runner'
 
+import { SIDE_PANEL_PANEL_ID } from '../maxLogic'
 import { phaiSidePanelComposerSeedLogic } from '../phaiSidePanelComposerSeedLogic'
+import { PhaiLegacyChatButton } from './PhaiLegacyChatButton'
 
 // The client-side key for the embedded `taskTrackerSceneLogic` (and paired `runnerPanelLogic`) instance
 // this panel binds — stable so the panel keeps the same in-flight run across re-renders of its host.
@@ -26,7 +28,10 @@ export function PhaiSidePanelChat(): JSX.Element {
         // Taking remaining flex space instead (zero min-content contribution) keeps the panel clamped
         // to the viewport so the thread/history scroll internally as designed.
         <div className="flex flex-col flex-1 min-h-0">
-            <SidePanelRunner panelId={MAX_SIDE_PANEL_ID} />
+            <SidePanelRunner
+                panelId={MAX_SIDE_PANEL_ID}
+                renderAccessFallback={(draft) => <PhaiLegacyChatButton draft={draft} panelId={SIDE_PANEL_PANEL_ID} />}
+            />
         </div>
     )
 }

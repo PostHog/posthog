@@ -1,6 +1,8 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useRef } from 'react'
+import { type ReactNode, useRef } from 'react'
+
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
@@ -31,7 +33,11 @@ import { OnboardingReplayButton } from '../../../components/onboarding/Onboardin
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
 
-export function TaskComposer(): JSX.Element {
+export interface TaskComposerProps {
+    renderAccessFallback?: (draft: string) => ReactNode
+}
+
+export function TaskComposer({ renderAccessFallback }: TaskComposerProps): JSX.Element {
     const { submitNewTask, setNewTaskData, setActiveSuggestionGroup, applySuggestion, clearConsentBlock } =
         useActions(taskTrackerSceneLogic)
     const {
@@ -47,6 +53,7 @@ export function TaskComposer(): JSX.Element {
         // Permission modes belong to the harness, so they follow the model actually shown — the
         // server-resolved default's own runtime when nothing is picked, the pick's otherwise.
         composerAdapter,
+        taskCreationBlockedReason,
     } = useValues(taskTrackerSceneLogic)
     const { catalogue } = useValues(modelCatalogueLogic)
     const { myConfigLoading } = useValues(taskRunDefaultsLogic)
@@ -87,92 +94,108 @@ export function TaskComposer(): JSX.Element {
                 >
                     {/* Repo/branch picker sits 8px above the input it configures. */}
                     <div className="w-full flex flex-col gap-2">
-                        {!composerOverride?.hideRepositorySelector && (
-                            <RepositorySelector
-                                value={newTaskData.repositoryConfig}
-                                onChange={(config) => setNewTaskData({ repositoryConfig: config })}
-                            />
+                        {taskCreationBlockedReason && (
+                            <LemonBanner type="warning">
+                                <div>{taskCreationBlockedReason}</div>
+                                {renderAccessFallback?.(draft.value)}
+                            </LemonBanner>
                         )}
-                        <ComposerModeShortcut
-                            onCycle={() =>
-                                setNewTaskData({
-                                    permissionMode: cycleMode(composerAdapter, newTaskData.permissionMode),
-                                })
-                            }
-                        />
-                        <Composer.Root
-                            value={draft.value}
-                            onChange={draft.onChange}
-                            onSubmit={() => draft.submit(submitNewTask)}
-                            loading={isSubmittingTask}
-                            textAreaRef={textAreaRef}
-                        >
-                            <Composer.Frame>
-                                <Composer.Header>
-                                    <AttachedContextBar />
-                                </Composer.Header>
-                                <Composer.Field>
-                                    <Composer.Placeholder>Describe the task in detail…</Composer.Placeholder>
-                                    <Composer.Textarea autoFocus data-attr="task-composer-input" />
-                                </Composer.Field>
-                                <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
-                                    <ComposerModePicker
-                                        modes={getModesForRuntimeAdapter(composerAdapter)}
-                                        selectedMode={newTaskData.permissionMode}
-                                        onModeChange={(permissionMode) => setNewTaskData({ permissionMode })}
-                                    />
-                                    <ComposerModelEffortPickers
-                                        models={catalogue}
-                                        selectedModel={displayModel}
-                                        defaultModel={defaultModel}
-                                        isDefaultModelLoading={myConfigLoading}
-                                        selectedEffort={displayEffort}
-                                        isDefaultSelection={isDefaultSelection}
-                                        onModelChange={(model) =>
-                                            setNewTaskData({
-                                                model,
-                                                reasoningEffort: resolveEffortForModel(
-                                                    catalogue,
-                                                    newTaskData.reasoningEffort,
-                                                    model
-                                                ),
-                                                // Clamp the mode too, not just the effort: leaving a
-                                                // Claude-only mode selected against a Codex model would
-                                                // show one permission ceiling and send a broader one.
-                                                permissionMode: resolveModeForRuntimeAdapter(
-                                                    getRuntimeAdapterForModel(catalogue, model),
-                                                    newTaskData.permissionMode
-                                                ),
-                                            })
-                                        }
-                                        onEffortChange={(reasoningEffort) => setNewTaskData({ reasoningEffort })}
-                                        // Clearing both pins is what hands the choice back to the resolved
-                                        // default — submit then omits the triple entirely.
-                                        onResetToDefault={() => setNewTaskData({ model: null, reasoningEffort: null })}
-                                        onOpenDefaultSettings={() =>
-                                            router.actions.push(
-                                                urls.settings('environment-task-agents', 'task-agent-my-preference')
-                                            )
-                                        }
-                                    />
-                                </Composer.Footer>
-                            </Composer.Frame>
-                            {/* Open-group state is shared with the side panel; a group left open there would list generic prompts here. */}
-                            {!composerOverride?.hideSuggestions && <Suggestions.Dropdown />}
-                            <AIConsentPopoverWrapper
-                                placement="bottom-end"
-                                showArrow
-                                ignoreDismissal
-                                hidden={!consentBlocked}
-                                onApprove={() => submitNewTask()}
-                                onDismiss={() => clearConsentBlock()}
+                        <fieldset disabled={!!taskCreationBlockedReason} className="min-w-0 flex flex-col gap-2">
+                            {!composerOverride?.hideRepositorySelector && (
+                                <RepositorySelector
+                                    value={newTaskData.repositoryConfig}
+                                    onChange={(config) => setNewTaskData({ repositoryConfig: config })}
+                                />
+                            )}
+                            <ComposerModeShortcut
+                                onCycle={() =>
+                                    setNewTaskData({
+                                        permissionMode: cycleMode(composerAdapter, newTaskData.permissionMode),
+                                    })
+                                }
+                            />
+                            <Composer.Root
+                                value={draft.value}
+                                onChange={draft.onChange}
+                                onSubmit={() => draft.submit(submitNewTask)}
+                                loading={isSubmittingTask}
+                                disabledReason={taskCreationBlockedReason ?? undefined}
+                                disabled={!!taskCreationBlockedReason}
+                                textAreaRef={textAreaRef}
                             >
-                                <Composer.Submit data-attr="task-composer-send" />
-                            </AIConsentPopoverWrapper>
-                        </Composer.Root>
+                                <Composer.Frame>
+                                    <Composer.Header>
+                                        <AttachedContextBar />
+                                    </Composer.Header>
+                                    <Composer.Field>
+                                        <Composer.Placeholder>Describe the task in detail…</Composer.Placeholder>
+                                        <Composer.Textarea autoFocus data-attr="task-composer-input" />
+                                    </Composer.Field>
+                                    <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
+                                        <ComposerModePicker
+                                            modes={getModesForRuntimeAdapter(composerAdapter)}
+                                            selectedMode={newTaskData.permissionMode}
+                                            onModeChange={(permissionMode) => setNewTaskData({ permissionMode })}
+                                        />
+                                        <ComposerModelEffortPickers
+                                            models={catalogue}
+                                            selectedModel={displayModel}
+                                            defaultModel={defaultModel}
+                                            isDefaultModelLoading={myConfigLoading}
+                                            selectedEffort={displayEffort}
+                                            isDefaultSelection={isDefaultSelection}
+                                            onModelChange={(model) =>
+                                                setNewTaskData({
+                                                    model,
+                                                    reasoningEffort: resolveEffortForModel(
+                                                        catalogue,
+                                                        newTaskData.reasoningEffort,
+                                                        model
+                                                    ),
+                                                    // Clamp the mode too, not just the effort: leaving a
+                                                    // Claude-only mode selected against a Codex model would
+                                                    // show one permission ceiling and send a broader one.
+                                                    permissionMode: resolveModeForRuntimeAdapter(
+                                                        getRuntimeAdapterForModel(catalogue, model),
+                                                        newTaskData.permissionMode
+                                                    ),
+                                                })
+                                            }
+                                            onEffortChange={(reasoningEffort) => setNewTaskData({ reasoningEffort })}
+                                            // Clearing both pins is what hands the choice back to the resolved
+                                            // default — submit then omits the triple entirely.
+                                            onResetToDefault={() =>
+                                                setNewTaskData({ model: null, reasoningEffort: null })
+                                            }
+                                            onOpenDefaultSettings={() =>
+                                                router.actions.push(
+                                                    urls.settings('environment-task-agents', 'task-agent-my-preference')
+                                                )
+                                            }
+                                        />
+                                    </Composer.Footer>
+                                </Composer.Frame>
+                                {/* Open-group state is shared with the side panel; a group left open there would list generic prompts here. */}
+                                {!taskCreationBlockedReason && !composerOverride?.hideSuggestions && (
+                                    <Suggestions.Dropdown />
+                                )}
+                                <AIConsentPopoverWrapper
+                                    placement="bottom-end"
+                                    showArrow
+                                    ignoreDismissal
+                                    hidden={!consentBlocked}
+                                    onApprove={() => submitNewTask()}
+                                    onDismiss={() => clearConsentBlock()}
+                                >
+                                    <Composer.Submit data-attr="task-composer-send" />
+                                </AIConsentPopoverWrapper>
+                            </Composer.Root>
+                        </fieldset>
                     </div>
 
-                    {!composerOverride?.hideSuggestions && <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />}
+                    {!taskCreationBlockedReason && !composerOverride?.hideSuggestions && (
+                        <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />
+                    )}
                 </Suggestions.Root>
             </div>
         </div>
