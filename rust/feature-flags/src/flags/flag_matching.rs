@@ -1490,11 +1490,20 @@ impl FeatureFlagMatcher {
             if aggregation.is_none() {
                 use crate::flags::flag_models::BucketingIdentifier;
 
-                if flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId
-                    && self
-                        .device_id
-                        .as_ref()
-                        .is_none_or(|device_id| device_id.is_empty())
+                let buckets_on_device_id =
+                    flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId;
+                let has_device_id = self
+                    .device_id
+                    .as_ref()
+                    .is_some_and(|device_id| !device_id.is_empty());
+
+                // Without a device_id there is nothing to bucket on, so the condition is
+                // withheld rather than bucketed on the wrong identifier. Withholding a
+                // condition whose outcome the hash cannot change would instead disable the
+                // flag for everyone it targets, so the guard asks whether it can.
+                if buckets_on_device_id
+                    && !has_device_id
+                    && flag.condition_needs_bucketing_hash(condition)
                 {
                     inc(
                         FLAG_CONDITION_SKIPPED_COUNTER,
@@ -1522,7 +1531,7 @@ impl FeatureFlagMatcher {
                     highest_index = new_highest_index;
                     continue;
                 }
-                if flag.get_bucketing_identifier() == BucketingIdentifier::DeviceId {
+                if buckets_on_device_id && has_device_id {
                     with_canonical_log(|log| log.eval.flags_device_id_bucketing += 1);
                 }
             }
@@ -1631,32 +1640,14 @@ impl FeatureFlagMatcher {
             highest_index = new_highest_index;
 
             if is_match {
-                // Check for variant override in the condition
-                let variant = if let Some(variant_override) = &condition.variant {
-                    // Check if the override is a valid variant
-                    if flag
-                        .get_variants()
-                        .iter()
-                        .any(|v| &v.key == variant_override)
-                    {
-                        Some(variant_override.clone())
-                    } else {
-                        // If override isn't valid, fall back to computed variant
-                        self.get_matching_variant(
-                            flag,
-                            aggregation,
-                            hash_key_overrides,
-                            request_hash_key_override,
-                        )?
-                    }
-                } else {
-                    // No override, use computed variant
-                    self.get_matching_variant(
+                let variant = match flag.pinned_variant(condition) {
+                    Some(pinned) => Some(pinned.to_string()),
+                    None => self.get_matching_variant(
                         flag,
                         aggregation,
                         hash_key_overrides,
                         request_hash_key_override,
-                    )?
+                    )?,
                 };
                 let payload = self.get_matching_payload(variant.as_deref(), flag);
 

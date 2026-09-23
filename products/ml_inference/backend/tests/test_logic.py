@@ -51,6 +51,12 @@ def _request() -> DecisionRequest:
     return DecisionRequest(team_id=42, state="ticket text", questions=QUESTIONS)
 
 
+def test_a_request_refuses_more_questions_than_the_cap() -> None:
+    question = DecisionQuestion(type=DecisionQuestionType.NOUL, instructions="Is it?")
+    with pytest.raises(ValueError, match="at most 32"):
+        DecisionRequest(team_id=1, state="text", questions={f"q{i}": question for i in range(33)})
+
+
 class TestDecide:
     @pytest.mark.parametrize(
         "gateway_url",

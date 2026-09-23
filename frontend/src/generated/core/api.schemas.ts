@@ -3915,6 +3915,19 @@ export interface PatchedFileSystemApi {
     readonly user_access_level?: string | null
 }
 
+export interface FileSystemHomeFolderApi {
+    /**
+     * The user's home folder ID, or null if deleted.
+     * @nullable
+     */
+    readonly id: string | null
+    /**
+     * The current path of the user's home folder.
+     * @nullable
+     */
+    readonly path: string | null
+}
+
 export interface FileSystemShortcutApi {
     readonly id: string
     /** Display path of the shortcut in the sidebar. */
@@ -5154,6 +5167,24 @@ export interface UserPushTokenUnregisterRequestApi {
     token: string
 }
 
+export interface TwoFactorStatusApi {
+    /** Whether the user has any 2FA method enabled. */
+    is_enabled: boolean
+    /** Number of unused backup codes. The codes themselves are only returned when they are generated. */
+    backup_codes_remaining: number
+    /**
+     * The primary 2FA method: "TOTP" or "passkey". Null when 2FA is off.
+     * @nullable
+     */
+    method: string | null
+    /** Whether the user has at least one verified passkey. */
+    has_passkeys: boolean
+    /** Whether the user has an authenticator app set up. */
+    has_totp: boolean
+    /** Whether passkeys count as a 2FA method. */
+    passkeys_enabled_for_2fa: boolean
+}
+
 /**
  * Request body for POST /api/users/verify_email/.
  */
@@ -5351,6 +5382,13 @@ export type FileSystemListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type FileSystemDestroyParams = {
+    /**
+     * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
+     */
+    recursive?: boolean
 }
 
 export type FileSystemShortcutListParams = {

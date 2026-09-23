@@ -156,6 +156,11 @@ class AutonomyPriority(models.TextChoices):
     P4 = "P4", "P4"
 
 
+# What GitHub accepts as a label name. Duplicated from the GitHub client rather than imported,
+# because that module pulls the HTTP stack in and this one is loaded on every Django start.
+GITHUB_LABEL_NAME_MAX_LENGTH = 50
+
+
 class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     team = models.OneToOneField(
         "posthog.Team",
@@ -192,6 +197,12 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     # github_writeback.py). Off by default, because the comment is public on the issue thread and
     # tells everybody watching it that we are working on it, which is a team's call to make.
     github_issue_writeback_enabled = models.BooleanField(default=False, db_default=False)
+    # Label every self-driving pull request, so GitHub search, saved searches, and notification
+    # rules can separate them from the rest of the shared bot identity's pull requests (see
+    # pull_request_label.py). Off by default, because the label lands on a repository the team
+    # shares with everybody. A null or blank name falls back to DEFAULT_PULL_REQUEST_LABEL.
+    pull_request_label_enabled = models.BooleanField(default=False, db_default=False)
+    pull_request_label = models.CharField(max_length=GITHUB_LABEL_NAME_MAX_LENGTH, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1039,14 +1050,61 @@ class SignalReportGithubComment(TeamScopedRootMixin, UUIDModel):
         verbose_name_plural = "Signal report GitHub comments"
 
 
+class SignalReportSlackThread(UUIDModel):
+    """The Slack thread a report notification started, so a reply in it resolves back to the report.
+
+    A notification invites the reader to reply in the thread and mention PostHog, which starts a
+    task. Without this row that task has no way back to the report it discusses, so the work never
+    reaches the report's own timeline.
+    """
+
+    objects = EnvironmentScopedManager()
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="slack_threads")
+    # SET_NULL rather than CASCADE: a disconnected workspace must not erase the link between a
+    # report and the task somebody already started from its thread.
+    integration = models.ForeignKey(
+        "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    # The resolved Slack channel id, so a config that names the channel differently still matches.
+    slack_workspace_id = models.CharField(max_length=64)
+    channel = models.CharField(max_length=64)
+    # Slack `ts` of the notification message, which is also its thread's root.
+    thread_ts = models.CharField(max_length=64)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        constraints = [
+            # One Slack message is one thread, and a thread is about at most one report. Keyed
+            # without the team so a second project connected to the same workspace cannot claim a
+            # thread another project's report already owns.
+            models.UniqueConstraint(
+                fields=["slack_workspace_id", "channel", "thread_ts"], name="signals_report_slack_thread_unique"
+            ),
+        ]
+        verbose_name = "Signal report Slack thread"
+        verbose_name_plural = "Signal report Slack threads"
+
+
 class SignalReportPullRequest(TeamScopedRootMixin, UUIDModel):
     State = SignalReportAssignment.PrState
+
+    class ReviewDecision(models.TextChoices):
+        APPROVED = "approved", "Approved"
+        CHANGES_REQUESTED = "changes_requested", "Changes requested"
+        REVIEW_REQUIRED = "review_required", "Review required"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     repository = models.CharField(max_length=200)
     number = models.PositiveBigIntegerField()
     url = models.URLField(max_length=2048)
     state = models.CharField(max_length=10, choices=State, default=State.UNKNOWN)
+    review_decision = models.CharField(max_length=20, choices=ReviewDecision, null=True, blank=True)
+    merged_at = models.DateTimeField(null=True, blank=True)
     checked_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1666,6 +1724,45 @@ class SignalReportArtefact(UUIDModel):
             self._schedule_autostart_reevaluation(team_id=self.team_id, report_id=str(self.report_id))
 
 
+class SignalReportSuggestedReviewer(TeamScopedRootMixin, UUIDModel):
+    """One reviewer identity from a report's current `suggested_reviewers` artefact, in columns.
+
+    The artefact log stays canonical. It stores the reviewer list as JSON in a `TextField`, so
+    asking "which reports name this person?" costs a jsonb cast for every reviewer artefact the
+    team ever wrote, and no index can serve it. The inbox asks that question in its default scope,
+    on the list and on each section count, so the cost grew with the log rather than with the page.
+    These rows answer the same question from an index. A report has one row per identity in its
+    newest reviewers artefact, and the rows are rewritten whenever that artefact changes.
+    """
+
+    # See SignalReportRefund.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="suggested_reviewer_index")
+    # The artefact these rows were derived from, so a reader can tell which version they reflect.
+    artefact = models.ForeignKey(SignalReportArtefact, on_delete=models.CASCADE, related_name="+")
+    # An entry identifies its person by uuid, by login, or by both — one of the two is always set.
+    user_uuid = models.UUIDField(null=True, blank=True)
+    # Lowercased on write: GitHub logins are case-insensitive, and both readers look them up with
+    # `login.lower()`.
+    github_login = models.CharField(max_length=255, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        indexes = [
+            # The two reviewer lookups, one per identity kind. `report` is in the index so the
+            # list filter reads the report ids without touching the heap.
+            models.Index(fields=["team", "user_uuid", "report"], name="signals_sugg_rev_uuid_idx"),
+            models.Index(fields=["team", "github_login", "report"], name="signals_sugg_rev_login_idx"),
+            # Rewriting a report's rows deletes what is there first.
+            models.Index(fields=["report"], name="signals_sugg_rev_report_idx"),
+        ]
+        verbose_name = "Signal report suggested reviewer"
+        verbose_name_plural = "Signal report suggested reviewers"
+
+
 class SignalReportTask(UUIDModel):
     """Legacy task↔report link. Still the auto-start idempotency gate (an `implementation` row),
     but being migrated out in favour of `task_run` artefacts.
@@ -1798,6 +1895,7 @@ class SignalReportAction(TeamScopedRootMixin, UUIDModel):
         VIEW = "view"
         # The thumbs rating at the end of the report body ("Was this report useful?").
         FEEDBACK = "feedback"
+        SLACK_DISCUSSION = "slack_discussion"
 
     # See SignalReportRefund.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012
@@ -2053,6 +2151,12 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         NO_OUTPUT = "no_output", "No output"
         IGNORED = "ignored", "Ignored"
         REPEATED_FAILURES = "repeated_failures", "Repeated failures"
+        # PostHog retired the scout this config runs: its canonical skill declared a sunset that
+        # has passed, or it left the fleet on disk altogether. Owned by the retirement pass
+        # (`scout_harness/deprecation.py`) alone, so no other system writer resumes a scout that
+        # no longer exists, and the roster has a state to render instead of a row that looks
+        # healthy and never runs.
+        RETIRED = "retired", "Retired"
 
     class NetworkAccess(models.TextChoices):
         """What the scout's sandbox can reach over the network during a run.

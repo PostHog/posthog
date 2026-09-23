@@ -3431,7 +3431,17 @@ class AggregatedSpanRow(BaseModel):
     p999_duration_nano: float
     p99_duration_nano: float
     service_name: str
+    sessions: int | None = Field(
+        default=None,
+        description=(
+            "Set only when the query asked for `includeImpact`. `sessions` and `users`"
+            " are uniq() estimates; the two span counts are exact."
+        ),
+    )
+    spans_with_distinct_id: int | None = None
+    spans_with_session_id: int | None = None
     total_duration_nano: float
+    users: int | None = None
 
 
 class AlertCondition(BaseModel):
@@ -6161,14 +6171,21 @@ class MarketingAnalyticsRetentionSummaryRow(BaseModel):
     eligible7d: int
     medianReturnDays: float | None = Field(
         ...,
-        description=("Median elapsed days to a second session within 30 days, among observed returners."),
+        description=(
+            "Estimated median calendar days from the first session to the first return"
+            " on a later day, using the project's timezone. Includes observed returns"
+            " within 30 days. Same-day visits do not count."
+        ),
     )
     previous: bool
     returned30d: int
     returned7d: int
     returners: int = Field(
         ...,
-        description=("People with an observed second session within 30 days, including incomplete windows."),
+        description=(
+            "People who returned on a later calendar day in the project's timezone"
+            " within 30 days of their first session, including incomplete windows."
+        ),
     )
 
 
@@ -17755,7 +17772,8 @@ class ExperimentApiMetric(BaseModel):
         description=(
             'For retention metrics: start event. Pass {"kind":'
             ' "ExperimentExposureNode"} to start retention from the experiment\'s'
-            " exposure event; start_handling and conversion window are ignored then."
+            " exposure event; a conversion window or 'last_seen' start_handling is"
+            " rejected then, because the start is always the user's first exposure."
         ),
     )
     start_handling: StartHandling | None = None
@@ -29503,6 +29521,10 @@ class TraceSpansAggregationQuery(BaseModel):
     )
     dateRange: DateRange
     filterGroup: PropertyGroupFilter | None = None
+    includeImpact: bool | None = Field(
+        default=None,
+        description=("Also aggregate sessions and people per operation. Off by default: it reads the attribute maps."),
+    )
     kind: Literal["TraceSpansAggregationQuery"] = "TraceSpansAggregationQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: TraceSpansAggregationQueryResponse | None = None

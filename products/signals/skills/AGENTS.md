@@ -101,6 +101,13 @@ A scout that watches the self-driving system rather than a product surface decla
 Unlike tags, the role is reconciled onto rows seeded earlier on every coordinator tick, because a silenced operational scout is the failure the role exists to prevent — though a pause a person made is still left standing, and `withheld_skills` still gates the scout.
 Use it only for a scout whose subject is the fleet itself: `signals-scout-inbox-validation`, which re-measures whether merged fixes held, is the one that ships with it.
 
+Frontmatter also carries the optional **`scout-status`** / **`scout-deprecation`** pair, which is how a canonical scout is retired.
+`scout-status: deprecated` plus a `scout-deprecation` block (`reason`, optional `superseded_by`, optional `sunset_at`) is the whole announcement: the sync copies it into every project's skill row metadata, the roster renders a "Retiring on {date}" chip from it, no new project is seeded the scout, and on the first reconcile past the sunset each project's config moves to a `retired` pause.
+The two keys must agree, and a block with no reason fails the parse, because the reason is what every surface shows a person.
+A `sunset_at` left out means the next reconcile retires the scout, so a marker is never half-applied.
+A project that edited its copy is untouched by all of it and keeps running the scout as its own.
+Retiring a scout is therefore a frontmatter PR, and `withheld_skills` on the `signals-scout` flag goes back to meaning "unreleased" only.
+
 The generalist (`signals-scout-general`) is **report-only** — it authors `SignalReport`s directly and does not `emit_signal`. The **report-channel contract** (when to author a fresh report vs. edit an existing one, the field schema, the safety × actionability status mapping, reviewer routing via `scout-members-list`, and the non-idempotency + pipeline-rewrite caveats) lives in the **harness prompt** (`scout_harness/prompt.py`), which forks on the scout's channel and injects it into every report-channel scout — so it is **not** duplicated as a per-scout reference. The generalist keeps two bundled references:
 
 - **`references/conventions.md`** — the four-states author/edit classifier, scratchpad key-prefix vocabulary, and cross-project noise patterns.

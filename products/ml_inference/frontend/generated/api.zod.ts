@@ -13,11 +13,17 @@ import * as zod from 'zod'
  * Ask the decision model typed questions about one piece of text and get a calibrated probability per question.
  * @summary Ask the decision model
  */
+export const mlInferenceDecisionsDecideCreateBodyStateMax = 65536
+
+export const mlInferenceDecisionsDecideCreateBodyQuestionsInstructionsMax = 2000
+
 export const mlInferenceDecisionsDecideCreateBodyModelDefault = `posthog/posthog/decision-4b`
+export const mlInferenceDecisionsDecideCreateBodyModelMax = 200
 
 export const MlInferenceDecisionsDecideCreateBody = /* @__PURE__ */ zod.object({
     state: zod
         .string()
+        .max(mlInferenceDecisionsDecideCreateBodyStateMax)
         .describe('The text the questions are about, for example a support ticket or a session summary.'),
     questions: zod
         .record(
@@ -29,7 +35,10 @@ export const MlInferenceDecisionsDecideCreateBody = /* @__PURE__ */ zod.object({
                     .describe(
                         'What kind of answer to produce: a yes\/no probability, one of the given options, or a rating.\n\n\* `noul` - Yes or no\n\* `choice` - Multiple choice\n\* `score` - Rating scale'
                     ),
-                instructions: zod.string().describe('The question to ask about the state, phrased for the model.'),
+                instructions: zod
+                    .string()
+                    .max(mlInferenceDecisionsDecideCreateBodyQuestionsInstructionsMax)
+                    .describe('The question to ask about the state, phrased for the model.'),
                 criteria: zod
                     .union([zod.record(zod.string(), zod.string()), zod.array(zod.string())])
                     .optional()
@@ -38,9 +47,12 @@ export const MlInferenceDecisionsDecideCreateBody = /* @__PURE__ */ zod.object({
                     ),
             })
         )
-        .describe('The questions to ask, keyed by an id of your choice. Answers come back under the same ids.'),
+        .describe(
+            'The questions to ask, keyed by an id of your choice, at most 32 per request. Answers come back under the same ids.'
+        ),
     model: zod
         .string()
+        .max(mlInferenceDecisionsDecideCreateBodyModelMax)
         .default(mlInferenceDecisionsDecideCreateBodyModelDefault)
         .describe('The decision model to ask, as a gateway model id.'),
 })
