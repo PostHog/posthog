@@ -108,10 +108,12 @@ class TestHogFlowAccessControl(ClickhouseTestMixin, APIBaseTest):
             ("viewer", "get", status.HTTP_200_OK),
             ("viewer", "patch", status.HTTP_403_FORBIDDEN),
             ("viewer", "delete", status.HTTP_403_FORBIDDEN),
+            ("viewer", "post_code", status.HTTP_200_OK),
             ("editor", "get", status.HTTP_200_OK),
             ("editor", "patch", status.HTTP_200_OK),
             ("editor", "delete", status.HTTP_204_NO_CONTENT),
             ("none", "get", status.HTTP_403_FORBIDDEN),
+            ("none", "post_code", status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_access_level_matrix(self, access_level, method, expected_status):
@@ -123,6 +125,8 @@ class TestHogFlowAccessControl(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(self._detail_url())
         elif method == "patch":
             response = self.client.patch(self._detail_url(), data={"description": "updated"}, format="json")
+        elif method == "post_code":
+            response = self.client.post(f"{self._detail_url()}/code", data={"name": "Unsaved"}, format="json")
         else:
             response = self.client.delete(self._detail_url())
 
