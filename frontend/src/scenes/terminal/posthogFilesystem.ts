@@ -318,11 +318,17 @@ export class PosthogFilesystem extends TerminalFilesystem {
                 return
             }
             if (!node.remove || this.writers.has(node.writeKey ?? node.id)) {
-                throw new FilesystemError(node.remove ? 16 : 30)
+                throw new FilesystemError(
+                    node.remove ? 16 : 30,
+                    `Could not delete ${this.mountedPath(node)}: ${node.remove ? 'Device or resource busy. Close the file before deleting it.' : 'Read-only file system. Choose a writable path.'}`
+                )
             }
             if (node.children) {
                 if (!recursive) {
-                    throw new FilesystemError(21)
+                    throw new FilesystemError(
+                        21,
+                        `Could not delete ${this.mountedPath(node)}: Is a directory. Use rm -r to delete folders.`
+                    )
                 }
                 await node.loadChildren?.()
                 for (const child of node.children.values()) {
@@ -348,7 +354,7 @@ export class PosthogFilesystem extends TerminalFilesystem {
             if (node) {
                 await visit(node)
             } else if (!force) {
-                throw new FilesystemError(2)
+                throw new FilesystemError(2, `Could not delete ${path}: No such file or directory. Check the path.`)
             }
         }
         if (!nodes.size) {

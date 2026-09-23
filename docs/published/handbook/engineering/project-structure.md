@@ -75,6 +75,7 @@ The dialog lists the targets and consequences, blocks terminal input, and accept
 `rm -rf` groups its PostHog targets into one confirmation; direct syscalls from other programs confirm each removal.
 The batch is a snapshot of the loaded targets, with no reusable approval for later deletes.
 Canceled removals return a nonzero exit status without sending delete requests; successful `rm` commands produce no output.
+Invalid removals report the affected path and a readable reason, such as a missing file or a directory requiring `-r`.
 If a delete request fails, the terminal reports the affected path and API error; use `ph refresh` to check the remaining files before retrying a batch.
 Local scratch files retain normal Linux behavior, and mixed local/PostHog batches must be split into separate commands.
 Running `node`, `nodejs`, or `pi` installs the tool on first use; `pi` also installs Node.js.
