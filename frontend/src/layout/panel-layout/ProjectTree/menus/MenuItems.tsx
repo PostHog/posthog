@@ -8,7 +8,6 @@ import {
     IconPencil,
     IconShortcut,
     IconStar,
-    IconTerminal,
     IconTrash,
 } from '@posthog/icons'
 
@@ -36,7 +35,6 @@ import {
 import { pluralize } from 'lib/utils/strings'
 import { openDeleteGroupTypeDialog } from 'scenes/settings/environment/GroupAnalyticsConfig'
 import { groupAnalyticsConfigLogic } from 'scenes/settings/environment/groupAnalyticsConfigLogic'
-import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
 
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
@@ -100,8 +98,6 @@ export function MenuItems({
     const { setToolEnabled } = useActions(customProductsLogic)
 
     const { resetPanelLayout } = useActions(panelLayoutLogic)
-    const { terminalEnabled } = useValues(terminalDockLogic)
-    const { openInTerminal } = useActions(terminalDockLogic)
 
     const shouldDeleteCheckedItems = checkedItemCountNumeric > 1 && checkedItems[item.id]
 
@@ -176,23 +172,6 @@ export function MenuItems({
                       ? entry.type === item.record.type && entry.ref === item.record.ref
                       : entry.path === itemShortcutPath)
         )?.id
-
-    const terminalMenuItem =
-        terminalEnabled && root === 'project://' && item.record?.path ? (
-            <MenuItem
-                asChild
-                data-attr="tree-item-menu-open-in-terminal"
-                onClick={(event) => {
-                    event.stopPropagation()
-                    const parts = splitPath(item.record?.path)
-                    openInTerminal(joinPath(item.record?.type === 'folder' ? parts : parts.slice(0, -1)))
-                }}
-            >
-                <ButtonPrimitive menuItem>
-                    <IconTerminal className="size-4 text-tertiary" /> Open in terminal
-                </ButtonPrimitive>
-            </MenuItem>
-        ) : null
 
     return (
         <>
@@ -277,7 +256,6 @@ export function MenuItems({
                     <MenuSeparator />
                 </>
             ) : null}
-            {!isSimpleSidepanelEnabled && terminalMenuItem}
             {!isSimpleSidepanelEnabled && item.record?.path ? (
                 (root === 'shortcuts://' || root === 'custom-products://') &&
                 (item.id.startsWith('shortcuts://') || item.id.startsWith('shortcuts/')) ? (
@@ -497,7 +475,6 @@ export function MenuItems({
                     {(!isItemAFolder || !shortcutEntryIdMap.has(item.id) || checkedItemCountNumeric > 0) && (
                         <MenuSeparator />
                     )}
-                    {terminalMenuItem}
                     <MenuItem
                         asChild
                         disabled={shortcutDataLoading}

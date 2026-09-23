@@ -54,7 +54,6 @@ Saving SQL preserves the insight's other query options, and JSON saves send only
 Use `--json` to inspect result metadata, including `hasMore`, and `/tmp` for export files.
 The interactive Bash shell completes `ph` command names, aliases, connected tools, and argument names with Tab.
 The terminal follows the current resource's folder while its prompt is empty.
-The Files tree's **Open in terminal** menu action opens the selected folder, or a file's parent folder, when `posthog-terminal` is enabled.
 Running commands, editors, and partially typed input prevent a folder change.
 
 ### `posthog`
