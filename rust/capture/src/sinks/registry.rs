@@ -14,7 +14,7 @@
 //! and `AiOverflow` is the opt-in overflow valve — unset means routing never
 //! selects it.
 
-use crate::config::KafkaConfig;
+use crate::config::KafkaTopicsConfig;
 
 /// Which configured output a routing decision selects, named **pipeline +
 /// lane** — the vocabulary the refactor converges on (typed per-pipeline
@@ -179,8 +179,8 @@ impl TopicTable {
     }
 }
 
-impl From<&KafkaConfig> for TopicTable {
-    fn from(config: &KafkaConfig) -> Self {
+impl From<&KafkaTopicsConfig> for TopicTable {
+    fn from(config: &KafkaTopicsConfig) -> Self {
         Self {
             main: config.kafka_topic.clone(),
             overflow: config.kafka_overflow_topic.clone(),
