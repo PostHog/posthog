@@ -2512,6 +2512,30 @@ snapshots:
         hash: v1.k794b7964.9b522de92c0ec0977626e3e694a64ceceda80fa691f50c490c906a06b012d0dd.ai1KpccNrHIv4qosfkQoeeTHQ1hkIw2rvoNF7Q3Yriw
     data-warehouse-destinationlist--only-one-left--light:
         hash: v1.k794b7964.e73d80636fa8aec2163ca81b6615ab5ae432296f391a74623cda19d1ab34f542.RCgSTjXC1oN6_ir0V3CST_szMCiJdf6beKhAr2rg4wA
+    data-warehouse-destinationmodal--azure-blob--dark:
+        hash: v1.k794b7964.59e2fab0e54439f87a02d90e578b6fc21984cfc817f576ad58ec2d941cdb224b.A4nwKDTtbyovK35VoGF_AGLHAF5LjiPQ6z4H8-22DVc
+    data-warehouse-destinationmodal--azure-blob--light:
+        hash: v1.k794b7964.4cd724ead6b52e96f103f01162624d8f31b31d884ac6a9e43c0b6d1825a46eff.ZBzac6NoxhO7gtMu2exFy6kAjIAiPH08ZNI7AKgvl_A
+    data-warehouse-destinationmodal--big-query--dark:
+        hash: v1.k794b7964.a185426152cd2eefc7f50d49912520d31c80bae794a3fa07325a79ed83ab2e32.EbAE045p1rUEWTAbBKaFubM7_Ssb0-9uowfBM7EY_cU
+    data-warehouse-destinationmodal--big-query--light:
+        hash: v1.k794b7964.a41935447297354c0fe7697c937ced69ee3073eb979dd167bf062743e0b10c5e.AuPDAoceAzaHLoPcX4VImFk7DfB0CevOa5HS-_7zk4o
+    data-warehouse-destinationmodal--databricks--dark:
+        hash: v1.k794b7964.91975ae27dd69fb9465cb84bbff2ba084313541d380541f8d8ee8c4aedf45de4.S3TVRhODbqvLS-OcpZsq3HvfqFFeYIpcfHtEBVO_ghE
+    data-warehouse-destinationmodal--databricks--light:
+        hash: v1.k794b7964.7f84c65a10aea7bce2c47cf5c4984a2750601b689da8ea04c29c1ab985719435.FF-pk8-lulV2IqhCtv8DH91m0WZOqPUFWMmRMxfE_iE
+    data-warehouse-destinationmodal--postgres--dark:
+        hash: v1.k794b7964.fe4729f4888a31a88d34234f5d0484ec38df2910cc050491fd2b11c6cf591333.xn76IebXOqhc9cHZNGglZUsZkecXZO4nnLhKSQWDXsg
+    data-warehouse-destinationmodal--postgres--light:
+        hash: v1.k794b7964.f5bbe7628ca1ad481ea49e6df6441ccec163983d873ff79f59a4ba253ca20997.qC6cZNKKCuBBla1I0nqaTw2LXpWZzUSEOuJ7m_-1WKY
+    data-warehouse-destinationmodal--s-3--dark:
+        hash: v1.k794b7964.047b5d2ff2ec1f036597c97986ca49a88703b6d0daa96a956adb2c9b184e5734.SF1vX1S2ZEHKCE4ghm96v1Hkz1AZJ3z6CTzm2Q8weFI
+    data-warehouse-destinationmodal--s-3--light:
+        hash: v1.k794b7964.69625aa4ffdcb98a994d8df27fd1ace236385fb64d38675b7d6d2b647e3d8e61.ZH5EQtJDOyH8avPcoTvnw-PTU6xSq4YQLJZp8JGm1VQ
+    data-warehouse-destinationmodal--snowflake--dark:
+        hash: v1.k794b7964.70a484a9907ad034381372cde9378f830f494ac5ded07894faf4c6ab9b8d705e.kiu1wO_66K6dUaEs1jKs-aXxp4drOBGsTFMAgZoS7Sg
+    data-warehouse-destinationmodal--snowflake--light:
+        hash: v1.k794b7964.03ecd38de36bb76f10b1dc4710300abeb3f4abffe583341dd0d213645642198a.gMVHyFvdNFswxvTt9985i73PKjiYblShjpfcxV-J8BI
     data-warehouse-jobdestinations--destination-since-deleted--dark:
         hash: v1.k794b7964.7850b437d0b757b20409473a16858b9ef875f35021e592521bdf94b2876e85c5.ix5aXJkl2sMIrSYeEmiT_OgH7Eb94qxUEEAt_DvutJk
     data-warehouse-jobdestinations--destination-since-deleted--light:
