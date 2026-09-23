@@ -51,6 +51,10 @@ The app-level Files scene lives in `src/scenes/project-files` and reuses the pro
 Open `/project/<project_id>/files` to browse the project, or add `?folder=Research` to start in a folder.
 Starred folders in the sidebar use the same "New..." menu and "Empty folder" state as project folders.
 Creating an item from a starred folder uses the original folder's full path, including its parent folders.
+With `simple-sidepanel` enabled, the Apps and Files tabs use "Filter apps" and "Filter files" to filter their contents.
+App tooltips reuse the product descriptions from the scene configuration.
+Opening Apps or Files from the collapsed sidebar temporarily expands the navigation over the page without changing the saved collapsed setting.
+Selecting a destination, clicking outside, or pressing Escape closes the temporary navigation.
 
 ### `posthog`
 

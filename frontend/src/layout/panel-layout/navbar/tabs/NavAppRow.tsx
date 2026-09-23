@@ -20,11 +20,13 @@ import { getCustomIcon } from '../../ProjectTree/customIconRegistry'
 import { ProductIconWrapper, iconForType } from '../../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { joinPath, splitPath } from '../../ProjectTree/utils'
+import { sidebarToolMeta } from '../../sidebarToolMeta'
 import { appsItemName } from './appsCatalog'
 import { NavAppMenu } from './NavAppMenu'
 
 export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
     const { pathname } = useValues(panelLayoutLogic)
+    const { resetPanelLayout } = useActions(panelLayoutLogic)
     const { shortcutData, shortcutDataLoading } = useValues(projectTreeDataLogic)
     const { addShortcutItem, deleteShortcut } = useActions(projectTreeDataLogic)
     const { reportNavItemClicked } = useActions(eventUsageLogic)
@@ -93,9 +95,12 @@ export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
                         'flex-1 min-w-0 -outline-offset-2 group-hover/app-row:pr-7 group-focus-within/app-row:pr-7',
                 }}
                 data-attr="nav-apps-item"
-                tooltip={label}
+                tooltip={sidebarToolMeta(item).description || label}
                 tooltipPlacement="right"
-                onClick={() => reportNavItemClicked(item.path, 'tools')}
+                onClick={() => {
+                    reportNavItemClicked(item.path, 'tools')
+                    resetPanelLayout(false)
+                }}
             >
                 <span className="size-4 shrink-0">
                     {CustomIcon ? (

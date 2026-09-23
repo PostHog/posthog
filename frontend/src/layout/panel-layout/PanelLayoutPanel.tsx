@@ -104,10 +104,10 @@ export function PanelLayoutPanel({
                         <div
                             className={cn(
                                 'flex gap-1 p-1 items-center justify-between',
-                                layout === 'inline' && 'flex-nowrap'
+                                layout === 'inline' && 'flex-wrap'
                             )}
                         >
-                            <div className={layout === 'inline' ? 'flex-1 min-w-0' : 'contents'}>
+                            <div className={layout === 'inline' ? 'flex-1 min-w-28' : 'contents'}>
                                 {searchField ?? null}
                             </div>
 
