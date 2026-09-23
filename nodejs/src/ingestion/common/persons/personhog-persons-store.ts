@@ -464,20 +464,32 @@ export class PersonhogPersonsStore implements PersonsStore {
             return cached
         }
         const generation = this.generationOf(teamId)
-        const edge = this.resolutions.get(`${teamId}:${distinctId}`)
+        const distinctKey = `${teamId}:${distinctId}`
+        const edge = this.resolutions.get(distinctKey)
         if (edge != null) {
             // The edge is trusted but only a checking read backs it, which
             // lags the leader; the update path pays one leader read.
             const person = await this.repository.fetchPersonById(teamId, edge.slice(edge.indexOf(':') + 1), CALLER_TAG)
-            return this.cacheFetchedPerson(teamId, distinctId, person, batchId, { grade: 'update', generation })
+            if (person !== null) {
+                return this.cacheFetchedPerson(teamId, distinctId, person, batchId, { grade: 'update', generation })
+            }
+            // The leader no longer holds the person the edge names: a merge
+            // moved the id, and identity decides where it lives now.
+            this.clearPersonCacheForPersonId(edge, 'stale_write_answer')
+            this.resolutions.delete(distinctKey)
         }
         const [resolved] = await this.repository.resolvePersonsByDistinctIds([{ teamId, distinctId }], CALLER_TAG)
         if (!resolved?.person) {
             return this.cacheFetchedPerson(teamId, distinctId, null, batchId, { grade: 'update', generation })
         }
-        // A null read here means the person vanished mid-flight; the miss
-        // is cached and the caller's create path re-resolves.
         const person = await this.repository.fetchPersonById(teamId, resolved.person.id, CALLER_TAG)
+        if (person === null) {
+            // Identity's answer died mid-call. The id is not absent, so an absence
+            // must not be cached: ops folded onto identity's answer reach the
+            // survivor through the redirect, as the create path relies on.
+            this.clearPersonCacheForPersonId(`${teamId}:${resolved.person.id}`, 'stale_write_answer')
+            return this.identityDocument(resolved.person)
+        }
         return this.cacheFetchedPerson(teamId, distinctId, person, batchId, { grade: 'update', generation })
     }
 
@@ -962,7 +974,10 @@ export class PersonhogPersonsStore implements PersonsStore {
                             return
                         }
                         const person = await this.repository.fetchPersonById(entry.teamId, entry.person.id, CALLER_TAG)
-                        if (!this.prefetchingBatches.has(batchId)) {
+                        // A person identity named but the leader no longer holds was
+                        // merged away in between; the id is not absent, so it stays
+                        // unresolved for the update read to settle.
+                        if (!this.prefetchingBatches.has(batchId) || person === null) {
                             return
                         }
                         // Fill-only: this response raced everything the

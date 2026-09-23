@@ -773,6 +773,45 @@ describe('PersonhogPersonsStore', () => {
         expect((await bound.fetchForUpdate(1, 'd1'))?.id).toBe('7')
     })
 
+    it("an update read serves identity's answer when the leader no longer holds it, instead of caching an absence", async () => {
+        const bound = store.forBatch(0)
+        // Identity still names person 7 while a merge has just tombstoned it on the leader.
+        repository.resolvePersonsByDistinctIds.mockResolvedValueOnce([
+            { teamId: 1, distinctId: 'd1', person: { ...person } },
+        ] as never)
+        repository.fetchPersonById.mockResolvedValueOnce(null)
+
+        const fetched = await bound.fetchForUpdate(1, 'd1')
+
+        expect(fetched?.id).toBe('7')
+        expect(edgeOf('1:d1')).toBeUndefined()
+    })
+
+    it('an update read over an edge the leader no longer holds re-resolves through identity', async () => {
+        const bound = store.forBatch(0)
+        ;(store as any).setDistinctIdToPersonId('1:d1', '1:9')
+        repository.fetchPersonById.mockResolvedValueOnce(null).mockResolvedValueOnce({ ...person } as never)
+        repository.resolvePersonsByDistinctIds.mockResolvedValueOnce([
+            { teamId: 1, distinctId: 'd1', person: { ...person } },
+        ] as never)
+
+        const fetched = await bound.fetchForUpdate(1, 'd1')
+
+        expect(fetched?.id).toBe('7')
+        expect(edgeOf('1:d1')).toBe('1:7')
+    })
+
+    it('a prefetch leaves an id unresolved when the leader no longer holds the person identity named', async () => {
+        repository.resolvePersonsByDistinctIds.mockResolvedValueOnce([
+            { teamId: 1, distinctId: 'd1', person: { ...person } },
+        ] as never)
+        repository.fetchPersonById.mockResolvedValueOnce(null)
+
+        await store.prefetchPersons([{ teamId: 1, distinctId: 'd1', batchId: 0 }])
+
+        expect(edgeOf('1:d1')).toBeUndefined()
+    })
+
     it('drops a size-rejected segment from the lane rather than retrying it forever', async () => {
         repository.updatePersonProperties.mockRejectedValue(new PersonhogPropertiesSizeError('too big', 1, '7'))
         const bound = store.forBatch(0)
