@@ -104,6 +104,7 @@ export function SignupFunnel(props: { title?: string; steps?: string[]; windowDa
 
 Field types: `text`, `longtext`, `number` (`min`, `max`, `step`; with both `min` and `max` the editor shows a slider), `boolean`, `select` (`options`: strings or `{ value, label }`), `event`, `events`, `property`, `insight` (a saved insight's short id), `color`. Each field can also have a `description`.
 Give each field the same `default` as its prop default, for example `{ type: "boolean", label: "Show legend", default: true }`. The editor shows `default` when the prop is not set.
+A `color` param defaults to a theme token such as `var(--primary)`, so the canvas follows light and dark mode until a person picks a hex in the editor.
 Pass only JSON values (strings, numbers, booleans, string arrays) through params. Keep functions and query results out of them.
 
 ## Images

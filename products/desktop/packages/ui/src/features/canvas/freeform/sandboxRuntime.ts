@@ -650,23 +650,23 @@ export function buildSandboxDocument(
           static getDerivedStateFromError(error) { return { error }; }
           componentDidCatch(error) { reportError(error.message, error.stack); }
           render() {
-            if (this.state.error) return React.createElement(Committed, { key: "failed" });
+            if (this.state.error) return React.createElement(Committed, { key: "failed", failed: true });
             return this.props.children;
           }
         }
         if (input.editing) editing.capture();
-        const afterCommit = () => {
+        const afterCommit = (failed) => {
           requestAnimationFrame(() => {
             if (seq !== mountSeq) return;
             renderCommentHighlights(currentCommentHighlights);
             editing.setEnabled(!!input.editing);
             if (input.editing) editing.afterMount(input.rev || 0, input.focusBlockId || null, input.focusSource || null);
-            post({ type: "rendered" });
+            if (!failed) post({ type: "rendered" });
           });
         };
-        function Committed() {
+        function Committed(props) {
           React.useLayoutEffect(() => {
-            afterCommit();
+            afterCommit(!!props.failed);
           }, []);
           return null;
         }

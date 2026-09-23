@@ -74,6 +74,12 @@ export function syncBlockLibrary(input: LibraryFiles): LibraryFiles {
       ? withLibraryFile(input, BLOCK_ICONS_PATH)
       : input;
   const manifest = readManifest(files);
+  const isUntouched = (path: string) =>
+    files[path] !== undefined && hashText(files[path]) === manifest[path];
+  const sharedEdited = [BLOCK_RUNTIME_PATH, BLOCK_ICONS_PATH].some(
+    (path) => files[path] !== undefined && !isUntouched(path),
+  );
+  if (sharedEdited) return files;
   let next = files;
   let changed = false;
   for (const [path, copiedHash] of Object.entries(manifest)) {

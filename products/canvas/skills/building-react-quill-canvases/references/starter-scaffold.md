@@ -154,13 +154,13 @@ function NumberCard(props) {
 }
 
 function TrendCard(props) {
-  const { title = 'Over time', color = '#1d4aff', height = 280, state, onRetry, query } = props
+  const { title = 'Over time', color = 'var(--primary)', height = 280, state, onRetry, query } = props
   return (
     <Card
       size="sm"
       {...editable('TrendCard', props, {
         title: { type: 'text', label: 'Title', default: 'Over time' },
-        color: { type: 'color', label: 'Line color', default: '#1d4aff' },
+        color: { type: 'color', label: 'Line color', default: 'var(--primary)' },
         height: { type: 'number', label: 'Chart height', min: 160, max: 520, step: 20, default: 280 },
       })}
     >
@@ -279,7 +279,7 @@ export default function Canvas() {
 
       <TrendCard
         title="Events over time"
-        color="#1d4aff"
+        color="var(--primary)"
         height={280}
         state={events}
         onRetry={retry}

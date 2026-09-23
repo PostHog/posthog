@@ -51,7 +51,7 @@ Every data block also takes:
 
 ## SQL mode
 
-Every data block also takes a `sql` prop with HogQL. When `sql` is set, the block runs it instead of its builder settings. Put `{filters}` in the WHERE clause so the canvas filters apply. The block reads the result by column position:
+`Metric`, `Goal`, `Trend`, `TopList`, `Funnel` and `RecentEvents` also take a `sql` prop with HogQL. When `sql` is set, the block runs it instead of its builder settings. `Retention` and `Insight` have no SQL mode, and `SqlTable` takes its HogQL in `query`. Put `{filters}` in the WHERE clause so the canvas filters apply. The block reads the result by column position:
 
 - `Metric`: one row. The first column is the value, an optional second column is the previous value.
 - `Goal`: one row with the value in the first column.

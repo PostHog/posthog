@@ -26,11 +26,12 @@ export const canvasDataRouter = router({
         .loadInsight(input),
     ),
   savedInsights: publicProcedure
+    .input(z.object({ search: z.string().max(200).optional() }).optional())
     .output(z.array(savedInsightSchema))
-    .query(({ ctx }) =>
+    .query(({ ctx, input }) =>
       ctx.container
         .get<ICanvasDataService>(CANVAS_DATA_SERVICE)
-        .listSavedInsights(),
+        .listSavedInsights(input?.search),
     ),
   capture: publicProcedure
     .input(canvasCaptureInput)

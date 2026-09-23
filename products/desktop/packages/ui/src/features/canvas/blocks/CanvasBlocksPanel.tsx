@@ -219,7 +219,9 @@ export function CanvasBlocksPanel({
   const status: SaveStatus = {
     saving: entry.saving,
     dirty: isSourceDirty(entry),
-    error: entry.saveError,
+    error:
+      entry.saveError ??
+      (entry.conflict ? "This canvas changed somewhere else" : null),
   };
   const isRoot =
     !!selection?.source &&
@@ -322,6 +324,41 @@ export function CanvasBlocksPanel({
           </div>
         </div>
       ) : null}
+      {entry.conflict ? (
+        <div className="flex flex-col gap-2 border-border border-b bg-muted/40 px-3 py-2.5">
+          <div className="flex items-start gap-2">
+            <WarningCircle
+              size={14}
+              className="mt-px shrink-0 text-warning-foreground"
+            />
+            <div className="min-w-0 text-[11.5px] leading-snug">
+              <div className="font-medium text-foreground">
+                This canvas changed somewhere else
+              </div>
+              <div className="text-muted-foreground">
+                A newer version was saved while you edited. Load it and drop
+                your unsaved edits, or keep your edits and replace it.
+              </div>
+            </div>
+          </div>
+          <div className="flex gap-1.5 pl-5">
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() => store.resolveConflict(canvasId, false)}
+            >
+              Load the latest
+            </Button>
+            <Button
+              variant="default"
+              size="xs"
+              onClick={() => store.resolveConflict(canvasId, true)}
+            >
+              Keep my edits
+            </Button>
+          </div>
+        </div>
+      ) : null}
       {inspecting && selection ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex items-center gap-2.5 border-border border-b px-3 py-2.5">
@@ -340,6 +377,10 @@ export function CanvasBlocksPanel({
             </div>
           </div>
           <SourceInspector
+            key={
+              selection.blockId ??
+              `${selection.source?.file}:${selection.source?.start}`
+            }
             selection={selection}
             isRoot={isRoot}
             onProps={(props) => actions.updateProps(selection, props)}

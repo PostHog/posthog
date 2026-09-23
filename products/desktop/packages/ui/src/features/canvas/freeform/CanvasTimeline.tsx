@@ -131,7 +131,7 @@ export function CanvasTimeline({
       </Empty>
     );
   }
-  const ordered = [...versions].sort((a, b) => b.createdAt - a.createdAt);
+  const ordered = versions.toSorted((a, b) => b.createdAt - a.createdAt);
   const viewing = viewingVersionId ?? liveVersionId;
   return (
     <div className="h-full overflow-y-auto px-3 py-3">

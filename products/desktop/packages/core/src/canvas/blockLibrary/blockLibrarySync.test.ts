@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { componentPath } from "./blockDefinitions";
+import { BLOCK_RUNTIME_PATH, componentPath } from "./blockDefinitions";
 import {
   BLOCK_MANIFEST_PATH,
   hashText,
@@ -7,15 +7,23 @@ import {
   withLibraryFile,
 } from "./blockLibrarySync";
 import { BLOCK_COMPONENT_SOURCES } from "./componentSources";
+import { BLOCK_RUNTIME_SOURCE } from "./runtimeSource";
 
 const METRIC_PATH = componentPath("Metric");
 const OLD_COPY = "export function Metric() { return null; }\n";
 
-function copiedEarlier(current: string): Record<string, string> {
+function copiedEarlier(
+  current: string,
+  runtime?: string,
+): Record<string, string> {
   return {
     [METRIC_PATH]: current,
+    ...(runtime === undefined ? {} : { [BLOCK_RUNTIME_PATH]: runtime }),
     [BLOCK_MANIFEST_PATH]: JSON.stringify({
       [METRIC_PATH]: hashText(OLD_COPY),
+      ...(runtime === undefined
+        ? {}
+        : { [BLOCK_RUNTIME_PATH]: hashText(BLOCK_RUNTIME_SOURCE) }),
     }),
   };
 }
@@ -32,8 +40,14 @@ describe("syncBlockLibrary", () => {
       current: `${OLD_COPY}// edited\n`,
       expected: `${OLD_COPY}// edited\n`,
     },
-  ])("$name", ({ current, expected }) => {
-    expect(syncBlockLibrary(copiedEarlier(current))[METRIC_PATH]).toBe(
+    {
+      name: "keeps every copy when someone changed the runtime",
+      current: OLD_COPY,
+      runtime: `${BLOCK_RUNTIME_SOURCE}// edited\n`,
+      expected: OLD_COPY,
+    },
+  ])("$name", ({ current, runtime, expected }) => {
+    expect(syncBlockLibrary(copiedEarlier(current, runtime))[METRIC_PATH]).toBe(
       expected,
     );
   });

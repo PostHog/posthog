@@ -12,9 +12,8 @@ import {
   useCanvasSourceStore,
 } from "@posthog/ui/features/canvas/blocks/canvasSourceStore";
 import { invalidateCanvasLifecycle } from "@posthog/ui/features/canvas/hooks/invalidateCanvasLifecycle";
-import { toast } from "@posthog/ui/primitives/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect } from "react";
 
 const SOURCE_POLL_MS = 4_000;
 const SAVE_DEBOUNCE_MS = 700;
@@ -41,20 +40,19 @@ export function useCanvasSourceSync(
   const remoteHasCode = !!data?.project.files[CANVAS_ENTRY_PATH]?.trim();
 
   const hasEntry = !!entry;
+  const idle = !isSourceDirty(entry) && !entry?.saving;
   useEffect(() => {
     if (!data || !remoteHasCode) return;
     const existing = useCanvasSourceStore.getState().entries[canvasId];
-    const idle = !isSourceDirty(existing) && !existing?.saving;
     const missing = !hasEntry && !existing;
-    if (
-      missing ||
-      (existing && existing.baseVersionId !== remoteVersionId && idle)
-    ) {
+    const stale =
+      !!existing && existing.baseVersionId !== remoteVersionId && idle;
+    if (missing || stale) {
       useCanvasSourceStore
         .getState()
         .load(canvasId, data.project, remoteVersionId);
     }
-  }, [data, remoteHasCode, remoteVersionId, canvasId, hasEntry]);
+  }, [data, remoteHasCode, remoteVersionId, canvasId, hasEntry, idle]);
 
   if (entry) return "ready";
   if (isLoading || !data) return "loading";
@@ -82,14 +80,13 @@ export function useCanvasSourceAutosave(canvasId: string): void {
   const { mutateAsync } = useMutation(
     trpc.dashboards.publishProject.mutationOptions(),
   );
-  const warned = useRef(false);
   const dirty = isSourceDirty(entry);
   const files = entry?.files;
   const saving = entry?.saving ?? false;
-  const failed = entry?.saveError != null;
+  const blocked = entry?.saveError != null || entry?.conflict != null;
 
   useEffect(() => {
-    if (!dirty || saving || failed || !files) return;
+    if (!dirty || saving || blocked || !files) return;
     const timer = setTimeout(() => {
       const store = useCanvasSourceStore.getState();
       const snapshot = store.entries[canvasId];
@@ -103,47 +100,36 @@ export function useCanvasSourceAutosave(canvasId: string): void {
           snapshot.files,
         ),
       };
-      const save = async (
-        expected: string | null,
-        attempt: number,
-      ): Promise<void> => {
-        const result = await mutateAsync({
-          id: canvasId,
-          project,
-          expectedCurrentVersionId: expected,
-          prompt: describeChanges(snapshot.changes),
-        });
-        if (result.status === "saved") {
+      mutateAsync({
+        id: canvasId,
+        project,
+        expectedCurrentVersionId: snapshot.baseVersionId,
+        prompt: describeChanges(snapshot.changes),
+      })
+        .then((result) => {
+          const latest = useCanvasSourceStore.getState();
+          if (result.status === "conflict") {
+            latest.setConflict(canvasId, result.currentVersionId);
+            return;
+          }
+          latest.markSaved(
+            canvasId,
+            snapshot.files,
+            result.currentVersionId,
+            snapshot.changes.length,
+          );
+          void invalidateCanvasLifecycle(queryClient, trpc, canvasId);
+        })
+        .catch((error: unknown) => {
           useCanvasSourceStore
             .getState()
-            .markSaved(
+            .setSaving(
               canvasId,
-              snapshot.files,
-              result.currentVersionId,
-              snapshot.changes.length,
+              false,
+              error instanceof Error ? error.message : String(error),
             );
-          void invalidateCanvasLifecycle(queryClient, trpc, canvasId);
-          return;
-        }
-        if (attempt > 0) throw new Error("The canvas keeps changing elsewhere");
-        if (!warned.current) {
-          warned.current = true;
-          toast.info("This canvas changed somewhere else", {
-            description: "Your latest edits were kept.",
-          });
-        }
-        await save(result.currentVersionId, attempt + 1);
-      };
-      save(snapshot.baseVersionId, 0).catch((error: unknown) => {
-        useCanvasSourceStore
-          .getState()
-          .setSaving(
-            canvasId,
-            false,
-            error instanceof Error ? error.message : String(error),
-          );
-      });
+        });
     }, SAVE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [dirty, saving, failed, files, canvasId, mutateAsync, queryClient, trpc]);
+  }, [dirty, saving, blocked, files, canvasId, mutateAsync, queryClient, trpc]);
 }

@@ -17,10 +17,15 @@ import {
   useHogqlRows,
   useSavedInsights,
 } from "@posthog/ui/features/canvas/blocks/pickerQueries";
+import { useDebouncedValue } from "@posthog/ui/primitives/hooks/useDebouncedValue";
 import { useCallback, useMemo, useRef, useState } from "react";
 
 const CUSTOM_PREFIX = "__custom__:";
 const NONE_VALUE = "__none__";
+
+function sameText(value: string): string {
+  return value;
+}
 
 interface SearchPickerProps {
   value: string | null;
@@ -33,6 +38,7 @@ interface SearchPickerProps {
   allowNone?: boolean;
   noneLabel?: string;
   format?: (value: string) => string;
+  onSearchChange?: (search: string) => void;
 }
 
 function SearchPicker({
@@ -45,10 +51,15 @@ function SearchPicker({
   ariaLabel,
   allowNone,
   noneLabel = "None",
-  format = (option) => option,
+  format = sameText,
+  onSearchChange,
 }: SearchPickerProps) {
   const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
+  const [search, setSearchState] = useState("");
+  const setSearch = (next: string) => {
+    setSearchState(next);
+    onSearchChange?.(next);
+  };
   const anchorRef = useRef<HTMLDivElement>(null);
   const items = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -234,27 +245,45 @@ export function InsightPicker({
   value: string | null;
   onChange: (value: string | null) => void;
 }) {
-  const { data, isLoading } = useSavedInsights();
+  const [search, setSearch] = useState("");
+  const [picked, setPicked] = useState<{ shortId: string; name: string }>();
+  const { data, isLoading } = useSavedInsights(
+    useDebouncedValue(search, 250).debounced,
+  );
   const names = useMemo(
     () =>
-      new Map((data ?? []).map((insight) => [insight.shortId, insight.name])),
+      new Map([
+        ...(picked ? [[picked.shortId, picked.name] as const] : []),
+        ...(data ?? []).map(
+          (insight) => [insight.shortId, insight.name] as const,
+        ),
+      ]),
+    [data, picked],
+  );
+  const options = useMemo(
+    () => (data ?? []).map((insight) => insight.shortId),
     [data],
   );
-  const options = useMemo(() => [...names.keys()], [names]);
   const format = useCallback(
     (shortId: string) => names.get(shortId) ?? shortId,
     [names],
   );
+  const choose = (next: string | null) => {
+    const name = next ? names.get(next) : undefined;
+    if (next && name) setPicked({ shortId: next, name });
+    onChange(next);
+  };
   return (
     <SearchPicker
       value={value}
-      onChange={onChange}
+      onChange={choose}
       options={options}
       loading={isLoading}
       placeholder="Pick a saved insight"
       searchPlaceholder="Search insights…"
       ariaLabel="Insight"
       format={format}
+      onSearchChange={setSearch}
     />
   );
 }

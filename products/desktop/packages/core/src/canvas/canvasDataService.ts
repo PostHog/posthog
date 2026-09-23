@@ -164,8 +164,8 @@ export class CanvasDataService {
     );
   }
 
-  listSavedInsights(): Promise<SavedInsight[]> {
-    return listSavedInsights(this.authService);
+  listSavedInsights(search?: string): Promise<SavedInsight[]> {
+    return listSavedInsights(this.authService, search);
   }
 
   async loadInsight(input: CanvasLoadInsightInput): Promise<CanvasDataResult> {

@@ -303,12 +303,18 @@ function shiftTarget(
   removed: SourceRange,
   removedLength: number,
 ): SourceDropTarget {
-  if (target.file !== removed.file || target.start < removed.end) return target;
-  return {
-    ...target,
-    start: target.start - removedLength,
-    end: target.end - removedLength,
-  };
+  if (target.file !== removed.file) return target;
+  if (target.start >= removed.end) {
+    return {
+      ...target,
+      start: target.start - removedLength,
+      end: target.end - removedLength,
+    };
+  }
+  if (target.start <= removed.start && target.end >= removed.end) {
+    return { ...target, end: target.end - removedLength };
+  }
+  return target;
 }
 
 export function moveRange(

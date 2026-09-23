@@ -5,7 +5,6 @@ import { FreeformGenerateBar } from "@posthog/ui/features/canvas/freeform/Freefo
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { SuggestedPromptCard } from "@posthog/ui/features/task-detail/components/SuggestedPromptCard";
 import { DotPatternBackground } from "@posthog/ui/primitives/DotPatternBackground";
-import { Flex, Text } from "@radix-ui/themes";
 import { useRef } from "react";
 
 // The empty-canvas landing state: a centered composer with starter-prompt
@@ -31,29 +30,18 @@ export function CanvasGenerateHero({
   const editorRef = useRef<EditorHandle>(null);
 
   return (
-    <Flex
-      direction="column"
-      align="center"
-      justify="center"
-      className="relative h-full w-full overflow-y-auto px-4 py-10"
-    >
+    <div className="relative flex h-full w-full flex-col items-center justify-center overflow-y-auto px-4 py-10">
       <DotPatternBackground className="h-full" />
-      <Flex direction="column" gap="5" className="z-[1] w-full max-w-[620px]">
-        <Flex direction="column" align="center" gap="2" className="text-center">
-          <Flex
-            align="center"
-            justify="center"
-            className="size-10 rounded-xl bg-accent-3 text-accent-9"
-          >
+      <div className="z-[1] flex w-full max-w-[620px] flex-col gap-5">
+        <div className="flex flex-col items-center gap-2 text-center">
+          <div className="flex size-10 items-center justify-center rounded-xl bg-accent-3 text-accent-9">
             <ShapesIcon size={20} weight="duotone" />
-          </Flex>
-          <Text size="5" weight="bold" className="text-gray-12">
-            Build a canvas
-          </Text>
-          <Text size="2" className="text-gray-10">
+          </div>
+          <h2 className="font-bold text-foreground text-xl">Build a canvas</h2>
+          <p className="text-muted-foreground text-sm">
             Describe it and an agent builds it, or drop in blocks yourself.
-          </Text>
-        </Flex>
+          </p>
+        </div>
 
         <FreeformGenerateBar
           ref={editorRef}
@@ -66,10 +54,10 @@ export function CanvasGenerateHero({
           onStarted={onStarted}
         />
 
-        <Flex direction="column" gap="2">
-          <Text size="1" weight="medium" className="px-1 text-gray-11">
+        <div className="flex flex-col gap-2">
+          <span className="px-1 font-medium text-muted-foreground text-xs">
             Suggestions
-          </Text>
+          </span>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {CANVAS_GENERATE_SUGGESTIONS.map((suggestion) => (
               <SuggestedPromptCard
@@ -82,15 +70,15 @@ export function CanvasGenerateHero({
               />
             ))}
           </div>
-        </Flex>
+        </div>
 
-        <Flex direction="column" gap="2">
-          <Text size="1" weight="medium" className="px-1 text-gray-11">
+        <div className="flex flex-col gap-2">
+          <span className="px-1 font-medium text-muted-foreground text-xs">
             Build it yourself
-          </Text>
+          </span>
           <CanvasBlocksStarter canvasId={dashboardId} />
-        </Flex>
-      </Flex>
-    </Flex>
+        </div>
+      </div>
+    </div>
   );
 }

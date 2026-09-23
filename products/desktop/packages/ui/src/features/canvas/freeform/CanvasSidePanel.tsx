@@ -161,7 +161,10 @@ export function CanvasSidePanel({
                   key={option}
                   tab={option}
                   active={visibleTab === option}
-                  disabled={option === "comments" && !commentTaskId}
+                  disabled={
+                    (option === "comments" && !commentTaskId) ||
+                    (option === "blocks" && firstBuildRunning)
+                  }
                   onSelect={setTab}
                 />
               ))}

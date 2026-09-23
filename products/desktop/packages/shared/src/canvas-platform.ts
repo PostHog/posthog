@@ -113,9 +113,14 @@ export function editable(name, props, params) {
     const schema = params || {}
     const values = {}
     for (const key of Object.keys(schema)) {
-        if (props && props[key] !== undefined && typeof props[key] !== 'function') {
-            values[key] = props[key]
+        const value = props ? props[key] : undefined
+        if (value === undefined || typeof value === 'function') {
+            continue
         }
+        if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+            continue
+        }
+        values[key] = value
     }
     const attributes = {
         'data-ph-block': name,

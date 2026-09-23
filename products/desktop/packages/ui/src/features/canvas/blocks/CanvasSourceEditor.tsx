@@ -105,14 +105,16 @@ export function CanvasSourceEditor({
     theme,
     actions,
   });
-  latest.current = {
-    onDataRequest,
-    onError,
-    onRendered,
-    onNavigate,
-    theme,
-    actions,
-  };
+  useLayoutEffect(() => {
+    latest.current = {
+      onDataRequest,
+      onError,
+      onRendered,
+      onNavigate,
+      theme,
+      actions,
+    };
+  });
 
   const post = useCallback((message: Record<string, unknown>) => {
     iframeRef.current?.contentWindow?.postMessage(
@@ -260,6 +262,8 @@ export function CanvasSourceEditor({
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (isTypingTarget(event.target)) return;
+      const shortcut = event.metaKey || event.ctrlKey;
+      if (!shortcut && event.target !== document.body) return;
       handleKey(
         canvasId,
         {

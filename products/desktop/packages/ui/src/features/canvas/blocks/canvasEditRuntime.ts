@@ -864,7 +864,7 @@ export function installCanvasEditing(post: Post) {
         )
       : null;
     const element = id
-      ? document.querySelector(`[data-ph-block-id="${id}"]`)
+      ? document.querySelector(`[data-ph-block-id="${CSS.escape(id)}"]`)
       : bySource;
     if (element instanceof HTMLElement) {
       selected = element;

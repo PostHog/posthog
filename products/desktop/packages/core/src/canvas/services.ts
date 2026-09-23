@@ -153,7 +153,7 @@ export interface IDashboardsService {
 export interface ICanvasDataService {
   query(input: CanvasDataQueryInput): Promise<CanvasDataResult>;
   loadInsight(input: CanvasLoadInsightInput): Promise<CanvasDataResult>;
-  listSavedInsights(): Promise<SavedInsight[]>;
+  listSavedInsights(search?: string): Promise<SavedInsight[]>;
   capture(input: CanvasCaptureInput): Promise<CanvasCaptureResult>;
   captureConfig(): Promise<CanvasCaptureConfig>;
 }

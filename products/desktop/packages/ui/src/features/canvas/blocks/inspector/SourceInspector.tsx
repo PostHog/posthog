@@ -232,6 +232,31 @@ function CommonFields({
   );
 }
 
+function MeasureField({
+  label,
+  props,
+  onChange,
+}: {
+  label: string;
+  props: BlockPropsRecord;
+  onChange: Change;
+}) {
+  return (
+    <InspectorField label={label}>
+      <div className="flex flex-col gap-1.5">
+        <EventPicker
+          value={asString(props.event, "$pageview")}
+          onChange={(event) => onChange({ ...props, event })}
+        />
+        <MathSelect
+          value={asString(props.math, "total") as MathValue}
+          onChange={(math) => onChange({ ...props, math })}
+        />
+      </div>
+    </InspectorField>
+  );
+}
+
 function ComponentFields({
   type,
   props,
@@ -246,18 +271,7 @@ function ComponentFields({
       return (
         <>
           <TitleField props={props} onChange={onChange} />
-          <InspectorField label="Measure">
-            <div className="flex flex-col gap-1.5">
-              <EventPicker
-                value={asString(props.event, "$pageview")}
-                onChange={(event) => onChange({ ...props, event })}
-              />
-              <MathSelect
-                value={asString(props.math, "total") as MathValue}
-                onChange={(math) => onChange({ ...props, math })}
-              />
-            </div>
-          </InspectorField>
+          <MeasureField label="Measure" props={props} onChange={onChange} />
           <InspectorField label="Number format">
             <OptionSelect
               value={asString(props.format, "number")}
@@ -335,18 +349,7 @@ function ComponentFields({
               }}
             />
           </InspectorField>
-          <InspectorField label="By">
-            <div className="flex flex-col gap-1.5">
-              <EventPicker
-                value={asString(props.event, "$pageview")}
-                onChange={(event) => onChange({ ...props, event })}
-              />
-              <MathSelect
-                value={asString(props.math, "total") as MathValue}
-                onChange={(math) => onChange({ ...props, math })}
-              />
-            </div>
-          </InspectorField>
+          <MeasureField label="By" props={props} onChange={onChange} />
           <InspectorField label="Rows">
             <Segmented
               value={String(asNumber(props.limit, 8))}
@@ -451,6 +454,7 @@ function ComponentFields({
 }
 
 const SEGMENTED_OPTION_LIMIT = 4;
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 function clampNumber(value: number, spec: ParamSpec): number {
   const low = spec.min ?? Number.NEGATIVE_INFINITY;
@@ -624,25 +628,32 @@ function ParamField({
           />
         </InspectorField>
       );
-    case "color":
+    case "color": {
+      const color = asString(value, "#f54e00");
       return (
         <InspectorField label={spec.label} hint={hint}>
           <div className="flex items-center gap-2">
-            <input
-              type="color"
-              aria-label={spec.label}
-              value={asString(value, "#f54e00")}
-              onChange={(event) => onChange(event.target.value)}
-              className="size-8 shrink-0 cursor-pointer rounded-md border border-border bg-transparent p-0.5"
-            />
+            <label
+              className="relative size-8 shrink-0 cursor-pointer overflow-hidden rounded-md border border-border"
+              style={{ background: color }}
+            >
+              <input
+                type="color"
+                aria-label={spec.label}
+                value={HEX_COLOR.test(color) ? color : "#000000"}
+                onChange={(event) => onChange(event.target.value)}
+                className="absolute inset-0 size-full cursor-pointer opacity-0"
+              />
+            </label>
             <DraftInput
-              value={asString(value, "#f54e00")}
+              value={color}
               ariaLabel={`${spec.label} hex`}
               onCommit={onChange}
             />
           </div>
         </InspectorField>
       );
+    }
     default:
       return (
         <InspectorField label={spec.label} hint={hint}>
@@ -728,7 +739,12 @@ function SqlField({
       }
     >
       <div className="overflow-hidden rounded-md border border-border bg-card">
-        <SqlEditor initialValue={sql} onChange={setDraft} onRun={onCommit} />
+        <SqlEditor
+          key={sql}
+          initialValue={sql}
+          onChange={setDraft}
+          onRun={onCommit}
+        />
       </div>
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] text-muted-foreground">⌘↵ to run</span>

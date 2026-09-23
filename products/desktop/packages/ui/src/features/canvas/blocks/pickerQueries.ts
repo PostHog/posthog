@@ -1,5 +1,5 @@
 import { hostClient } from "@posthog/ui/features/canvas/hostClient";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 export const TOP_EVENTS_HOGQL =
   "SELECT event, count() AS c FROM events WHERE timestamp > now() - INTERVAL 30 DAY GROUP BY event ORDER BY c DESC LIMIT 300";
@@ -21,10 +21,11 @@ export function useHogqlRows(hogql: string | null) {
   });
 }
 
-export function useSavedInsights() {
+export function useSavedInsights(search: string) {
   return useQuery({
-    queryKey: ["canvas-block-saved-insights"],
-    queryFn: () => hostClient().canvasData.savedInsights.query(),
+    queryKey: ["canvas-block-saved-insights", search],
+    queryFn: () => hostClient().canvasData.savedInsights.query({ search }),
+    placeholderData: keepPreviousData,
     staleTime: 60_000,
     retry: false,
   });

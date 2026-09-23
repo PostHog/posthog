@@ -294,6 +294,7 @@ export async function fetchCurrentUser(
 
 export async function listSavedInsights(
   authService: AuthService,
+  search = "",
 ): Promise<SavedInsight[]> {
   const { apiHost } = await authService.getValidAccessToken();
   const projectId = authService.getState().currentProjectId;
@@ -306,6 +307,7 @@ export async function listSavedInsights(
     limit: "200",
     order: "-last_modified_at",
   });
+  if (search.trim()) params.set("search", search.trim());
   const response = await authService.authenticatedFetch(
     fetch,
     `${apiHost}/api/projects/${projectId}/insights/?${params.toString()}`,

@@ -148,6 +148,18 @@ function markUpdated() {
 
 const cache = new Map<string, Promise<QueryResult>>();
 const resolved = new Map<string, QueryResult>();
+const MAX_RESOLVED = 200;
+
+function remember(key: string, data: QueryResult) {
+  cache.delete(key);
+  resolved.delete(key);
+  resolved.set(key, data);
+  while (resolved.size > MAX_RESOLVED) {
+    const oldest = resolved.keys().next().value;
+    if (oldest === undefined) break;
+    resolved.delete(oldest);
+  }
+}
 
 type RequestState = { data: QueryResult | null; error: string | null; loading: boolean };
 
@@ -177,7 +189,7 @@ function useCachedRequest(key: string | null, run: () => Promise<QueryResult>): 
     }
     request
       .then((data) => {
-        resolved.set(key, data);
+        remember(key, data);
         markUpdated();
         if (latest.current === key) setState({ data, error: null, loading: false });
       })

@@ -33,6 +33,7 @@ export interface CanvasSourceEntry {
   baseVersionId: string | null;
   saving: boolean;
   saveError: string | null;
+  conflict: { versionId: string | null } | null;
   past: SourceFiles[];
   future: SourceFiles[];
   rev: number;
@@ -69,7 +70,8 @@ interface CanvasSourceState {
     noted: number,
   ) => void;
   noteChange: (canvasId: string, label: string) => void;
-  setBaseVersion: (canvasId: string, versionId: string | null) => void;
+  setConflict: (canvasId: string, versionId: string | null) => void;
+  resolveConflict: (canvasId: string, keepLocal: boolean) => void;
   setSelection: (
     canvasId: string,
     selection: CanvasEditSelection | null,
@@ -110,7 +112,8 @@ export const useCanvasSourceStore = create<CanvasSourceState>((set) => ({
             baseVersionId: versionId,
             saving: false,
             saveError: null,
-            past: previous?.past ?? [],
+            conflict: null,
+            past: [],
             future: [],
             rev: (previous?.rev ?? 0) + 1,
             focusBlockId: null,
@@ -188,9 +191,31 @@ export const useCanvasSourceStore = create<CanvasSourceState>((set) => ({
             : [...entry.changes, label].slice(-MAX_NOTED_CHANGES),
       })),
     ),
-  setBaseVersion: (canvasId, versionId) =>
+  setConflict: (canvasId, versionId) =>
     set((state) =>
-      patch(state, canvasId, () => ({ baseVersionId: versionId })),
+      patch(state, canvasId, () => ({
+        saving: false,
+        saveError: null,
+        conflict: { versionId },
+      })),
+    ),
+  resolveConflict: (canvasId, keepLocal) =>
+    set((state) =>
+      patch(state, canvasId, (entry) =>
+        keepLocal
+          ? {
+              baseVersionId: entry.conflict?.versionId ?? entry.baseVersionId,
+              conflict: null,
+            }
+          : {
+              files: entry.savedFiles,
+              past: [],
+              future: [],
+              rev: entry.rev + 1,
+              changes: [],
+              conflict: null,
+            },
+      ),
     ),
   setLibraryOpen: (canvasId, open) =>
     set((state) => ({
