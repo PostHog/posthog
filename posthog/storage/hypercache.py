@@ -576,8 +576,10 @@ class HyperCache:
             redis_error = e
         if self.s3_enabled:
             self._set_cache_value_s3(key, data, ttl=ttl)
-        # Only track expiry when we have a Team object (avoids DB lookup)
-        if isinstance(key, Team):
+        # Only track expiry when we have a Team object (avoids DB lookup), and only when
+        # Redis holds the new payload. A stamp over a failed write tells the refresh sweep
+        # the entry is current, so the old Redis value is served until its own TTL runs out.
+        if redis_error is None and isinstance(key, Team):
             self._track_expiry(key, data, ttl=ttl)
         if redis_error is not None:
             raise redis_error

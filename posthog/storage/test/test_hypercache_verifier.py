@@ -529,7 +529,7 @@ class TestVerifyAndFixBatch(BaseTest):
             ("connection", ConnectionError("redis down")),
         ]
     )
-    def test_expiry_tracking_failure_does_not_abort_the_batch(self, _name, exception):
+    def test_expiry_tracking_failure_does_not_abort_the_batch(self, _name: str, exception: Exception) -> None:
         mock_config = MagicMock()
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
@@ -537,7 +537,7 @@ class TestVerifyAndFixBatch(BaseTest):
 
         result = VerificationResult()
 
-        def verify_fn(team, db_batch_data, cache_batch_data):
+        def verify_fn(team: Team, db_batch_data: dict | None, cache_batch_data: dict | None) -> dict:
             return {"status": "match", "issue": None}
 
         with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", side_effect=exception):
@@ -553,7 +553,7 @@ class TestVerifyAndFixBatch(BaseTest):
         assert result.errors == 0
         mock_config.update_fn.assert_not_called()
 
-    def test_expiry_tracking_soft_time_limit_propagates(self):
+    def test_expiry_tracking_soft_time_limit_propagates(self) -> None:
         mock_config = MagicMock()
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
