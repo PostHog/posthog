@@ -4,6 +4,7 @@
 # `SignalNodeSerializer` in `serializers.py`), so they flow through the standard OpenAPI/Orval pipeline.
 
 import enum
+from collections.abc import Mapping
 from typing import Annotated, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -22,12 +23,29 @@ DEFAULT_NOT_ACTIONABLE_KEY = "default_not_actionable"
 # defensively so a row written by another path cannot bloat every gate prompt.
 STEERING_MAX_LENGTH = 2000
 
-# Linear team ids whose issues the Linear source reads; absent or empty means every team.
-LINEAR_TEAM_IDS_KEY = "linear_team_ids"
-LINEAR_TEAM_IDS_MAX_COUNT = 100
-# Per-id cap on a scope allowlist. The serializer rejects longer ids; reads truncate defensively
-# so a row written by another path cannot bloat the emission query past ClickHouse's size limit.
+# ── Scope allowlists ────────────────────────────────────────────────────────────
+# Per-source `SignalSourceConfig.config` key holding the allowlist of scope ids emission narrows to.
+# Kept out of `emission/` for the same reason as the steering keys above.
+SCOPE_CONFIG_KEYS: Mapping[tuple[str, str], str] = {
+    (SignalSourceProduct.LINEAR, SignalSourceType.ISSUE): "linear_team_ids",
+}
+SCOPE_IDS_MAX_COUNT = 100
+# Both caps keep a row written outside the API from bloating the emission query past ClickHouse's size limit.
 SCOPE_ID_MAX_LENGTH = 255
+
+
+def scope_ids_problem(value: object) -> str | None:
+    """Why `value` is not a valid scope allowlist, or None when it is. The API rejects the value
+    with this message; the fetcher falls back to reading everything, so a malformed row never
+    applies part of a list."""
+    if not isinstance(value, list) or not all(isinstance(scope_id, str) and scope_id.strip() for scope_id in value):
+        return "must be a list of non-empty strings"
+    if len(value) > SCOPE_IDS_MAX_COUNT:
+        return f"must have at most {SCOPE_IDS_MAX_COUNT} entries"
+    if any(len(scope_id.strip()) > SCOPE_ID_MAX_LENGTH for scope_id in value):
+        return f"entries must be at most {SCOPE_ID_MAX_LENGTH} characters"
+    return None
+
 
 # The sources that emit straight through `emit_signal` and still honor steering, via the gate in
 # `emission/direct_gate.py`. Every other direct source skips the gate, so writing steering onto its

@@ -10,7 +10,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
 
-from products.signals.backend.contracts import SCOPE_ID_MAX_LENGTH
+from products.signals.backend.contracts import scope_ids_problem
 from products.signals.backend.emission.registry import SignalSourceTableConfig
 
 logger = structlog.get_logger(__name__)
@@ -28,16 +28,27 @@ def escape_table_name(table_name: str) -> str:
 
 
 def scope_ids_from_source_config(config: SignalSourceTableConfig, source_config: Any) -> list[str]:
-    """Allowlisted scope ids, or an empty list. A malformed value in the API-writable config blob
-    degrades to reading everything rather than breaking emission."""
+    """The source's allowlist, stripped, or an empty list. A malformed value in the API-writable
+    config blob is ignored as a whole: emission reads everything rather than applying part of a
+    list or breaking."""
     if config.scope_config_key is None or not isinstance(source_config, dict):
         return []
     raw = source_config.get(config.scope_config_key)
-    if not isinstance(raw, list):
+    if raw is None:
         return []
-    # Stripped and bounded like the steering key: these ids go into an exact `IN` match, so a stray
-    # space matches no record. Bounding an oversized id rather than dropping it keeps the scope narrow.
-    return [scope_id for value in raw if isinstance(value, str) and (scope_id := value.strip()[:SCOPE_ID_MAX_LENGTH])]
+    problem = scope_ids_problem(raw)
+    if problem is not None:
+        logger.warning(
+            "Ignoring malformed scope allowlist in source config",
+            scope_config_key=config.scope_config_key,
+            problem=problem,
+            source_product=config.source_product,
+            source_type=config.source_type,
+            signals_type="data-import-signals",
+        )
+        return []
+    # Exact `IN` match: a stray space would match no record.
+    return [scope_id.strip() for scope_id in raw]
 
 
 def data_warehouse_record_fetcher(

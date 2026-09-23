@@ -131,15 +131,16 @@ class TestQueryNewRecords:
         "source_config,expected_ids",
         [
             ({"linear_team_ids": ["team-1", "team-2"]}, ["team-1", "team-2"]),
-            # A row written outside the API can hold a padded or oversized id; the read normalizes it.
-            ({"linear_team_ids": ["x" * 300]}, ["x" * 255]),
-            ({"linear_team_ids": [" team-1 ", " "]}, ["team-1"]),
-            # Every one of these means "read everything": a malformed value must not break emission.
+            ({"linear_team_ids": [" team-1 ", "team-2"]}, ["team-1", "team-2"]),
+            # Every one of these means "read everything": a malformed list must not apply even in part.
             ({"linear_team_ids": []}, None),
             ({}, None),
             (None, None),
             ({"linear_team_ids": "team-1"}, None),
-            ({"linear_team_ids": [1, ""]}, None),
+            ({"linear_team_ids": ["team-1", 1]}, None),
+            ({"linear_team_ids": ["team-1", " "]}, None),
+            ({"linear_team_ids": ["x" * 300]}, None),
+            ({"linear_team_ids": [f"team-{i}" for i in range(101)]}, None),
         ],
     )
     def test_scope_filter_comes_from_source_config(self, source_config, expected_ids):

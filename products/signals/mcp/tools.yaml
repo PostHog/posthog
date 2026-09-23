@@ -426,8 +426,8 @@ tools:
             create it with `enabled=false` (the per-scout `emit` flag is set separately via `scout-config-update`).
             There is at most one config per (source_product, source_type) per project; if one already exists, update it
             instead. For `source_product=linear`, `source_type=issue`, pass `config.linear_team_ids` (a list of Linear
-            team ids from `integrations-linear-teams-retrieve`) so only issues from those Linear teams are read; omit it
-            to read every team in the workspace.
+            team ids from `integrations-linear-teams-retrieve`) so only issues from those Linear teams become signals;
+            the warehouse still syncs the whole workspace. Omit it to use every team.
     inbox-source-configs-destroy:
         operation: signals_source_configs_destroy
         enabled: false

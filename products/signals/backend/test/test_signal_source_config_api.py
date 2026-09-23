@@ -223,13 +223,6 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         assert response.json()["config"] == config
         assert SignalSourceConfig.objects.get(id=response.json()["id"]).config == config
 
-        response = self.client.post(
-            self._url(),
-            data={"source_product": "github", "source_type": "issue", "config": {"linear_team_ids": "team-1"}},
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-
     # --- List ---
 
     def test_list_source_configs(self):
