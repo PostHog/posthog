@@ -314,16 +314,13 @@ pub async fn build_components(
     };
 
     assert!(
-        !config
-            .kafka_topics
-            .capture_analytics_ai_events_topic
-            .is_empty(),
+        !config.kafka_topics.ai_events.is_empty(),
         "invalid configuration: CAPTURE_ANALYTICS_AI_EVENTS_TOPIC must not be empty",
     );
     let ai_events_overflow_enabled = ai_events_overflow_valve(&config);
     info!(
-        capture_analytics_ai_events_topic = %config.kafka_topics.capture_analytics_ai_events_topic,
-        capture_analytics_ai_events_overflow_topic = ?config.kafka_topics.capture_analytics_ai_events_overflow_topic,
+        capture_analytics_ai_events_topic = %config.kafka_topics.ai_events,
+        capture_analytics_ai_events_overflow_topic = ?config.kafka_topics.ai_events_overflow,
         ai_events_overflow_enabled,
         "AI events topic routing"
     );
@@ -453,7 +450,7 @@ pub async fn build_components(
 fn ai_events_overflow_valve(config: &Config) -> bool {
     let armed = config
         .kafka_topics
-        .capture_analytics_ai_events_overflow_topic
+        .ai_events_overflow
         .as_deref()
         .is_some_and(|topic| !topic.is_empty());
     assert!(
@@ -579,14 +576,8 @@ fn create_v1_sink_router(
         .context("v1 sink config validation failed")?;
 
     for cfg in sinks_cfg.configs.values_mut() {
-        cfg.kafka.topic_ai = config
-            .kafka_topics
-            .capture_analytics_ai_events_topic
-            .clone();
-        cfg.kafka.topic_ai_overflow = config
-            .kafka_topics
-            .capture_analytics_ai_events_overflow_topic
-            .clone();
+        cfg.kafka.topic_ai = config.kafka_topics.ai_events.clone();
+        cfg.kafka.topic_ai_overflow = config.kafka_topics.ai_events_overflow.clone();
     }
 
     warn_if_ai_ceiling_exceeds_v1_sink_caps(config, &sinks_cfg);
@@ -655,7 +646,7 @@ async fn create_output(
     // any producer is built and the broker is pinged, which makes the refusal
     // instant, not one connect attempt later.
     let topics = TopicTable::from(&config.kafka_topics);
-    if config.kafka_topics.outputs_completeness_check_enabled {
+    if config.outputs_completeness_check_enabled {
         topics.check_complete()?;
     } else {
         info!("outputs completeness check disabled; a blank output topic will fail at first produce instead of at boot");
@@ -680,7 +671,7 @@ async fn create_output(
     let kafka_sink = KafkaSink::new(
         producers.get(ProducerName::Ingestion),
         topics,
-        config.kafka_topics.kafka_replay_envelope_compression,
+        config.replay_envelope_compression,
     );
 
     if !config.s3_fallback_enabled {
@@ -1323,8 +1314,8 @@ mod tests {
         .collect();
         let mut config: Config =
             envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
-        config.kafka_topics.outputs_completeness_check_enabled = true;
-        config.kafka_topics.kafka_dlq_topic = String::new();
+        config.outputs_completeness_check_enabled = true;
+        config.kafka_topics.dlq = String::new();
         let default_producers = producers::load_all(&HashMap::new()).expect("default producers");
 
         let err = create_output_registry(&config, &default_producers, None, None)
@@ -1339,7 +1330,7 @@ mod tests {
 
         // The default: with the check off, the same blank topic boots (and
         // would fail at first produce instead).
-        config.kafka_topics.outputs_completeness_check_enabled = false;
+        config.outputs_completeness_check_enabled = false;
         create_output_registry(&config, &default_producers, None, None)
             .await
             .expect("boot must proceed when the completeness check is disabled");
