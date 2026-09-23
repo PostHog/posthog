@@ -2443,8 +2443,23 @@ class TestShellSplitActionArgsCheck:
         self._write_action(tmp_path, "bare", "sh -c $ARGS")
         assert derive_shell_split_inputs(tmp_path).get(".github/actions/bare") == frozenset({"flags"})
 
-    @pytest.mark.parametrize("invocation", ["bash -lc", "sh -lc", "bash -euxc", "sh -c"])
-    def test_derivation_reads_bundled_shell_option_letters(self, tmp_path: Path, invocation: str) -> None:
+    @pytest.mark.parametrize(
+        "invocation",
+        [
+            "bash -lc",
+            "sh -lc",
+            "bash -euxc",
+            "sh -c",
+            "bash --norc -c",
+            # options whose value is a separate token: the value is not a flag, so
+            # a repetition that accepted only flags stopped there
+            "bash -O extglob -c",
+            "bash -o pipefail -c",
+            "bash +o history -c",
+            "bash --rcfile /dev/null -c",
+        ],
+    )
+    def test_derivation_reads_shell_options_before_c(self, tmp_path: Path, invocation: str) -> None:
         # `bash -lc "..."` is the same hazard as `bash -l -c "..."`; requiring a
         # separate -c left those actions uninspected.
         self._write_action(tmp_path, "bundled", f'{invocation} "tool $ARGS"')

@@ -50,11 +50,16 @@ ACTIONS_DIR = ".github/actions"
 # Scoped to the `-c` operand: a var elsewhere in the run body (`"$SEMGREP_IMAGE"`)
 # is its own quoted argument, never re-parsed, so it carries no hazard.
 UNSAFE_ARG_RE = re.compile(r"[^ A-Za-z0-9._/@:=+-]")
+# One option token before `-c`, with its value when it takes a separate one.
+# `-o pipefail`, `-O extglob`, their `+` forms and `--rcfile <file>` all put the
+# value in its own token, so a repetition that accepted only flags stopped at
+# that value and left the whole invocation uninspected.
+SHELL_OPTION = r"(?:(?:[-+][oO]|--(?:rcfile|init-file))\s+\S+|[-+]\S+)\s+"
 SHELL_C_RE = re.compile(
     # All three operand forms. Quoting the operand does not make the value in it
     # safe, and leaving it bare (`sh -c $FLAGS`) is if anything worse -- the
     # operand is then split before the inner shell even sees it.
-    r"\b(?:sh|bash|dash|zsh|ksh)\b\s+(?:-\S+\s+)*-[a-zA-Z]*c\s+"
+    rf"\b(?:sh|bash|dash|zsh|ksh)\b\s+(?:{SHELL_OPTION})*-[a-zA-Z]*c\s+"
     r"(?:\"(?P<dquoted>(?:[^\"\\]|\\.)*)\"|'(?P<squoted>[^']*)'|(?P<bare>\S+))",
 )
 VAR_REF_RE = re.compile(r"\$(?:\{(?P<braced>[A-Za-z_]\w*)[^}]*\}|(?P<plain>[A-Za-z_]\w*))")
