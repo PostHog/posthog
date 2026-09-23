@@ -4,6 +4,23 @@ const TRIGGER_NODE_ID = 'trigger_node'
 const EXIT_NODE_ID = 'exit_node'
 const EMAIL_NODE_ID = 'email_node'
 
+// Mirrors the `email` input of the built-in template
+// (nodejs/src/cdp/templates/_destinations/email/email.template.ts). The editor renders a step's
+// config from the template map, so without this the panel shows the not-found fallback and the
+// step's own controls never mount.
+const EMAIL_INPUTS_SCHEMA = [
+    {
+        type: 'native_email',
+        key: 'email',
+        label: 'Email message',
+        integration: 'email',
+        required: true,
+        secret: false,
+        templating: 'liquid',
+        description: 'The email message to send.',
+    },
+]
+
 function buildEmailWorkflow(): Record<string, any> {
     return {
         name: `Email step test send ${Date.now()}`,
@@ -70,34 +87,54 @@ function buildEmailWorkflow(): Record<string, any> {
 }
 
 test.describe('Workflows email step test send', () => {
+    test.setTimeout(90 * 1000)
+
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
     test.beforeAll(async ({ playwrightSetup }) => {
         workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+        // Playwright CI doesn't run sync_hog_function_templates, so the templates table is empty.
+        await playwrightSetup.seedHogFunctionTemplate({
+            template_id: 'template-email',
+            name: 'Email',
+            status: 'hidden',
+            template_type: 'destination',
+            inputs_schema: EMAIL_INPUTS_SCHEMA,
+        })
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
-        await playwrightSetup.login(page, workspace!)
+        await playwrightSetup.loginAndNavigateToTeam(page, workspace!)
     })
 
     test('sends the step to the typed address only, leaving the workflow audience untouched', async ({ page }) => {
-        test.setTimeout(90 * 1000)
-        const me = await page.request.get('/api/users/@me/')
-        expect(me.ok()).toBe(true)
-        const teamId: number = (await me.json()).team.id
-
-        const csrfToken = (await page.context().cookies()).find((c) => c.name === 'posthog_csrftoken')?.value
-        if (!csrfToken) {
-            throw new Error('CSRF cookie missing')
-        }
-        const response = await page.request.post(`/api/environments/${teamId}/hog_flows/`, {
-            data: buildEmailWorkflow(),
-            headers: { 'X-CSRFToken': decodeURIComponent(csrfToken) },
-        })
-        if (!response.ok()) {
-            throw new Error(`hog_flows POST failed: ${response.status()} ${await response.text()}`)
-        }
-        const workflowId: string = (await response.json()).id
+        const teamId = workspace!.team_id
+        const workflowId = await page.evaluate(
+            async ({ teamId, payload }) => {
+                const csrfToken =
+                    document.cookie
+                        .split(';')
+                        .map((c) => c.trim())
+                        .find((c) => c.startsWith('posthog_csrftoken='))
+                        ?.split('=')
+                        .slice(1)
+                        .join('=') || ''
+                if (!csrfToken) {
+                    throw new Error('CSRF cookie missing')
+                }
+                const response = await fetch(`/api/environments/${teamId}/hog_flows/`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': decodeURIComponent(csrfToken) },
+                    body: JSON.stringify(payload),
+                })
+                if (!response.ok) {
+                    throw new Error(`hog_flows POST failed: ${response.status} ${await response.text()}`)
+                }
+                return (await response.json()).id as string
+            },
+            { teamId, payload: buildEmailWorkflow() }
+        )
 
         // A test send is a real send, so the invocation is stubbed rather than allowed to reach the
         // email worker. The payload it would have sent is what this test is here to check.
@@ -115,7 +152,8 @@ test.describe('Workflows email step test send', () => {
             await page.goto(`/workflows/${workflowId}/workflow`)
             await page.waitForSelector('[data-attr="workflow-editor"]', { timeout: 30000 })
             await page.locator(`[data-testid="rf__node-${EMAIL_NODE_ID}"]`).click()
-            await expect(page.getByTestId('workflow-step-open-test-email')).toBeVisible()
+            await expect(page.getByText('Template not found!')).toHaveCount(0)
+            await expect(page.getByTestId('workflow-step-open-test-email')).toBeVisible({ timeout: 15000 })
         })
 
         await test.step('name a recipient and send', async () => {
@@ -127,7 +165,7 @@ test.describe('Workflows email step test send', () => {
         })
 
         await test.step('the send carries the typed recipient and only the email step', async () => {
-            await expect.poll(() => invocationBody).not.toBeNull()
+            await expect.poll(() => invocationBody, { timeout: 15000 }).not.toBeNull()
 
             expect(invocationBody.mock_async_functions).toBe(false)
             expect(invocationBody.current_action_id).toBe('send_test_email')

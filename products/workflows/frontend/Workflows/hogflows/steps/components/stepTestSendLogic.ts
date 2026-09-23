@@ -180,6 +180,10 @@ export const stepTestSendLogic = kea<stepTestSendLogicType>([
                         templating: emailInput?.templating === 'hog' ? 'hog' : 'liquid',
                     })
 
+                    // The endpoint declares a fallback response serializer, so the generated client
+                    // types this call's result as void - and the result is what tells a delivered
+                    // test from a declined one.
+                    // nosemgrep: prefer-codegen-api-namespaced-workflows
                     return await api.hogFlows.createTestInvocation('new', {
                         configuration,
                         // The event the test panel already loaded, so merge tags resolve to the
