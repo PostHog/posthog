@@ -22,12 +22,16 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.hogql_source import (
+    DATA_INTERVAL_END_PLACEHOLDER,
     UnsupportedHogQLQueryError,
     create_hogql_context_for_batch_export,
+    find_interval_placeholders,
     parse_hogql_select_for_batch_export,
+    replace_interval_placeholders,
     serialize_batch_export_query,
 )
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.sql.common import (
     BatchExportQuerySettings,
@@ -40,7 +44,7 @@ LOGGER = get_write_only_logger()
 
 Query = str
 QueryParameters = dict[str, typing.Any]
-BatchExportDateRange = tuple[dt.datetime | None, dt.datetime]
+BatchExportDateRange = tuple[dt.datetime | None, dt.datetime | None]
 
 
 def _as_clickhouse_request_settings(query_settings: HogQLQuerySettings) -> dict[str, str]:
@@ -98,7 +102,7 @@ class RecordBatchModel(abc.ABC):
 
     @abc.abstractmethod
     def get_hogql_query(
-        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None
     ) -> ast.SelectQuery | ast.SelectSetQuery:
         """Return the HogQL query to export, scoped to the given data interval."""
         raise NotImplementedError
@@ -113,7 +117,7 @@ class RecordBatchModel(abc.ABC):
         return {}
 
     async def _print_query(
-        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime, output_format: str | None
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None, output_format: str | None
     ) -> tuple[str, QueryParameters]:
         """Transpile the model's HogQL query to ClickHouse SQL, returning it with its parameters."""
         hogql_query = self.get_hogql_query(data_interval_start, data_interval_end)
@@ -133,7 +137,7 @@ class RecordBatchModel(abc.ABC):
         return printed, context.values
 
     async def as_query_with_parameters(
-        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None
     ) -> tuple[Query, QueryParameters]:
         """Produce a printed query and any necessary ClickHouse query parameters."""
         return await self._print_query(data_interval_start, data_interval_end, output_format="ArrowStream")
@@ -141,7 +145,7 @@ class RecordBatchModel(abc.ABC):
     async def as_insert_into_s3_query_with_parameters(
         self,
         data_interval_start: dt.datetime | None,
-        data_interval_end: dt.datetime,
+        data_interval_end: dt.datetime | None,
         s3_folder: str,
         credentials: AWSKeyPair | None,
         num_partitions: int,
@@ -171,9 +175,11 @@ class SessionsRecordBatchModel(RecordBatchModel):
         self.is_backfill = is_backfill
 
     def get_hogql_query(
-        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None
     ) -> ast.SelectQuery:
         """Return the HogQLQuery used for the sessions model."""
+        if data_interval_end is None:
+            raise MissingRequiredInputsError("The sessions model requires data_interval_end")
         hogql_query = clone_expr(SELECT_FROM_SESSIONS_HOGQL)
 
         team_id_filter = ast.CompareOperation(
@@ -359,29 +365,26 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
     The query is stored as a raw HogQL string and transpiled to ClickHouse SQL at run
     time, so it stays resilient to printer changes.
 
-    TODO: Data interval bounds are accepted to satisfy the base class contract but ignored: the
-    query has no interval semantics yet.
+    Referenced interval placeholders use the supplied run bounds. Queries without
+    placeholders run unchanged.
     """
-
-    # The query is executed as-is with no data interval, so there is nothing to wait for.
-    wait_for_data_interval_end = False
 
     def __init__(self, team_id: int, hogql_query: str, batch_export_id: str | None = None):
         super().__init__(team_id=team_id, batch_export_id=batch_export_id)
         self.hogql_query = hogql_query
+        self.parsed_hogql_query = parse_hogql_select_for_batch_export(hogql_query)
+        self.wait_for_data_interval_end = DATA_INTERVAL_END_PLACEHOLDER in find_interval_placeholders(
+            self.parsed_hogql_query
+        )
 
     def get_hogql_query(
-        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None
     ) -> ast.SelectQuery | ast.SelectSetQuery:
-        """Return the parsed HogQL query used for this model.
-
-        The data interval bounds are ignored: the query is exported as-is (see the class
-        docstring). They are accepted to satisfy the base class contract.
-        """
-        return parse_hogql_select_for_batch_export(self.hogql_query)
+        """Return the query with referenced placeholders replaced by the run's bounds."""
+        return replace_interval_placeholders(self.parsed_hogql_query, data_interval_start, data_interval_end)
 
     def get_count_hogql_query(
-        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None
     ) -> ast.SelectQuery:
         """Return a HogQL query counting the rows this model would export."""
         return ast.SelectQuery(

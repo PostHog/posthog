@@ -10,6 +10,7 @@ import { knowledgeSourceLogic } from './knowledgeSourceLogic'
 jest.mock('../api', () => ({
     getSource: jest.fn(),
     getSourceText: jest.fn(),
+    getSourceDocuments: jest.fn(),
     updateSource: jest.fn(),
     deleteSource: jest.fn(),
     refreshSource: jest.fn(),
@@ -65,6 +66,7 @@ describe('knowledgeSourceLogic', () => {
         jest.clearAllMocks()
         mockedApi.getSource.mockResolvedValue(MOCK_SOURCE)
         mockedApi.getSourceText.mockResolvedValue({ id: SOURCE_ID, text: 'Refund within 30 days.' })
+        mockedApi.getSourceDocuments.mockResolvedValue([])
         mockedApi.updateSource.mockResolvedValue({ ...MOCK_SOURCE, name: 'Updated policy', chunk_count: 4 })
         mockedApi.deleteSource.mockResolvedValue(undefined)
         logic = knowledgeSourceLogic({ id: SOURCE_ID })
@@ -110,6 +112,7 @@ describe('knowledgeSourceLogic', () => {
         expect(logic.values.editSource.text).toBe('Refund within 60 days.')
         expect(pushSpy).not.toHaveBeenCalled()
         expect(mockedApi.getSource).toHaveBeenCalled()
+        expect(mockedApi.getSourceDocuments).not.toHaveBeenCalled()
         pushSpy.mockRestore()
     })
 
@@ -146,6 +149,29 @@ describe('knowledgeSourceLogic', () => {
         }).toFinishAllListeners()
 
         expect(logic.values.editUrlSource.name).toBe('Draft name')
+        expect(mockedApi.getSourceDocuments).toHaveBeenCalledWith(SOURCE_ID)
+        expect(logic.values.sourceDocumentsLoaded).toBe(true)
+    })
+
+    it('keeps the source when the indexed page list fails', async () => {
+        logic.unmount()
+        mockedApi.getSource.mockResolvedValue({
+            ...MOCK_SOURCE,
+            source_type: 'url',
+            status: 'ready',
+            source_url: 'https://docs.example.com',
+        })
+        mockedApi.getSourceDocuments.mockRejectedValue({ status: 500, detail: 'boom' })
+        logic = knowledgeSourceLogic({ id: SOURCE_ID })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({
+            sourceNotFound: false,
+            sourceDocumentsFailed: true,
+            sourceDocumentsLoaded: false,
+            sourceDocuments: [],
+        })
+        expect(logic.values.source?.id).toBe(SOURCE_ID)
     })
 
     it('still opens the text form if content fails to load', async () => {

@@ -12,13 +12,15 @@ The two conditions:
   a day of overlap so two weekly runs cannot skip one. Somebody has to extend it, lift it, or decide
   to let it lapse.
 
-  Variant pile-up. `VARIANT_PILEUP_MIN` or more accepted variants standing against the baseline's
-  current hash, with no quarantine already covering the identity. The baseline has stopped
-  describing one rendering.
+  Toleration pile-up. `VARIANT_PILEUP_MIN` or more tolerations by a person or agent in the last
+  `TOLERATION_PILEUP_WINDOW_DAYS`, with no quarantine already covering the identity. Each toleration
+  covers one exact rendering, so a snapshot that keeps needing them renders differently from run to
+  run, and the fix is in the story.
 
-A baseline change clears the second condition, and that is not the same as the story recovering: it
-invalidates the tolerations recorded against the old baseline, because they can never match again.
-Nothing here claims a snapshot got better.
+The pile-up counts across baselines. A flaky story's baseline often moves between tolerations, and
+a count scoped to the current baseline drops to zero at every move while the tolerations go on.
+Automatic tolerations do not count: they absorb renderings under the diff thresholds, which never
+block anybody.
 
 Attribution runs through the Storybook build behind the current baseline. Its story index names the
 file each story lives in, and the repository's own ownership files name the team that owns that file.
@@ -78,7 +80,7 @@ from posthog.utils import human_list, pluralize
 from products.engineering_analytics.backend.facade.api import resolve_path_owners
 from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM, PathOwnership
 
-from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS, VARIANT_PILEUP_MIN
+from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS, TOLERATION_PILEUP_WINDOW_DAYS
 from ..facade.enums import RunType
 from ..models import QuarantinedIdentifier, Repo, Run
 from . import quarantine, run_queries, story_index, toleration
@@ -123,9 +125,9 @@ _QUARANTINE_HEADING = (
     "A lapsed quarantine fails the gate again."
 )
 _PILEUP_HEADING = (
-    "*Snapshots with piled-up variants*\n"
-    f"{VARIANT_PILEUP_MIN} or more accepted renderings mean the baseline is wrong. "
-    "Approve the current rendering as the baseline and the variants stop counting."
+    "*Snapshots that keep getting tolerated*\n"
+    "A toleration covers one exact rendering, so these snapshots render differently from run to run. "
+    "Fix the story, or quarantine it until someone can."
 )
 
 
@@ -355,7 +357,7 @@ def _quarantine_facts(entry: QuarantinedIdentifier, authors: dict[int, str], now
 
 
 def _pileup_facts(count: int) -> str:
-    return f"*{count}* accepted variants of the current baseline"
+    return f"Tolerated *{count}* times in the last {TOLERATION_PILEUP_WINDOW_DAYS} days"
 
 
 def _quarantine_line(repo: Repo, entry: QuarantinedIdentifier, authors: dict[int, str], now: datetime) -> str:
@@ -372,7 +374,7 @@ def _quarantine_line(repo: Repo, entry: QuarantinedIdentifier, authors: dict[int
 
 def _pileup_line(repo: Repo, run_type: str, identifier: str, count: int) -> str:
     body = (
-        f"{count} accepted variants of the current baseline"
+        f"Tolerated {count} times in {TOLERATION_PILEUP_WINDOW_DAYS} days"
         f" · {escape_slack_mrkdwn(clip_text(identifier, _MAX_IDENTIFIER_CHARS))} ({escape_slack_mrkdwn(run_type)})"
     )
     return _linked_line(repo, body, run_type, identifier)
@@ -421,14 +423,12 @@ def collect_debt(repo: Repo, now: datetime) -> RepoDebt:
     expiring = quarantine.list_expiring_quarantines(repo.id, now=now, within_days=_DIGEST_EXPIRY_WINDOW_DAYS)
     quarantined_keys = quarantine.active_quarantine_keys(repo.id, now=now)
     piled_up = {
-        key: count
-        for key, count in toleration.count_active_variants_against_current_baseline(
-            repo.id, now=now, newest_run_by_type=newest_run_by_type
-        ).items()
+        key: counts.intentional
+        for key, counts in toleration.list_toleration_pileups(repo.id, now=now, newest_run_by_type=newest_run_by_type)
         # Any live quarantine, expiring or not, already says somebody knows the snapshot is
-        # unreliable, so asking them about the variants underneath it is a second reminder about
+        # unreliable, so asking them about the tolerations underneath it is a second reminder about
         # one problem.
-        if count >= VARIANT_PILEUP_MIN and key not in quarantined_keys
+        if key not in quarantined_keys
     }
 
     run_types = {entry.run_type for entry in expiring} | {key.run_type for key in piled_up}
@@ -454,10 +454,8 @@ def collect_debt(repo: Repo, now: datetime) -> RepoDebt:
                 line=_pileup_line(repo, key.run_type, key.identifier, count),
                 facts=_pileup_facts(count),
             )
-            # Biggest pile first, then by identity so a tie reads the same way every morning.
-            for key, count in sorted(
-                piled_up.items(), key=lambda item: (-item[1], item[0].run_type, item[0].identifier)
-            )
+            # Already in pile order: `list_toleration_pileups` sorts, and the dict keeps it.
+            for key, count in piled_up.items()
         ],
     )
 
@@ -657,7 +655,9 @@ def _count_phrases(digest: TeamDigest, emphasis: str = "") -> list[str]:
         )
     pileups = len(digest.variant_pileups)
     if pileups:
-        phrases.append(f"{emphasis}{pluralize(pileups, 'snapshot')}{emphasis} with piled-up variants")
+        phrases.append(
+            f"{emphasis}{pluralize(pileups, 'snapshot')}{emphasis} keep{'s' if pileups == 1 else ''} getting tolerated"
+        )
     return phrases
 
 
@@ -701,7 +701,7 @@ def thread_messages(repo: Repo, digest: TeamDigest, now: datetime) -> list[Slack
         ),
         ReplyGroup(
             heading=_heading_part(_PILEUP_HEADING),
-            items=[_item_part(repo, item, "Reset baseline") for item in digest.variant_pileups],
+            items=[_item_part(repo, item, "Fix or quarantine") for item in digest.variant_pileups],
         ),
     ]
     return _split_into_messages(groups, _footer_parts(now))

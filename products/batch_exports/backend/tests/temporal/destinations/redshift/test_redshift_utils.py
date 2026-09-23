@@ -8,13 +8,14 @@ from unittest import mock
 from django.conf import settings
 
 import psycopg
+import pyarrow as pa
 import aioboto3
 import pytest_asyncio
 import botocore.exceptions
 
 from posthog.models.integration import AWSRedshiftRoleBasedIntegration, Integration, IntegrationError
 
-from products.batch_exports.backend.service import AWSCredentials
+from products.batch_exports.backend.service import AWSCredentials, BatchExportModel
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     ClientErrorGroup,
     InsufficientS3PermissionsError,
@@ -22,6 +23,7 @@ from products.batch_exports.backend.temporal.destinations.redshift_batch_export 
     RedshiftS3CopyError,
     ServerlessWorkgroup,
     _get_redshift_credentials_policy_statements,
+    _get_table_schemas,
     _parse_redshift_host,
     check_and_raise_redshift_copy_error,
     is_s3_read_access_denied,
@@ -31,6 +33,22 @@ from products.batch_exports.backend.temporal.temporary_file import remove_escape
 from products.batch_exports.backend.tests.temporal.utils.s3 import delete_all_from_s3
 
 TEST_ROOT_BUCKET = "test-batch-exports"
+
+
+@pytest.mark.parametrize("has_person_id", [False, True])
+@pytest.mark.parametrize("properties_data_type", ["varchar", "super"])
+def test_events_table_schemas_match_staged_person_id(has_person_id: bool, properties_data_type: str) -> None:
+    columns = ["uuid", "properties"]
+    if has_person_id:
+        columns.append("person_id")
+    schema = pa.schema([(name, pa.string()) for name in columns])
+
+    table_schemas = _get_table_schemas(BatchExportModel(name="events", schema=None), schema, properties_data_type)
+
+    for fields in (table_schemas.table_schema, table_schemas.stage_table_schema):
+        assert {name for name, _ in fields} == set(columns)
+        if has_person_id:
+            assert dict(fields)["person_id"] == "VARCHAR(200)"
 
 
 @pytest.mark.parametrize(

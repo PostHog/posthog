@@ -355,10 +355,23 @@ def test_bigquery_build_pipeline_resolves_dataset_routing(
     assert mock_delete.call_args.kwargs["table_id"] == expected_table_id
 
 
-def test_bigquery_build_pipeline_swallows_transient_cleanup_refresh_error():
-    """A transient token-refresh failure (e.g. a 502 from Google's OAuth endpoint) while deleting
-    the run's own destination table must not turn an otherwise-successful sync into a failure —
-    retrying the whole sync just to retry this delete is wasteful."""
+@pytest.mark.parametrize(
+    "exception",
+    [
+        # A transient token-refresh failure (e.g. a 502 from Google's OAuth endpoint).
+        RefreshError("<!DOCTYPE html><html><head><title>Error 502 (Server Error)</title></head></html>"),
+        # The customer's whole GCP project was deleted after the sync started — there's no
+        # readable copy left to protect, unlike a live-project "Access Denied:" permission denial.
+        Forbidden(
+            "DELETE https://bigquery.googleapis.com/bigquery/v2/projects/proj/datasets/ds/tables/tbl"
+            "?prettyPrint=false: Project #123456789 has been deleted."
+        ),
+    ],
+)
+def test_bigquery_build_pipeline_swallows_transient_cleanup_errors(exception):
+    """A transient failure while deleting the run's own destination table must not turn an
+    otherwise-successful sync into a failure — retrying the whole sync just to retry this delete
+    is wasteful."""
     config = _make_config()
     logger = mock.MagicMock()
     inputs = _make_inputs(logger=logger)
@@ -371,9 +384,7 @@ def test_bigquery_build_pipeline_swallows_transient_cleanup_refresh_error():
         mock.patch.object(BigQueryImplementation, "_build_source_response", return_value=build_result),
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_table",
-            side_effect=RefreshError(
-                "<!DOCTYPE html><html><head><title>Error 502 (Server Error)</title></head></html>"
-            ),
+            side_effect=exception,
         ),
     ):
         result = BigQuerySource().source_for_pipeline(config, inputs)

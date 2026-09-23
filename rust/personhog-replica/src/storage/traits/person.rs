@@ -2,7 +2,9 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 use crate::storage::error::StorageResult;
-use crate::storage::types::{Person, SplitResult, TombstonedDeleteOutcome};
+use crate::storage::types::{
+    DeletePersonsMode, DeletePersonsOutcome, Person, SplitResult, TombstonedDeleteOutcome,
+};
 
 /// Person lookup operations by ID, UUID, and distinct ID
 #[async_trait]
@@ -51,12 +53,14 @@ pub trait PersonLookup: Send + Sync {
 
     // Deletes
 
-    /// Delete persons by UUID for a given team. Large batches are split into
-    /// fixed-size chunks and deleted concurrently. Each chunk runs in its own
-    /// transaction, deleting distinct_ids first (FK is NO ACTION) then persons
-    /// (feature flag hash key overrides cascade at the DB level). Idempotent:
-    /// deleting already-removed UUIDs is a no-op.
-    async fn delete_persons(&self, team_id: i64, uuids: &[Uuid]) -> StorageResult<i64>;
+    /// `Hard` removes the rows, tombstoned ones included. `Tombstone` keeps
+    /// them and reports the versions written for the ClickHouse tombstones.
+    async fn delete_persons(
+        &self,
+        team_id: i64,
+        uuids: &[Uuid],
+        mode: DeletePersonsMode,
+    ) -> StorageResult<DeletePersonsOutcome>;
 
     /// Delete persons that are still tombstoned, at most `max_rows` dependent rows per call:
     /// persons that fit the budget go whole, the first that does not is trimmed with the leftover

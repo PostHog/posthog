@@ -19,9 +19,10 @@ use personhog_proto::personhog::types::v1::{
     DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
     DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
     DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
-    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
-    DeletePersonsResponse, DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
-    DistinctIdWithVersion, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse,
+    DeletePersonsMode as ProtoDeletePersonsMode, DeletePersonsRequest, DeletePersonsResponse,
+    DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse, DistinctIdWithVersion,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
     GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
@@ -40,13 +41,14 @@ use personhog_proto::personhog::types::v1::{
     PersonsResponse, SetPersonDistinctIdVersionFloorRequest,
     SetPersonDistinctIdVersionFloorResponse, SetPersonVersionFloorRequest,
     SetPersonVersionFloorResponse, SplitPersonRequest, SplitPersonResponse,
-    SplitResult as ProtoSplitResult, TeamDistinctId, UpdateGroupRequest, UpdateGroupResponse,
-    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    SplitResult as ProtoSplitResult, TeamDistinctId, TombstonedDistinctId, TombstonedPerson,
+    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
+use crate::storage::types::DeletePersonsMode;
 use crate::storage::{self, FullStorage};
 
 const MAX_BATCH_LOOKUP_SIZE: usize = 250;
@@ -417,13 +419,48 @@ impl PersonHogReplica for PersonHogReplicaService {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?;
 
-        let deleted_count = self
+        let mode = match ProtoDeletePersonsMode::try_from(req.mode) {
+            Ok(ProtoDeletePersonsMode::Unspecified) => DeletePersonsMode::Hard,
+            Ok(ProtoDeletePersonsMode::Hard) => DeletePersonsMode::Hard,
+            Ok(ProtoDeletePersonsMode::Tombstone) => DeletePersonsMode::Tombstone,
+            Err(_) => {
+                return Err(Status::invalid_argument(format!(
+                    "Unknown DeletePersonsMode {}",
+                    req.mode
+                )))
+            }
+        };
+
+        let outcome = self
             .storage
-            .delete_persons(req.team_id, &uuids)
+            .delete_persons(req.team_id, &uuids, mode)
             .await
             .map_err(|e| log_and_convert_error(e, "delete_persons"))?;
 
-        Ok(Response::new(DeletePersonsResponse { deleted_count }))
+        let tombstoned = outcome.tombstones.is_some();
+        let tombstones = outcome
+            .tombstones
+            .unwrap_or_default()
+            .into_iter()
+            .map(|person| TombstonedPerson {
+                person_uuid: person.uuid.to_string(),
+                version: person.version,
+                distinct_ids: person
+                    .distinct_ids
+                    .into_iter()
+                    .map(|did| TombstonedDistinctId {
+                        distinct_id: did.distinct_id,
+                        version: did.version,
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        Ok(Response::new(DeletePersonsResponse {
+            deleted_count: outcome.deleted,
+            tombstoned,
+            tombstones,
+        }))
     }
 
     async fn delete_persons_batch_for_team(

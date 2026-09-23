@@ -139,6 +139,16 @@ class TestGithubSource:
         retryable_errors = self.source.get_retryable_errors()
         assert error_message_matches(observed_error, retryable_errors)
 
+    def test_egress_budget_exhausted_is_retryable_not_non_retryable(self):
+        # Our own limiter shedding a deferrable call is the twin of GitHub's rate limit above, and
+        # must be classified the same way: tracking it as an exception put a self-inflicted,
+        # self-healing condition at the top of the pipeline-error groups.
+        observed_error = "GitHub egress budget exhausted for installation 99844466; deferring"
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in observed_error for key in non_retryable_errors)
+        retryable_errors = self.source.get_retryable_errors()
+        assert error_message_matches(observed_error, retryable_errors)
+
     def test_transient_5xx_error_is_retryable_not_non_retryable(self):
         # A GithubRetryableError (any transient upstream 5xx) that exhausts _fetch_page's tenacity
         # retry must stay retryable, so a GitHub-side outage doesn't disable the source.

@@ -23,11 +23,14 @@ import uuid
 import dataclasses
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import Q, Value
 from django.db.models.functions import Coalesce, Lower, NullIf
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -70,6 +73,7 @@ from products.signals.backend.pipeline_identity import pipeline_writer_identity
 from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
 from products.signals.backend.scout_harness.config_registry import enabled_scout_count, ensure_scout_category
+from products.signals.backend.scout_harness.deprecation import deprecation_metadata_of
 from products.signals.backend.scout_harness.fleet_sync import materialize_scout_fleet
 from products.signals.backend.scout_harness.lazy_seed import (
     SCOUT_ROLE_OPERATIONAL,
@@ -2277,6 +2281,34 @@ class SignalScoutMetadataViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         return Response(ScoutMetadataSerializer(metadata.as_dict()).data)
 
 
+# A team filter that finds nothing has two very different causes, and a scout that reads both as
+# "no such team" stops routing to a team that exists. The roster endpoint is off by default at the
+# GitHub source, so an absent slug is much more often unsynced coverage than a wrong name.
+MEMBERSHIP_NOT_SYNCED = (
+    "This project has no synced team roster, so a team slug can't be resolved to people. Turn on the "
+    "`teams` and `team_members` schemas for the GitHub data warehouse source (they need the "
+    "organization Members permission), or match the owner by name or email instead."
+)
+TEAM_NOT_IN_ROSTER = (
+    "The synced team roster holds no members for '{team}'. Teams sync one by one, so this usually means "
+    "'{team}' isn't synced here rather than that it doesn't exist. Match the owner by name or email "
+    "instead, and don't report the team as missing."
+)
+
+
+class _TeamRosterUnavailable(exceptions.APIException):
+    """503 for a team roster the warehouse could not answer for. The project may well sync it, so
+    this must not read as the "turn the sync on" message above, which would send a scout to change
+    a setting that is already right."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "team_roster_unavailable"
+    default_detail = (
+        "Couldn't read this project's team roster, so a team slug can't be resolved right now. Try the "
+        "call again. If it keeps failing, match the owner by name or email instead."
+    )
+
+
 class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Project member roster for reviewer routing — sandbox-only.
 
@@ -2321,20 +2353,31 @@ class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         summary="List project members for reviewer routing",
         description=(
             "Return the people who can review work on this project — one row per member with access to it, "
-            "each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null "
-            "when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's "
-            "owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` "
-            "memory or inbox precedent, list members, match the owner by email/name, then put their resolved "
-            "`github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `search` to narrow "
-            f"a large roster; the result is capped at {MAX_PROJECT_MEMBERS}. Strictly team-scoped."
+            "each with their `user_uuid`, `email`, `first_name`/`last_name`, resolved GitHub `login` (null "
+            "when they have no linked GitHub identity), and the `teams` they're on. The cold-start "
+            "reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` "
+            "and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner "
+            "by email/name, then put their resolved `github_login` in `suggested_reviewers` on `emit-report` / "
+            "`edit-report`. Pass `team` to resolve a team slug to the people on it, maintainers first. Pass "
+            f"`search` to narrow a large roster; the result is capped at {MAX_PROJECT_MEMBERS}. Strictly "
+            "team-scoped."
         ),
         operation_id="signals_scout_members_list",
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
         validated = getattr(request, "validated_query_data", {}) or {}
         canonical_team = self.team.parent_team or self.team
-        members = list_project_members(canonical_team, search=validated.get("search") or None)
-        return Response(ScoutMemberSerializer([dataclasses.asdict(member) for member in members], many=True).data)
+        team_slug = (validated.get("team") or "").strip().lstrip("@").rsplit("/", 1)[-1].lower() or None
+        roster = list_project_members(canonical_team, search=validated.get("search") or None, team_slug=team_slug)
+        if team_slug is not None and roster.membership_read_failed:
+            raise _TeamRosterUnavailable
+        if team_slug is not None and not roster.membership_synced:
+            raise exceptions.ValidationError({"detail": MEMBERSHIP_NOT_SYNCED})
+        if team_slug is not None and not roster.team_is_covered:
+            raise exceptions.ValidationError({"detail": TEAM_NOT_IN_ROSTER.format(team=team_slug)})
+        return Response(
+            ScoutMemberSerializer([dataclasses.asdict(member) for member in roster.members], many=True).data
+        )
 
 
 def _reject_if_enabled_cap_reached(team_id: int, skill_name: str) -> None:
@@ -2641,6 +2684,9 @@ class _ScoutSkillInfo:
     description: str
     origin: str  # "canonical" | "custom" — see `lazy_seed.scout_skill_origin`.
     role: str  # "specialist" | "operational" — see `lazy_seed.is_operational_scout`.
+    # The retirement PostHog announced for this scout, as the sync stored it on the row, plus the
+    # phase computed against now. None when the scout is not being retired.
+    deprecation: dict | None
 
 
 def _skill_info_for(team_id: int, skill_names: list[str]) -> dict[str, _ScoutSkillInfo]:
@@ -2657,6 +2703,7 @@ def _skill_info_for(team_id: int, skill_names: list[str]) -> dict[str, _ScoutSki
     rows = LLMSkill.objects.filter(team_id=team_id, name__in=names, is_latest=True).values_list(
         "name", "description", "metadata", "deleted"
     )
+    now = timezone.now()
     return {
         name: _ScoutSkillInfo(
             description="" if deleted else (description or ""),
@@ -2666,8 +2713,32 @@ def _skill_info_for(team_id: int, skill_names: list[str]) -> dict[str, _ScoutSki
             role=SCOUT_ROLE_OPERATIONAL
             if origin == ScoutOrigin.CANONICAL.value and is_operational_scout(name)
             else SCOUT_ROLE_SPECIALIST,
+            deprecation=_deprecation_for_row(metadata, now),
         )
         for name, description, metadata, deleted in rows
+    }
+
+
+def _deprecation_for_row(metadata: dict | None, now: datetime) -> dict | None:
+    """The stored retirement marker plus the phase it is in, or None when there is none.
+
+    The phase is computed here rather than stored, because it turns over on a date with nothing
+    running: a row written while the retirement was announced would otherwise still read
+    `announced` after its sunset, and the chip would say a scout is retiring that already stopped.
+    A marker with no sunset reads `retired`, matching the reconcile that retires it on its next
+    pass, so a person is never shown a retirement date that does not exist.
+    """
+    stored = deprecation_metadata_of(metadata)
+    if stored is None:
+        return None
+    raw_sunset = stored.get("sunset_at")
+    sunset_at = parse_datetime(raw_sunset) if isinstance(raw_sunset, str) else None
+    phase = "announced" if sunset_at is not None and sunset_at > now else "retired"
+    return {
+        "phase": phase,
+        "reason": stored.get("reason") or "",
+        "superseded_by": stored.get("superseded_by") or "",
+        "sunset_at": sunset_at,
     }
 
 
