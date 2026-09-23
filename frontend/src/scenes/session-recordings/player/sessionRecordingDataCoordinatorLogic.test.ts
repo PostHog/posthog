@@ -308,12 +308,18 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             resumeKeaLoadersErrors()
         })
 
-        it('fetch metadata success and snapshots error', async () => {
+        // A 404 here is the same missing recording loadRecordingMeta reports, and the player already
+        // renders RecordingNotFound for it, so only the 500 belongs in error tracking.
+        it.each([
+            [500, { status: 0 }, 1],
+            [404, { detail: 'Not found.' }, 0],
+        ])('fetch metadata success and snapshots error with %s', async (status, body, expectedReports) => {
             silenceKeaLoadersErrors()
+            const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
             logic.unmount()
             overrideSessionRecordingMocks({
                 getMocks: {
-                    '/api/environments/:team_id/session_recordings/:id/snapshots': () => [500, { status: 0 }],
+                    '/api/environments/:team_id/session_recordings/:id/snapshots': () => [status, body],
                 },
             })
             logic.mount()
@@ -330,6 +336,8 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                 snapshotsByWindowId: {},
                 bufferedToTime: 0,
             })
+            expect(captureExceptionSpy).toHaveBeenCalledTimes(expectedReports)
+            captureExceptionSpy.mockRestore()
             resumeKeaLoadersErrors()
         })
     })

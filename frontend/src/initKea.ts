@@ -90,6 +90,7 @@ purpose, so each caller that degrades has to name itself here, next to the toast
 */
 const NOT_FOUND_SELF_HANDLED = new Set([
     'loadRecordingMeta', // The player renders RecordingNotFound off sessionRecordingMetaLogic's isNotFound
+    'loadSnapshotSources', // Same recording 404 as loadRecordingMeta, reached through snapshotDataLogic
     'loadLineage', // A metric has no lineage node until the sync task runs; the panel says so and retries
 ])
 
