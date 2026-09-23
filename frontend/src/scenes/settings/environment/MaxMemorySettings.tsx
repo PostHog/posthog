@@ -12,7 +12,14 @@ import { CORE_MEMORY_MAX_CHARACTERS, maxSettingsLogic } from './maxSettingsLogic
 
 export function MaxMemorySettings(): JSX.Element {
     const { currentProject, currentProjectLoading } = useValues(projectLogic)
-    const { isLoading, isUpdating, coreMemoryLoadError, coreMemoryOverLimit } = useValues(maxSettingsLogic)
+    const {
+        isLoading,
+        isUpdating,
+        coreMemoryLoadError,
+        coreMemoryOverLimit,
+        coreMemoryLowOnSpace,
+        coreMemorySpaceLeft,
+    } = useValues(maxSettingsLogic)
     const { loadCoreMemory, trimCoreMemoryToFit } = useActions(maxSettingsLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -27,8 +34,8 @@ export function MaxMemorySettings(): JSX.Element {
             className="w-full deprecated-space-y-4"
         >
             <p className="max-w-160 text-sm text-secondary mb-4">
-                When memory exceeds 5,000 characters, only the first and last 2,500 characters are visible to PostHog
-                AI. The maximum memory size is {CORE_MEMORY_MAX_CHARACTERS.toLocaleString()} characters.
+                PostHog AI reads this memory in full, up to the maximum size of{' '}
+                {CORE_MEMORY_MAX_CHARACTERS.toLocaleString()} characters.
             </p>
             {currentProjectLoading || isLoading ? (
                 <div className="gap-2 flex flex-col">
@@ -59,6 +66,14 @@ export function MaxMemorySettings(): JSX.Element {
                             This memory is over the {CORE_MEMORY_MAX_CHARACTERS.toLocaleString()}-character limit and
                             can't be saved until it fits. Trimming keeps the first{' '}
                             {CORE_MEMORY_MAX_CHARACTERS.toLocaleString()} characters.
+                        </LemonBanner>
+                    )}
+                    {!coreMemoryOverLimit && coreMemoryLowOnSpace && (
+                        <LemonBanner type="warning" className="max-w-160">
+                            {coreMemorySpaceLeft === 0
+                                ? 'This memory is full, so PostHog AI has stopped recording what it learns in chat.'
+                                : `This memory has ${coreMemorySpaceLeft.toLocaleString()} characters left, so PostHog AI is about to stop recording what it learns in chat.`}{' '}
+                            Remove anything out of date to make room.
                         </LemonBanner>
                     )}
                     <LemonField name="text" label="PostHog AI's memory">
