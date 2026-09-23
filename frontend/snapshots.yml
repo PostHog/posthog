@@ -7985,9 +7985,65 @@ snapshots:
     scenes-app-data-warehouse-query-index-usage--refreshing-after-an-edit--light:
         hash: v1.k794b7964.f78066e01a69667a48e1e869c1c68dd0b741dcc49b6ef524bef7d4d86ddc95dd.Hm8P3Va8Xi--tajenCleRBUZ6Y813IyfCzm9_huabH4
     scenes-app-data-warehouse-query-index-usage--some-filters-scan--dark:
-        hash: v1.k794b7964.0294ddfda0b0e43413c60dbde62d947c90c6ae72ad995763c8fa4c20c864a404.KdjhHgnYl1jq1yo8C4tTH79O-M1MefHWEB1V_f-5wxY
+        hash: v1.k794b7964.5455f3ec94016b7fc41aa9aeb676045f8af0c111502a992e9c0cbebbfc1e23a4.ZIL0-eH98MqVTxMkOZzHd2EgWcq2cfdWq-cqoDoHhFQ
     scenes-app-data-warehouse-query-index-usage--some-filters-scan--light:
-        hash: v1.k794b7964.992eb504adc18600876c965dea224ae77f277d1fd8033784813d20187b42a497.jgO2O4E-p2e97zY9OrOO6NnZrllkBdAuuFrskzGR9d4
+        hash: v1.k794b7964.bcac8e0feee869559ac8b967bda19961ffcfedb0f908252dd16f6dcee8c1d2cf.J0yf0nXwig_U_JZmQxzmkP2xBwlkXhz9RrMn925Rx0s
+    scenes-app-data-warehouse-query-index-usage-fix-actions--edit-property-type--narrow--dark:
+        hash: v1.k794b7964.07c09dbb4f5cd4acf0f486767d927a02b584068da48f6c688a15ca7693841006.u5S5dlEoj3L9UAwxS4EoL-lv3LuF1S-xxNJdvaXU-Hk
+    scenes-app-data-warehouse-query-index-usage-fix-actions--edit-property-type--narrow--light:
+        hash: v1.k794b7964.c5cd8e4cdc7960a45ef83c9fa892a63ec87c6fe8fa458172e76dabdd96830210.357c4u3hc_XeM2Rk-Du6PnaahoovY2KqRtrK4G19hnM
+    scenes-app-data-warehouse-query-index-usage-fix-actions--edit-property-type--wide--dark:
+        hash: v1.k794b7964.07c09dbb4f5cd4acf0f486767d927a02b584068da48f6c688a15ca7693841006.9P7uZkGgUQ8CTzpH-Fm3VfVxV5ypjpwL5wyCbLrLonw
+    scenes-app-data-warehouse-query-index-usage-fix-actions--edit-property-type--wide--light:
+        hash: v1.k794b7964.c5cd8e4cdc7960a45ef83c9fa892a63ec87c6fe8fa458172e76dabdd96830210.X70Tjs6A9yBt3BlxgTADLgtJjf51K1XGXA40JR3ZHiY
+    scenes-app-data-warehouse-query-index-usage-fix-actions--fix-with-ai--narrow--dark:
+        hash: v1.k794b7964.129f5a8f04bab0bf3a7ff3c451c780170677e7fa102996b17c7d0d95b025ce93.VG-WexiEYINwnQZ7yzZ4oavLgRfrlCSMNBRrrPy-YjE
+    scenes-app-data-warehouse-query-index-usage-fix-actions--fix-with-ai--narrow--light:
+        hash: v1.k794b7964.5d210cf62fe6096ce928dc075b2ac02b4d9fd22400349cb85c2db03ecbaf1ab4.vrBKnLEesy4pEewfiwrouN4UGhpcj1vVL2dkbCDqNag
+    scenes-app-data-warehouse-query-index-usage-fix-actions--fix-with-ai--wide--dark:
+        hash: v1.k794b7964.129f5a8f04bab0bf3a7ff3c451c780170677e7fa102996b17c7d0d95b025ce93.ihMM-vpHvTBkF7hBvHRRKp23hKA6eoU6FsBc3uz_Ud0
+    scenes-app-data-warehouse-query-index-usage-fix-actions--fix-with-ai--wide--light:
+        hash: v1.k794b7964.5d210cf62fe6096ce928dc075b2ac02b4d9fd22400349cb85c2db03ecbaf1ab4.AwQXCvE_uVvqtMS2NXZ-Q-959WxY_AeMxza9enC_Ir0
+    scenes-app-data-warehouse-query-index-usage-fix-actions--fix-with-ai-in-flight--narrow--dark:
+        hash: v1.k794b7964.305932bb81c03c2cdcd50344bef3b3f10a23c2a9bba2e71481b0f425b5f917a4.D31ixi-FNm9KLxxL4ZqE84sTwjNujkylOH2nZAjTvHY
+    scenes-app-data-warehouse-query-index-usage-fix-actions--fix-with-ai-in-flight--narrow--light:
+        hash: v1.k794b7964.c3c31421caa6c90a9d0e44624b5daad0e56aa25ed5b395d84936c3d0656f1846.cai-hOPrHjTzwbKGISG_4mpp1nMZDJ5DJNZTJ0f7-KQ
+    scenes-app-data-warehouse-query-index-usage-fix-actions--fix-with-ai-in-flight--wide--dark:
+        hash: v1.k794b7964.305932bb81c03c2cdcd50344bef3b3f10a23c2a9bba2e71481b0f425b5f917a4.xDxvlwDpLo_yBN9ca6eFl_Ghewwb7vdX6ZGCaAy7Cn8
+    scenes-app-data-warehouse-query-index-usage-fix-actions--fix-with-ai-in-flight--wide--light:
+        hash: v1.k794b7964.c3c31421caa6c90a9d0e44624b5daad0e56aa25ed5b395d84936c3d0656f1846.9NKp1q3P6YAJcqEimBUSWNleVxs0VJ2_5FCIQ5j64Vs
+    scenes-app-data-warehouse-query-index-usage-fix-actions--materialize-the-property--narrow--dark:
+        hash: v1.k794b7964.3388f2c6685de0db912a7d9f51ed318c2940945ea550b4225534840e048acef8.6W5mNEiCpA8NZo68KRINhZJ4K4z91Sp4KUe39cSmbDw
+    scenes-app-data-warehouse-query-index-usage-fix-actions--materialize-the-property--narrow--light:
+        hash: v1.k794b7964.985c2680606f21ee56742beaf9d340cdabd21186e34ab1b3f09ba119ccb54124.4bIqTqRebCZikmbChjoO919X6avFwUufGDtcJ2i63wI
+    scenes-app-data-warehouse-query-index-usage-fix-actions--materialize-the-property--wide--dark:
+        hash: v1.k794b7964.4a1dfc953a38485a8e5a908656c4560c5db4d832a4d7fe75cddb9db59b59c261.h1sokZnYhgsWHOI_uyrO06QaDkZplajDTRv1WBkngMQ
+    scenes-app-data-warehouse-query-index-usage-fix-actions--materialize-the-property--wide--light:
+        hash: v1.k794b7964.82e4f53821c90d68525833a87a19e9d3e57b71c597ae24144017781375e9b025.3xty0MH2XsENRGz3vDG2UbgqA7np7a-0AygNTVo6Qic
+    scenes-app-data-warehouse-query-index-usage-fix-actions--replace-a-literal--narrow--dark:
+        hash: v1.k794b7964.ec1266fa88ec3b206edd1dc10bb8f2493f15310eadfc311700bdac2d5907a8df.B9-Uf7Aj-IE2H_5VV7ox1LmMe85xl1k_2IYd246sb1g
+    scenes-app-data-warehouse-query-index-usage-fix-actions--replace-a-literal--narrow--light:
+        hash: v1.k794b7964.0984b29a92dec4292578961c2e749c76ba189b5cdca5d78de5f63655c73aa496.tBYn0nROq6TpTtOaoUXhUzLLCu5BoYLhWcDXvt9x6r4
+    scenes-app-data-warehouse-query-index-usage-fix-actions--replace-a-literal--wide--dark:
+        hash: v1.k794b7964.ec1266fa88ec3b206edd1dc10bb8f2493f15310eadfc311700bdac2d5907a8df.oMDGr1XqHl0ulHOJlMD4QAFf9Z9R56eEFfk2op1aIrE
+    scenes-app-data-warehouse-query-index-usage-fix-actions--replace-a-literal--wide--light:
+        hash: v1.k794b7964.0984b29a92dec4292578961c2e749c76ba189b5cdca5d78de5f63655c73aa496.KqHKrhzmPilGuq71__e9P7GlLS2maqlggjpO-2-iNwY
+    scenes-app-data-warehouse-query-index-usage-fix-actions--replace-a-long-list--narrow--dark:
+        hash: v1.k794b7964.49ef5b68221d192da35c9bf28cb0b94e4857346a0b0418115ce7ea503cef1719.zNP-SATX-oFmf12gOIrpU3BVgcWFN1hwt3kT_MRY6ug
+    scenes-app-data-warehouse-query-index-usage-fix-actions--replace-a-long-list--narrow--light:
+        hash: v1.k794b7964.c0b356e0379498adf204a0f3987cb7d9431266b09cf53428af63b87e1701cb88.TsoINYRxHPJTk5KKJj1iHAnmI6g3fXNgva2ULJIkxEY
+    scenes-app-data-warehouse-query-index-usage-fix-actions--replace-a-long-list--wide--dark:
+        hash: v1.k794b7964.49ef5b68221d192da35c9bf28cb0b94e4857346a0b0418115ce7ea503cef1719.5SxQGuu1kqZcssaWU9A8tSCnOkp4mw9iY_mkWVy2jeY
+    scenes-app-data-warehouse-query-index-usage-fix-actions--replace-a-long-list--wide--light:
+        hash: v1.k794b7964.c0b356e0379498adf204a0f3987cb7d9431266b09cf53428af63b87e1701cb88.I2RrWc6bj_o1vfxtVb5lV66V7B-iSj3CBnoCv0HEBus
+    scenes-app-data-warehouse-query-index-usage-fix-actions--report-still-catching-up--narrow--dark:
+        hash: v1.k794b7964.d8a99a7d7bcfe36920f9d8173ae8f480b93997229c986f058768b5eddeb5474c.v3M8UmDRYXlwLxi9x6eH1ywi2rc-XIfwFky3Or-dYFY
+    scenes-app-data-warehouse-query-index-usage-fix-actions--report-still-catching-up--narrow--light:
+        hash: v1.k794b7964.0c5a2526511088eca0ef17402714414283b393d4ca94fb375a3f63f32e13999a.u3X41bZMJZVfEmgIXYDA2Yw3nANF1iXMW9nxnA73al4
+    scenes-app-data-warehouse-query-index-usage-fix-actions--report-still-catching-up--wide--dark:
+        hash: v1.k794b7964.d8a99a7d7bcfe36920f9d8173ae8f480b93997229c986f058768b5eddeb5474c.RfV4yI1Hovb47bR9_HJMKzYxTqZJJfFjz2MkCzoWP-s
+    scenes-app-data-warehouse-query-index-usage-fix-actions--report-still-catching-up--wide--light:
+        hash: v1.k794b7964.0c5a2526511088eca0ef17402714414283b393d4ca94fb375a3f63f32e13999a.Am5ahhnXBQ0aZ3GyFwRzL_3wes-0XTj4uS5pw4WAJCY
     scenes-app-data-warehouse-settings-api-version-deprecation-banner--with-sunset-date--dark:
         hash: v1.k794b7964.5a4d9d3ac30fd4e7a83925bb77a89685f5ad1b95e44431dc87696251acd62941.STCVyoJPmpKL8izqztWRz12VuY1AJPSbVh74dSG4k4U
     scenes-app-data-warehouse-settings-api-version-deprecation-banner--with-sunset-date--light:
