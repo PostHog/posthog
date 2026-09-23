@@ -738,7 +738,7 @@ class InviteSignupViewset(generics.CreateAPIView):
 
         try:
             # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (invite UUID serves as auth token)
-            invite: OrganizationInvite = OrganizationInvite.objects.get(id=invite_id)
+            invite: OrganizationInvite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
         except (OrganizationInvite.DoesNotExist, ValidationError):
             raise serializers.ValidationError("The provided invite ID is not valid.")
 

@@ -69,7 +69,7 @@ describe('loginLogic', () => {
 
         const cases: [string, string | null][] = [
             ['/login?reason=invite_account_exists&organization_name=Hedgebox', 'Hedgebox'],
-            ['/login?reason=invite_account_exists', ''],
+            ['/login?reason=invite_account_exists', null],
             ['/login?organization_name=Hedgebox', null],
             ['/login?reason=session_risk&organization_name=Hedgebox', null],
             ['/login', null],

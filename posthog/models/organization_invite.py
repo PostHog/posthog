@@ -104,11 +104,13 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
     def _login_redirect_path(self, invite_email: str, request_path: Optional[str]) -> str:
         # The login scene reads these parameters to prefill the email and explain why the invite
         # link landed the person on a login form instead of a signup form.
-        params: dict[str, str] = {"email": invite_email, "reason": "invite_account_exists"}
+        params: dict[str, str] = {
+            "email": invite_email,
+            "reason": "invite_account_exists",
+            "organization_name": self.organization.name,
+        }
         if request_path:
             params["next"] = request_path
-        if self.organization_id:
-            params["organization_name"] = self.organization.name
         return f"/login?{urlencode(params)}"
 
     def validate(

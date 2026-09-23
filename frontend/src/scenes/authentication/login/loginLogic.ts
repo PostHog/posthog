@@ -584,11 +584,10 @@ export const loginLogic = kea<loginLogicType>([
             (searchParams: Record<string, string>): boolean => searchParams['reason'] === 'session_risk',
         ],
         // Set when an invite link bounced the person here because their email already has an account.
-        // `organization_name` is best effort: older links and links built elsewhere omit it.
         invitingOrganizationName: [
             () => [router.selectors.searchParams],
             (searchParams: Record<string, string>): string | null =>
-                searchParams['reason'] === 'invite_account_exists' ? (searchParams['organization_name'] ?? '') : null,
+                searchParams['reason'] === 'invite_account_exists' ? searchParams['organization_name'] || null : null,
         ],
     })),
     forms(({ actions, values }) => ({
