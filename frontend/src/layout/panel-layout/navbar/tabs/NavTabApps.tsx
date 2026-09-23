@@ -99,7 +99,7 @@ export function NavTabApps(): JSX.Element {
                             )}
                             <div className="flex flex-col gap-px">
                                 {group.items.map((item) => (
-                                    <NavAppRow key={`${item.path}-${item.href}`} item={item} />
+                                    <NavAppRow key={`${item.path}-${item.href}`} item={item} muted={group.muted} />
                                 ))}
                             </div>
                         </section>

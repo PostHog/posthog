@@ -5,6 +5,7 @@ import { CATEGORY_ORDER, DATA_MANAGEMENT_PANEL_ORDER, splitPath, unescapePath } 
 export interface AppsItemGroup {
     label: string
     items: FileSystemImport[]
+    muted?: boolean
 }
 
 export function appsItemName(item: FileSystemImport): string {

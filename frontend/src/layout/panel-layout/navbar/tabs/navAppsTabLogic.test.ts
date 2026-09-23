@@ -32,7 +32,11 @@ function answerApps(request: DecideRequestApi): DecideResponseApi {
                         ? 0.95
                         : question.instructions.includes('"name":"Product analytics"')
                           ? 0.5
-                          : 0.1,
+                          : question.instructions.includes('"name":"Error tracking"')
+                            ? 0.49
+                            : question.instructions.includes('"name":"Home"')
+                              ? 0.2
+                              : 0.1,
                     choice: null,
                     score: null,
                     confidence: null,
@@ -70,18 +74,35 @@ describe('navAppsTabLogic', () => {
         expect(navAppsTabLogic.values.jevEnabled).toBe(expected)
     })
 
-    it('ranks all visible apps using the tooltip descriptions and examples, then culls weak matches', async () => {
+    it.each([1, 0.5, 0])('ranks plausible matches and hides irrelevant apps (score scale: %s)', async (scoreScale) => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true })
         const decide = jest
             .spyOn(decisionsApi, 'mlInferenceDecisionsDecideCreate')
-            .mockImplementation(async (_, request) => answerApps(request))
+            .mockImplementation(async (_, request) => {
+                const response = answerApps(request)
+                Object.values(response.answers).forEach((answer) => {
+                    answer.probability = (answer.probability ?? 0) * scoreScale
+                })
+                return response
+            })
         await expectLogic(navAppsTabLogic, () =>
             navAppsTabLogic.actions.setSearch('watch a failed checkout')
         ).toDispatchActions(['setSearchSuccess'])
-        expect(navAppsTabLogic.values.groupedItems.flatMap((group) => group.items.map(appsItemName))).toEqual([
-            'Session replay',
-            'Product analytics',
-        ])
+        const groups = navAppsTabLogic.values.groupedItems
+        expect(groups.filter((group) => !group.muted).flatMap((group) => group.items.map(appsItemName))).toEqual(
+            scoreScale === 1 ? ['Session replay', 'Product analytics'] : []
+        )
+        if (scoreScale > 0) {
+            const otherApps = groups.at(-1)!
+            expect(otherApps).toMatchObject({ label: 'Other apps', muted: true })
+            expect(otherApps.items.map(appsItemName)).toEqual(
+                scoreScale === 1
+                    ? ['Error tracking', 'Home']
+                    : ['Session replay', 'Product analytics', 'Error tracking']
+            )
+        } else {
+            expect(groups).toEqual([])
+        }
         const questions = decide.mock.calls.flatMap(([, request]) => Object.values(request.questions))
         expect(questions).toHaveLength(navAppsTabLogic.values.allItems.length)
         expect(

@@ -560,7 +560,8 @@ Local development enables the demo through `DEBUG`; cloud access uses the existi
 The search field says "Jev apps" and evaluates each visible app using the same descriptions and examples as its tooltip.
 Jev treats the search as autocomplete input and infers likely meanings from partial words and unfinished phrases.
 Hover an app in either the Starred section or the app catalog to see its description and example.
-Results appear in relevance order, with scores below 0.5 hidden.
+Results appear in relevance order, with scores from 0.2 to below 0.5 shown in a muted "Other apps" section below the stronger matches.
+Scores below 0.2 are hidden.
 An empty search restores the grouped catalog; a failed Jev request shows name matches and an availability message.
 
 The demo calls TypeSafe's `jev-1.13.0` model through the server's egress transport.

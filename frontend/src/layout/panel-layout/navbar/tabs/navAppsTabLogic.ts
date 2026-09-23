@@ -21,6 +21,7 @@ import { AppsItemGroup, appsItemName, groupApps } from './appsCatalog'
 
 export const APPS_STARRED_TREE_KEY = 'navbar-apps-starred'
 export const APP_RELEVANCE_THRESHOLD = 0.5
+const MIN_APP_RELEVANCE = 0.2
 const MAX_QUESTIONS_PER_REQUEST = 32
 
 export interface AppRankings {
@@ -239,13 +240,23 @@ export const navAppsTabLogic = kea<navAppsTabLogicType>([
                     return groupApps(items, search)
                 }
                 const ranked = items
-                    .filter((item) => (rankings.scores[item.href!] ?? 0) >= APP_RELEVANCE_THRESHOLD)
+                    .filter((item) => (rankings.scores[item.href!] ?? 0) >= MIN_APP_RELEVANCE)
                     .sort(
                         (a, b) =>
                             rankings.scores[b.href!] - rankings.scores[a.href!] ||
                             appsItemName(a).localeCompare(appsItemName(b))
                     )
-                return ranked.length ? [{ label: 'Project', items: ranked }] : []
+                return [
+                    {
+                        label: 'Project',
+                        items: ranked.filter((item) => (rankings.scores[item.href!] ?? 0) >= APP_RELEVANCE_THRESHOLD),
+                    },
+                    {
+                        label: 'Other apps',
+                        muted: true,
+                        items: ranked.filter((item) => (rankings.scores[item.href!] ?? 0) < APP_RELEVANCE_THRESHOLD),
+                    },
+                ].filter((group) => group.items.length > 0)
             },
         ],
     }),

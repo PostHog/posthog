@@ -50,7 +50,11 @@ const meta: Meta<typeof NavTabApps> = {
                                             ? 0.95
                                             : question.instructions.includes('"name":"Error tracking"')
                                               ? 0.7
-                                              : 0.1,
+                                              : question.instructions.includes('"name":"Product analytics"')
+                                                ? 0.4
+                                                : question.instructions.includes('"name":"Logs"')
+                                                  ? 0.2
+                                                  : 0.1,
                                         choice: null,
                                         score: null,
                                         confidence: null,

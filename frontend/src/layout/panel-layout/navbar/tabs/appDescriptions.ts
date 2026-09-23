@@ -108,7 +108,7 @@ const examples: Record<string, string> = {
     Pulse: 'Follow what is happening across your project.',
     'Replay vision': 'Explore patterns found in session recordings.',
     Skills: 'Share reusable instructions with the agents your team uses.',
-    Support: 'Investigate and respond to a customer’s support request.',
+    Support: 'Investigate customer conversations and respond to a support request.',
     Taggers: 'Label AI generations so you can compare different kinds of requests.',
     Tasks: 'Ask an agent to investigate an issue and prepare a code change.',
     Toolbar: 'Inspect elements on your website while setting up tracking.',

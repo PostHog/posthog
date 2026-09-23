@@ -8,6 +8,7 @@ import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
+import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
@@ -25,7 +26,7 @@ import { appsItemName } from './appsCatalog'
 import { NavAppMenu } from './NavAppMenu'
 import { NavAppTooltip } from './NavAppTooltip'
 
-export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
+export function NavAppRow({ item, muted = false }: { item: FileSystemImport; muted?: boolean }): JSX.Element {
     const { pathname } = useValues(panelLayoutLogic)
     const { resetPanelLayout } = useActions(panelLayoutLogic)
     const { shortcutData, shortcutDataLoading } = useValues(projectTreeDataLogic)
@@ -102,7 +103,7 @@ export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
                         resetPanelLayout(false)
                     }}
                 >
-                    <span className="size-4 shrink-0">
+                    <span className={cn('size-4 shrink-0', muted && 'opacity-60 group-hover/app-row:opacity-100')}>
                         {CustomIcon ? (
                             <ProductIconWrapper type={iconType} colorOverride={item.iconColor}>
                                 <CustomIcon />
@@ -111,7 +112,7 @@ export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
                             iconForType(iconType, item.iconColor)
                         )}
                     </span>
-                    <span className="flex-1 truncate">{label}</span>
+                    <span className={cn('flex-1 truncate', muted && 'text-secondary')}>{label}</span>
                     {item.tags?.[0] && (
                         <LemonTag type={item.tags[0] === 'alpha' ? 'completion' : 'warning'} size="small">
                             {item.tags[0]}
