@@ -10,8 +10,6 @@ from products.exports.backend.models.subscription import AIQueryPlanStatus, Subs
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
     DiagnosticCounts,
     _load_snapshot,
-    _parse_context_refs,
-    _ParsedContextRefs,
     _persist_ai_report,
     _report_diagnostic_counts,
     _snapshot_diagnostic_counts,
@@ -22,6 +20,8 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.context_too
     AiReportContexts,
     AiReportDashboardContext,
     AiReportInsightContext,
+    ParsedContextRefs,
+    parse_context_refs,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
@@ -77,15 +77,15 @@ def _context_refs(delivery_id) -> list[str]:
         (
             "valid",
             ["dashboard:123", "insight:456"],
-            _ParsedContextRefs(dashboard_ids=[123], insight_ids=[456]),
+            ParsedContextRefs(dashboard_ids=[123], insight_ids=[456]),
         ),
         ("unknown kind", ["replay:123"], None),
         ("invalid id", ["insight:not-an-id"], None),
         ("missing separator", ["insight123"], None),
     ]
 )
-async def test_parse_context_refs(_name, context_refs, expected) -> None:
-    assert _parse_context_refs(context_refs) == expected
+async def testparse_context_refs(_name, context_refs, expected) -> None:
+    assert parse_context_refs(context_refs) == expected
 
 
 async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(team, user) -> None:

@@ -93,6 +93,36 @@ def _safe_text(value: str | None, max_length: int, fallback: str) -> str:
     return sanitize_user_text(value or "", max_length) or fallback
 
 
+@frozen
+class ParsedContextRefs:
+    dashboard_ids: list[int]
+    insight_ids: list[int]
+
+
+def dashboard_ref(dashboard_id: int) -> str:
+    return f"dashboard:{dashboard_id}"
+
+
+def insight_ref(insight_id: int) -> str:
+    return f"insight:{insight_id}"
+
+
+def parse_context_refs(context_refs: Collection[str]) -> ParsedContextRefs | None:
+    dashboard_ids: list[int] = []
+    insight_ids: list[int] = []
+    targets = {"dashboard": dashboard_ids, "insight": insight_ids}
+    for context_ref in context_refs:
+        kind, separator, raw_id = context_ref.partition(":")
+        try:
+            context_id = int(raw_id)
+        except ValueError:
+            return None
+        if separator != ":" or kind not in targets or context_id < 1:
+            return None
+        targets[kind].append(context_id)
+    return ParsedContextRefs(dashboard_ids=dashboard_ids, insight_ids=insight_ids)
+
+
 def _saved_query_events(insight: Insight) -> tuple[str, ...]:
     metadata = insight.query_metadata
     if not isinstance(metadata, dict) or not isinstance(metadata.get("events"), list):
@@ -310,7 +340,7 @@ class ContextToolRuntime:
         refs: dict[str, None] = {}
         for insight_id in self._selection.insight_ids:
             if self._insight_fetch_status.get((None, insight_id)) == "success":
-                refs[f"insight:{insight_id}"] = None
+                refs[insight_ref(insight_id)] = None
         for dashboard_id in self._selection.dashboard_ids:
             meta = self._dashboard_meta.get(dashboard_id)
             if meta is None:
@@ -318,10 +348,10 @@ class ContextToolRuntime:
             dashboard_succeeded = False
             for tile_id in meta[2]:
                 if self._insight_fetch_status.get((dashboard_id, tile_id)) == "success":
-                    refs[f"insight:{tile_id}"] = None
+                    refs[insight_ref(tile_id)] = None
                     dashboard_succeeded = True
             if dashboard_succeeded:
-                refs[f"dashboard:{dashboard_id}"] = None
+                refs[dashboard_ref(dashboard_id)] = None
         return tuple(refs.keys())
 
     @property
@@ -431,6 +461,7 @@ class ContextToolRuntime:
                 team=self._team,
                 user=self._user,
                 event_source=EventSource.SUBSCRIPTION,
+                use_db_pool=True,
                 query=query,
                 name=name,
                 description=description,
@@ -488,6 +519,7 @@ class ContextToolRuntime:
                 team=self._team,
                 user=self._user,
                 event_source=EventSource.SUBSCRIPTION,
+                use_db_pool=True,
                 query=query,
                 name=name,
                 description=description,

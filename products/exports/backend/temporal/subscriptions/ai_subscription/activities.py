@@ -2,7 +2,6 @@ import uuid
 import asyncio
 import datetime as dt
 import dataclasses
-from collections.abc import Collection
 from datetime import datetime
 
 from django.utils import timezone as tz
@@ -21,6 +20,7 @@ from posthog.sync import database_sync_to_async
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.context_tools import (
     creator_can_access_report_context,
+    parse_context_refs,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     QueryAccessRevokedError,
@@ -87,34 +87,12 @@ async def _load_snapshot(delivery_id: uuid.UUID) -> dict | None:
     return await _read()
 
 
-@frozen
-class _ParsedContextRefs:
-    dashboard_ids: list[int]
-    insight_ids: list[int]
-
-
-def _parse_context_refs(context_refs: Collection[str]) -> _ParsedContextRefs | None:
-    dashboard_ids: list[int] = []
-    insight_ids: list[int] = []
-    targets = {"dashboard": dashboard_ids, "insight": insight_ids}
-    for context_ref in context_refs:
-        kind, separator, raw_id = context_ref.partition(":")
-        try:
-            context_id = int(raw_id)
-        except ValueError:
-            return None
-        if separator != ":" or kind not in targets or context_id < 1:
-            return None
-        targets[kind].append(context_id)
-    return _ParsedContextRefs(dashboard_ids=dashboard_ids, insight_ids=insight_ids)
-
-
 def _creator_can_access_delivery_context(subscription: Subscription, delivery_id: uuid.UUID) -> bool:
     try:
         context_refs = SubscriptionDelivery.objects.values_list("context_refs", flat=True).get(pk=delivery_id)
     except SubscriptionDelivery.DoesNotExist:
         return False
-    parsed_refs = _parse_context_refs(context_refs)
+    parsed_refs = parse_context_refs(context_refs)
     if parsed_refs is None:
         return False
     return creator_can_access_report_context(
