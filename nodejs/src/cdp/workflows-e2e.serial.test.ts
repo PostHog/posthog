@@ -646,6 +646,12 @@ describe('Workflows E2E (postgres-v2)', () => {
             }, 10000)
 
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/branch-a', expect.anything())
+            await waitForExpect(() => {
+                const logs = mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+                    .map((m: any) => m.value.message as string)
+                expect(logs).toContain('[Action:branch] Matched Condition 1.')
+            }, 5000)
         })
     })
 
@@ -729,6 +735,12 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
             }, 10000)
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/not-in-cohort', expect.anything())
+            await waitForExpect(() => {
+                const logs = mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+                    .map((m: any) => m.value.message as string)
+                expect(logs).toContain('[Action:branch] No condition matched.')
+            }, 5000)
         })
     })
 

@@ -192,13 +192,14 @@ function conditionReferencesCohorts(condition: { filters?: unknown }): boolean {
     )
 }
 
-// Uses the same labels as the editor: a custom name, else "Condition N", else the "No match" path.
+// Uses the same labels as the editor: a custom name, else "Condition N". It states only the outcome,
+// because the executor logs the next action after routing succeeds.
 function describeConditionOutcome(
     action: Extract<HogFlowAction, { type: 'conditional_branch' }>,
     matchedConditionIndex: number | undefined
 ): string {
     if (matchedConditionIndex === undefined) {
-        return 'No condition matched. The run continues on the "No match" path.'
+        return 'No condition matched.'
     }
     const label = `Condition ${matchedConditionIndex + 1}`
     const name = action.config.conditions[matchedConditionIndex]?.name?.trim()

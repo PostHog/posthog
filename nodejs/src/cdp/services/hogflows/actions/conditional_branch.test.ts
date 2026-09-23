@@ -191,11 +191,7 @@ describe('action.conditional_branch', () => {
                 [{ filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters, name: '  ' }],
                 'Matched Condition 1.',
             ],
-            [
-                'no condition',
-                [{ filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters }],
-                'No condition matched. The run continues on the "No match" path.',
-            ],
+            ['no condition', [{ filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters }], 'No condition matched.'],
         ])('logs which branch the run took when it matches %s', async (_, conditions, expectedMessage) => {
             action.config.conditions = conditions
             invocation.state.currentAction = { id: action.id, startedAtTimestamp: DateTime.utc().toMillis() }
