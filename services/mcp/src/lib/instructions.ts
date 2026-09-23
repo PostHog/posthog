@@ -1,12 +1,4 @@
-import type { GroupType } from '@/api/client'
 import type { CachedOrg, CachedProject } from '@/tools/types'
-
-export function buildDefinedGroupsBlock(groupTypes?: GroupType[]): string {
-    if (!groupTypes || groupTypes.length === 0) {
-        return ''
-    }
-    return `Defined group types: ${groupTypes.map((gt) => gt.group_type).join(', ')}`
-}
 
 /** Bounds the onboarded-products line for intent-heavy teams; the environment
  *  prompt is repeated context, so the tail is summarized as a count instead. */
@@ -72,10 +64,6 @@ function buildIntegrationsLine(integrationKinds?: string[]): string | undefined 
 export interface EnvironmentContextOptions {
     /** Integration kinds connected in the active project; `undefined` means unknown. */
     integrationKinds?: string[]
-    /** Set to false for character-budgeted surfaces (the claude.ai exec command
-     *  reference counts against a ~16 KiB registry cap on the serialized
-     *  inputSchema) where the product/integration lines do not fit. */
-    includeProductContext?: boolean
 }
 
 export function buildActiveEnvironmentContextPrompt(
@@ -124,12 +112,10 @@ export function buildActiveEnvironmentContextPrompt(
                 "Person properties are query-time in this project. `person.properties.*` on the events table always returns the person's current (latest) value, regardless of when the event occurred."
             )
         }
-        if (opts?.includeProductContext !== false) {
-            lines.push(...buildProductLines(project))
-            const integrationsLine = buildIntegrationsLine(opts?.integrationKinds)
-            if (integrationsLine) {
-                lines.push(integrationsLine)
-            }
+        lines.push(...buildProductLines(project))
+        const integrationsLine = buildIntegrationsLine(opts?.integrationKinds)
+        if (integrationsLine) {
+            lines.push(integrationsLine)
         }
     }
     // No prose preamble: the heading plus the lines themselves already say the agent

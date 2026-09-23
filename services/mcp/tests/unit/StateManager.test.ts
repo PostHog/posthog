@@ -492,8 +492,8 @@ describe('StateManager', () => {
 
     describe('getCachedOrFetchOrg', () => {
         it('returns undefined when no org can be resolved (does not throw)', async () => {
-            // Preserves the best-effort contract used by getEnvironmentPrompt and
-            // consent checks: if no org is in scope, the call is a no-op.
+            // Preserves the best-effort contract used by consent checks: if no org
+            // is in scope, the call is a no-op.
             vi.spyOn(stateManager, 'getApiKey').mockResolvedValue({
                 scopes: ['organization:read'],
                 scoped_organizations: [],

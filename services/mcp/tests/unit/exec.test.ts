@@ -6,9 +6,9 @@ import { z } from 'zod'
 import { STRUCTURED_CONTENT_ONLY_TEXT, type ToolResultPayload, UI_APP_RENDER_NOTE } from '@/lib/build-tool-result'
 import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
-import { formatResponse } from '@/lib/response'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
+import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import {
@@ -1883,10 +1883,11 @@ describe('exec tool', () => {
                     }
                 })
             const formatter = new InstructionsFormatter()
-            const commandReference = formatter.buildExecCommandReference(
-                { guidelines, tools: toolInfos, queryTools: queryToolInfos },
-                { stripEnvContext: false }
-            )
+            const commandReference = formatter.buildExecCommandReference({
+                guidelines,
+                tools: toolInfos,
+                queryTools: queryToolInfos,
+            })
             const execTool = createExecTool(
                 v2Tools,
                 context,
@@ -1916,10 +1917,11 @@ describe('exec tool', () => {
             const queryToolInfos = [{ name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' }]
 
             const formatter = new InstructionsFormatter()
-            const commandReference = formatter.buildExecCommandReference(
-                { guidelines, tools: toolInfos, queryTools: queryToolInfos },
-                { stripEnvContext: false }
-            )
+            const commandReference = formatter.buildExecCommandReference({
+                guidelines,
+                tools: toolInfos,
+                queryTools: queryToolInfos,
+            })
             const execTool = createExecTool(
                 [],
                 createExecContext(),

@@ -34,6 +34,7 @@ import { toMcpInputSchema } from './tool-catalog'
  *  (the `revamped-py-notebooks` flag) is live for this client. */
 const NOTEBOOK_ADD_CELL_TOOL = 'notebooks-add-cell'
 const DOCS_SEARCH_TOOL = 'docs-search'
+const PROJECT_GET_TOOL = 'project-get'
 const BUSINESS_KNOWLEDGE_SEARCH_TOOL = 'business-knowledge-documents-search'
 
 export class InstructionsBuilder {
@@ -76,11 +77,9 @@ export class InstructionsBuilder {
                     } as QueryToolInfo
                 }),
             renderUiEnabled: state.renderUiEnabled,
-            metadata: state.metadata,
-            metadataCompact: state.metadataCompact,
-            groupTypes: state.groupTypes,
             notebookCellsEnabled: state.allTools.some((tool) => tool.name === NOTEBOOK_ADD_CELL_TOOL),
             docsSearchEnabled: state.allTools.some((tool) => tool.name === DOCS_SEARCH_TOOL),
+            projectGetEnabled: state.allTools.some((tool) => tool.name === PROJECT_GET_TOOL),
         }
     }
 
@@ -120,13 +119,10 @@ export class InstructionsBuilder {
     }
 
     buildExecCommandReference(state: ResolvedState): string {
-        const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
         // Claude web/desktop report `supportsInstructions` but never surface the
-        // `instructions` payload to the model, so its env-context (tool domains,
-        // project metadata, group types) would be lost. Those chat hosts get their
-        // own smaller-budget reference. (Codex, which reports
-        // `supportsInstructions: false`, gets the full env-context via the
-        // un-stripped path.)
+        // `instructions` payload to the model, so the tool-domain index would be
+        // lost. Those chat hosts get their own smaller-budget reference that
+        // carries it.
         const { guidesEnabled, skillsEnabled } = this.getExecLearnCapabilities(state)
         const ctx = this.buildContext(state)
         if (state.clientProfile.isClaudeChatHost()) {
@@ -135,15 +131,7 @@ export class InstructionsBuilder {
                 skillsEnabled,
             })
         }
-        return this.formatter.buildExecCommandReference(ctx, {
-            stripEnvContext: supportsInstructions,
-            // Env-context rides here even for clients that honor `instructions`: that
-            // payload is capped at MCP_INSTRUCTIONS_CHAR_BUDGET and is spent entirely
-            // on the tool-domain index, which is the part that can't be recovered by
-            // any later tool call. This description has no such cap.
-            keepEnvContext: true,
-            learnEnabled: skillsEnabled,
-        })
+        return this.formatter.buildExecCommandReference(ctx, { learnEnabled: skillsEnabled })
     }
 
     buildExecLearnCatalog(state: ResolvedState, skills: SkillCatalog | undefined): ExecLearnCatalog | undefined {

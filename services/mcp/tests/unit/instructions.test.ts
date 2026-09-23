@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import type { GroupType } from '@/api/client'
 import {
     buildActiveEnvironmentContextPrompt,
-    buildDefinedGroupsBlock,
     buildQueryToolsBlock,
     buildToolDomainsBlock,
     buildToolDomainsCompact,
@@ -11,37 +9,6 @@ import {
     type QueryToolInfo,
 } from '@/lib/instructions'
 import type { CachedOrg, CachedProject } from '@/tools/types'
-
-describe('buildDefinedGroupsBlock', () => {
-    it('should format group types as a comma-separated list of group_type names', () => {
-        const groupTypes: GroupType[] = [
-            {
-                group_type: 'organization',
-                group_type_index: 0,
-                name_singular: 'Organization',
-                name_plural: 'Organizations',
-            },
-            { group_type: 'instance', group_type_index: 1, name_singular: 'Instance', name_plural: 'Instances' },
-            { group_type: 'business', group_type_index: 2, name_singular: null, name_plural: null },
-        ]
-        expect(buildDefinedGroupsBlock(groupTypes)).toBe('Defined group types: organization, instance, business')
-    })
-
-    it('should ignore singular/plural names and only use group_type', () => {
-        const groupTypes: GroupType[] = [
-            { group_type: 'workspace', group_type_index: 0, name_singular: 'Workspace', name_plural: 'Workspaces' },
-        ]
-        expect(buildDefinedGroupsBlock(groupTypes)).toBe('Defined group types: workspace')
-    })
-
-    it('should return empty string for undefined', () => {
-        expect(buildDefinedGroupsBlock(undefined)).toBe('')
-    })
-
-    it('should return empty string for empty array', () => {
-        expect(buildDefinedGroupsBlock([])).toBe('')
-    })
-})
 
 describe('buildToolDomainsBlock', () => {
     it('should extract CRUD domains from tool names grouped by category', () => {
@@ -437,22 +404,5 @@ describe('buildActiveEnvironmentContextPrompt', () => {
             // Unknown (missing scope or failed fetch) must not read as "none connected".
             expect(result).not.toContain('Integrations connected')
         }
-    })
-
-    it('omits all product and integration lines when includeProductContext is false', () => {
-        // The claude.ai exec command reference sits within tens of characters of the
-        // registry's inputSchema cap; the compact variant must add nothing to it.
-        const result = buildActiveEnvironmentContextPrompt(
-            org,
-            {
-                ...project,
-                session_recording_opt_in: true,
-                product_intents: [{ product_type: 'feature_flags', onboarding_completed_at: '2026-01-01T00:00:00Z' }],
-            } as CachedProject,
-            undefined,
-            { integrationKinds: ['github'], includeProductContext: false }
-        )
-        expect(result).not.toContain('Products')
-        expect(result).not.toContain('Integrations connected')
     })
 })

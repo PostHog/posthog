@@ -186,10 +186,9 @@ export const POSTHOG_CODE_CONSUMER = 'posthog-code'
 export const ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS = ['claudeai', 'cowork'] as const
 
 // Claude web/desktop report `supportsInstructions` but never surface the
-// `instructions` payload to the model, so their env-context rides on the exec
-// command description instead (`keepEnvContext`). Cowork surfaces instructions
-// normally and gets env-context through them, so it is not a chat host even
-// though it is a UI host.
+// `instructions` payload to the model, so they get their own exec command
+// reference that carries the tool-domain index. Cowork surfaces instructions
+// normally, so it is not a chat host even though it is a UI host.
 export const ANTHROPIC_CHAT_HOST_VENDOR_FRAGMENTS = ['claudeai'] as const
 
 // Anthropic coding-agent surfaces that render MCP UI apps inline through the
