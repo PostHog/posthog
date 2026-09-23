@@ -29,17 +29,20 @@ export function taskActivityAt(
 }
 
 export function taskActivityTimestamp(
-  task: Pick<TaskActivityInput, "created_at" | "last_activity_at">,
+  task: Pick<
+    TaskActivityInput,
+    "created_at" | "updated_at" | "last_activity_at"
+  >,
   sortMode: TaskActivitySortMode,
 ): number {
   if (sortMode === "created") {
     return new Date(task.created_at).getTime();
   }
 
-  // The same two fields the web list orders by, in the same order. A row's write time is
-  // deliberately not part of this: `updated_at` moves whenever the row is written, which for an
-  // imported transcript is the moment the copy ran, not when the chat happened.
-  return new Date(task.last_activity_at || task.created_at).getTime();
+  // `last_activity_at` first, the field the web list orders by. A run's `updated_at` is not part
+  // of this: it moves when that row is written, which for an imported transcript is the moment the
+  // copy ran, not when the chat happened.
+  return new Date(taskActivityAt(task)).getTime();
 }
 
 export function filterAndSortTasks<TaskType extends TaskActivityInput>(
