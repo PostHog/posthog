@@ -261,6 +261,7 @@ class TestAppleSearchAdsTransport:
             ("garbage", "not-a-key"),
             ("empty", ""),
             ("truncated_pem", "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----"),
+            ("public_half_of_the_pair", PUBLIC_KEY_PEM),
         ]
     )
     def test_client_secret_rejects_an_unusable_private_key(self, _name: str, private_key: str) -> None:
@@ -271,6 +272,7 @@ class TestAppleSearchAdsTransport:
         # crypto backend's own wording. The cause still has it for error tracking.
         message = str(raised.value)
         assert "unencrypted EC (P-256) PEM" in message
+        assert "not the public key" in message
         assert "cryptography.io" not in message
         assert "PEM file" not in message
         assert raised.value.__cause__ is not None
