@@ -128,12 +128,18 @@ export enum MarketingDashboardView {
 
 export const DEFAULT_DASHBOARD_VIEW = MarketingDashboardView.OVERVIEW
 
+function hasDashboardParams(searchParams: URLSearchParams): boolean {
+    return ['view', 'breakdown', 'filters'].some((key) => searchParams.has(key))
+}
+
 function dashboardParamsFromSearch(searchParams: URLSearchParams): {
     view?: MarketingDashboardView
     breakdown?: MarketingAnalyticsAttributionBreakdown
     properties?: WebAnalyticsPropertyFilters
 } {
-    const params: ReturnType<typeof dashboardParamsFromSearch> = {}
+    const params: ReturnType<typeof dashboardParamsFromSearch> = hasDashboardParams(searchParams)
+        ? { view: DEFAULT_DASHBOARD_VIEW, breakdown: DEFAULT_DASHBOARD_BREAKDOWN, properties: [] }
+        : {}
     const view = searchParams.get('view') as MarketingDashboardView | null
     if (view && Object.values(MarketingDashboardView).includes(view)) {
         params.view = view
@@ -1493,7 +1499,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         ],
     }),
     actionToUrl(({ values }) => {
-        const buildUrl = (): [string, string] => {
+        const buildUrl = (includeDashboardState: boolean): [string, string] => {
             if (values.activeTab === MarketingAnalyticsTab.PAGE_VISIBILITY) {
                 const searchParams = new URLSearchParams(router.values.location.search)
                 searchParams.set('tab', MarketingAnalyticsTab.PAGE_VISIBILITY)
@@ -1540,11 +1546,12 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 searchParams.set('include_non_integrated', 'false')
             }
 
-            // Dashboard state. Scoped to the redesigned Dashboard tab so the Ad performance tab
-            // and the old dashboard keep the query string they had.
+            // The current dashboard uses local section state. Only the new controls or an
+            // existing dashboard URL opt into shared navigation state.
             if (
                 values.activeTab === MarketingAnalyticsTab.DASHBOARD &&
-                values.featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]
+                values.featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] &&
+                (includeDashboardState || hasDashboardParams(new URLSearchParams(router.values.location.search)))
             ) {
                 searchParams.set('view', values.dashboardView)
                 searchParams.set('breakdown', values.dashboardBreakdown)
@@ -1571,20 +1578,23 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             return [router.values.location.pathname, searchParams.toString()]
         }
 
+        const buildCurrentUrl = (): [string, string] => buildUrl(false)
+        const buildDashboardUrl = (): [string, string] => buildUrl(true)
+
         return {
-            setActiveTab: buildUrl,
-            setSetupSection: buildUrl,
-            setDates: buildUrl,
-            setDateInterval: buildUrl,
-            setDatesAndInterval: buildUrl,
-            setCompareFilter: buildUrl,
-            setIntegrationFilter: buildUrl,
-            setChartDisplayType: buildUrl,
-            setTileColumnSelection: buildUrl,
-            setDrillDownLevel: buildUrl,
-            setDashboardView: buildUrl,
-            setDashboardBreakdown: buildUrl,
-            setDashboardProperties: buildUrl,
+            setActiveTab: buildCurrentUrl,
+            setSetupSection: buildCurrentUrl,
+            setDates: buildCurrentUrl,
+            setDateInterval: buildCurrentUrl,
+            setDatesAndInterval: buildCurrentUrl,
+            setCompareFilter: buildCurrentUrl,
+            setIntegrationFilter: buildCurrentUrl,
+            setChartDisplayType: buildCurrentUrl,
+            setTileColumnSelection: buildCurrentUrl,
+            setDrillDownLevel: buildCurrentUrl,
+            setDashboardView: buildDashboardUrl,
+            setDashboardBreakdown: buildDashboardUrl,
+            setDashboardProperties: buildDashboardUrl,
             // Note: syncFromUrl is NOT mapped here - it's only for receiving URL changes
         }
     }),

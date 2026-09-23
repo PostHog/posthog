@@ -301,6 +301,10 @@ describe('marketingAnalyticsLogic', () => {
         logic = marketingAnalyticsLogic()
         logic.mount()
 
+        await expectLogic(logic, () => logic.actions.setDates('-30d', null)).toFinishAllListeners()
+        expect(router.values.searchParams).not.toHaveProperty('view')
+        expect(router.values.searchParams).not.toHaveProperty('breakdown')
+
         const filters: WebAnalyticsPropertyFilters = [
             {
                 type: PropertyFilterType.Session,
@@ -319,6 +323,9 @@ describe('marketingAnalyticsLogic', () => {
             breakdown: 'campaign',
             filters,
         })
+
+        await expectLogic(logic, () => logic.actions.setDates('-7d', null)).toFinishAllListeners()
+        expect(router.values.searchParams).toMatchObject({ view: 'engagement', breakdown: 'campaign', filters })
 
         logic.actions.setDashboardView(MarketingDashboardView.OVERVIEW)
         logic.actions.setDashboardBreakdown(MarketingAnalyticsAttributionBreakdown.Channel)
@@ -340,19 +347,52 @@ describe('marketingAnalyticsLogic', () => {
         })
     })
 
-    it('takes dashboard state from the URL and falls back when a persisted breakdown is gone', async () => {
-        localStorage.setItem(
-            `${MOCK_TEAM_ID}__.scenes.webAnalytics.marketingAnalyticsLogic._dashboardBreakdown`,
-            JSON.stringify('retired_dimension')
-        )
-        router.actions.push(urls.marketingAnalyticsApp(), { view: 'retention' })
+    it.each([
+        {
+            search: { view: 'retention' },
+            savedBreakdown: 'campaign',
+            expectedView: MarketingDashboardView.RETENTION,
+            expectedBreakdown: MarketingAnalyticsAttributionBreakdown.Channel,
+        },
+        {
+            search: { breakdown: 'source' },
+            savedBreakdown: 'campaign',
+            expectedView: MarketingDashboardView.OVERVIEW,
+            expectedBreakdown: MarketingAnalyticsAttributionBreakdown.Source,
+        },
+        {
+            search: {},
+            savedBreakdown: 'campaign',
+            expectedView: MarketingDashboardView.ENGAGEMENT,
+            expectedBreakdown: MarketingAnalyticsAttributionBreakdown.Campaign,
+        },
+        {
+            search: { view: 'retention' },
+            savedBreakdown: 'retired_dimension',
+            expectedView: MarketingDashboardView.RETENTION,
+            expectedBreakdown: MarketingAnalyticsAttributionBreakdown.Channel,
+        },
+    ])(
+        'hydrates $search with persisted breakdown $savedBreakdown',
+        async ({ search, savedBreakdown, expectedView, expectedBreakdown }) => {
+            localStorage.setItem(
+                `${MOCK_TEAM_ID}__.scenes.webAnalytics.marketingAnalyticsLogic._dashboardView`,
+                JSON.stringify(MarketingDashboardView.ENGAGEMENT)
+            )
+            localStorage.setItem(
+                `${MOCK_TEAM_ID}__.scenes.webAnalytics.marketingAnalyticsLogic._dashboardBreakdown`,
+                JSON.stringify(savedBreakdown)
+            )
+            router.actions.push(urls.marketingAnalyticsApp(), search)
 
-        logic = marketingAnalyticsLogic()
-        logic.mount()
+            logic = marketingAnalyticsLogic()
+            logic.mount()
 
-        await expectLogic(logic).toMatchValues({
-            dashboardView: MarketingDashboardView.RETENTION,
-            dashboardBreakdown: MarketingAnalyticsAttributionBreakdown.Channel,
-        })
-    })
+            await expectLogic(logic).toMatchValues({
+                dashboardView: expectedView,
+                dashboardBreakdown: expectedBreakdown,
+                dashboardProperties: [],
+            })
+        }
+    )
 })
