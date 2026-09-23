@@ -276,6 +276,9 @@ export interface workflowLogicValues {
     workflowTouches: Record<string, boolean>
     workflowEditDisabledReason: string | null
     canEditWorkflow: boolean
+    isCodeManaged: boolean
+    workflowSaveDisabledReason: string | null
+    canSaveWorkflow: boolean
     workflowUserAccessLevel: AccessControlLevel | null
     workflowValidationErrors: DeepPartialMap<HogFlow, ValidationErrorType>
 }
@@ -2826,6 +2829,12 @@ export interface workflowLogicMeta {
             workflowUserAccessLevel: AccessControlLevel | null
         ) => string | null
         canEditWorkflow: (workflowEditDisabledReason: string | null) => boolean
+        isCodeManaged: (originalWorkflow: HogFlow | null) => boolean
+        workflowSaveDisabledReason: (
+            originalWorkflow: HogFlow | null,
+            workflowEditDisabledReason: string | null
+        ) => string | null
+        canSaveWorkflow: (workflowSaveDisabledReason: string | null) => boolean
         currentSchedule: (schedules: HogFlowSchedule[]) => HogFlowSchedule | null
         pendingSchedule: (
             currentSchedule: HogFlowSchedule | null,
@@ -3009,12 +3018,14 @@ export interface workflowLogicMeta {
         publishDisabledReason: (
             hasStagedDraft: boolean,
             hasUnsavedChanges: boolean,
-            draftActionPending: 'discard' | 'publish' | null
+            draftActionPending: 'discard' | 'publish' | null,
+            workflowSaveDisabledReason: string | null
         ) => string | undefined
         discardDisabledReason: (
             hasStagedDraft: boolean,
             hasUnsavedChanges: boolean,
-            draftActionPending: 'discard' | 'publish' | null
+            draftActionPending: 'discard' | 'publish' | null,
+            workflowSaveDisabledReason: string | null
         ) => string | undefined
     }
 }
@@ -3197,6 +3208,11 @@ export const workflowLogic = kea<workflowLogicType>([
                                 (field) => !objectsEqual((updates as any)[field], (baseline as any)[field])
                             )
                         const isStatusTransition = isStatusSave && !!latest && updates.status !== latest.status
+                        if (values.isCodeManaged && !isStatusTransition) {
+                            // Every path that saves the form checks `canSaveWorkflow` first. This is the
+                            // backstop for a path that does not, so it fails here and not with a 403.
+                            throw new Error(values.workflowSaveDisabledReason ?? 'This workflow is managed by code.')
+                        }
                         // Content edits on an active workflow stage into its draft (publish promotes them).
                         // Metadata-only saves (rename, description) must not: staging the unchanged content
                         // would create a phantom draft identical to live.
@@ -3525,11 +3541,8 @@ export const workflowLogic = kea<workflowLogicType>([
                     // A workflow being created has nothing to be locked yet.
                     return null
                 }
-                // Ownership shadows the access level. Someone with edit rights still cannot change a
-                // workflow a repository owns, and naming the file is the more useful thing to say.
-                if (isCodeManagedWorkflow(originalWorkflow)) {
-                    return codeManagedReason(originalWorkflow)
-                }
+                // Code ownership is not a reason here. A person may edit a code-managed workflow in the
+                // editor, and `workflowSaveDisabledReason` keeps those edits from reaching the API.
                 if (!workflowUserAccessLevel) {
                     // A response that carries no access level says nothing about what this person may
                     // do. Locking the canvas on a missing value would break the editor for a case the
@@ -3543,12 +3556,32 @@ export const workflowLogic = kea<workflowLogicType>([
                 )
             },
         ],
-        // Read by the canvas mutation listeners and the auto-save rather than by the save loader. The
-        // canvas and its panels stay interactive either way, because per-step metrics and logs are
-        // only reachable by selecting a node, and the enable control saves through the same loader.
+        // Read by the canvas mutation listeners rather than by the save loader. The canvas and its
+        // panels stay interactive either way, because per-step metrics and logs are only reachable by
+        // selecting a node, and the enable control saves through the same loader.
         canEditWorkflow: [
             (s) => [s.workflowEditDisabledReason],
             (workflowEditDisabledReason: string | null): boolean => !workflowEditDisabledReason,
+        ],
+        isCodeManaged: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): boolean => isCodeManagedWorkflow(originalWorkflow),
+        ],
+        // Why the form cannot be written to the API: the auto-save, the save button, the draft
+        // actions and a revision restore all read it. A status-only save does not, because the API
+        // accepts one on a code-managed workflow.
+        workflowSaveDisabledReason: [
+            (s) => [s.originalWorkflow, s.workflowEditDisabledReason],
+            (originalWorkflow: HogFlow | null, workflowEditDisabledReason: string | null): string | null =>
+                // Ownership shadows the access level. Someone with edit rights still cannot save a
+                // workflow a repository owns, and naming the file is the more useful thing to say.
+                isCodeManagedWorkflow(originalWorkflow)
+                    ? codeManagedReason(originalWorkflow)
+                    : workflowEditDisabledReason,
+        ],
+        canSaveWorkflow: [
+            (s) => [s.workflowSaveDisabledReason],
+            (workflowSaveDisabledReason: string | null): boolean => !workflowSaveDisabledReason,
         ],
         currentSchedule: [
             (s) => [s.schedules],
@@ -3883,23 +3916,26 @@ export const workflowLogic = kea<workflowLogicType>([
         // once a draft exists would move the save button on the first auto-save, which is the jump
         // this editor is meant to stop. A live workflow can always be published into, so the button
         // is honest when idle: it says there is nothing staged yet.
+        // A code-managed workflow has no draft cycle here, because only a push changes what runs.
         showDraftActions: [
             (s) => [s.originalWorkflow],
             (originalWorkflow: HogFlow | null): boolean =>
-                originalWorkflow?.status === 'active' && !!originalWorkflow?.id,
+                originalWorkflow?.status === 'active' &&
+                !!originalWorkflow?.id &&
+                !isCodeManagedWorkflow(originalWorkflow),
         ],
 
         publishDisabledReason: [
-            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending, s.workflowEditDisabledReason],
+            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending, s.workflowSaveDisabledReason],
             (
                 hasStagedDraft: boolean,
                 hasUnsavedChanges: boolean,
                 draftActionPending: 'publish' | 'discard' | null,
-                workflowEditDisabledReason: string | null
+                workflowSaveDisabledReason: string | null
             ): string | undefined => {
                 // The API refuses publish on a workflow a repository owns, so say so rather than 403.
-                if (workflowEditDisabledReason) {
-                    return workflowEditDisabledReason
+                if (workflowSaveDisabledReason) {
+                    return workflowSaveDisabledReason
                 }
                 if (draftActionPending === 'discard') {
                     return 'Discarding is in progress'
@@ -3914,15 +3950,15 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         discardDisabledReason: [
-            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending, s.workflowEditDisabledReason],
+            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending, s.workflowSaveDisabledReason],
             (
                 hasStagedDraft: boolean,
                 hasUnsavedChanges: boolean,
                 draftActionPending: 'publish' | 'discard' | null,
-                workflowEditDisabledReason: string | null
+                workflowSaveDisabledReason: string | null
             ): string | undefined => {
-                if (workflowEditDisabledReason) {
-                    return workflowEditDisabledReason
+                if (workflowSaveDisabledReason) {
+                    return workflowSaveDisabledReason
                 }
                 if (draftActionPending === 'publish') {
                     return 'Publishing is in progress'
@@ -4004,9 +4040,13 @@ export const workflowLogic = kea<workflowLogicType>([
             // a few seconds old, so reconcile silently instead of interrupting with a conflict
             // banner. When auto-save can't flush (toggled off, no name to save under, or a pending
             // schedule change, which only a manual save persists), the buffer can hold real work,
-            // so the banner lets the user choose.
+            // so the banner lets the user choose. A code-managed workflow never flushes, so a push
+            // that lands while someone edits it asks before it replaces their edits.
             const autoSaveCanFlush =
-                values.autoSaveEnabled && !values.autoSaveBlockedByValidation && values.pendingSchedule === false
+                values.canSaveWorkflow &&
+                values.autoSaveEnabled &&
+                !values.autoSaveBlockedByValidation &&
+                values.pendingSchedule === false
             if (values.hasUnsavedChanges && !autoSaveCanFlush) {
                 actions.setExternallyEdited(true)
             } else {
@@ -4148,7 +4188,9 @@ export const workflowLogic = kea<workflowLogicType>([
             // reveal the per-field step messages even though the save itself is aborted.
             actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
             const merged = { ...values.workflow, ...workflow }
-            if (merged.status === 'active' && values.workflowHasActionErrors) {
+            // Enabling a code-managed workflow runs the pushed content, not the unsaved edits in the
+            // form, so errors in those edits must not block it.
+            if (merged.status === 'active' && values.workflowHasActionErrors && !values.isCodeManaged) {
                 lemonToast.error('Fix all errors before enabling')
                 return
             }
@@ -4209,7 +4251,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 // A schedule is part of the trigger, which the file owns, so the API refuses a
                 // schedule write on a code-managed workflow. The status-only save is still allowed
                 // and would otherwise drag a staged schedule change into a 403.
-                const hasScheduleChanges = pendingSchedule !== false && !!workflowId && values.canEditWorkflow
+                const hasScheduleChanges = pendingSchedule !== false && !!workflowId && values.canSaveWorkflow
 
                 if (hasScheduleChanges) {
                     try {
@@ -4303,7 +4345,10 @@ export const workflowLogic = kea<workflowLogicType>([
             // form on the merged view, or the reset would wipe the just-saved edits off the canvas.
             const editedDuringSave =
                 cache.saveEditVersion !== undefined && values.workflowEditVersion !== cache.saveEditVersion
-            const editsDuringSave = editedDuringSave ? pickWorkflowEdits(values.workflow) : null
+            // A code-managed workflow only saves its status, so the form still holds edits the save
+            // did not send. The reset below would drop them.
+            const keepUnsentEdits = values.isCodeManaged && values.workflowChanged
+            const editsDuringSave = editedDuringSave || keepUnsentEdits ? pickWorkflowEdits(values.workflow) : null
             actions.resetWorkflow(withStagedDraft(originalWorkflow))
             actions.markAutoSave(false)
             if (editsDuringSave) {
@@ -4408,15 +4453,22 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         autoSaveWorkflow: async (_, breakpoint) => {
+            // A code-managed workflow, or one the user may only view, must not fire a PATCH that only
+            // the backend would refuse. Edits to a code-managed workflow stay in the form. This runs
+            // before the debounce, so the editor does not show a pending save for 3 seconds.
+            if (!values.canSaveWorkflow) {
+                actions.clearAutoSavePending()
+                return
+            }
+
             await breakpoint(3000)
 
             // Active workflows auto-save too: their content edits route into the staged draft
             // (stage_draft in the saveWorkflow loader), so nothing deploys without an explicit publish.
             const shouldSkip =
                 !values.autoSaveEnabled ||
-                // A code-managed workflow, or one the user may only view, must not fire a PATCH that
-                // only the backend would refuse.
-                !values.canEditWorkflow ||
+                // The access level or the ownership can change while the debounce waits.
+                !values.canSaveWorkflow ||
                 !props.id ||
                 props.id === 'new' ||
                 !!props.editTemplateId ||
