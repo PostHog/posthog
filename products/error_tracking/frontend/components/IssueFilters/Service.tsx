@@ -27,6 +27,10 @@ const ALL_SERVICES_VALUE = 'all'
 // Prefixed so no real service name can collide with the all-services item.
 const SERVICE_ITEM_PREFIX = 'service:'
 
+function itemLabel(item: string): string {
+    return item === ALL_SERVICES_VALUE ? 'All services' : item.slice(SERVICE_ITEM_PREFIX.length)
+}
+
 export const ServiceFilter = (): JSX.Element | null => {
     const { options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -71,6 +75,7 @@ export const ServiceFilter = (): JSX.Element | null => {
         <Combobox
             items={items}
             value={selected === null ? ALL_SERVICES_VALUE : `${SERVICE_ITEM_PREFIX}${selected}`}
+            itemToStringLabel={itemLabel}
             onValueChange={(next: string | null) => {
                 if (next === null) {
                     return
@@ -111,7 +116,7 @@ export const ServiceFilter = (): JSX.Element | null => {
                 <ComboboxList>
                     {(item: string) => (
                         <ComboboxItem key={item} value={item}>
-                            {item === ALL_SERVICES_VALUE ? 'All services' : item.slice(SERVICE_ITEM_PREFIX.length)}
+                            {itemLabel(item)}
                         </ComboboxItem>
                     )}
                 </ComboboxList>
