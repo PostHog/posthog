@@ -158,8 +158,8 @@ Example of what this catches: until [charts#14941](https://github.com/PostHog/ch
 - **Static at boot.** A new `select` policy holds both targets and publishes to one, picked by the arming variable. It does not react to health: switching means setting the variable and rolling the pods, because a person decides to move off a degraded MSK. Automatic switching is objective 3. The health-gated `failover` policy is not used here; it serves only S3.
 - **The idle fallback is checked on every boot.** capture-analytics enables Step 16, and the tree always holds the fallback, so a broken fallback config shows up on an ordinary deploy, not in the emergency.
 - **What an idle-fallback failure does is configuration.** It covers a failed Step-16 check on the fallback cluster and a fallback producer that cannot connect:
+  - `warn` (default): capture keeps serving on the primary. The fallback producer is advisory, a per-producer health gauge reports it as down, and capture logs an error. The gauge needs an alert, since nothing else fails.
   - `strict`: capture refuses to boot, and a dead fallback producer fails pod liveness.
-  - `warn`: capture keeps serving on the primary. The fallback producer is advisory, a per-producer health gauge reports it as down, and capture logs an error. The gauge needs an alert, since nothing else fails.
 - **Gauge** for the live target, emitted in both states, so a dashboard can tell "on primary" from "not reporting".
 - **Scope.** capture-analytics only. Other modes have no fallback output and are not asked to configure one.
 - **Known gaps, for the runbook.** Consumers have no matching switch. capture-import writes the same topics and must be stopped before any drain-to-zero check. The AI lane's bridges read MSK topic names.
