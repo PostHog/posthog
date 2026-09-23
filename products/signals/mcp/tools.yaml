@@ -769,13 +769,18 @@ tools:
         title: List project members for reviewer routing
         description: >
             Return the people who can review work on this project — one row per member with access to it, each with
-            their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null when they have no
-            linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a
-            fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list
-            members, match the owner by email/name, then put their `user_uuid` in `suggested_reviewers` on
-            `scout-emit-report` / `scout-edit-report`. Every member is routable this way; a null `github_login` only
-            means no draft PR can be opened as that person. Pass `search` to narrow a large roster. Strictly
-            team-scoped.
+            their `user_uuid`, `email`, `first_name`/`last_name`, resolved GitHub `login` (null when they have no linked
+            GitHub identity), and the `teams` they belong to. The cold-start reviewer-routing path: when a finding's
+            owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or
+            inbox precedent, list members, match the owner by email/name, then put their `user_uuid` in
+            `suggested_reviewers` on `scout-emit-report` / `scout-edit-report`. Every member is routable this way; a
+            null `github_login` only means no draft PR can be opened as that person. Pass `search` to narrow a large
+            roster by name or email. Pass `team` with a bare team slug (no `@org/` prefix) to turn a slug from a note,
+            from CODEOWNERS, or from an owners file into the people on that team, maintainers first: take the first 1 to
+            3 rows, which is the cap `suggested_reviewers` enforces anyway. A `team` that resolves to nobody comes back
+            as an error saying which case it hit, because team rosters sync one by one and a slug with no rows almost
+            always means it isn't synced here rather than that the team doesn't exist. The roster is a periodic
+            snapshot, so it can lag the live team. Strictly team-scoped.
     scout-metadata-get:
         operation: signals_scout_metadata_get
         enabled: true
