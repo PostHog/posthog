@@ -23,8 +23,9 @@ Render-only: this script produces the markdown report and the machine-readable
 diff-cover JSON, nothing else. Posting into the shared CI report comment — and the
 comment-only-when-actionable logic — lives in .github/scripts/post-coverage-section.mjs.
 
-Near-stdlib — diff-cover for patch coverage, defusedxml for parsing artifact XML
-(semgrep blocks stdlib xml parsing; artifacts are PR-controlled input).
+Near-stdlib — coverage to turn the shards' data into XML, diff-cover for patch coverage,
+defusedxml for parsing that XML (semgrep blocks stdlib xml parsing; the data comes from
+PR-controlled shards).
 """
 
 from __future__ import annotations
@@ -69,9 +70,9 @@ class ProductCoverage:
 def product_from_path(xml_path: Path) -> str | None:
     """Derive the product name from a coverage XML path.
 
-    CI stages each file as <product>.xml (the product survives upload-artifact's
-    path collapse). Fall back to the .../products/<name>/coverage.xml layout for
-    files read straight from a checkout.
+    CI stages each data file as <product>.coverage (the product survives upload-artifact's
+    path collapse), and convert_product_data writes <product>.xml beside it. Fall back to
+    the .../products/<name>/coverage.xml layout for files read straight from a checkout.
     """
     if xml_path.stem != "coverage":
         return sanitize_path(xml_path.stem)
@@ -125,6 +126,10 @@ def write_xml_from_data(
         if path_aliases:
             cov.set_option("paths", path_aliases)
         cov.combine([str(path) for path in data_paths], keep=True)
+        measured = cov.get_data().measured_files()
+        if measured and not any(Path(f).exists() for f in measured):
+            # An empty report would read as "no measured lines changed" and clear a real warning.
+            sys.exit(f"::error::none of the {len(measured)} files in {data_paths[0]} exist in this checkout")
         try:
             # A file that master deleted after the PR branched is measured but absent from this checkout.
             cov.xml_report(outfile=str(xml_path), ignore_errors=True)
@@ -464,8 +469,8 @@ def render_markdown(results: list[ProductCoverage], patch_data: dict | None) -> 
         "",
         "_Report-only. Patch coverage = changed backend lines covered vs `origin/master`. Sorted lowest first._",
         # Known blind spots, so "uncovered" isn't read as gospel: the Django Temporal segment runs
-        # without coverage instrumentation, and core XMLs come from the PR-head tree while the diff
-        # is computed on the merge ref (line drift when master touched the same core file).
+        # without coverage instrumentation, and core coverage data comes from the PR-head tree while
+        # the XML report and the diff use the merge ref (line drift when master touched the same core file).
         "_Known gaps: lines covered only by Temporal tests show as uncovered; core line numbers may drift if `master` changed the same file._",
     ]
     if patch_data is not None:

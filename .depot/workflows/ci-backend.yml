@@ -1301,8 +1301,9 @@ jobs:
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.event_name == 'pull_request' && '--cov=backend --cov-report=' || '' }}
                   # turbo runs each product's backend:test with the product dir as CWD, so --cov=backend
-                  # scopes coverage to that product and writes products/<name>/coverage.xml — works for
-                  # bin-packed buckets (each product writes its own file) and split products (unioned later).
+                  # scopes coverage to that product and saves its data to products/<name>/.coverage. This works
+                  # for bin-packed buckets (each product writes its own file) and split products, whose data
+                  # the report job combines.
                   # sysmon: Python 3.12+'s low-overhead coverage backend, ~a few % vs ~20% for the C tracer.
                   COVERAGE_CORE: sysmon
               shell: bash
