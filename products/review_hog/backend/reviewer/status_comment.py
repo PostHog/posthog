@@ -605,8 +605,11 @@ def update_resolution_status_comment(
     every entry point here: a status edit must never fail or block a resolution run.
 
     `terminal` marks the run's closing write (the tally, or the stopped-partway notice) rather than
-    a mid-run refresh, so it takes the unsheddable egress lane: the closing write is the only thing
-    that clears "Resolving comments: k/n" from the PR, and no later write replaces a shed one.
+    a mid-run refresh. The closing write is the only thing that clears "Resolving comments: k/n"
+    from the PR, and no later write replaces a shed one, so it takes the unsheddable egress lane
+    AND re-raises a transient GitHub condition instead of reporting success. The lane alone is not
+    enough: it governs our own limiter, while GitHub's rate limit still refuses the call. A caller
+    that cannot afford the retry catches it back (see `temporal/resolution.py`).
 
     A resolution run passes its pinned `integration_row_id` so the token is re-minted from that row
     (`_auth_from_row`) rather than re-running the installation-selection probe on every refresh;
@@ -658,6 +661,11 @@ def update_resolution_status_comment(
         report.status_comment_id = comment_id
         report.status_comment_edited_at = timezone.now()
         report.save(update_fields=["status_comment_id", "status_comment_edited_at", "updated_at"])
+    except _TRANSIENT_GITHUB_ERRORS:
+        if terminal:
+            logger.warning("GitHub deferred the ReviewHog resolution closing edit; raising so the caller retries")
+            raise
+        logger.warning("GitHub deferred a ReviewHog resolution progress edit; the next one catches up")
     except Exception:
         logger.exception("Could not update the ReviewHog resolution status section; the run continues without it")
 

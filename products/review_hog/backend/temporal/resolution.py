@@ -111,6 +111,16 @@ _FETCH_TIMEOUT = timedelta(minutes=5)
 _RESOLUTION_TIMEOUT = timedelta(hours=4)
 _RESOLUTION_HEARTBEAT = timedelta(minutes=5)
 _RETRY = RetryPolicy(maximum_attempts=2)
+# The closing resolution edit is the only write that clears "Resolving comments" from the PR, and it
+# runs on the shared per-installation GitHub budget. Two back-to-back attempts land inside the same
+# shed window, so the edit needs spaced attempts to ride the window out. The cleanup activity is
+# cheap and idempotent, so the extra attempts cost nothing but the wait.
+_STATUS_COMMENT_RETRY = RetryPolicy(
+    maximum_attempts=4,
+    initial_interval=timedelta(seconds=30),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(minutes=2),
+)
 # The activity's final-attempt turn fallback keys off the same constant — don't let them drift.
 _RESOLUTION_RETRY = RetryPolicy(maximum_attempts=RESOLUTION_MAX_ATTEMPTS)
 
@@ -742,16 +752,24 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
             except Exception:
                 logger.exception("Could not idle report %s after the failed final attempt", prepared.report_id)
             # The PR-side half of the same promise: the status comment must not read as resolving
-            # forever either (mirrors the review's fail_status_comment). `terminal` puts it on the
-            # unsheddable egress lane, because no later write replaces a shed one.
+            # forever either (mirrors the review's fail_status_comment). A terminal write raises a
+            # transient GitHub condition back at us; catch it here, because letting it out would
+            # replace the run's own failure below with a comment-edit error.
             if total_queued:
-                await database_sync_to_async(update_resolution_status_comment, thread_sensitive=False)(
-                    input.team_id,
-                    prepared.report_id,
-                    render_resolution_failed_section(done=sum(result.delivered_outcomes.values()), total=total_queued),
-                    integration_row_id=prepared.integration_row_id,
-                    terminal=True,
-                )
+                try:
+                    await database_sync_to_async(update_resolution_status_comment, thread_sensitive=False)(
+                        input.team_id,
+                        prepared.report_id,
+                        render_resolution_failed_section(
+                            done=sum(result.delivered_outcomes.values()), total=total_queued
+                        ),
+                        integration_row_id=prepared.integration_row_id,
+                        terminal=True,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Could not write the stopped-partway resolution section for %s", prepared.report_id
+                    )
         raise
     finally:
         if session is not None:
@@ -763,17 +781,23 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
 
     await database_sync_to_async(_append_run_note, thread_sensitive=False)(input, prepared.report_id, result)
     if total_queued:
-        await database_sync_to_async(update_resolution_status_comment, thread_sensitive=False)(
-            input.team_id,
-            prepared.report_id,
-            # Undelivered threads (judged, or redelivered, without their GitHub writes landing) join
-            # the couldn't-handle count: the tally must not claim an outcome the thread can't show.
-            render_resolution_final_section(
-                outcomes=result.delivered_outcomes, failed_turns=result.failed_turns + result.undelivered
-            ),
-            integration_row_id=prepared.integration_row_id,
-            terminal=True,
-        )
+        # Caught rather than retried: the run's sandbox turns are already done and paid for, so a
+        # deferred closing edit must not send the whole activity round again.
+        try:
+            await database_sync_to_async(update_resolution_status_comment, thread_sensitive=False)(
+                input.team_id,
+                prepared.report_id,
+                # Undelivered threads (judged, or redelivered, without their GitHub writes landing)
+                # join the couldn't-handle count: the tally must not claim an outcome the thread
+                # can't show.
+                render_resolution_final_section(
+                    outcomes=result.delivered_outcomes, failed_turns=result.failed_turns + result.undelivered
+                ),
+                integration_row_id=prepared.integration_row_id,
+                terminal=True,
+            )
+        except Exception:
+            logger.exception("Could not write the closing resolution tally for %s", prepared.report_id)
     await database_sync_to_async(_idle_report, thread_sensitive=False)(input.team_id, prepared.report_id)
     return result
 
@@ -899,7 +923,7 @@ class ResolvePRWorkflow:
                             pr_number=inputs.pr_number,
                         ),
                         start_to_close_timeout=_FETCH_TIMEOUT,
-                        retry_policy=_RETRY,
+                        retry_policy=_STATUS_COMMENT_RETRY,
                     )
                 except Exception:
                     workflow.logger.warning("Could not run the resolution failure cleanup")
