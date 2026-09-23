@@ -1049,15 +1049,25 @@ class OAuthValidator(OAuth2Validator):
         alike; a single indexed lookup is cheap and the cost of getting this
         wrong is leaving compromised tokens valid.
 
-        The sweep only fires when the presented token belongs to the
-        authenticated client (RFC 7009 §2.1: the server verifies the token was
-        issued to the requesting client). Without that binding, any dynamic
-        client that learned another app's refresh token could revoke that
-        app's entire ``(user, application)`` session instead of just the one
-        token upstream would revoke.
+        A token issued to a different application is left untouched, for every
+        client and both token types (RFC 7009 §2.1: the server verifies the
+        token was issued to the requesting client). Upstream revokes any token
+        it finds by value, so without this check a client that learned another
+        app's token could end that app's session. The request still gets a 200,
+        the same response as an unknown token, so the endpoint does not tell a
+        caller whether a token value is live for some other client.
         """
-        rt = OAuthRefreshToken.objects.filter(token=token, revoked__isnull=True).first()
-        if rt and self._is_dynamic_client(request) and rt.application_id == getattr(request.client, "pk", None):
+        rt = OAuthRefreshToken.objects.filter(token=token).first()
+        presented = rt or OAuthAccessToken.objects.filter(token=token).first()
+        requesting_application_id = getattr(request.client, "pk", None)
+        if presented is not None and presented.application_id != requesting_application_id:
+            logger.warning(
+                "oauth_revoke_token_client_mismatch",
+                client_id_prefix=str(getattr(request.client, "client_id", ""))[:8],
+                token_type="refresh_token" if rt else "access_token",
+            )
+            return
+        if rt and rt.revoked is None and self._is_dynamic_client(request):
             revoke_oauth_session(refresh_token=rt)
             return
         return super().revoke_token(token, token_type_hint, request, *args, **kwargs)
