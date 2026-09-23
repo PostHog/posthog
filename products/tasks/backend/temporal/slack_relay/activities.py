@@ -230,12 +230,13 @@ def _split_markdown_for_slack(text: str, limit: int) -> list[str]:
     if len(text) <= limit:
         return [text]
 
-    # One chunk of the ceiling is held back for the notice the packer may need.
-    packer = _SlackChunkPacker(limit, max_chunks=_MAX_SLACK_CHUNKS - 1)
+    packer = _SlackChunkPacker(limit, max_chunks=_MAX_SLACK_CHUNKS)
     packer.add_markdown(text)
     chunks = packer.finish()
     if packer.truncated:
-        chunks.append(_truncation_notice(limit))
+        # The notice takes the place of the last chunk rather than following it, so an answer
+        # that fills the ceiling exactly keeps every chunk and gets no notice.
+        chunks[-1] = _truncation_notice(limit)
     return chunks
 
 

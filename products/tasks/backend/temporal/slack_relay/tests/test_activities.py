@@ -720,6 +720,14 @@ class TestSplitTextForSlack(TestCase):
         for chunk in chunks:
             assert len(chunk) <= self._LIMIT
 
+    def test_an_answer_that_fills_the_ceiling_exactly_keeps_every_chunk(self):
+        line = "x" * self._LIMIT
+        text = "\n\n".join([line] * 20)
+
+        chunks = _split_markdown_for_slack(text, self._LIMIT)
+
+        assert chunks == [line] * 20
+
     def test_truncation_notice_fits_a_limit_shorter_than_itself(self):
         limit = 32
         text = "\n\n".join(["y" * limit] * 50)
