@@ -4600,6 +4600,17 @@ class TestExternalDataSource(APIBaseTest):
         mock_add_table.assert_called_once()
         assert mock_add_table.call_args.args[1:] == ("analytics", "events")
 
+    @parameterized.expand(
+        [
+            ("no_primary_key", [("id", "uuid", False)], {}, "primary key"),
+            (
+                "reserved_column",
+                [("id", "uuid", False), ("_ph_cdc_seq", "bigint", True)],
+                {"tracking_link": ["id"]},
+                "_ph_cdc_seq",
+            ),
+        ]
+    )
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.base.is_cdc_enabled_for_team",
         return_value=True,
@@ -4613,8 +4624,12 @@ class TestExternalDataSource(APIBaseTest):
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.get_primary_key_columns")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.cdc_pg_connection")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
-    def test_create_postgres_cdc_rejects_table_without_primary_key(
+    def test_create_postgres_cdc_rejects_a_table_it_cannot_capture(
         self,
+        _name,
+        columns,
+        primary_keys,
+        expected_in_message,
         mock_get_source,
         mock_cdc_pg_connection,
         mock_get_primary_key_columns,
@@ -4647,7 +4662,7 @@ class TestExternalDataSource(APIBaseTest):
                 supports_incremental=False,
                 supports_append=False,
                 supports_cdc=False,
-                columns=[("id", "uuid", False)],
+                columns=columns,
                 foreign_keys=[],
                 source_schema="public",
                 source_table_name="tracking_link",
@@ -4656,8 +4671,7 @@ class TestExternalDataSource(APIBaseTest):
 
         mock_cdc_pg_connection.return_value.__enter__.return_value = object()
         mock_cdc_pg_connection.return_value.__exit__.return_value = None
-        # Source DB reports no PK for the table.
-        mock_get_primary_key_columns.return_value = {}
+        mock_get_primary_key_columns.return_value = primary_keys
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
@@ -4680,7 +4694,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "primary key" in response.json()["message"].lower()
+        assert expected_in_message in response.json()["message"].lower()
         assert "tracking_link" in response.json()["message"]
         # No source row left behind on validation failure.
         assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 0
@@ -11613,7 +11627,8 @@ class TestRepairCDC(APIBaseTest):
             assert schema.latest_error is None
 
         disabled_cdc_schema.refresh_from_db()
-        assert disabled_cdc_schema.sync_type_config == {"cdc_mode": "streaming"}
+        assert disabled_cdc_schema.sync_type_config == {"cdc_mode": "snapshot", "reset_pipeline": True}
+        assert disabled_cdc_schema.initial_sync_complete is False
         non_cdc_schema.refresh_from_db()
         assert non_cdc_schema.sync_type_config == {}
 

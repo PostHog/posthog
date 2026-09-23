@@ -108,15 +108,17 @@ class CDCLane:
     write_mode: CDCWriteMode
 
 
-# In `sync_type_config`. Set by the flip command on each schema it moves to the buffer, cleared by
-# its rollback. `cdc_buffered_before` stays after a rollback, so a later flip can tell the
-# `_ph_cdc_seq` the buffered lane wrote from a column the source owns.
-BUFFERED_LANE_KEY = "cdc_buffered_lane"
+# In `sync_type_config`. Set by the flip command on each schema it moves to the buffer and never
+# cleared, so a later flip can tell the `_ph_cdc_seq` the buffered lane wrote from a column the
+# source owns.
 BUFFERED_BEFORE_KEY = "cdc_buffered_before"
 
 
-def buffered_lane_candidate(schema: ExternalDataSchema) -> bool:
-    """Streaming, seeded, and in a table mode with lanes."""
+def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
+    """Schema-side conditions for buffered ingress: streaming, seeded, and in a table mode with lanes.
+
+    The source's `ingest_mode` is the other half.
+    """
     return bool(
         schema.is_cdc
         and schema.cdc_mode == "streaming"
@@ -179,11 +181,6 @@ def purge_buffer_predating_snapshot(schema: ExternalDataSchema, logger: Filterin
             schema.team_id, str(schema.id), dt.datetime.fromisoformat(started_at) - _SNAPSHOT_START_MARGIN, logger
         )
     update_sync_type_config_keys(schema.id, schema.team_id, removes=[SNAPSHOT_STARTED_AT_KEY])
-
-
-def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
-    """Schema-side conditions for buffered ingress; the source's `ingest_mode` is the other half."""
-    return buffered_lane_candidate(schema)
 
 
 def consumes_buffer(schema: ExternalDataSchema, *, ingest_mode: str) -> bool:

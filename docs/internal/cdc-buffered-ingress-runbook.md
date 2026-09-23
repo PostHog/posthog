@@ -136,20 +136,14 @@ preserved, so there is no WAL gap and no re-sync.
    team's `warehouse-pipelines-v3` rollout flag neither enables nor
    blocks the flip, and narrowing it later does not affect flipped sources. Do not flip while a
    deploy is rolling out, so every worker already runs the forcing.
-1. `dwh-cdc-write-resolution` is on for the team. **The command refuses to flip without it.**
-   The flag gates ordering resolution: dropping rows the table already applied, collapsing repeated
-   keys within a batch, and checking that a DELETE is not about to erase columns the target still
-   holds. Without it a buffered merge lane still lands every row, but out of order across a retry.
-   Rollback does not require the flag. Neither deletion nor either lane's resume point depends on
-   it: both come from the tables themselves.
-2. No source table has a column named `_ph_cdc_seq`. **The command refuses to flip if one does** —
+1. No source table has a column named `_ph_cdc_seq`. **The command refuses to flip if one does** —
    the name is reserved for change ordering, and capture hard-errors on the collision rather than
    writing files whose ordering and retry cleanup derive from customer data. A source already on
    buffered carries the column for our own reasons, so the check only applies to a source still on
    legacy and a re-flip after a rollback is not blocked by it.
-3. Every CDC schema on the source is at `sync_frequency_interval = 5min`. The command warns
+2. Every CDC schema on the source is at `sync_frequency_interval = 5min`. The command warns
    when an eligible schema is off cadence — consumption paces to the schema's own schedule.
-4. Buffer validation is clean over a busy window:
+3. Buffer validation is clean over a busy window:
 
    ```bash
    python manage.py validate_cdc_buffer --source-id <uuid> --since-hours 40
@@ -160,7 +154,7 @@ preserved, so there is no WAL gap and no re-sync.
    the legacy lane already wrote. So this window exists only before the first flip. A schema
    added to a buffered source later joins the buffer after its first sync, without one.
 
-5. Check what will move:
+4. Check what will move:
 
    ```bash
    python manage.py migrate_cdc_source_to_buffered --source-id <uuid> --dry-run
@@ -170,10 +164,11 @@ preserved, so there is no WAL gap and no re-sync.
 
 ## Flip
 
-Every schema that is streaming and has finished its first sync is served, in any table mode. The
-command still writes `cdc_buffered_lane: true` into each moved schema's `sync_type_config`, but
-nothing reads it. A schema added to a buffered source later joins the buffer after its first sync,
-with no re-run.
+Every schema that is streaming and has finished its first sync is served, in any table mode. A
+schema added to a buffered source later joins the buffer after its first sync, with no re-run. The
+loader always resolves write ordering for CDC batches: it drops rows the table already applied,
+collapses repeated keys within a batch, and checks that a DELETE is not about to erase columns the
+target still holds.
 
 ```bash
 python manage.py migrate_cdc_source_to_buffered --source-id <uuid>
