@@ -93,7 +93,11 @@ export interface BranchCondition {
  * as `{person.properties.email}` resolve at run time. `fn`, `webhook` and `email`
  * write the wrapper.
  */
-export type FunctionInputs = Readonly<Record<string, { readonly value: unknown }>>
+export type JsonValue = string | number | boolean | null | JsonObject | JsonArray
+export type JsonObject = { readonly [key: string]: JsonValue }
+export type JsonArray = readonly JsonValue[]
+
+export type FunctionInputs = Readonly<Record<string, { readonly value: JsonValue }>>
 
 /**
  * The message an email step sends, at `config.inputs.email.value` in the definition.
@@ -217,8 +221,8 @@ export type WorkflowStatus = 'draft' | 'active' | 'archived'
  *
  * Every value is a string on the wire, including a number and a boolean, so write
  * `{ key: 'retries', type: 'number', default: '3' }`. Keys are unique. The whole list is
- * capped at 5120 bytes, measured as the length of each entry serialized to JSON with a
- * space after every separator and every non-ASCII character escaped, added together.
+ * capped at 5120 bytes, measured as the length of the serialized JSON array with a
+ * space after every separator and every non-ASCII character escaped.
  */
 export interface WorkflowVariable {
     readonly key: string
@@ -237,10 +241,10 @@ export interface WorkflowVariable {
  */
 export interface WorkflowDefinition {
     /**
-     * The workflow's identity in the source file, unique for each team.
+     * The workflow's identity in source and push tooling.
      *
-     * The PostHog API accepts it from a later backend change on, and ignores it as an
-     * unknown field until then.
+     * This package emits it in the definition. The backend on this branch does not store
+     * or resolve it, so the API still creates and updates workflows by HogFlow id.
      */
     readonly key: string
     readonly name: string

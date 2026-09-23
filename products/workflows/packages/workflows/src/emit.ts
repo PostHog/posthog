@@ -9,6 +9,7 @@ import type {
     EmailSender,
     ExitCondition,
     FunctionInputs,
+    JsonValue,
     TriggerConfig,
     WorkflowDefinition,
     WorkflowStatus,
@@ -137,6 +138,7 @@ class Ids {
     next(step: Step): string {
         this.position += 1
         const placed: Placed = { step, position: this.position }
+        this.refuseNameLength(step)
         const base = step.id === undefined ? this.derivedBase(step) : this.explicitBase(step, step.id)
 
         this.refuseReserved(base, step)
@@ -155,14 +157,6 @@ class Ids {
     }
 
     private derivedBase(step: Step): string {
-        if (step.name.length > MAX_STEP_NAME_LENGTH) {
-            throw new WorkflowError({
-                status: 'step_name_too_long',
-                message: `A step name is ${step.name.length} characters, and the limit is ${MAX_STEP_NAME_LENGTH}.`,
-                why: 'PostHog stores the step name in a field of that length, so a longer name fails the push.',
-                fix: 'Shorten the name, and put the detail in the workflow description.',
-            })
-        }
         const base = slug(step.name)
         if (base === '') {
             throw new WorkflowError({
@@ -173,6 +167,18 @@ class Ids {
             })
         }
         return base
+    }
+
+    private refuseNameLength(step: Step): void {
+        if (step.name.length <= MAX_STEP_NAME_LENGTH) {
+            return
+        }
+        throw new WorkflowError({
+            status: 'step_name_too_long',
+            message: `A step name is ${step.name.length} characters, and the limit is ${MAX_STEP_NAME_LENGTH}.`,
+            why: 'PostHog stores the step name in a field of that length, so a longer name fails the push.',
+            fix: 'Shorten the name, and put the detail in the workflow description.',
+        })
     }
 
     private explicitBase(step: Step, id: string): string {
@@ -290,6 +296,13 @@ function serializedSize(variable: WorkflowVariable): number {
     return `{${pairs.join(', ')}}`.length
 }
 
+function serializedVariablesSize(variables: readonly WorkflowVariable[]): number {
+    if (variables.length === 0) {
+        return 2
+    }
+    return 2 + variables.reduce((size, variable) => size + serializedSize(variable), 0) + (variables.length - 1) * 2
+}
+
 function checkVariables(variables: readonly WorkflowVariable[]): void {
     const seen = new Set<string>()
     for (const variable of variables) {
@@ -304,7 +317,7 @@ function checkVariables(variables: readonly WorkflowVariable[]): void {
         seen.add(variable.key)
     }
 
-    const total = variables.reduce((size, variable) => size + serializedSize(variable), 0)
+    const total = serializedVariablesSize(variables)
     if (total > VARIABLES_MAX_BYTES) {
         throw new WorkflowError({
             status: 'variables_too_large',
@@ -349,7 +362,7 @@ interface Context {
 }
 
 function resolveInputs(step: Step & { kind: 'function' }, actionId: string, context: Context): FunctionInputs {
-    const resolved: Record<string, { value: unknown }> = {}
+    const resolved: Record<string, { value: JsonValue }> = {}
     for (const [key, raw] of Object.entries(step.inputs)) {
         if (!isSecretRef(raw)) {
             refuseNestedSecret(raw, key, step)

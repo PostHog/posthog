@@ -60,8 +60,8 @@ Pick your own rather than copying the placeholder above.
 
 Each rule is stated in full in the JSDoc of the symbol that owns it, which your editor shows on hover.
 
-- **A step is a value**, with no action id and no position. See `path`.
-- **An action id is the slug of the step name**, and a second placement is numbered in graph order. See `path` and `workflow`.
+- **A step is a value**, with no position until placed. See `path`.
+- **An action id is the step's explicit `id`, or the slug of its name when `id` is omitted.** A second placement is numbered in graph order. See `path` and `workflow`.
 - **Edges come from placement**, including the branch indexes. See `branch`.
 - **A sub-path takes at least one step.** See `Path`.
 - **The status defaults to `draft`.** See `WorkflowOptions.status`.

@@ -376,7 +376,7 @@ describe('@posthog/workflows', () => {
             fn({
                 name: 'Call the API',
                 templateId: 'template-webhook',
-                inputs: { headers: { Authorization: secret('CRM_TOKEN') } },
+                inputs: { headers: { Authorization: secret('CRM_TOKEN') as unknown as string } },
             }),
         ],
         [
@@ -525,11 +525,16 @@ describe('@posthog/workflows', () => {
         assert.strictEqual(fields.fix, 'Give the step an explicit id.')
     })
 
-    test('refuses a step name longer than the field PostHog stores it in', () => {
-        const fields = refusal(around(path(delay('1d', { name: 'W'.repeat(401) }))).emit)
+    for (const [label, options] of [
+        ['with a generated id', { name: 'W'.repeat(401) }],
+        ['with an explicit id', { name: 'W'.repeat(401), id: 'short_id' }],
+    ] as const) {
+        test(`refuses a step name longer than the field PostHog stores it in ${label}`, () => {
+            const fields = refusal(around(path(delay('1d', options))).emit)
 
-        assert.strictEqual(fields.status, 'step_name_too_long')
-    })
+            assert.strictEqual(fields.status, 'step_name_too_long')
+        })
+    }
 
     test('refuses a generated action id longer than PostHog accepts', () => {
         const fields = refusal(around(path(delay('1d', { name: 'w '.repeat(120) }))).emit)
@@ -587,6 +592,12 @@ describe('@posthog/workflows', () => {
         assert.strictEqual(refusal(empty.emit).status, 'empty_path')
     })
 
+    const variableWithSerializedSize = (size: number, index: number): WorkflowVariable => {
+        const key = `v${index}`
+        const overhead = `{"key": "${key}", "type": "string", "default": ""}`.length
+        return { key, type: 'string', default: 'x'.repeat(size - overhead) }
+    }
+
     for (const [label, variables, status] of [
         [
             'duplicate keys',
@@ -599,6 +610,11 @@ describe('@posthog/workflows', () => {
         [
             'more than 5120 bytes in total',
             [{ key: 'blob', type: 'string', default: 'x'.repeat(5200) }],
+            'variables_too_large',
+        ],
+        [
+            '5120 bytes before the array punctuation is counted',
+            Array.from({ length: 10 }, (_, index) => variableWithSerializedSize(512, index)),
             'variables_too_large',
         ],
     ] as const) {

@@ -2,6 +2,7 @@ import type {
     Duration,
     EmailDesign,
     EmailMessage,
+    JsonValue,
     PropertyCondition,
     PropertyOperator,
     PropertyType,
@@ -87,6 +88,7 @@ export interface BranchSpec {
 
 interface StepBase {
     readonly name: string
+    /** An explicit action id to use instead of the slug of `name`. */
     readonly id?: string
     readonly description?: string
 }
@@ -94,13 +96,15 @@ interface StepBase {
 /**
  * A step: one thing a workflow does, as a value.
  *
- * A step carries no action id and no position, so the same value placed in two places
+ * A step carries no position until placed, so the same value placed in two places
  * makes two actions in the definition. Build one with `delay`, `fn`, `webhook`, `email`
  * or `branch`, then place it with `path`.
  */
 export type Step =
     | Readonly<StepBase & { kind: 'delay'; duration: Duration }>
-    | Readonly<StepBase & { kind: 'function'; templateId: string; inputs: Readonly<Record<string, unknown>> }>
+    | Readonly<
+          StepBase & { kind: 'function'; templateId: string; inputs: Readonly<Record<string, JsonValue | SecretRef>> }
+      >
     | Readonly<StepBase & { kind: 'email'; email: EmailMessage }>
     | Readonly<StepBase & { kind: 'branch'; branches: readonly [BranchSpec, ...BranchSpec[]] }>
 
@@ -180,7 +184,7 @@ export function fn(options: {
     id?: string
     description?: string
     templateId: string
-    inputs: Readonly<Record<string, unknown>>
+    inputs: Readonly<Record<string, JsonValue | SecretRef>>
 }): Step {
     return withMeta(options, {
         kind: 'function' as const,
@@ -228,11 +232,11 @@ export function webhook(options: {
     description?: string
     url: string
     method?: 'POST' | 'PUT' | 'PATCH' | 'GET' | 'DELETE'
-    body?: Record<string, unknown>
+    body?: Record<string, JsonValue>
     headers?: Record<string, string>
     signingSecret?: SecretRef
 }): Step {
-    const inputs: Record<string, unknown> = {
+    const inputs: Record<string, JsonValue | SecretRef> = {
         url: options.url,
         method: options.method ?? 'POST',
         body: options.body ?? {},

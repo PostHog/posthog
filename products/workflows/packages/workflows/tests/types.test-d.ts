@@ -1,7 +1,7 @@
 // `tsc` fails this file when an `@ts-expect-error` line stops being an error, so a
 // type rule that relaxes breaks the build.
 
-import { branch, delay, email, onSchedule, path, person, workflow } from '../src/index.js'
+import { branch, delay, email, fn, onSchedule, path, person, secret, workflow } from '../src/index.js'
 
 const wait = delay('1d', { name: 'Wait a day' })
 const onPaidPlan = [person('plan', 'exact', ['pro'])] as const
@@ -66,6 +66,20 @@ email({
     subject: 'Welcome',
     text: 'Hello',
     html: '<p>Hello</p>',
+})
+
+fn({
+    name: 'Post to Slack',
+    templateId: 'template-slack',
+    inputs: { text: 'Hello', secret: secret('SLACK_TOKEN'), blocks: [{ type: 'section' }] },
+})
+fn({
+    name: 'Post to Slack',
+    templateId: 'template-slack',
+    inputs: {
+        // @ts-expect-error - function inputs must be JSON or a secret
+        transform: () => 'Hello',
+    },
 })
 
 // The workflow carries its own identity.

@@ -57,8 +57,9 @@ export interface Workflow {
      * `status`, `message`, `why` and `fix`. The statuses are `duplicate_action_id`,
      * `reserved_action_id`, `invalid_action_id`, `action_id_too_long`,
      * `unnamed_action_id`, `step_name_too_long`, `invalid_duration`,
-     * `duration_over_unit_cap`, `empty_path`, `missing_secret`, `nested_secret`,
-     * `duplicate_variable_key` and `variables_too_large`.
+     * `duration_over_unit_cap`, `empty_path`, `invalid_email_sender`,
+     * `invalid_sender_address`, `missing_secret`, `nested_secret`, `duplicate_variable_key`
+     * and `variables_too_large`.
      */
     emit(options?: EmitOptions): EmitResult
 }
