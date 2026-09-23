@@ -2449,6 +2449,25 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
         ]
         assert rows == []
 
+    def test_object_rules_write_only_clears_rules_on_a_soft_deleted_object(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="Retired", created_by=self.user, deleted=True)
+        AccessControl.objects.create(
+            team=self.team, resource="dashboard", resource_id=str(dashboard.id), access_level="none"
+        )
+
+        res = self.client.put(
+            "/api/projects/@current/access_control_object_rules",
+            {"resource": "dashboard", "resource_id": str(dashboard.id), "access_level": "viewer"},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+
+        res = self.client.put(
+            "/api/projects/@current/access_control_object_rules",
+            {"resource": "dashboard", "resource_id": str(dashboard.id), "access_level": None},
+        )
+        assert res.status_code == status.HTTP_204_NO_CONTENT, res.content
+        assert not AccessControl.objects.filter(resource="dashboard", resource_id=str(dashboard.id)).exists()
+
     # product_tour guards the resources model_to_resource cannot map by model name (ProductTour
     # lowercases to "producttour"): the endpoints must pass the resource explicitly or the
     # access-level filter silently no-ops

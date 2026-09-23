@@ -33,6 +33,7 @@ from products.tasks.backend.facade.access import DesktopAccessDecision
 from products.tasks.backend.facade.ai_run_defaults import update_team_ai_run_preferences, update_user_ai_run_preferences
 from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
 from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage
+from products.workflows.backend.models import HogFlow
 
 
 class InMemoryStorage:
@@ -2134,6 +2135,8 @@ class TestCanvasActions(CanvasAPIBaseTest):
             ("canvas_scope_only", "tasks.create", ["canvas:write"], status.HTTP_403_FORBIDDEN),
             ("target_scope_held", "tasks.create", ["canvas:write", "task:write"], status.HTTP_200_OK),
             ("cloud_canvas_scope_only", "tasks.create_and_run", ["canvas:write"], status.HTTP_403_FORBIDDEN),
+            ("workflow_canvas_scope_only", "workflows.pause", ["canvas:write"], status.HTTP_403_FORBIDDEN),
+            ("workflow_scope_held", "workflows.pause", ["canvas:write", "hog_flow:write"], status.HTTP_200_OK),
         ]
     )
     def test_scoped_keys_need_the_verbs_target_scope(self, _name, verb, scopes, expected_status):
@@ -2143,15 +2146,89 @@ class TestCanvasActions(CanvasAPIBaseTest):
             label="canvas-actions", user=self.user, secure_value=hash_key_value(raw_key), scopes=scopes
         )
         self.client.logout()
+        workflow = HogFlow.objects.create(
+            team=self.team, name="Loop", status="active", trigger={}, actions=[], edges=[]
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/actions/invoke/",
-            {"verb": verb, "payload": {"title": "Scoped", "description": "", "idempotency_key": str(uuid4())}},
+            {
+                "verb": verb,
+                "payload": {
+                    "title": "Scoped",
+                    "description": "",
+                    "idempotency_key": str(uuid4()),
+                    "workflow_ids": [str(workflow.id)],
+                },
+            },
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {raw_key}",
         )
 
         assert response.status_code == expected_status, response.json()
+
+    def test_workflow_verbs_flip_status_and_refuse_other_projects(self):
+        canvas_id = self._actions_canvas(verbs=("workflows.pause", "workflows.resume"))
+        loop = HogFlow.objects.create(
+            team=self.team,
+            name="Plan",
+            status="active",
+            trigger={"type": "schedule"},
+            actions=[{"id": "trigger", "type": "trigger", "name": "Scheduled", "config": {"type": "schedule"}}],
+            edges=[],
+        )
+        other_team = self.organization.teams.create(name="other")
+        foreign = HogFlow.objects.create(
+            team=other_team, name="Elsewhere", status="active", trigger={}, actions=[], edges=[]
+        )
+
+        paused = self._invoke(canvas_id, "workflows.pause", {"workflow_ids": [str(loop.id)]})
+        assert paused.status_code == status.HTTP_200_OK, paused.json()
+        assert paused.json()["result"] == {"workflows": [{"id": str(loop.id), "status": "draft"}]}
+        loop.refresh_from_db()
+        assert loop.status == "draft"
+
+        resumed = self._invoke(canvas_id, "workflows.resume", {"workflow_ids": [str(loop.id)]})
+        assert resumed.status_code == status.HTTP_200_OK, resumed.json()
+        loop.refresh_from_db()
+        assert loop.status == "active"
+
+        refused = self._invoke(canvas_id, "workflows.pause", {"workflow_ids": [str(loop.id), str(foreign.id)]})
+        assert refused.status_code == status.HTTP_404_NOT_FOUND, refused.json()
+        foreign.refresh_from_db()
+        assert foreign.status == "active"
+        loop.refresh_from_db()
+        assert loop.status == "active"
+
+    @parameterized.expand(
+        [
+            ([],),
+            (
+                [
+                    {
+                        "id": "trigger",
+                        "type": "trigger",
+                        "name": "Slack",
+                        "config": {
+                            "type": "internal-event",
+                            "filters": {"events": [{"id": "$slack_message_received", "type": "events"}]},
+                        },
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_resume_rejects_an_invalid_draft(self, actions):
+        canvas_id = self._actions_canvas(verbs=("workflows.resume",))
+        loop = HogFlow.objects.create(
+            team=self.team, name="Invalid", status="draft", trigger={}, actions=actions, edges=[]
+        )
+
+        response = self._invoke(canvas_id, "workflows.resume", {"workflow_ids": [str(loop.id)]})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        loop.refresh_from_db()
+        assert loop.status == "draft"
 
     def test_registry_lists_every_verb_with_authoring_docs(self):
         # Agents build against this endpoint instead of a skill file, so a verb

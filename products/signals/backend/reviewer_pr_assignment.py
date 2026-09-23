@@ -387,8 +387,8 @@ def dri_candidate_logins(
     of the team that owns the changed files. The suggested reviewers are the owners only when no
     ownership source names a team.
 
-    Within a rung, somebody who has touched this code comes first — an owning-team member among
-    those who opted in, and a suggested reviewer among the team.
+    Among those who opted in, an owning-team member comes first. Among the owning team, commit
+    history gives no priority, so one prolific committer does not get every pull request.
     """
     team_logins = list(team.logins) if team is not None and team.logins else []
     owners = team_logins or reviewers
@@ -397,7 +397,6 @@ def dri_candidate_logins(
     candidates = [claimant]
     candidates += [login for login in opted_in_ranked if login in team_logins]
     candidates += opted_in_ranked
-    candidates += [login for login in owners if login in reviewers]
     candidates += owners
     return list(dict.fromkeys(login for login in candidates if login))
 

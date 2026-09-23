@@ -307,7 +307,7 @@ def test_a_kafka_failure_does_not_reach_the_webhook(produce, integration) -> Non
 def test_the_webhook_consumer_passes_the_whole_delivery_through_the_facade(produce, integration) -> None:
     # The facade unpacks the delivery into emit's three arguments. The delivery id only shows up
     # in the event uuid, so dropping it emits an event that looks correct and dedupes wrong.
-    (consumer,) = WEBHOOK_CONSUMERS
+    (consumer,) = [consumer for consumer in WEBHOOK_CONSUMERS if consumer.name == "workflows"]
     delivery = WebhookDelivery(
         provider="github",
         app="posthog",

@@ -4978,6 +4978,11 @@ export interface AggregatedSpanRow {
     p99_duration_nano: number
     p999_duration_nano: number
     error_count: integer
+    /** Set only when the query asked for `includeImpact`. `sessions` and `users` are uniq() estimates; the two span counts are exact. */
+    sessions?: integer
+    users?: integer
+    spans_with_session_id?: integer
+    spans_with_distinct_id?: integer
 }
 
 export interface TraceSpansAggregationQuery extends DataNode<TraceSpansAggregationQueryResponse> {
@@ -4987,6 +4992,8 @@ export interface TraceSpansAggregationQuery extends DataNode<TraceSpansAggregati
     compareFilter?: CompareFilter
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
+    /** Also aggregate sessions and people per operation. Off by default: it reads the attribute maps. */
+    includeImpact?: boolean
 }
 
 export interface TraceSpansAggregationQueryResponse extends AnalyticsQueryResponseBase {
@@ -5314,6 +5321,7 @@ export type FileSystemIconType =
     | 'tracing'
     | 'metrics'
     | 'workflows'
+    | 'broadcasts'
     | 'notebook'
     | 'action'
     | 'activity'
@@ -5647,7 +5655,8 @@ export interface ExperimentApiMetric {
      *  binomial-style denominator, which is never clamped. */
     denominator_outlier_handling?: ExperimentMetricOutlierHandling
     /** For retention metrics: start event. Pass {"kind": "ExperimentExposureNode"} to start retention
-     *  from the experiment's exposure event; start_handling and conversion window are ignored then. */
+     *  from the experiment's exposure event; a conversion window or 'last_seen' start_handling is
+     *  rejected then, because the start is always the user's first exposure. */
     start_event?: ExperimentApiRetentionStart
     /** For retention metrics: completion event. */
     completion_event?: ExperimentApiEventSource
@@ -5847,7 +5856,7 @@ export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
     retention_window_end: integer
     retention_window_unit: FunnelConversionWindowTimeUnit
 
-    // How to handle the start of the retention window. Ignored for an
+    // How to handle the start of the retention window. Must be 'first_seen' for an
     // ExperimentExposureNode start, which always anchors on the first exposure.
     start_handling: 'first_seen' | 'last_seen'
 }
@@ -6739,6 +6748,7 @@ export enum DetectorType {
     LOF = 'lof',
     OCSVM = 'ocsvm',
     PCA = 'pca',
+    LLM = 'llm',
 }
 
 /** Preprocessing transforms applied to the time series before detection */
@@ -6885,6 +6895,32 @@ export interface PCADetectorConfig {
     preprocessing?: PreprocessingConfig
 }
 
+/**
+ * Hands the series to a model instead of a statistical test. Carries no preprocessing block:
+ * differencing or smoothing would hide from the model exactly what it is meant to read.
+ */
+export interface LLMDetectorConfig {
+    type: 'llm'
+    /**
+     * What counts as unusual or interesting for this metric, in your own words. Optional.
+     * @maxLength 2000
+     */
+    instructions?: string
+    /**
+     * Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)
+     * @minimum 0
+     * @maximum 1
+     */
+    threshold?: number
+    /**
+     * How many recent points the model is shown (default: 90)
+     * @asType integer
+     * @minimum 5
+     * @maximum 400
+     */
+    window?: number
+}
+
 export enum EnsembleOperator {
     AND = 'and',
     OR = 'or',
@@ -6907,13 +6943,16 @@ export type SingleDetectorConfig =
     | LOFDetectorConfig
     | OCSVMDetectorConfig
     | PCADetectorConfig
+    | LLMDetectorConfig
+
+export type EnsembleSubDetectorConfig = Exclude<SingleDetectorConfig, LLMDetectorConfig>
 
 export interface EnsembleDetectorConfig {
     type: 'ensemble'
     /** How to combine sub-detector results */
     operator: EnsembleOperator
     /** Sub-detector configurations (minimum 2) */
-    detectors: SingleDetectorConfig[]
+    detectors: EnsembleSubDetectorConfig[]
 }
 
 /**
@@ -7910,9 +7949,15 @@ export interface MarketingAnalyticsRetentionSummaryRow {
     returned7d: integer
     eligible30d: integer
     returned30d: integer
-    /** Median elapsed days to a second session within 30 days, among observed returners. */
+    /**
+     * Estimated median calendar days from the first session to the first return on a later day, using
+     * the project's timezone. Includes observed returns within 30 days. Same-day visits do not count.
+     */
     medianReturnDays: number | null
-    /** People with an observed second session within 30 days, including incomplete windows. */
+    /**
+     * People who returned on a later calendar day in the project's timezone within 30 days of their
+     * first session, including incomplete windows.
+     */
     returners: integer
 }
 

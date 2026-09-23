@@ -1,1 +1,1 @@
-0328_sessions_v3_ws_pipeline
+0330_trace_spans_retention_days

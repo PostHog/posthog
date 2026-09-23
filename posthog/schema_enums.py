@@ -1064,6 +1064,7 @@ class DetectorType(StrEnum):
     LOF = "lof"
     OCSVM = "ocsvm"
     PCA = "pca"
+    LLM = "llm"
 
 
 class DistanceFunc(StrEnum):
@@ -1382,6 +1383,7 @@ class FileSystemIconType(StrEnum):
     TRACING = "tracing"
     METRICS = "metrics"
     WORKFLOWS = "workflows"
+    BROADCASTS = "broadcasts"
     NOTEBOOK = "notebook"
     ACTION = "action"
     ACTIVITY = "activity"

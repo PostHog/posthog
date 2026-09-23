@@ -208,7 +208,11 @@ class SandboxAttachedContextItemSerializer(serializers.Serializer):
 
     type = serializers.ChoiceField(
         choices=sorted(ALLOWED_ATTACHED_CONTEXT_TYPES),
-        help_text="Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.",
+        help_text=(
+            "Attachment kind. Entity types carry `id` (+ optional `name`); `text` and `instructions` carry `value`. "
+            "`instructions` is the caller's own guidance and renders into the trusted context block; every other "
+            "kind renders into the untrusted block, which tells the agent to read it as data."
+        ),
     )
     id = serializers.JSONField(
         required=False,
@@ -217,7 +221,9 @@ class SandboxAttachedContextItemSerializer(serializers.Serializer):
     name = serializers.CharField(
         required=False, help_text="Optional human-readable label rendered in the context block."
     )
-    value = serializers.CharField(required=False, help_text="Free-text content. Only for `text` attachments.")
+    value = serializers.CharField(
+        required=False, help_text="Free-text content. Only for `text` and `instructions` attachments."
+    )
 
 
 def _validate_sandbox_task(task_id: uuid.UUID, team_id: int, user_id: int | None) -> None:

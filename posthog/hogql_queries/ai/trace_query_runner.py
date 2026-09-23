@@ -107,6 +107,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
             query=self._build_query(),
             placeholders={"filter_conditions": self._get_where_clause(include_timestamp_bounds=False)},
             team=self.team,
+            user=self.user,
             query_type=NodeKind.TRACE_QUERY,
             fall_back_to_events=True,
             fallback_placeholders={"filter_conditions": self._get_where_clause()},
@@ -120,6 +121,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         if self.query.includeSentiment and query_result.results:
             sentiment_lookup = load_generation_sentiment_evaluations_for_traces(
                 team=self.team,
+                user=self.user,
                 trace_ids=[self.query.traceId],
                 timings=self.timings,
                 modifiers=self.modifiers,
