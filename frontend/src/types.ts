@@ -618,7 +618,6 @@ export interface OrganizationType extends OrganizationBasicType {
     allow_publicly_shared_resources: boolean
     metadata?: OrganizationMetadata
     member_count: number
-    default_experiment_stats_method: ExperimentStatsMethod
     default_anonymize_ips?: boolean
     default_role_id?: string | null
     uses_most_specific_access_resolution?: boolean | null

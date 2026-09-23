@@ -2,6 +2,8 @@ import { MakeLogicType, actions, kea, path, reducers, selectors } from 'kea'
 
 /** What a host surface can change about the composer's empty state. */
 export interface ComposerOverride {
+    placeholder?: string
+    subheadline?: string | null
     /** Hide the repository and branch picker when the task never touches a repo. */
     hideRepositorySelector?: boolean
     /** Hide the generic "Try PostHog AI for…" row when the host renders its own suggestions. */
