@@ -40,9 +40,11 @@ const SANITIZED_URL_PROPERTIES = new Set(['$ai_base_url', '$ai_request_url'])
  */
 const REDACTED_KEYS_FIELD = '_redactedKeys'
 
-function sanitizeUrl(value: unknown): unknown {
+function sanitizeUrl(value: unknown): string | undefined {
     if (typeof value !== 'string') {
-        return value
+        // A structured value has no query string to cut off it, and carries a
+        // credential just as well as a string does, so it is withheld instead.
+        return undefined
     }
     try {
         const url = new URL(value)
@@ -59,23 +61,28 @@ function isRetained(key: string): boolean {
 }
 
 /**
- * Filter one property bag. Returns the owner unchanged when the bag holds
+ * Filter an event property bag. Returns the event unchanged when the bag holds
  * nothing to withhold or sanitize, which is the common shape of an SDK trace.
  */
-function redactBagOn(owner: Record<string, unknown>): Record<string, unknown> {
-    const properties = owner.properties
+function redactEventBag(event: Record<string, unknown>): Record<string, unknown> {
+    const properties = event.properties
     if (!isRecord(properties)) {
-        return owner
+        return event
     }
     const keys = Object.keys(properties)
     if (keys.every((key) => isRetained(key) && !SANITIZED_URL_PROPERTIES.has(key))) {
-        return owner
+        return event
     }
     const retained: Record<string, unknown> = {}
     const withheld: string[] = []
     for (const key of keys) {
         if (SANITIZED_URL_PROPERTIES.has(key)) {
-            assignKey(retained, key, sanitizeUrl(properties[key]))
+            const sanitized = sanitizeUrl(properties[key])
+            if (sanitized === undefined) {
+                withheld.push(key)
+            } else {
+                assignKey(retained, key, sanitized)
+            }
         } else if (isRetained(key)) {
             assignKey(retained, key, properties[key])
         } else {
@@ -83,10 +90,28 @@ function redactBagOn(owner: Record<string, unknown>): Record<string, unknown> {
         }
     }
     return {
-        ...owner,
+        ...event,
         properties: retained,
         ...(withheld.length > 0 ? { [REDACTED_KEYS_FIELD]: withheld } : {}),
     }
+}
+
+/**
+ * Withhold every person property value. The allowlist above describes an AI
+ * event, and a person bag is not one: its names come from `$set`, so a person
+ * carrying `$ai_model` carries whatever the application chose to write there.
+ * `uuid` and `distinct_id` sit outside the bag, so the person stays navigable.
+ */
+function redactPersonBag(person: Record<string, unknown>): Record<string, unknown> {
+    const properties = person.properties
+    if (!isRecord(properties)) {
+        return person
+    }
+    const withheld = Object.keys(properties)
+    if (withheld.length === 0) {
+        return person
+    }
+    return { ...person, properties: {}, [REDACTED_KEYS_FIELD]: withheld }
 }
 
 /** Redact one trace: every event bag, and the person bag attached to the trace. */
@@ -96,10 +121,10 @@ export function redactTrace(trace: unknown): unknown {
     }
     const out: Record<string, unknown> = { ...trace }
     if (Array.isArray(trace.events)) {
-        out.events = trace.events.map((event) => (isRecord(event) ? redactBagOn(event) : event))
+        out.events = trace.events.map((event) => (isRecord(event) ? redactEventBag(event) : event))
     }
     if (isRecord(trace.person)) {
-        out.person = redactBagOn(trace.person)
+        out.person = redactPersonBag(trace.person)
     }
     return out
 }

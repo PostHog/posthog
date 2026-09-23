@@ -78,6 +78,13 @@ const FIT_HEADROOM = 1.2
  * Event properties that stay in a summary. These are the fields an agent needs
  * to navigate a trace: tree position, timing, model, spend, tool calls, and
  * failures. Everything else is content and is omitted, name only.
+ *
+ * `$ai_error` and `$ai_feedback_text` are deliberately absent, though they are
+ * metadata by position. Both are free text a person or a provider wrote, and a
+ * provider error routinely quotes the prompt back, so keeping them would put
+ * conversation content in the mode that promises none. `$ai_is_error` and
+ * `$ai_http_status` stay, so a survey can still find the failures and then read
+ * them at `full` detail.
  */
 const SUMMARY_METADATA_PROPERTIES = new Set([
     '$ai_trace_id',
@@ -98,11 +105,9 @@ const SUMMARY_METADATA_PROPERTIES = new Set([
     '$ai_total_cost_usd',
     '$ai_tools_called',
     '$ai_is_error',
-    '$ai_error',
     '$ai_http_status',
     '$ai_metric_name',
     '$ai_metric_value',
-    '$ai_feedback_text',
 ])
 
 /** Trace-level fields that carry conversation content rather than metadata. */
@@ -116,7 +121,7 @@ const SUMMARY_OMITTED_TRACE_FIELDS = new Set(['inputState', 'outputState'])
 const SUMMARY_OMITTED_KEYS_FIELD = '_summaryOmittedKeys'
 
 const SUMMARY_NOTE =
-    'Event content is omitted; only the names of the omitted properties are listed. Re-run this tool with detail: "full" for prompts and outputs, or open the trace in PostHog.'
+    'Event content is omitted; only the names of the omitted properties are listed. Re-run this tool with detail: "full" for prompts, outputs, error messages, and feedback text, or open the trace in PostHog.'
 
 function metaReserveFor(budget: number): number {
     return Math.min(META_RESERVE, Math.floor(Math.max(0, budget) * SMALL_BUDGET_RESERVE_RATIO))

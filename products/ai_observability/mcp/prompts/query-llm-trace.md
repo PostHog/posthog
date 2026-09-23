@@ -84,9 +84,10 @@ If the trace is old, provide a date range to help the query find it efficiently:
 `detail` controls how much of each event you get back.
 
 - `"full"` (default) returns every retained property in full, bounded by the response size limit below.
-- `"summary"` opts into trace fields, plus each event's `id`, `createdAt`, `event` type, and its navigation properties: `$ai_trace_id`, `$ai_span_id`, `$ai_generation_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_model`, `$ai_provider`, `$ai_latency`, token counts, costs, `$ai_tools_called`, `$ai_is_error`, `$ai_error`, `$ai_http_status`, `$ai_metric_name`, `$ai_metric_value`, and `$ai_feedback_text`. Prompts, outputs, span states, and `inputState` / `outputState` are left out, not shortened: their names are listed in `_summaryOmittedKeys` beside the bag. A summarized trace carries `_detail: { "mode": "summary" }`.
+- `"summary"` opts into trace fields, plus each event's `id`, `createdAt`, `event` type, and its navigation properties: `$ai_trace_id`, `$ai_span_id`, `$ai_generation_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_model`, `$ai_provider`, `$ai_latency`, token counts, costs, `$ai_tools_called`, `$ai_is_error`, `$ai_http_status`, `$ai_metric_name`, and `$ai_metric_value`. Everything else is left out, not shortened: their names are listed in `_summaryOmittedKeys` beside the bag. A summarized trace carries `_detail: { "mode": "summary" }`.
+- A summary carries no free text at all. Prompts, outputs, span states, `inputState` / `outputState`, `$ai_error`, and `$ai_feedback_text` all need `detail: "full"`. Use `$ai_is_error` and `$ai_http_status` to find the failed events in a summary, then read their messages at full detail.
 
-For a cost or latency survey, request `detail: "summary"` — it carries no conversation content at all. Find the events that matter from their metadata, then re-run with `detail: "full"` when you need the prompts and outputs. Keep relevant date and property filters when requesting full detail.
+For a cost or latency survey, request `detail: "summary"` — it carries no conversation content at all. Find the events that matter from their metadata, then re-run with `detail: "full"` when you need the text. Keep relevant date and property filters when requesting full detail.
 
 # Withheld properties
 

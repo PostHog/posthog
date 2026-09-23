@@ -139,7 +139,10 @@ describe('compactTrace summary detail', () => {
                     $ai_model: 'gpt-4',
                     $ai_latency: 1.5,
                     $ai_tools_called: ['search'],
-                    $ai_is_error: false,
+                    $ai_is_error: true,
+                    $ai_http_status: 429,
+                    $ai_error: 'rate limited while sending: Why did the checkout funnel drop?',
+                    $ai_feedback_text: 'It never answered why the checkout funnel dropped.',
                     $ai_input: 'i'.repeat(5_000),
                     $ai_output_choices: 'o'.repeat(5_000),
                     custom_payload: 'c'.repeat(5_000),
@@ -155,11 +158,24 @@ describe('compactTrace summary detail', () => {
         expect(properties.$ai_model).toBe('gpt-4')
         expect(properties.$ai_latency).toBe(1.5)
         expect(properties.$ai_tools_called).toEqual(['search'])
-        expect(properties.$ai_is_error).toBe(false)
+        expect(properties.$ai_is_error).toBe(true)
+        expect(properties.$ai_http_status).toBe(429)
         expect(properties.$ai_input).toBeUndefined()
         expect(properties.$ai_output_choices).toBeUndefined()
         expect(properties.custom_payload).toBeUndefined()
-        expect(result.events[0]._summaryOmittedKeys).toEqual(['$ai_input', '$ai_output_choices', 'custom_payload'])
+        // A provider error and a feedback note are free text, and an error
+        // routinely quotes the prompt back, so a summary keeps the flags that
+        // locate a failed event and drops the words.
+        expect(properties.$ai_error).toBeUndefined()
+        expect(properties.$ai_feedback_text).toBeUndefined()
+        expect(JSON.stringify(result)).not.toContain('checkout funnel')
+        expect(result.events[0]._summaryOmittedKeys).toEqual([
+            '$ai_error',
+            '$ai_feedback_text',
+            '$ai_input',
+            '$ai_output_choices',
+            'custom_payload',
+        ])
         expect(result.events[0].createdAt).toBe('2026-09-02T11:30:23Z')
         expect(result.totalCost).toBe(0.42)
         expect(result._detail.mode).toBe('summary')

@@ -139,7 +139,7 @@ A withheld property is unchanged in PostHog: it still works as a filter here, an
 `detail` controls how much of each event you get back.
 
 - `"full"` (default) returns every retained property in full, subject to response size limits.
-- `"summary"` opts into trace and event metadata only. Prompts, outputs, span states, and other content are left out, and their names are listed in `_summaryOmittedKeys` beside the bag. A summarized trace carries `_detail: { "mode": "summary" }`.
+- `"summary"` opts into trace and event metadata only. It carries no free text at all: prompts, outputs, span states, `$ai_error`, and `$ai_feedback_text` are left out, and their names are listed in `_summaryOmittedKeys` beside the bag. Use `$ai_is_error` and `$ai_http_status` to find the failed events, then read their messages with `detail: "full"`. A summarized trace carries `_detail: { "mode": "summary" }`.
 
 Request `detail: "summary"` when finding candidate traces from their metadata; read the one you picked with `query-llm-trace` and `detail: "full"` when you need its content.
 

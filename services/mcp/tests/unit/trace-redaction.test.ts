@@ -15,6 +15,7 @@ const SECRETS = {
     permissions: 'INVENTEDPERMISSION4444',
     budget: 'INVENTEDBUDGET5555',
     custom: 'INVENTEDCUSTOM6666',
+    personSet: 'INVENTEDPERSONSET7777',
 }
 
 function traceWithSecrets(): Record<string, unknown> {
@@ -25,7 +26,14 @@ function traceWithSecrets(): Record<string, unknown> {
         person: {
             uuid: 'person-1',
             distinct_id: 'distinct-1',
-            properties: { email: SECRETS.identity, $geoip_city_name: SECRETS.location },
+            properties: {
+                email: SECRETS.identity,
+                $geoip_city_name: SECRETS.location,
+                // Names the event allowlist retains. A person bag is written
+                // with `$set`, so these hold whatever the application chose.
+                $ai_model: SECRETS.personSet,
+                $session_id: SECRETS.personSet,
+            },
         },
         events: [
             {
@@ -89,13 +97,14 @@ describe('trace redaction', () => {
         ])
     })
 
-    it('withholds person properties while keeping the person navigable', () => {
+    it('withholds every person property, including names the event allowlist keeps', () => {
         const person = (redactTrace(traceWithSecrets()) as any).person
 
         expect(person.uuid).toBe('person-1')
         expect(person.distinct_id).toBe('distinct-1')
         expect(secretsIn(person)).toEqual([])
-        expect(person._redactedKeys).toEqual(['email', '$geoip_city_name'])
+        expect(person.properties).toEqual({})
+        expect(person._redactedKeys).toEqual(['email', '$geoip_city_name', '$ai_model', '$session_id'])
     })
 
     it.each([
@@ -120,6 +129,16 @@ describe('trace redaction', () => {
 
         expect(secretsIn(properties)).toEqual([])
         expect(properties[key]).toContain('https://api.example.com/v1')
+    })
+
+    it('withholds a URL property that is not a string, having no query string to cut', () => {
+        const value = { url: `https://api.example.com/v1?api_key=${SECRETS.credential}` }
+        const trace = { id: 't1', events: [{ id: 'e1', properties: { $ai_request_url: value } }] }
+
+        const event = (redactTrace(trace) as any).events[0]
+
+        expect(secretsIn(event)).toEqual([])
+        expect(event._redactedKeys).toEqual(['$ai_request_url'])
     })
 
     it('returns a bag that holds only retained properties unchanged', () => {
