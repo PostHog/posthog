@@ -4,7 +4,7 @@ from posthog.migration_helpers import CreateIndexConcurrently
 
 
 class Migration(migrations.Migration):
-    # Required by CreateIndexConcurrently, and why the column it indexes is added in 0026 instead.
+    # Required by CreateIndexConcurrently, and why the column it indexes is added in 0027 instead.
     atomic = False
 
     dependencies = [
