@@ -59,14 +59,14 @@ Pass the user agent explicitly. Use `properties.$raw_user_agent`, which is the e
 virtual properties use internally. Do not reach for `properties.$user_agent`: almost no event
 carries it, so every row reads as an empty user agent and classifies as a bot.
 
-| Function                 | Returns                                                                      |
-| ------------------------ | ---------------------------------------------------------------------------- |
-| `isLikelyBot(ua)`        | `true` if the UA matches a bot/automation pattern, or the UA is empty       |
-| `getTrafficType(ua)`     | `AI Agent` / `Bot` / `Automation` / `Regular`                                |
-| `getTrafficCategory(ua)` | subcategory; `regular` for humans                                            |
-| `getBotType(ua)`         | same subcategory but empty string for humans — handy for filtering           |
-| `getBotName(ua)`         | bot name; empty for humans                                                   |
-| `getBotOperator(ua)`     | operator/company; empty for humans                                           |
+| Function                 | Returns                                                               |
+| ------------------------ | --------------------------------------------------------------------- |
+| `isLikelyBot(ua)`        | `true` if the UA matches a bot/automation pattern, or the UA is empty |
+| `getTrafficType(ua)`     | `AI Agent` / `Bot` / `Automation` / `Regular`                         |
+| `getTrafficCategory(ua)` | subcategory; `regular` for humans                                     |
+| `getBotType(ua)`         | same subcategory but empty string for humans — handy for filtering    |
+| `getBotName(ua)`         | bot name; empty for humans                                            |
+| `getBotOperator(ua)`     | operator/company; empty for humans                                    |
 
 ## Events with no user agent count as bots
 
@@ -91,8 +91,10 @@ expecting it. Before you present a bot-filtered number:
    GROUP BY no_user_agent
    ```
 
-2. If the user only wants web traffic, add a guard on the user agent alongside the bot filter,
-   so events that were never web requests are excluded rather than counted as bots:
+2. To keep only events that carry a user agent, add this guard alongside the bot filter. It
+   reads the stored `$raw_user_agent`, so it is not a proof of browser origin: it also drops a
+   browser event whose user agent was stripped, and keeps a non-browser capture that set one.
+   Scope to a web event or a known web source when the count has to be web-only.
 
    ```json
    [
@@ -101,12 +103,13 @@ expecting it. Before you present a bot-filtered number:
    ]
    ```
 
-3. Say which of the two the number reflects. "Human web traffic" and "everything that is not
-   classified as a bot" are different populations.
+3. Say which population the number reflects. "Events with a stored user agent", "web
+   traffic", and "everything not classified as a bot" are three different groups.
 
 Cookieless events are a separate case. The user agent is used at capture time and then stripped,
 so those events provably had one. PostHog is rolling out a modifier that classifies them as
-regular traffic, so they may or may not be counted as bots on a given project.
+regular traffic, so they may or may not be counted as bots on a given project. The
+`$raw_user_agent` guard drops them either way, because the stored property is gone.
 
 ## Traffic types — what to keep vs drop
 
@@ -133,9 +136,9 @@ Add a property filter `$virt_is_bot` `exact` `false`:
 Drop it into any TrendsQuery / FunnelsQuery / etc. `properties`. This changes the counts
 only, not the stored data.
 
-This also drops every event with no user agent, which on most projects means all non-web
-capture. Pair it with `$raw_user_agent` `is_set` when the user wants human web
-traffic, and see **Events with no user agent count as bots** above.
+This also drops every event with no stored user agent, which on most projects means all
+non-web capture. Pair it with `$raw_user_agent` `is_set` to keep only events that carry a
+user agent, and see **Events with no user agent count as bots** above.
 
 To exclude a narrower slice (e.g. keep AI agents but drop monitoring + automation), filter
 on `$virt_traffic_type` or `$virt_traffic_category` with `operator: is_not` instead.
@@ -183,7 +186,7 @@ FROM events
 WHERE event = '$pageview'
     AND NOT isLikelyBot(properties.$raw_user_agent)
 
--- top bots by hits, web traffic only
+-- top bots by hits, events with a user agent only
 SELECT
     getBotName(properties.$raw_user_agent) AS bot,
     getBotOperator(properties.$raw_user_agent) AS operator,
