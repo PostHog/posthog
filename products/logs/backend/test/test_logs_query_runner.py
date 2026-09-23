@@ -1,5 +1,6 @@
 import os
 import json
+import base64
 from uuid import uuid4
 
 import time_machine
@@ -577,6 +578,54 @@ class TestAttributeFilters(APIBaseTest):
         query_str = executor.clickhouse_prepared_ast.to_hogql()
 
         self.assertNotIn("ilike(body", query_str.lower())
+
+
+class TestPaginationCursorValidation(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("bad_padding", "eyJ0aW1lc3RhbXAiOiA"),
+            ("not_utf8", base64.b64encode(b"\xff\xfe").decode()),
+            ("not_json", base64.b64encode(b"not json").decode()),
+            ("missing_uuid", base64.b64encode(json.dumps({"timestamp": "2024-01-10T00:00:00Z"}).encode()).decode()),
+            (
+                "bad_timestamp",
+                base64.b64encode(json.dumps({"timestamp": "not a date", "uuid": str(uuid4())}).encode()).decode(),
+            ),
+        ]
+    )
+    def test_malformed_after_cursor_is_a_user_error(self, _name, after):
+        # A cursor the client mangled must fail as a 400, not a 500. A bare ValueError here is
+        # unclassified, so it also charges the logs query SLO for bad client input.
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2024-01-10T00:00:00Z", date_to="2024-01-15T23:59:59Z"),
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[])],
+            ),
+            after=after,
+            kind="LogsQuery",
+        )
+
+        with self.assertRaises(QueryError):
+            LogsQueryRunner(query=query, team=self.team).to_query()
+
+    def test_malformed_live_logs_checkpoint_is_a_user_error(self):
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2024-01-10T00:00:00Z", date_to="2024-01-15T23:59:59Z"),
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[])],
+            ),
+            liveLogsCheckpoint="not a timestamp",
+            kind="LogsQuery",
+        )
+
+        with self.assertRaises(QueryError):
+            LogsQueryRunner(query=query, team=self.team).to_query()
 
 
 class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
