@@ -327,7 +327,7 @@ class AgentExecutor:
         )
         try:
             client = await async_connect()
-            async for _ in client.list_workflows(query=query):
+            async for _ in client.list_workflows(query=query, limit=1):
                 return True
             return False
         except Exception as e:

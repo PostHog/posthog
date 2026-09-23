@@ -485,8 +485,9 @@ class TestAgentExecutor(BaseTest):
         mock_client = Mock()
         seen_queries: list[str] = []
 
-        async def mock_list_workflows(query):
+        async def mock_list_workflows(query, limit=None):
             seen_queries.append(query)
+            self.assertEqual(limit, 1)
             yield Mock(id=f"conversation-{self.conversation.id}-queued-1")
 
         mock_client.list_workflows = mock_list_workflows
@@ -501,7 +502,7 @@ class TestAgentExecutor(BaseTest):
     async def test_ahas_live_run_reports_no_open_runs(self, mock_connect):
         mock_client = Mock()
 
-        async def mock_list_workflows(query):
+        async def mock_list_workflows(query, limit=None):
             return
             yield  # noqa: B901 - make it an async generator
 

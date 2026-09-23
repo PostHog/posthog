@@ -481,6 +481,8 @@ class ConversationViewSet(
         async def has_live_run() -> bool:
             return await AgentExecutor(conversation).ahas_live_run()
 
+        # `ahas_live_run` answers True on a Temporal failure, so this guard only covers the
+        # sync-to-async bridge itself. Keep it: an orphaned chat must never surface as a 500.
         try:
             if asgi_async_to_sync(has_live_run)():
                 return False
@@ -492,10 +494,8 @@ class ConversationViewSet(
             )
             return False
 
-        Conversation.objects.filter(pk=conversation.pk).update(
-            status=Conversation.Status.IDLE, updated_at=timezone.now()
-        )
         conversation.status = Conversation.Status.IDLE
+        conversation.save(update_fields=["status", "updated_at"])
         ORPHANED_CONVERSATION_LOCK_COUNTER.inc()
         logger.warning("Cleared orphaned conversation lock", conversation_id=str(conversation.id))
         return True
