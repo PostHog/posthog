@@ -93,7 +93,10 @@ export function AccountPropertyConfigurator({
                 ) : (
                     <p className="text-sm text-secondary mb-0">
                         This project has no account properties yet. Add a custom property or a relationship in{' '}
-                        <Link to={urls.customerAnalyticsConfiguration('customer-analytics-accounts')}>
+                        <Link
+                            to={urls.customerAnalyticsConfiguration('customer-analytics-accounts')}
+                            data-attr="account-pinned-properties-configuration"
+                        >
                             account configuration
                         </Link>{' '}
                         to pin it here.

@@ -53,7 +53,7 @@ describe('AccountPropertyConfigurator', () => {
         expect(screen.getByText('account configuration').getAttribute('href')).toContain(
             '/customer_analytics/configuration?tab=customer-analytics-accounts'
         )
-        expect(screen.queryByText('Add a property')).not.toBeInTheDocument()
+        expect(screen.queryByPlaceholderText('Add a property')).not.toBeInTheDocument()
     })
 
     it('issues no writes while a save is in flight', () => {

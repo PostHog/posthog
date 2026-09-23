@@ -47,7 +47,7 @@ export function SelectPropertyGroupModal({
 }: SelectPropertyGroupModalProps): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
     const logic = schemaManagementLogic({ key: 'select-property-group-modal' })
-    const { propertyGroups } = useValues(logic)
+    const { propertyGroups, propertyGroupsLoading } = useValues(logic)
     const { setPropertyGroupModalOpen, loadPropertyGroups } = useActions(logic)
 
     const filteredPropertyGroups = propertyGroups.filter(
@@ -135,6 +135,7 @@ export function SelectPropertyGroupModal({
                     <LemonTable
                         columns={columns}
                         dataSource={filteredPropertyGroups}
+                        loading={propertyGroupsLoading}
                         expandable={{
                             expandedRowRender: (propertyGroup) => (
                                 <div className="border rounded overflow-hidden mx-4 mb-2 mt-2">
@@ -160,6 +161,8 @@ export function SelectPropertyGroupModal({
                         emptyState={
                             searchTerm ? (
                                 'No property groups match your search'
+                            ) : propertyGroups.length > 0 ? (
+                                'Every property group is already added'
                             ) : (
                                 <div className="flex flex-col items-center gap-2">
                                     <span>No property groups yet.</span>
