@@ -2,6 +2,8 @@ from enum import StrEnum
 
 from temporalio.exceptions import ApplicationError
 
+from posthog.temporal.common.errors import NonReportableWhileRetryingError
+
 from products.replay_vision.backend.error_kinds import FailureKind, IneligibleSessionKind
 
 __all__ = [
@@ -42,8 +44,13 @@ class IneligibleSessionError(_KindedApplicationError):
         super().__init__(message, kind=kind, type=INELIGIBLE_SESSION_ERROR_TYPE)
 
 
-class ScannerFailureError(_KindedApplicationError):
-    """A classified workflow failure. Surfaced as ObservationStatus.FAILED with the kind label on the frontend."""
+class ScannerFailureError(_KindedApplicationError, NonReportableWhileRetryingError):
+    """A classified workflow failure. Surfaced as ObservationStatus.FAILED with the kind label on the frontend.
+
+    A retryable kind (a provider outage, a PostHog dependency at capacity) reaches error tracking only once
+    the activity's retries are spent, so the issue counts the scans a user lost, not the attempts that a
+    later attempt recovered.
+    """
 
     def __init__(self, message: str, *, kind: FailureKind) -> None:
         super().__init__(message, kind=kind, type=SCANNER_FAILURE_ERROR_TYPE, non_retryable=not kind.is_retryable)

@@ -17,7 +17,7 @@ from temporalio.worker import (
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.exceptions_capture import ambient_exception_properties
 from posthog.temporal.common.db_errors import is_transient_db_error
-from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.errors import NonReportableError, NonReportableWhileRetryingError
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
@@ -73,6 +73,27 @@ def is_expected_activity_failure(error: BaseException) -> bool:
         )
         or is_transient_db_error(error)
     )
+
+
+def is_deferred_until_retries_spent(error: BaseException, info: activity.Info) -> bool:
+    """Whether reporting must wait for the last attempt the activity's retry policy allows.
+
+    The raiser opts in with NonReportableWhileRetryingError. An attempt that the retry policy will not
+    follow with another one is reported at once: a non-retryable ApplicationError, a type the policy
+    excludes, the last permitted attempt, or a policy with no attempt limit, which never reaches a last
+    attempt.
+    """
+    if not isinstance(error, NonReportableWhileRetryingError):
+        return False
+    policy = info.retry_policy
+    if policy is None:
+        return False
+    if isinstance(error, temporalio.exceptions.ApplicationError):
+        if error.non_retryable:
+            return False
+        if error.type and error.type in (policy.non_retryable_error_types or ()):
+            return False
+    return policy.maximum_attempts >= 1 and info.attempt < policy.maximum_attempts
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
@@ -131,6 +152,14 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
                     )
                 raise
             activity_info = activity.info()
+            if is_deferred_until_retries_spent(e, activity_info):
+                await logger.awarning(
+                    "Retryable failure in activity %s on attempt %s, reporting deferred to the last attempt",
+                    activity_info.activity_type,
+                    activity_info.attempt,
+                    exc_info=e,
+                )
+                raise
             capture_kwargs = {
                 "properties": {
                     # Ambient properties (e.g. warehouse-sources JobContext) first so the explicit
