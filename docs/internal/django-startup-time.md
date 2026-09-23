@@ -153,6 +153,11 @@ Every removal was a `ready()` chain or a model file dragging a subsystem in at m
 - `boto3`/`botocore` reached setup through three doors: `products.workflows.backend.providers` (eager aggregator `__init__`, hit by the email and twilio integration models), `posthog/storage/object_storage.py`, and `posthog/models/js_snippet_versioning.py`, plus an `except (BotoCoreError, ClientError)` in `posthog/storage/hypercache.py`. All build clients or classify exceptions at call time now, and the providers package is a PEP 562 shim.
 
 All of these are pinned in `FORBIDDEN_AT_SETUP`.
+
+**Bytecode.** "Warm" in these numbers means the `.pyc` files exist and the source is in the page cache.
+Without first-party `.pyc` files a bare `django.setup()` costs ~2.4s instead of ~1.5s: ~1300 first-party modules get compiled on import.
+Site-packages are compiled at image build (`UV_COMPILE_BYTECODE=1`), and since September 2026 the production `Dockerfile` also runs `compileall` over the first-party source (tests excluded, `unchecked-hash` so imports never stat the `.py`), so a fresh container no longer pays the compile on its first boot.
+Locally, the first run after a checkout or a large rebase pays it once; `__pycache__` is gitignored and persists after that.
 Tests that patched a moved name were repointed to the defining module (`boto3.client`, `products.workflows.backend.providers.SESProvider`).
 
 **Evaluated and left alone**, so nobody re-measures them from scratch:
