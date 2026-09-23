@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -686,3 +687,6 @@ class TestExposedBuilders:
         assert result.exit_code == 1
         assert "could not be read" in result.output
         assert "hogFlows" in result.output
+        # The warning must not corrupt the machine-readable report.
+        report = json.loads(CliRunner(mix_stderr=False).invoke(cmd_lint_api_ratchet, ["--json"]).stdout)
+        assert report["exposed"] == []

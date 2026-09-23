@@ -1161,7 +1161,7 @@ def _base_entries(repo_root: Path) -> frozenset[str] | None:
         return None
     base_source = _read_base_api_ts(repo_root, ref)
     if base_source is None:
-        click.echo(f"⚠️  {API_RATCHET_BASE_ENV}={ref} could not be read (shallow clone or unknown ref).")
+        click.echo(f"⚠️  {API_RATCHET_BASE_ENV}={ref} could not be read (shallow clone or unknown ref).", err=True)
         return None
     return _method_route_entries(base_source)
 
