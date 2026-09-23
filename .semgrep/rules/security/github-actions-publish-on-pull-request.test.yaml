@@ -245,6 +245,14 @@ jobs:
             # ok: github-actions-publish-on-pull-request
             - run: aws s3 cp s3://example-release-bucket/pkg.tgz ./pkg.tgz
 
+    publish-crate-behind-a-variable:
+        runs-on: ubuntu-24.04
+        # A string compare such as `== 'true'` tests a value, not a clause's result.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master' && vars.CRATE_PUBLISH_ENABLED == 'true'
+        steps:
+            # ok: github-actions-publish-on-pull-request
+            - run: cargo publish -p posthog-replay-anonymizer
+
     gate-declared-after-steps:
         runs-on: ubuntu-24.04
         steps:
@@ -311,14 +319,49 @@ jobs:
         steps:
             # ruleid: github-actions-publish-on-pull-request
             - run: cargo publish -p posthog-symbol-data
+
+    publish-pypi:
+        runs-on: ubuntu-24.04
+        # A comparison on a clause's result inverts it the same way `!` does.
+        if: ${{ (github.event_name == 'push') == false }}
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: twine upload dist/*
+
+    publish-crate-on-a-chained-comparison:
+        runs-on: ubuntu-24.04
+        if: github.event_name == 'push' == false
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: cargo publish -p posthog-replay-anonymizer
+
+    publish-crate-on-a-reversed-comparison:
+        runs-on: ubuntu-24.04
+        if: false == (github.event_name == 'push')
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: cargo publish -p posthog-replay-anonymizer
+
+    publish-npm-on-a-pull-request-ref:
+        runs-on: ubuntu-24.04
+        # `refs/pull/` is where a pull request run's own ref lives.
+        if: startsWith(github.ref, 'refs/pull/')
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: npm publish --access public
 ---
-name: Merge-queue-gated publisher
+name: Publishers gated on an event that a pull request can start
 on:
     push:
         branches:
             - master
     pull_request: {}
     merge_group:
+    workflow_run:
+        workflows:
+            - Build
+        types:
+            - completed
 
 jobs:
     publish-npm:
@@ -330,6 +373,14 @@ jobs:
         steps:
             # ruleid: github-actions-publish-on-pull-request
             - run: npm publish --access public
+
+    publish-crate:
+        runs-on: ubuntu-24.04
+        # A pull request run of the upstream workflow can trigger `workflow_run`.
+        if: github.event_name == 'workflow_run'
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: cargo publish -p posthog-symbol-data
 ---
 name: pull_request_target publisher
 on:
@@ -382,6 +433,20 @@ jobs:
     publish-npm-on-the-merge-queue:
         runs-on: ubuntu-24.04
         if: github.event_name == 'merge_group'
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: npm publish --access public
+
+    publish-crate-on-a-compared-pin:
+        runs-on: ubuntu-24.04
+        if: ${{ (github.event_name == 'workflow_dispatch') == false }}
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: cargo publish -p posthog-replay-anonymizer
+
+    publish-npm-on-workflow-run:
+        runs-on: ubuntu-24.04
+        if: github.event_name == 'workflow_run'
         steps:
             # ruleid: github-actions-publish-on-pull-request
             - run: npm publish --access public

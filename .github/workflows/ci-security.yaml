@@ -520,7 +520,7 @@ jobs:
                   docker run --rm -v "${{ github.workspace }}:/src" -w /src \
                     -e SEMGREP_ENABLE_VERSION_CHECK=false \
                     ${{ env.SEMGREP_IMAGE }} \
-                    semgrep scan --error --metrics=off \
+                    semgrep scan --error --metrics=off --timeout 300 \
                     --config .semgrep/rules/security/github-actions-publish-on-pull-request.yaml \
                     .github/workflows/
 

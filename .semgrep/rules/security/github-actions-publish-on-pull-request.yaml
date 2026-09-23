@@ -19,9 +19,12 @@
 # gate, because one arm of an alternation can admit a pull request and a regex
 # cannot decompose an alternation. Give each event its own job when two events
 # must reach a publish. A `!` outside `!=` counts as no gate too, because it can
-# invert an accepted clause. A `merge_group` pin counts as no gate either: the
-# merge queue runs the queued pull request before it lands, and the queue can
-# still reject it afterwards.
+# invert an accepted clause. A comparison on a clause's result, such as
+# `(...) == false`, counts as no gate for the same reason. A `merge_group` pin
+# counts as no gate either: the merge queue runs the queued pull request before
+# it lands, and the queue can still reject it afterwards. A `workflow_run` pin
+# counts as no gate, because a pull request run of the upstream workflow can
+# trigger it.
 #
 # `pull_request_target` sets `github.ref` to the base branch, so `refs/heads/master`
 # reads true while a pull request runs. Pin the event in those workflows.
@@ -44,10 +47,12 @@ rules:
                   if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && github.repository == 'PostHog/posthog'
                   environment: npm-<package>
 
-          Four more shapes count as no gate. A `||` anywhere in the job `if:` does, because one arm of
-          an alternation can admit a pull request. A `!` outside `!=` does, because it can invert an
-          accepted clause. A `merge_group` pin does, because the merge queue runs the queued pull
-          request before it lands. A ref pin does in a `pull_request_target`
+          These shapes count as no gate too. A `||` anywhere in the job `if:` does, because one arm
+          of an alternation can admit a pull request. A `!` outside `!=` does, because it can invert
+          an accepted clause, and so does a comparison on a clause's result, such as `(...) == false`.
+          A `merge_group` pin does, because the merge queue runs the queued pull request before it
+          lands. A `workflow_run` pin does, because a pull request run of the upstream workflow can
+          trigger it. A ref pin does in a `pull_request_target`
           workflow, because `github.ref` names the base branch there and reads `refs/heads/master`
           while a pull request runs.
 
@@ -147,12 +152,14 @@ rules:
                             # ungated when no clause pins the event to a trusted release one,
                             # or the ref to a branch or tag. `merge_group` is not a trusted
                             # release event, because the queue run holds the pull request
-                            # merged onto the base before it lands. A `||` counts as no gate
-                            # too, because one arm of an alternation can admit a pull request
-                            # and a regex cannot decompose an alternation. A `!` outside `!=`
-                            # counts as no gate for the same reason: it can invert an accepted
-                            # clause.
-                            regex: "(?s)^(?:(?!.*(?:github\\.event_name\\s*==\\s*'(?:push|workflow_dispatch|release|schedule|workflow_run)'|github\\.event_name\\s*!=\\s*'pull_request'|github\\.ref\\s*==\\s*'refs/(?:heads|tags)/|github\\.ref_name\\s*==\\s*'|startsWith\\(\\s*github\\.ref\\s*,\\s*'refs/))|(?=.*(?:\\|\\||!(?!=)))).*$"
+                            # merged onto the base before it lands. `workflow_run` is not one
+                            # either, because a pull request run of the upstream workflow can
+                            # trigger it. A `||` counts as no gate too, because one arm of an
+                            # alternation can admit a pull request and a regex cannot decompose
+                            # an alternation. A `!` outside `!=` counts as no gate for the same
+                            # reason: it can invert an accepted clause. So can a comparison on
+                            # a clause's result, such as `(...) == false` or `... == 'push' == false`.
+                            regex: "(?s)^(?:(?!.*(?:github\\.event_name\\s*==\\s*'(?:push|workflow_dispatch|release|schedule)'|github\\.event_name\\s*!=\\s*'pull_request'|github\\.ref\\s*==\\s*'refs/(?:heads|tags)/|github\\.ref_name\\s*==\\s*'|startsWith\\(\\s*github\\.ref\\s*,\\s*'refs/(?:heads|tags)/))|(?=.*(?:\\|\\||!(?!=)|\\)\\s*[=!]=|[=!]=\\s*\\(|'\\s*[=!]=))).*$"
                 # `pull_request_target` sets `github.ref` to the base branch, so a branch pin
                 # reads true while a pull request runs. An event pin is the only gate here.
                 - patterns:
@@ -178,7 +185,7 @@ rules:
                                 ...
                       - metavariable-regex:
                             metavariable: $GATE
-                            regex: "(?s)^(?:(?!.*(?:github\\.event_name\\s*==\\s*'(?:push|workflow_dispatch|release|schedule|workflow_run)'|github\\.event_name\\s*!=\\s*'pull_request_target'))|(?=.*(?:\\|\\||!(?!=)))).*$"
+                            regex: "(?s)^(?:(?!.*(?:github\\.event_name\\s*==\\s*'(?:push|workflow_dispatch|release|schedule)'|github\\.event_name\\s*!=\\s*'pull_request_target'))|(?=.*(?:\\|\\||!(?!=)|\\)\\s*[=!]=|[=!]=\\s*\\(|'\\s*[=!]=))).*$"
           # 3. The step publishes. A `--dry-run` invocation validates without shipping. The
           #    guard follows a shell line continuation, so a dry run that wraps onto the next
           #    line stays exempt while a real publish on a line of its own does not. It stops
