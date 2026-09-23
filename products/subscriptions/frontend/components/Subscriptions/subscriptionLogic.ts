@@ -627,7 +627,10 @@ export interface subscriptionLogicActions {
 export interface subscriptionLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        contextReadTotal: (subscription: SubscriptionFormType, contextInsightCounts: any) => number | null
+        contextReadTotal: (
+            subscription: SubscriptionFormType,
+            contextInsightCounts: Record<number, number | null>
+        ) => number | null
     }
 }
 
@@ -1057,10 +1060,11 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             await Promise.all(
                 dashboardIds.map(async (dashboardId) => {
                     try {
-                        // insightsList would serialize dashboards=[id] as "id", but the backend
-                        // json-parses the param, so it needs the JSON form toParams produces.
+                        // Generated insightsList serializes dashboards=[id] as "id", but the
+                        // backend json-parses the param, so it needs toParams' JSON form.
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.get<PaginatedInsightListApi>(
-                            `api/environments/${getCurrentTeamId()}/insights/?${toParams({
+                            `api/projects/${getCurrentTeamId()}/insights/?${toParams({
                                 basic: true,
                                 dashboards: [dashboardId],
                                 limit: 1,

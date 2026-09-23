@@ -848,7 +848,7 @@ describe('subscriptionLogic', () => {
     it('keeps generated context values typed, rejects duplicates, caps additions, and totals reads', async () => {
         useMocks({
             get: {
-                '/api/environments/:team_id/insights/': ({ request }) => {
+                '/api/projects/:team_id/insights/': ({ request }) => {
                     const dashboards = new URL(request.url).searchParams.get('dashboards')
                     return [200, { count: dashboards === `[${DASHBOARD_CONTEXT.dashboard_id}]` ? 4 : 2, results: [] }]
                 },
