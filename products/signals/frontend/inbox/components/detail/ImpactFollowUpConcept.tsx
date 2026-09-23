@@ -31,7 +31,7 @@ function readingFor(example: ImpactFollowUpExample, stage: FollowUpStage): Readi
 export interface ImpactFollowUpConceptProps {
     example: ImpactFollowUpExample
     stage: FollowUpStage
-    version: 'poster' | 'queue' | 'tape'
+    version: 'poster' | 'queue' | 'tape' | 'poster-runway'
 }
 
 export function ImpactFollowUpConcept({ example, stage, version }: ImpactFollowUpConceptProps): JSX.Element {
@@ -233,6 +233,55 @@ export function ImpactFollowUpConcept({ example, stage, version }: ImpactFollowU
         </div>
     )
 
+    const runway = version === 'poster-runway' && (
+        <div className="grid gap-4 border-t border-primary bg-surface-secondary px-5 py-4 md:grid-cols-[minmax(8rem,0.7fr)_minmax(0,2fr)_minmax(10rem,0.9fr)] md:items-center">
+            <div>
+                <div className="text-xs text-secondary">Decision {example.decisionDate}</div>
+                <strong className="block text-lg leading-tight">
+                    {stage === 'planned'
+                        ? 'Starts at release'
+                        : stage === 'watching'
+                          ? `${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} left`
+                          : 'Window ended'}
+                </strong>
+            </div>
+            <div className="min-w-0">
+                <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+                    <span>Release</span>
+                    <strong>{elapsed} / {example.windowDays} days elapsed</strong>
+                    <span>Decision</span>
+                </div>
+                <div className="flex gap-1 overflow-x-auto pb-1">
+                    {Array.from({ length: example.windowDays }, (_, index) => {
+                        const value = example.afterTrend[index]
+                        const observedDay = index < elapsed
+                        const hasData = observedDay && value !== undefined && !Number.isNaN(value)
+                        return (
+                            <div
+                                key={index}
+                                className={`flex min-w-8 grow flex-col items-center justify-center rounded border px-1 py-1 leading-none ${observedDay ? 'border-primary bg-surface-primary' : 'border-dashed border-primary text-secondary'}`}
+                                aria-label={`Day ${index + 1}: ${hasData ? value : observedDay ? 'no data' : 'not yet measured'}`}
+                            >
+                                <span className="text-[10px]">{index + 1}</span>
+                                <strong className="mt-1 text-sm">{hasData ? value : observedDay ? '?' : '·'}</strong>
+                            </div>
+                        )
+                    })}
+                </div>
+                <div className="mt-1 text-[11px] text-secondary">
+                    {example.chartLabel} · ? = no data
+                </div>
+            </div>
+            <div className="text-sm">
+                <div className="text-xs text-secondary">Evidence collected</div>
+                <strong className="block text-base">
+                    {observed} / {example.sampleNeeded} {example.sampleLabel.toLowerCase()}
+                </strong>
+                <div className="text-xs">{nextProof}</div>
+            </div>
+        </div>
+    )
+
     if (version === 'queue') {
         return (
             <article
@@ -354,7 +403,7 @@ export function ImpactFollowUpConcept({ example, stage, version }: ImpactFollowU
                     <div>
                         <div className="text-xs">To call this a win</div>
                         <strong className="text-lg">{example.goalShort}</strong>
-                        <div className="mt-2 text-xs">{readinessText}</div>
+                        {version === 'poster' && <div className="mt-2 text-xs">{readinessText}</div>}
                     </div>
                 </div>
                 <div className="flex flex-col justify-between gap-3 p-5">
@@ -368,9 +417,10 @@ export function ImpactFollowUpConcept({ example, stage, version }: ImpactFollowU
                         </span>
                     </div>
                     {evidence}
-                    <span className="text-xs text-secondary">{summary}</span>
+                    {version === 'poster' && <span className="text-xs text-secondary">{summary}</span>}
                 </div>
             </div>
+            {runway}
             {footer}
         </article>
     )

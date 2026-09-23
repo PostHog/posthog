@@ -14,7 +14,12 @@ export default meta
 type Story = StoryObj
 
 function gallery(stage: FollowUpStage, version: ImpactFollowUpConceptProps['version']): JSX.Element {
-    const names = { poster: '01 · Decision poster', queue: '02 · Inbox queue', tape: '03 · Daily tape' }
+    const names = {
+        poster: '01 · Decision poster',
+        queue: '02 · Inbox queue',
+        tape: '03 · Daily tape',
+        'poster-runway': '04 · Decision poster + runway',
+    }
     return (
         <div className="min-h-screen bg-primary p-5">
             <div className={`mx-auto flex flex-col ${version === 'queue' ? 'max-w-7xl gap-2' : 'max-w-5xl gap-5'}`}>
@@ -71,3 +76,7 @@ export const QueueAfterWindow: Story = { render: () => gallery('finished', 'queu
 export const TapeBeforeRelease: Story = { render: () => gallery('planned', 'tape') }
 export const TapeWatching: Story = { render: () => gallery('watching', 'tape') }
 export const TapeAfterWindow: Story = { render: () => gallery('finished', 'tape') }
+
+export const PosterRunwayBeforeRelease: Story = { render: () => gallery('planned', 'poster-runway') }
+export const PosterRunwayWatching: Story = { render: () => gallery('watching', 'poster-runway') }
+export const PosterRunwayAfterWindow: Story = { render: () => gallery('finished', 'poster-runway') }
