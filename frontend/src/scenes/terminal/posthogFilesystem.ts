@@ -22,6 +22,7 @@ import type { NotebookMinimalApi } from 'products/notebooks/frontend/generated/a
 import { insightsPartialUpdate, insightsRetrieve } from 'products/product_analytics/frontend/generated/api'
 import { surveysPartialUpdate, surveysRetrieve } from 'products/surveys/frontend/generated/api'
 
+import { ConfirmTerminalOperation, TerminalConfirmation } from './terminalConfirmation'
 import {
     FilesystemError,
     MAX_TERMINAL_FILE_BYTES,
@@ -127,6 +128,11 @@ inside /posthog/files. Keep .md or .json extensions when renaming files.
 Moves preserve object IDs and folder contents. Existing destinations cannot be
 replaced. Folders inferred from file paths cannot be moved; move their files instead.
 Use rm to remove files, rmdir for empty folders, and rm -r for folder trees.
+Deletes require a blocking confirmation. Click a button to approve or cancel;
+keyboard input cannot approve a deletion. rm groups all its PostHog targets into
+one confirmation. Other programs confirm each removal. Local Linux files do not
+require confirmation. Delete local and PostHog files in separate commands.
+JSON saves that mark an object deleted and connected tools also ask for confirmation.
 Removing the last file reference deletes the PostHog object, using your permissions.
 Files open for writing must be closed before removal. Use ph notebook-create to create notebooks.
 Work in /tmp for programs that save by renaming a temporary file,
@@ -275,7 +281,8 @@ export class PosthogFilesystem extends TerminalFilesystem {
 
     constructor(
         private projectId: string,
-        private signal: AbortSignal
+        private signal: AbortSignal,
+        private confirm: ConfirmTerminalOperation = async () => false
     ) {
         super()
         this.text('README.txt', this.root, TERMINAL_README)
@@ -330,7 +337,79 @@ export class PosthogFilesystem extends TerminalFilesystem {
         return `/posthog/${parts.join('/')}`
     }
 
-    private async remove(node: TerminalNode): Promise<void> {
+    async confirmOperation(confirmation: TerminalConfirmation): Promise<void> {
+        if (this.signal.aborted || !(await this.confirm(confirmation)) || this.signal.aborted) {
+            throw new Error('Canceled. No changes made.')
+        }
+    }
+
+    private removalConfirmation(nodes: TerminalNode[]): TerminalConfirmation {
+        return {
+            title: 'Delete PostHog files and folders?',
+            description: `Remove ${nodes.length === 1 ? '1 file or folder' : `${nodes.length} files and folders`} from project ${this.projectId}. Removing the last file reference also deletes the PostHog object. This affects everyone in the project.`,
+            items: nodes.map((node) => {
+                const entry = this.projectNodes.get(node)?.entry
+                return `${this.mountedPath(node)}${entry && entry.type !== 'folder' ? ` (${entry.type}: ${entry.ref})` : ''}`
+            }),
+        }
+    }
+
+    async removePaths(paths: string[], recursive: boolean, force: boolean): Promise<void> {
+        const nodes = new Set<TerminalNode>()
+        const visit = async (node: TerminalNode): Promise<void> => {
+            if (nodes.has(node)) {
+                return
+            }
+            if (!node.remove || this.writers.has(node.writeKey ?? node.id)) {
+                throw new FilesystemError(
+                    node.remove ? 16 : 30,
+                    `Could not delete ${this.mountedPath(node)}: ${node.remove ? 'Device or resource busy. Close the file before deleting it.' : 'Read-only file system. Choose a writable path.'}`
+                )
+            }
+            if (node.children) {
+                if (!recursive) {
+                    throw new FilesystemError(
+                        21,
+                        `Could not delete ${this.mountedPath(node)}: Is a directory. Use rm -r to delete folders.`
+                    )
+                }
+                await node.loadChildren?.()
+                for (const child of node.children.values()) {
+                    await visit(child)
+                }
+            }
+            nodes.add(node)
+        }
+        for (const path of paths) {
+            if (!path.startsWith('/posthog/files/')) {
+                throw new Error(
+                    'Delete local files and PostHog files in separate commands. Use a path inside /posthog/files.'
+                )
+            }
+            let node: TerminalNode | undefined = this.files
+            for (const part of path.slice('/posthog/files/'.length).split('/')) {
+                if (!part || part === '.' || part === '..') {
+                    throw new Error('Use a resolved path inside /posthog/files.')
+                }
+                await node?.loadChildren?.()
+                node = node?.children?.get(part)
+            }
+            if (node) {
+                await visit(node)
+            } else if (!force) {
+                throw new FilesystemError(2, `Could not delete ${path}: No such file or directory. Check the path.`)
+            }
+        }
+        if (!nodes.size) {
+            return
+        }
+        await this.confirmOperation(this.removalConfirmation([...nodes]))
+        for (const node of nodes) {
+            await this.remove(node, true)
+        }
+    }
+
+    private async remove(node: TerminalNode, confirmed = false): Promise<void> {
         const source = this.projectNodes.get(node)
         if (!source || node.removed) {
             throw new FilesystemError(116)
@@ -338,12 +417,24 @@ export class PosthogFilesystem extends TerminalFilesystem {
         if (node.children?.size) {
             throw new FilesystemError(39)
         }
+        if (this.writers.has(node.writeKey ?? node.id)) {
+            throw new FilesystemError(16)
+        }
+        if (!confirmed) {
+            await this.confirmOperation(this.removalConfirmation([node]))
+        }
+        if (this.signal.aborted) {
+            throw new FilesystemError(4)
+        }
         if (source.entry) {
             try {
                 await fileSystemDestroy(this.projectId, source.entry.id, { recursive: false }, { signal: this.signal })
             } catch (error) {
                 const status = error && typeof error === 'object' && 'status' in error ? error.status : undefined
-                throw new FilesystemError(status === 409 ? 39 : status === 403 ? 13 : status === 404 ? 2 : 5)
+                throw new FilesystemError(
+                    status === 409 ? 39 : status === 403 ? 13 : status === 404 ? 2 : 5,
+                    `Could not delete ${this.mountedPath(node)}${status ? ` (HTTP ${status})` : ''}:\n${error instanceof Error ? error.message : 'API request failed'}\nRun ph refresh to check the remaining files before trying again.`
+                )
             }
         }
         this.references.delete(this.mountedPath(node))
@@ -542,6 +633,13 @@ export class PosthogFilesystem extends TerminalFilesystem {
                           )
                           if (!Object.keys(payload).length) {
                               return
+                          }
+                          if (payload.deleted) {
+                              await this.confirmOperation({
+                                  title: 'Delete a PostHog object?',
+                                  description: `Save a deletion to ${entry.type} ${entry.ref} in project ${this.projectId}. This affects everyone in the project.`,
+                                  items: [JSON.stringify(payload, null, 2)],
+                              })
                           }
                           if (entry.type === 'notebook' && 'content' in payload && !('text_content' in payload)) {
                               const node = markdownNode(payload.content)

@@ -11,7 +11,7 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
 import { useStorybookMocks } from '~/mocks/browser'
 
-import { expect, spyOn, waitFor } from 'storybook/test'
+import { expect, spyOn, userEvent, waitFor } from 'storybook/test'
 
 import { TerminalDock } from './TerminalDock'
 import { terminalDockLogic } from './terminalDockLogic'
@@ -329,4 +329,29 @@ export const Narrow: StoryObj<typeof TerminalScene> = {
             </div>
         ),
     ],
+}
+
+export const DeleteConfirmation: StoryObj<typeof TerminalScene> = {
+    play: async () => {
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        void terminalLogic.cache.filesystem
+            .confirmOperation({
+                title: 'Delete PostHog files and folders?',
+                description:
+                    'Remove 4 files and folders from project 1. Removing the last file reference also deletes the PostHog object. This affects everyone in the project.',
+                items: [
+                    '/posthog/files/Research/Welcome.md (notebook: demonote)',
+                    '/posthog/files/Research/Overview.json (dashboard: 101)',
+                    '/posthog/files/Research/Signups.json (insight: demoinsight)',
+                    '/posthog/files/Research',
+                ],
+            })
+            .catch(() => {})
+        await waitFor(() => expect(document.querySelector('[data-attr="terminal-confirmation"]')).not.toBeNull())
+        const approve = document.querySelector<HTMLButtonElement>('[data-attr="terminal-confirmation-approve"]')!
+        approve.focus()
+        await userEvent.keyboard('{Enter} {Escape}{Tab}')
+        approve.click()
+        expect(document.querySelector('[data-attr="terminal-confirmation"]')).not.toBeNull()
+    },
 }
