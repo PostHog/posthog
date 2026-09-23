@@ -101364,6 +101364,58 @@ export namespace Schemas {
       query: _TracingDurationHistogramQueryBody;
     }
 
+    export interface _TracingErrorCountsRequest {
+      /**
+         * Hex trace IDs to count exceptions for, matched against the exception's `$trace_id` property. Case insensitive. At most 200 per request.
+         * @maxItems 200
+         */
+      traceIds?: string[];
+      /**
+         * Hex span IDs to count exceptions for, matched against the exception's `$span_id` property. Only counted within the requested traces, so `traceIds` is required alongside. At most 200 per request.
+         * @maxItems 200
+         */
+      spanIds?: string[];
+      /**
+         * Session IDs to count exceptions for. The fallback for exceptions that carry no trace ID. At most 200 per request.
+         * @maxItems 200
+         */
+      sessionIds?: string[];
+      /** Start of the window the exceptions must fall in. ISO 8601. */
+      dateFrom: string;
+      /** End of the window the exceptions must fall in. ISO 8601. */
+      dateTo: string;
+    }
+
+    export interface _TracingTraceErrorCount {
+      /** Exception events in the window that error tracking linked to an issue. */
+      exceptions: number;
+      /** The trace the exceptions belong to, lowercase hex. */
+      trace_id: string;
+    }
+
+    export interface _TracingSpanErrorCount {
+      /** Exception events in the window that error tracking linked to an issue. */
+      exceptions: number;
+      /** The span the exceptions belong to, lowercase hex. */
+      span_id: string;
+    }
+
+    export interface _TracingSessionErrorCount {
+      /** Exception events in the window that error tracking linked to an issue. */
+      exceptions: number;
+      /** The session the exceptions belong to. */
+      session_id: string;
+    }
+
+    export interface _TracingErrorCountsResponse {
+      /** One entry per requested trace that had exceptions. Traces with none are omitted. */
+      traceResults: _TracingTraceErrorCount[];
+      /** One entry per requested span that had exceptions. Spans with none are omitted. */
+      spanResults: _TracingSpanErrorCount[];
+      /** One entry per requested session that had exceptions. Sessions with none are omitted. */
+      sessionResults: _TracingSessionErrorCount[];
+    }
+
     export interface _TracingImpactRequest {
       /** The impact query to execute. Takes the same filters as the count query. */
       query: _TracingCountBody;
