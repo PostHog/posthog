@@ -55,19 +55,56 @@ class TestLegacyDefinitions(SimpleTestCase):
         assert sanitize_legacy_definitions(original)["flags"] == [flags[0]]
         assert original == before
 
-    @parameterized.expand([("7",), ("excluded",)])
-    def test_seed_excludes_the_flag_itself_and_transitive_dependents(self, reference: str) -> None:
+    @parameterized.expand([("7",), (7,), ("excluded",)])
+    def test_seed_excludes_the_flag_itself_and_transitive_dependents(self, reference: str | int) -> None:
         flags = [
             definition("healthy"),
             definition("excluded", id=7),
-            definition("dependent", {"groups": [{"properties": [{"type": "flag", "key": 7, "value": False}]}]}),
+            definition("dependent", {"groups": [{"properties": [{"type": "flag", "key": reference, "value": False}]}]}),
             definition(
                 "transitive", {"groups": [{"properties": [{"type": "flag", "key": "dependent", "value": True}]}]}
             ),
         ]
         before = copy.deepcopy(flags)
-        assert retain_legacy_flags(flags, {reference}) == [flags[0]]
+        assert retain_legacy_flags(flags, {"excluded"}) == [flags[0]]
         assert flags == before
+
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_exclusions_resolve_id_collisions_without_removing_independent_flags(
+        self, seeded: bool, unsupported_numeric_key: bool
+    ) -> None:
+        unsupported = definition("7" if unsupported_numeric_key else "unsupported", {"version": 2}, id=8)
+        healthy = definition("healthy" if unsupported_numeric_key else "8", id=7)
+        flags = [healthy]
+        if not seeded:
+            flags.append(unsupported)
+        for reference in (7, "7", 8, "8"):
+            flags.append(
+                definition(
+                    f"dependent-{type(reference).__name__}-{reference}",
+                    {"groups": [{"properties": [{"type": "flag", "key": reference, "value": False}]}]},
+                )
+            )
+        flags.append(
+            definition(
+                "transitive",
+                {"groups": [{"properties": [{"type": "flag", "key": "dependent-int-8", "value": True}]}]},
+            )
+        )
+        result = sanitize_legacy_definitions(
+            feed(flags), {unsupported["key"]} if seeded else None, {"8": unsupported["key"]} if seeded else None
+        )
+        assert [flag["key"] for flag in result["flags"]] == [healthy["key"], "dependent-int-7", "dependent-str-7"]
+
+    def test_invalid_key_still_excludes_dependents_by_id(self) -> None:
+        payload = feed(
+            [
+                definition("7", id=8),
+                {"id": 7},
+                definition("dependent", {"groups": [{"properties": [{"type": "flag", "key": 7, "value": False}]}]}),
+            ]
+        )
+        assert [flag["key"] for flag in sanitize_legacy_definitions(payload)["flags"]] == ["7"]
 
     @parameterized.expand(
         [
@@ -102,7 +139,15 @@ class TestLegacyDefinitions(SimpleTestCase):
             flag["filters"]["groups"][0]["properties"][0]["dependency_chain"] == [] for flag in result["flags"][:-1]
         )
 
-    def test_malformed_nested_cohort_omits_only_affected_flags(self) -> None:
+    @parameterized.expand(
+        [
+            ({"values": [None]},),
+            ({"type": "AND", "values": [{"values": [{"type": "person", "key": "tier", "value": "example"}]}]},),
+            ({"type": "AND", "values": [{"type": "person", "value": "example"}]},),
+            ({"type": "AND", "values": [{"type": "person", "key": "tier"}]},),
+        ]
+    )
+    def test_malformed_nested_cohort_omits_only_affected_flags(self, properties: dict[str, Any]) -> None:
         payload = feed(
             [
                 definition("healthy", {"groups": [{"properties": [{"type": "cohort", "value": "3"}]}]}),
@@ -113,9 +158,9 @@ class TestLegacyDefinitions(SimpleTestCase):
             ]
         )
         payload["cohorts"] = {
-            "1": {"type": "AND", "values": [{"type": "cohort", "value": 2}]},
-            "2": {"values": [None]},
-            "3": {"type": "AND", "values": [{"type": "cohort", "value": 4}]},
+            "1": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": 2}]},
+            "2": properties,
+            "3": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": 4}]},
             "4": {"type": "AND", "values": [{"type": "person", "key": "tier", "value": "example"}]},
         }
         result = sanitize_legacy_definitions(payload)

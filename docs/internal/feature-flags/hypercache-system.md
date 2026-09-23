@@ -193,7 +193,10 @@ Supported v1 missing targets, inactive targets, cycles, cohort scoping, mappings
 The internal `flags.json` producer keeps its separate rejection and inactive-filter behavior.
 
 Readers serve cached bodies and answer 304s without re-checking them, so the exclusion relies on deployment order.
-Until a stored configuration is unsupported, this builder and older builders publish identical bodies.
+For well-formed v1 data with string dependency references, this builder preserves the older builder's definitions.
+Integer dependency references now resolve to flag keys and populated dependency chains.
+Malformed flags and reachable cohorts now exclude affected flags and their transitive dependents.
+These cases can change cached bodies and ETags even before an unsupported configuration exists, including during a rollback.
 Deploy this builder to every region before storing an unsupported configuration, and never deploy an older builder after one exists.
 Tightening these exclusion rules later requires rebuilding existing cache entries.
 

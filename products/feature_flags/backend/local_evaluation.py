@@ -63,7 +63,6 @@ from products.feature_flags.backend.flags_cache import (
 )
 from products.feature_flags.backend.legacy_definitions import (
     cohort_references,
-    flag_references,
     sanitize_legacy_definitions,
     validate_legacy_filters,
 )
@@ -554,7 +553,11 @@ def _serialize_legacy_cohort(cohort: Cohort) -> _LegacyCohortDefinition:
     references = None
     if cohort.filters and cohort.filters.get("properties") is not None:
         properties = cohort.filters["properties"]
-        references = cohort_references({"values": properties} if isinstance(properties, list) else properties)
+        if isinstance(properties, list):
+            properties = {"type": "AND", "values": properties}
+        # Legacy key/value dictionaries are parsed without dropping invalid leaves.
+        if not isinstance(properties, dict) or "type" in properties or "values" in properties:
+            references = cohort_references(properties)
     serialized = cohort.properties.to_dict()
     if references is None:
         references = cohort_references(serialized)
@@ -624,7 +627,7 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
         team_id__in=team_ids
     )
     ineligible = Q(deleted=True) | Q(has_encrypted_payloads=True) | Q(pk__in=survey_flag_ids)
-    excluded_by_team: dict[int, set[str]] = defaultdict(set)
+    excluded_by_team: dict[int, dict[str, str]] = defaultdict(dict)
     # Preserve ordering for groupby and ETag stability.
     # Materializing allows two passes: first to extract cohort IDs, then to
     # serialize — one DB round trip instead of two.
@@ -646,7 +649,7 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
     dependency_references: set[str] = set()
     for flag in all_flags:
         if not _is_supported_legacy_flag(flag.filters):
-            excluded_by_team[flag.team_id].update(flag_references({"id": flag.pk, "key": flag.key}))
+            excluded_by_team[flag.team_id][str(flag.pk)] = flag.key
             continue
         flag._evaluation_tag_names = flag.evaluation_tag_names_agg or []
         flag._has_experiment = flag.has_experiment_agg
@@ -668,7 +671,7 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
             try:
                 validate_legacy_filters(filters)
             except (ConfigFormatError, TypeError, ValueError):
-                excluded_by_team[team_id].update(flag_references({"id": flag_id, "key": key}))
+                excluded_by_team[team_id][str(flag_id)] = key
 
     # Load only the referenced cohorts and resolve nested dependencies
     # iteratively. Each iteration loads newly discovered nested cohort IDs
@@ -742,7 +745,7 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
                 flag_id_to_key[str(feature_flag.id)] = feature_flag.key
 
             except (AttributeError, TypeError, ValueError, KeyError, RecursionError, ValidationError):
-                excluded_by_team[tid].update(flag_references({"id": feature_flag.pk, "key": feature_flag.key}))
+                excluded_by_team[tid][str(feature_flag.pk)] = feature_flag.key
                 logger.warning("Malformed feature flag omitted from legacy definitions")
                 FLAG_PROCESSING_ERROR_COUNTER.inc()
                 continue
@@ -759,7 +762,8 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
         )
 
         results[tid] = _apply_flag_dependency_transformation(
-            sanitize_legacy_definitions(response_data, excluded_by_team[tid]), flag_id_to_key
+            sanitize_legacy_definitions(response_data, set(excluded_by_team[tid].values()), excluded_by_team[tid]),
+            flag_id_to_key,
         )
 
     # Ensure every requested team has a result, even if it had no flags

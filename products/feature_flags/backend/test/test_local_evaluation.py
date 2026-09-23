@@ -1469,8 +1469,47 @@ class TestLocalEvaluationBatch(BaseTest):
         assert [flag["key"] for flag in result[other.id]["flags"]] == ["other"]
         assert FLAG_PROCESSING_ERROR_COUNTER._value.get() == dropped_before + (not deleted)
 
-    @parameterized.expand([(None,), ([],), ([{"type": "person", "key": "tier", "value": "example"}],)])
-    def test_batch_preserves_legacy_cohort_property_forms(self, properties):
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_batch_exclusions_distinguish_numeric_keys_from_ids(
+        self, deleted: bool, unsupported_numeric_key: bool
+    ) -> None:
+        healthy = FeatureFlag.objects.create(team=self.team, key="healthy", filters={"groups": []})
+        unsupported = FeatureFlag.objects.create(
+            team=self.team,
+            key=str(healthy.pk) if unsupported_numeric_key else "unsupported",
+            filters={"version": 2},
+            deleted=deleted,
+        )
+        if not unsupported_numeric_key:
+            healthy.key = str(unsupported.pk)
+            healthy.save()
+        for target, key in ((healthy, "healthy-dependent"), (unsupported, "unsupported-dependent")):
+            FeatureFlag.objects.create(
+                team=self.team,
+                key=key,
+                filters={"groups": [{"properties": [{"type": "flag", "key": target.pk, "value": False}]}]},
+            )
+        result = _get_flags_response_for_local_evaluation_batch([self.team])[self.team.id]
+        assert {flag["key"] for flag in result["flags"]} == {healthy.key, "healthy-dependent"}
+        dependent = next(flag for flag in result["flags"] if flag["key"] == "healthy-dependent")
+        prop = dependent["filters"]["groups"][0]["properties"][0]
+        assert prop["key"] == healthy.key
+        assert prop["dependency_chain"] == [healthy.key]
+
+    @parameterized.expand(
+        [
+            (None,),
+            ([],),
+            ({},),
+            ({"tier": "example"},),
+            ([{"type": "person", "key": "tier", "value": "example"}],),
+            ({"type": "and", "values": [{"type": "person", "key": "tier", "value": "example"}]},),
+            ({"type": "AND", "values": [{}]},),
+        ]
+    )
+    def test_batch_preserves_legacy_cohort_property_forms(
+        self, properties: list[dict[str, str]] | dict[str, Any] | None
+    ) -> None:
         cohort = self._create_cohort(self.team, "Legacy properties")
         Cohort.objects.filter(pk=cohort.pk).update(filters={"properties": properties})
         FeatureFlag.objects.create(
@@ -1486,6 +1525,17 @@ class TestLocalEvaluationBatch(BaseTest):
     @parameterized.expand(
         [
             ("null_leaf", {"values": [None]}),
+            (
+                "untyped_group",
+                {"type": "AND", "values": [{"values": [{"type": "person", "key": "tier", "value": "example"}]}]},
+            ),
+            ("invalid_group_type", {"type": "XOR", "values": []}),
+            ("missing_leaf_key", {"type": "AND", "values": [{"type": "person", "value": "example"}]}),
+            ("missing_leaf_value", {"type": "AND", "values": [{"type": "person", "key": "tier"}]}),
+            (
+                "invalid_leaf_type",
+                {"type": "AND", "values": [{"type": "unknown", "key": "tier", "value": "example"}]},
+            ),
             (
                 "mixed_group",
                 {
@@ -1508,10 +1558,15 @@ class TestLocalEvaluationBatch(BaseTest):
             filters={"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": child.pk}]}},
         )
         Cohort.objects.filter(pk=child.pk).update(filters={"properties": properties})
-        FeatureFlag.objects.create(
+        affected = FeatureFlag.objects.create(
             team=self.team,
             key="affected",
             filters={"groups": [{"properties": [{"type": "cohort", "key": "id", "value": parent.pk}]}]},
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="dependent",
+            filters={"groups": [{"properties": [{"type": "flag", "key": affected.pk, "value": False}]}]},
         )
         FeatureFlag.objects.create(team=self.team, key="healthy", filters={"groups": []})
         result = _get_flags_response_for_local_evaluation(self.team)

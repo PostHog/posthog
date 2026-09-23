@@ -2,6 +2,10 @@ from collections import defaultdict, deque
 from collections.abc import Mapping
 from typing import Any
 
+from rest_framework.exceptions import ValidationError
+
+from posthog.models.property import Property
+
 from products.feature_flags.backend.facade.config import ConfigFormatError, detect_config_format
 from products.feature_flags.backend.facade.references import flag_dependency_properties, referenced_cohort_ids
 
@@ -43,44 +47,55 @@ def validate_legacy_filters(filters: object) -> None:
             raise ValueError("Invalid legacy flag variants")
 
 
-def flag_references(flag: Mapping[str, object]) -> set[str]:
-    return {str(flag[field]) for field in ("id", "key") if field in flag}
-
-
 def retain_legacy_flags(
-    flags: list[dict[str, Any]], excluded_references: set[str] | None = None
+    flags: list[dict[str, Any]],
+    excluded_keys: set[str] | None = None,
+    flag_id_to_key: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Exclude invalid flags and their transitive dependents without modifying the input.
 
-    Use ``flag_references`` to seed exclusions by both id and key, since dependencies
-    can use either. Seeds exclude the named flags and their transitive dependents.
+    Exclusions name flag keys. The ID lookup includes omitted targets so dependencies
+    resolve with the transformation's ID-before-key precedence, without alias collisions.
     """
-    excluded = set(excluded_references or ())
+    excluded = set(excluded_keys or ())
+    id_to_key = dict(flag_id_to_key or {})
+    id_to_key.update(
+        (str(flag["id"]), flag["key"])
+        for flag in flags
+        if isinstance(flag, dict) and "id" in flag and isinstance(flag.get("key"), str)
+    )
+    invalid_ids = {
+        str(flag["id"])
+        for flag in flags
+        if isinstance(flag, dict) and "id" in flag and not isinstance(flag.get("key"), str)
+    }
     dependents: dict[str, set[int]] = defaultdict(set)
     invalid: set[int] = set()
     for index, flag in enumerate(flags):
         try:
             if not isinstance(flag, dict) or not isinstance(flag.get("key"), str):
                 raise ValueError("Invalid legacy flag definition")
-            if excluded.intersection(flag_references(flag)):
+            if flag["key"] in excluded:
                 raise ValueError("Excluded legacy flag")
             validate_legacy_filters(flag.get("filters"))
             for prop in flag_dependency_properties(flag.get("filters")):
-                dependents[str(prop["key"])].add(index)
+                reference = str(prop["key"])
+                if reference in invalid_ids:
+                    invalid.add(index)
+                dependents[id_to_key.get(reference, reference)].add(index)
         except (AttributeError, KeyError, TypeError, ValueError):
             invalid.add(index)
     queue = deque(excluded)
     for index in invalid:
         flag = flags[index]
-        if isinstance(flag, dict):
-            queue.extend(flag_references(flag))
+        if isinstance(flag, dict) and isinstance(flag.get("key"), str):
+            queue.append(flag["key"])
     while queue:
         reference = queue.popleft()
         for index in dependents.get(reference, ()):
             if index not in invalid:
                 invalid.add(index)
-                flag = flags[index]
-                queue.extend(flag_references(flag))
+                queue.append(flags[index]["key"])
     return [flag for index, flag in enumerate(flags) if index not in invalid]
 
 
@@ -91,12 +106,25 @@ def cohort_references(properties: object) -> set[str]:
         node = pending.pop()
         if not isinstance(node, dict):
             raise ValueError("Invalid legacy cohort properties")
+        if not node:
+            continue
         if "values" in node:
             values = node["values"]
-            if not isinstance(values, list):
+            group_type = node.get("type")
+            if (
+                not isinstance(values, list)
+                or not isinstance(group_type, str)
+                or group_type.upper() not in ("AND", "OR")
+            ):
                 raise ValueError("Invalid legacy cohort group")
             pending.extend(values)
-        elif node.get("type") == "cohort":
+            continue
+        try:
+            # Filter silently drops properties that fail construction.
+            Property(**node)
+        except (TypeError, ValueError, ValidationError) as error:
+            raise ValueError("Invalid legacy cohort property") from error
+        if node.get("type") == "cohort":
             value = node.get("value")
             if value is None:
                 continue
@@ -117,14 +145,17 @@ def validate_legacy_definitions_envelope(payload: object) -> None:
         raise ValueError("Invalid legacy definitions envelope")
 
 
-def sanitize_legacy_definitions(payload: dict[str, Any], excluded_references: set[str] | None = None) -> dict[str, Any]:
+def sanitize_legacy_definitions(
+    payload: dict[str, Any],
+    excluded_keys: set[str] | None = None,
+    flag_id_to_key: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
     """Remove unsafe definitions, preserving the caller's object when nothing is excluded.
 
     Does not mutate the input. Raises ``ValueError`` for an invalid envelope.
-    Use ``flag_references`` for exclusions so either id or key excludes dependents.
     """
     validate_legacy_definitions_envelope(payload)
-    flags = retain_legacy_flags(payload["flags"], excluded_references)
+    flags = retain_legacy_flags(payload["flags"], excluded_keys, flag_id_to_key)
     malformed_cohorts: set[str] = set()
     cohort_dependents: dict[str, set[str]] = defaultdict(set)
     cohort_dependencies: dict[str, set[str]] = {}
@@ -144,9 +175,9 @@ def sanitize_legacy_definitions(payload: dict[str, Any], excluded_references: se
     excluded: set[str] = set()
     for flag in flags:
         if malformed_cohorts.intersection(str(cid) for cid in referenced_cohort_ids(flag.get("filters"))):
-            excluded.update(flag_references(flag))
+            excluded.add(flag["key"])
     if excluded:
-        flags = retain_legacy_flags(flags, excluded)
+        flags = retain_legacy_flags(payload["flags"], excluded | (excluded_keys or set()), flag_id_to_key)
     if len(flags) == len(payload["flags"]) and not malformed_cohorts:
         return payload
     reachable: set[str] = set()
