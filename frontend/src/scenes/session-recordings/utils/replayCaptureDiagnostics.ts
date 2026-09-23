@@ -84,11 +84,6 @@ const toNumber = (value: unknown): number | null => {
     return null
 }
 
-const formatDuration = (milliseconds: number): string => {
-    const seconds = milliseconds / 1000
-    return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)} seconds`
-}
-
 export function diagnoseReplayCapture(eventProperties: Record<string, any> | null | undefined): ReplayCaptureDiagnosis {
     const properties = eventProperties ?? {}
     const rawSignals = pickSignals(properties)
@@ -148,7 +143,7 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
             headline: 'The recorder script never finished loading',
             reasons: [
                 'The SDK asked for the recorder script, but the script had not loaded by the end of this session, so no snapshots were produced.',
-                'A blocked or a very slow request for the script causes this. Check that requests to the PostHog asset host pass ad blockers, content blockers, and your content security policy.',
+                'A blocked or slow request for the script causes this. Check that requests to the PostHog asset host pass ad blockers, content blockers, and your content security policy.',
             ],
             rawSignals,
             suggestedActions: [troubleshootingAction],
@@ -230,9 +225,8 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
             verdict: 'below_minimum_duration',
             headline: 'This session was shorter than the minimum recording duration',
             reasons: [
-                `This project keeps a recording only when the session lasts at least ${formatDuration(minimumDuration)}.`,
-                'The recorder held snapshots for this session and never sent them, which is what happens when a session ends before it reaches that floor.',
-                'Lower or remove the minimum duration in project settings to keep short sessions.',
+                `This project keeps a recording only when the session lasts at least ${Math.round(minimumDuration / 100) / 10} seconds.`,
+                'The recorder held snapshots for this session and never sent them, which is what happens when a session ends before it reaches that floor. Lower the minimum duration in project settings to keep short sessions.',
             ],
             rawSignals,
             suggestedActions: [settingsAction, troubleshootingAction],
