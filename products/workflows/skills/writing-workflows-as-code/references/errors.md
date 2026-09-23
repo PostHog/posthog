@@ -26,6 +26,7 @@ Read `status` first, then do what `fix` says. The tables below list every status
 | `too_many_files`       | More than one file. Run the command once per file.                        |
 | `unknown_option`       | An option other than `--force`, `--allow-move`, `--project` and `--host`. |
 | `missing_option_value` | `--project` or `--host` without a value.                                  |
+| `invalid_project`      | `--project` is not a project id made of decimal digits.                   |
 
 ## `init`
 
@@ -66,11 +67,12 @@ Read `status` first, then do what `fix` says. The tables below list every status
 
 ## Credentials
 
-| Status                | Meaning                                                                                             |
-| --------------------- | --------------------------------------------------------------------------------------------------- |
-| `missing_credentials` | `push` found no key and project id together in the environment or in `~/.posthog/credentials.json`. |
-| `invalid_host`        | The host is not a full URL with a scheme.                                                           |
-| `insecure_host`       | The host is plain `http` and not loopback. Every request carries the key as a bearer token.         |
+| Status                     | Meaning                                                                                             |
+| -------------------------- | --------------------------------------------------------------------------------------------------- |
+| `missing_credentials`      | `push` found no key and project id together in the environment or in `~/.posthog/credentials.json`. |
+| `invalid_host`             | The host is not a full URL with a scheme.                                                           |
+| `insecure_host`            | The host is plain `http` and not loopback. Every request carries the key as a bearer token.         |
+| `invalid_credentials_file` | `~/.posthog/credentials.json` is not valid JSON, or a field in it has the wrong type.               |
 
 ## Push guards
 
@@ -83,14 +85,16 @@ Read `status` first, then do what `fix` says. The tables below list every status
 
 ## Talking to PostHog
 
-| Status          | Meaning                                                                                                             |
-| --------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `network_error` | The host could not be reached.                                                                                      |
-| `timeout`       | No response within 30 seconds.                                                                                      |
-| `http_401`      | PostHog did not accept the API key. Check the key and that the host is the PostHog that issued it.                  |
-| `http_403`      | The key may not write workflows in this project. It needs the `hog_flow:write` scope.                               |
-| `http_400`      | PostHog refused the definition. `why` names the step. PostHog validates templates and inputs that `check` does not. |
-| `http_<status>` | Any other response. When PostHog sends a `fix`, the CLI prints it.                                                  |
+| Status             | Meaning                                                                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `network_error`    | The host could not be reached.                                                                                                       |
+| `timeout`          | No response within 30 seconds.                                                                                                       |
+| `redirect`         | PostHog answered with a redirect. The CLI never follows one with the key. Set `--host` to the final URL.                             |
+| `invalid_response` | A success response the CLI cannot read. After a create or an update, check the workflow in PostHog before you run the command again. |
+| `http_401`         | PostHog did not accept the API key. Check the key and that the host is the PostHog that issued it.                                   |
+| `http_403`         | The key may not write workflows in this project. It needs the `hog_flow:write` scope.                                                |
+| `http_400`         | PostHog refused the definition. `why` names the step. PostHog validates templates and inputs that `check` does not.                  |
+| `http_<status>`    | Any other response. When PostHog sends a `fix`, the CLI prints it.                                                                   |
 
 ## Warnings that are not refusals
 
