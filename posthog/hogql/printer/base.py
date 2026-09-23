@@ -25,8 +25,10 @@ from posthog.hogql.functions import find_hogql_aggregation, find_hogql_function,
 from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.mapping import (
     ALL_EXPOSED_FUNCTION_NAMES,
+    DEGENERATE_DEFAULT_TO_ZERO,
     HOGQL_COMPARISON_MAPPING,
     is_allowed_parametric_function,
+    suggest_width_suffixed_conversion,
 )
 from posthog.hogql.printer.types import JoinExprResponse
 from posthog.hogql.resolver import resolve_types
@@ -1024,8 +1026,8 @@ class BasePrinter(Visitor[str]):
                 # The single-arg form of these is degenerate (equivalent to toFloatOrZero/toIntOrZero).
                 # For toFloatOrDefault this is pre-#58714 behavior kept so old saved queries still print;
                 # toIntOrDefault is new but made degenerate the same way for parity.
-                if len(node.args) == 1 and node.name in ("toFloatOrDefault", "toIntOrDefault"):
-                    zero_fn = "toFloatOrZero" if node.name == "toFloatOrDefault" else "toIntOrZero"
+                zero_fn = DEGENERATE_DEFAULT_TO_ZERO.get(node.name)
+                if len(node.args) == 1 and zero_fn is not None:
                     return self.visit(ast.Call(name=zero_fn, args=node.args))
                 return self._render_placeholder_macro(
                     node=node,
@@ -1147,6 +1149,14 @@ class BasePrinter(Visitor[str]):
             if cast_suggestion is not None:
                 raise QueryError(
                     f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{cast_suggestion}(...)'?"
+                )
+
+            # A width-suffixed ClickHouse conversion resolves to one exact HogQL name, so decide it
+            # before the lexical fallback, which picks an unrelated function for the narrow widths.
+            width_suggestion = suggest_width_suffixed_conversion(node.name)
+            if width_suggestion is not None:
+                raise QueryError(
+                    f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{width_suggestion}(...)'?"
                 )
 
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)

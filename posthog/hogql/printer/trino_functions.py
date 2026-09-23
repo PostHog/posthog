@@ -443,6 +443,11 @@ def _float_or_null(args: list[str]) -> str:
     return f"TRY_CAST({args[0]} AS DOUBLE)"
 
 
+def _int_or_null(args: list[str]) -> str:
+    _require_args("toInt64OrNull", args, 1)
+    return f"TRY_CAST({args[0]} AS BIGINT)"
+
+
 def _array_slice(args: list[str]) -> str:
     if len(args) not in {2, 3}:
         raise _invalid_arguments("arraySlice", "arraySlice expects an array, offset, and optional length.")
@@ -1734,13 +1739,21 @@ TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "toDateTime": _cast("toDateTime", "TIMESTAMP"),
     "toString": _cast("toString", "VARCHAR"),
     "toInt": _cast("toInt", "BIGINT"),
+    "toInt64": _cast("toInt64", "BIGINT"),
     "_toUInt64": _cast("_toUInt64", "BIGINT"),
     "toIntOrZero": _cast_or_default("toIntOrZero", "BIGINT", "0"),
+    "toInt64OrZero": _cast_or_default("toInt64OrZero", "BIGINT", "0"),
     "toIntOrDefault": _cast_or_default("toIntOrDefault", "BIGINT", "0"),
+    "toInt64OrDefault": _cast_or_default("toInt64OrDefault", "BIGINT", "0"),
     "toFloat": _cast("toFloat", "DOUBLE"),
+    "toFloat64": _cast("toFloat64", "DOUBLE"),
     "toFloatOrZero": _cast_or_default("toFloatOrZero", "DOUBLE", "0e0"),
+    "toFloat64OrZero": _cast_or_default("toFloat64OrZero", "DOUBLE", "0e0"),
     "toFloatOrDefault": _cast_or_default("toFloatOrDefault", "DOUBLE", "0e0"),
+    "toFloat64OrDefault": _cast_or_default("toFloat64OrDefault", "DOUBLE", "0e0"),
     "toFloatOrNull": _float_or_null,
+    "toIntOrNull": _int_or_null,
+    "toInt64OrNull": _int_or_null,
     "toFloat64OrNull": _float_or_null,
     "toBool": _cast("toBool", "BOOLEAN"),
     "toUUID": _cast("toUUID", "UUID"),
