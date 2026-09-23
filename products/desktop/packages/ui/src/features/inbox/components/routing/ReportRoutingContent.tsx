@@ -114,7 +114,9 @@ export function ReportRoutingContent({ reportId }: { reportId: string }) {
                         type: "correct",
                         reportId,
                         correction: {
-                          domain_id: domain?.id ?? null,
+                          domain_id: state.routing?.accepted
+                            ? (domain?.id ?? null)
+                            : null,
                           owning_role_id: id === "none" ? null : id,
                         },
                       })
