@@ -2,33 +2,23 @@ import type { LinearTeam } from "@posthog/api-client/posthog-client";
 import { resolveLinearIntegrationId } from "@posthog/core/integrations/linearSourceTeams";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useExternalDataSources } from "@posthog/ui/features/inbox/hooks/useExternalDataSources";
+import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 
-interface UseLinearTeamsResult {
-  teams: LinearTeam[];
-  isLoading: boolean;
-  /** True once the integration list has landed and carries no Linear connection. */
-  missingIntegration: boolean;
-  error: Error | null;
-}
-
 /**
- * The teams of the Linear workspace the inbox source syncs, for the scope picker. A null
- * integration id means the lists are still loading or Linear is not connected — the two are
- * told apart by whether the integrations query has settled, so a reload never reads as
- * "disconnected".
+ * `missing` means the integration list landed and carries no Linear connection, which is not
+ * the same as a list that has not loaded yet.
  */
-export function useLinearTeams(enabled: boolean): UseLinearTeamsResult {
+export type LinearTeamsStatus = "loading" | "missing" | "error" | "ready";
+
+/** The teams of the Linear workspace the inbox source syncs, for the scope picker. */
+export function useLinearTeams(enabled: boolean): {
+  teams: LinearTeam[];
+  status: LinearTeamsStatus;
+} {
   const projectId = useAuthStateValue((state) => state.currentProjectId);
   const { data: sources } = useExternalDataSources();
-  const integrationsQuery = useAuthenticatedQuery(
-    ["integrations", projectId],
-    (client) =>
-      projectId
-        ? client.getIntegrationsForProject(projectId)
-        : Promise.resolve([]),
-    { enabled: enabled && !!projectId, staleTime: 60_000 },
-  );
+  const integrationsQuery = useIntegrations();
 
   const integrationId = integrationsQuery.data
     ? resolveLinearIntegrationId(integrationsQuery.data, sources)
@@ -46,12 +36,14 @@ export function useLinearTeams(enabled: boolean): UseLinearTeamsResult {
     },
   );
 
-  return {
-    teams: teamsQuery.data ?? [],
-    isLoading:
-      integrationsQuery.isPending ||
-      (integrationId !== null && teamsQuery.isPending),
-    missingIntegration: !!integrationsQuery.data && integrationId === null,
-    error: teamsQuery.error ?? integrationsQuery.error,
-  };
+  const status = ((): LinearTeamsStatus => {
+    if (integrationsQuery.isPending) return "loading";
+    if (integrationsQuery.error) return "error";
+    if (integrationId === null) return "missing";
+    if (teamsQuery.isPending) return "loading";
+    if (teamsQuery.error) return "error";
+    return "ready";
+  })();
+
+  return { teams: teamsQuery.data ?? [], status };
 }

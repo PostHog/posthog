@@ -322,25 +322,16 @@ const ExternalSourceCard = memo(function ExternalSourceCard({
       onSetup={handleSetup}
       loading={state?.loading}
       syncStatus={state?.syncStatus}
-      statusSection={(() => {
-        if (githubSource) {
-          return (
-            <GithubSourceRepositories
-              source={githubSource.source}
-              repos={githubSource.repos}
-            />
-          );
-        }
-        if (linearConfig && onEditLinearTeams) {
-          return (
-            <LinearSourceTeams
-              config={linearConfig}
-              onEdit={onEditLinearTeams}
-            />
-          );
-        }
-        return undefined;
-      })()}
+      statusSection={
+        githubSource ? (
+          <GithubSourceRepositories
+            source={githubSource.source}
+            repos={githubSource.repos}
+          />
+        ) : linearConfig && onEditLinearTeams ? (
+          <LinearSourceTeams config={linearConfig} onEdit={onEditLinearTeams} />
+        ) : undefined
+      }
       compact
     />
   );

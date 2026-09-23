@@ -1,4 +1,7 @@
-import type { SignalSourceConfig } from "@posthog/api-client/posthog-client";
+import type {
+  LinearTeam,
+  SignalSourceConfig,
+} from "@posthog/api-client/posthog-client";
 import {
   buildLinearTeamIdsConfig,
   linearTeamIdsFromConfig,
@@ -23,7 +26,10 @@ import {
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
-import { useLinearTeams } from "@posthog/ui/features/inbox/hooks/useLinearTeams";
+import {
+  type LinearTeamsStatus,
+  useLinearTeams,
+} from "@posthog/ui/features/inbox/hooks/useLinearTeams";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
@@ -40,6 +46,70 @@ interface LinearTeamsDialogProps {
   viaSetupWizard: boolean;
   open: boolean;
   onClose: () => void;
+}
+
+function LinearTeamList({
+  teams,
+  status,
+  selected,
+  onToggle,
+  disabled,
+}: {
+  teams: LinearTeam[];
+  status: LinearTeamsStatus;
+  selected: string[];
+  onToggle: (id: string, checked: boolean) => void;
+  disabled: boolean;
+}) {
+  if (status === "loading") {
+    return (
+      <div className="flex items-center gap-2 py-2">
+        <Spinner aria-hidden="true" />
+        <Text size="sm" variant="muted">
+          Loading teams…
+        </Text>
+      </div>
+    );
+  }
+  if (status !== "ready") {
+    return (
+      <Text size="sm" className="text-warning">
+        PostHog can't reach your Linear connection, so the team list isn't
+        available. Reconnect Linear in integration settings, then try again.
+      </Text>
+    );
+  }
+  if (teams.length === 0) {
+    return (
+      <Text size="sm" variant="muted">
+        This Linear workspace has no teams to pick from.
+      </Text>
+    );
+  }
+  return (
+    <ScrollArea className="max-h-56">
+      <div className="flex flex-col gap-1 pr-2">
+        {teams.map((team) => {
+          const checked = selected.includes(team.id);
+          return (
+            <Label
+              key={team.id}
+              className="flex items-center gap-2 rounded-(--radius-2) px-1 py-1"
+            >
+              <Checkbox
+                checked={checked}
+                onCheckedChange={(next) => onToggle(team.id, next === true)}
+                disabled={disabled}
+              >
+                <CheckboxIndicator checked={checked} />
+              </Checkbox>
+              <span className="min-w-0 truncate text-sm">{team.name}</span>
+            </Label>
+          );
+        })}
+      </div>
+    </ScrollArea>
+  );
 }
 
 /**
@@ -62,7 +132,7 @@ export function LinearTeamsDialog({
     savedTeamIds.length > 0 ? "selected" : "all",
   );
   const [teamIds, setTeamIds] = useState<string[]>(savedTeamIds);
-  const { teams, isLoading, missingIntegration, error } = useLinearTeams(open);
+  const { teams, status } = useLinearTeams(open);
 
   const save = useMutation({
     mutationFn: async () => {
@@ -120,58 +190,6 @@ export function LinearTeamsDialog({
     );
   };
 
-  const teamList = (() => {
-    if (isLoading) {
-      return (
-        <div className="flex items-center gap-2 py-2">
-          <Spinner />
-          <Text size="sm" variant="muted">
-            Loading teams…
-          </Text>
-        </div>
-      );
-    }
-    if (missingIntegration || error) {
-      return (
-        <Text size="sm" className="text-warning">
-          PostHog can't reach your Linear connection, so the team list isn't
-          available. Reconnect Linear in integration settings, then try again.
-        </Text>
-      );
-    }
-    if (teams.length === 0) {
-      return (
-        <Text size="sm" variant="muted">
-          This Linear workspace has no teams to pick from.
-        </Text>
-      );
-    }
-    return (
-      <ScrollArea className="max-h-56">
-        <div className="flex flex-col gap-1 pr-2">
-          {teams.map((team) => {
-            const checked = teamIds.includes(team.id);
-            return (
-              <Label
-                key={team.id}
-                className="flex items-center gap-2 rounded-(--radius-2) px-1 py-1"
-              >
-                <Checkbox
-                  checked={checked}
-                  onCheckedChange={(next) => toggleTeam(team.id, next === true)}
-                  disabled={save.isPending}
-                >
-                  <CheckboxIndicator checked={checked} />
-                </Checkbox>
-                <span className="min-w-0 truncate text-sm">{team.name}</span>
-              </Label>
-            );
-          })}
-        </div>
-      </ScrollArea>
-    );
-  })();
-
   const nothingPicked = scope === "selected" && teamIds.length === 0;
 
   return (
@@ -207,7 +225,13 @@ export function LinearTeamsDialog({
             </RadioGroup>
             {scope === "selected" ? (
               <div className="flex flex-col gap-1">
-                {teamList}
+                <LinearTeamList
+                  teams={teams}
+                  status={status}
+                  selected={teamIds}
+                  onToggle={toggleTeam}
+                  disabled={save.isPending}
+                />
                 <Text size="xs" variant="muted">
                   Applies from the next sync. Reports already in your inbox
                   stay.

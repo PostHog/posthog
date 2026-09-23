@@ -9,19 +9,13 @@ const mocks = vi.hoisted(() => ({
     { id: "team-eng", name: "Engineering" },
     { id: "team-support", name: "Support" },
   ] as { id: string; name: string }[],
-  missingIntegration: false,
-  isLoading: false,
+  status: "ready" as "loading" | "missing" | "error" | "ready",
   createSignalSourceConfig: vi.fn(),
   updateSignalSourceConfig: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useLinearTeams", () => ({
-  useLinearTeams: () => ({
-    teams: mocks.teams,
-    isLoading: mocks.isLoading,
-    missingIntegration: mocks.missingIntegration,
-    error: null,
-  }),
+  useLinearTeams: () => ({ teams: mocks.teams, status: mocks.status }),
 }));
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
@@ -85,8 +79,7 @@ describe("LinearTeamsDialog", () => {
       { id: "team-eng", name: "Engineering" },
       { id: "team-support", name: "Support" },
     ];
-    mocks.missingIntegration = false;
-    mocks.isLoading = false;
+    mocks.status = "ready";
     mocks.createSignalSourceConfig.mockReset();
     mocks.updateSignalSourceConfig.mockReset();
   });
@@ -171,7 +164,7 @@ describe("LinearTeamsDialog", () => {
 
   it("says how to recover when Linear is not connected", async () => {
     mocks.teams = [];
-    mocks.missingIntegration = true;
+    mocks.status = "missing";
     renderDialog({ config: null, enableOnSave: true });
 
     await userEvent.click(screen.getByText("Only the teams I pick"));
