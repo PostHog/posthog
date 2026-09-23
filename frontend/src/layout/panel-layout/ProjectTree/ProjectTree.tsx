@@ -46,7 +46,7 @@ import { MenuItems } from './menus/MenuItems'
 import { projectTreeLogic } from './projectTreeLogic'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
-import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
+import { TreeSortMenuItems } from './TreeSortMenuItems'
 import { calculateMovePath } from './utils'
 
 interface ProjectTreeBaseProps {
@@ -187,7 +187,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
     )
 
     const showFilterDropdown = root === 'project://'
-    const showSortDropdown = root === 'project://'
+    const showSortMenuItems = root === 'project://'
 
     let treeData: TreeDataItem[] = withHomeFolderEmptyState([...fullFileSystemFiltered], currentHomeFolder)
 
@@ -664,8 +664,8 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                     <TreeFiltersDropdownMenu setSearchTerm={setSearchTerm} searchTerm={searchTerm} />
                 ) : null
             }
-            sortDropdown={
-                showSortDropdown ? <TreeSortDropdownMenu sortMethod={sortMethod} setSortMethod={setSortMethod} /> : null
+            panelMenuItems={
+                showSortMenuItems ? <TreeSortMenuItems sortMethod={sortMethod} setSortMethod={setSortMethod} /> : null
             }
             panelActionsNewSceneLayout={[
                 {

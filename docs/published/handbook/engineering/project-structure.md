@@ -56,6 +56,11 @@ The home-folder record survives deletion, and later visits do not recreate or re
 The user's own folder keeps its home icon after a rename or move and shows "Empty home folder" when expanded and empty.
 An info tooltip explains that everyone in the project can see its contents and shows the folder's current path.
 Creating an item from a starred folder uses the original folder's full path, including its parent folders.
+With `simple-sidepanel` enabled, the Apps and Files tabs use "Filter apps" and "Filter files" to filter their contents.
+The file filter and options buttons stay beside the filter field; alphabetical and recently added sorting are in the options menu.
+App tooltips reuse the product descriptions from the scene configuration.
+Opening Apps or Files from the collapsed sidebar temporarily expands the navigation over the page without changing the saved collapsed setting.
+Selecting a destination, clicking outside, or pressing Escape closes the temporary navigation.
 
 ### `posthog`
 
