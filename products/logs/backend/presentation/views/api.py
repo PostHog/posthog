@@ -2,6 +2,7 @@ import re
 import json
 import base64
 import datetime as dt
+from typing import NoReturn
 
 from django.db import models
 from django.utils import timezone
@@ -97,14 +98,14 @@ LOGS_MAX_EXPORT_ROWS = 10_000
 LOGS_WORKLOAD_UNREACHABLE = (NetworkError, SocketTimeoutError)
 
 
-def logs_workload_at_capacity(error: Exception) -> ClickHouseAtCapacity:
-    """Turn a refused logs-cluster connection into a 503 the viewer can explain.
+def raise_logs_workload_at_capacity(error: Exception) -> NoReturn:
+    """Answer a refused logs-cluster connection with a 503 the viewer can explain.
 
     A 503 is an APIException, so error tracking no longer sees it. Log it to keep the operational
-    signal that the generic 500 used to carry.
+    signal the generic 500 used to carry.
     """
     logger.warning("logs_workload_unreachable", error=str(error))
-    return ClickHouseAtCapacity()
+    raise ClickHouseAtCapacity() from error
 
 
 class DateRangeSerializer(serializers.Serializer):
@@ -1466,7 +1467,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             # A bad custom-column expression is re-raised by the runner as QueryError; keep it a clean 400.
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except LOGS_WORKLOAD_UNREACHABLE as e:
-            raise logs_workload_at_capacity(e) from e
+            raise_logs_workload_at_capacity(e)
         has_more = len(results) > requested_limit
         results = results[:requested_limit]  # Rm the +1 we used to check for another page
 
@@ -1542,7 +1543,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             # A user query error (HogQL or ClickHouse) becomes a clean 400 the viewer can show.
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except LOGS_WORKLOAD_UNREACHABLE as e:
-            raise logs_workload_at_capacity(e) from e
+            raise_logs_workload_at_capacity(e)
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
 
         report_user_action(
