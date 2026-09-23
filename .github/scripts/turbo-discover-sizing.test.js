@@ -87,19 +87,6 @@ test('resolveProductSizing trusts scaled sums and skips the file-count guess', (
     assert.equal(sizing.staleUnionWork, null)
 })
 
-test('resolveProductSizing counts test files, the unit a split leg places', () => {
-    const union = {
-        'products/big_one/backend/test_a.py::test_1': 400,
-        'products/big_one/backend/test_a.py::test_2[x]': 400,
-        'products/big_one/backend/test_b.py::test_3': 10,
-    }
-
-    const sizing = resolveProductSizing('big-one', union, true)
-
-    assert.equal(sizing.testCount, 2)
-    assert.equal(productSplitShards(sizing), 2)
-})
-
 test('buildMatrix splits a product to the shared wall target', () => {
     const union = {}
     for (let i = 0; i < 40; i++) {

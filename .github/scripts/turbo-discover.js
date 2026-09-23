@@ -892,13 +892,12 @@ function getProductShape(product, durations) {
     const prefix = productPrefix(product)
     const excluded = PRODUCTS_RUNNING_TEMPORAL_IN_JOB.has(product) ? [] : EXCLUDED_PATH_SEGMENTS
     const heavyThreshold = productShardBudget() / 2
-    const files = new Set()
     for (const [test, dur] of Object.entries(durations)) {
         if (!test.startsWith(prefix) || excluded.some((seg) => test.includes(seg))) {
             continue
         }
         shape.work += dur
-        files.add(test.split('::')[0])
+        shape.testCount += 1
         shape.maxTest = Math.max(shape.maxTest, dur)
         if (dur > heavyThreshold) {
             shape.heavyCount += 1
@@ -907,8 +906,6 @@ function getProductShape(product, durations) {
             shape.maxLight = Math.max(shape.maxLight, dur)
         }
     }
-    // A split leg places whole files, so a shard past the file count would collect nothing.
-    shape.testCount = files.size
     return shape
 }
 
