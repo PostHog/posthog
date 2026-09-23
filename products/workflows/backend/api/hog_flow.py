@@ -458,27 +458,38 @@ def mask_secret_action_inputs(
 
 # Entry names whose value is a credential. A template marks its own inputs secret, but a
 # dictionary-typed input is never one of them: a webhook's `headers` holds arbitrary keys, so a
-# bearer token typed into it stays in clear text. Compared after lowercasing and after underscores
-# become hyphens, so `X-Api-Key` and `api_key` both match.
+# bearer token typed into it stays in clear text. A superset of CREDENTIAL_HEADER_NAMES in
+# nodejs/src/cdp/utils.ts, which masks the same names out of what the worker logs; a name added
+# there belongs here too.
 _CREDENTIAL_ENTRY_NAMES = frozenset(
     {
         "access-token",
+        "accesstoken",
         "api-key",
         "apikey",
         "auth-token",
-        "authentication",
+        "authtoken",
         "authorization",
         "cookie",
+        "authentication",
+        "credential",
+        "passcode",
         "password",
         "private-key",
+        "privatekey",
         "proxy-authorization",
         "secret",
         "secret-key",
+        "secretkey",
+        "signing-key",
+        "signingkey",
         "token",
         "x-access-token",
         "x-api-key",
+        "x-auth",
         "x-auth-token",
         "x-goog-api-key",
+        "x-secret",
         "x-secret-key",
     }
 )
@@ -511,11 +522,15 @@ def redact_credential_entries(config: Any) -> None:
             entry.pop("transpiled", None)
 
 
-def redact_credential_action_inputs(actions: list[dict]) -> list[dict]:
-    for flow_action in actions:
+def redact_credential_content(content: dict) -> None:
+    # Redact every action of a content snapshot, plus its separately-serialized `trigger` (the
+    # summary serializer returns `trigger` without `actions`, so it cannot be re-derived there).
+    for flow_action in content.get("actions") or []:
         if isinstance(flow_action, dict):
             redact_credential_entries(flow_action.get("config"))
-    return actions
+    trigger = content.get("trigger")
+    if isinstance(trigger, dict):
+        redact_credential_entries(trigger)
 
 
 def stored_action_inputs(instance: "HogFlow") -> dict[str, dict]:
@@ -2934,6 +2949,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
         # Never return secret function inputs. Replace each set secret with the {"secret": True}
         # presence marker in the live actions and, when present, the staged draft's actions. Values
         # come from the encrypted columns (or legacy plaintext); see mask_secret_action_inputs.
+        redact_credentials = bool(self.context.get("redact_credential_entries"))
         live_secrets = instance.encrypted_inputs or {} if isinstance(instance, HogFlow) else {}
         draft_secrets = instance.draft_encrypted_inputs or {} if isinstance(instance, HogFlow) else {}
         data = super().to_representation(instance)
@@ -2951,7 +2967,8 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
         if "trigger" in data and isinstance(instance, HogFlow):
             data["trigger"] = mask_trigger_config(instance, live_secrets, template_cache)
         draft = data.get("draft")
-        if isinstance(draft, dict):
+        # Redaction mutates the draft too, so it needs the copy even when there is nothing to mask.
+        if isinstance(draft, dict) and (isinstance(draft.get("actions"), list) or redact_credentials):
             draft = deepcopy(draft)
             if isinstance(draft.get("actions"), list):
                 draft["actions"] = mask_secret_action_inputs(
@@ -2960,21 +2977,14 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
                 _mask_derived_trigger(draft, template_cache)
             data["draft"] = draft
 
-        if self.context.get("redact_credential_entries") and isinstance(instance, HogFlow):
+        if redact_credentials and isinstance(instance, HogFlow):
             # An MCP caller reads a workflow to inspect it, so a credential inside a non-secret
             # dictionary input (a webhook's Authorization header) is masked as well. The web app and
             # the raw API keep the real value, which the builder needs to render and edit the step.
             # A resent mask recovers on write; see restore_redacted_credential_entries.
-            if isinstance(data.get("actions"), list):
-                redact_credential_action_inputs(data["actions"])
-            if isinstance(data.get("trigger"), dict):
-                redact_credential_entries(data["trigger"])
-            redacted_draft = data.get("draft")
-            if isinstance(redacted_draft, dict):
-                if isinstance(redacted_draft.get("actions"), list):
-                    redact_credential_action_inputs(redacted_draft["actions"])
-                if isinstance(redacted_draft.get("trigger"), dict):
-                    redact_credential_entries(redacted_draft["trigger"])
+            redact_credential_content(data)
+            if isinstance(draft, dict):
+                redact_credential_content(draft)
 
         return data
 
