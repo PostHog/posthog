@@ -37,7 +37,7 @@ const failedDelivery = (id: string): Record<string, unknown> => ({
     ...aiDelivery(id),
     status: 'failed',
     error: { type: 'HTTPError', message: '500 Server Error: token=abcd1234 for url: https://hooks.example.com/x' },
-    failure_reason: { type: 'HTTPError', detail: null },
+    failure_reason: { type: 'HTTPError', detail: 'The webhook host did not respond.' },
 })
 
 describe('subscriptions deliveries response shape', () => {
@@ -83,7 +83,7 @@ describe('subscriptions deliveries response shape', () => {
             )
 
             const row = isList ? (result as any).results[0] : (result as any)
-            expect(row.failure_reason).toEqual({ type: 'HTTPError', detail: null })
+            expect(row.failure_reason).toEqual({ type: 'HTTPError', detail: 'The webhook host did not respond.' })
             expect(row).not.toHaveProperty('error')
             expect(JSON.stringify(row)).not.toContain('abcd1234')
         }
