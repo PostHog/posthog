@@ -188,8 +188,7 @@ class ProjectAdmin(admin.ModelAdmin):
             messages.error(request, f"Project {project.name} ({project.pk}) is already pending deletion.")
             return redirect(change_url)
 
-        deletion_delay = project_deletion_delay(project)
-        deletion_scheduled_at = timezone.now() + (deletion_delay or timedelta())
+        deletion_scheduled_at = timezone.now() + project_deletion_delay(project)
         claimed_project = Project.objects.filter(pk=project.pk, is_pending_deletion=False).update(
             is_pending_deletion=True,
             deletion_scheduled_at=deletion_scheduled_at,
@@ -204,9 +203,7 @@ class ProjectAdmin(admin.ModelAdmin):
                 project_id=project.pk,
                 user_id=user.id,
                 project_name=project.name,
-                start_delay=(
-                    max(deletion_scheduled_at - timezone.now(), timedelta()) if deletion_delay is not None else None
-                ),
+                start_delay=max(deletion_scheduled_at - timezone.now(), timedelta()),
             )
         except WorkflowAlreadyStartedError:
             messages.error(

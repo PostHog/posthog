@@ -614,7 +614,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
     @parameterized.expand(
         [
             ("with_ingested_data", True, timedelta(hours=48)),
-            ("without_ingested_data", False, None),
+            ("without_ingested_data", False, timedelta(hours=1)),
         ]
     )
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
@@ -633,28 +633,35 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertTrue(self.project.is_pending_deletion)
         self.assertAlmostEqual(
             self.project.deletion_scheduled_at.timestamp(),
-            (timezone.now() + (expected_delay or timedelta())).timestamp(),
+            (timezone.now() + expected_delay).timestamp(),
             delta=5,
         )
+        self.assertTrue(self.project.can_cancel_deletion())
         mock_delete_task.assert_called_once()
         start_delay = mock_delete_task.call_args.kwargs["start_delay"]
-        if expected_delay is None:
-            self.assertIsNone(start_delay)
-        else:
-            self.assertLessEqual(start_delay, expected_delay)
-            self.assertGreater(start_delay, expected_delay - timedelta(minutes=1))
+        self.assertLessEqual(start_delay, expected_delay)
+        self.assertGreater(start_delay, expected_delay - timedelta(minutes=1))
 
+    @parameterized.expand([("with_ingested_data", True), ("without_ingested_data", False)])
+    @patch("posthog.api.project.report_user_action")
     @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
-    def test_project_deletion_can_be_canceled(self, mock_delete_task, mock_cancel_delete_task):
+    def test_project_deletion_can_be_canceled(
+        self, _name, has_ingested_data, mock_delete_task, mock_cancel_delete_task, mock_report_user_action
+    ):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        self._mark_project_ingested()
+        if has_ingested_data:
+            self._mark_project_ingested()
         self.client.delete(f"/api/projects/{self.project.id}")
 
         response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(
+            "project deletion canceled",
+            [call.args[1] for call in mock_report_user_action.call_args_list],
+        )
         self.project.refresh_from_db()
         self.assertFalse(self.project.is_pending_deletion)
         self.assertIsNone(self.project.deletion_scheduled_at)
