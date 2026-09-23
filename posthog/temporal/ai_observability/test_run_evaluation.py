@@ -1624,7 +1624,8 @@ class TestRunEvaluationWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_disable_evaluation_activity(self, setup_data):
+    @pytest.mark.parametrize("initial_status,expected_disabled", [("active", True), ("paused", False)])
+    async def test_disable_evaluation_activity(self, setup_data, initial_status: str, expected_disabled: bool) -> None:
         from posthog.models.activity_logging.activity_log import ActivityLog
 
         evaluation = setup_data["evaluation"]
@@ -1633,17 +1634,21 @@ class TestRunEvaluationWorkflow:
         directory = await sync_to_async(
             lambda: EvaluationDirectory.objects.for_team(team.id).create(team=team, name="Quality")
         )()
-        await sync_to_async(lambda: Evaluation.objects.filter(id=evaluation.id).update(directory=directory))()
+        await sync_to_async(
+            lambda: Evaluation.objects.filter(id=evaluation.id).update(
+                directory=directory, status=initial_status, enabled=expected_disabled
+            )
+        )()
         await sync_to_async(evaluation.refresh_from_db)()
 
-        assert evaluation.enabled
+        assert evaluation.enabled is expected_disabled
 
         disabled = await disable_evaluation_activity(
             str(evaluation.id), team.id, "hog_error", "Must return boolean, got int: 42"
         )
 
         await sync_to_async(evaluation.refresh_from_db)()
-        assert disabled is True
+        assert disabled is expected_disabled
         assert not evaluation.enabled
         assert evaluation.status == "error"
         assert evaluation.status_reason == "hog_error"
@@ -1656,7 +1661,7 @@ class TestRunEvaluationWorkflow:
         detail = logs[0].detail
         assert detail is not None
         fields = {c["field"]: c for c in detail["changes"]}
-        assert fields["status"]["before"] == "active"
+        assert fields["status"]["before"] == initial_status
         assert fields["status"]["after"] == "error"
         assert fields["status_reason"]["after"] == "hog_error"
         assert fields["status_reason_detail"]["after"] == "Must return boolean, got int: 42"
