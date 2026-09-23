@@ -87,25 +87,15 @@ def test_rejects_a_column_that_is_not_the_aggregate() -> None:
 
 
 @pytest.mark.parametrize(
-    "hours,limit,eligible,injected",
-    [
-        (48, "", True, 97),
-        (336, "", True, 385),
-        (336, " LIMIT 1000", True, None),
-        (48, " LIMIT 20", False, None),
-        (49_951, "", True, 50_000),
-        (49_952, "", False, None),
-    ],
+    "hours,limit,eligible",
+    [(48, "", True), (336, "", False), (336, " LIMIT 1000", True), (48, " LIMIT 20", False)],
 )
-def test_a_missing_limit_is_derived_from_the_window(
-    hours: int, limit: str, eligible: bool, injected: int | None
-) -> None:
+def test_requires_the_full_window_to_fit_in_the_result(hours: int, limit: str, eligible: bool) -> None:
     sql = SQL.replace("48 HOUR", f"{hours} HOUR") + limit
     matched = match_detector_series_query(_query(sql), column="value")
     assert (matched is not None) == eligible
     if matched is not None:
         assert matched.window_hours == hours
-        assert matched.injected_limit == injected
 
 
 NESTED_SQL = """
@@ -133,7 +123,6 @@ def test_accepts_a_one_level_projection_over_the_aggregation() -> None:
     matched = match_detector_series_query(_query(NESTED_SQL), column="value")
     assert matched is not None
     assert matched.window_hours == 48
-    assert matched.injected_limit == 97
     assert matched.column_names == ["window_start", "value"]
 
 
@@ -162,7 +151,6 @@ def test_narrowing_a_projection_bounds_the_inner_query() -> None:
     assert "toIntervalHour(3)" in narrowed_sql
     assert "toIntervalHour(48)" in narrowed_sql
     assert "now()" not in narrowed_sql
-    assert "LIMIT 97" in narrowed_sql
 
 
 def test_narrowing_tightens_the_lower_bound_and_leaves_the_saved_query_alone() -> None:

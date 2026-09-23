@@ -15,7 +15,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext, get_default_limit_for_context
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_select
 
@@ -137,7 +137,6 @@ class _HourlySeriesShape:
     window_hours: int
     bucket_alias: str
     value_alias: str
-    injected_limit: int | None
 
 
 class _HourlySeriesMatcher:
@@ -346,22 +345,22 @@ class _HourlySeriesMatcher:
             and self._end(predicate.right)
         )
 
-    def _window_hours(self) -> tuple[int, int | None] | None:
-        """The window in hourly buckets and the limit to inject, when the bounds pin a window.
+    def _window_hours(self) -> int | None:
+        """The number of hourly buckets the query asks for, when its bounds pin one.
 
         Every top-level conjunct must be one of the two exact bound shapes or contain no clock at
         all. A now()-dependent predicate in any other shape shifts which rows a bucket holds as
         time advances without moving the window this returns, so the cache would keep buckets a
         full scan no longer reads.
 
-        A query without an explicit LIMIT gets one derived from its own window, so the scans this
-        module issues can never come back truncated. An explicit LIMIT is the author's ceiling
-        and stays a hard constraint on the window instead.
+        The window must fit under the limit the query really runs with — the author's explicit
+        LIMIT, or the context default — because the full scan the cache is compared against would
+        otherwise come back truncated.
         """
         query = self.query
         if not isinstance(query.where, ast.And):
             return None
-        row_limit = MAX_SELECT_RETURNED_ROWS
+        row_limit = get_default_limit_for_context(LimitContext.QUERY_ASYNC)
         if self.explicit_limit is not None:
             if (
                 not isinstance(self.explicit_limit, ast.Constant)
@@ -387,20 +386,16 @@ class _HourlySeriesMatcher:
             return None
         if not _MIN_WINDOW_HOURS < hours < row_limit - _ROW_LIMIT_HEADROOM:
             return None
-        injected = hours + _ROW_LIMIT_HEADROOM + 1 if self.explicit_limit is None else None
-        return hours, injected
+        return hours
 
     def match(self) -> _HourlySeriesShape | None:
         aliases = self._aliases()
         if aliases is None:
             return None
-        window = self._window_hours()
-        if window is None:
+        hours = self._window_hours()
+        if hours is None:
             return None
-        hours, injected = window
-        return _HourlySeriesShape(
-            window_hours=hours, bucket_alias=aliases.bucket, value_alias=aliases.value, injected_limit=injected
-        )
+        return _HourlySeriesShape(window_hours=hours, bucket_alias=aliases.bucket, value_alias=aliases.value)
 
 
 @frozen
@@ -414,7 +409,6 @@ class DetectorSeriesQuery:
     window_hours: int
     bucket_alias: str
     value_alias: str
-    injected_limit: int | None
     source: dict = field(repr=False)
     parsed: ast.SelectQuery = field(repr=False)
 
@@ -423,7 +417,7 @@ class DetectorSeriesQuery:
         return [self.bucket_alias, self.value_alias]
 
     def prepared(self, *, at: datetime, tz: str) -> dict:
-        """The full query as this module runs it: clock pinned, derived limit made explicit."""
+        """The full query with its clock pinned, for the rebuild scan."""
         return self._override(deepcopy(self.parsed), at=at, tz=tz)
 
     def narrowed_to(self, hours: int, *, at: datetime, tz: str) -> dict:
@@ -453,15 +447,13 @@ class DetectorSeriesQuery:
         return self._override(narrowed, at=at, tz=tz)
 
     def _override(self, tree: ast.SelectQuery, *, at: datetime, tz: str) -> dict:
-        """Pin the clock, apply the derived limit, and wrap the tree as a query override.
+        """Pin the clock and wrap the tree as a query override.
 
         Pinning replaces every ``now()`` with ``at`` rendered in the team timezone, so the
         warehouse evaluates the bounds the caller reasoned about — a warehouse clock that crosses
         an hour boundary mid-check cannot shift the scan against the cache bookkeeping.
         """
         _pin_clock(tree, at=at, tz=tz)
-        if self.injected_limit is not None and tree.limit is None:
-            tree.limit = ast.Constant(value=self.injected_limit)
         override = deepcopy(self.source)
         target = override["source"] if override.get("kind") == "DataVisualizationNode" else override
         target["query"] = tree.to_hogql()
@@ -526,7 +518,6 @@ def match_detector_series_query(query: object, *, column: str | None) -> Detecto
         window_hours=matched.window_hours,
         bucket_alias=matched.bucket_alias,
         value_alias=matched.value_alias,
-        injected_limit=matched.injected_limit,
         source=query,
         parsed=parsed,
     )

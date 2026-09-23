@@ -314,7 +314,6 @@ class TestHogQLDetectorIncrementalHistory(APIBaseTest, ClickhouseDestroyTablesMi
         assert self._values(incremental) == self._values(full)
         narrowed_sql = calculator.call_args_list[-1].kwargs["query_override"]["query"]
         assert "now()" not in narrowed_sql
-        assert "LIMIT 97" in narrowed_sql
         assert evaluate_with_detector(incremental, DETECTOR).breaches == evaluate_with_detector(full, DETECTOR).breaches
 
     def test_a_check_an_hour_later_matches_the_full_scan(self) -> None:
