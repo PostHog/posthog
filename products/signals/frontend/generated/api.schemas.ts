@@ -3359,6 +3359,8 @@ export interface SignalScoutManualRunApi {
  * One team a member belongs to, from the project's synced team roster.
  */
 export interface ScoutMemberTeamApi {
+    /** Where the team is defined, for example `github`. Today every team comes from GitHub. */
+    provider: string
     /** The team's slug, lowercased. For example `team-desktop`. */
     slug: string
     /** The team's display name. For example `Team Desktop`. */
