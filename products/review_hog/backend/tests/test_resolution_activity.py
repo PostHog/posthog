@@ -11,6 +11,7 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
 
+from posthog.github.merge_queue import MergeQueueState
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -101,6 +102,7 @@ def _mock_installation() -> Mock:
     github.get_access_token.return_value = "token"
     github.github_installation_id = "inst-1"
     github.integration.id = 42
+    github.get_pull_request_merge_queue_state.return_value = None
     return github
 
 
@@ -309,6 +311,7 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
             patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=[thread]),
             patch(f"{_RESOLUTION}.add_eyes_reaction"),
+            patch(f"{_RESOLUTION}._has_stacked_pull_requests", return_value=False),
         ):
             return _prepare_run(
                 ResolveThreadsInput(
@@ -509,6 +512,7 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
             patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=threads),
             patch(f"{_RESOLUTION}.add_eyes_reaction", eyes),
+            patch(f"{_RESOLUTION}._has_stacked_pull_requests", return_value=False),
             patch(
                 f"{_RESOLUTION}.load_resolution_skill_for_run",
                 return_value=Mock(skill_name="review-hog-resolution-criteria", version=1),
@@ -549,6 +553,39 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         assert content["thread_ids"] == ["PRRT_1"]
         assert content["skipped"] == 1
         assert eyes.call_args_list == [((), {"token": "token", "subject_id": "PRRC_1", "installation_id": "inst-1"})]
+
+    @parameterized.expand(
+        [
+            ("submitted_to_merge_queue", MergeQueueState.NOT_READY, False, "pr_in_merge_queue", "in the merge queue"),
+            ("stacked_pull_requests", None, True, "pr_has_stacked_pull_requests", "stacked on this branch"),
+        ]
+    )
+    def test_held_pr_gets_no_turns_and_says_why(
+        self, _name: str, queue_state: MergeQueueState | None, stacked: bool, reason: str, section_text: str
+    ) -> None:
+        self._report()
+        installation = _mock_installation()
+        installation.get_pull_request_merge_queue_state.return_value = queue_state
+        thread = ReviewThread(
+            thread_id="PRRT_1",
+            path="f.py",
+            comments=[ThreadComment(id=1, node_id="PRRC_1", author_login="greptile", author_is_bot=True, body="b")],
+        )
+        eyes = Mock()
+        with (
+            patch(f"{_RESOLUTION}._installation_for", return_value=installation),
+            patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
+            patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=[thread]),
+            patch(f"{_RESOLUTION}.add_eyes_reaction", eyes),
+            patch(f"{_RESOLUTION}._has_stacked_pull_requests", return_value=stacked),
+            patch(f"{_RESOLUTION}.update_resolution_status_comment") as status_comment,
+        ):
+            result = _prepare_run(self._input())
+
+        assert isinstance(result, ResolutionRunResult)
+        assert result.skipped_reason == reason
+        eyes.assert_not_called()
+        assert section_text in status_comment.call_args.args[2]
 
     def test_reaction_failure_never_fails_prepare(self) -> None:
         # A GitHub flake on the cosmetic queue marker must not cost the run (or the progress anchor,
@@ -604,6 +641,8 @@ class TestFailedRunActivity(NonAtomicBaseTest):
             patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
             patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=threads),
             patch(f"{_RESOLUTION}.add_eyes_reaction"),
+            patch(f"{_RESOLUTION}._has_stacked_pull_requests", return_value=False),
+            patch(f"{_RESOLUTION}._merge_queue_holds_for_run", return_value=False),
             patch(
                 f"{_RESOLUTION}.load_resolution_skill_for_run",
                 return_value=Mock(skill_name="review-hog-resolution-criteria", version=1),
@@ -689,3 +728,30 @@ class TestFailedRunActivity(NonAtomicBaseTest):
         final_section = status_comment.call_args.args[2]
         assert "couldn't handle 1" in final_section
         assert "declined" not in final_section
+
+    def test_pr_entering_the_merge_queue_stops_the_session_before_the_next_turn(self) -> None:
+        mock_activity = Mock()
+        mock_activity.info.return_value.attempt = 1
+        session = Mock()
+        session.task_run.task_id = "11111111-1111-1111-1111-111111111111"
+        session.task_run.id = "run-1"
+        res = ThreadResolution(thread_id="PRRT_A", outcome="wont_fix", reasoning="checked", reply="declined")
+        continue_turn = AsyncMock()
+        with ExitStack() as stack:
+            for p in self._base_patches(mock_activity, [self._thread("PRRT_A"), self._thread("PRRT_B")]):
+                stack.enter_context(p)
+            stack.enter_context(patch(f"{_RESOLUTION}._merge_queue_holds_for_run", side_effect=[False, True]))
+            stack.enter_context(patch(f"{_RESOLUTION}.start_sandbox_session", AsyncMock(return_value=(session, res))))
+            stack.enter_context(patch(f"{_RESOLUTION}.continue_sandbox_session", continue_turn))
+            stack.enter_context(patch(f"{_RESOLUTION}.end_sandbox_session", AsyncMock()))
+            stack.enter_context(patch(f"{_RESOLUTION}.reply_to_thread", return_value=(555, None)))
+            stack.enter_context(patch(f"{_RESOLUTION}.resolve_thread", return_value=True))
+            status_comment = stack.enter_context(patch(f"{_RESOLUTION}.update_resolution_status_comment"))
+
+            result = async_to_sync(resolve_threads_activity)(self._input())
+
+        continue_turn.assert_not_called()
+        assert result.triaged == 1
+        assert result.stopped_reason == "pr_in_merge_queue"
+        assert "Stopped resolving comments at 1/2" in status_comment.call_args.args[2]
+        assert self._report_status() == ReviewReport.Status.IDLE

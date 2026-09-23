@@ -29,6 +29,7 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import remember_observed_core_limit
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
+from posthog.github.merge_queue import MergeQueueState
 from posthog.sync import database_sync_to_async_pool
 from posthog.utils import safe_cache_add, safe_cache_delete
 
@@ -1654,6 +1655,33 @@ class GitHubIntegrationBase:
                 if marker in comment["body"]:
                     return True
         return False if complete else None
+
+    def get_pull_request_merge_queue_state(self, repository: str, pr_number: int) -> MergeQueueState | None:
+        """Read the Trunk merge queue state off the pull request's comments; None when Trunk does not manage it.
+
+        Raises GitHubIntegrationError on an incomplete read, because a missed Trunk comment reads as
+        "not in the queue" and lets a caller push into it.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        responses, complete = self._installation_authenticated_get_pages(
+            f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/comments",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            params={"per_page": 100},
+        )
+        comments: list[Mapping[str, Any]] = []
+        for response in responses:
+            try:
+                page = response.json() if response.status_code == 200 else None
+            except ValueError:
+                page = None
+            if not isinstance(page, list):
+                raise GitHubIntegrationError(
+                    f"Could not read the comments of {repo_path}#{pr_number}", status_code=response.status_code
+                )
+            comments.extend(comment for comment in page if isinstance(comment, dict))
+        if not complete:
+            raise GitHubIntegrationError(f"Could not read every comment of {repo_path}#{pr_number}")
+        return MergeQueueState.from_comments(comments)
 
     def get_pull_request_comments(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Fetch a PR's conversation comments and inline review comments, merged chronologically.
