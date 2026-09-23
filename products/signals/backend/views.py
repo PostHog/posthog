@@ -2983,6 +2983,7 @@ class SignalReportViewSet(
         request=SignalReportBulkStateRequestSerializer,
         responses={200: SignalReportBulkStateResponseSerializer},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["post"], url_path="bulk-state", required_scopes=["task:write"])
     def bulk_state(self, request, **kwargs):
         """
@@ -3280,6 +3281,7 @@ class SignalReportViewSet(
         ),
         operation_id="signals_reports_refund_summary_retrieve",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["get"], url_path="refund-summary", required_scopes=["task:read"])
     def refund_summary(self, request: Request, **kwargs):
         # Two independent flags can each make this endpoint matter: refunds (the netting numbers)

@@ -680,6 +680,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_runs_recent_per_scout",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=False,
         methods=["get"],
@@ -977,6 +978,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_runs_token_costs",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=False,
         methods=["post"],
@@ -1058,6 +1060,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_emit_signal",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=True,
         methods=["post"],
@@ -1208,6 +1211,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_emit_report",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=True,
         methods=["post"],
@@ -1281,6 +1285,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_edit_report",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=True,
         methods=["post"],
@@ -1371,6 +1376,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_record_output",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=True,
         methods=["post"],
@@ -1452,6 +1458,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_lighthouse_audit",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=True,
         methods=["post"],
@@ -1593,6 +1600,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_report_check_create",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=True,
         methods=["post"],
@@ -1640,6 +1648,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_report_checks_list",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=True,
         methods=["get"],
@@ -1677,6 +1686,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_report_check_cancel",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=True,
         methods=["post"],
@@ -1719,6 +1729,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
         operation_id="signals_scout_record_check_result",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=True,
         methods=["post"],
