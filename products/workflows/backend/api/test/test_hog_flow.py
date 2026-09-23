@@ -391,6 +391,16 @@ class TestHogFlowAPI(APIBaseTest):
             ("messaging", "messaging", {"Email drip", "Push blast"}),
             ("automation", "automation", {"Webhook sync"}),
             ("loop", "loop", {"Loop with email action"}),
+            ("broadcast", "broadcast", {"Announcement"}),
+            # What the workflows page sends: everything except the surfaces with their own page.
+            (
+                "everything_but_broadcasts",
+                "messaging,automation,loop",
+                {"Email drip", "Push blast", "Webhook sync", "Loop with email action"},
+            ),
+            # A repeated value used to fall through to the negated branch and answer with the
+            # automation rows, the exact opposite of what was asked for.
+            ("repeated_value", "messaging,messaging", {"Email drip", "Push blast"}),
         ]
     )
     def test_list_filter_by_workflow_type(self, _name, workflow_type, expected_names):
@@ -423,12 +433,30 @@ class TestHogFlowAPI(APIBaseTest):
             actions=[{"id": "a", "type": "function_email", "config": {}}],
         )
 
+        # A broadcast carries an email action, so without the surface check it would also answer
+        # `messaging` and contradict the tag its row shows.
+        HogFlow.objects.create(
+            team=self.team,
+            name="Announcement",
+            created_by=self.user,
+            origin_product="broadcasts",
+            actions=[{"id": "a", "type": "function_email", "config": {}}],
+        )
+
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?type={workflow_type}")
         assert response.status_code == 200, response.json()
         assert {flow["name"] for flow in response.json()["results"]} == expected_names
 
-    def test_list_filter_by_workflow_type_rejects_unknown_value(self):
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?type=campaign")
+    @parameterized.expand(
+        [
+            ("unknown_value", "campaign"),
+            # Separators alone name no type. This used to pass validation and then filter on an empty
+            # set, so the caller got an empty list rather than an error.
+            ("separators_only", ",,"),
+        ]
+    )
+    def test_list_filter_by_workflow_type_rejects(self, _name, workflow_type):
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?type={workflow_type}")
         assert response.status_code == 400
 
     def test_list_filter_by_origin_product(self):
@@ -1174,6 +1202,31 @@ class TestHogFlowAPI(APIBaseTest):
         detail = response.json()["detail"]
         assert "Send webhook" in detail, response.json()
         assert "Invalid template" in detail, response.json()
+
+    def test_activating_refuses_a_step_input_that_reads_an_unavailable_global(self):
+        hog_flow, action = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com/{distinct_id}"}}}
+        )
+        action["name"] = "Send webhook"
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+        assert response.status_code == 400, response.json()
+        assert "Send webhook" in response.json()["detail"]
+        assert "Variable not available in inputs: distinct_id" in response.json()["detail"]
+
+        # A step reading the event or a workflow variable activates.
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com/{event.distinct_id}/{variables.total}"}},
+            }
+        )
+        hog_flow["status"] = "active"
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
 
     def test_hog_flow_bytecode_compilation(self):
         hog_flow, action = self._create_hog_flow_with_action(

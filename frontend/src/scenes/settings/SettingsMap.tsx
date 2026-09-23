@@ -1841,7 +1841,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-secret-api-keys',
         title: 'Project secret API keys',
         flag: 'PROJECT_SECRET_API_KEYS',
-        requiresReauthentication: true,
         settings: [
             {
                 id: 'environment-secret-api-keys',

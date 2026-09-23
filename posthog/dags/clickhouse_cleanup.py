@@ -23,6 +23,7 @@ from django.conf import settings
 import dagster
 import psycopg2
 import pydantic
+import psycopg2.extensions
 from clickhouse_driver.client import Client
 from prometheus_client import Gauge
 from psycopg2.extras import execute_values
@@ -479,6 +480,7 @@ class CleanupRun:
     revived_person_count: int = 0  # both recheck_revived_persons checkpoints, summed
     revived_distinct_id_count: int = 0  # both recheck_revived_persons checkpoints, summed
     queued_for_postgres: int = 0  # persist_deleted_persons
+    pg_queue_conflict_retries: int = 0  # persist_deleted_persons
     mutation_seconds_max: float = 0.0  # the slowest mutation of either delete op
 
     @classmethod
@@ -1094,6 +1096,50 @@ def delete_orphaned_distinct_ids(
     )
 
 
+# The drain deletes from this table while we write it, and a lock conflict would otherwise fail
+# the whole weekly sweep.
+PG_QUEUE_CONFLICT_CODES = frozenset({"55P03", "40P01"})
+PG_QUEUE_RETRY_WINDOW_SECONDS = 300.0
+PG_QUEUE_RETRY_BACKOFF_SECONDS = 1.0
+
+
+def _write_queue_page(
+    connection: psycopg2.extensions.connection,
+    cursor: psycopg2.extensions.cursor,
+    page: list[tuple[int, str]],
+    deleted_at: datetime | None,
+) -> int:
+    """Upsert one page, retrying a lock or deadlock conflict. Returns the retries it took."""
+    retries = 0
+    deadline = time.monotonic() + PG_QUEUE_RETRY_WINDOW_SECONDS
+    while True:
+        try:
+            execute_values(
+                cursor,
+                f"""
+                INSERT INTO {PG_CLEANUP_QUEUE_TABLE} (team_id, person_uuid, deleted_at)
+                VALUES %s
+                ON CONFLICT (team_id, person_uuid) DO UPDATE
+                SET deleted_at = EXCLUDED.deleted_at, blocked_at = NULL
+                WHERE {PG_CLEANUP_QUEUE_TABLE}.deleted_at IS DISTINCT FROM EXCLUDED.deleted_at
+                """,
+                [(team_id, str(person_id), deleted_at) for team_id, person_id in page],
+                page_size=1000,
+            )
+            return retries
+        except psycopg2.Error as exc:
+            remaining = deadline - time.monotonic()
+            if getattr(exc, "pgcode", None) not in PG_QUEUE_CONFLICT_CODES or remaining <= 0:
+                raise
+            # The failed statement aborted the transaction, so the page starts over. Its WHERE
+            # guard leaves unchanged rows alone, so a replay writes no extra tuple versions.
+            connection.rollback()
+            pause = min(PG_QUEUE_RETRY_BACKOFF_SECONDS * 2**retries, 30.0, remaining)
+            retries += 1
+            logger.warning("queue write conflicted (%s), retry %d in %.1fs", exc.pgcode, retries, pause)
+            time.sleep(pause)
+
+
 @dagster.op
 def persist_deleted_persons(
     context: dagster.OpExecutionContext,
@@ -1145,6 +1191,7 @@ def persist_deleted_persons(
 
     deleted_at = run.distinct_ids_deleted_at
     written = 0
+    conflict_retries = 0
     after: tuple[int, str] | None = None
     try:
         with persons_database.cursor() as cursor:
@@ -1153,6 +1200,9 @@ def persist_deleted_persons(
             # open on the persons writer; the per-page upsert is idempotent, so a retry is safe.
             cursor.execute("SET statement_timeout = '120s'")
             cursor.execute("SET lock_timeout = '10s'")
+            # SET is transactional, so without this commit a retry's rollback reverts all three.
+            # The role's own lock_timeout is 0, which would leave the next conflict unbounded.
+            persons_database.commit()
             while True:
                 page = cluster.any_host_by_role(partial(read_page, after=after), NodeRole.DATA).result()
                 if not page:
@@ -1164,18 +1214,7 @@ def persist_deleted_persons(
                 # deleted_at: an unconditional DO UPDATE writes a new tuple version per row, so a retry
                 # over millions of rows would leave that many dead tuples for the persons writer to
                 # vacuum.
-                execute_values(
-                    cursor,
-                    f"""
-                    INSERT INTO {PG_CLEANUP_QUEUE_TABLE} (team_id, person_uuid, deleted_at)
-                    VALUES %s
-                    ON CONFLICT (team_id, person_uuid) DO UPDATE
-                    SET deleted_at = EXCLUDED.deleted_at, blocked_at = NULL
-                    WHERE {PG_CLEANUP_QUEUE_TABLE}.deleted_at IS DISTINCT FROM EXCLUDED.deleted_at
-                    """,
-                    [(team_id, str(person_id), deleted_at) for team_id, person_id in page],
-                    page_size=1000,
-                )
+                conflict_retries += _write_queue_page(persons_database, cursor, page, deleted_at)
                 # The conflict guard makes rowcount "rows changed", not "rows queued"; the metric is
                 # the queued set, which is the page.
                 written += len(page)
@@ -1189,8 +1228,13 @@ def persist_deleted_persons(
     finally:
         persons_database.close()
 
-    context.add_output_metadata({"queued_for_postgres": dagster.MetadataValue.int(written)})
-    return replace(run, queued_for_postgres=written)
+    context.add_output_metadata(
+        {
+            "queued_for_postgres": dagster.MetadataValue.int(written),
+            "pg_queue_conflict_retries": dagster.MetadataValue.int(conflict_retries),
+        }
+    )
+    return replace(run, queued_for_postgres=written, pg_queue_conflict_retries=conflict_retries)
 
 
 @dagster.op
@@ -1282,6 +1326,11 @@ def _sweep_gauges(run: CleanupRun, completed_at: float) -> list[PublishedGauge]:
             name="posthog_clickhouse_deletion_sweep_mutation_seconds_max",
             help_text="Slowest single delete mutation of the run, against mutation_wait_deadline",
             value=run.mutation_seconds_max,
+        ),
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_pg_queue_conflict_retries",
+            help_text="Queue page upserts retried after a lock or deadlock conflict with the drain",
+            value=run.pg_queue_conflict_retries,
         ),
         PublishedGauge(
             name="posthog_clickhouse_deletion_sweep_stranded_runs_reaped",
@@ -1440,6 +1489,8 @@ def drop_assets_on_failure(context: dagster.HookContext) -> None:
     _kill_and_drop_run_assets(context.resources.cluster, context.run_id.replace("-", "_"))
 
 
+# The rows this job writes to person_pg_cleanup_queue are drained by person_pg_cleanup_drain_job,
+# which runs on its own daily schedule rather than in this chain.
 @dagster.job(
     hooks={drop_assets_on_failure},
     tags={

@@ -177,12 +177,18 @@ class _BatchExportsMetricsActivityInboundInterceptor(ActivityInboundInterceptor)
         try:
             data_interval_start = input.args[0].data_interval_start
             data_interval_end = input.args[0].data_interval_end
-            interval = get_interval_from_bounds(data_interval_start, data_interval_end)
+            interval = get_interval_from_bounds(
+                data_interval_start, data_interval_end, on_demand=getattr(input.args[0], "on_demand", False)
+            )
         except AttributeError:
             try:
                 data_interval_start = input.args[0].batch_export.data_interval_start
                 data_interval_end = input.args[0].batch_export.data_interval_end
-                interval = get_interval_from_bounds(data_interval_start, data_interval_end)
+                interval = get_interval_from_bounds(
+                    data_interval_start,
+                    data_interval_end,
+                    on_demand=getattr(input.args[0].batch_export, "on_demand", False),
+                )
             except Exception:
                 data_interval_start = None
                 data_interval_end = None
@@ -452,9 +458,17 @@ def log_query_duration(
 
 
 def get_interval_from_bounds(
-    data_interval_start: dt.datetime | None | str, data_interval_end: dt.datetime | str
+    data_interval_start: dt.datetime | None | str,
+    data_interval_end: dt.datetime | str | None,
+    *,
+    on_demand: bool = False,
 ) -> str | None:
     """Calculate the interval for a batch export based on its bounds."""
+    if on_demand:
+        return "on_demand"
+    if data_interval_end is None:
+        return None
+
     if isinstance(data_interval_start, str):
         try:
             data_interval_start = dt.datetime.fromisoformat(data_interval_start)

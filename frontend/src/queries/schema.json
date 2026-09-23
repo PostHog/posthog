@@ -1408,8 +1408,21 @@
                 "service_name": {
                     "type": "string"
                 },
+                "sessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Set only when the query asked for `includeImpact`. `sessions` and `users` are uniq() estimates; the two span counts are exact."
+                },
+                "spans_with_distinct_id": {
+                    "$ref": "#/definitions/integer"
+                },
+                "spans_with_session_id": {
+                    "$ref": "#/definitions/integer"
+                },
                 "total_duration_nano": {
                     "type": "number"
+                },
+                "users": {
+                    "$ref": "#/definitions/integer"
                 }
             },
             "required": [
@@ -24711,7 +24724,7 @@
                 },
                 "start_event": {
                     "$ref": "#/definitions/ExperimentApiRetentionStart",
-                    "description": "For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event; start_handling and conversion window are ignored then."
+                    "description": "For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event; a conversion window or 'last_seen' start_handling is rejected then, because the start is always the user's first exposure."
                 },
                 "start_handling": {
                     "enum": ["first_seen", "last_seen"],
@@ -26846,6 +26859,7 @@
                 "tracing",
                 "metrics",
                 "workflows",
+                "broadcasts",
                 "notebook",
                 "action",
                 "activity",
@@ -35129,7 +35143,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "medianReturnDays": {
-                    "description": "Median elapsed days to a second session within 30 days, among observed returners.",
+                    "description": "Estimated median calendar days from the first session to the first return on a later day, using the project's timezone. Includes observed returns within 30 days. Same-day visits do not count.",
                     "type": ["number", "null"]
                 },
                 "previous": {
@@ -35143,7 +35157,7 @@
                 },
                 "returners": {
                     "$ref": "#/definitions/integer",
-                    "description": "People with an observed second session within 30 days, including incomplete windows."
+                    "description": "People who returned on a later calendar day in the project's timezone within 30 days of their first session, including incomplete windows."
                 }
             },
             "required": [
@@ -53511,6 +53525,10 @@
                 },
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "includeImpact": {
+                    "description": "Also aggregate sessions and people per operation. Off by default: it reads the attribute maps.",
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "TraceSpansAggregationQuery",

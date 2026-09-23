@@ -67,19 +67,25 @@ import type {
     SignalReportApi,
     SignalReportArtefactApi,
     SignalReportArtefactLogCreateApi,
+    SignalReportArtefactWriteApi,
     SignalReportArtefactWriteResponseApi,
     SignalReportBulkStateRequestApi,
     SignalReportBulkStateResponseApi,
     SignalReportCheckApi,
     SignalReportClaimApi,
+    SignalReportDeletionStatusApi,
     SignalReportFeedbackRequestApi,
     SignalReportFeedbackResponseApi,
+    SignalReportMergeRequestApi,
+    SignalReportMergeResponseApi,
     SignalReportMetricRefreshRequestApi,
     SignalReportMetricRefreshResponseApi,
     SignalReportRefundRequestApi,
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
+    SignalReportReingestionStatusApi,
     SignalReportStateRequestApi,
+    SignalReportSuggestedReviewersArtefactApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
     SignalScoutCreateApi,
@@ -90,6 +96,7 @@ import type {
     SignalScoutRunDetailApi,
     SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
+    SignalTeamConfigApi,
     SignalUserAutonomyConfigApi,
     SignalUserAutonomyConfigCreateApi,
     SignalsProcessingListParams,
@@ -102,6 +109,8 @@ import type {
     SignalsReportPrReviewCommentReactionsCreateParams,
     SignalsReportPrReviewCommentUpdateParams,
     SignalsReportPrReviewCommentsCreateParams,
+    SignalsReportsAvailableReviewersRetrieve200,
+    SignalsReportsAvailableReviewersRetrieveParams,
     SignalsReportsListParams,
     SignalsReportsPrCiStatusesParams,
     SignalsScoutConfigListParams,
@@ -135,6 +144,45 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getSignalsConfigListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/config/`
+}
+
+/**
+ * Team-level signal autonomy config (singleton per team).
+ *
+ * GET  /signals/config/  → retrieve
+ * POST /signals/config/  → update
+ * @summary Read the project's signals config
+ */
+export const signalsConfigList = async (projectId: string, options?: RequestInit): Promise<SignalTeamConfigApi> => {
+    return apiMutator<SignalTeamConfigApi>(getSignalsConfigListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsConfigCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/config/`
+}
+
+/**
+ * Partial update of the per-project singleton. Omitted fields keep their value.
+ * @summary Update the project's signals config
+ */
+export const signalsConfigCreate = async (
+    projectId: string,
+    signalTeamConfigApi?: NonReadonly<SignalTeamConfigApi>,
+    options?: RequestInit
+): Promise<SignalTeamConfigApi> => {
+    return apiMutator<SignalTeamConfigApi>(getSignalsConfigCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalTeamConfigApi),
+    })
+}
 
 export const getSignalsProcessingListUrl = (projectId: string, params?: SignalsProcessingListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -267,6 +315,25 @@ export const signalsReportsPartialUpdate = async (
     })
 }
 
+export const getSignalsReportsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/`
+}
+
+/**
+ * Soft-delete a report and its signals via the deletion workflow.
+ * @summary Delete a signal report
+ */
+export const signalsReportsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalReportDeletionStatusApi> => {
+    return apiMutator<SignalReportDeletionStatusApi>(getSignalsReportsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getSignalsReportsClaimUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/claim/`
 }
@@ -308,6 +375,28 @@ export const signalsReportsFeedbackCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportFeedbackRequestApi),
+    })
+}
+
+export const getSignalsReportsMergeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/merge/`
+}
+
+/**
+ * Fold one or more duplicate reports into this report, which survives. The sources' signals, work-log artefacts, pull requests, task runs and checks move onto the survivor, the survivor's signal counters take on theirs, and each source is archived with a 'duplicate of' link back to the survivor. A source's open pull request stays open, because the survivor holds it after the move. Pick the survivor deliberately: prefer the older report, and prefer the one with an open implementation PR or an active claim. Any active claim on a source is released, so re-claim the survivor if you were working on one. Titles and summaries are not combined, so edit it afterwards if it needs a rewrite. A merged report keeps its URL but cannot be restored, because its signals now belong to the survivor.
+ * @summary Merge duplicate reports into this one
+ */
+export const signalsReportsMergeCreate = async (
+    projectId: string,
+    id: string,
+    signalReportMergeRequestApi: SignalReportMergeRequestApi,
+    options?: RequestInit
+): Promise<SignalReportMergeResponseApi> => {
+    return apiMutator<SignalReportMergeResponseApi>(getSignalsReportsMergeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportMergeRequestApi),
     })
 }
 
@@ -605,6 +694,50 @@ export const signalsReportsRefundCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportRefundRequestApi),
+    })
+}
+
+export const getSignalsReportsReingestCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/reingest/`
+}
+
+/**
+ * Re-ingest a report's signals (same team access as other report actions).
+ * @summary Re-ingest a report's signals
+ */
+export const signalsReportsReingestCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalReportReingestionStatusApi> => {
+    return apiMutator<SignalReportReingestionStatusApi>(getSignalsReportsReingestCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getSignalsReportsReviewersUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/reviewers/`
+}
+
+/**
+ * Set a report's suggested reviewers (full-replacement PUT), whether or not the report already
+ * has any. Appends a new latest-wins `suggested_reviewers` status row — the same write the artefact
+ * PUT performs, but addressed by report so a report with zero reviewers (and thus no artefact yet)
+ * can still be assigned one. App-only: agents append reviewers via the artefacts POST instead.
+ * @summary Set a report's suggested reviewers
+ */
+export const signalsReportsReviewersUpdate = async (
+    projectId: string,
+    id: string,
+    signalReportArtefactWriteApi: SignalReportArtefactWriteApi,
+    options?: RequestInit
+): Promise<SignalReportSuggestedReviewersArtefactApi> => {
+    return apiMutator<SignalReportSuggestedReviewersArtefactApi>(getSignalsReportsReviewersUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportArtefactWriteApi),
     })
 }
 
@@ -916,6 +1049,42 @@ export const signalsReportChecksDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getSignalsReportsAvailableReviewersRetrieveUrl = (
+    projectId: string,
+    params?: SignalsReportsAvailableReviewersRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/available_reviewers/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/available_reviewers/`
+}
+
+/**
+ * @summary List the org members who can be suggested as reviewers
+ */
+export const signalsReportsAvailableReviewersRetrieve = async (
+    projectId: string,
+    params?: SignalsReportsAvailableReviewersRetrieveParams,
+    options?: RequestInit
+): Promise<SignalsReportsAvailableReviewersRetrieve200> => {
+    return apiMutator<SignalsReportsAvailableReviewersRetrieve200>(
+        getSignalsReportsAvailableReviewersRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getSignalsReportsBulkStateCreateUrl = (projectId: string) => {

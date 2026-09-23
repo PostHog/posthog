@@ -63,6 +63,11 @@ def _resolved_catalog() -> dict[str, Any]:
             {"runtime_adapter": adapter, "prefix": prefix, "reasoning_efforts": list(efforts)}
             for adapter, prefix, efforts in model_catalog.FAMILY_REASONING_EFFORTS
         ],
+        "reasoning_effort_labels": dict(model_catalog.REASONING_EFFORT_LABELS),
+        "capability_ladders": {
+            adapter: [{"model": notch.model, "effort": notch.effort} for notch in ladder]
+            for adapter, ladder in model_catalog.CAPABILITY_LADDER_BY_RUNTIME_ADAPTER.items()
+        },
     }
 
 
@@ -103,6 +108,31 @@ def test_every_catalog_effort_is_a_known_reasoning_effort() -> None:
 
 def test_reasoning_effort_enum_covers_the_catalog() -> None:
     assert set(model_catalog.REASONING_EFFORTS) <= {effort.value for effort in ReasoningEffort}
+
+
+def test_every_effort_has_a_label() -> None:
+    assert set(model_catalog.REASONING_EFFORT_LABELS) == set(model_catalog.REASONING_EFFORTS), (
+        "a depth with no label renders as its raw id in every picker"
+    )
+
+
+def test_every_ladder_rung_is_one_a_run_can_actually_use() -> None:
+    # A surface filters the ladder against what the gateway serves, which cannot hide a rung
+    # the catalog itself contradicts — that one reaches the picker and fails on send.
+    for adapter, ladder in model_catalog.CAPABILITY_LADDER_BY_RUNTIME_ADAPTER.items():
+        for notch in ladder:
+            assert notch.model in model_catalog.models_for_runtime_adapter(adapter), (
+                f"'{adapter}' ladder names '{notch.model}', which that adapter does not drive"
+            )
+            assert notch.effort in model_catalog.reasoning_efforts_for(adapter, notch.model), (
+                f"'{notch.model}' does not support '{notch.effort}', so that rung's run would be rejected"
+            )
+
+
+def test_every_runtime_adapter_has_a_capability_ladder() -> None:
+    assert set(model_catalog.CAPABILITY_LADDER_BY_RUNTIME_ADAPTER) == set(model_catalog.RUNTIME_ADAPTERS), (
+        "an adapter with no ladder leaves its picker without a Faster/Smarter slider"
+    )
 
 
 def test_runtime_options_agree_with_the_task_runtime_column() -> None:

@@ -1114,6 +1114,51 @@
         },
         "feature_flag": "billing-alerts"
     },
+    "billing-features-get": {
+        "description": "The product features the organization's plans include, with any overrides applied. The cheapest read in the billing API, readable by any member. Use it to check whether a feature such as group analytics or white-labelling is available before suggesting it. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get available features",
+        "title": "Get available features",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "organization-billing-api"
+    },
+    "billing-forecast-get": {
+        "description": "Projected usage and amounts for the rest of the billing period, with and without the spend limit, per product, add-on and tier, with the four projected totals. Needs full billing access. Use it for \"what will this month cost\"; for what has accrued so far call billing-spend-summary-get. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get the forecast for this billing period",
+        "title": "Get the forecast for this billing period",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "organization-billing-api"
+    },
+    "billing-limits-get": {
+        "description": "Per product, the spend limit for the current period, a limit deferred to the next period because it was set below current spend, spend so far, and whether the limit is reached. Needs full billing access. Use it for \"am I over my spend limit\"; the quota limiting state PostHog applies is on billing-usage-summary-get. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get spend limits",
+        "title": "Get spend limits",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "organization-billing-api"
+    },
     "billing-overview-get": {
         "description": "Fetch the organization's current billing state: subscribed products and addons, available features, plan tier, usage summary against limits, spending limits, and trial status. Use this to understand what the customer is paying for, which features they have access to, or aggregate usage for the current billing period. For time-series breakdowns of usage call billing-usage-get; for cost (spend) breakdowns call billing-spend-get. To check whether the customer has access to a specific feature (e.g. group analytics, white-labelling), inspect `available_product_features` in the response.",
         "category": "Billing",
@@ -1128,6 +1173,51 @@
             "readOnlyHint": true
         },
         "feature_flag": "billing-mcp-read-tools"
+    },
+    "billing-product-get": {
+        "description": "One product by key, for example product_analytics or session_replay, with its add-ons, price schedule and subscribed state. Same fields as billing-products-list for a single product. Readable by any member. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get one product",
+        "title": "Get one product",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "organization-billing-api"
+    },
+    "billing-products-list": {
+        "description": "Every product and add-on with its features, price schedule, allocation, current plan and subscribed state. Catalog only: usage, spend and forecast live on their own tools. Pass include_plans=true to add each entry's plan list, which is most of the payload; leave it off unless the question is about plans. Readable by any member. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "List products",
+        "title": "List products",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "organization-billing-api"
+    },
+    "billing-projects-list": {
+        "description": "Every project the organization has reported usage for, with its name where it still exists and a deleted marker where it does not. Use it to learn which project ids a project breakdown or a team_ids filter on billing-usage-timeseries-get and billing-spend-timeseries-get can name. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "List projects with usage",
+        "title": "List projects with usage",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "organization-billing-api"
     },
     "billing-spend-get": {
         "description": "Fetch time-series spend (cost in USD) breakdowns for the organization across a date range. Same dimensional parameters as billing-usage-get, but values are dollar amounts rather than usage volumes. Requires billing usage/spend read access: owners always, admins when owner-only billing is off, or members only when owner-only billing is off and the org has the member read-only billing usage/spend flag enabled. This member grant applies only to usage/spend, not billing-overview-get or billing admin actions. Use this to investigate cost spikes, compare spend across periods, or attribute spend to specific products or teams.",
@@ -1144,6 +1234,51 @@
         },
         "feature_flag": "billing-mcp-read-tools"
     },
+    "billing-spend-summary-get": {
+        "description": "Amounts accrued so far this billing period, before and after discount, per product, add-on and tier, with the two totals. An organization total, so it needs full billing access: owners always, and admins when owner-only billing is off. Use it for \"what have we spent so far this month\"; for the projection to the end of the period call billing-forecast-get, for history call billing-spend-get. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get spend this billing period",
+        "title": "Get spend this billing period",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "organization-billing-api"
+    },
+    "billing-spend-timeseries-get": {
+        "description": "Spend over time on the organization billing API, the counterpart of billing-spend-get on the legacy route: the same series, paged by limit and cursor and clipped to the projects the caller can see. Same dimensional parameters as billing-usage-get, but values are dollar amounts rather than usage volumes. Requires billing usage/spend read access: owners always, admins when owner-only billing is off, or members only when owner-only billing is off and the org has the member read-only billing usage/spend flag enabled. This member grant applies only to usage/spend, not billing-overview-get or billing admin actions. Use this to investigate cost spikes, compare spend across periods, or attribute spend to specific products or teams. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get spend over time by project",
+        "title": "Get spend over time by project",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "organization-billing-api"
+    },
+    "billing-subscription-get": {
+        "description": "The organization's subscription: plan, subscription flag and level, billing period, trial, discounts, startup program labels and billing provider. One small read, readable by any member. Use it to answer \"what plan is this organization on\", \"when does the billing period end\" or \"is there an active trial\". For usage against limits call billing-usage-summary-get; for the product catalog call billing-products-list; for feature access call billing-features-get. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get subscription",
+        "title": "Get subscription",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "organization-billing-api"
+    },
     "billing-usage-get": {
         "description": "Fetch time-series usage breakdowns for the organization across a date range. Supports per-team (project) and per-usage-type dimensions. Requires billing usage/spend read access: owners always, admins when owner-only billing is off, or members only when owner-only billing is off and the org has the member read-only billing usage/spend flag enabled. This member grant applies only to usage/spend, not billing-overview-get or billing admin actions. Use this to investigate usage spikes, compare periods, or attribute usage to specific projects. For a single-snapshot aggregate view call billing-overview-get when the caller has full billing access; for cost (spend) breakdowns call billing-spend-get.",
         "category": "Billing",
@@ -1158,6 +1293,51 @@
             "readOnlyHint": true
         },
         "feature_flag": "billing-mcp-read-tools"
+    },
+    "billing-usage-status-get": {
+        "description": "Per product and add-on: the limit in effect, whether usage is over or approaching it, and whether the resource is being limited right now. No counts, so any member can read it. Use it for \"am I near my events limit\" or \"is ingestion being limited\"; for the counts call billing-usage-summary-get. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get usage limit status",
+        "title": "Get usage limit status",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "organization-billing-api"
+    },
+    "billing-usage-summary-get": {
+        "description": "Usage so far this billing period: per usage key the usage, the limit in effect, today's usage where PostHog tracks it and whether the resource is being limited right now, and per product and add-on the current usage, limit, ratio and over-limit flag. Quantities only, with the date the usage was reported through. An organization total, so it needs full billing access; billing-usage-timeseries-get reads the same numbers per project with usage read, and billing-usage-status-get is the member's read. Use it for \"how many events have we used\"; for amounts call billing-overview-get, for history call billing-usage-get. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get usage this billing period",
+        "title": "Get usage this billing period",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "organization-billing-api"
+    },
+    "billing-usage-timeseries-get": {
+        "description": "Usage over time on the organization billing API, the counterpart of billing-usage-get on the legacy route: the same series, paged by limit and cursor and clipped to the projects the caller can see. Supports per-team (project) and per-usage-type dimensions. Requires billing usage/spend read access: owners always, admins when owner-only billing is off, or members only when owner-only billing is off and the org has the member read-only billing usage/spend flag enabled. This member grant applies only to usage/spend, not billing-overview-get or billing admin actions. Use this to investigate usage spikes, compare periods, or attribute usage to specific projects. For a single-snapshot aggregate view call billing-overview-get when the caller has full billing access; for cost (spend) breakdowns call billing-spend-get. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get usage over time by project",
+        "title": "Get usage over time by project",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "organization-billing-api"
     },
     "business-knowledge-document-window-retrieve": {
         "description": "Returns a window of content chunks from a business knowledge document, centered around a specific ordinal. Use after searching knowledge to get more surrounding context for a specific result.",
@@ -3625,7 +3805,7 @@
         }
     },
     "engineering-analytics-broken-tests": {
-        "description": "Live CI failures over the last 2 days, grouped into distinct failures (by failing test id + a normalized error signature) and classified by how each is behaving right now, most urgent first. Reach for this to answer \"what CI failures should I care about right now\": it is the triage counterpart to the test-health queue (which ranks week-long unreliability). Each row's state is the verdict: breaking_master (failing on the default branch and that job's latest run is still red, so trunk is broken now), blocking_merge_queue (failing only on merge-queue gate branches, so it stopped a merge on a commit that had already passed the PR's own CI — the conflict-with-trunk class the queue exists to catch), novel_burst (first seen within a day and already spreading across branches, not on trunk yet), potentially_resolved (hit trunk but that job is green again), flaky (sporadic across two or more branches over more than a day), or pr_only (confined to one branch — one PR's own problem). Also returns breaking_master_jobs, the default-branch jobs whose latest run is red. Pass a row's latest_run_id to run-failure-logs to read the actual failing lines. Caveats: fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the breaking/resolved distinction needs the job-level source synced — without it those failures fall through to flaky/pr_only rather than being misreported. Counts are absolute, never rates (passing runs aren't in this data).",
+        "description": "Live CI failures over the last 2 days, grouped into distinct failures (by failing test id + a normalized error signature) and classified by how each is behaving right now, most urgent first. Reach for this to answer \"what CI failures should I care about right now\": it is the triage counterpart to the test-health queue (which ranks week-long unreliability). Each row's state is the verdict: breaking_master (failing on the default branch and that job's latest run is still red, so trunk is broken now), blocking_merge_queue (failing only on merge-queue gate branches, so it stopped a merge on a commit that had already passed the PR's own CI: the conflict-with-trunk class the queue exists to catch), novel_burst (first seen within a day and already spreading across branches, not on trunk yet), potentially_resolved (hit trunk but that job is green again), flaky (sporadic across two or more branches over more than a day), or pr_only (confined to one branch: one PR's own problem). Also returns breaking_master_jobs, the default-branch jobs whose latest run is red. Pass a row's latest_run_id to run-failure-logs to read the actual failing lines. Caveats: fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the breaking/resolved distinction needs the job-level source synced: without it those failures fall through to flaky/pr_only rather than being misreported. Counts are absolute, never rates (passing runs aren't in this data).",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "Broken tests triage",
@@ -3640,7 +3820,7 @@
         "feature_flag": "engineering-analytics"
     },
     "engineering-analytics-ci-failure-logs": {
-        "description": "The thinned CI failure logs for a pull request, grouped by failed job — reach for this to answer \"why did this PR's CI fail\". Each failed job returns its failure region (the error lines plus surrounding context, with \"... N lines omitted ...\" markers) as ordered lines, and every line carries its original 1-based line number in the full pre-thinning log so you can locate it in the raw GitHub log. The PR is resolved to ALL its workflow runs across every push (via the pull_requests association, not the latest commit), so earlier pushes' failures are included too. logs_available is false when CI hasn't failed, the logs aged out of the short Logs retention, or a fork PR has no run association to resolve. Use pr-runs or workflow-jobs for the run/job metadata behind these logs.",
+        "description": "The thinned CI failure logs for a pull request, grouped by failed job: reach for this to answer \"why did this PR's CI fail\". Each failed job returns its failure region (the error lines plus surrounding context, with \"... N lines omitted ...\" markers) as ordered lines, and every line carries its original 1-based line number in the full pre-thinning log so you can locate it in the raw GitHub log. The PR is resolved to ALL its workflow runs across every push (via the pull_requests association, not the latest commit), so earlier pushes' failures are included too. logs_available is false when CI hasn't failed, the logs aged out of the short Logs retention, or a fork PR has no run association to resolve. Use pr-runs or workflow-jobs for the run/job metadata behind these logs.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "CI failure logs for a PR",
@@ -3670,7 +3850,7 @@
         "feature_flag": "engineering-analytics"
     },
     "engineering-analytics-pr-cost": {
-        "description": "Estimated CI dollar cost of one pull request, summed over the jobs of all its workflow runs, with breakdowns per workflow (by_workflow) and per run (by_run). Reach for this instead of summing runner minutes by hand: the estimate already classifies runners (billable self-hosted Linux vs free GitHub-hosted), applies the per-vCPU price ladder, and excludes non-Linux and provider-hosted jobs. jobs_available is false when the job-level source isn't synced yet — every figure is then zero/null, so check it before trusting a $0.00. estimated_cost_usd is null (not zero) when nothing was costable, and unsettled_jobs counts billable jobs still running that are left out of the estimate.",
+        "description": "Estimated CI dollar cost of one pull request, summed over the jobs of all its workflow runs, with breakdowns per workflow (by_workflow) and per run (by_run). Reach for this instead of summing runner minutes by hand: the estimate already classifies runners (billable self-hosted Linux vs free GitHub-hosted), applies the per-vCPU price ladder, and excludes non-Linux and provider-hosted jobs. jobs_available is false when the job-level source isn't synced yet: every figure is then zero/null, so check it before trusting a $0.00. estimated_cost_usd is null (not zero) when nothing was costable, and unsettled_jobs counts billable jobs still running that are left out of the estimate.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "Estimated CI cost of a PR",
@@ -3685,7 +3865,7 @@
         "feature_flag": "engineering-analytics"
     },
     "engineering-analytics-run-failure-logs": {
-        "description": "The thinned CI failure logs of one workflow run, grouped by failed job — the run-scoped twin of ci-failure-logs, for when you have a run id rather than a PR (default-branch failures, the broken-tests panel's latest_run_id, the run page). Each failed job returns its failure region (error lines plus surrounding context, with \"... N lines omitted ...\" markers) as ordered lines, every line carrying its original 1-based line number in the full pre-thinning log. logs_available is false when the run didn't fail or its logs aged out of the short Logs retention. Use ci-failure-logs instead when you have a PR number and want all its runs' failures.",
+        "description": "The thinned CI failure logs of one workflow run, grouped by failed job: the run-scoped twin of ci-failure-logs, for when you have a run id rather than a PR (default-branch failures, the broken-tests panel's latest_run_id, the run page). Each failed job returns its failure region (error lines plus surrounding context, with \"... N lines omitted ...\" markers) as ordered lines, every line carrying its original 1-based line number in the full pre-thinning log. logs_available is false when the run didn't fail or its logs aged out of the short Logs retention. Use ci-failure-logs instead when you have a PR number and want all its runs' failures.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "CI failure logs for a run",
@@ -3700,7 +3880,7 @@
         "feature_flag": "engineering-analytics"
     },
     "engineering-analytics-sources": {
-        "description": "The team's selectable GitHub repositories, oldest source first — one entry per repository a source syncs, each with its source id, repo (owner/name), table prefix, and a synced flag. A source can sync several repositories, so entries can share an id and differ only by repo. Call this first when a team may have more than one source or repo, then pass a chosen entry's id as source_id AND its repo as repo to the pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific repo — omitting repo on a multi-repo source reads the source's default repo, not the one you picked. With a single source/repo you can skip it — the other tools default to the oldest connected source. The prefix also names the underlying warehouse tables, which you can query directly with SQL or save as SQL insights and subscriptions when the named tools don't fit. The source's original repo uses bare names (prefix + github_pull_requests / github_workflow_runs / github_workflow_jobs); every other repo of a multi-repo source is repo-qualified — the name `owner/repo.endpoint` is flattened for the table (each '/' becomes '_' and each '.' becomes '__', lower-cased), e.g. posthog/posthog.com's pull_requests is prefix + github_posthog_posthog__com__pull_requests — so pick the table for the repo you mean (timestamps land as strings; parse with parseDateTimeBestEffort).",
+        "description": "The team's selectable GitHub repositories, oldest source first: one entry per repository a source syncs, each with its source id, repo (owner/name), table prefix, and a synced flag. A source can sync several repositories, so entries can share an id and differ only by repo. Call this first when a team may have more than one source or repo, then pass a chosen entry's id as source_id AND its repo as repo to the pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific repo: omitting repo on a multi-repo source reads the source's default repo, not the one you picked. With a single source/repo you can skip it: the other tools default to the oldest connected source. The prefix also names the underlying warehouse tables, which you can query directly with SQL or save as SQL insights and subscriptions when the named tools don't fit. The source's original repo uses bare names (prefix + github_pull_requests / github_workflow_runs / github_workflow_jobs); every other repo of a multi-repo source is repo-qualified: the name `owner/repo.endpoint` is flattened for the table (each '/' becomes '_' and each '.' becomes '__', lower-cased), e.g. posthog/posthog.com's pull_requests is prefix + github_posthog_posthog__com__pull_requests: so pick the table for the repo you mean (timestamps land as strings; parse with parseDateTimeBestEffort).",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "List connected GitHub sources",
@@ -4633,6 +4813,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "experiment-migrate": {
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Only for experiments where is_legacy is true.\n\nMove a legacy experiment onto the new experiments engine. This creates a NEW experiment with the same configuration and its metrics converted to the new format, and returns it. The legacy experiment is left untouched and keeps its results, so the project ends up with two experiments. Both point at the same feature flag, so no new rollout is needed and users keep the variant they already have. Tell the user about the second experiment before you call this.\n\nLegacy shared metrics used by the experiment are converted too. Each one gets a new shared metric, and the new experiment links to that. The legacy shared metrics stay where they are.\n\nCalling this again returns the experiment created the first time instead of making another copy.\n\nReturns 400 if the experiment already uses the new engine.\n\nNo request body needed.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Migrate legacy experiment",
+        "title": "Migrate legacy experiment",
+        "required_scopes": ["experiment:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "experiment-pause": {
@@ -9421,7 +9615,7 @@
         "feature_flag": "posthog-connect"
     },
     "pr-lifecycle": {
-        "description": "The timeline of a single pull request: a header (number, title, author, state, draft, timestamps) plus ordered events — opened, ready for review, converted to draft, CI started, CI finished, and merged or closed. Use this to answer \"where is this PR stuck and what happened to it\". Draft/ready transitions appear only when the issue-events table is synced and cover a bounded recent window. metric_quality is \"partial\" — review and comment events are not yet available. For aggregate questions use the pull-requests and workflow-health tools.",
+        "description": "The timeline of a single pull request: a header (number, title, author, state, draft, timestamps) plus ordered events: opened, ready for review, converted to draft, CI started, CI finished, and merged or closed. Use this to answer \"where is this PR stuck and what happened to it\". Draft/ready transitions appear only when the issue-events table is synced and cover a bounded recent window. metric_quality is \"partial\": review and comment events are not yet available. For aggregate questions use the pull-requests and workflow-health tools.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "PR lifecycle timeline",
@@ -9464,7 +9658,7 @@
         }
     },
     "project-get": {
-        "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project.",
+        "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project. This is the one tool\nthat returns the project API token, which is safe to put in client-side code. Project listing, project\nupdates and the session context leave it out, so ask for a single project when you need the token.",
         "category": "Core",
         "feature": "core",
         "summary": "Get project",
@@ -9604,7 +9798,7 @@
         }
     },
     "pull-requests": {
-        "description": "Open pull requests plus any merged or closed within the window, newest first, each with its head-SHA CI rollup (runs / passing / failing / pending). Use this for \"which PRs are stuck\", \"which open PRs have failing or pending CI\", and per-author or per-repo PR triage. open_to_merge_seconds is coarse — it is merged_at minus created_at and fuses draft and ready-for-review time, so report it as \"open to merge\", never \"cycle time\". ready_to_merge_seconds is the true cycle time: merged_at minus the last observed ready-for-review transition (only the last draft/ready switch counts), or minus created_at for a merged PR verifiably never drafted. Null means \"not observed\" (the issue-events window is bounded), never zero. CI counts come from the latest run per workflow on the head SHA and can lag until the workflow_run webhook settles a late completion. Bots and drafts are present; exclude them (is_bot, is_draft) for throughput questions.",
+        "description": "Open pull requests plus any merged or closed within the window, newest first, each with its head-SHA CI rollup (runs / passing / failing / pending). Use this for \"which PRs are stuck\", \"which open PRs have failing or pending CI\", and per-author or per-repo PR triage. open_to_merge_seconds is coarse: it is merged_at minus created_at and fuses draft and ready-for-review time, so report it as \"open to merge\", never \"cycle time\". ready_to_merge_seconds is the true cycle time: merged_at minus the last observed ready-for-review transition (only the last draft/ready switch counts), or minus created_at for a merged PR verifiably never drafted. Null means \"not observed\" (the issue-events window is bounded), never zero. CI counts come from the latest run per workflow on the head SHA and can lag until the workflow_run webhook settles a late completion. Bots and drafts are present; exclude them (is_bot, is_draft) for throughput questions.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "List pull requests with CI status",
@@ -9739,7 +9933,7 @@
         "system_prompt_hint": "List persons in a lifecycle bucket (new/returning/resurrecting/dormant) for a given day"
     },
     "query-llm-trace": {
-        "description": "Fetch a single LLM trace by its trace ID for deep inspection. Returns the trace and every nested event, with model parameters, costs, tool calls, and errors. Use after finding a trace via `query-llm-traces-list` to inspect the complete event tree.\n\nBy default the response returns full event properties, subject to response size limits. Set `detail` to `\"summary\"` for metadata and short previews when browsing a trace. Omitted `detail` preserves the existing full-detail behavior.\n\nUse cases:\n\n- Inspect the full input/output of each generation in a trace\n- Debug a specific error trace found in the list\n- Examine the agent's decision-making flow across spans\n- Review tool calls and their results within a trace\n- Analyze token usage and costs per generation\n\nCRITICAL: This tool requires a `traceId`. Get the trace ID from `query-llm-traces-list` results first.\n\n# Response shape\n\nThe response contains a single trace in JSON format with:\n\n- `id` — the trace ID\n- `traceName` — name of the trace (if set via SDK)\n- `createdAt` — timestamp of the first event in the trace\n- `distinctId` — the person's distinct ID\n- `aiSessionId` — session ID grouping related traces (e.g., a conversation)\n- `totalLatency` — total latency in seconds\n- `inputTokens` / `outputTokens` — token counts across all generations\n- `inputCost` / `outputCost` / `totalCost` — costs in USD\n- `inputState` / `outputState` — JSON input/output state from the root `$ai_trace` event (e.g., conversation messages)\n- `events` — **all** child events in the trace at every nesting depth (not just direct children), subject to response size limits. Each event has `properties`, returned in full by default and previewed under `detail: \"summary\"`.\n\nUnlike `query-llm-traces-list`, this tool does NOT return `errorCount`, `isSupportTrace`, or `tools` — those are summary fields on the list tool only.\n\n# Event types and their properties\n\nEach event in `events` has an `event` field indicating its type. Key properties vary by type:\n\n- **`$ai_generation`** / **`$ai_embedding`** — an LLM or embedding API call. Properties include `$ai_input` (input prompt JSON), `$ai_output_choices` (output message JSON), `$ai_model`, `$ai_provider`, `$ai_latency`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_input_cost_usd`, `$ai_output_cost_usd`, `$ai_total_cost_usd`, `$ai_tools_called`, `$ai_is_error`, `$ai_error`.\n- **`$ai_span`** — a unit of work within a trace (e.g., a retrieval step, tool execution). Properties include `$ai_input_state`, `$ai_output_state`, `$ai_latency`, `$ai_span_name`, `$ai_parent_id`.\n- **`$ai_metric`** — a named evaluation metric. Properties include `$ai_metric_name`, `$ai_metric_value`.\n- **`$ai_feedback`** — user-provided feedback. Properties include `$ai_feedback_text`.\n\nNote: `$ai_trace` events are NOT included in the `events` array — their data is surfaced via the trace-level `inputState`, `outputState`, and `traceName` fields.\n\n# Tree structure (IDs and parent-child relationships)\n\nEvents in a trace form a tree. Each event carries three IDs that define its position:\n\n- `$ai_trace_id` — present on every event, identifies which trace it belongs to (same as the trace's `id`)\n- `$ai_span_id` (or `$ai_generation_id` for generations) — the event's own unique identifier\n- `$ai_parent_id` — points to the parent event's `$ai_span_id`\n\nTo reconstruct the tree:\n\n1. Events where `$ai_parent_id` equals `$ai_trace_id` are **root-level children** of the trace\n2. Other events are children of the event whose `$ai_span_id` matches their `$ai_parent_id`\n3. Group events by `$ai_parent_id` and walk from root children downward\n\nGenerations (`$ai_generation`) and embeddings (`$ai_embedding`) are always leaf nodes. Spans (`$ai_span`) can have children.\n\n# Examples\n\n## Fetch a trace by ID\n\n```json\n{\n  \"kind\": \"TraceQuery\",\n  \"traceId\": \"c9222e05-8708-41b8-98ea-d4a21849e761\"\n}\n```\n\n## Fetch with a date range hint\n\nIf the trace is old, provide a date range to help the query find it efficiently:\n\n```json\n{\n  \"kind\": \"TraceQuery\",\n  \"traceId\": \"c9222e05-8708-41b8-98ea-d4a21849e761\",\n  \"dateRange\": { \"date_from\": \"-30d\" }\n}\n```\n\n# Detail level\n\n`detail` controls how much of each event you get back.\n\n- `\"full\"` (default) returns every property in full, bounded by the response size limit below. Existing callers that omit `detail` keep this behavior.\n- `\"summary\"` opts into trace fields, plus each event's `id`, `createdAt`, `event` type, and its navigation properties: `$ai_trace_id`, `$ai_span_id`, `$ai_generation_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_model`, `$ai_provider`, `$ai_latency`, token counts, costs, `$ai_tools_called`, `$ai_is_error`, `$ai_error`, `$ai_http_status`, `$ai_metric_name`, `$ai_metric_value`, and `$ai_feedback_text`. Prompts, outputs, span states, and any other property come back as short previews. A summarized trace carries `_detail: { \"mode\": \"summary\" }`.\n\nFor an overview, explicitly request `detail: \"summary\"`, find the events that matter from their metadata and previews, then re-run with `detail: \"full\"` if you still need the content. Keep relevant date and property filters when requesting full detail.\n\n# Response size\n\nTo protect the agent's context window, very large traces are compacted before they reach you. Long string values are truncated (with a `… [truncated N chars]` marker), oversized arrays and objects have their tail members dropped (`… [N more items omitted]` / an `_omittedKeys` count), and if a trace is still over the size limit, trailing events are dropped and a `_truncated` object reports how many events were omitted. When you see any of these markers, open the trace in PostHog for the full, untruncated data, or narrow the query to the specific events you need. The underlying trace data is never altered, only this response is bounded. Both detail modes enforce size limits; `detail: \"full\"` does not guarantee that every event or property fits.\n\n# Reminders\n\n- Always get the `traceId` from `query-llm-traces-list` results — do not guess or fabricate trace IDs.\n- If no date range is provided, the default lookback window is used. For older traces, provide an explicit `dateRange`.\n- The `events` array contains ALL events in the trace (including deeply nested ones), making this suitable for full tree reconstruction.\n- Use `query-llm-traces-list` first to find traces, then this tool to inspect a specific one.\n- Only ask for `detail: \"full\"` on a trace you have already narrowed down. A full-detail read of an unremarkable trace spends context you will need later.",
+        "description": "Fetch a single LLM trace by its trace ID for deep inspection. Returns the trace and every nested event, with model parameters, costs, tool calls, and errors. Use after finding a trace via `query-llm-traces-list` to inspect the complete event tree.\n\nBy default the response returns full event properties, subject to response size limits. Set `detail` to `\"summary\"` for metadata and short previews when browsing a trace. Omitted `detail` preserves the existing full-detail behavior.\n\nUse cases:\n\n- Inspect the full input/output of each generation in a trace\n- Debug a specific error trace found in the list\n- Examine the agent's decision-making flow across spans\n- Review tool calls and their results within a trace\n- Analyze token usage and costs per generation\n\nCRITICAL: This tool requires a `traceId`. Get the trace ID from `query-llm-traces-list` results first.\n\n# Response shape\n\nThe response contains a single trace in JSON format with:\n\n- `id` — the trace ID\n- `traceName` — name of the trace (if set via SDK)\n- `createdAt` — timestamp of the first event in the trace\n- `distinctId` — the person's distinct ID\n- `aiSessionId` — session ID grouping related traces (e.g., a conversation)\n- `totalLatency` — total latency in seconds\n- `inputTokens` / `outputTokens` — token counts across all generations\n- `inputCost` / `outputCost` / `totalCost` — costs in USD\n- `inputState` / `outputState` — JSON input/output state from the root `$ai_trace` event (e.g., conversation messages)\n- `events` — **all** child events in the trace at every nesting depth (not just direct children), subject to response size limits. Each event has `properties`, returned in full by default and previewed under `detail: \"summary\"`.\n\nUnlike `query-llm-traces-list`, this tool does NOT return `errorCount`, `isSupportTrace`, or `tools` — those are summary fields on the list tool only.\n\n# Event types and their properties\n\nEach event in `events` has an `event` field indicating its type. Key properties vary by type:\n\n- **`$ai_generation`** / **`$ai_embedding`** — an LLM or embedding API call. Properties include `$ai_input` (input prompt JSON), `$ai_output_choices` (output message JSON), `$ai_model`, `$ai_provider`, `$ai_latency`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_input_cost_usd`, `$ai_output_cost_usd`, `$ai_total_cost_usd`, `$ai_tools_called`, `$ai_is_error`, `$ai_error`.\n- **`$ai_span`** — a unit of work within a trace (e.g., a retrieval step, tool execution). Properties include `$ai_input_state`, `$ai_output_state`, `$ai_latency`, `$ai_span_name`, `$ai_parent_id`.\n- **`$ai_metric`** — a named evaluation metric. Properties include `$ai_metric_name`, `$ai_metric_value`.\n- **`$ai_feedback`** — user-provided feedback. Properties include `$ai_feedback_text`.\n\nNote: `$ai_trace` events are NOT included in the `events` array — their data is surfaced via the trace-level `inputState`, `outputState`, and `traceName` fields.\n\n# Tree structure (IDs and parent-child relationships)\n\nEvents in a trace form a tree. Each event carries three IDs that define its position:\n\n- `$ai_trace_id` — present on every event, identifies which trace it belongs to (same as the trace's `id`)\n- `$ai_span_id` (or `$ai_generation_id` for generations) — the event's own unique identifier\n- `$ai_parent_id` — points to the parent event's `$ai_span_id`\n\nTo reconstruct the tree:\n\n1. Events where `$ai_parent_id` equals `$ai_trace_id` are **root-level children** of the trace\n2. Other events are children of the event whose `$ai_span_id` matches their `$ai_parent_id`\n3. Group events by `$ai_parent_id` and walk from root children downward\n\nGenerations (`$ai_generation`) and embeddings (`$ai_embedding`) are always leaf nodes. Spans (`$ai_span`) can have children.\n\n# Examples\n\n## Fetch a trace by ID\n\n```json\n{\n  \"kind\": \"TraceQuery\",\n  \"traceId\": \"c9222e05-8708-41b8-98ea-d4a21849e761\"\n}\n```\n\n## Fetch with a date range hint\n\nIf the trace is old, provide a date range to help the query find it efficiently:\n\n```json\n{\n  \"kind\": \"TraceQuery\",\n  \"traceId\": \"c9222e05-8708-41b8-98ea-d4a21849e761\",\n  \"dateRange\": { \"date_from\": \"-30d\" }\n}\n```\n\n# Detail level\n\n`detail` controls how much of each event you get back.\n\n- `\"full\"` (default) returns every property in full, bounded by the response size limit below. Existing callers that omit `detail` keep this behavior.\n- `\"summary\"` opts into trace fields, plus each event's `id`, `createdAt`, `event` type, and its navigation properties: `$ai_trace_id`, `$ai_span_id`, `$ai_generation_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_model`, `$ai_provider`, `$ai_latency`, token counts, costs, `$ai_tools_called`, `$ai_is_error`, `$ai_error`, `$ai_http_status`, `$ai_metric_name`, `$ai_metric_value`, and `$ai_feedback_text`. Prompts, outputs, span states, and any other property come back as short previews. A summarized trace carries `_detail: { \"mode\": \"summary\" }`.\n\nFor an overview, explicitly request `detail: \"summary\"`, find the events that matter from their metadata and previews, then re-run with `detail: \"full\"` if you still need the content. Keep relevant date and property filters when requesting full detail.\n\n# Response size\n\nTo protect the agent's context window, very large traces are compacted before they reach you. Long string values are truncated (with a `… [truncated N chars]` marker), oversized arrays and objects have their tail members dropped (`… [N more items omitted]` / an `_omittedKeys` count), and if a trace is still over the size limit, trailing events are dropped and a `_truncated` object reports how many events were omitted. When you see any of these markers, open the trace in PostHog for the full, untruncated data, or narrow the query to the specific events you need. The underlying trace data is never altered, only this response is bounded. Both detail modes limit the complete response, including echoed filters and warnings, which can also be shortened with omission markers. Neither mode guarantees that every event or property fits. When a full-detail read drops events, re-run with `detail: \"summary\"` for smaller previews. Summary responses can also omit events.\n\n# Reminders\n\n- Always get the `traceId` from `query-llm-traces-list` results — do not guess or fabricate trace IDs.\n- If no date range is provided, the default lookback window is used. For older traces, provide an explicit `dateRange`.\n- The `events` array contains ALL events in the trace (including deeply nested ones), making this suitable for full tree reconstruction.\n- Use `query-llm-traces-list` first to find traces, then this tool to inspect a specific one.\n- Only ask for `detail: \"full\"` on a trace you have already narrowed down. A full-detail read of an unremarkable trace spends context you will need later.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get LLM trace",
@@ -11536,8 +11730,23 @@
         },
         "feature_flag": "stamphog"
     },
+    "stamphog-review-runs-create": {
+        "description": "Ask stamphog to review one pull request now, by `repository` (owner/name) and `pr_number`. The repository must be connected and enabled in Stamphog. The request replaces the trigger label, so it works in label mode too, but every other rule still applies: stamphog refuses drafts, closed PRs, bot-authored PRs, PRs from outside the repository, and PRs whose author lacks write access, and the error message says why. Stamphog decides the verdict itself: a passing review posts a real GitHub approval, anything else posts a comment. The review runs in the background, so this returns the run right away (status `queued`). Poll `stamphog-review-runs-get` with its id for the verdict and reasoning. When a run already covers the PR's current head, that run is returned with `created: false` instead of starting another.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "Request a stamphog review",
+        "title": "Request a stamphog review",
+        "required_scopes": ["stamphog:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "stamphog"
+    },
     "stamphog-review-runs-get": {
-        "description": "Get a single review run by id — the record of one automated review pass over a pull request. Returns the lifecycle `status`, final `verdict`, and an allowlisted `gate_result` (gate_blocked, final_verdict). The raw reviewer transcript, PR payload, and policy contents are deliberately not exposed — they carry repository content a project member without repo access must not read.",
+        "description": "Get a single review run by id — the record of one automated review pass over a pull request. Returns the lifecycle `status`, final `verdict`, an allowlisted `gate_result` (gate_blocked, final_verdict), and the reviewer's `reasoning` (its explanation, the showstoppers that blocked approval, the review text stamphog posts on GitHub, and a plain-language change summary). The reasoning fields are null until the reviewer has run. Poll this after `stamphog-review-runs-create` until `status` is completed, gated, failed, or superseded. The raw reviewer transcript, PR payload, patches, and policy contents are not exposed.",
         "category": "Stamphog",
         "feature": "stamphog",
         "summary": "Get stamphog review run",
@@ -11552,7 +11761,7 @@
         "feature_flag": "stamphog"
     },
     "stamphog-review-runs-list": {
-        "description": "List stamphog's automated review runs for pull requests in this project, newest first. Filter by `repository`, `pr_number`, or `status` to find why a specific PR got its verdict. Each run reports its lifecycle `status`, final `verdict`, and the deterministic gate outcome (`gate_result`) computed before the reviewer ran. The raw reviewer output (full reasoning transcript) is omitted from list results — use `stamphog-review-runs-get` for the full detail.",
+        "description": "List stamphog's automated review runs for pull requests in this project, newest first. Filter by `repository`, `pr_number`, or `status` to find why a specific PR got its verdict. Each run reports its lifecycle `status`, final `verdict`, and the deterministic gate outcome (`gate_result`) computed before the reviewer ran. The reviewer's reasoning is null in list results — use `stamphog-review-runs-get` on a run to read it.",
         "category": "Stamphog",
         "feature": "stamphog",
         "summary": "List stamphog review runs",
@@ -13587,7 +13796,7 @@
         }
     },
     "workflow-health": {
-        "description": "Per-workflow CI health over a window: run count, success rate, p50/p95 duration, and last failure time. Use this for \"is CI getting faster or slower\", \"which GitHub Actions workflow is the slow or flaky long pole\", and CI duration trends. Success rate covers runs that succeeded or ended in failure, timeout, startup failure, or staleness. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over successful runs only, so superseded cancels and failed runs never bias the duration percentile. Pass run_scope to report on one group of runs: default_branch, pull_request (PR branches only, same-repo PRs — fork PRs carry no PR attribution), merge_queue, or all. To get a trend, call this over two adjacent windows and compare.",
+        "description": "Per-workflow CI health over a window: run count, success rate, p50/p95 duration, and last failure time. Use this for \"is CI getting faster or slower\", \"which GitHub Actions workflow is the slow or flaky long pole\", and CI duration trends. Success rate covers runs that succeeded or ended in failure, timeout, startup failure, or staleness. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over successful runs only, so superseded cancels and failed runs never bias the duration percentile. Runs under 10 seconds that did no work are excluded when longer successful runs exist. An all-fast workflow uses every successful run. Pass run_scope to report on one group of runs: default_branch, pull_request (PR branches only, same-repo PRs: fork PRs carry no PR attribution), merge_queue, or all. To get a trend, call this over two adjacent windows and compare.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "Per-workflow CI health",

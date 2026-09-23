@@ -35,6 +35,7 @@ from products.conversations.backend.temporal.ai_reply.constants import (
     PUBLISHABLE_DRAFT_SCOPES,
     TICKET_TYPE_HINTS,
 )
+from products.conversations.backend.temporal.ai_reply.llms import anthropic_json_schema
 from products.conversations.backend.temporal.ai_reply.schemas import DraftInput, DraftOutput, SupportReplyDraft
 from products.conversations.backend.temporal.helpers import (
     get_or_create_support_sandbox_env,
@@ -312,7 +313,7 @@ INSTRUCTIONS:
 - Ground your reply in sources. Include citations (chunk_id UUIDs or doc URLs) and populate `sources` with the supporting excerpts so the reply can be validated.
 - Do NOT make up information -- only use what your tools return.
 
-Return your response as a JSON object with keys: reply, citations, confidence, sources (a list of {{ref, excerpt}}), verdict, clarifying_questions, investigation_summary, unknowns."""
+Return your response as a JSON object with keys: reply, citations, confidence (a number from 0 to 1, never a word), sources (a list of {{ref, excerpt}}), verdict, clarifying_questions, investigation_summary, unknowns."""
 
     session: MultiTurnSession | None = None
     started = monotonic()
@@ -326,6 +327,7 @@ Return your response as a JSON object with keys: reply, citations, confidence, s
             mcp_builtin_agent_key="support",
             internal=True,
             max_poll_seconds=DRAFT_POLL_SECONDS,
+            output_schema=anthropic_json_schema(SupportReplyDraft),
         )
         return DraftOutput(
             reply=result.reply,

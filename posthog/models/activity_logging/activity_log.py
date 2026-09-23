@@ -315,6 +315,9 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
         # `before` against the stripped `after`, leaking the secret. Record that actions changed, never
         # the contents — the per-version content audit lives in the revisions feature instead.
         "actions",
+        # Reverse FK into WorkflowProposal's fail-closed manager, and a suggestion filed or resolved
+        # is not a workflow edit.
+        "proposals",
     ],
     "OrganizationDomain": [
         "_scim_bearer_token",
@@ -359,7 +362,6 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "allow_publicly_shared_resources": "public sharing permissions",
         "is_member_join_email_enabled": "member join email notifications",
         "session_cookie_age": "session cookie age",
-        "default_experiment_stats_method": "default experiment stats method",
         "is_ai_data_processing_approved": "third-party AI services",
         "uses_most_specific_access_resolution": "most-specific access resolution",
     },
@@ -389,6 +391,8 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "issue_tracking_config": "issue tracker target",
         "default_open_pull_request_ready": "PRs open as",
         "github_issue_writeback_enabled": "comment back on GitHub issues",
+        "pull_request_label_enabled": "label self-driving PRs",
+        "pull_request_label": "self-driving PR label",
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
@@ -673,6 +677,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "Notebook": [
         "text_content",
         "widget_instances",
+        "widget_snapshots",
     ],
     "FeatureFlag": [
         "experiment",
@@ -884,6 +889,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Reads through UserFacetSettings' own fail-closed TeamScopedManager, which has no
         # ambient team scope at signal-handling time (same reason Loop excludes triggers/fires).
         "facet_settings",
+        # Same fail-closed manager, on the WorkflowProposal relation a user can resolve.
+        "resolved_workflow_proposals",
     ],
     "AlertConfiguration": [
         "last_checked_at",
