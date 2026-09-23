@@ -86,11 +86,13 @@ def apply_pull_request_label(*, team_id: int, report_id: str, pr_url: str) -> st
     and a repository with no GitHub integration. A failed call also returns None, and this raises
     nothing.
     """
-    if not SignalReport.objects.filter(id=report_id, team_id=team_id).exists():
-        return None
-
+    # The team's setting first: a team that never turned the label on is the common case, so it
+    # answers in one query rather than two.
     label = configured_pull_request_label(team_id)
     if label is None:
+        return None
+
+    if not SignalReport.objects.filter(id=report_id, team_id=team_id).exists():
         return None
 
     parsed = GitHubIntegration.parse_pull_request_url(pr_url)
