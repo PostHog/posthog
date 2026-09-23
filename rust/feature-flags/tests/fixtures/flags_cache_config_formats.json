@@ -164,6 +164,12 @@
       "expect": "omitted"
     },
     {
+      "key": "malformed-null-document",
+      "active": true,
+      "filters": null,
+      "expect": "omitted"
+    },
+    {
       "key": "depends-false-on-non-object-inactive",
       "active": true,
       "filters": {

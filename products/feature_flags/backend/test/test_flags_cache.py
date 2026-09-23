@@ -22,6 +22,7 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.core.management.base import OutputWrapper
 from django.db import connection
+from django.db.models import JSONField, Value
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
@@ -635,7 +636,10 @@ def _insert_config_format_fixture(team: Team, user) -> tuple[dict, dict[str, Fea
                     )
         flags[row["key"]].filters = filters
         # Written like a stored row, past the model save hooks that assume a v1 document.
-        FeatureFlag.objects.filter(id=flags[row["key"]].id).update(filters=filters)
+        # A JSON null needs an expression, or the ORM writes SQL NULL and the column refuses it.
+        FeatureFlag.objects.filter(id=flags[row["key"]].id).update(
+            filters=Value(None, output_field=JSONField()) if filters is None else filters
+        )
     return fixture, flags
 
 

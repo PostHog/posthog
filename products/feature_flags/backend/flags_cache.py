@@ -129,15 +129,15 @@ def _stored_dependency_ids(flag: FeatureFlag) -> set[int] | None:
 
     The cache is read by v1 evaluators, so a document is classified before anything
     serializes or reads it: an absent or numeric-1 ``version`` is v1, and every other
-    discriminator (``detect_config_format``) or a document that is not an object is
-    omitted whatever the row's lifecycle, so an inactive v2 row is never blanked into a
-    v1-shaped entry. An unevaluable v1 object is never read (``_blank_inactive_filters``
+    discriminator (``detect_config_format``) or a document that is not an object, JSON
+    null included, is omitted whatever the row's lifecycle, so an inactive v2 row is
+    never blanked into a v1-shaped entry. An unevaluable v1 object is never read (``_blank_inactive_filters``
     empties it), so its content is not checked, which keeps the established handling of
     old disabled rows. An evaluable v1 object whose conditions cannot be read is omitted
     like any other malformed row instead of failing the team.
     """
     filters = flag.filters
-    if filters is not None and not isinstance(filters, Mapping):
+    if not isinstance(filters, Mapping):
         return None
     if detect_config_format(filters).kind != "v1":
         return None
