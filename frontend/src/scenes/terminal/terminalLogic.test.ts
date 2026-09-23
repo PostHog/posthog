@@ -10,6 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { initKeaTests } from '~/test/init'
 
 import { PosthogFilesystem } from './posthogFilesystem'
+import { TerminalConfirmation } from './terminalConfirmation'
 import { terminalDockLogic } from './terminalDockLogic'
 import { terminalLogic } from './terminalLogic'
 import { TerminalRuntime } from './terminalRuntime'
@@ -21,6 +22,7 @@ jest.mock('./terminalRuntime', () => ({
         resize: jest.fn(),
         syncClock: jest.fn(),
         read: jest.fn(() => ''),
+        write: jest.fn(),
     })),
 }))
 jest.mock('./TerminalSession', () => ({
@@ -96,4 +98,41 @@ describe('terminal lifecycle', () => {
         expect(document.activeElement).toBe(opener)
         opener.remove()
     })
+
+    it.each(['cancel', 'stop', 'project', 'unmount', 'approve'] as const)(
+        'blocks input until a click and settles pending approval on %s',
+        async (finish) => {
+            terminalLogic.actions.attach(document.createElement('div'))
+            await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+            const confirm = jest.mocked(PosthogFilesystem).mock.calls[0][2]!
+            const request: TerminalConfirmation = {
+                title: 'Delete?',
+                description: 'Delete a notebook',
+                items: ['note1'],
+            }
+            const pending = confirm(request)
+            await waitFor(() => expect(terminalLogic.values.confirmation).toBe(request))
+            for (const key of ['Enter', ' ', 'Escape', '`']) {
+                const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+                document.dispatchEvent(event)
+                expect(event.defaultPrevented).toBe(true)
+            }
+            window.posthogTerminal!.write('rm -rf Research\n')
+            expect(jest.mocked(TerminalRuntime).mock.results[0].value.write).not.toHaveBeenCalled()
+            expect(terminalLogic.values.confirmation).toBe(request)
+            if (finish === 'stop') {
+                terminalLogic.actions.stop()
+            } else if (finish === 'project') {
+                teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: MOCK_DEFAULT_TEAM.id + 1 })
+            } else if (finish === 'unmount') {
+                terminalLogic.unmount()
+            } else {
+                terminalLogic.actions.answerConfirmation(request, finish === 'approve')
+            }
+            await expect(pending).resolves.toBe(finish === 'approve')
+            const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+            document.dispatchEvent(event)
+            expect(event.defaultPrevented).toBe(false)
+        }
+    )
 })
