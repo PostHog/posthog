@@ -897,6 +897,12 @@ PROXY_USE_GATEWAY_API = get_from_env("PROXY_USE_GATEWAY_API", False, type_cast=s
 PROXY_TARGET_CNAME = get_from_env("PROXY_TARGET_CNAME", "")
 PROXY_BASE_CNAME = get_from_env("PROXY_BASE_CNAME", "")
 
+# PostHog's own (first-party) organizations, set per-region to PostHog's internal org id(s).
+# A generic allowlist for gating internal-only behaviour; today it lets these orgs register
+# reserved, PostHog-owned proxy domains (e.g. internal proxies on posthog.com). Empty by
+# default, so every such gate stays closed for other orgs unless a deployment lists an id here.
+POSTHOG_INTERNAL_ORG_IDS = get_list(get_from_env("POSTHOG_INTERNAL_ORG_IDS", ""))
+
 # Cloudflare for SaaS proxy settings
 CLOUDFLARE_PROXY_ENABLED = get_from_env("CLOUDFLARE_PROXY_ENABLED", False, type_cast=str_to_bool)
 CLOUDFLARE_API_TOKEN = get_from_env("CLOUDFLARE_API_TOKEN", "")
