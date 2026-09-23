@@ -60,8 +60,10 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
+from posthog.permissions import get_authenticator_scoped_team_ids
 from posthog.utils_cors import cors_response
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
@@ -3257,11 +3259,34 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             }
         )
 
+    def _check_duplicate_target_access(self, request: request.Request, target_team: Team) -> None:
+        # The permission classes check only the source project in the URL. Apply the checks that
+        # `POST /surveys/` in the target project applies: the key's project scope, project access,
+        # and survey editor access.
+        scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
+        if scoped_teams is not None and target_team.id not in scoped_teams:
+            raise exceptions.PermissionDenied(
+                f"API key does not have access to the requested project: ID {target_team.id}."
+            )
+
+        access_control = UserAccessControl(user=cast(User, request.user), team=target_team)
+        if (
+            self.user_permissions.team(target_team).effective_membership_level is None
+            or not access_control.check_access_level_for_object(target_team, required_level="member")
+            or not access_control.check_access_level_for_resource("survey", required_level="editor")
+        ):
+            raise exceptions.PermissionDenied(
+                f"You don't have permission to create surveys in project {target_team.id}. "
+                "Ask a project admin for access, or remove the project from the list."
+            )
+
     @action(methods=["POST"], detail=True, required_scopes=["survey:write"])
     def duplicate_to_projects(self, request: request.Request, **kwargs):
         """Duplicate a survey to multiple projects in a single transaction.
 
         Accepts a list of target team IDs and creates a copy of the survey in each project.
+        Every target project must be in the source project's organization, and the caller needs
+        survey editor access in each one.
         Uses an all-or-nothing approach - if any duplication fails, all changes are rolled back.
         """
         if not request.user.is_authenticated:
@@ -3279,14 +3304,14 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         if not target_team_ids or not isinstance(target_team_ids, list):
             raise exceptions.ValidationError("target_team_ids must be a non-empty list of team IDs")
 
-        user_organization = user.organization
-        if not user_organization:
-            raise exceptions.ValidationError("User must belong to an organization")
-
-        target_teams = Team.objects.filter(id__in=target_team_ids, organization_id=user_organization.id)
+        organization_id = self.team.organization_id
+        target_teams = Team.objects.filter(id__in=target_team_ids, organization_id=organization_id)
 
         if len(target_teams) != len(target_team_ids):
             raise exceptions.ValidationError("One or more target teams not found or you don't have access to them")
+
+        for target_team in target_teams:
+            self._check_duplicate_target_access(request, target_team)
 
         duplicate_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         created_surveys = []
@@ -3381,7 +3406,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                     )
 
                     log_activity(
-                        organization_id=user_organization.id,
+                        organization_id=organization_id,
                         team_id=created_survey.team_id,
                         user=user,
                         was_impersonated=is_impersonated(request),

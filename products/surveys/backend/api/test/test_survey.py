@@ -27,7 +27,9 @@ from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -6734,6 +6736,74 @@ class TestSurveyBulkDuplication(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not found" in str(response.json()).lower()
+
+    @parameterized.expand([("private_project", "project"), ("no_survey_access", "survey")])
+    def test_bulk_duplicate_requires_access_to_every_target(self, _name: str, resource: str) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team3,
+            resource=resource,
+            resource_id=str(self.team3.id) if resource == "project" else None,
+            access_level="none",
+        )
+        member = self._create_user("duplicate-member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        self.client.force_login(member)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id, self.team3.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert not Survey.objects.filter(team__in=[self.team2, self.team3]).exists()
+
+    def test_bulk_duplicate_rejects_key_not_scoped_to_target(self) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="source-project-only",
+            secure_value=hash_key_value(token),
+            scopes=["survey:write"],
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id]},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert not Survey.objects.filter(team=self.team2).exists()
+
+    def test_bulk_duplicate_only_targets_projects_in_the_source_organization(self) -> None:
+        # bootstrap makes the new organization the user's current one, so it differs from the source organization
+        _, _, other_org_team = Organization.objects.bootstrap(self.user)
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="source-org-only",
+            secure_value=hash_key_value(token),
+            scopes=["survey:write"],
+            scoped_organizations=[str(self.organization.id)],
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [other_org_team.id]},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert not Survey.objects.filter(team=other_org_team).exists()
 
     def test_bulk_duplicate_multiple_times_to_same_team(self):
         """Test that multiple duplications to the same team create surveys with different timestamps"""

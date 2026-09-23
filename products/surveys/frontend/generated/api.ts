@@ -260,6 +260,8 @@ export const getSurveysDuplicateToProjectsCreateUrl = (projectId: string, id: st
  * Duplicate a survey to multiple projects in a single transaction.
  *
  * Accepts a list of target team IDs and creates a copy of the survey in each project.
+ * Every target project must be in the source project's organization, and the caller needs
+ * survey editor access in each one.
  * Uses an all-or-nothing approach - if any duplication fails, all changes are rolled back.
  */
 export const surveysDuplicateToProjectsCreate = async (
