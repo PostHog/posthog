@@ -531,11 +531,8 @@ class TestVerifyAndFixBatch(BaseTest):
     )
     def test_expiry_tracking_failure_does_not_abort_the_batch(self, _name, exception):
         mock_config = MagicMock()
-        mock_config.should_skip_write = None
-        mock_config.get_primary_writer_fn = None
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
-        mock_config.hypercache.get_cache_identifier.return_value = str(self.team.id)
         mock_config.get_team_ids_to_skip_fix_fn = None
 
         result = VerificationResult()

@@ -205,7 +205,6 @@ class TestHyperCacheRedisFailureDegrades(HyperCacheTestBase):
         with (
             patch.object(hc.cache_client, "set", side_effect=redis.exceptions.TimeoutError()),
             patch.object(object_storage, "write") as mock_write,
-            patch.object(hc.cache_client, "delete"),
         ):
             with pytest.raises(redis.exceptions.TimeoutError):
                 hc.set_cache_value(self.team_id, self.sample_data)
