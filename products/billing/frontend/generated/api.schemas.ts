@@ -987,7 +987,7 @@ export interface BillingCatalogFeatureApi {
     /** The feature key. */
     key: string
     name: string
-    /** Whether the organization's plans include the feature. */
+    /** Whether the feature is available to the organization, trials and overrides included. */
     included: boolean
     /** The add-ons of this product that carry the feature. Empty when only the product carries it. */
     addon_keys: string[]

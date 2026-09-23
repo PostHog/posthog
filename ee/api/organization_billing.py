@@ -260,7 +260,9 @@ class BillingProductsSerializer(serializers.Serializer):
 class BillingCatalogFeatureSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="The feature key.")
     name = serializers.CharField()
-    included = serializers.BooleanField(help_text="Whether the organization's plans include the feature.")
+    included = serializers.BooleanField(
+        help_text="Whether the feature is available to the organization, trials and overrides included."
+    )
     addon_keys = serializers.ListField(
         child=serializers.CharField(),
         help_text="The add-ons of this product that carry the feature. Empty when only the product carries it.",

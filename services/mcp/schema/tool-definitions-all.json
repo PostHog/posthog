@@ -1115,7 +1115,7 @@
         "feature_flag": "billing-alerts"
     },
     "billing-catalog-get": {
-        "description": "Every product with its add-ons and the names of its features, without prices or plans. Use it to find the product, add-on or feature a question is about. A product or add-on says whether the organization subscribes to it. A feature says whether the organization's plans include it and lists the add-ons that carry it. For prices and plans, pass the product key to billing-product-get. Readable by any member. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+        "description": "Every product with its add-ons and the names of its features, without prices or plans. Use it to find the product, add-on or feature a question is about. A product or add-on says whether the organization subscribes to it. A feature says whether it is available to the organization, trials and overrides included, and lists the add-ons that carry it. For prices and plans, pass the product key to billing-product-get. Readable by any member. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
         "category": "Billing",
         "feature": "billing",
         "summary": "Get the product catalog",
