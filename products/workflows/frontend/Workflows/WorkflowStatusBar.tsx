@@ -31,6 +31,7 @@ export function WorkflowStatusBar({
         isAutoSavePending,
         autoSaveEnabled,
         lastSavedAt,
+        isCodeManaged,
     } = useValues(logic)
     const { setAutoSaveEnabled } = useActions(logic)
     const showSaving = useDebouncedValue(isAutoSavePending || workflowLoading, 1000)
@@ -42,7 +43,8 @@ export function WorkflowStatusBar({
     const showWorkflowStatus = !props.editTemplateId
     const historyWorkflowId = props.id && props.id !== 'new' ? props.id : null
     const isActive = originalWorkflow.status === 'active'
-    const isEditingDraftOfLive = isActive && (hasStagedDraft || hasUnsavedChanges)
+    // Edits to a code-managed workflow never become a draft, because only a push changes it.
+    const isEditingDraftOfLive = isActive && !isCodeManaged && (hasStagedDraft || hasUnsavedChanges)
 
     return (
         <div className="flex items-center justify-between gap-2 px-2 py-1.5 border-b bg-surface-secondary rounded-t-md flex-wrap">
@@ -76,7 +78,12 @@ export function WorkflowStatusBar({
                     ) : (
                         <LemonTag>Draft</LemonTag>
                     ))}
-                {showWorkflowStatus && isActive && (
+                {showWorkflowStatus && isCodeManaged && hasUnsavedChanges && (
+                    <span className="text-xs text-warning truncate" data-attr="workflow-code-managed-unsaved">
+                        Your changes stay in this editor and are not saved.
+                    </span>
+                )}
+                {showWorkflowStatus && isActive && !isCodeManaged && (
                     <span className="text-xs text-secondary truncate">
                         {isEditingDraftOfLive
                             ? 'The live version keeps running until you publish.'
@@ -95,24 +102,26 @@ export function WorkflowStatusBar({
                     ) : lastSavedAt ? (
                         <LastSavedIndicator timestamp={lastSavedAt} />
                     ) : null}
-                    <span className="flex items-center gap-1">
-                        <LemonSwitch
-                            checked={autoSaveEnabled}
-                            onChange={setAutoSaveEnabled}
-                            label="Auto-save"
-                            size="small"
-                        />
-                        <Tooltip
-                            title={
-                                isActive
-                                    ? 'Auto-save stores your changes as a draft. Nothing goes live until you publish.'
-                                    : 'Draft workflows auto-save as you edit.'
-                            }
-                            placement="bottom"
-                        >
-                            <IconInfo className="text-tertiary size-4" />
-                        </Tooltip>
-                    </span>
+                    {!isCodeManaged && (
+                        <span className="flex items-center gap-1">
+                            <LemonSwitch
+                                checked={autoSaveEnabled}
+                                onChange={setAutoSaveEnabled}
+                                label="Auto-save"
+                                size="small"
+                            />
+                            <Tooltip
+                                title={
+                                    isActive
+                                        ? 'Auto-save stores your changes as a draft. Nothing goes live until you publish.'
+                                        : 'Draft workflows auto-save as you edit.'
+                                }
+                                placement="bottom"
+                            >
+                                <IconInfo className="text-tertiary size-4" />
+                            </Tooltip>
+                        </span>
+                    )}
                     <LemonButton
                         type="tertiary"
                         size="small"

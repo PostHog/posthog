@@ -17,7 +17,7 @@ export function WorkflowRevisions({ id }: { id: string }): JSX.Element {
     const logic = workflowRevisionsLogic({ id })
     const { revisions, revisionsCount, revisionsResponseLoading, restoringVersion } = useValues(logic)
     const { restoreRevision } = useActions(logic)
-    const { originalWorkflow, workflowUserAccessLevel, workflowEditDisabledReason } = useValues(workflowLogic({ id }))
+    const { originalWorkflow, workflowUserAccessLevel, workflowSaveDisabledReason } = useValues(workflowLogic({ id }))
 
     const liveVersion = originalWorkflow?.version
 
@@ -93,7 +93,7 @@ export function WorkflowRevisions({ id }: { id: string }): JSX.Element {
                                         disabledReason={
                                             // A restore stages a draft, which the API refuses on a
                                             // workflow a repository owns.
-                                            workflowEditDisabledReason ??
+                                            workflowSaveDisabledReason ??
                                             (revision.version === liveVersion
                                                 ? 'This is the live version'
                                                 : restoringVersion !== null && restoringVersion !== revision.version

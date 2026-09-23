@@ -10,9 +10,8 @@ import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowStatusBar } from './WorkflowStatusBar'
 
 export function Workflow(props: WorkflowLogicProps): JSX.Element {
-    const { originalWorkflow, workflowLoading, externallyEdited, isSyncingExternalEdit, logicProps } = useValues(
-        workflowLogic(props)
-    )
+    const { originalWorkflow, workflowLoading, externallyEdited, isSyncingExternalEdit, isCodeManaged, logicProps } =
+        useValues(workflowLogic(props))
     const { loadWorkflow, keepMyWorkflowVersion } = useActions(workflowLogic(props))
     const { editorLayout } = useValues(hogFlowEditorLogic(logicProps))
     const { setEditorLayout } = useActions(hogFlowEditorLogic(logicProps))
@@ -31,11 +30,19 @@ export function Workflow(props: WorkflowLogicProps): JSX.Element {
             {externallyEdited && (
                 <LemonBanner type="warning" className="m-2">
                     <div className="flex items-center justify-between gap-2">
-                        <span>
-                            This workflow was updated elsewhere (for example via the API or an AI assistant) while you
-                            have unsaved changes. Reload to get the latest version, or keep editing and save to
-                            overwrite the other changes.
-                        </span>
+                        {isCodeManaged ? (
+                            <span>
+                                This workflow was updated elsewhere (for example by a push from its repository) while
+                                you have changes here. Reload to get the latest version, or keep your changes in this
+                                editor. They are still not saved.
+                            </span>
+                        ) : (
+                            <span>
+                                This workflow was updated elsewhere (for example via the API or an AI assistant) while
+                                you have unsaved changes. Reload to get the latest version, or keep editing and save to
+                                overwrite the other changes.
+                            </span>
+                        )}
                         <div className="flex items-center gap-2 shrink-0">
                             <LemonButton type="secondary" size="small" onClick={() => keepMyWorkflowVersion()}>
                                 Keep mine

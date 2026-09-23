@@ -1,6 +1,9 @@
 import { HogFlow } from './hogflows/types'
 
-/** Whether a repository owns this workflow's content, which makes it read-only here. */
+/**
+ * Whether a repository owns this workflow's content. The editor still accepts edits to it, but only
+ * a push saves content, so the form never reaches the API.
+ */
 export function isCodeManagedWorkflow(workflow: HogFlow | null | undefined): boolean {
     return workflow?.managed_by === 'code'
 }
@@ -16,9 +19,9 @@ export function workflowSourceLabel(workflow: HogFlow | null | undefined): strin
     return workflow?.source_repository || workflow?.source_path || 'its repository'
 }
 
-/** Why the editor is read-only, in the shape a `disabledReason` and a tooltip both want. */
+/** Why edits made in the editor are not saved, in the shape a `disabledReason` and a tooltip both want. */
 export function codeManagedReason(workflow: HogFlow | null | undefined): string {
-    return `This workflow is managed by code. Edit ${workflowSourceLabel(workflow)} and push.`
+    return `This workflow is managed by code, so changes made here are not saved. Edit ${workflowSourceLabel(workflow)} and push.`
 }
 
 /** Why a code-managed workflow cannot be deleted here. */
