@@ -59,8 +59,9 @@ export function CardsPreview({
         },
     ]
 
+    // A 960 px scene prevents component snapshots from shrinking the container-query grid to its controls.
     return (
-        <div className="flex flex-col gap-4">
+        <div className="flex w-[60rem] max-w-full flex-col gap-4">
             <MarketingMetricCardGrid>
                 {specs.map((spec) => (
                     <MarketingMetricCard
