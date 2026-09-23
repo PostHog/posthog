@@ -183,6 +183,27 @@ describe('DashboardHeader', () => {
     })
 
     it.each([
+        { isShared: false, active: false },
+        { isShared: true, active: true },
+    ])('shows the share button as active when sharing is $isShared', ({ isShared, active }) => {
+        const dashboard = makeDashboard({
+            is_shared: isShared,
+            tiles: [{ id: 1, color: null, layouts: {}, text: { body: 'Dashboard note' } }],
+        })
+        const { logic } = renderHeader({ dashboard })
+
+        const shareButton = document.querySelector('[data-attr="dashboard-share-button"]')
+
+        if (active) {
+            expect(shareButton).toHaveClass('LemonButton--active')
+        } else {
+            expect(shareButton).not.toHaveClass('LemonButton--active')
+        }
+
+        logic.unmount()
+    })
+
+    it.each([
         {
             scenario: 'View mode, can edit',
             dashboardMode: null as DashboardMode | null,
