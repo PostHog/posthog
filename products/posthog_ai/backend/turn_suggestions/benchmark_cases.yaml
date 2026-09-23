@@ -43,8 +43,8 @@
   answer: Checkout conversion is 31.2% this week against 33.8% last week. It has slipped for three weeks in a row, mostly on mobile.
 
 - name: p95-latency-concern
-  category: recurring_metric
-  acceptable: [scout]
+  category: performance
+  acceptable: [notebook]
   question: Is the p95 page load time on the dashboard page OK this week?
   tools: [execute-sql]
   answer: The p95 load time for /dashboard is 2.8s this week, up from 2.1s last week. The rise lines up with the new charts rollout.
@@ -146,7 +146,7 @@
 
 - name: error-still-active
   category: error_tracking
-  acceptable: [scout, none]
+  acceptable: [none]
   question: What's the most common error this week?
   tools: [query-error-tracking-issues-list]
   answer: The most common error is a TypeError in checkout with 1,204 occurrences affecting 312 users. It is still happening.
@@ -476,7 +476,7 @@
 # Errors
 - name: top-errors-by-users
   category: error_tracking
-  acceptable: [scout, none]
+  acceptable: [none]
   question: Which errors affect the most users right now?
   tools: [query-error-tracking-issues-list]
   answer: The top issue is a NetworkError on file upload, affecting 540 users today. Next is a TypeError on the settings page with 210 users. Both are still active.
@@ -529,3 +529,45 @@
   question: How do I turn on session replay?
   tools: [docs-search]
   answer: Go to Settings, then Session replay, and turn on "Record user sessions". Recordings start appearing within a few minutes of the next visit.
+
+# Performance turns rank a notebook first
+- name: search-api-p99
+  category: performance
+  acceptable: [notebook]
+  question: What's the p99 response time of the search API this week?
+  tools: [execute-sql]
+  answer: The p99 for /api/search is 1,840 ms this week against 1,210 ms last week. Queries with more than three filters are the slowest, at a p99 of 3,100 ms.
+
+- name: mobile-inp-pricing
+  category: performance
+  acceptable: [notebook]
+  question: Why is INP so bad on the pricing page on mobile?
+  tools: [execute-sql, query-session-recordings-list]
+  answer: Mobile INP on /pricing is 480 ms at p75, well over the 200 ms target. Most slow interactions are taps on the plan toggle, which re-renders the whole comparison table.
+
+# One area of the product counts for more than the whole product
+- name: onboarding-errors-this-week
+  category: error_tracking
+  acceptable: [scout]
+  question: Did we get any errors in the onboarding flow this week?
+  tools: [query-error-tracking-issues-list]
+  answer: Yes, two. A ValidationError on the company details step hit 38 users, and a timeout on the invite teammates step hit 9. Both are still happening.
+  issues:
+      - id: 0199d2aa-0003-7000-8000-0000000000e3
+        name: 'ValidationError: company size is required'
+      - id: 0199d2aa-0004-7000-8000-0000000000e4
+        name: 'TimeoutError: invite request took too long'
+
+- name: onboarding-checklist-completion
+  category: recurring_metric
+  acceptable: [scout]
+  question: How many people finished the new onboarding checklist this week?
+  tools: [query-funnel]
+  answer: 214 people finished the new onboarding checklist this week, 31% of those who started it. The connect data step loses the most people.
+
+- name: total-events-this-week
+  category: one_off
+  acceptable: [none]
+  question: How many events did we get this week?
+  tools: [query-trends]
+  answer: The project received 12.4 million events this week, 3% more than last week.

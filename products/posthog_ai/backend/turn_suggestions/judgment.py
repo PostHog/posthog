@@ -70,6 +70,7 @@ _SHOW_OFFER = Noul(
             "The turn ran PostHog tools that completed, and the answer gives a real result.",
             "The user shows they will want this again: they compare with an earlier period, worry about a number, ask to keep track of it, or ask about a core metric people check on a schedule, such as signups, revenue, conversion, retention or costs.",
             "The turn investigated a problem and found its cause.",
+            "The question is about one area of the product, such as a flow, page or feature, which the user will likely check again. This counts for more than a question about the whole product.",
             "The answer is complete and does not wait for the user to reply.",
         ],
         "hold_back_when": [
@@ -77,6 +78,7 @@ _SHOW_OFFER = Noul(
             "The turn ran no PostHog tools, for example advice, brainstorming or planning.",
             "The answer asks the user a question or offers options to pick from.",
             "The question satisfies a one-time curiosity: a breakdown such as top pages, referrers, browsers, countries or the device split, a list of users or accounts, or a search for recordings. Numbers in the answer do not make it recurring.",
+            "The question is a generic overview of the whole product, such as the most common error or the busiest page, and the user gives no sign they will ask again.",
             "The question is a small clarification of an earlier answer, or small talk.",
             "The turn explained documentation or a concept, or answered a how-to question.",
             "The turn created or changed something, such as a feature flag, survey or dashboard, and nothing about it needs watching.",
@@ -100,8 +102,8 @@ _INTENT = Choice(
 _OFFER_CRITERIA: dict[OfferKind, JsonValue] = {
     OfferKind.SCOUT: {
         "what": "A scheduled agent that reruns this analysis with the same PostHog tools and posts a short report to Slack.",
-        "fits": "A metric the user will follow over time, a concern about a number, a review of what changed on a dashboard or metric this period, several metrics from this conversation, or an investigation worth repeating when the metric dips.",
-        "not_for": "An investigation whose cause was a one-time event, such as a release, an email or a migration. A notebook keeps that better.",
+        "fits": "A metric the user will follow over time, a concern about a number, a check on one area of the product for a period (such as errors or drop-off in onboarding this week) that the user will want every period, a review of what changed on a dashboard or metric this period, several metrics from this conversation, or an investigation worth repeating when the metric dips.",
+        "not_for": "A generic overview of the whole product, such as the most common errors this week. An investigation whose cause was a one-time event, such as a release, an email or a migration. A turn about performance. A notebook keeps those last two better.",
     },
     OfferKind.ALERT: {
         "what": "A threshold alert on a saved insight from `saved_insights`, sent to Slack when the number moves.",
@@ -113,7 +115,7 @@ _OFFER_CRITERIA: dict[OfferKind, JsonValue] = {
     },
     OfferKind.NOTEBOOK: {
         "what": "The investigation saved as a notebook, with its queries as cells the user can rerun.",
-        "fits": "A diagnostic turn that found something worth keeping or sharing with the team.",
+        "fits": "A diagnostic turn that found something worth keeping or sharing with the team, even when it will not happen again. Rank it first for any turn about performance, such as p95 or p99 latency, load times, web vitals or durations in milliseconds, since the notebook keeps the numbers and the queries behind them.",
         "not_for": "A turn that built a new insight, funnel or dashboard, which is already saved.",
     },
     OfferKind.ERROR_ALERT: {
@@ -237,7 +239,7 @@ def build_judge_state(transcript: TurnTranscript) -> dict[str, JsonValue]:
 def build_judge_questions(transcript: TurnTranscript, available: frozenset[OfferKind]) -> dict[str, Question]:
     offer_criteria: dict[str, JsonValue] = {kind: _OFFER_CRITERIA[kind] for kind in OfferKind if kind in available}
     offer_criteria[OfferKind.NONE] = (
-        "None of the other options fits. The turn answered a one-time question, or the user gave no sign they will want this again."
+        "None of the other options fits. The turn answered a one-time question or a generic overview of the whole product, found nothing worth keeping, and gave no sign the user will want it again."
     )
     questions: dict[str, Question] = {
         "show_offer": _SHOW_OFFER,
