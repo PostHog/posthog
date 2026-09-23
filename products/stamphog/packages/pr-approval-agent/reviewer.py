@@ -18,7 +18,7 @@ from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 from gates import manifest_basenames
 from gateway import analytics_extra_properties, gateway_env, resolve_gateway_config
-from github import PRData, new_diff_file, write_pr_diff
+from github import PRData, drop_abandoned_bot_eyes, new_diff_file, write_pr_diff
 from policy import _sanitize_untrusted, review_guidance_path, steering_path
 from version import STAMPHOG_VERSION
 
@@ -599,7 +599,7 @@ class Reviewer:
             lines.extend(self._discussion_line(c) for c in tail_items)
             discussion_text = "\n".join(lines)
 
-        pr_reactions = "\n".join(f"  - {_reaction_token(r)}" for r in pr.pr_reactions)
+        pr_reactions = "\n".join(f"  - {_reaction_token(r)}" for r in drop_abandoned_bot_eyes(pr.pr_reactions))
 
         ownership = self._format_ownership(cl)
         assurance_block = self._format_assurance(cl)
@@ -743,9 +743,10 @@ class Reviewer:
 
     def _format_reactions(self, reactions: list[dict] | None) -> str:
         """Render a compact reaction annotation like `  {👍 @greptile-apps}`."""
-        if not reactions:
+        shown = drop_abandoned_bot_eyes(reactions)
+        if not shown:
             return ""
-        return "  {" + ", ".join(_reaction_token(r) for r in reactions) + "}"
+        return "  {" + ", ".join(_reaction_token(r) for r in shown) + "}"
 
     def _format_familiarity(self, cl: dict) -> str:
         """Render the TRUSTED author-familiarity block, or "" when the signal is absent.

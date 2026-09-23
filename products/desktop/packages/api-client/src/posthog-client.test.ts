@@ -52,6 +52,75 @@ describe("PostHogAPIClient", () => {
     },
   );
 
+  it("shows the setup dependency error returned by the server", async () => {
+    const detail =
+      "The workflow action is unavailable. Sync templates and retry setup.";
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ detail }), { status: 503 }),
+      );
+    const client = new PostHogAPIClient(
+      "https://example.com",
+      async () => "token",
+      async () => "token",
+      42,
+      { fetch },
+    );
+
+    await expect(
+      client.setupTaskChannel("channel-1", {
+        kind: "goal",
+        goal: {
+          statement: "Improve activation",
+          direction: "at_least",
+          period: "week",
+        },
+      }),
+    ).rejects.toThrow(new Error(detail));
+  });
+  it.each([{}, { task_id: 123 }, { task_id: "invalid" }])(
+    "rejects an invalid setup response: %j",
+    async (body) => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(new Response(JSON.stringify(body), { status: 201 }));
+      const client = new PostHogAPIClient(
+        "https://example.com",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+      await expect(
+        client.setupTaskChannel("channel-1", {
+          kind: "feature",
+          feature: { name: "Search" },
+        }),
+      ).rejects.toThrow();
+    },
+  );
+
+  it("returns the validated setup task", async () => {
+    const body = { task_id: "0198cf5c-67dd-7000-8000-000000000001" };
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify(body), { status: 201 }));
+    const client = new PostHogAPIClient(
+      "https://example.com",
+      async () => "token",
+      async () => "token",
+      42,
+      { fetch },
+    );
+    await expect(
+      client.setupTaskChannel("channel-1", {
+        kind: "feature",
+        feature: { name: "Search" },
+      }),
+    ).resolves.toEqual(body);
+  });
+
   describe("Desktop beta terms", () => {
     it.each([
       [
