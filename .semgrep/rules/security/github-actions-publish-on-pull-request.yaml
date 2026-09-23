@@ -1,6 +1,8 @@
 # Flags a job that publishes a package to a public registry in a workflow that
-# `pull_request` can trigger, when nothing in the job's `if:` pins the run to a
-# non-PR event or to a branch/tag ref.
+# a pull request event can trigger, when nothing in the job's `if:` pins the run
+# to a non-PR event or to a branch/tag ref. The pull request events are
+# `pull_request`, `pull_request_target`, `pull_request_review` and
+# `pull_request_review_comment`.
 #
 # A `pull_request` run checks out code the PR author controls. If a publish step
 # reaches it, anyone who can open a PR can push a release version of
@@ -24,7 +26,8 @@
 # counts as no gate either: the merge queue runs the queued pull request before
 # it lands, and the queue can still reject it afterwards. A `workflow_run` pin
 # counts as no gate, because a pull request run of the upstream workflow can
-# trigger it.
+# trigger it. An inequality such as `!= 'pull_request'` counts as no gate,
+# because it admits every other event, `merge_group` and `workflow_run` included.
 #
 # `pull_request_target` sets `github.ref` to the base branch, so `refs/heads/master`
 # reads true while a pull request runs. Pin the event in those workflows.
@@ -52,7 +55,8 @@ rules:
           an accepted clause, and so does a comparison on a clause's result, such as `(...) == false`.
           A `merge_group` pin does, because the merge queue runs the queued pull request before it
           lands. A `workflow_run` pin does, because a pull request run of the upstream workflow can
-          trigger it. A ref pin does in a `pull_request_target`
+          trigger it. An inequality such as `github.event_name != 'pull_request'` does, because it
+          admits every other event. A ref pin does in a `pull_request_target`
           workflow, because `github.ref` names the base branch there and reads `refs/heads/master`
           while a pull request runs.
 
@@ -84,30 +88,21 @@ rules:
                 - pattern-inside: |
                       on:
                           ...
-                          pull_request: ...
+                          $EVENT: ...
                           ...
                       ...
                 - pattern-inside: |
-                      on:
-                          ...
-                          pull_request_target: ...
-                          ...
+                      on: [..., $EVENT, ...]
                       ...
                 - pattern-inside: |
-                      on: [..., pull_request, ...]
+                      on: $EVENT
                       ...
-                - pattern-inside: |
-                      on: [..., pull_request_target, ...]
-                      ...
-                - pattern-inside: |
-                      on: pull_request
-                      ...
-                - pattern-inside: |
-                      on: pull_request_target
-                      ...
+          - metavariable-regex:
+                metavariable: $EVENT
+                regex: ^pull_request(?:_target|_review|_review_comment)?$
           # 2. The job holding this step is ungated. `$GATE` binds the job-level `if:`
           #    scalar only, never a step-level one. Which clauses count as a gate depends
-          #    on the trigger, so the two pull request events get one arm each.
+          #    on the `github.ref` the trigger sets, so `pull_request_target` gets its own arm.
           - pattern-either:
                 # The job declares no `if:` at all.
                 - patterns:
@@ -123,22 +118,26 @@ rules:
                                 ...
                                 steps: ...
                                 ...
-                # `pull_request` sets `github.ref` to `refs/pull/<number>/merge`, so a branch
-                # or tag pin excludes a pull request run and counts as a gate.
+                # `pull_request` and the two review events set `github.ref` to
+                # `refs/pull/<number>/merge`, so a branch or tag pin excludes their runs and
+                # counts as a gate.
                 - patterns:
                       - pattern-either:
                             - pattern-inside: |
                                   on:
                                       ...
-                                      pull_request: ...
+                                      $PR_EVENT: ...
                                       ...
                                   ...
                             - pattern-inside: |
-                                  on: [..., pull_request, ...]
+                                  on: [..., $PR_EVENT, ...]
                                   ...
                             - pattern-inside: |
-                                  on: pull_request
+                                  on: $PR_EVENT
                                   ...
+                      - metavariable-regex:
+                            metavariable: $PR_EVENT
+                            regex: ^pull_request(?:_review|_review_comment)?$
                       - pattern-inside: |
                             $JOB:
                                 ...
@@ -150,7 +149,9 @@ rules:
                             metavariable: $GATE
                             # (?s) so a folded multi-line `if:` is one subject. The job is
                             # ungated when no clause pins the event to a trusted release one,
-                            # or the ref to a branch or tag. `merge_group` is not a trusted
+                            # or the ref to a branch or tag. An inequality such as
+                            # `!= 'pull_request'` is no pin, because it admits every other event,
+                            # `merge_group` and `workflow_run` included. `merge_group` is not a trusted
                             # release event, because the queue run holds the pull request
                             # merged onto the base before it lands. `workflow_run` is not one
                             # either, because a pull request run of the upstream workflow can
@@ -159,7 +160,7 @@ rules:
                             # an alternation. A `!` outside `!=` counts as no gate for the same
                             # reason: it can invert an accepted clause. So can a comparison on
                             # a clause's result, such as `(...) == false` or `... == 'push' == false`.
-                            regex: "(?s)^(?:(?!.*(?:github\\.event_name\\s*==\\s*'(?:push|workflow_dispatch|release|schedule)'|github\\.event_name\\s*!=\\s*'pull_request'|github\\.ref\\s*==\\s*'refs/(?:heads|tags)/|github\\.ref_name\\s*==\\s*'|startsWith\\(\\s*github\\.ref\\s*,\\s*'refs/(?:heads|tags)/))|(?=.*(?:\\|\\||!(?!=)|\\)\\s*[=!]=|[=!]=\\s*\\(|'\\s*[=!]=))).*$"
+                            regex: "(?s)^(?:(?!.*(?:github\\.event_name\\s*==\\s*'(?:push|workflow_dispatch|release|schedule)'|github\\.ref\\s*==\\s*'refs/(?:heads|tags)/|github\\.ref_name\\s*==\\s*'|startsWith\\(\\s*github\\.ref\\s*,\\s*'refs/(?:heads|tags)/))|(?=.*(?:\\|\\||!(?!=)|\\)\\s*[=!]=|[=!]=\\s*\\(|'\\s*[=!]=))).*$"
                 # `pull_request_target` sets `github.ref` to the base branch, so a branch pin
                 # reads true while a pull request runs. An event pin is the only gate here.
                 - patterns:
@@ -185,7 +186,7 @@ rules:
                                 ...
                       - metavariable-regex:
                             metavariable: $GATE
-                            regex: "(?s)^(?:(?!.*(?:github\\.event_name\\s*==\\s*'(?:push|workflow_dispatch|release|schedule)'|github\\.event_name\\s*!=\\s*'pull_request_target'))|(?=.*(?:\\|\\||!(?!=)|\\)\\s*[=!]=|[=!]=\\s*\\(|'\\s*[=!]=))).*$"
+                            regex: "(?s)^(?:(?!.*(?:github\\.event_name\\s*==\\s*'(?:push|workflow_dispatch|release|schedule)'))|(?=.*(?:\\|\\||!(?!=)|\\)\\s*[=!]=|[=!]=\\s*\\(|'\\s*[=!]=))).*$"
           # 3. The step publishes. A `--dry-run` invocation validates without shipping. The
           #    guard follows a shell line continuation, so a dry run that wraps onto the next
           #    line stays exempt while a real publish on a line of its own does not. It stops

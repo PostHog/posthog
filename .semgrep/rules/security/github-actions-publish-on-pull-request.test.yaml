@@ -374,6 +374,14 @@ jobs:
             # ruleid: github-actions-publish-on-pull-request
             - run: npm publish --access public
 
+    publish-pypi:
+        runs-on: ubuntu-24.04
+        # An inequality admits every other event, the merge queue included.
+        if: github.event_name != 'pull_request'
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: twine upload dist/*
+
     publish-crate:
         runs-on: ubuntu-24.04
         # A pull request run of the upstream workflow can trigger `workflow_run`.
@@ -447,6 +455,36 @@ jobs:
     publish-npm-on-workflow-run:
         runs-on: ubuntu-24.04
         if: github.event_name == 'workflow_run'
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: npm publish --access public
+
+    publish-pypi-on-an-inequality:
+        runs-on: ubuntu-24.04
+        if: github.event_name != 'pull_request_target'
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: twine upload dist/*
+---
+name: Review-triggered publisher
+on: [pull_request_review]
+
+jobs:
+    publish-npm:
+        runs-on: ubuntu-24.04
+        # A review runs the pull request's merge ref, so an approval gates nothing.
+        if: github.event.review.state == 'approved'
+        steps:
+            # ruleid: github-actions-publish-on-pull-request
+            - run: npm publish --access public
+---
+name: Review-comment-triggered publisher
+on: pull_request_review_comment
+
+jobs:
+    publish-npm:
+        runs-on: ubuntu-24.04
+        if: github.event.comment.body == '/publish'
         steps:
             # ruleid: github-actions-publish-on-pull-request
             - run: npm publish --access public
