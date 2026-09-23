@@ -70,7 +70,7 @@ Browsing `/posthog/files` loads and caches each folder's immediate children; `/p
 Loading another folder leaves cached folders untouched, and API type directories can be opened directly even if they are not listed yet.
 Notebook format detection waits until notebooks are browsed, and object contents load only when opened.
 `ph refresh` reloads the directories already visited, rebuilds the cached tree once, and reloads the connected tool catalog.
-Deleting mounted PostHog files, saving JSON with `deleted` set, and running connected tools require a fullscreen confirmation before the API call.
+Deleting mounted PostHog files, saving JSON with `deleted` set, and running connected tools require a centered confirmation with a black overlay before the API call.
 The dialog lists the targets and consequences, blocks terminal input, and accepts pointer clicks only.
 `rm -rf` groups its PostHog targets into one confirmation; direct syscalls from other programs confirm each removal.
 The batch is a snapshot of the loaded targets, with no reusable approval for later deletes.
