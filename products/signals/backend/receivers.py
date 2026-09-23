@@ -860,7 +860,9 @@ def mark_scout_suggestions_stale_on_fleet_change(sender: Any, instance: Any, **k
         # Call-time import inside the guard: scout_harness reaches the tasks facade contracts
         # (pydantic-heavy), which must not load in every process at django.setup() just to wire
         # this receiver, and an import failure must not fail the config write either.
-        from products.signals.backend.scout_harness.suggestions import mark_stale_if_fleet_changed  # noqa: PLC0415
+        from products.signals.backend.scout_harness.suggestions import (
+            mark_stale_if_fleet_changed,  # noqa: PLC0415 — keeps the heavy dep off the import path
+        )
 
         mark_stale_if_fleet_changed(instance.team_id)
     except Exception:

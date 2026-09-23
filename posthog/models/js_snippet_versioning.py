@@ -27,7 +27,7 @@ _s3_client: Any = None
 def _get_s3_client():
     global _s3_client
     if _s3_client is None:
-        import boto3  # noqa: PLC0415
+        import boto3  # noqa: PLC0415 — keeps the heavy dep off the import path
 
         _s3_client = boto3.client("s3")
     return _s3_client
@@ -35,7 +35,7 @@ def _get_s3_client():
 
 def s3_read(key: str, *, missing_ok: bool = False) -> Optional[str]:
     """Read a UTF-8 object from the JS S3 bucket."""
-    from botocore.exceptions import ClientError  # noqa: PLC0415
+    from botocore.exceptions import ClientError  # noqa: PLC0415 — keeps the heavy dep off the import path
 
     try:
         response = _get_s3_client().get_object(Bucket=settings.POSTHOG_JS_S3_BUCKET, Key=key)
@@ -61,7 +61,7 @@ def s3_write(key: str, content: str) -> None:
 
 def s3_head(key: str) -> bool:
     """Check whether an object exists in the JS S3 bucket."""
-    from botocore.exceptions import ClientError  # noqa: PLC0415
+    from botocore.exceptions import ClientError  # noqa: PLC0415 — keeps the heavy dep off the import path
 
     try:
         _get_s3_client().head_object(Bucket=settings.POSTHOG_JS_S3_BUCKET, Key=key)

@@ -10,8 +10,6 @@ from django.conf import settings
 from django.contrib.auth import login
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
-from django.db.models.signals import post_delete, post_save
-from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -34,6 +32,7 @@ from posthog.utils import absolute_uri
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
+from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelClaims, VercelUserClaims
 from ee.billing.billing_types import BillingProvider
 from ee.vercel.client import SSOTokenResponse, VercelAPIClient
@@ -873,11 +872,7 @@ class VercelIntegration:
         if not token_response.id_token:
             raise exceptions.AuthenticationFailed("Vercel SSO response missing id_token")
 
-        # Then exchange token for claim. Call-time import: ee.api.authentication holds @api_view
-        # functions whose decorator resolves the DRF schema class (drf_spectacular, django.test),
-        # and this module is wired at ready() in every process.
-        from ee.api.authentication import VercelAuthentication  # noqa: PLC0415
-
+        # Then exchange token for claim
         claims = VercelAuthentication()._validate_jwt_token(token_response.id_token, "user")
 
         if not isinstance(claims, VercelUserClaims):
@@ -1337,63 +1332,3 @@ def _safe_vercel_sync(
             integration="vercel",
         )
         capture_exception(e)
-
-
-@receiver(post_save, sender=FeatureFlag)
-def sync_feature_flag_experimentation_item(sender, instance: FeatureFlag, created, **kwargs):
-    if instance.deleted:
-        _safe_vercel_sync(
-            "delete feature flag from Vercel",
-            instance.pk,
-            instance.team,
-            lambda: VercelIntegration.delete_feature_flag_from_vercel(instance),
-            is_delete=True,
-        )
-    else:
-        _safe_vercel_sync(
-            "sync feature flag to Vercel",
-            instance.pk,
-            instance.team,
-            lambda: VercelIntegration.sync_feature_flag_to_vercel(instance, created),
-        )
-
-
-@receiver(post_delete, sender=FeatureFlag)
-def delete_resource_experimentation_item(sender, instance: FeatureFlag, **kwargs):
-    _safe_vercel_sync(
-        "delete feature flag from Vercel",
-        instance.pk,
-        instance.team,
-        lambda: VercelIntegration.delete_feature_flag_from_vercel(instance),
-        is_delete=True,
-    )
-
-
-@receiver(post_save, sender=Experiment)
-def sync_experiment_experimentation_item(sender, instance: Experiment, created, **kwargs):
-    if instance.deleted:
-        _safe_vercel_sync(
-            "delete experiment from Vercel",
-            instance.pk,
-            instance.team,
-            lambda: VercelIntegration.delete_experiment_from_vercel(instance),
-            is_delete=True,
-        )
-    else:
-        _safe_vercel_sync(
-            "sync experiment to Vercel",
-            instance.pk,
-            instance.team,
-            lambda: VercelIntegration.sync_experiment_to_vercel(instance, created),
-        )
-
-
-@receiver(post_delete, sender=Experiment)
-def delete_experiment_experimentation_item(sender, instance: Experiment, **kwargs):
-    _safe_vercel_sync(
-        "delete experiment from Vercel",
-        instance.pk,
-        instance.team,
-        lambda: VercelIntegration.delete_experiment_from_vercel(instance),
-        is_delete=True,
-    )
