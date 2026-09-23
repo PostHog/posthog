@@ -166,6 +166,7 @@ export class PosthogFilesystem extends TerminalFilesystem {
     private readonly files = this.directory('files', this.root)
     private readonly api = this.directory('api', this.root)
     private readonly references = new Map<string, FileSystemApi>()
+    private readonly mountedFiles = new Map<string, TerminalNode>()
     private readonly projectNodes = new Map<
         TerminalNode,
         { parts: string[]; entry?: FileSystemApi; extension?: string }
@@ -193,7 +194,7 @@ export class PosthogFilesystem extends TerminalFilesystem {
                 node = node.parent ?? node
             } else if (part !== '.') {
                 await node.loadChildren?.()
-                node = node.children?.get(part)
+                node = node.children?.get(part) ?? node.lookupChild?.(part)
             }
         }
     }
@@ -231,6 +232,11 @@ export class PosthogFilesystem extends TerminalFilesystem {
         this.text('README.txt', this.root, TERMINAL_README)
         this.registerDirectory(this.files, [])
         this.mountApiDirectories(new Map())
+        this.api.lookupChild = (name) => {
+            const node = this.directory(name, this.api)
+            node.loadChildren = () => this.ensureDirectory(node)
+            return node
+        }
     }
 
     private registerDirectory(node: TerminalNode, parts: string[], entry?: FileSystemApi): void {
@@ -293,6 +299,9 @@ export class PosthogFilesystem extends TerminalFilesystem {
         }
         this.references.delete(this.mountedPath(node))
         this.projectNodes.delete(node)
+        if (source.entry && source.extension) {
+            this.mountedFiles.delete(this.fileIdentity(source.entry, source.extension))
+        }
         node.parent!.children!.delete(node.name)
         node.removed = true
         const entry = source.entry
@@ -550,8 +559,13 @@ export class PosthogFilesystem extends TerminalFilesystem {
     }
 
     private mountApiDirectories(directories: Map<string, TerminalNode>): void {
-        for (const type of Object.keys(fileSystemTypes)) {
-            const node = this.mountDirectory(terminalFilename(type), this.api, directories)
+        const names = new Set([
+            ...Object.keys(fileSystemTypes).map(terminalFilename),
+            'unknown',
+            ...[...directories.values()].filter((node) => node.parent === this.api).map((node) => node.name),
+        ])
+        for (const name of names) {
+            const node = this.mountDirectory(name, this.api, directories)
             node.loadChildren = () => this.ensureDirectory(node)
         }
     }
@@ -598,7 +612,9 @@ export class PosthogFilesystem extends TerminalFilesystem {
         return notebooks
     }
 
-    private async loadDirectory(node: TerminalNode): Promise<void> {
+    private directoryParams(
+        node: TerminalNode
+    ): FileSystemListParams & { parent?: string; depth?: number; type?: string } {
         if (node.removed) {
             throw new FilesystemError(116)
         }
@@ -608,9 +624,10 @@ export class PosthogFilesystem extends TerminalFilesystem {
             throw new FilesystemError(116)
         }
         // The list endpoint supports parent/depth/type filters that its generated schema omits.
-        const params: FileSystemListParams & { parent?: string; depth?: number; type?: string } = directory
-            ? { parent: joinPath(directory.parts), depth: directory.parts.length + 1 }
-            : { type }
+        return directory ? { parent: joinPath(directory.parts), depth: directory.parts.length + 1 } : { type }
+    }
+
+    private async directoryEntries(params: ReturnType<PosthogFilesystem['directoryParams']>): Promise<FileSystemApi[]> {
         const entries: FileSystemApi[] = []
         let offset = 0
         while (true) {
@@ -621,62 +638,91 @@ export class PosthogFilesystem extends TerminalFilesystem {
             )
             entries.push(...page.results)
             if (!page.next) {
-                break
+                return entries
             }
             if (!page.results.length || entries.length > 50_000) {
                 throw new Error('This directory is too large for the terminal. Open a smaller folder instead.')
             }
             offset += page.results.length
         }
-        const inScope = (entry: FileSystemApi): boolean => {
-            if (type) {
-                return entry.type === type
-            }
-            const parts = splitPath(entry.path)
-            return parts.length === directory!.parts.length + 1 && joinPath(parts.slice(0, -1)) === params.parent
-        }
-        const previousEntries = [...this.projectNodes.values()].flatMap(({ entry }) => (entry ? [entry] : []))
-        const paths = new Map(entries.map((entry) => [entry.id, entry.path]))
-        const removedFolders = previousEntries.filter(
-            (entry) => entry.type === 'folder' && inScope(entry) && paths.get(entry.id) !== entry.path
-        )
-        const retained = previousEntries.filter(
-            (entry) => !inScope(entry) && !removedFolders.some((folder) => entry.path.startsWith(`${folder.path}/`))
-        )
-        const merged = new Map(retained.map((entry) => [entry.id, entry]))
-        for (const entry of entries) {
-            merged.set(entry.id, entry)
-        }
-        const markdownNotebooks = [...merged.values()].some((entry) => entry.type === 'notebook')
+    }
+
+    private async loadDirectory(node: TerminalNode): Promise<void> {
+        const entries = await this.directoryEntries(this.directoryParams(node))
+        const markdownNotebooks = entries.some((entry) => entry.type === 'notebook')
             ? await this.loadNotebookIndex()
-            : new Map<string, NotebookMinimalApi>()
-        this.mountEntries([...merged.values()], markdownNotebooks)
+            : (this.markdownNotebooks ?? new Map<string, NotebookMinimalApi>())
+        this.mountEntries(entries, markdownNotebooks, true)
         this.loadedDirectories.add(node)
     }
 
-    async load(): Promise<void> {
-        await this.directoryQueue
-        this.markdownNotebooks = undefined
+    private async refreshDirectories(): Promise<void> {
         const directories = this.loadedDirectories.size ? [...this.loadedDirectories] : [this.files]
-        this.loadedDirectories.clear()
+        const scopes = directories.filter((node) => !node.removed).map((node) => this.directoryParams(node))
+        const parents = new Set(scopes.flatMap((scope) => (scope.parent === undefined ? [] : [scope.parent])))
+        const types = new Set(scopes.flatMap((scope) => (scope.type === undefined ? [] : [scope.type])))
+        const inScope = (entry: FileSystemApi): boolean =>
+            types.has(entry.type ?? 'unknown') || parents.has(joinPath(splitPath(entry.path).slice(0, -1)))
+        const previousEntries = [...this.projectNodes.values()].flatMap(({ entry }) => (entry ? [entry] : []))
+        const refreshed = new Map<string, FileSystemApi>()
+        for (const scope of scopes) {
+            for (const entry of await this.directoryEntries(scope)) {
+                refreshed.set(entry.id, entry)
+            }
+        }
+        const removedFolders = new Set(
+            previousEntries
+                .filter(
+                    (entry) => entry.type === 'folder' && inScope(entry) && refreshed.get(entry.id)?.path !== entry.path
+                )
+                .map((entry) => entry.path)
+        )
+        const retained = previousEntries.filter((entry) => {
+            if (inScope(entry)) {
+                return false
+            }
+            const parts = splitPath(entry.path)
+            for (let depth = 1; depth < parts.length; depth++) {
+                if (removedFolders.has(joinPath(parts.slice(0, depth)))) {
+                    return false
+                }
+            }
+            return true
+        })
+        const merged = new Map(retained.map((entry) => [entry.id, entry]))
+        for (const entry of refreshed.values()) {
+            merged.set(entry.id, entry)
+        }
+        this.markdownNotebooks = undefined
+        const entries = [...merged.values()]
+        const markdownNotebooks = entries.some((entry) => entry.type === 'notebook')
+            ? await this.loadNotebookIndex()
+            : new Map<string, NotebookMinimalApi>()
+        this.mountEntries(entries, markdownNotebooks)
         for (const node of directories) {
             if (!node.removed) {
-                await this.ensureDirectory(node)
+                this.loadedDirectories.add(node)
             }
         }
     }
 
-    private mountEntries(entries: FileSystemApi[], markdownNotebooks: Map<string, NotebookMinimalApi>): void {
+    load(): Promise<void> {
+        const request = this.directoryQueue.then(() => this.refreshDirectories())
+        this.directoryQueue = request.catch(() => {})
+        return request
+    }
+
+    private mountEntries(
+        entries: FileSystemApi[],
+        markdownNotebooks: Map<string, NotebookMinimalApi>,
+        incremental = false
+    ): void {
         entries.sort((a, b) => a.path.localeCompare(b.path) || a.id.localeCompare(b.id))
-        const previousNodes = this.mountedNodes()
+        const previousNodes = incremental ? new Set<TerminalNode>() : this.mountedNodes()
         const directories = new Map(
             [...previousNodes].filter((node) => node.children).map((node) => [this.mountedPath(node), node])
         )
-        const files = new Map(
-            [...this.projectNodes]
-                .filter(([, metadata]) => metadata.entry && metadata.extension)
-                .map(([node, metadata]) => [this.fileIdentity(metadata.entry!, metadata.extension!), node])
-        )
+        const files = incremental ? this.mountedFiles : new Map(this.mountedFiles)
         const apiFiles = new Map(
             [...previousNodes]
                 .filter((node) => !node.children && node.parent?.parent === this.api)
@@ -685,14 +731,27 @@ export class PosthogFilesystem extends TerminalFilesystem {
         for (const node of previousNodes) {
             node.children?.clear()
         }
-        this.references.clear()
-        this.projectNodes.clear()
-        this.registerDirectory(this.files, [])
-        this.mountApiDirectories(directories)
+        if (!incremental) {
+            this.references.clear()
+            this.projectNodes.clear()
+            this.mountedFiles.clear()
+            this.registerDirectory(this.files, [])
+            this.mountApiDirectories(directories)
+        } else {
+            for (const entry of entries) {
+                const extension = entry.type === 'notebook' && markdownNotebooks.has(entry.ref ?? '') ? '.md' : '.json'
+                const existing = files.get(this.fileIdentity(entry, extension))
+                if (existing) {
+                    existing.parent!.children!.delete(existing.name)
+                    this.references.delete(this.mountedPath(existing))
+                }
+            }
+        }
         for (const entry of entries.filter((item) => item.type === 'folder' && item.user_access_level !== 'none')) {
             const parts = splitPath(entry.path)
             this.registerDirectory(this.parent(parts, this.files, directories), parts, entry)
         }
+        const mountedApiPaths = new Set<string>()
         for (const entry of entries) {
             if (entry.type === 'folder' || entry.user_access_level === 'none') {
                 continue
@@ -722,6 +781,7 @@ export class PosthogFilesystem extends TerminalFilesystem {
                 writable,
                 files.get(this.fileIdentity(entry, extension))
             )
+            this.mountedFiles.set(this.fileIdentity(entry, extension), file)
             file.writeKey = JSON.stringify([entry.type, entry.ref ?? entry.id])
             this.projectNodes.set(file, { parts: splitPath(entry.path), entry, extension })
             file.rename = (parent, name) => this.move(file, parent, name)
@@ -730,23 +790,27 @@ export class PosthogFilesystem extends TerminalFilesystem {
             const type = this.mountDirectory(terminalFilename(entry.type ?? 'unknown'), this.api, directories)
             type.loadChildren = () => this.ensureDirectory(type)
             const apiName = `${terminalFilename(entry.ref ?? entry.id)}.json`
-            if (!type.children!.has(apiName)) {
+            const apiPath = `${this.mountedPath(type)}/${apiName}`
+            if (!mountedApiPaths.has(apiPath)) {
+                mountedApiPaths.add(apiPath)
                 const apiFile = this.mountFile(
                     apiName,
                     type,
                     (signal) => this.json(entry, writable, signal),
                     writable,
-                    apiFiles.get(`${this.mountedPath(type)}/${apiName}`)
+                    apiFiles.get(apiPath) ?? type.children!.get(apiName)
                 )
                 apiFile.writeKey = file.writeKey
-                this.references.set(`/posthog/api/${type.name}/${apiName}`, entry)
+                this.references.set(apiPath, entry)
             }
         }
-        const currentNodes = this.mountedNodes()
-        for (const node of previousNodes) {
-            if (!currentNodes.has(node)) {
-                node.removed = true
-                this.loadedDirectories.delete(node)
+        if (!incremental) {
+            const currentNodes = this.mountedNodes()
+            for (const node of previousNodes) {
+                if (!currentNodes.has(node)) {
+                    node.removed = true
+                    this.loadedDirectories.delete(node)
+                }
             }
         }
     }

@@ -65,8 +65,9 @@ Selecting a destination, clicking outside, or pressing Escape closes the tempora
 The app-level terminal lives in `src/scenes/terminal` and opens with Ctrl+backtick when enabled.
 It starts without fetching the project tree.
 Browsing `/posthog/files` loads and caches each folder's immediate children; `/posthog/api` loads objects by type.
+Loading another folder leaves cached folders untouched, and API type directories can be opened directly even if they are not listed yet.
 Notebook format detection waits until notebooks are browsed, and object contents load only when opened.
-`ph refresh` reloads the directories already visited and the connected tool catalog.
+`ph refresh` reloads the directories already visited, rebuilds the cached tree once, and reloads the connected tool catalog.
 
 ### `posthog`
 

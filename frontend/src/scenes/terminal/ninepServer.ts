@@ -276,7 +276,12 @@ export class NinePServer {
                     if (name !== '.' && name !== '..') {
                         await node.loadChildren?.()
                     }
-                    const next = name === '..' ? (node.parent ?? node) : name === '.' ? node : node.children?.get(name)
+                    const next =
+                        name === '..'
+                            ? (node.parent ?? node)
+                            : name === '.'
+                              ? node
+                              : (node.children?.get(name) ?? node.lookupChild?.(name))
                     if (!next) {
                         if (!walked.length) {
                             throw new FilesystemError(2)
