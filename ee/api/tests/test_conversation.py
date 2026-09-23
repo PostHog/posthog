@@ -11,6 +11,7 @@ from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import Throttled
 from rest_framework.test import APIRequestFactory
@@ -278,6 +279,57 @@ class TestConversation(APIBaseTest):
                 self.assertEqual(self._get_streaming_content(response), _generator_serialized_value)
                 # For IN_PROGRESS conversations with no content, stream_conversation should be called
                 mock_stream_conversation.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("in_progress", Conversation.Status.IN_PROGRESS),
+            ("canceling", Conversation.Status.CANCELING),
+        ]
+    )
+    def test_new_message_recovers_conversation_with_no_live_run(self, _name, conversation_status):
+        # A worker that died mid-turn leaves the status locked. Temporal holds no run for it, so the
+        # next message must start a fresh turn instead of failing with a conflict forever.
+        conversation = Conversation.objects.create(user=self.user, team=self.team, status=conversation_status)
+        with (
+            patch("ee.hogai.core.executor.AgentExecutor.ahas_live_run", return_value=False),
+            patch("ee.hogai.core.executor.AgentExecutor.astream", return_value=_async_generator()) as mock_astream,
+            patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._create_mock_streaming_response),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/",
+                {
+                    "content": "try again",
+                    "trace_id": str(uuid.uuid4()),
+                    "conversation": str(conversation.id),
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_astream.assert_called_once()
+        conversation.refresh_from_db()
+        self.assertEqual(conversation.status, Conversation.Status.IDLE)
+
+    def test_new_message_conflicts_while_a_run_is_live(self):
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, status=Conversation.Status.IN_PROGRESS
+        )
+        with (
+            patch("ee.hogai.core.executor.AgentExecutor.ahas_live_run", return_value=True),
+            patch("ee.hogai.core.executor.AgentExecutor.astream", return_value=_async_generator()) as mock_astream,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/",
+                {
+                    "content": "hello again",
+                    "trace_id": str(uuid.uuid4()),
+                    "conversation": str(conversation.id),
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        mock_astream.assert_not_called()
+        conversation.refresh_from_db()
+        self.assertEqual(conversation.status, Conversation.Status.IN_PROGRESS)
 
     def test_invalid_conversation_id(self):
         response = self.client.post(
@@ -2110,6 +2162,7 @@ class TestConversationCreateRuntime(APIBaseTest):
         conversation = self._langgraph_conversation(status=Conversation.Status.IN_PROGRESS)
         with (
             patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.hogai.core.executor.AgentExecutor.ahas_live_run", return_value=True),
             patch("ee.api.conversation.SandboxSession") as m_routing,
         ):
             response = self._send(conversation)
