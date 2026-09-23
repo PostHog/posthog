@@ -10,6 +10,7 @@ import {
 } from "@posthog/core/canvas/contextDocument";
 import { spaceFilesFolder } from "@posthog/core/canvas/contextFiles";
 import { Button, cn, Text } from "@posthog/quill";
+import { SPACE_SETUP_FLAG } from "@posthog/shared";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import {
   buildGoalMeasurePrompt,
@@ -20,6 +21,7 @@ import { goalMeasureTasks } from "@posthog/ui/features/canvas/goalMeasureTasks";
 import { useChannelFeed } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
 import type { ContextDocumentStore } from "@posthog/ui/features/canvas/hooks/useContextDocumentStore";
 import { useGenerateContext } from "@posthog/ui/features/canvas/hooks/useGenerateContext";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import {
   PageHeader,
@@ -63,6 +65,7 @@ export function SpaceContextPage({
   const [editingContextFile, setEditingContextFile] = useState(false);
   const { tasks: channelTasks } = useChannelFeed(channelId);
   const { generate } = useGenerateContext();
+  const setupEnabled = useFeatureFlag(SPACE_SETUP_FLAG, import.meta.env.DEV);
   const doc = useMemo(
     () => parseContextDocument(store.content),
     [store.content],
@@ -95,7 +98,7 @@ export function SpaceContextPage({
   const saveDoc = (next: ContextDocument) =>
     store.save(serializeContextDocument(next));
   // Only a space set up for a goal carries the key; other spaces have no loops to steer.
-  const autonomy = readAutonomy(doc);
+  const autonomy = setupEnabled ? readAutonomy(doc) : null;
 
   const knowledgeStore: ContextDocumentStore = {
     ...store,

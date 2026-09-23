@@ -6,6 +6,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   createChannel: vi.fn(),
   setup: vi.fn(),
+  generate: vi.fn(),
+  setupFlag: vi.fn(),
   navigate: vi.fn(),
   track: vi.fn(),
 }));
@@ -26,7 +28,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => true,
 }));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: () => true,
+  useFeatureFlag: () => mocks.setupFlag(),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannelMutations: () => ({
@@ -35,7 +37,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useGenerateContext", () => ({
-  useGenerateContext: () => ({ generate: vi.fn(), isStarting: false }),
+  useGenerateContext: () => ({ generate: mocks.generate, isStarting: false }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskChannels", () => ({
   useUpdateTaskChannelRepositories: () => ({
@@ -68,6 +70,7 @@ const current = (label: string) => {
 describe("CreateChannelModal setup steps", () => {
   beforeEach(() => {
     for (const mock of Object.values(mocks)) mock.mockReset();
+    mocks.setupFlag.mockReturnValue(true);
     window.scrollTo = () => {};
   });
 
@@ -168,5 +171,41 @@ describe("CreateChannelModal setup steps", () => {
       "value",
       "Grow weekly activation",
     );
+  });
+
+  it("creates a space through the describe step without setup when the flag is off", async () => {
+    const user = userEvent.setup();
+    mocks.setupFlag.mockReturnValue(false);
+    mocks.createChannel.mockResolvedValue({ id: "space-1" });
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <CreateChannelModal open onOpenChange={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    await user.type(screen.getByLabelText("Name"), "growth");
+    await user.click(current("Next"));
+    expect(screen.queryByText("What is this space for?")).toBeNull();
+    expect(screen.getByText("What's this space about?")).toBeTruthy();
+
+    await user.type(
+      document.getElementById("context-description") as HTMLElement,
+      "Weekly activation work",
+    );
+    await user.click(current("Next"));
+    await user.click(current("Create"));
+
+    await waitFor(() =>
+      expect(mocks.navigate).toHaveBeenCalledWith({
+        to: "/spaces/$channelId",
+        params: { channelId: "space-1" },
+      }),
+    );
+    expect(mocks.generate).toHaveBeenCalledWith({
+      channelId: "space-1",
+      channelName: "growth",
+      description: "Weekly activation work",
+    });
+    expect(mocks.setup).not.toHaveBeenCalled();
   });
 });

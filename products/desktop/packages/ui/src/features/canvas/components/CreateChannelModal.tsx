@@ -219,7 +219,9 @@ export function CreateChannelModal({
   const canDescribe = !busy && !!trimmedDescription;
   const setupMissingField = spaceSetupDraftMissingField(setupDraft);
   const repositoryMissing =
-    spaceSetupNeedsRepository(setupDraft) && repositories.length === 0;
+    setupEnabled &&
+    spaceSetupNeedsRepository(setupDraft) &&
+    repositories.length === 0;
   const canCreate = canAdvance && !repositoryMissing;
 
   const submittingRef = useRef(false);
@@ -302,10 +304,9 @@ export function CreateChannelModal({
       }
     }
 
-    const setupInput = spaceSetupDraftToInput(
-      setupDraft,
-      repositories[0] ?? null,
-    );
+    const setupInput = setupEnabled
+      ? spaceSetupDraftToInput(setupDraft, repositories[0] ?? null)
+      : null;
     if (setupInput) {
       if (!(await startSetup(contextId, setupInput))) return;
     } else if (trimmedDescription) {
