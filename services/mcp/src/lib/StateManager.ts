@@ -38,6 +38,7 @@ export class StateManager {
     private _cache: ScopedCache<State>
     private _api: ApiClient
     private _user?: ApiUser
+    private _backgroundRefreshBlockedUntil?: Promise<number | undefined>
     constructor(cache: ScopedCache<State>, api: ApiClient) {
         this._cache = cache
         this._api = api
@@ -256,11 +257,19 @@ export class StateManager {
             Math.max(requestedMs, BACKGROUND_REFRESH_BACKOFF_DEFAULT_MS),
             BACKGROUND_REFRESH_BACKOFF_MAX_MS
         )
-        await this._cache.set('backgroundRefreshBlockedUntil', Date.now() + backoffMs).catch(() => {})
+        const blockedUntil = Date.now() + backoffMs
+        this._backgroundRefreshBlockedUntil = Promise.resolve(blockedUntil)
+        await this._cache.set('backgroundRefreshBlockedUntil', blockedUntil).catch(() => {})
     }
 
+    /**
+     * One read per StateManager, which is built per request context. Several
+     * entities refresh in parallel on the same request, and they all consult
+     * the same identity-wide flag, so they share one lookup.
+     */
     private async _isBackgroundRefreshBlocked(): Promise<boolean> {
-        const blockedUntil = await this._cache.get('backgroundRefreshBlockedUntil').catch(() => undefined)
+        this._backgroundRefreshBlockedUntil ??= this._cache.get('backgroundRefreshBlockedUntil').catch(() => undefined)
+        const blockedUntil = await this._backgroundRefreshBlockedUntil
         return blockedUntil !== undefined && blockedUntil > Date.now()
     }
 

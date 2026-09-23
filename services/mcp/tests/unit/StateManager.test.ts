@@ -953,14 +953,16 @@ describe('StateManager', () => {
             expect(getGroupTypes).toHaveBeenCalledOnce()
         })
 
-        it('resumes background refreshes once the backoff has passed', async () => {
+        it('resumes background refreshes on a later request once the backoff has passed', async () => {
             const getGroupTypes = vi.fn().mockRejectedValueOnce(rateLimit(60)).mockResolvedValue([])
             ;(stateManager as any)._api = { getGroupTypes }
 
             await stateManager.getOrFetchGroupTypes('42')
             await cache.set('backgroundRefreshBlockedUntil', Date.now() - 1)
 
-            expect(await stateManager.getOrFetchGroupTypes('7')).toEqual([])
+            const laterRequest = new StateManager(cache, { getGroupTypes } as unknown as ApiClient)
+
+            expect(await laterRequest.getOrFetchGroupTypes('7')).toEqual([])
         })
     })
 

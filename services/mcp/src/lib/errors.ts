@@ -216,24 +216,15 @@ export class PostHogApiError extends Error {
 
 /** The request path without the upstream host. The host is not something an
  *  agent can act on, and reading one makes a 4xx look like an infrastructure
- *  fault; `client.ts` already logs the full URL server-side. */
-function requestPath(url: string): string {
+ *  fault; `client.ts` already logs the full URL server-side. Drop the query
+ *  string for a message Error Tracking groups on, because a query that varies
+ *  per call splits one cause into one issue per distinct URL. */
+function requestPath(url: string, includeQuery = true): string {
     try {
         const parsed = new URL(url)
-        return `${parsed.pathname}${parsed.search}`
+        return includeQuery ? `${parsed.pathname}${parsed.search}` : parsed.pathname
     } catch {
         return url
-    }
-}
-
-/** The request path with the query string removed. Error Tracking groups on the
- *  message, so a query string that varies per call splits one cause into one
- *  issue per distinct URL. */
-function requestPathWithoutQuery(url: string): string {
-    try {
-        return new URL(url).pathname
-    } catch {
-        return url.split('?')[0] ?? url
     }
 }
 
@@ -265,7 +256,7 @@ export class PostHogRateLimitError extends PostHogApiError {
             body: options.body,
             url: options.url,
             method: options.method,
-            message: `PostHog API rate limit exceeded (429) on ${options.method} ${requestPathWithoutQuery(options.url)}.${retryHint}`,
+            message: `PostHog API rate limit exceeded (429) on ${options.method} ${requestPath(options.url, false)}.${retryHint}`,
         })
         this.name = 'PostHogRateLimitError'
         this.retryAfterSeconds = options.retryAfterSeconds
