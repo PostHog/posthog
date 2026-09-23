@@ -58,6 +58,7 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubR
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, normalize_search_term
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
@@ -1227,27 +1228,30 @@ class SignalReportViewSet(
         report's own prose, its work-log notes, and its evidence in ClickHouse, and matches the
         terms independently — see `report_search`.
         """
-        search = (self.request.query_params.get("search") or "").strip()
+        search = normalize_search_term(self.request.query_params.get("search") or "")
         if not search:
             return queryset
+        if len(search) > MAX_SEARCH_LENGTH:
+            raise serializers.ValidationError(
+                {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
+            )
         terms = report_search_terms(search)
         if not terms:
-            # Nothing but punctuation. Keep the caller's string intact rather than matching every
-            # report, and leave it to Postgres, which escapes the wildcards ClickHouse would not.
-            return queryset.filter(Q(title__icontains=search) | Q(summary__icontains=search))
+            # Nothing but punctuation. Match the caller's string whole rather than every report, and
+            # skip the evidence leg, whose ClickHouse pattern would read the punctuation as wildcards.
+            return queryset.filter(report_search_predicate([search], set()))
         return queryset.filter(report_search_predicate(terms, self._search_evidence_report_ids(terms)))
 
     def _search_evidence_report_ids(self, terms: list[str]) -> set[str]:
         """Reports whose ClickHouse evidence matches, or none when that lookup is unavailable.
 
-        The inbox searches on every keystroke, so a ClickHouse fault degrades the search to the
-        report's own content instead of failing the list outright.
+        A ClickHouse fault degrades the search to the report's own content instead of failing the
+        list, because a search box that answers nothing is worse than one that answers less.
         """
         try:
             return fetch_report_ids_for_search_terms(self.team, terms)
-        except Exception as exc:
-            capture_exception(exc)
-            logger.warning("signals_report_search_evidence_unavailable", team_id=self.team.pk, exc_info=True)
+        except Exception:
+            logger.exception("signals.reports.list.search_evidence_failed", team_id=self.team.pk)
             return set()
 
     def _apply_signal_report_source_product_filter(self, queryset):
@@ -1993,7 +1997,7 @@ class SignalReportViewSet(
                     "Case-insensitive free-text search across a report's title, summary, work-log notes, "
                     "and the evidence it was built from (observation prose and source ids). Punctuation and "
                     "underscores split the query into terms, so `$web_vitals` also finds a report titled "
-                    "\"Web Vitals\". Each term must match the report, but they can match different parts of "
+                    '"Web Vitals". Each term must match the report, but they can match different parts of '
                     "it, so terms of your own wording find a report worded differently."
                 ),
             ),

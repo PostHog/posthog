@@ -101,3 +101,10 @@ class TestReportSearch(APIBaseTest):
 
         assert response.status_code == 200
         fetch.assert_not_called()
+
+    def test_rejects_a_search_longer_than_the_shared_cap(self) -> None:
+        # Same cap every other searchable list applies, so one pasted blob cannot drive an
+        # unbounded substring scan across the team's reports and their evidence.
+        response = self.client.get(f"/api/projects/{self.team.pk}/signals/reports/?search={'a' * 201}")
+        assert response.status_code == 400
+        assert "200 characters or fewer" in str(response.json())
