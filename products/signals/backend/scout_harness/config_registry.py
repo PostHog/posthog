@@ -30,6 +30,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     HARNESS_SEEDED_BY,
     SCOUT_SKILL_CATEGORY,
     canonical_config_tags_for,
+    canonical_deprecation_for,
     canonical_display_name_for,
     canonical_skill_names,
     is_operational_scout,
@@ -226,6 +227,10 @@ def register_missing_configs(
     (count + create, no lock) — a race can briefly overshoot by one, which the coordinator's
     per-tick caps still bound.
 
+    A canonical scout PostHog is retiring (`scout-deprecation` frontmatter) gets no new config
+    here, so the retirement stops intake before it stops runs. An existing config is untouched and
+    keeps its schedule until `sync_canonical_skills` retires it at the sunset.
+
     A canonical scout declaring `scout-role: operational` (`lazy_seed.is_operational_scout`) is
     outside all of that: it watches the self-driving system rather than a product surface, so it
     seeds enabled, exempt from the inactivity sweep, past the allowlist and past the cap, and
@@ -263,9 +268,16 @@ def register_missing_configs(
     # sharing an operational name must not inherit the posture that skips the harness's gates.
     operational_names = {name for name in canonical_names if is_operational_scout(name)}
 
+    # A scout PostHog has announced the retirement of is no longer offered: no new project picks
+    # one up, and a project that never had it does not acquire a row it would only have to retire.
+    # Read off the canonical set like the role is, so a team's own scout sharing the name is
+    # unaffected. Dispatch is untouched — a project already running the scout keeps running it
+    # until the sunset, which is the whole point of announcing one.
+    deprecated_names = {name for name in canonical_names if canonical_deprecation_for(name) is not None}
+
     configs = SignalScoutConfig.objects.for_team(team_id)
     existing = set(configs.values_list("skill_name", flat=True))
-    missing = sorted(skill_names - existing)
+    missing = sorted(skill_names - existing - deprecated_names)
     enabled = enabled_scout_count(team_id) if missing else 0
     for name in missing:
         at_cap = enabled >= MAX_ENABLED_SCOUTS_PER_TEAM

@@ -7,6 +7,20 @@ Notable changes to the `owners-yaml` package. The format follows
 `publish-owners-yaml.yml` reads the section matching the tagged version and uses it as
 the GitHub Release body, so add the entry here before you cut the tag.
 
+## Unreleased
+
+### Added
+
+- An optional `additions` field, at file level and in rules, names the owners of additions below a directory, separate from the owners of the files in it. The format only names them; a consumer decides what counts as an addition and what to do with the list. Unlike `owners`, the owners of additions from every file on the walk and every matching rule add up, and `inherit: false` still cuts them. `SPEC.md` section 3.6 defines it.
+- The resolver response carries an `additions` member, and `Resolution` an `additions` field. Consumers that ignore unknown members, as SPEC section 7.4 requires, are unaffected. SPEC section 7.4 requires a consumer to treat a missing member as an empty array.
+- `lint` fails on a rule that names a tracked directory without the trailing `/`, such as `docs` for `docs/`. A literal last segment also matches a file of that name, so the slash says which one is meant.
+- Conformance cases may state `additions`. A case that leaves it out expects an empty list, so existing cases need no edit.
+
+### Changed
+
+- Path normalization removes a trailing `/`. `products/new/` and `products/new` now resolve alike; before, the slash put the directory's own ownership file on the walk.
+- Every matching rule in a file now applies, and each replaces only the fields it sets. Before, the last matching rule replaced the earlier ones entirely, so a rule that set only `status` dropped the `owners` an earlier rule had set. `SPEC.md` section 3.4 records the amendment.
+
 ## 0.2.0
 
 First release on PyPI, as `owners-yaml`. The package was developed in the monorepo as `posthog-owners` and never published under that name.

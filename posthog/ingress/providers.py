@@ -30,6 +30,7 @@ _INCARNATION_MODULES = (
     "posthog.ingress.mailgun.provider",
     "posthog.ingress.vapi.provider",
     "posthog.ingress.sns.provider",
+    "posthog.ingress.vercel.provider",
 )
 
 
@@ -106,6 +107,12 @@ class WebhookProvider(ABC):
     # An incarnation that answers 404 to withhold the endpoint's existence sets this False, so the
     # body does not name the reason the status code was chosen to hide.
     explains_rejections: bool = True
+    # Whether a missing secret also reaches error tracking, on top of the log line every provider
+    # writes. Off by default: an endpoint that answers an unconfigured request like an unknown
+    # route (SNS) would let an unauthenticated prober fill error tracking from the outside. Turn it
+    # on for an endpoint whose deliveries are lost while the secret is unset and where nothing else
+    # would notice.
+    reports_unconfigured: bool = False
     # How long the forward to the owning region may take. The default suits a small JSON body; a
     # provider whose deliveries carry uploaded files needs longer, because the forward rebuilds
     # and re-sends every part.

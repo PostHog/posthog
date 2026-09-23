@@ -266,6 +266,10 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         # paused" above, not a persistently unreachable cluster: it carries a host and configured
         # timeouts but no "Topology Description:" dump, and the next connection attempt (this one,
         # or a fresh one on the activity's Temporal retry) succeeds once the network recovers.
+        #
+        # pymongo wraps a bare ConnectionResetError in AutoReconnect the same way, when a socket a
+        # cursor is reading from gets an RST mid-sync (a load balancer or the server ending an idle
+        # connection) rather than timing out. Same recovery path as the timeout case above.
         return {
             "The resolution lifetime expired",
             "connection pool paused",
@@ -273,6 +277,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             "interrupted at shutdown",
             "Topology Description:",
             "timed out (configured timeouts:",
+            "Connection reset by peer",
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
