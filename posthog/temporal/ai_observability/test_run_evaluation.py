@@ -539,7 +539,7 @@ class TestRunEvaluationWorkflow:
         assert properties["result_type"] == "numeric"
         assert "score" not in properties
         assert "reasoning" not in properties
-        event_properties = build_evaluation_event_properties(evaluation, result, datetime.now(UTC))
+        event_properties = build_evaluation_event_properties(evaluation, result, datetime(2026, 7, 1, tzinfo=UTC))
         assert event_properties["$ai_evaluation_numeric_result"] == 123.45
 
     @pytest.mark.asyncio
