@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
 
@@ -50,9 +50,18 @@ export function HogQLEditor({
     showBreakdownLabelHint,
 }: HogQLEditorProps): JSX.Element {
     const [bufferedValue, setBufferedValue] = useState(value ?? '')
+    // Monaco registers the Cmd+Enter action once, when the editor mounts, so a
+    // callback that reads `bufferedValue` directly would submit the value the
+    // editor opened with and discard everything typed since.
+    const bufferedValueRef = useRef(bufferedValue)
     useEffect(() => {
         setBufferedValue(value ?? '')
+        bufferedValueRef.current = value ?? ''
     }, [value])
+
+    const submit = (): void => {
+        onChange(bufferedValueRef.current)
+    }
 
     const shouldShowBreakdownLabelHint =
         showBreakdownLabelHint &&
@@ -66,6 +75,7 @@ export function HogQLEditor({
                 value={bufferedValue || ''}
                 onChange={(newValue) => {
                     setBufferedValue(newValue ?? '')
+                    bufferedValueRef.current = newValue ?? ''
                 }}
                 language="hogQLExpr"
                 className={CLICK_OUTSIDE_BLOCK_CLASS}
@@ -73,13 +83,7 @@ export function HogQLEditor({
                 autoFocus={!disableAutoFocus}
                 sourceQuery={metadataSource}
                 globals={globals}
-                onPressCmdEnter={
-                    disableCmdEnter
-                        ? undefined
-                        : () => {
-                              onChange(bufferedValue)
-                          }
-                }
+                onPressCmdEnter={disableCmdEnter ? undefined : submit}
             />
             <div className="text-secondary pt-2 text-xs">
                 <pre>
@@ -99,7 +103,7 @@ export function HogQLEditor({
                 className="mt-2"
                 fullWidth
                 type="primary"
-                onClick={() => onChange(bufferedValue)}
+                onClick={submit}
                 disabledReason={!bufferedValue ? 'Please enter a SQL expression' : null}
                 center
             >
