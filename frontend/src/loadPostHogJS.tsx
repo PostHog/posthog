@@ -55,8 +55,12 @@ export interface FeatureFlagsFailureProperties {
     $feature_flag_error: string
     /** HTTP status of the failed `/flags` request, or null when no response came back. */
     feature_flag_error_status: number | null
-    /** Whether the request reached PostHog. False points at the network, an ad blocker, or a timeout. */
-    feature_flag_request_reached_posthog: boolean
+    /**
+     * Whether an HTTP response came back at all. False points at the network, an ad blocker, or a
+     * browser timeout. It does not prove that PostHog never saw the request, because the browser
+     * aborts on its own deadline.
+     */
+    feature_flag_response_received: boolean
 }
 
 /**
@@ -72,7 +76,7 @@ export function describeFeatureFlagsFailure(sdkErrors: unknown): FeatureFlagsFai
         return {
             $feature_flag_error: 'unknown_error',
             feature_flag_error_status: null,
-            feature_flag_request_reached_posthog: false,
+            feature_flag_response_received: false,
         }
     }
 
@@ -83,7 +87,7 @@ export function describeFeatureFlagsFailure(sdkErrors: unknown): FeatureFlagsFai
         $feature_flag_error: codes.join(','),
         // A suffix that is not a status would parse to NaN, which is not a value worth capturing.
         feature_flag_error_status: apiErrorStatus && /^\d{3}$/.test(apiErrorStatus) ? Number(apiErrorStatus) : null,
-        feature_flag_request_reached_posthog: !codes.some((code) => TRANSPORT_ERROR_CODES.includes(code)),
+        feature_flag_response_received: !codes.some((code) => TRANSPORT_ERROR_CODES.includes(code)),
     }
 }
 
@@ -223,14 +227,16 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             identity_hash: window.JS_POSTHOG_IDENTITY_HASH,
         })
 
-        posthog.onFeatureFlags((flags, _variants, context) => {
+        posthog.onFeatureFlags((_flags, _variants, context) => {
             if (inStorybook() || inStorybookTestRunner() || !context?.errorsLoading) {
                 return
             }
 
             posthog.capture('onFeatureFlags error', {
                 ...describeFeatureFlagsFailure(posthog.persistence?.props?.[PERSISTENCE_FEATURE_FLAG_ERRORS]),
-                feature_flag_count: flags.length,
+                // The callback argument holds enabled flags only, so read the cache for its real
+                // size. Zero means the app fell back to nothing.
+                feature_flag_count: Object.keys(posthog.featureFlags?.getFlagVariants() ?? {}).length,
                 // Separates a machine that is offline from a request that only our endpoint refused.
                 browser_online: window.navigator.onLine,
             })

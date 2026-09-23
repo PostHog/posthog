@@ -21,7 +21,7 @@ describe('loadPostHogJS', () => {
                 {
                     $feature_flag_error: 'api_error_503',
                     feature_flag_error_status: 503,
-                    feature_flag_request_reached_posthog: true,
+                    feature_flag_response_received: true,
                 },
             ],
             [
@@ -30,7 +30,7 @@ describe('loadPostHogJS', () => {
                 {
                     $feature_flag_error: 'timeout',
                     feature_flag_error_status: null,
-                    feature_flag_request_reached_posthog: false,
+                    feature_flag_response_received: false,
                 },
             ],
             [
@@ -39,7 +39,7 @@ describe('loadPostHogJS', () => {
                 {
                     $feature_flag_error: 'connection_error',
                     feature_flag_error_status: null,
-                    feature_flag_request_reached_posthog: false,
+                    feature_flag_response_received: false,
                 },
             ],
             [
@@ -48,7 +48,7 @@ describe('loadPostHogJS', () => {
                 {
                     $feature_flag_error: 'unknown_error',
                     feature_flag_error_status: null,
-                    feature_flag_request_reached_posthog: false,
+                    feature_flag_response_received: false,
                 },
             ],
             [
@@ -57,7 +57,7 @@ describe('loadPostHogJS', () => {
                 {
                     $feature_flag_error: 'api_error_',
                     feature_flag_error_status: null,
-                    feature_flag_request_reached_posthog: true,
+                    feature_flag_response_received: true,
                 },
             ],
             [
@@ -66,7 +66,7 @@ describe('loadPostHogJS', () => {
                 {
                     $feature_flag_error: 'api_error_500,errors_while_computing_flags',
                     feature_flag_error_status: 500,
-                    feature_flag_request_reached_posthog: true,
+                    feature_flag_response_received: true,
                 },
             ],
             [
@@ -75,7 +75,7 @@ describe('loadPostHogJS', () => {
                 {
                     $feature_flag_error: 'unknown_error',
                     feature_flag_error_status: null,
-                    feature_flag_request_reached_posthog: false,
+                    feature_flag_response_received: false,
                 },
             ],
         ])('describes %s', (_name, sdkErrors, expected) => {
