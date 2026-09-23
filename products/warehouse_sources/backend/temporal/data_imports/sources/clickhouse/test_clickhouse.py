@@ -243,6 +243,8 @@ class TestBuildQuery:
                 ClickHouseColumn(name="ip", data_type="Nullable(IPv4)", nullable=True),
                 ClickHouseColumn(name="tags", data_type="Array(String)", nullable=False),
                 ClickHouseColumn(name="status", data_type="LowCardinality(Enum8('a' = 1))", nullable=False),
+                ClickHouseColumn(name="payload", data_type="JSON(a UInt32)", nullable=False),
+                ClickHouseColumn(name="value", data_type="Dynamic(max_types=8)", nullable=False),
             ],
             should_use_incremental_field=False,
             incremental_field=None,
@@ -252,6 +254,8 @@ class TestBuildQuery:
         assert "toString(`ip`) AS `ip`" in query
         assert "toString(`tags`) AS `tags`" in query
         assert "toString(`status`) AS `status`" in query
+        assert "toString(`payload`) AS `payload`" in query
+        assert "toString(`value`) AS `value`" in query
 
     def test_full_refresh_with_row_filters_binds_values_as_params(self):
         query, params = _build_query(
@@ -1543,6 +1547,8 @@ class TestGetRowsBatching:
             ClickHouseColumn("created_at", "DateTime('UTC')", False),
             ClickHouseColumn("label", "Nullable(String)", True),
             ClickHouseColumn("location", "Point", False),
+            ClickHouseColumn("exact_at", "Nullable(DateTime64(9, 'UTC'))", True),
+            ClickHouseColumn("tenth_at", "DateTime64(1)", False),
         ]
         new_york = ZoneInfo("America/New_York")
         native_blocks = [
@@ -1551,8 +1557,10 @@ class TestGetRowsBatching:
                 [datetime(2026, 1, 1, 12, tzinfo=UTC), datetime(2026, 1, 1, 7, tzinfo=new_york)],
                 ["a", None],
                 [(1.5, 2.5), (0.0, 0.0)],
+                [1767268800123456789, None],
+                [17672688001, 17672688002],
             ],
-            [array.array("Q", [3]), [datetime(2026, 1, 2, tzinfo=UTC)], ["c"], [(3.0, 4.0)]],
+            [array.array("Q", [3]), [datetime(2026, 1, 2, tzinfo=UTC)], ["c"], [(3.0, 4.0)], [1], [0]],
         ]
         stream_client = MagicMock()
         stream_client.query_arrow_stream.side_effect = ClickHouseError(error_msg)
@@ -1560,9 +1568,15 @@ class TestGetRowsBatching:
 
         yielded = self._run_get_rows([], stream_client=stream_client, columns=columns)
 
+        assert stream_client.query_column_block_stream.call_args.kwargs["column_formats"] == {
+            "exact_at": "int",
+            "tenth_at": "int",
+        }
         assert len(yielded) == 1
         assert yielded[0].schema == pa.schema([column.to_arrow_field() for column in columns])
-        assert yielded[0].to_pydict() == {
+        assert yielded[0].column("exact_at").cast(pa.int64()).to_pylist() == [1767268800123456789, None, 1]
+        assert yielded[0].column("tenth_at").cast(pa.int64()).to_pylist() == [1767268800100, 1767268800200, 0]
+        assert yielded[0].drop_columns(["exact_at", "tenth_at"]).to_pydict() == {
             "id": [1, 2, 3],
             "created_at": [
                 datetime(2026, 1, 1, 12, tzinfo=UTC),

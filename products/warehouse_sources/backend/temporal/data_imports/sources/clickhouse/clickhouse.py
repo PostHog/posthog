@@ -1265,6 +1265,8 @@ _ARROW_UNSUPPORTED_PREFIXES: tuple[str, ...] = (
     "Nested(",
     "Variant(",
     "Object(",
+    "JSON(",
+    "Dynamic(",
 )
 
 
@@ -1405,7 +1407,27 @@ def _is_arrow_format_rejected(message: str) -> bool:
     return _ARROW_FORMAT_REJECTED_SUBSTRING in message
 
 
-def _native_column_to_arrow(values: Sequence[Any], field: pa.Field[pa.DataType]) -> pa.Array[Any]:
+_TIMESTAMP_UNIT_DIGITS: dict[str, int] = {"s": 0, "ms": 3, "us": 6, "ns": 9}
+
+
+def _datetime64_precision(column: ClickHouseColumn) -> int | None:
+    inner, _ = _strip_type_modifiers(column.data_type)
+    match = _DATETIME64_RE.match(inner)
+    return int(match.group(1)) if match is not None else None
+
+
+def _ticks_to_timestamp(ticks: Sequence[Any], precision: int, timestamp_type: pa.TimestampType) -> pa.Array[Any]:
+    scale = 10 ** (_TIMESTAMP_UNIT_DIGITS[timestamp_type.unit] - precision)
+    if scale != 1:
+        ticks = [None if tick is None else tick * scale for tick in ticks]
+    return pa.array(ticks, type=pa.int64()).cast(timestamp_type)
+
+
+def _native_column_to_arrow(
+    values: Sequence[Any], field: pa.Field[pa.DataType], datetime64_precision: int | None
+) -> pa.Array[Any]:
+    if datetime64_precision is not None and isinstance(field.type, pa.TimestampType):
+        return _ticks_to_timestamp(values, datetime64_precision, field.type)
     try:
         return pa.array(values, type=field.type)
     except (pa.ArrowInvalid, pa.ArrowTypeError):
@@ -1416,9 +1438,14 @@ def _native_column_to_arrow(values: Sequence[Any], field: pa.Field[pa.DataType])
         return pa.array([None if value is None else str(value) for value in values], type=pa.string())
 
 
-def _native_block_to_record_batch(block: Sequence[Sequence[Any]], schema: pa.Schema) -> pa.RecordBatch:
+def _native_block_to_record_batch(
+    block: Sequence[Sequence[Any]], schema: pa.Schema, datetime64_precisions: list[int | None]
+) -> pa.RecordBatch:
     return pa.RecordBatch.from_arrays(
-        [_native_column_to_arrow(column, field) for column, field in zip(block, schema)],
+        [
+            _native_column_to_arrow(column, field, precision)
+            for column, field, precision in zip(block, schema, datetime64_precisions)
+        ],
         schema=schema,
     )
 
@@ -1446,9 +1473,15 @@ def _stream_record_batches(
             raise
         logger.warning("ClickHouse host rejected the ArrowStream format, reading in the Native format instead")
         schema = pa.schema([column.to_arrow_field() for column in columns])
-        with client.query_column_block_stream(query, parameters=parameters) as blocks:
+        datetime64_precisions = [_datetime64_precision(column) for column in columns]
+        # Python datetimes stop at microseconds, so DateTime64 columns come back as integer ticks
+        # to keep the sub-microsecond digits of DateTime64(7..9).
+        column_formats: dict[str, str | dict[str, str]] = {
+            column.name: "int" for column, precision in zip(columns, datetime64_precisions) if precision is not None
+        }
+        with client.query_column_block_stream(query, parameters=parameters, column_formats=column_formats) as blocks:
             for block in blocks:
-                yield _native_block_to_record_batch(block, schema)
+                yield _native_block_to_record_batch(block, schema, datetime64_precisions)
         return
 
     with arrow_stream as batches:
