@@ -6,6 +6,9 @@ The answer comes from the repository's own `owners.yaml` files, parsed by the `o
 This module adds the part `owners_yaml` does not have: a source that reads those files over the network.
 A server process has no checkout of the repository it reports on.
 
+Both readers read the default branch, never the head of a pull request.
+A pull request can edit ownership files, so a read at its head would let it name its own owners and route its own approval.
+
 ## Layout
 
 - `repo_files.py`: `GitHubRepoFiles`, the anonymous source, plus the `RepoFiles` protocol and the `OwnershipUnavailable` errors.
