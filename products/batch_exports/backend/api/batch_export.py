@@ -1117,7 +1117,7 @@ def try_convert_to_type(value: typing.Any, target_type: type) -> tuple[typing.An
     return (new_value, True)
 
 
-def parse_events_hogql_query(hogql_query: str, team_id: int, user: User) -> ast.SelectQuery | ast.SelectSetQuery:
+def parse_events_hogql_query(hogql_query: str, team_id: int, user: User | None) -> ast.SelectQuery | ast.SelectSetQuery:
     """Parse a HogQL SelectQuery from a string query."""
     try:
         parsed_query = parse_select(hogql_query)
