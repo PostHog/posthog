@@ -67,8 +67,7 @@ Standardized events/properties such as pageview or screen start with `$`. Custom
 `virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.
 
 <person_id_join_limitation>
-CRITICAL: There is a known issue with queries where JOIN constraints reference the person_id field of
-events or flag_evaluations.
+CRITICAL: There is a known issue with queries where JOIN constraints reference events.person_id fields.
 
 TECHNICAL CAUSE:
 The person_id fields are ExpressionFields that expand to expressions referencing override tables
@@ -92,13 +91,6 @@ PROBLEMATIC PATTERNS:
 
    But e_all__override is defined later in the SQL, causing the error.
 
-3. Joining flag_evaluations to any table on flag_evaluations.person_id:
-   ❌ FROM posthog.flag_evaluations fe JOIN events e ON fe.person_id = e.person_id
-
-   flag_evaluations.person_id is the same kind of ExpressionField, so this fails with
-   "QueryError: Field not found: flag_evaluation_person_id", naming a column the query never used.
-   Note this table is only reachable as `posthog.flag_evaluations`; the bare name does not resolve.
-
 REQUIRED WORKAROUNDS:
 1. For accessing person data, use the person virtual table from events:
    ✅ SELECT e.person.id, e.person.properties.email, e.event
@@ -118,16 +110,7 @@ REQUIRED WORKAROUNDS:
       FROM events e
       WHERE e.person_id IN (SELECT DISTINCT person_id FROM events WHERE ...)
 
-4. For flag_evaluations, join on distinct_id, or filter with WHERE IN:
-   ✅ FROM posthog.flag_evaluations fe JOIN events e ON fe.distinct_id = e.distinct_id
-   ✅ SELECT p.id FROM persons p
-      WHERE p.id IN (SELECT DISTINCT person_id FROM posthog.flag_evaluations WHERE flag_key = 'my-flag')
-   A CROSS JOIN with the equality moved into WHERE also works.
-   The distinct_id join matches raw ids only, so it pairs a logged-out evaluation with the logged-out
-   events alone. Use the WHERE IN form when the question is about people rather than devices.
-
-NEVER use the person_id of events or flag_evaluations directly in JOIN ON constraints - always use one
-of the workarounds above.
+NEVER use events.person_id directly in JOIN ON constraints - always use one of the workarounds above.
 </person_id_join_limitation>
 """.strip()
 
