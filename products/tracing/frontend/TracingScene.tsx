@@ -53,6 +53,7 @@ export const scene: SceneExport = {
 export default function TracingScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneLogic = tracingSceneLogic()
+    const { activeSceneTab } = useValues(sceneLogic)
     // Keep filters + data + viewer logic alive across React unmounts by attaching them to the scene root.
     useAttachedLogic(tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
     useAttachedLogic(tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
@@ -69,7 +70,7 @@ export default function TracingScene(): JSX.Element {
         <BindLogic logic={tracingFiltersLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
             <BindLogic logic={tracingDataLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
                 <BindLogic logic={tracingViewerLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
-                    <TracingAgentIntegration />
+                    <TracingAgentIntegration sceneTabIsViewer={activeSceneTab === 'viewer'} />
                     <TracingSceneContents />
                 </BindLogic>
             </BindLogic>
