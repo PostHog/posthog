@@ -433,10 +433,13 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                 'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
             ),
         origin_product: zod
-            .union([zod.enum(['loops']).describe('\* `loops` - Loops'), zod.null()])
+            .union([
+                zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
+                zod.null(),
+            ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
             ),
         trigger_masking: zod
             .union([
@@ -516,13 +519,13 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                         .regex(hogFlowsCreateBodyConversionOneWindowRegExp)
                         .nullish()
                         .describe(
-                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. Omit it to use the default window. Set this or 'window_minutes', not both."
+                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both."
                         ),
                     window_minutes: zod
                         .number()
                         .nullish()
                         .describe(
-                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default window. Set this or 'window', not both."
+                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both."
                         ),
                     bytecode: zod
                         .unknown()
@@ -914,13 +917,13 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                         .regex(hogFlowsUpdateBodyConversionOneWindowRegExp)
                         .nullish()
                         .describe(
-                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. Omit it to use the default window. Set this or 'window_minutes', not both."
+                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both."
                         ),
                     window_minutes: zod
                         .number()
                         .nullish()
                         .describe(
-                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default window. Set this or 'window', not both."
+                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both."
                         ),
                     bytecode: zod
                         .unknown()
@@ -1319,13 +1322,13 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                         .regex(hogFlowsPartialUpdateBodyConversionOneWindowRegExp)
                         .nullish()
                         .describe(
-                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. Omit it to use the default window. Set this or 'window_minutes', not both."
+                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both."
                         ),
                     window_minutes: zod
                         .number()
                         .nullish()
                         .describe(
-                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default window. Set this or 'window', not both."
+                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both."
                         ),
                     bytecode: zod
                         .unknown()
@@ -1844,10 +1847,13 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                     'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
                 ),
             origin_product: zod
-                .union([zod.enum(['loops']).describe('\* `loops` - Loops'), zod.null()])
+                .union([
+                    zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
+                    zod.null(),
+                ])
                 .optional()
                 .describe(
-                    'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops'
+                    'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
                 ),
             created_at: zod.iso.datetime({ offset: true }),
             created_by: zod.object({
@@ -1974,13 +1980,13 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             .regex(hogFlowsInvocationsCreateBodyConfigurationOneConversionOneWindowRegExp)
                             .nullish()
                             .describe(
-                                "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. Omit it to use the default window. Set this or 'window_minutes', not both."
+                                "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both."
                             ),
                         window_minutes: zod
                             .number()
                             .nullish()
                             .describe(
-                                "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default window. Set this or 'window', not both."
+                                "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both."
                             ),
                         bytecode: zod
                             .unknown()
@@ -2622,10 +2628,13 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                 'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
             ),
         origin_product: zod
-            .union([zod.enum(['loops']).describe('\* `loops` - Loops'), zod.null()])
+            .union([
+                zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
+                zod.null(),
+            ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
             ),
         trigger_masking: zod
             .union([
@@ -2707,13 +2716,13 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                         .regex(hogFlowsBulkDeleteCreateBodyConversionOneWindowRegExp)
                         .nullish()
                         .describe(
-                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. Omit it to use the default window. Set this or 'window_minutes', not both."
+                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both."
                         ),
                     window_minutes: zod
                         .number()
                         .nullish()
                         .describe(
-                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default window. Set this or 'window', not both."
+                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both."
                         ),
                     bytecode: zod
                         .unknown()

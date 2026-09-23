@@ -199,18 +199,27 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
     instance.save(update_fields=["status", "updated_at"])
 
 
+# A schedule divides the sync time of day by the cadence, so a null interval cannot build one.
+NO_SYNC_FREQUENCY_ERROR = (
+    "This table has no sync frequency, so its sync cannot be scheduled. Set a sync frequency first."
+)
+
+
 def _trigger_schema_sync(instance: ExternalDataSchema) -> None:
     """Trigger the schema's sync, creating its Temporal schedule first if it has none.
 
     A schema can reach the UI with no schedule behind it (never created, or dropped), and
     triggering one that isn't there raises NOT_FOUND. Retrying can't fix that, so recover the
-    same way the source-level reload does instead of dead-ending a single table's sync.
+    same way the source-level reload does instead of dead-ending a single table's sync. Recovery
+    needs a cadence to build the schedule from, so a schema without one is reported to the caller.
     """
     try:
         trigger_external_data_workflow(instance)
     except temporalio.service.RPCError as e:
         if e.status != temporalio.service.RPCStatusCode.NOT_FOUND:
             raise
+        if instance.sync_frequency_interval is None:
+            raise ValidationError(NO_SYNC_FREQUENCY_ERROR)
         sync_external_data_job_workflow(instance, create=True, should_sync=instance.should_sync)
 
 
@@ -610,6 +619,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             return None
         return api_version_deprecation_payload(schema.source.source_type, schema.api_version)
 
+    def validate_sync_frequency(self, value: str | None) -> str | None:
+        # "never" maps to a null interval, which the schedule builder cannot turn into a cadence.
+        # The choices still list it, so callers do send it. The message names should_sync because
+        # that is what stops a sync.
+        if value == "never":
+            raise ValidationError(
+                '"never" is not a sync frequency. To stop syncing this table, set should_sync to false.'
+            )
+        return value
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = cast(Optional[ExternalDataSchema], self.instance)
         override = attrs["api_version"] if "api_version" in attrs else (instance.api_version if instance else None)
@@ -833,6 +852,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         sync_type = data.get("sync_type")
 
         if sync_type == ExternalDataSchema.SyncType.CDC:
+            # The publication step below skips types without an adapter, so accepting one here would
+            # save a `cdc` label that nothing can read a change stream for.
+            if not source_type_supports_cdc(instance.source.source_type):
+                raise ValidationError(f"CDC is not supported for {instance.source.source_type} sources.")
+
             from posthog.models import Team
 
             team = Team.objects.get(id=self.context["team_id"])
@@ -1077,6 +1101,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 was_sync_time_of_day_updated = True
                 validated_data["sync_time_of_day"] = None
                 instance.sync_time_of_day = None
+
+        # A row can still carry a null interval from before that rejection. Turning the sync on, or
+        # moving its time of day, rebuilds the schedule, which a null interval cannot do. Turning
+        # the sync off only pauses the schedule, so it stays allowed.
+        if source.supports_scheduled_sync and instance.sync_frequency_interval is None:
+            if should_sync is True or was_sync_time_of_day_updated:
+                raise ValidationError({"sync_frequency": NO_SYNC_FREQUENCY_ERROR})
 
         if source.supports_scheduled_sync and should_sync is True and sync_type is None and instance.sync_type is None:
             raise ValidationError("Sync type must be set up first before enabling schema")
@@ -1773,6 +1804,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"detail": "Couldn't start the sync. Try again in a few minutes."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except ValidationError:
+            # A missing sync frequency is the caller's to fix, so let DRF render the 400 instead of
+            # logging it as a failure of ours.
+            raise
         except Exception as e:
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
             raise

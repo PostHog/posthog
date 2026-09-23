@@ -29,6 +29,7 @@ from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetric,
+    ExperimentRetentionMetric,
 )
 
 from posthog.hogql import ast
@@ -44,7 +45,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQueryTimeOut,
 )
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.activity_logging.utils import get_changed_fields_local
 from posthog.models.filters.filter import Filter
@@ -64,11 +65,13 @@ from products.experiments.backend.hogql_queries.experiment_metric_fingerprint im
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
+    apply_exposure_criteria_defaults,
     build_exposure_event_conditions,
     get_exposure_event_and_property,
     resolve_default_exposure_event,
 )
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
+from products.experiments.backend.hogql_queries.retention_validation import retention_metric_error
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
@@ -859,6 +862,10 @@ class ExperimentService:
                                 f"Invalid metric at index {i}: a threshold cannot be combined with "
                                 "outlier handling (winsorization)."
                             )
+                    elif isinstance(actual_metric, ExperimentRetentionMetric):
+                        retention_error = retention_metric_error(actual_metric)
+                        if retention_error:
+                            raise ValidationError(f"Invalid metric at index {i}: {retention_error}")
 
                 except pydantic.ValidationError as e:
                     # Surface only the field locations and error types from pydantic — not the
@@ -1345,6 +1352,17 @@ class ExperimentService:
         if only_count_matured_users is None:
             only_count_matured_users = team_config.default_only_count_matured_users
 
+        # A duplicate or a copy keeps the source's value, including "none", so it stays like its source.
+        if (
+            creation_mode == "new"
+            and running_time_calculation.get("minimum_detectable_effect") is None
+            and team_config.default_minimum_detectable_effect is not None
+        ):
+            running_time_calculation = {
+                **running_time_calculation,
+                "minimum_detectable_effect": team_config.default_minimum_detectable_effect,
+            }
+
         stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
         if metrics is not None:
             for metric in metrics:
@@ -1784,10 +1802,7 @@ class ExperimentService:
 
     def _apply_exposure_criteria_defaults(self, exposure_criteria: dict | None) -> dict:
         """Apply default exposure criteria if not provided."""
-        result = dict(exposure_criteria or {})
-        if result.get("filterTestAccounts") is None:
-            result["filterTestAccounts"] = True
-        return result
+        return apply_exposure_criteria_defaults(exposure_criteria)
 
     def _apply_web_variants(self, experiment: Experiment, variants: list[dict]) -> None:
         """Copy variant rollout data to web experiment."""
@@ -2389,6 +2404,9 @@ class ExperimentService:
                 # matches and no change request is raised. We therefore don't special-case ApprovalRequired
                 # here. If approvals ever grow to gate property/cohort changes, revisit this: the snapshot
                 # cohort would then need to outlive a pending change request rather than be cleaned up below.
+                # Mark the write as freeze-driven so the flag's log entry does not read as
+                # a manual targeting edit.
+                locked_flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=True)
                 update_flag(
                     locked_flag,
                     {"filters": new_filters},
@@ -2667,6 +2685,7 @@ class ExperimentService:
         flag = experiment.feature_flag
         new_filters, cohort_ids = _strip_frozen_exposure(flag.filters or {})
 
+        flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=False)
         update_flag(flag, {"filters": new_filters}, team=self.team, user=self.user, request=request)
 
         # Refresh so the experiment's nested flag reflects the restored filters when serialized.
@@ -2959,7 +2978,17 @@ class ExperimentService:
                     .first()
                 )
                 if metric_result and metric_result.result:
-                    completed_metadata["significant"] = metric_result.result.get("significant", False)
+                    # Significance lives on each variant. The top-level `significant` is a legacy
+                    # field that stored results leave null. A variant's value is null when
+                    # validation stopped the analysis, so only computed values decide.
+                    variant_results = metric_result.result.get("variant_results") or []
+                    computed = [
+                        variant["significant"]
+                        for variant in variant_results
+                        if isinstance(variant, dict) and isinstance(variant.get("significant"), bool)
+                    ]
+                    if computed:
+                        completed_metadata["significant"] = any(computed)
         except Exception:
             logger.exception(
                 "Failed to look up metric significance",
@@ -3072,6 +3101,16 @@ class ExperimentService:
 
         return experiment
 
+    @staticmethod
+    def _exposure_freeze_trigger(experiment: Experiment, *, frozen: bool) -> Trigger:
+        """Trigger for a freeze-driven flag rewrite. job_type stays in sync with the
+        describer in frontend/src/scenes/feature-flags/activityDescriptions.tsx."""
+        return Trigger(
+            job_type="experiment_exposure_frozen" if frozen else "experiment_exposure_unfrozen",
+            job_id=str(experiment.pk),
+            payload={"experiment_id": experiment.pk},
+        )
+
     def _clear_frozen_exposure(self, experiment: Experiment, *, request: Any | None) -> None:
         """Strip the exposure-freeze narrowing (if any) off the experiment's flag and drop the
         snapshot cohorts.
@@ -3094,6 +3133,8 @@ class ExperimentService:
         if stripped_filters == (flag.filters or {}):
             return
 
+        # The reset strips the freeze narrowing, so tag the write like an unfreeze.
+        flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=False)
         if request is not None:
             update_flag(flag, {"filters": stripped_filters}, team=self.team, user=self.user, request=request)
         else:
@@ -4059,7 +4100,10 @@ class ExperimentService:
             if disallowed_fields:
                 raise ValidationError(
                     f"This experiment uses legacy metric formats and can only have its name, description, or end_date updated. "
-                    f"Cannot update: {', '.join(sorted(disallowed_fields))}"
+                    f"Cannot update: {', '.join(sorted(disallowed_fields))}. "
+                    f"To change these, migrate the experiment to the new experiments engine first: "
+                    f"POST /api/projects/{experiment.team_id}/experiments/{experiment.id}/migrate "
+                    f"(the experiment-migrate tool). It keeps this experiment and its results, and returns a new one."
                 )
 
             # Validate end_date if present

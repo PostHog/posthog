@@ -562,18 +562,18 @@ def _business_knowledge_maintained_for_team(team: Team) -> bool:
         return False
 
 
-def _governed_metric_names_for_team(team: Team, user_id: int) -> list[str] | None:
-    """Approved metric names for prompt injection, or None when the read fails.
+def _project_has_governed_metrics(team: Team, user_id: int) -> bool:
+    """Whether the run's prompt should mention the data catalog.
 
     Resolved as the run's acting user, the same identity the sandbox's MCP token carries, so the
-    injected listing can never be wider than what the run could have queried for itself through
-    `system.information_schema.metrics`.
+    prompt never points a run at metrics it could not read for itself. A failed read is False:
+    the mention is optional steering, so an outage must not fail the run or mis-steer it.
     """
     try:
-        return approved_metric_names_for_team(team, User.objects.get(id=user_id))
+        return bool(approved_metric_names_for_team(team, User.objects.get(id=user_id)))
     except Exception as error:
         capture_exception(error)
-        return None
+        return False
 
 
 def _granted_write_scopes(config: SignalScoutConfig) -> list[str]:
@@ -777,7 +777,7 @@ async def _spawn_and_run(
         # Codex-only, and independent of the model pin: which OpenAI queue the run's turns join.
         service_tier=service_tier,
     )
-    governed_metric_names = await database_sync_to_async(_governed_metric_names_for_team, thread_sensitive=False)(
+    project_has_governed_metrics = await database_sync_to_async(_project_has_governed_metrics, thread_sensitive=False)(
         team, user_id
     )
     mcp_server_names = await database_sync_to_async(_mcp_server_names_for_run, thread_sensitive=False)(
@@ -789,7 +789,7 @@ async def _spawn_and_run(
         team_id=team.id,
         started_at=started_at,
         github_read_access=github_guidance,
-        governed_metric_names=governed_metric_names,
+        project_has_governed_metrics=project_has_governed_metrics,
         # Names the external MCP servers the sandbox will mount, so *How to call tools* can carve
         # them out of the exec-interface rule; empty renders nothing.
         mcp_server_names=mcp_server_names,
@@ -807,6 +807,9 @@ async def _spawn_and_run(
         # instead of leaving it to discover the tree. Same list the sandbox context carries, so
         # the prompt can never describe a tree the run does not have.
         repositories=repositories,
+        # Frames the note: a check dispatch carries an assignment the run has to answer, where a
+        # manual trigger carries a nudge a person typed alongside the scout's usual work.
+        triggered_by=triggered_by,
     )
     logger.info(
         "signals_scout: spawning sandbox",
@@ -1580,8 +1583,11 @@ def _capture_run_finished(
 
 def _finalize_run_row(*, run_id: Any, team_id: int, summary: str) -> None:
     # Targeted UPDATE rather than `.save()` — the row's other fields are untouched
-    # by the agent's close-out, and `update()` skips the full model refresh.
-    SignalScoutRun.objects.unscoped().filter(team_id=team_id, id=run_id).update(summary=summary)
+    # by the agent's close-out, and `update()` skips the full model refresh. `updated_at` is stamped
+    # by hand because `auto_now` runs in `save()`, which this path deliberately skips.
+    SignalScoutRun.objects.unscoped().filter(team_id=team_id, id=run_id).update(
+        summary=summary, updated_at=timezone.now()
+    )
     # Stamped here rather than at each emit/edit site so the flags are computed once, from the
     # run's settled output, in the same hop that persists the close-out. Best-effort inside, so
     # a stamp failure never costs the summary write that already landed above.

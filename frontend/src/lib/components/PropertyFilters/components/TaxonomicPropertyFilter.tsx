@@ -37,6 +37,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { AnyPropertyFilter, GroupTypeIndex, PropertyDefinitionType, PropertyFilterType } from '~/types'
 
+import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 import { FILTER_ROW_FRAME_CLASSES } from './filterRowFrame'
@@ -79,6 +80,7 @@ export function TaxonomicPropertyFilter({
     excludedOperators,
     selectingKeyOnly,
     hideBehavioralCohorts,
+    showCohortFlagTargeting,
     addFilterDocLink,
     editable = true,
     operatorAllowlist,
@@ -165,13 +167,9 @@ export function TaxonomicPropertyFilter({
     // Look up cohort name, if not already provided in filter
     const cohortValue =
         filter?.type === PropertyFilterType.Cohort && !Array.isArray(filter?.value) ? filter.value : undefined
-    const cohortName =
-        filter?.type === PropertyFilterType.Cohort
-            ? filter.cohort_name ||
-              (cohortValue !== undefined
-                  ? cohortsById[cohortValue]?.name || cohortsById[String(cohortValue)]?.name
-                  : undefined)
-            : undefined
+    const cohort =
+        cohortValue !== undefined ? (cohortsById[cohortValue] ?? cohortsById[String(cohortValue)]) : undefined
+    const cohortName = filter?.type === PropertyFilterType.Cohort ? filter.cohort_name || cohort?.name : undefined
 
     const taxonomicFilter = (
         <TaxonomicFilter
@@ -186,6 +184,7 @@ export function TaxonomicPropertyFilter({
             excludedProperties={excludedProperties}
             optionsFromProp={taxonomicFilterOptionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
+            showCohortFlagTargeting={showCohortFlagTargeting}
             selectFirstItem={!cohortOrOtherValue}
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
@@ -211,7 +210,7 @@ export function TaxonomicPropertyFilter({
                 filter?.type === PropertyFilterType.DataWarehouse &&
                 dataWarehouseTableName &&
                 currentTeamId
-                    ? `api/environments/${currentTeamId}/data_warehouse/property_values?${toParams({
+                    ? `api/projects/${currentTeamId}/data_warehouse/property_values?${toParams({
                           table_name: dataWarehouseTableName,
                           key: filter.key,
                       })}`
@@ -263,26 +262,36 @@ export function TaxonomicPropertyFilter({
 
     const filterType = filter?.type as PropertyFilterType | undefined
 
+    // The button truncates its label, so its tooltip is how a long cohort name is read in full. The
+    // wrapper below cannot do that job: it clips rather than wraps, and it would nest the tag's own
+    // tooltip inside the button's. So the tooltip gets the plain string.
+    const cohortLabel = filter?.type === 'cohort' ? cohortName || `Cohort #${filter?.value}` : undefined
+
     const filterContent =
-        filter?.type === 'cohort'
-            ? cohortName || `Cohort #${filter?.value}`
-            : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_')
-              ? filter.label || `Group ${filter?.value}`
-              : (filter?.type === PropertyFilterType.Flag ||
-                      filterType === PropertyFilterType.AccountRelationship ||
-                      filter?.type === PropertyFilterType.AccountCustomProperty) &&
-                  filter &&
-                  'label' in filter &&
-                  filter.label
-                ? filter.label
-                : filter?.key && (
-                      <PropertyKeyInfo
-                          value={filter.key}
-                          disablePopover
-                          ellipsis
-                          type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
-                      />
-                  )
+        filter?.type === 'cohort' ? (
+            <span className="flex items-center gap-2 min-w-0">
+                <span className="truncate">{cohortLabel}</span>
+                {showCohortFlagTargeting && <CohortRealtimeTag realtime={cohort?.realtime} />}
+            </span>
+        ) : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_') ? (
+            filter.label || `Group ${filter?.value}`
+        ) : (filter?.type === PropertyFilterType.Flag ||
+              filterType === PropertyFilterType.AccountRelationship ||
+              filter?.type === PropertyFilterType.AccountCustomProperty) &&
+          filter &&
+          'label' in filter &&
+          filter.label ? (
+            filter.label
+        ) : (
+            filter?.key && (
+                <PropertyKeyInfo
+                    value={filter.key}
+                    disablePopover
+                    ellipsis
+                    type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
+                />
+            )
+        )
 
     const legacyDropdown = (
         <LemonDropdown
@@ -301,7 +310,7 @@ export function TaxonomicPropertyFilter({
                 truncate={true}
                 tooltip={
                     <>
-                        {filterContent ?? (addText || 'Add filter')}
+                        {cohortLabel ?? filterContent ?? (addText || 'Add filter')}
                         {addFilterDocLink && (
                             <>
                                 <br />
@@ -347,6 +356,7 @@ export function TaxonomicPropertyFilter({
             propertyAllowList={propertyAllowList}
             optionsFromProp={taxonomicFilterOptionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
+            showCohortFlagTargeting={showCohortFlagTargeting}
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
             enableKeywordShortcuts

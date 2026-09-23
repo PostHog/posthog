@@ -185,7 +185,7 @@ from posthog.query_scan.trigger import (
     maybe_trigger_query_scan,
 )
 from posthog.schema_helpers import to_dict
-from posthog.scopes import APIScopeObject
+from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
 from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.context import JsonValue, SloSpec, slo_operation, tag_current_slo
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
@@ -196,6 +196,7 @@ from products.access_control.backend.facade.user_access_control import (
     WAREHOUSE_ACCESS_SCOPES,
     UserAccessControl,
     UserAccessControlError,
+    default_access_level,
 )
 from products.web_analytics.backend.hogql_queries.first_pageview_flag import resolve_first_pageview_filters_modifier
 
@@ -285,6 +286,10 @@ _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {  # ty: ignore[in
 
 UNKNOWN_QUERY_METRIC_LABEL = "unknown"
 SURVEYS_PRODUCT_KEY = "surveys"
+
+# Matches WebAnalyticsFilterPreset.short_id's max_length. The value is client-supplied,
+# so it is truncated rather than trusted before it reaches the query log.
+PRESET_ID_MAX_LENGTH = 12
 
 
 def get_survey_query_metric_labels(query: Any) -> dict[str, str] | None:
@@ -426,6 +431,15 @@ def _api_queries_budget_enforcement_enabled(team: Team) -> bool:
         )
     except Exception:
         return False
+
+
+def api_queries_budget_enforcement_enabled(team: Team) -> bool:
+    """Whether the read-byte budget rejects API requests for this team.
+
+    Kept separate from the query runner so other ClickHouse API proxies use the
+    same staged rollout without depending on its private helper.
+    """
+    return _api_queries_budget_enforcement_enabled(team)
 
 
 @frozen
@@ -1583,6 +1597,18 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "MetricsHistogramQuery":
+        from products.metrics.backend.facade.queries import MetricsHistogramQueryRunner
+
+        return MetricsHistogramQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     # Registered here for server-side CSV export only (ExportedAsset + Celery).
     # Direct queries are blocked by LogsQueryRunner.validate_query_runner_access.
     if kind == "LogsQuery":
@@ -2123,6 +2149,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if self.is_query_service:
             tag_queries(chargeable=1)
+        # Only the /query view and the inline endpoint run set api_queries_budgeted; the product
+        # tag is caller-supplied via query.tags.productKey, so it cannot opt a query in or out.
+        if get_query_tag_value("api_queries_budgeted"):
             self._enforce_api_queries_budget()
 
         with (
@@ -2220,6 +2249,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 if tags.scene:
                     posthoganalytics.tag("scene", tags.scene)
                     tag_queries(scene=tags.scene)
+                # Dropped, not truncated: truncating an overlong client value could alias it
+                # onto a real preset's short id and attribute shapes to someone else's preset.
+                if tags.presetId and len(tags.presetId) <= PRESET_ID_MAX_LENGTH:
+                    posthoganalytics.tag("preset_id", tags.presetId)
+                    tag_queries(preset_id=tags.presetId)
 
             tag_queries(execution_mode=execution_mode.value)
             tag_queries(cache_key=cache_key)
@@ -3377,19 +3411,34 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
             self._user_access_control = UserAccessControl(user=user, team=self.team)
         return self._user_access_control
 
+    @property
+    def _bypassed_access_scopes(self) -> frozenset[str]:
+        """Scopes whose access control the principal skips. Service tokens and shared-link viewers bypass
+        warehouse access control (see Database.create_for); real users and userless runs bypass nothing."""
+        # `user` is typed Optional[User] but shared renders and service tokens pass other principals at runtime.
+        user = cast("Optional[User | SyntheticUser | SharedLinkUser]", self.user)
+        if user is None or isinstance(user, User):
+            return frozenset()
+        return WAREHOUSE_ACCESS_SCOPES
+
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
-
-        # Don't include restricted resources/objects in cache_payload if the ACCESS_CONTROL is unavailable
-        if isinstance(self.user, User) and not self.team.organization.is_feature_available(
-            AvailableFeature.ACCESS_CONTROL
-        ):
-            return payload
 
         # Partition only by the access-controlled tables this query reads that the user is restricted
         # from - so queries on events, persons and other non-access-controlled tables share one cache
         # entry (incl. userless cache warming).
-        queried_resources = queried_access_controlled_resources(self.query, self.team)
+        queried_resources = queried_access_controlled_resources(
+            self.query, self.team, bypassed_scopes=self._bypassed_access_scopes
+        )
+
+        if isinstance(self.user, User) and not self.team.organization.is_feature_available(
+            AvailableFeature.ACCESS_CONTROL
+        ):
+            # Default-denied resources still distinguish privileged users when configurable access control is unavailable.
+            resources = queried_resources if queried_resources is not None else set(API_SCOPE_OBJECTS)
+            queried_resources = {
+                resource for resource in resources if default_access_level(cast(APIScopeObject, resource)) == "none"
+            }
 
         # Reads no access-controlled table -> skip the access-control preload
         if queried_resources == set():
@@ -3453,13 +3502,12 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
 
         # Non-real principals (service tokens, shared-link viewers) are scope-gated on system tables;
         # partition on the readable scopes so a narrower token can't be served a broader principal's
-        # cached result. Warehouse scopes are excluded: these principals bypass warehouse access
-        # control (see Database.create_for), so warehouse tables are readable for them and listing
-        # them as restricted would collide with users who are genuinely denied those resources.
+        # cached result. Bypassed scopes are readable for them, and listing them as restricted would
+        # collide with users who are genuinely denied those resources.
         if not isinstance(user, User):
             if queried_resources is None:
                 return ["*"]
-            restricted = queried_resources - user.readable_system_table_access_scopes() - WAREHOUSE_ACCESS_SCOPES
+            restricted = queried_resources - user.readable_system_table_access_scopes() - self._bypassed_access_scopes
             return sorted(restricted) or None
 
         user_access_control = self.user_access_control

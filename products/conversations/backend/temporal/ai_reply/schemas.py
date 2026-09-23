@@ -36,13 +36,16 @@ def coerce_dataclass(cls: type[_T], value: object) -> _T:
     raise TypeError(f"Unexpected type {type(value).__name__}; expected {cls.__name__} or dict")
 
 
-@dataclass
+@dataclass(frozen=False)
 class SupportReplyInput:
     team_id: int
     ticket_id: str
+    # 0 = first draft. Coordinator sets this to ai_triage.clarification_rounds when
+    # re-engaging after a customer answers a public clarifying question.
+    clarification_round: int = 0
 
 
-@dataclass
+@dataclass(frozen=False)
 class BuildContextOutput:
     ticket_context: str
     ticket_title: str
@@ -55,6 +58,14 @@ class BuildContextOutput:
     # ai_reply_modes + the ticket's channel) so the workflow can gate data-read scopes on whether
     # the reply is actually auto-publishable, not just on ticket type. Empty = nothing auto-sends.
     auto_publish_ticket_types: list[str] = field(default_factory=list)
+    # From ai_triage, for a clarification follow-up that skips classify.
+    prior_ticket_type: str = ""
+    prior_needs_diagnostics: bool = False
+    # True when a follow-up round should not run: a human already left awaiting_clarification.
+    followup_cancelled: bool = False
+    # Passed through to draft so playbook compose stays out of Temporal history.
+    docs_source: str = ""
+    custom_instructions: str = ""
 
 
 @dataclass
@@ -105,7 +116,7 @@ class RetrieveOutput:
     chunk_ids: list[str]
 
 
-@dataclass
+@dataclass(frozen=False)
 class DraftInput:
     team_id: int
     ticket_context: str
@@ -125,6 +136,9 @@ class DraftInput:
     # This reply would be auto-sent publicly (publishable type + channel set to bot_reply). When
     # True the draft stays doc/BK-only so project data can't reach the author, even if opted in.
     auto_publishable: bool = False
+    clarification_round: int = 0
+    docs_source: str = ""
+    custom_instructions: str = ""
 
 
 @dataclass(frozen=False)
@@ -144,6 +158,11 @@ class DraftOutput:
     clarifying_questions: list[str] = field(default_factory=list)
     investigation_summary: str = ""
     unknowns: list[str] = field(default_factory=list)
+    playbook_layers: list[str] = field(default_factory=list)
+    playbook_default_version: int = 0
+    playbook_posthog_overlay_version: int | None = None
+    playbook_content_hash: str = ""
+    playbook_warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -184,6 +203,13 @@ class PersistReplyInput:
     unknowns: list[str] = field(default_factory=list)
     clarifying_questions: list[str] = field(default_factory=list)
     findings_reason: str = ""
+    # Follow-up round only. If awaiting_clarification was already cleared, do not post.
+    require_awaiting_clarification: bool = False
+
+
+@dataclass(frozen=False)
+class PersistReplyOutput:
+    posted: bool = True
 
 
 @dataclass
@@ -191,6 +217,25 @@ class RecordTriageInput:
     team_id: int
     ticket_id: str
     patch: dict[str, Any]
+
+
+@dataclass(frozen=False)
+class ClarifyInput:
+    team_id: int
+    ticket_id: str
+    ticket_type: str
+    auto_publishable: bool = False
+    clarifying_questions: list[str] = field(default_factory=list)
+    investigation_summary: str = ""
+    unknowns: list[str] = field(default_factory=list)
+    citations: list[str] = field(default_factory=list)
+    confidence: float = 0.0
+
+
+@dataclass(frozen=False)
+class ClarifyOutput:
+    published: bool = False
+    question: str = ""
 
 
 @dataclass

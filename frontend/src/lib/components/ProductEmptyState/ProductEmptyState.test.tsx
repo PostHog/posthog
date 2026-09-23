@@ -1,6 +1,7 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -12,6 +13,8 @@ import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/typ
 
 import { ProductEmptyState } from './ProductEmptyState'
 import type { ProductEmptyStateConfig } from './types'
+
+const Hedgehog = pngHoggie({ src: 'hedgehog.png', aspectRatio: 1 })
 
 const config: ProductEmptyStateConfig = {
     productKey: ProductKey.EXPERIMENTS,
@@ -160,5 +163,22 @@ describe('ProductEmptyState', () => {
         expect(!!screen.queryByText('Override hint')).toBe(applied)
         expect(!!screen.queryByText('Base hint')).toBe(!applied)
         expect(screen.getByText('Headline')).toBeTruthy()
+    })
+
+    // `beside` renders a pair and a container query hides one of them at any width. A lazy
+    // image with no layout box has nothing to intersect, so the browser can leave it unfetched
+    // until a resize reveals it. The Storybook image gate skips hidden images.
+    it.each([
+        ['above' as const, ['lazy']],
+        ['beside' as const, ['eager', 'eager']],
+    ])('renders a %s hedgehog loading as %s', (hedgehogPlacement, expected) => {
+        const { container } = render(
+            <ProductEmptyState config={{ ...config, hedgehog: Hedgehog, hedgehogPlacement }} mode="needs-setup" />
+        )
+
+        const loading = Array.from(container.querySelectorAll('img[src="hedgehog.png"]')).map((image) =>
+            image.getAttribute('loading')
+        )
+        expect(loading).toEqual(expected)
     })
 })

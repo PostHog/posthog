@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.facade.source_config import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.census.census import (
     CensusResumeConfig,
     census_source,
+    get_endpoint_permissions as get_census_endpoint_permissions,
     validate_credentials as validate_census_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.census.settings import (
@@ -77,6 +78,15 @@ class CensusSource(ResumableSource[CensusSourceConfig, CensusResumeConfig]):
     ) -> tuple[bool, str | None]:
         return validate_census_credentials(config.api_key, config.region, schema_name=schema_name)
 
+    def get_endpoint_permissions(
+        self,
+        config: CensusSourceConfig,
+        team_id: int,
+        endpoints: list[str],
+        api_version: str | None = None,
+    ) -> dict[str, str | None]:
+        return get_census_endpoint_permissions(config.api_key, config.region, endpoints)
+
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[CensusResumeConfig]:
         return ResumableSourceManager[CensusResumeConfig](inputs, CensusResumeConfig)
 
@@ -101,9 +111,9 @@ class CensusSource(ResumableSource[CensusSourceConfig, CensusResumeConfig]):
             name=ExternalDataSourceType.CENSUS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Census (Fivetran)",
-            caption="""Enter a Census workspace API access token to sync your syncs, sync runs, sources, and destinations.
+            caption="""Enter a Census API access token to sync your syncs, sync runs, sources, destinations, and datasets.
 
-You can find or generate a workspace access token in Census under **Workspace settings → API Access**.
+You can find or generate a workspace access token in Census under **Workspace settings → API Access**. The workspaces table lists every workspace in your organization, so it needs an organization-level token instead.
 """,
             keywords=["reverse etl", "data activation", "fivetran"],
             docsUrl="https://posthog.com/docs/cdp/sources/census",

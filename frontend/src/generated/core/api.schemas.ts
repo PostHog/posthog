@@ -4285,6 +4285,21 @@ export interface LeakedKeyReportResponseApi {
 }
 
 /**
+ * Whether the current organization has each toolbar plan entitlement, keyed by feature name.
+ */
+export type ToolbarEntitlementsApiEntitlements = { [key: string]: boolean }
+
+export interface ToolbarEntitlementsApi {
+    /** Whether the current organization has each toolbar plan entitlement, keyed by feature name. */
+    entitlements: ToolbarEntitlementsApiEntitlements
+}
+
+export interface ToolbarEntitlementsErrorApi {
+    /** Why toolbar entitlements could not be retrieved. */
+    error: string
+}
+
+/**
  * * `disabled` - disabled
  * * `toolbar` - toolbar
  */
@@ -4443,6 +4458,11 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly is_pending_deletion: boolean | null
+    /**
+     * When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.
+     * @nullable
+     */
+    readonly uses_most_specific_access_resolution: boolean | null
 }
 
 /**
@@ -5134,6 +5154,24 @@ export interface UserPushTokenUnregisterRequestApi {
     token: string
 }
 
+export interface TwoFactorStatusApi {
+    /** Whether the user has any 2FA method enabled. */
+    is_enabled: boolean
+    /** Number of unused backup codes. The codes themselves are only returned when they are generated. */
+    backup_codes_remaining: number
+    /**
+     * The primary 2FA method: "TOTP" or "passkey". Null when 2FA is off.
+     * @nullable
+     */
+    method: string | null
+    /** Whether the user has at least one verified passkey. */
+    has_passkeys: boolean
+    /** Whether the user has an authenticator app set up. */
+    has_totp: boolean
+    /** Whether passkeys count as a 2FA method. */
+    passkeys_enabled_for_2fa: boolean
+}
+
 /**
  * Request body for POST /api/users/verify_email/.
  */
@@ -5331,6 +5369,13 @@ export type FileSystemListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type FileSystemDestroyParams = {
+    /**
+     * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
+     */
+    recursive?: boolean
 }
 
 export type FileSystemShortcutListParams = {

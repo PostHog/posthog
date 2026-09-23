@@ -6,7 +6,12 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { DeliverySummaryApi, DurationDistributionApi, TeamCIHealthListApi } from '../generated/api.schemas'
+import type {
+    DeliverySummaryApi,
+    DurationDistributionApi,
+    TeamCIHealthListApi,
+    TrunkQuarantineDebtApi,
+} from '../generated/api.schemas'
 
 const HOUR = 3600
 const TEAM = 'team-replay'
@@ -116,13 +121,38 @@ const TEAM_MERGE_TREND = {
     ],
 }
 
+const TRUNK_QUARANTINE: TrunkQuarantineDebtApi = {
+    available: true,
+    owners_resolved: true,
+    ttl_days: 15,
+    repository: 'PostHog/posthog',
+    trunk_url: 'https://app.trunk.io/example/flaky-tests',
+    truncated: false,
+    limit: 500,
+    teams: [{ owner_team: TEAM, test_count: 1, overdue_count: 1, oldest_age_days: 21 }],
+    tests: [
+        {
+            runner: 'pytest',
+            nodeid: 'products/replay/test_snapshots.py::test_resume_keeps_cursor',
+            file: 'products/replay/test_snapshots.py',
+            owner_team: TEAM,
+            status: 'FLAKY',
+            quarantine_setting: 'AUTO_QUARANTINE',
+            quarantined_at: '2026-06-12T09:00:00Z',
+            age_days: 21,
+            overdue: true,
+            trunk_url: 'https://app.trunk.io/example/flaky-tests/fixture-1',
+        },
+    ],
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Engineering Analytics/Team',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        mockDate: '2026-07-02',
+        mockDate: '2026-07-03T12:00:00Z',
         featureFlags: [FEATURE_FLAGS.ENGINEERING_ANALYTICS],
         pageUrl: urls.engineeringAnalyticsTeam(TEAM),
         testOptions: {
@@ -160,14 +190,7 @@ const meta: Meta = {
                     source_url: null,
                     generated_at: null,
                 },
-                'api/projects/:team_id/engineering_analytics/trunk_quarantine/': {
-                    available: false,
-                    ttl_days: 15,
-                    repository: null,
-                    trunk_url: null,
-                    teams: [],
-                    tests: [],
-                },
+                'api/projects/:team_id/engineering_analytics/trunk_quarantine/': TRUNK_QUARANTINE,
             },
         }),
     ],
@@ -178,6 +201,12 @@ type Story = StoryObj<typeof meta>
 
 export const Team: Story = {
     render: () => <App />,
+}
+
+// A docked side panel leaves the scene about 520px wide, where the comparison cards must stack.
+export const TeamNarrow: Story = {
+    render: () => <App />,
+    parameters: { testOptions: { viewport: { width: 520, height: 1800 } } },
 }
 
 export const TeamWithoutMembership: Story = {
@@ -223,6 +252,17 @@ export const TeamWithoutMembership: Story = {
                     ...TEAM_CI_HEALTH,
                     items: [{ ...TEAM_CI_HEALTH.items[0], merged_pr_count: null, merged_pr_count_prior: null }],
                 },
+            },
+        }),
+    ],
+}
+
+export const TeamQuarantineLoadError: Story = {
+    render: () => <App />,
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/engineering_analytics/trunk_quarantine/': () => [500, null],
             },
         }),
     ],

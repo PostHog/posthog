@@ -44,12 +44,13 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc import metrics
 from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import (
     cdc_supported_source_types,
     get_cdc_adapter,
+    source_type_supports_cdc,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
-    CDC_COMPANION_SUFFIX,
     CDC_SEQ_COLUMN,
     ChangeEventBatcher,
     build_scd2_table,
+    companion_resource_name,
     deduplicate_table,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
@@ -760,7 +761,7 @@ class CDCExtractActivity:
                 batch_writes.append(
                     (
                         build_scd2_table(enriched_table, key_columns),
-                        f"{schema.name}{CDC_COMPANION_SUFFIX}",
+                        companion_resource_name(schema.name),
                         "scd2_append",
                     )
                 )
@@ -772,7 +773,7 @@ class CDCExtractActivity:
                 batch_writes.append(
                     (
                         build_scd2_table(enriched_table, key_columns),
-                        f"{schema.name}{CDC_COMPANION_SUFFIX}",
+                        companion_resource_name(schema.name),
                         "scd2_append",
                     )
                 )
@@ -929,6 +930,14 @@ class CDCExtractActivity:
             self._delete_own_schedule()
             return False
 
+        if not source_type_supports_cdc(self.source.source_type):
+            # No adapter means no change stream to read, so every tick of this schedule can only
+            # fail. Delete it instead of reporting the same failure once per interval for as long
+            # as the source lives. `sync_cdc_extraction_schedule` refuses to create it again.
+            self.log.info("source_type_does_not_support_cdc_deleting_schedule", source_type=self.source.source_type)
+            self._delete_own_schedule()
+            return False
+
         self.cdc_schemas = self._get_cdc_schemas()
         if not self.cdc_schemas:
             self.log.info("no_active_cdc_schemas_deleting_schedule")
@@ -938,13 +947,21 @@ class CDCExtractActivity:
         self.schema_by_name = {s.name: s for s in self.cdc_schemas}
         self.adapter = get_cdc_adapter(self.source)
         self.reader = self.adapter.create_reader(self.source)
-        self._shadow_enabled = is_shadow_write_enabled(self.inputs.team_id, self.log)
+        # Shadow writes validate the buffer *before* a source is flipped. Past the flip they are
+        # a hazard: a schema not yet serving the lane (mid-snapshot, say) would accumulate shadow
+        # files under its own prefix, and the consumer would merge them the moment the schema
+        # turns eligible — re-delivering rows the legacy lane already wrote, which an append lane
+        # cannot absorb. The flip command purges the prefix once; nothing purges it again.
+        cdc_config = self.adapter.parse_cdc_config(self.source)
+        self._shadow_enabled = is_shadow_write_enabled(self.inputs.team_id, self.log) and (
+            cdc_config.ingest_mode != "buffered"
+        )
 
-        if self.adapter.parse_cdc_config(self.source).ingest_mode == "buffered":
+        if cdc_config.ingest_mode == "buffered":
             # A schema with deferred runs pending stays legacy this tick, so the flush and any new
             # events travel one lane. Deferred batches carry no position column, so nothing orders
             # them against buffered writes — mixing lanes lets an older deferred row land after a
-            # newer buffered one. The consumer holds off too (has_pending_legacy_backlog).
+            # newer buffered one. The consumer holds off too (has_batches_in_flight).
             self._buffered_table_names = {
                 s.name
                 for s in self.cdc_schemas
@@ -1308,6 +1325,7 @@ class CDCExtractActivity:
                     #   (b) on crash-replay the already-flushed prefix of the in-flight
                     #       transaction is re-delivered — incremental_merge dedups by PK,
                     #       scd2_append may create duplicate history rows. Accepted vs. loss.
+                    #       The buffer lane trims that prefix in cleanup_superseded_files.
                     if (
                         self.last_complete_txn_end_lsn is not None
                         and self.last_complete_txn_end_lsn != self.last_confirmed_lsn

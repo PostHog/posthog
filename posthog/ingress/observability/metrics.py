@@ -13,6 +13,7 @@ DeliveryOutcome = Literal[
     "method_not_allowed",
     "throttled",
     "not_configured",
+    "verify_unavailable",
     "invalid_signature",
     "invalid_payload",
     "forward_failed",
@@ -26,7 +27,8 @@ DeliveryOutcome = Literal[
 ConsumerOutcome = Literal["succeeded", "failed", "deduped", "budget_exceeded", "in_flight"]
 
 # What a consumer answered when asked which region owns the delivery's resource; `failed` is the
-# lookup raising, which counts as undecided.
+# lookup raising, which asks a provider that redelivers for the delivery again and counts as
+# undecided on one that does not.
 OwnershipOutcome = Literal["local", "elsewhere", "undecided", "failed"]
 
 # What the owning region answered the replayed request: `rejected` is a non-2xx, `failed` is the

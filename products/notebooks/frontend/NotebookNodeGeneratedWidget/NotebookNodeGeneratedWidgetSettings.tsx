@@ -25,6 +25,8 @@ import {
     notebookNodeGeneratedWidgetLogic,
     notebookNodeGeneratedWidgetSettingsLogic,
 } from './notebookNodeGeneratedWidgetLogic'
+import { NotebookWidgetBetaNotice } from './NotebookWidgetBetaNotice'
+import { NotebookWidgetGenerationCost } from './NotebookWidgetGenerationCost'
 import { NotebookWidgetGenerationModal } from './NotebookWidgetGenerationModal'
 import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
 import { DEFAULT_WIDGET_MODEL, DEFAULT_WIDGET_PROMPT, WIDGET_MODEL_OPTIONS } from './widgetModels'
@@ -47,7 +49,7 @@ export function NotebookNodeGeneratedWidgetSettings({
         prompt: attributes.prompt ?? '',
         model: attributes.model ?? DEFAULT_WIDGET_MODEL,
         isEditable,
-        prepareInsightDataframes: () => prepareNotebookInsightDataframes(notebookLogic),
+        prepareInsightDataframes: (names) => prepareNotebookInsightDataframes(notebookLogic, names),
         persistNotebook: async (): Promise<void> => {
             await notebookLogic.asyncActions.saveNotebook({
                 content: notebookLogic.values.content,
@@ -186,8 +188,8 @@ export function NotebookNodeGeneratedWidgetSettings({
                         />
                     </div>
                     <div className="text-xs text-muted">
-                        Run every SQL and Python cell before generating. The widget can use their latest completed
-                        results automatically.
+                        Run the SQL and Python cells the widget should use. The widget uses their latest completed
+                        results and skips cells that haven't run.
                     </div>
                     <div>
                         <LemonLabel htmlFor={modelId}>Model</LemonLabel>
@@ -206,7 +208,12 @@ export function NotebookNodeGeneratedWidgetSettings({
             ) : (
                 <>
                     <div>
-                        <LemonLabel htmlFor={versionId}>Version history</LemonLabel>
+                        <div className="flex items-center justify-between gap-2">
+                            <LemonLabel htmlFor={versionId}>Version history</LemonLabel>
+                            {selectedVersion ? (
+                                <NotebookWidgetGenerationCost cost={selectedVersion.generation_cost_usd} />
+                            ) : null}
+                        </div>
                         <LemonSelect
                             id={versionId}
                             value={selectedVersionId ?? undefined}
@@ -277,6 +284,7 @@ export function NotebookNodeGeneratedWidgetSettings({
                 </>
             )}
 
+            {!hasVersions && !isWorking ? <NotebookWidgetBetaNotice /> : null}
             <div className="flex flex-wrap items-start gap-2">
                 {isWorking && workingStatus ? (
                     <>

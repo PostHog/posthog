@@ -315,7 +315,7 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> Field
             _add_name_variants(nonsensitive, field.name)
             # SSH tunnel has a known nested structure not declared in the field tree.
             # "auth"/"auth_type" are container keys for SSHTunnelAuthConfig.
-            nonsensitive.update({"host", "port", "username", "auth", "auth_type", "require_tls"})
+            nonsensitive.update({"host", "port", "username", "auth", "auth_type", "require_tls", "host_key"})
             sensitive.update({"password", "passphrase", "private_key"})
 
     return FieldSensitivitySplit(nonsensitive=nonsensitive, sensitive=sensitive)
@@ -339,6 +339,10 @@ _CDC_EXPOSED_JOB_INPUT_KEYS = {
     # Set by migrate_cdc_source_to_buffered, never by the API. Losing it on an unrelated PATCH
     # would resume legacy delivery from an advanced slot and strand the unread buffer.
     "cdc_ingest_mode",
+    # Also set only by that command. It is what lets a rolled-back source be flipped again: without
+    # it the reserved-column check reads the `_ph_cdc_seq` the buffered lane wrote as the source's
+    # own and refuses every later flip.
+    "cdc_buffered_before",
 }
 
 
