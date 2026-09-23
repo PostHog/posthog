@@ -176,7 +176,7 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
         <LemonModal
             isOpen={propertyGroupModalOpen}
             onClose={handleClose}
-            title={editingPropertyGroup ? 'Edit Property Group' : 'New Property Group'}
+            title={editingPropertyGroup ? 'Edit property group' : 'New property group'}
             width={900}
         >
             <Form

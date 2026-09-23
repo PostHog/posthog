@@ -128,7 +128,7 @@ export function SelectPropertyGroupModal({
                             autoFocus
                         />
                         <LemonButton type="primary" icon={<IconPlusSmall />} onClick={handleCreateNewGroup}>
-                            New Property Group
+                            New property group
                         </LemonButton>
                     </div>
 
@@ -158,9 +158,22 @@ export function SelectPropertyGroupModal({
                             rowExpandable: () => true,
                         }}
                         emptyState={
-                            searchTerm
-                                ? 'No property groups match your search'
-                                : 'No property groups available. Create one in Schema Management first.'
+                            searchTerm ? (
+                                'No property groups match your search'
+                            ) : (
+                                <div className="flex flex-col items-center gap-2">
+                                    <span>No property groups yet.</span>
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        icon={<IconPlusSmall />}
+                                        onClick={handleCreateNewGroup}
+                                        data-attr="select-property-group-empty-create"
+                                    >
+                                        New property group
+                                    </LemonButton>
+                                </div>
+                            )
                         }
                     />
                 </div>

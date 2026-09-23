@@ -272,3 +272,17 @@ export const PinLimitReached: Story = {
         />
     ),
 }
+
+export const PinWithoutDefinitions: Story = {
+    render: () => (
+        <AccountPropertyConfigurator
+            isOpen
+            options={[]}
+            pinnedPropertyKeys={[]}
+            onChange={noop}
+            onSave={noop}
+            onCancel={noop}
+            saveDisabledReason="No changes to save"
+        />
+    ),
+}
