@@ -21,13 +21,7 @@ export type { RunInteractionLogicProps, QueuedMessage } from '../logics/runInter
 export { getThinkingMessageFromResponse, getRandomThinkingMessage, THINKING_MESSAGES } from '../utils/thinkingMessages'
 
 // --- Composer model/effort helpers (pure — no component imports) ---
-export {
-    resolveEffortForModel,
-    getStrongerThanDefaultNotch,
-    DEFAULT_COMPOSER_MODEL,
-    DEFAULT_COMPOSER_EFFORT,
-} from '../utils/composerModels'
-export type { CapabilityNotch } from '../utils/composerModels'
+export { resolveEffortForModel, DEFAULT_COMPOSER_MODEL, DEFAULT_COMPOSER_EFFORT } from '../utils/composerModels'
 export { modelCatalogueLogic } from '../logics/modelCatalogueLogic'
 // The server-resolved default model/effort for this user in this project (their own preference over
 // the project default). A host that launches a run on the user's behalf reads it to tell whether a

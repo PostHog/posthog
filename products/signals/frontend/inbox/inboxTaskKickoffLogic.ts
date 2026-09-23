@@ -20,7 +20,6 @@ import {
     attachedContextItemKey,
     attachedContextLogic,
     runnerPanelLogic,
-    getStrongerThanDefaultNotch,
     runStreamLogic,
     taskRunDefaultsLogic,
     wrapWithPosthogContext,
@@ -37,8 +36,8 @@ import {
 import {
     ClaudeRuntimeAdapterEnumApi,
     ClaudeTaskRunCreateSchemaApi,
+    ReasoningEffortEnumApi,
     RunSourceEnumApi,
-    RuntimeAdapterEnumApi,
     TaskCreateApi,
     TaskExecutionModeEnumApi,
     TaskOriginProductEnumApi,
@@ -82,25 +81,23 @@ export const FREE_TRIAL_PR_DISABLED_REASON =
 // The run endpoint rejects a model without its runtime adapter, so the two are always sent together.
 type ClaudeRuntimeSelection = Pick<ClaudeTaskRunCreateSchemaApi, 'runtime_adapter' | 'model' | 'reasoning_effort'>
 
-/** A fallback selection, or nothing at all so the stored defaults decide. */
+/** The fallback selection, or nothing at all so the stored defaults decide. */
 type ReportRuntimeSelection = ClaudeRuntimeSelection | Record<string, never>
 
-// Both kickoffs are worth a stronger model than the baseline when nobody chose one: Discuss because
-// answer quality is what the user came for, Create PR because pressing it commits to a real run.
-const REPORT_FALLBACK_NOTCH = getStrongerThanDefaultNotch(RuntimeAdapterEnumApi.Claude)
+// Both kickoffs are worth a stronger model than the agent server's Sonnet when nobody chose one:
+// Discuss because answer quality is what the user came for, and the extra cost is bounded by the
+// length of the conversation; Create PR because pressing it commits to a real implementation run.
+const REPORT_FALLBACK_RUNTIME: ClaudeRuntimeSelection = {
+    runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
+    model: 'claude-opus-5',
+    reasoning_effort: ReasoningEffortEnumApi.High,
+}
 
 // A model sent with the run is final server-side (`resolve_ai_run_selection`), so honoring the
 // project and personal defaults means sending none. `defaultModel` is the server's own resolution
 // for this user, null exactly when no stored default would apply — the case the fallback covers.
 function launchSelection(defaultModel: string | null): ReportRuntimeSelection {
-    if (defaultModel || !REPORT_FALLBACK_NOTCH) {
-        return {}
-    }
-    return {
-        runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
-        model: REPORT_FALLBACK_NOTCH.model,
-        reasoning_effort: REPORT_FALLBACK_NOTCH.effort,
-    }
+    return defaultModel ? {} : REPORT_FALLBACK_RUNTIME
 }
 
 // The report's state is part of what a run owes the reader, and only the two ends of the happy
