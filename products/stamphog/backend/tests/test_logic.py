@@ -507,6 +507,35 @@ class GetPrReviewThreadsTests(SimpleTestCase):
             self._fetch(self._threads_page([], has_next=True))
 
 
+class DismissReviewMinimizeFailOpenTests(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("http_error", fakes.FakeResponse(502, text="bad gateway")),
+            ("graphql_errors", fakes.FakeResponse(200, json_data={"errors": [{"message": "forbidden"}]})),
+            ("transport_exception", RuntimeError("network blew up")),
+        ]
+    )
+    def test_failed_minimize_does_not_fail_a_successful_dismissal(
+        self, _name: str, minimize_failure: fakes.FakeResponse | Exception
+    ) -> None:
+        def fake_request(method: str, url: str, **kwargs: object) -> fakes.FakeResponse:
+            if url.endswith("/access_tokens"):
+                return fakes.FakeResponse(201, json_data={"token": "t", "expires_at": "2999-01-01T00:00:00Z"})
+            if url.endswith("/dismissals"):
+                return fakes.FakeResponse(200, json_data={"id": 999, "node_id": "PRR_999"})
+            if isinstance(minimize_failure, Exception):
+                raise minimize_failure
+            return minimize_failure
+
+        with (
+            override_settings(STAMPHOG_GITHUB_APP_ID="1", STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key()),
+            patch(f"{_GH}.github_request", fake_request),
+            patch(f"{_GH}.remember_observed_core_limit", lambda *a, **k: None),
+            patch(f"{_GH}.raise_if_github_rate_limited", lambda *a, **k: None),
+        ):
+            StamphogGitHubClient("123").dismiss_pr_review("acme/widgets", 5, 999, "stale")
+
+
 # add_pr_reaction / remove_pr_reaction are deliberately the one fail-open pair on the client
 # (see their docstrings): a cosmetic "review in flight" 👀 must never fail or retry the calling
 # review activity, unlike every other read/write on StamphogGitHubClient.

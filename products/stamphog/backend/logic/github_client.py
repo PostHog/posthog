@@ -1147,6 +1147,40 @@ class StamphogGitHubClient:
                 f"Failed to dismiss review {review_id} on {repo}#{pr_number}: {response.text[:200]}",
                 status_code=response.status_code,
             )
+        try:
+            node_id = self._json(response, path).get("node_id")
+        except (StamphogGitHubError, AttributeError):
+            node_id = None
+        if node_id:
+            self._minimize_as_outdated(node_id, repo=repo, pr_number=pr_number, review_id=review_id)
+
+    def _minimize_as_outdated(self, node_id: str, *, repo: str, pr_number: int, review_id: int) -> None:
+        """Hide a dismissed review as "Outdated" on the PR timeline (GraphQL ``minimizeComment``).
+
+        Fail-open: the dismissal already retracted the approval, and hiding the review is only noise
+        reduction. A failure here must never make the caller retry a dismissal that succeeded.
+        """
+        mutation = (
+            "mutation($id: ID!) { minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) "
+            "{ minimizedComment { isMinimized } } }"
+        )
+        try:
+            response = self._request(
+                "POST",
+                "/graphql",
+                endpoint="/graphql",
+                json_body={"query": mutation, "variables": {"id": node_id}},
+            )
+            data = self._json(response, "/graphql") if response.status_code == 200 else None
+        except Exception:
+            data = None
+        if not isinstance(data, dict) or data.get("errors"):
+            logger.warning(
+                "stamphog_github_minimize_dismissed_review_failed",
+                repo=repo,
+                pr_number=pr_number,
+                review_id=review_id,
+            )
 
     def upsert_sticky_comment(self, repo: str, number: int, body: str) -> dict:
         """Create or update Stamphog's single status comment on a PR, identified by a hidden marker.
