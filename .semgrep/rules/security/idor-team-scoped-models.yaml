@@ -262,6 +262,7 @@ rules:
                               |Loop
                               |LoopFire
                               |NotebookWidgetInstance
+                              |NotebookWidgetSnapshot
                               |LoopTrigger
                               |LLMModelConfiguration
                               |LLMPrompt
@@ -301,6 +302,7 @@ rules:
                               |NotificationEvent
                               |Notebook
                               |NotebookNodeRun
+                              |NotebookRun
                               |ObjectMediaPreview
                               |ParserRecipe
                               |PendingSourceCredential
@@ -350,6 +352,7 @@ rules:
                               |SignalReportAssignment
                               |SignalReportRefund
                               |SignalReportSlackThread
+                              |SignalReportSuggestedReviewer
                               |SignalReportTask
                               |SignalReportTrackerIssue
                               |SignalRepositoryAreaActivity
@@ -682,6 +685,7 @@ rules:
                         |LoopFire
                         |LoopTrigger
                         |NotebookWidgetInstance
+                        |NotebookWidgetSnapshot
                         |LLMModelConfiguration
                         |LLMPrompt
                         |LLMPromptDependency
@@ -718,6 +722,7 @@ rules:
                         |NotificationEvent
                         |Notebook
                         |NotebookNodeRun
+                        |NotebookRun
                         |ObjectMediaPreview
                         |ParserRecipe
                         |PendingSourceCredential
@@ -767,6 +772,7 @@ rules:
                         |SignalReportAssignment
                         |SignalReportRefund
                         |SignalReportSlackThread
+                        |SignalReportSuggestedReviewer
                         |SignalReportTask
                         |SignalReportTrackerIssue
                         |SignalRepositoryAreaActivity
@@ -1264,6 +1270,7 @@ rules:
                       regex: |
                           (?x)(
                               AgentMemory
+                              |FileSystemHomeFolder
                               |FileSystemShortcut
                               |FileSystemViewLog
                               |InsightViewed
@@ -1338,6 +1345,7 @@ rules:
                 regex: |
                     (?x)(
                         AgentMemory
+                        |FileSystemHomeFolder
                         |FileSystemShortcut
                         |FileSystemViewLog
                         |InsightViewed

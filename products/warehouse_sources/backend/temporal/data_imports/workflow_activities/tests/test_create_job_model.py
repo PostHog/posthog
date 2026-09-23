@@ -274,6 +274,30 @@ class TestCreateJobActivityStatusOrdering:
         schema.refresh_from_db()
         assert schema.status == ExternalDataSchema.Status.FAILED
 
+    @parameterized.expand([("broken", "cdc_broken"), ("paused", "cdc_extraction_paused")])
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.activity")
+    def test_a_halted_cdc_schema_keeps_its_failed_status(
+        self, _name: str, marker: str, mock_activity: MagicMock, _mock_close_connections: MagicMock
+    ) -> None:
+        mock_activity.info.return_value.workflow_id = "wf-1"
+        mock_activity.info.return_value.workflow_run_id = "run-1"
+        team = _team()
+        schema = _schema(team, None)
+        schema.status = ExternalDataSchema.Status.FAILED
+        schema.sync_type_config = {marker: {"reason": "critical_lag_self_managed"}}
+        schema.save()
+
+        create_external_data_job_model_activity(
+            CreateExternalDataJobModelActivityInputs(
+                team_id=team.id, schema_id=schema.id, source_id=schema.source_id, billable=True
+            )
+        )
+
+        schema.refresh_from_db()
+        assert ExternalDataJob.objects.filter(schema_id=schema.id).exists()
+        assert schema.status == ExternalDataSchema.Status.FAILED
+
 
 @pytest.mark.django_db
 class TestCreateJobActivityDeletedSourceOrSchema:

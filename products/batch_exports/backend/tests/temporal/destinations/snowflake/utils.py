@@ -511,6 +511,9 @@ async def assert_clickhouse_records_in_snowflake(
         inserted_records = remove_duplicates_from_records(inserted_records, primary_key)
 
     assert inserted_records, "No records were inserted into Snowflake"
+    if model_name == "events" and fields is None and expected_fields is None:
+        assert "person_id" in inserted_records[0]
+
     inserted_column_names = list(inserted_records[0].keys())
     expected_column_names = list(expected_records[0].keys())
     inserted_column_names.sort()
