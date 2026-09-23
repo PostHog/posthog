@@ -2,8 +2,6 @@ import { MakeLogicType, connect, kea, path, selectors } from 'kea'
 
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { urls } from 'scenes/urls'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
@@ -11,6 +9,8 @@ import { getDefaultTreeProducts } from '~/layout/panel-layout/ProjectTree/defaul
 import { getCategoryOrder, splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemIconType, UserProductListItem } from '~/queries/schema/schema-general'
 import { FileSystemIconColor } from '~/types'
+
+import { findActiveProductPath } from './findActiveProductPath'
 
 export interface FlatNavProductItem {
     path: string
@@ -70,23 +70,7 @@ export const flatNavLogic = kea<flatNavLogicType>([
     selectors({
         activeProductPath: [
             (s) => [s.pathname],
-            (pathname: string): string | null => {
-                const currentPath = removeProjectIdIfPresent(pathname)
-                let activePath: string | null = null
-                let activeHrefLength = 0
-                for (const product of getDefaultTreeProducts()) {
-                    const href = product.href?.split('?')[0]
-                    const matches =
-                        !!href &&
-                        (currentPath === href || (href !== urls.projectRoot() && currentPath.startsWith(`${href}/`)))
-                    // The longest href wins, so /workflows/broadcasts is Broadcasts and not Workflows
-                    if (matches && href.length > activeHrefLength) {
-                        activePath = product.path
-                        activeHrefLength = href.length
-                    }
-                }
-                return activePath
-            },
+            (pathname: string): string | null => findActiveProductPath(pathname, getDefaultTreeProducts()),
         ],
         productGroups: [
             (s) => [s.customProducts, s.featureFlags, s.activeProductPath],

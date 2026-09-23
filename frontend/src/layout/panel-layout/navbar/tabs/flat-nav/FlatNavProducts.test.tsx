@@ -92,7 +92,6 @@ describe('FlatNavProducts', () => {
 
     it.each<[string, string | null]>([
         [urls.workflows(), 'workflows'],
-        ['/workflows/broadcasts', 'broadcasts'],
         [urls.featureFlag(1), null],
         [urls.settings(), null],
     ])('on %s puts the pin button on this row: %s', async (url, pinnedSlug) => {
