@@ -58,6 +58,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import mark_cdc_broken
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
     CDCBufferWriter,
+    is_buffered_snapshot_enabled,
     is_shadow_write_enabled,
     purge_buffer_prefix,
 )
@@ -76,6 +77,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
     SNAPSHOT_STARTED_AT_KEY,
     captures_to_buffer,
     consolidated_resource_name,
+    serves_buffered_lane,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import SyncTypeLiteral
@@ -260,6 +262,7 @@ class CDCExtractActivity:
         # Table names whose changes this run delivers by buffer alone — no transforms, no
         # sourcebatch dispatch. Resolved once in _setup.
         self._buffered_table_names: set[str] = set()
+        self._truncated_tables: list[str] = []
 
     # ------------------------------------------------------------------
     # Logger helpers
@@ -963,10 +966,15 @@ class CDCExtractActivity:
             # events travel one lane. Deferred batches carry no position column, so nothing orders
             # them against buffered writes — mixing lanes lets an older deferred row land after a
             # newer buffered one. The consumer holds off too (has_batches_in_flight).
+            lane_predicate = (
+                captures_to_buffer
+                if is_buffered_snapshot_enabled(self.inputs.team_id, self.log)
+                else serves_buffered_lane
+            )
             self._buffered_table_names = {
                 s.name
                 for s in self.cdc_schemas
-                if captures_to_buffer(s) and not s.sync_type_config.get("cdc_deferred_runs")
+                if lane_predicate(s) and not s.sync_type_config.get("cdc_deferred_runs")
             }
             if self._buffered_table_names:
                 self.log.info(
@@ -1331,6 +1339,7 @@ class CDCExtractActivity:
                         self.last_complete_txn_end_lsn is not None
                         and self.last_complete_txn_end_lsn != self.last_confirmed_lsn
                     ):
+                        self._handle_truncates()
                         self._confirm_position(self.last_complete_txn_end_lsn)
                         self.last_confirmed_lsn = self.last_complete_txn_end_lsn
                     self.log.info(
@@ -1388,6 +1397,7 @@ class CDCExtractActivity:
 
         commit_lsn = self.reader.last_commit_end_lsn
         if commit_lsn is not None and commit_lsn != self.last_confirmed_lsn:
+            self._handle_truncates()
             self._confirm_position(commit_lsn)
             self.last_confirmed_lsn = commit_lsn
             self.last_end_lsn = commit_lsn
@@ -1421,11 +1431,13 @@ class CDCExtractActivity:
     def _handle_truncates(self) -> list[str]:
         """Process any truncated tables observed during decoding.
 
-        Returns the list of truncated table names so the no-changes path can
-        decide whether to advance the slot.
+        Runs before every slot advance, so a failed reset or purge fails the run while the slot still
+        holds the TRUNCATE and the retry repeats it. Returns every table truncated this run, so the
+        no-changes path can decide whether to advance the slot.
         """
         truncated_tables = list(self.reader.truncated_tables)
         self.reader.clear_truncated_tables()
+        self._truncated_tables.extend(truncated_tables)
         for table_name in truncated_tables:
             trunc_schema = self.schema_by_name.get(table_name)
             if trunc_schema is None:
@@ -1435,7 +1447,7 @@ class CDCExtractActivity:
             )
             self._reset_schema_to_snapshot(trunc_schema)
             self._unpause_schema_schedule(trunc_schema)
-        return truncated_tables
+        return list(self._truncated_tables)
 
     def _reset_schema_to_snapshot(self, schema: ExternalDataSchema, *, clear_deferred_runs: bool = False) -> None:
         """Put a schema back into snapshot mode so its own schedule re-syncs it from scratch."""

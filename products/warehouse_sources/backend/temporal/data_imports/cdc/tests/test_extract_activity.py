@@ -3665,8 +3665,14 @@ class TestBufferedIngressCapture:
     # keep today's transforms and sourcebatch dispatch, and a buffer failure must fail the run —
     # the slot is about to advance past those changes.
 
-    def _run(self, MockBufferWriter, events, schemas, source, capture: dict | None = None, truncated=()):
+    def _run(
+        self, MockBufferWriter, events, schemas, source, capture: dict | None = None, truncated=(), snapshot_flag=True
+    ):
         with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.is_buffered_snapshot_enabled",
+                return_value=snapshot_flag,
+            ),
             patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections"),
             patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob") as MockJob,
             patch(
@@ -3734,19 +3740,46 @@ class TestBufferedIngressCapture:
         # The point of the whole design: durable buffer releases the customer's WAL immediately.
         mock_reader.confirm_position.assert_called_once_with("0/200")
 
+    @parameterized.expand([("flag_on", True), ("flag_off", False)])
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
-    def test_a_schema_taking_its_snapshot_is_captured_to_the_buffer_not_deferred(self, MockBufferWriter):
+    def test_a_schema_taking_its_snapshot_is_captured_to_the_buffer_only_behind_the_flag(
+        self, _name, snapshot_flag, MockBufferWriter
+    ):
         source = _make_source()
         seeding = _make_schema("events", cdc_mode="snapshot", source=source)
         seeding.initial_sync_complete = False
         events = [_make_event(op="I", position="0/100", table="events", columns={"id": 1})]
 
-        _reader, mock_s3, mock_producer = self._run(MockBufferWriter, events, [seeding], source)
+        _reader, mock_s3, _producer = self._run(
+            MockBufferWriter, events, [seeding], source, snapshot_flag=snapshot_flag
+        )
 
-        MockBufferWriter.return_value.write_batch.assert_called_once()
-        mock_s3.write_batch.assert_not_called()
-        mock_producer.send_batch_notification.assert_not_called()
-        assert "cdc_deferred_runs" not in seeding.sync_type_config
+        assert MockBufferWriter.return_value.write_batch.called is snapshot_flag
+        assert mock_s3.write_batch.called is not snapshot_flag
+        assert ("cdc_deferred_runs" in seeding.sync_type_config) is not snapshot_flag
+
+    def test_a_truncate_is_handled_before_the_slot_advances_past_it(self):
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        act = _make_extract_activity(source)
+        act.cdc_schemas = [schema]
+        act.schema_by_name = {"users": schema}
+        act._buffered_table_names = {"users"}
+        act.batcher = MagicMock(event_count=0)
+        act.reader = MagicMock(truncated_tables=["users"], last_commit_end_lsn="0/300")
+        order = MagicMock()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix",
+                side_effect=lambda *_a, **_k: order.purge(),
+            ),
+            patch.object(act, "_confirm_position", side_effect=lambda *_a: order.confirm()),
+            patch.object(act, "_unpause_schema_schedule"),
+        ):
+            act._drain_and_advance_page()
+
+        assert [call[0] for call in order.mock_calls] == ["purge", "confirm"]
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")

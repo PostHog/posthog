@@ -67,6 +67,9 @@ BUFFER_ROOT_FOLDER = "cdc_producer"
 # Per-team gate for the shadow lane — the single on/off control. Fail-closed on
 # evaluation errors, so the soak can only ever shrink, never grow, by accident.
 SHADOW_WRITE_FLAG = "dwh-cdc-buffer-shadow"
+# Gates capturing a snapshotting table to the buffer. Turned on once no worker runs the previous
+# release: an older worker would defer that table's changes or purge its whole buffer at hand-over.
+BUFFERED_SNAPSHOT_FLAG = "dwh-cdc-buffered-snapshot"
 
 _SEQ_WIDTH = 20  # zero-pad width covering the full u64 range
 _INDEX_WIDTH = 6
@@ -85,13 +88,25 @@ def is_shadow_write_enabled(team_id: int, logger: FilteringBoundLogger) -> bool:
     Never raises: a flag-service failure leaves the lane off, which costs a gap in
     validation data — the legacy path is unaffected either way.
     """
+    return _team_flag_enabled(SHADOW_WRITE_FLAG, team_id, logger)
+
+
+def is_buffered_snapshot_enabled(team_id: int, logger: FilteringBoundLogger) -> bool:
+    """Whether capture may write a snapshotting table's changes to the buffer, evaluated once per run.
+
+    Never raises: a flag-service failure keeps those changes on legacy deferred runs.
+    """
+    return _team_flag_enabled(BUFFERED_SNAPSHOT_FLAG, team_id, logger)
+
+
+def _team_flag_enabled(flag: str, team_id: int, logger: FilteringBoundLogger) -> bool:
     from posthog.models.team import Team
 
     try:
         team = Team.objects.get(pk=team_id)
         return bool(
             posthoganalytics.feature_enabled(
-                SHADOW_WRITE_FLAG,
+                flag,
                 str(team.uuid),
                 groups={"organization": str(team.organization_id), "project": str(team.id)},
                 # team_id drives the release conditions (the warehouse convention for
@@ -107,7 +122,7 @@ def is_shadow_write_enabled(team_id: int, logger: FilteringBoundLogger) -> bool:
             )
         )
     except Exception:
-        logger.warning("cdc_shadow_flag_check_failed", team_id=team_id, exc_info=True)
+        logger.warning("cdc_flag_check_failed", flag=flag, team_id=team_id, exc_info=True)
         return False
 
 

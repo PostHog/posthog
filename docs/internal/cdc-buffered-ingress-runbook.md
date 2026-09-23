@@ -41,7 +41,7 @@ was: the base class is the single-table path with extract-method seams, and `Lan
 `SourceResponse.lanes`. The load queue, the producer and the loader carry nothing about lanes at
 all, so a single-table run finalizes exactly as before.
 
-A table still taking its snapshot is captured to the buffer too. Its sync runs the snapshot, and the
+With the `dwh-cdc-buffered-snapshot` flag on, a table still taking its snapshot is captured to the buffer too. Turn the flag on only after a deploy has fully rolled: an older worker would defer that table's changes or purge its whole buffer at hand-over. Its sync runs the snapshot, and the
 consumer starts reading the buffer once the snapshot completes, from the first change after the
 snapshot started. The snapshot run stamps `cdc_snapshot_started_at` in `sync_type_config`, and the
 hand-over to streaming deletes only the buffer files S3 modified before that stamp, less a
