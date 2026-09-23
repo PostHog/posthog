@@ -48,6 +48,8 @@ The PostHog web application, built with React and TypeScript. Uses [Kea](https:/
 - `src/toolbar` – Code for the [PostHog Toolbar](https://posthog.com/docs/user-guides/toolbar)
 
 The app-level Files scene lives in `src/scenes/project-files` and reuses the project tree from `src/layout/panel-layout/ProjectTree`.
+The Apps sidebar shows descriptive tooltips with concrete examples in `navbar/tabs/NavAppTooltip.tsx`.
+These reuse scene descriptions where available, with additional copy for the main apps and a fallback for custom group types.
 Open `/project/<project_id>/files` to browse the project, or add `?folder=Research` to start in a folder.
 Starred folders in the sidebar use the same "New..." menu and "Empty folder" state as project folders.
 With `simple-sidepanel` enabled, each user gets a public `Users/<name>` home folder in each project, starred on creation.
