@@ -12,6 +12,12 @@ install routes the SPA owns.
   login and returns here with the invite token still in the URL. Validates
   the invite, then redirects to Slack to start the OAuth dance.
 
+  When the same workspace also offers the Slack MCP connection, this view
+  first renders a consent screen that names both grants and lets the user
+  drop the second one. The screen posts back to this same URL with
+  ``confirmed=1``, so there is one consent surface for every entry point
+  rather than one per button.
+
 * ``GET /complete/slack-link/``
   Slack redirects here after the user authorizes. We exchange the code for a
   user token, call ``openid.connect.userInfo`` to learn the Slack user id
@@ -27,12 +33,12 @@ without them both views redirect to the settings page with
 ``?slack_link_error=flag_off`` so the user sees a clear toast instead of a 404.
 """
 
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.views.decorators.http import require_GET
 
 import structlog
@@ -53,6 +59,9 @@ from products.slack_app.backend.services.slack_user_oauth import (
     build_authorize_url,
     exchange_code,
 )
+
+if TYPE_CHECKING:
+    from products.mcp_store.backend.facade.contracts import SlackConnectOffer
 
 logger = structlog.get_logger(__name__)
 
@@ -107,6 +116,38 @@ def _load_workspace_integration(posthog_team_id: int, slack_team_id: str) -> Int
     )
 
 
+def _slack_connect_offer(posthog_team_id: int, posthog_user_id: int) -> "SlackConnectOffer | None":
+    """The Slack MCP connection this member could still make, or ``None``.
+
+    Imported inside the function so the MCP store package stays off the Slack
+    webhook import path.
+    """
+    from products.mcp_store.backend.facade import (
+        api as mcp_store,  # noqa: PLC0415 — keeps the heavy dep off the import path
+    )
+
+    try:
+        return mcp_store.slack_connect_offer(posthog_team_id, posthog_user_id)
+    except Exception:
+        # The offer is an extra, never a reason the account link fails.
+        logger.warning("slack_app_user_link_mcp_offer_lookup_failed", exc_info=True)
+        return None
+
+
+def _slack_connect_redirect(posthog_team_id: int, posthog_user_id: int) -> HttpResponseRedirect | None:
+    """Send the browser on to the Slack MCP grant, or ``None`` to skip it."""
+    offer = _slack_connect_offer(posthog_team_id, posthog_user_id)
+    if offer is None:
+        return None
+
+    from products.mcp_store.backend.facade import (
+        api as mcp_store,  # noqa: PLC0415 — keeps the heavy dep off the import path
+    )
+
+    return_path = f"{PERSONAL_INTEGRATIONS_SETTINGS_PATH}?{urlencode({'slack_link_success': '1'})}"
+    return redirect(mcp_store.connect_authorize_path(posthog_team_id, offer.template_id, return_path=return_path))
+
+
 @require_GET
 @login_required
 def slack_user_link_authorize(request: HttpRequest) -> HttpResponse:
@@ -129,13 +170,39 @@ def slack_user_link_authorize(request: HttpRequest) -> HttpResponse:
     if not is_slack_app_oauth_enabled(workspace_integration):
         return _settings_redirect(error="flag_off")
 
+    posthog_user = cast(User, request.user)
+
+    # The consent screen is only worth a click when there is a second grant to
+    # decline. Without an offer the flow stays a single redirect, as before.
+    offer = _slack_connect_offer(invite.posthog_team_id, posthog_user.id)
+    confirmed = request.GET.get("confirmed") == "1"
+    if offer is not None and not confirmed:
+        capture_slack_event(
+            workspace_integration,
+            "slack app user link consent shown",
+            slack_user_id=invite.slack_user_id,
+            posthog_user=posthog_user,
+        )
+        return render(
+            request,
+            "slack_link_consent.html",
+            {
+                "state": request.GET.get("state", ""),
+                "slack_workspace_name": _workspace_name(workspace_integration),
+                "mcp_server_name": offer.server_name,
+            },
+        )
+
+    connect_mcp = offer is not None and request.GET.get("connect_mcp") == "1"
+
     callback_state = CallbackState(
         slack_team_id=invite.slack_team_id,
         posthog_team_id=invite.posthog_team_id,
-        posthog_user_id=request.user.id,
+        posthog_user_id=posthog_user.id,
         slack_user_id=invite.slack_user_id,
         channel=invite.channel,
         thread_ts=invite.thread_ts,
+        connect_mcp=connect_mcp,
     ).encode()
 
     try:
@@ -270,7 +337,28 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
         thread_ts=state.thread_ts,
     )
 
+    if state.connect_mcp:
+        # Re-check rather than trust the state: the offer can go away between
+        # the consent screen and here, and a stale state must not send the
+        # browser to a route that answers with raw API JSON.
+        connect_redirect = _slack_connect_redirect(state.posthog_team_id, posthog_user.id)
+        if connect_redirect is not None:
+            capture_slack_event(
+                workspace_integration,
+                "slack app user link mcp connect started",
+                slack_user_id=identity.slack_user_id,
+                posthog_user=posthog_user,
+            )
+            return connect_redirect
+
     return _settings_redirect()
+
+
+def _workspace_name(integration: Integration) -> str:
+    """The Slack workspace name to show a user, falling back to the workspace id."""
+    team_block = (integration.config or {}).get("team") or {}
+    name = team_block.get("name")
+    return name if isinstance(name, str) and name else integration.integration_id
 
 
 def _post_link_success_followup(

@@ -5,7 +5,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import User
+from posthog.models import Organization, User
 from posthog.models.organization import OrganizationMembership
 
 from products.mcp_store.backend.agents import (
@@ -15,11 +15,13 @@ from products.mcp_store.backend.agents import (
 )
 from products.mcp_store.backend.facade.api import (
     call_member_server_tool,
+    connect_authorize_path,
     get_active_installations,
     get_installations_for_sandbox,
     get_sandbox_mcp_server_names,
     member_server_tools,
     resolve_agent_gateway_server_ids,
+    slack_connect_offer,
 )
 from products.mcp_store.backend.facade.contracts import ActiveInstallation
 from products.mcp_store.backend.models import (
@@ -1067,3 +1069,100 @@ class TestCallMemberServerTool(BaseTest):
         assert self._call(approval_token=token, allow_writes=False).status == "blocked"
         assert self._call().status == "blocked"
         mock_call.assert_not_called()
+
+
+class TestSlackConnectOffer(BaseTest):
+    SLACK_URL = "https://mcp.slack.com/mcp"
+
+    def _template(self, **overrides) -> MCPServerTemplate:
+        defaults: dict = {
+            "name": "Slack",
+            "url": self.SLACK_URL,
+            "auth_type": "oauth",
+            "is_active": True,
+            "oauth_credentials_source": "slack_app",
+            "oauth_metadata": {"authorization_endpoint": "https://slack.com/oauth/v2_user/authorize"},
+        }
+        defaults.update(overrides)
+        return MCPServerTemplate.objects.create(**defaults)
+
+    def _offer(self):
+        with patch(
+            "products.mcp_store.backend.facade.api.oauth_credentials_source_is_configured",
+            return_value=True,
+        ):
+            return slack_connect_offer(self.team.id, self.user.id)
+
+    def test_offers_the_active_slack_template(self) -> None:
+        template = self._template()
+
+        offer = self._offer()
+
+        assert offer is not None
+        assert offer.template_id == str(template.id)
+        assert offer.server_name == "Slack"
+
+    def test_no_offer_when_the_catalog_entry_is_inactive(self) -> None:
+        self._template(is_active=False)
+
+        assert self._offer() is None
+
+    def test_no_offer_when_the_shared_oauth_client_has_no_credentials(self) -> None:
+        self._template()
+
+        with patch(
+            "products.mcp_store.backend.facade.api.oauth_credentials_source_is_configured",
+            return_value=False,
+        ):
+            assert slack_connect_offer(self.team.id, self.user.id) is None
+
+    def test_no_offer_when_the_member_is_already_connected(self) -> None:
+        template = self._template()
+        MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            template=template,
+            url=self.SLACK_URL,
+            auth_type="oauth",
+            scope="personal",
+            sensitive_configuration={"access_token": "xoxp-live"},
+        )
+
+        assert self._offer() is None
+
+    def test_offers_again_when_the_connection_needs_reauth(self) -> None:
+        template = self._template()
+        MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            template=template,
+            url=self.SLACK_URL,
+            auth_type="oauth",
+            scope="personal",
+            sensitive_configuration={"access_token": "xoxp-live", "needs_reauth": True},
+        )
+
+        assert self._offer() is not None
+
+    def test_no_offer_for_a_user_outside_the_project(self) -> None:
+        self._template()
+        outsider = User.objects.create_and_join(
+            organization=Organization.objects.create(name="Other org"),
+            email="outsider@example.com",
+            password=None,
+        )
+
+        with patch(
+            "products.mcp_store.backend.facade.api.oauth_credentials_source_is_configured",
+            return_value=True,
+        ):
+            assert slack_connect_offer(self.team.id, outsider.id) is None
+
+
+class TestConnectAuthorizePath(BaseTest):
+    def test_path_carries_the_template_and_the_return_path(self) -> None:
+        path = connect_authorize_path(7, "abc-123", return_path="/settings/user-personal-integrations?x=1")
+
+        assert path.startswith("/api/projects/7/mcp_server_installations/authorize/?")
+        assert "template_id=abc-123" in path
+        assert "return_path=%2Fsettings%2Fuser-personal-integrations%3Fx%3D1" in path

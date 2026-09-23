@@ -7,6 +7,8 @@ entrypoint (``GET /complete/slack-link/start/``) and the OAuth callback
 levels up.
 """
 
+from urllib.parse import parse_qs, urlparse
+
 import pytest
 from unittest.mock import patch
 
@@ -15,6 +17,7 @@ from django.test import Client
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
+from products.mcp_store.backend.facade.contracts import SlackConnectOffer
 from products.slack_app.backend.services.slack_user_oauth import (
     CallbackState,
     InviteToken,
@@ -269,3 +272,139 @@ class TestCallbackView:
         # a later success would use; otherwise one person's linking funnel splits in two.
         mock_capture.assert_called_once()
         assert mock_capture.call_args.kwargs["posthog_user"] == outsider
+
+
+class TestSlackMcpOffer:
+    """The consent step that offers the Slack MCP connection alongside the account link.
+
+    The offer itself is the MCP store's decision; these tests cover what the link
+    flow does with the two answers, which is what a user sees.
+    """
+
+    OFFER = SlackConnectOffer(template_id="11111111-1111-1111-1111-111111111111", server_name="Slack")
+
+    @pytest.fixture
+    def logged_in_client(self, org_team_user):
+        _, _, user = org_team_user
+        client = Client()
+        client.force_login(user)
+        return client, user
+
+    @pytest.fixture
+    def offer_available(self):
+        with patch(
+            "products.mcp_store.backend.facade.api.slack_connect_offer",
+            return_value=self.OFFER,
+        ) as mock_offer:
+            yield mock_offer
+
+    def _invite(self, workspace_integration) -> str:
+        return InviteToken(
+            slack_user_id=SLACK_USER_ID,
+            slack_team_id=SLACK_TEAM_ID,
+            posthog_team_id=workspace_integration.team_id,
+        ).encode()
+
+    def _start(self, client, workspace_integration, query: str = ""):
+        with (
+            patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
+            patch(
+                "products.slack_app.backend.services.slack_user_oauth.get_instance_settings",
+                return_value={"SLACK_APP_CLIENT_ID": "cid", "SLACK_APP_CLIENT_SECRET": "csecret"},
+            ),
+        ):
+            return client.get(f"/complete/slack-link/start/?state={self._invite(workspace_integration)}{query}")
+
+    def _callback(self, client, user, workspace_integration, *, connect_mcp: bool):
+        state = CallbackState(
+            slack_user_id=SLACK_USER_ID,
+            slack_team_id=SLACK_TEAM_ID,
+            posthog_team_id=workspace_integration.team_id,
+            posthog_user_id=user.id,
+            connect_mcp=connect_mcp,
+        ).encode()
+        identity = SlackIdentity(
+            slack_user_id=SLACK_USER_ID,
+            slack_team_id=SLACK_TEAM_ID,
+            user_access_token=SLACK_USER_ACCESS_TOKEN,
+        )
+        with (
+            patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
+            patch("products.slack_app.backend.views.slack_user_link.exchange_code", return_value=identity),
+            patch("posthog.models.integration.slack.WebClient"),
+        ):
+            return client.get(f"/complete/slack-link/?code=abc&state={state}")
+
+    def test_consent_screen_names_both_grants_and_defaults_to_both(
+        self, logged_in_client, workspace_integration, offer_available
+    ):
+        client, _ = logged_in_client
+
+        response = self._start(client, workspace_integration)
+
+        assert response.status_code == 200
+        body = response.content.decode()
+        assert "Link your Slack account" in body
+        assert "Also connect Slack for PostHog AI" in body
+        # Checked by default is the opt-out the user asked for: they see it before it happens.
+        assert 'name="connect_mcp" value="1" checked' in body
+
+    def test_no_consent_screen_when_there_is_nothing_to_offer(self, logged_in_client, workspace_integration):
+        client, _ = logged_in_client
+
+        with patch("products.mcp_store.backend.facade.api.slack_connect_offer", return_value=None):
+            response = self._start(client, workspace_integration)
+
+        assert response.status_code == 302
+        assert response["Location"].startswith("https://slack.com/openid/connect/authorize?")
+
+    @pytest.mark.parametrize(
+        "query,expected_connect_mcp",
+        [("&confirmed=1&connect_mcp=1", True), ("&confirmed=1", False)],
+    )
+    def test_confirmed_choice_rides_the_callback_state(
+        self, logged_in_client, workspace_integration, offer_available, query, expected_connect_mcp
+    ):
+        client, _ = logged_in_client
+
+        response = self._start(client, workspace_integration, query)
+
+        assert response.status_code == 302
+        state_param = parse_qs(urlparse(response["Location"]).query)["state"][0]
+        decoded = CallbackState.decode(state_param)
+        assert decoded is not None
+        assert decoded.connect_mcp is expected_connect_mcp
+
+    def test_accepted_offer_continues_into_the_mcp_grant(
+        self, logged_in_client, workspace_integration, offer_available
+    ):
+        client, user = logged_in_client
+
+        response = self._callback(client, user, workspace_integration, connect_mcp=True)
+
+        assert response.status_code == 302
+        assert response["Location"].startswith(
+            f"/api/projects/{workspace_integration.team_id}/mcp_server_installations/authorize/?"
+        )
+        assert f"template_id={self.OFFER.template_id}" in response["Location"]
+        # The link itself still happened, whatever the second grant does next.
+        assert UserIntegration.objects.filter(user=user, kind=UserIntegration.IntegrationKind.SLACK).exists()
+
+    def test_declined_offer_ends_at_settings(self, logged_in_client, workspace_integration, offer_available):
+        client, user = logged_in_client
+
+        response = self._callback(client, user, workspace_integration, connect_mcp=False)
+
+        assert response.status_code == 302
+        assert response["Location"].startswith("/settings/user-personal-integrations?slack_link_success=1")
+
+    def test_withdrawn_offer_ends_at_settings_instead_of_a_dead_end(self, logged_in_client, workspace_integration):
+        # The offer can disappear between the consent screen and the callback. Sending the
+        # browser on anyway would answer a linked user with raw API JSON.
+        client, user = logged_in_client
+
+        with patch("products.mcp_store.backend.facade.api.slack_connect_offer", return_value=None):
+            response = self._callback(client, user, workspace_integration, connect_mcp=True)
+
+        assert response.status_code == 302
+        assert response["Location"].startswith("/settings/user-personal-integrations?slack_link_success=1")

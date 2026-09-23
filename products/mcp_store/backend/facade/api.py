@@ -9,11 +9,15 @@ import uuid
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 from django.db.models import Q
 
 import structlog
+
+from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.user_permissions import UserPermissions
 
 from products.mcp_store.backend.agents import (
     built_in_agent_key_for_task_origin,
@@ -27,7 +31,12 @@ from products.mcp_store.backend.connector_approvals import (
     consume_connector_approval,
     issue_connector_approval,
 )
-from products.mcp_store.backend.facade.contracts import ActiveInstallation, ConnectorCallOutcome, ConnectorTool
+from products.mcp_store.backend.facade.contracts import (
+    ActiveInstallation,
+    ConnectorCallOutcome,
+    ConnectorTool,
+    SlackConnectOffer,
+)
 from products.mcp_store.backend.gateway import (
     agent_grant_owner_label,
     agent_grant_proxy_path,
@@ -38,9 +47,11 @@ from products.mcp_store.backend.models import (
     MCPMemberServerRevocation,
     MCPServerInstallation,
     MCPServerInstallationTool,
+    MCPServerTemplate,
     MCPServiceAccount,
     MCPServiceAccountServerAccess,
 )
+from products.mcp_store.backend.oauth_credentials import oauth_credentials_source_is_configured
 from products.mcp_store.backend.policy import GatewayCaller, PolicyContext, is_read_only_connector_tool
 from products.mcp_store.backend.proxy import record_tool_call_audit, resolve_call_decision, validate_installation_auth
 from products.mcp_store.backend.tools import ToolCallError, ToolsFetchError, call_upstream_tool
@@ -694,6 +705,58 @@ def call_member_server_tool(
         structured_content=result.get("structuredContent"),
         is_error=bool(result.get("isError")),
     )
+
+
+# Both the production Slack catalog entry and the internal development one point at the
+# same MCP URL, so the credential source is what tells them apart.
+SLACK_OAUTH_CREDENTIAL_SOURCES = ("slack_app", "slack_dev_app")
+
+
+def slack_connect_offer(team_id: int, user_id: int) -> SlackConnectOffer | None:
+    """The Slack MCP server this member can still connect, or ``None``.
+
+    ``None`` covers every reason the offer must not be made: the catalog entry
+    is suspended in this environment, its OAuth client has no credentials, the
+    member cannot reach the project, or the member is already connected. A
+    caller can therefore treat a result as safe to show without repeating the
+    checks.
+    """
+    template = (
+        MCPServerTemplate.available_for_team(team_id)
+        .filter(oauth_credentials_source__in=SLACK_OAUTH_CREDENTIAL_SOURCES)
+        .first()
+    )
+    if template is None or not template.oauth_metadata:
+        return None
+    if not oauth_credentials_source_is_configured(template.oauth_credentials_source):
+        return None
+
+    team = Team.objects.filter(id=team_id).select_related("organization").first()
+    user = User.objects.filter(id=user_id, is_active=True).first()
+    if team is None or user is None:
+        return None
+    # The authorization route needs project access. Without this check the
+    # member reaches a 403 from the API after the account link succeeded.
+    if UserPermissions(user=user).team(team).effective_membership_level is None:
+        return None
+
+    installation = MCPServerInstallation.objects.filter(
+        team_id=team_id, user_id=user_id, url=template.url, scope="personal"
+    ).first()
+    if installation is not None and _is_oauth_ready(installation):
+        return None
+
+    return SlackConnectOffer(template_id=str(template.id), server_name=template.name)
+
+
+def connect_authorize_path(team_id: int, template_id: str, *, return_path: str) -> str:
+    """Browser path that starts a member's OAuth grant for a catalog server.
+
+    ``return_path`` must be a relative in-app path; the route sends the browser
+    there after the grant, with ``oauth_complete`` or ``oauth_error`` added.
+    """
+    query = urlencode({"template_id": template_id, "return_path": return_path})
+    return f"/api/projects/{team_id}/mcp_server_installations/authorize/?{query}"
 
 
 def member_server_hosts(team_id: int, user_id: int) -> list[str]:

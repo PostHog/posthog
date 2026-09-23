@@ -437,6 +437,13 @@ export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
 
             if (params.has('slack_link_success')) {
                 lemonToast.success('Slack connected.')
+                // Only set when the account link chained into the Slack MCP grant, so the
+                // second result gets its own toast instead of a silent success or failure.
+                if (params.has('oauth_complete')) {
+                    lemonToast.success('Slack search connected for PostHog AI.')
+                } else if (params.has('oauth_error')) {
+                    lemonToast.error('Slack search was not connected. You can connect it in MCP servers settings.')
+                }
             } else if (params.has('slack_link_error')) {
                 const reason = params.get('slack_link_error') ?? ''
                 lemonToast.error(SLACK_LINK_ERROR_MESSAGES[reason] ?? SLACK_LINK_ERROR_FALLBACK)
