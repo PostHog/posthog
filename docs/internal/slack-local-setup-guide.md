@@ -309,6 +309,12 @@ Tokens from the development app cannot be transferred to the production app.
 
 ## Troubleshooting
 
+### Channel selection
+
+Paste a Slack channel ID into the channel picker to select that channel.
+The picker shows the channel name when the lookup succeeds, without requiring you to click outside the input.
+Click the selected channel in the list to clear the search text.
+
 The walls we actually hit and fixed:
 
 | Symptom                                                              | Cause / fix                                                                                                                                      |
