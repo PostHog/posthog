@@ -10,6 +10,12 @@ const meta: Meta<typeof MarketingQueryError> = {
         queryId: '00000000-0000-4000-8000-000000000001',
         onRetry: () => {},
     },
+    render: (args) => (
+        // A 960 px scene prevents component snapshots from collapsing the banner's container query.
+        <div className="w-[60rem] max-w-full">
+            <MarketingQueryError {...args} />
+        </div>
+    ),
 }
 export default meta
 type Story = StoryObj<typeof meta>
