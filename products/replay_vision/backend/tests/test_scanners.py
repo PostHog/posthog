@@ -863,12 +863,12 @@ class TestSignalSideMission:
 
     def test_mission_excludes_signals_step_by_default(self) -> None:
         scanner = scanner_from_db(_build_replay_scanner())
-        assert [s.name for s in scanner.mission_steps()] == ["core", "media"]
+        assert [s.name for s in scanner.mission_steps()] == ["core"]
         assert _signals_step(scanner) is None
 
     def test_mission_appends_signals_step_when_emitting(self) -> None:
         scanner = scanner_from_db(_build_replay_scanner(emits_signals=True))
-        step = scanner.mission_steps()[-2]
+        step = scanner.mission_steps()[-1]
         assert step.name == "signals"
         assert step.response_model is SignalsResponse
         # The side mission is best-effort: a failed signals turn must not sink the scan.
@@ -879,7 +879,7 @@ class TestSignalSideMission:
         scanner = scanner_from_db(
             _build_replay_scanner(scanner_type=scanner_type, scanner_config=config, emits_signals=True)
         )
-        assert scanner.mission_steps()[-2].name == "signals"
+        assert scanner.mission_steps()[-1].name == "signals"
 
     @pytest.mark.parametrize("start_time, end_time", [(0, 0), (72, 72), (72, 78)])
     def test_signals_parse_and_assemble_alongside_output(self, start_time: int, end_time: int) -> None:
