@@ -51,6 +51,13 @@ Name every unmatched SDK in the report.
 When an unmatched row has `category: "server"`, take step 3: an unread server SDK is the case that breaks both steps, because it may send its flag calls without a device ID and may evaluate them locally.
 Otherwise keep the step's choice and drop the tier to "best guess", naming the SDK that was not checked.
 
+Both lists are capped, so read how many rows came back before you trust a match.
+`target_surface.libs` holds at most the 5 SDKs with the most people on the surface, and the response carries no flag for what the cap dropped.
+Fewer than 5 rows is therefore the whole list and the check above is conclusive; exactly 5 rows can hide a further SDK, a server one included.
+On exactly 5 rows, say the list is at its cap and drop the tier to "best guess" even when every row matched, because "no unmatched SDK" is then unproven rather than true.
+`sdk_profile.libs` is capped at 10 and does report it, in `sdk_profile.libs_truncated`.
+When that is true, an SDK can read as unmatched only because its own row was dropped, so name the cap alongside it. The cap cannot add a bad matching row, so steps 1 and 2 stay safe on the rows that did come back.
+
 If `sdk_profile.libs` is empty, or no row matches a `lib` in `target_surface.libs`, read `sdk_profile.libs_on_any_event`.
 It names the platforms the project sends from, which settles one case and no other: a project that sends only from mobile SDKs can never reach the share step 1 needs, so the choice there is persistence or user-id bucketing.
 Every other platform mix stays open, a server-only project included. A server SDK that forwards the browser's device ID puts one on every flag call, and this fallback cannot see whether it does.
@@ -100,9 +107,10 @@ Every conversion window carries a unit (`conversion_window_unit`). A window with
 
 ### Follow the project's metric shape
 
-Read `previous_experiments.experiments[].primary_metric_types`. Leave out every row whose list is empty: those experiments carry no primary metric, and reading them as a metric shape counts a draft nobody finished as a decision.
-When at least four in five of the rows that remain use one type, propose that shape unless the request asks for something else, and say you followed precedent. A project that measures every test as a funnel gets a funnel.
-Fewer than three rows with a metric is not a precedent. Say the project has too few experiments to read one.
+Read `previous_experiments.experiments[].primary_metric_types`. It carries one entry per primary metric, so an experiment with two primary metrics of different types carries both.
+A row counts only when its list is not empty and every entry in it is the same type, and that type is the row's shape. An empty row ran no primary metric, and a mixed row made two different choices, so neither votes.
+Count the rows that qualify. Fewer than three is not a precedent: say the project has too few experiments to read one.
+From three qualifying rows up, propose the type held by at least 80% of them - 3 of 3, 4 of 4, 4 of 5 - unless the request asks for something else. Say you followed precedent and out of how many experiments. A project that measures every test as a funnel gets a funnel.
 
 Then read `previous_experiments.experiments[].primary_metric_events`. When the event you picked already appears on a row, say which experiment measured it and as what, reading `primary_metric_types` on the same row. Tier: best guess.
 
