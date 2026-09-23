@@ -114,7 +114,7 @@ def _delete_orphaned_integration(integration: OrganizationIntegration) -> None:
     resource_ids = list(resources.values_list("pk", flat=True))
 
     with transaction.atomic():
-        Integration.objects.filter(pk__in=resource_ids).delete()
+        resources.filter(pk__in=resource_ids).delete()
         integration.delete()
 
 
