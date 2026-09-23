@@ -416,6 +416,28 @@ class TestFetchReportIdsForSearchTerms(_SignalEmbeddingsTestBase):
         # only one of them would hide the duplicate the caller is looking for.
         assert fetch_report_ids_for_search_terms(self.team, ["toronto", "checkout"]) == set()
 
+    def test_only_the_latest_wording_of_a_signal_decides_the_match(self) -> None:
+        # The dedup is bounded to documents that ever held a term, so a stale version is what
+        # brings a document into the scan. Deciding the match on it would surface a report whose
+        # current evidence no longer says the thing the caller searched for.
+        self._emit_version(
+            document_id="reworded",
+            report_id="rReworded",
+            source_product="errors",
+            inserted_at=self.base,
+            content="Checkout errors in Toronto",
+        )
+        self._emit_version(
+            document_id="reworded",
+            report_id="rReworded",
+            source_product="errors",
+            inserted_at=self.base + timedelta(hours=1),
+            content="Checkout errors in Montreal",
+        )
+
+        assert fetch_report_ids_for_search_terms(self.team, ["montreal"]) == {"rReworded"}
+        assert fetch_report_ids_for_search_terms(self.team, ["toronto"]) == set()
+
 
 class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):
     def _signal_ids(self, report_id: str) -> set[str]:

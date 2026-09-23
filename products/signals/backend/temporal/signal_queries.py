@@ -831,6 +831,14 @@ def fetch_report_ids_for_search_terms(team: Team, terms: list[str]) -> set[str]:
     # no term touches.
     any_term = " OR ".join(term_matches)
     every_term = "\n           AND ".join(f"countIf({match}) > 0" for match in term_matches)
+    # Bound the dedup to the documents that ever held one of the terms. The inbox runs this per
+    # typed search across every section, and the unbounded form holds argMax state for the team's
+    # whole signal history. The outer test still reads the deduped row, so a signal reworded away
+    # from a term is picked up by this scan and dropped there.
+    candidate_terms = " OR ".join(
+        f"(content ILIKE {{term_{index}}} OR JSONExtractString(metadata, 'source_id') ILIKE {{term_{index}}})"
+        for index in range(len(terms))
+    )
     ch_query = f"""
         SELECT report_id
         FROM (
@@ -840,7 +848,7 @@ def fetch_report_ids_for_search_terms(team: Team, terms: list[str]) -> set[str]:
                 JSONExtractString(metadata, 'source_id') as source_id,
                 content as description,
                 timestamp
-            FROM ({_deduped_signals_subquery()})
+            FROM ({_deduped_signals_subquery(candidate_document_filter=f"({candidate_terms})")})
         )
         WHERE NOT is_deleted
           AND report_id != ''
