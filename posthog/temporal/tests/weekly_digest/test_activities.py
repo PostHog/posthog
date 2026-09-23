@@ -13,6 +13,7 @@ from django.utils import timezone
 
 import fakeredis
 from asgiref.sync import sync_to_async
+from temporalio import activity
 
 from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import Organization, OrganizationMembership
@@ -24,6 +25,7 @@ from posthog.session_recordings.models.session_recording_playlist import Session
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.temporal.weekly_digest.activities import (
     NEW_ERROR_ISSUES_PER_TEAM_LIMIT,
+    ActivityCancelled,
     _cut_team_id_ranges,
     _query_team_usage_trends,
     _redis_url,
@@ -539,6 +541,36 @@ def test_send_weekly_digest_batch_emails_subscribed_members_once(
         "product_path": "Error tracking",
         "reason_text": DEFAULT_PRODUCT_SUGGESTION_TEXT,
     }
+
+
+@activity.defn(name="send-weekly-digest-batch-body", no_thread_cancel_exception=True)
+def send_weekly_digest_batch_body(input: SendWeeklyDigestBatchInput) -> None:
+    # Runs the sync body under a test activity context. Without the thread cancel exception, cancelling
+    # only sets the cancellation event, which is all a worker thread behind `@asyncify` receives.
+    inspect.unwrap(send_weekly_digest_batch)(input)
+
+
+@pytest.mark.django_db
+def test_send_weekly_digest_batch_stops_sending_once_the_activity_is_cancelled(
+    activity_environment, organization, team, redis_servers, common_input, digest
+):
+    members = [create_user(organization, f"member-{index}@example.com") for index in range(3)]
+    redis_servers.digest.set(org_digest_key(digest.key, organization.id), _org_digest_json(organization, team))
+    for member in members:
+        redis_servers.digest.sadd(user_data_key(digest.key, UserDataKey.NOTIFY_TEAMS, member.id), team.id)
+    ph_client = MagicMock()
+    ph_client.capture.side_effect = lambda **_: activity_environment.cancel()
+
+    with (
+        patch("posthog.temporal.weekly_digest.activities.get_ph_client", return_value=ph_client),
+        pytest.raises(ActivityCancelled),
+    ):
+        activity_environment.run(
+            send_weekly_digest_batch_body, _send_input(organization, digest, common_input, dry_run=False)
+        )
+
+    assert ph_client.capture.call_count == 1
+    assert MessagingRecord.objects.get(campaign_key=digest.key).sent_at is not None
 
 
 @pytest.mark.parametrize(
