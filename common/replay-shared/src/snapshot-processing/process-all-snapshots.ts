@@ -55,6 +55,7 @@ function extractImgNodeFromMobileIncremental(snapshot: RecordingSnapshot): any |
             node.type === 2 &&
             node.tagName === 'img' &&
             node.attributes?.['data-rrweb-id'] &&
+            node.attributes?.['data-rrweb-mobile-screenshot'] === 'true' &&
             node.attributes?.width &&
             node.attributes?.height
         ) {
