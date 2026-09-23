@@ -1472,6 +1472,20 @@ class TestHyperCacheSetCacheValueRedisOnly(BaseTest):
         assert hc.get_from_cache(self.team.api_token) == self.sample_data
 
     @patch("posthog.storage.hypercache.get_client")
+    def test_an_explicit_ttl_sets_the_expiry_score(self, mock_get_client):
+        mock_redis = Mock()
+        mock_get_client.return_value = mock_redis
+
+        hc = self._make_hypercache()
+        with patch("posthog.storage.hypercache.time.time", return_value=1_000_000):
+            hc.set_cache_value_redis_only(self.team, self.sample_data, ttl=900, track_expiry=True)
+
+        # The refresh sweep staggers entries by varying this ttl. A score that fell back to
+        # cache_ttl would leave the sorted set flat, and the sweep selects on the score.
+        _, member_map = mock_redis.zadd.call_args[0]
+        assert member_map == {str(self.team.api_token): 1_000_900}
+
+    @patch("posthog.storage.hypercache.get_client")
     def test_default_does_not_track_expiry(self, mock_get_client):
         hc = self._make_hypercache()
         hc.set_cache_value_redis_only(self.team, self.sample_data)
