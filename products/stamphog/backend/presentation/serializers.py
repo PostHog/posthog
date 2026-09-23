@@ -309,7 +309,7 @@ class StamphogAvailableRepositoriesSerializer(serializers.Serializer):
         help_text=(
             "Whether a project member connected a GitHub installation yet. False means GitHub must be "
             "connected before any repository can be added. True with a total_count of 0 and no search "
-            "means every repository is already added."
+            "means no repository is left to add."
         ),
     )
 

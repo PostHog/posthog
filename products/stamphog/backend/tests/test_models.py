@@ -144,8 +144,10 @@ class TestInstallationMigrations(StamphogTeamScopedTestMixin, APIBaseTest):
                 ("acme/unused", "1", False, 7),
                 ("acme/with-history", "1", False, None),
                 ("acme/placeholder", "", False, None),
+                ("acme/label-mode", "1", False, None),
             ]
         }
+        StamphogRepoConfig.objects.unscoped().filter(id=rows["acme/label-mode"].id).update(review_mode="label")
         for day, name in enumerate(rows, start=1):
             StamphogRepoConfig.objects.unscoped().filter(id=rows[name].id).update(
                 updated_at=datetime(2026, 1, day, tzinfo=UTC)
@@ -159,8 +161,13 @@ class TestInstallationMigrations(StamphogTeamScopedTestMixin, APIBaseTest):
 
         installation = StamphogInstallation.objects.unscoped().get(team_id=self.team.id)
         assert installation.installation_id == "1"
-        assert installation.repositories == ["acme/reviewed", "acme/unused", "acme/with-history"]
+        assert installation.repositories == ["acme/label-mode", "acme/reviewed", "acme/unused", "acme/with-history"]
         # The newest non-null connector, which the newer row with no connector does not overwrite.
         assert installation.connected_by_user_id == 7
         remaining = StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id)
-        assert sorted(remaining.values_list("repository", flat=True)) == ["acme/reviewed", "acme/with-history"]
+        assert sorted(remaining.values_list("repository", flat=True)) == [
+            "acme/label-mode",
+            "acme/placeholder",
+            "acme/reviewed",
+            "acme/with-history",
+        ]

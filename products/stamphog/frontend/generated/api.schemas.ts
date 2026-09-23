@@ -248,7 +248,7 @@ export interface StamphogAvailableRepositoriesApi {
     readonly repositories: readonly string[]
     /** How many repositories match the search in total, before limit applies. */
     readonly total_count: number
-    /** Whether a project member connected a GitHub installation yet. False means GitHub must be connected before any repository can be added. True with a total_count of 0 and no search means every repository is already added. */
+    /** Whether a project member connected a GitHub installation yet. False means GitHub must be connected before any repository can be added. True with a total_count of 0 and no search means no repository is left to add. */
     readonly has_installation: boolean
 }
 
