@@ -509,6 +509,23 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                 expected: { snapshotsInvalid: true, isRecentAndInvalid: true, isOldAndInvalid: false },
             },
             {
+                // A recording longer than the grace period is still ingesting its tail long after
+                // its start has aged out, so the start cannot be what the grace is measured from.
+                case: 'a long recording whose tail is still fresh is recent and invalid',
+                mocks: () => {
+                    const oldStart = dayjs().subtract(30, 'minute')
+                    return {
+                        jsonLines: incrementalOnlySnapshotsAsJSONLines(oldStart.valueOf()),
+                        metaOverride: {
+                            ...recordingMetaJson,
+                            start_time: oldStart.toISOString(),
+                            end_time: dayjs().subtract(1, 'minute').toISOString(),
+                        },
+                    }
+                },
+                expected: { snapshotsInvalid: true, isRecentAndInvalid: true, isOldAndInvalid: false },
+            },
+            {
                 case: 'a recording with a full snapshot is valid',
                 mocks: () => ({ jsonLines: snapshotsAsJSONLines() }),
                 expected: { snapshotsInvalid: false, isRecentAndInvalid: false, isOldAndInvalid: false },

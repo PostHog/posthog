@@ -110,8 +110,9 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         isRecordingDeleted,
         recordingDeletedAt,
         recordingDeletedBy,
+        snapshotCheckState,
     } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
-    const { loadSnapshots } = useActions(sessionRecordingDataCoordinatorLogic(logicProps))
+    const { checkForNewSnapshots } = useActions(sessionRecordingDataCoordinatorLogic(logicProps))
 
     const { isPlaylistCollapsed, showMetadataFooter } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
@@ -369,14 +370,11 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                                 The snapshot of the screen taken when this recording started never
                                                 reached PostHog, so there is nothing to play back. This usually happens
                                                 when the browser is closed or goes offline before the recording finishes
-                                                uploading.{' '}
+                                                uploading. Reloading won't bring the data back.{' '}
                                                 <Link to="https://posthog.com/docs/session-replay/troubleshooting">
                                                     Learn more
                                                 </Link>
                                             </p>
-                                            <LemonButton type="secondary" onClick={loadSnapshots}>
-                                                Reload
-                                            </LemonButton>
                                         </>
                                     ) : (
                                         <>
@@ -384,11 +382,21 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                             <h1>We're still working on it</h1>
                                             <p className="max-w-120">
                                                 This recording hasn't been fully ingested yet. It should be ready to
-                                                watch in a few minutes.
+                                                watch in a few minutes, and the player picks it up on its own once the
+                                                data arrives.
                                             </p>
-                                            <LemonButton type="secondary" onClick={loadSnapshots}>
-                                                Reload
+                                            <LemonButton
+                                                type="secondary"
+                                                onClick={checkForNewSnapshots}
+                                                loading={snapshotCheckState === 'checking'}
+                                            >
+                                                Check for new data
                                             </LemonButton>
+                                            {snapshotCheckState === 'checked' ? (
+                                                <p className="text-secondary text-sm mt-2">
+                                                    No new data has arrived yet.
+                                                </p>
+                                            ) : null}
                                         </>
                                     )}
                                 </div>

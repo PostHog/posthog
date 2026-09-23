@@ -14,7 +14,7 @@ const HARD_REFRESH_AFTER_RECORDINGS = 50
 const MAX_RECORDING_PLAY_TIME_MS = 5 * 60 * 1000 // 5 minutes
 const RETRY_DELAY_MS = 5000
 // Skip recordings still inside the player's "still working on it" window
-// (sessionRecordingDataCoordinatorLogic.isRecentAndInvalid: start < 5 min ago).
+// (sessionRecordingDataCoordinatorLogic.isRecentAndInvalid: end < 5 min ago).
 // 10 min gives a buffer for ingestion to settle.
 const INGESTION_GRACE_DATE_TO = '-600s'
 
