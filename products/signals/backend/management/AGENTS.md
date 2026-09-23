@@ -148,7 +148,7 @@ Output buckets per team: `created`, `updated`, `diverged` (team-edited or hand-a
 
 ### Pre-computed scout suggestions
 
-`run_scout_suggestions` drives the headless "Suggested for this project" scan (`../scout_harness/suggestions.py`) without waiting for its Temporal coordinator. `--team-id` runs the scan inline for one team (bypassing the planner and its cap; the org still needs AI data processing approved) and prints the stored batch; `--show` prints the stored batch without running; `--plan` prints what the coordinator would dispatch on the next tick under the current `signals-scout-suggestions` flag payload.
+`run_scout_suggestions` drives the headless "Suggested for this project" scan (`../scout_harness/suggestions.py`) without waiting for its Temporal coordinator. `--team-id` runs the scan inline for one team (bypassing the planner and its cap; the org still needs AI data processing approved) and prints the stored batch; `--show` prints the stored batch without running; `--plan` prints what the coordinator would dispatch on the next tick under the current `signals-scout-suggestions` flag payload, and runs the dispatch-time activity check too, so it stamps `low_activity` on the projects it rules out exactly as the tick would.
 
 ```bash
 # Generate (or regenerate) the batch for one team now, then print it
