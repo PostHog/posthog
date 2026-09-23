@@ -19,13 +19,13 @@ from temporalio.testing import ActivityEnvironment
 from posthog.conftest import create_clickhouse_tables
 from posthog.models import Organization, Team
 from posthog.models.integration import Integration
-from posthog.models.team.util import delete_batch_exports
 from posthog.models.utils import uuid7
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import configure_logger
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
+from products.batch_exports.backend.facade.api import delete_batch_exports_for_teams
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
 from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
@@ -103,7 +103,7 @@ def team(organization):
     team.save()
 
     yield team
-    delete_batch_exports(team_ids=[team.pk])
+    delete_batch_exports_for_teams([team.pk])
     team.delete()
 
 
@@ -123,7 +123,7 @@ async def ateam(aorganization):
     team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
 
     yield team
-    await sync_to_async(delete_batch_exports)(team_ids=[team.pk])
+    await sync_to_async(delete_batch_exports_for_teams)([team.pk])
     await sync_to_async(team.delete)()
 
 
@@ -133,7 +133,7 @@ async def another_ateam(aorganization):
     team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
 
     yield team
-    await sync_to_async(delete_batch_exports)(team_ids=[team.pk])
+    await sync_to_async(delete_batch_exports_for_teams)([team.pk])
     await sync_to_async(team.delete)()
 
 
