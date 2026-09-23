@@ -153,10 +153,12 @@ urlpatterns = [
         name="user_interviews_start_call",
     ),
     path("api/sdk_health/", sdk_health),
+    # Conversations serves its widget and channel API from backend/api/, which its routes module
+    # may not import (import-linter contract "routes must only import presentation"), so the mount
+    # stays here until those views move into presentation/.
     path("api/conversations/", include("products.conversations.backend.api.urls")),
     # Routes the security hub calls from outside the cluster (auth: scoped service JWT)
     path("api/security/", include(security_hub_urlpatterns)),
-    path("api/customer_analytics/", include("products.customer_analytics.backend.presentation.views.urls")),
     path(
         "api/projects/<int:parent_lookup_team_id>/mcp_analytics/",
         include("products.mcp_analytics.backend.presentation.urls"),
@@ -296,8 +298,8 @@ urlpatterns = [
         HogliClientMetadataView.as_view(),
         name="hogli-client-metadata",
     ),
-    # The one slot for root routes products declare themselves, after every core route and before
-    # the API fallback and the frontend catch-all. See docs/internal/url-routing.md.
+    # The one slot for root routes products declare themselves, after every core api/ route and
+    # before the API fallback and the frontend catch-all. See docs/internal/url-routing.md.
     *ProductRootRoutes.collect(),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
@@ -335,6 +337,7 @@ urlpatterns = [
     opt_slash_path(".well-known/http-message-signatures-directory", http_message_signatures_directory),
     # auth
     opt_slash_path("logout", authentication.logout, name="logout"),
+    opt_slash_path("reauth/complete", authentication.sso_reauth_complete, name="sso_reauth_complete"),
     path(
         "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license
