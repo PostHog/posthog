@@ -1451,8 +1451,13 @@ class TestLocalEvaluationBatch(BaseTest):
             ({"groups": [{"properties": {}}]}, False),
             ({"groups": [{"properties": {}}]}, True),
         ]
+        + [
+            ({"groups": [{"properties": [{"type": "cohort", "key": "id", "value": value}]}]}, deleted)
+            for value in ("not-an-id", None, [7])
+            for deleted in (False, True)
+        ]
     )
-    def test_batch_malformed_stored_root_keeps_other_teams(self, filters: Any, deleted: bool) -> None:
+    def test_batch_malformed_stored_config_keeps_other_teams(self, filters: Any, deleted: bool) -> None:
         other = self._create_team_with_project("Independent")
         bad = FeatureFlag.objects.create(team=self.team, key="malformed", filters={})
         FeatureFlag.objects.filter(pk=bad.pk).update(filters=filters, deleted=deleted)

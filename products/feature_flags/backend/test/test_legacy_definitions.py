@@ -32,6 +32,10 @@ class TestLegacyDefinitions(SimpleTestCase):
             (f"dependency_{key}", {"groups": [{"properties": [{"type": "flag", "key": key}]}]})
             for key in (None, True, False, 7.0, [7], {"id": 7})
         ]
+        + [
+            (f"cohort_{value}", {"groups": [{"properties": [{"type": "cohort", "key": "id", "value": value}]}]})
+            for value in (None, "not-an-id", "", "7.5", [7], {"id": 7})
+        ]
     )
     def test_excludes_invalid_targets_and_transitive_dependents(self, _name: str, filters: Any) -> None:
         flags = [
@@ -113,6 +117,8 @@ class TestLegacyDefinitions(SimpleTestCase):
             ("float", {"version": 1.0}),
             ("null_groups", {"groups": None}),
             ("null_properties", {"groups": [{"properties": None}]}),
+            ("integer_cohort", {"groups": [{"properties": [{"type": "cohort", "key": "id", "value": 7}]}]}),
+            ("string_cohort", {"groups": [{"properties": [{"type": "cohort", "key": "id", "value": "7"}]}]}),
         ]
     )
     def test_preserves_supported_values_and_order(self, _name: str, filters: Any) -> None:

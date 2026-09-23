@@ -33,6 +33,11 @@ def validate_legacy_filters(filters: object) -> None:
                     key = prop.get("key") if prop.get("type") == "flag" else ""
                     if isinstance(key, bool) or not isinstance(key, str | int):
                         raise ValueError("Invalid legacy flag dependency")
+                    if prop.get("type") == "cohort":
+                        try:
+                            int(prop.get("value"))
+                        except (TypeError, ValueError, OverflowError) as error:
+                            raise ValueError("Invalid legacy flag cohort reference") from error
     for field in ("payloads", "holdout"):
         if filters.get(field) is not None and not isinstance(filters[field], dict):
             raise ValueError("Invalid legacy flag configuration")

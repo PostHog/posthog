@@ -185,6 +185,7 @@ Only absent or numeric version 1 configurations enter the legacy feed.
 Classification includes inactive and deleted targets before existing lifecycle filtering omits them.
 Unsupported formats are expected exclusions; malformed flags increment `posthog_flag_definitions_processing_error`.
 A malformed flag or reachable cohort removes the affected flag and its transitive dependents while independent flags remain available.
+Direct cohort references that cannot be parsed as integers make the flag malformed and are rejected before cohort extraction.
 Dependencies on excluded targets are omitted even when the condition expects false.
 An inconclusive dependency does not always force an SDK to use server evaluation: a later condition can return a different variant.
 For example, if the first condition selects `blue` when the target is true and the next always selects `green`, omitting only the target can make the SDK return `green` instead of `blue`.
