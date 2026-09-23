@@ -194,7 +194,9 @@ A refusal writes nothing to GitHub and creates no run, so it cannot leave or rem
   Never list an installation's repositories with the installation token for this: an outside
   collaborator on one repository can reach the installation, and that token shows every private
   repository in it. The snapshot is a union across members' syncs, and only the removal and
-  uninstall webhooks shrink it.
+  uninstall webhooks shrink it. A `repositories_added` webhook never grows it: the webhook carries
+  no user, so nobody on the team proved access to that repository. It becomes addable when a member
+  syncs again.
 - Review policy is read from the repo's **default branch**, never the PR head — a PR must not be
   able to rewrite the policy that gates it. Same for the `digest:` channel declaration and the
   root `owners.yaml` team registry the digest routes through.

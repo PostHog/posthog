@@ -90,7 +90,8 @@ class StamphogInstallation(ProductTeamModel):
     token, merged across syncs. It is not the installation's full repository list: an outside
     collaborator on one repository can reach the installation, and the installation token would
     show them every private repository in it. Only a repository in this snapshot can be added to
-    the team without a manual placeholder. Webhooks keep it current between syncs.
+    the team without a manual placeholder. A removal webhook shrinks it between syncs, and no webhook
+    grows it, because a webhook carries no user who proved access.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)

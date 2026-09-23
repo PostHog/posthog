@@ -1,9 +1,8 @@
 """Installation snapshots, the repositories a team can add to stamphog, and binding rows to them.
 
-A snapshot holds only repositories a member proved access to with their own GitHub token, plus
-the ones GitHub reports as added to an installation with a single owning team. Every write locks
-the installation row, because a sync and a webhook for the same installation can run at once and
-each one rewrites the whole list.
+A snapshot holds only repositories a member proved access to with their own GitHub token. Every
+write locks the installation row, because a sync and a webhook for the same installation can run at
+once and each one rewrites the whole list.
 """
 
 from __future__ import annotations
@@ -52,27 +51,6 @@ def record_installation_sync(
         installation.repositories = sorted(set(installation.repositories) | set(repositories))
         installation.connected_by_user_id = connected_by_user_id
         installation.save(update_fields=["repositories", "connected_by_user_id", "updated_at"])
-
-
-def add_to_installation_snapshot(team_id: int, installation_id: str, repositories: Iterable[str]) -> bool:
-    """Add repositories to an existing snapshot. Returns False when the team holds no record for it.
-
-    A webhook never creates the record: no member proved access to the installation through it.
-    """
-    write_db = _write_db()
-    with transaction.atomic(using=write_db):
-        installation = (
-            StamphogInstallation.objects.for_team(team_id)
-            .using(write_db)
-            .select_for_update()
-            .filter(provider="github", installation_id=installation_id)
-            .first()
-        )
-        if installation is None:
-            return False
-        installation.repositories = sorted(set(installation.repositories) | set(repositories))
-        installation.save(update_fields=["repositories", "updated_at"])
-    return True
 
 
 def remove_from_installation_snapshot(team_id: int, installation_id: str, repositories: Iterable[str]) -> None:

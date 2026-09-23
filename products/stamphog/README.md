@@ -55,7 +55,8 @@ Every other rule still applies: drafts, closed PRs, bot-authored PRs, PRs from o
 
 The repositories you can add are the ones a project member reached with their own GitHub account, not every repository the installation can reach.
 Each member who connects adds the repositories they can reach, and connecting again refreshes the list.
-Repositories added to or removed from the installation on GitHub update the list on their own, as long as one project holds the installation.
+Repositories removed from the installation on GitHub leave the list on their own.
+A repository added to the installation later shows up after a member connects again, because only a member's own GitHub account can prove they can reach it.
 
 Adding a repository, turning reviews back on, and the digest toggle need the `editor` level on the `stamphog` resource.
 Turning reviews off, removing a repository, and changing the review mode or trigger label need `manager`.

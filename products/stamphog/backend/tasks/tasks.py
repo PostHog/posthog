@@ -44,11 +44,7 @@ from products.stamphog.backend.logic.approval_retention import (
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
-from products.stamphog.backend.logic.installations import (
-    add_to_installation_snapshot,
-    delete_installation,
-    remove_from_installation_snapshot,
-)
+from products.stamphog.backend.logic.installations import delete_installation, remove_from_installation_snapshot
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger
 from products.stamphog.backend.models import (
     PullRequest,
@@ -945,20 +941,19 @@ def _disable_installation_repos(
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
 def process_installation_event(payload: dict[str, Any], delivery_id: str) -> None:
-    """Mirror installation lifecycle changes (repos added/removed, app uninstalled) onto snapshots and rows.
+    """Mirror installation lifecycle changes (repos removed, app uninstalled) onto snapshots and rows.
 
-    Without this, a repo added to the installation after the initial sync is not offered for adding
-    until a manual re-sync. `installation_repositories` payloads carry repositories_added/removed;
-    a plain `installation` event with action "deleted" means the app was uninstalled.
+    `installation_repositories` payloads carry repositories_added/removed; a plain `installation`
+    event with action "deleted" means the app was uninstalled.
 
     An installation's repos can be split across several teams, so removals and uninstalls fan out to
     EVERY owning team: the repos leave each snapshot, and their rows are tombstoned (rows and history
-    are kept). An uninstall also deletes each team's installation record. Adding a newly installed
-    repo to the snapshot, on the other hand, is only a convenience for the unambiguous single-team case.
-    When multiple teams share the installation, ownership is ambiguous — adding could offer the repo
-    to a team its adder never intended — so the add is skipped and left to the authenticated sync flow,
-    which verifies the acting user's repo access. An add creates no row, so enabling reviews stays a
-    human decision.
+    are kept). An uninstall also deletes each team's installation record.
+
+    A repo added on GitHub changes nothing. The snapshot holds only repos a member proved access to
+    with their own GitHub token, and a webhook carries no user. An outside collaborator on one repo
+    can connect the installation, so adding every later repo to their team's snapshot would let that
+    team review private repos nobody on it can see. The repo becomes addable when a member syncs again.
     """
     if delivery_id and _is_duplicate_pr_event(delivery_id):
         logger.info("stamphog_installation_event_duplicate_skipped", delivery_id=delivery_id)
@@ -983,25 +978,17 @@ def process_installation_event(payload: dict[str, Any], delivery_id: str) -> Non
 
     action = payload.get("action", "")
     # Retry on failure like the review path: the webhook is already ACKed, so a transient product-DB
-    # blip during the config mutations must not permanently drop the lifecycle event (a repo added on
-    # GitHub would then never be offered for adding until a manual re-sync). Mark the delivery
+    # blip during the config mutations must not permanently drop the lifecycle event (a repo removed
+    # on GitHub would then stay live and addable). Mark the delivery
     # processed only after the mutations succeed, so a retried delivery still does its work.
     try:
         if "repositories_added" in payload or "repositories_removed" in payload:
-            added = payload.get("repositories_added") or []
-            added_names = [name for repo in added if (name := (repo or {}).get("full_name"))]
-            if added_names:
-                if len(team_ids) == 1:
-                    if not add_to_installation_snapshot(team_ids[0], installation_id, added_names):
-                        # Only bound rows name this team, so no member proved access through a sync yet.
-                        logger.info("stamphog_installation_repo_add_unrecorded", installation_id=installation_id)
-                else:
-                    # Ambiguous ownership: skip the auto-add, defer to the authenticated sync flow.
-                    logger.info(
-                        "stamphog_installation_repo_add_ambiguous",
-                        installation_id=installation_id,
-                        team_count=len(team_ids),
-                    )
+            if payload.get("repositories_added"):
+                logger.info(
+                    "stamphog_installation_repos_added_awaiting_sync",
+                    installation_id=installation_id,
+                    added=len(payload["repositories_added"]),
+                )
             removed = payload.get("repositories_removed") or []
             names = [name for repo in removed if (name := (repo or {}).get("full_name"))]
             for team_id in team_ids:

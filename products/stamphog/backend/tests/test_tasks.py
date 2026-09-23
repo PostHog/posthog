@@ -692,23 +692,16 @@ def _record_installation(team_id: int, repositories: list[str]) -> StamphogInsta
         )
 
 
-@pytest.mark.parametrize("keep_bound_row", [True, False], ids=["with_a_bound_row", "through_the_record_alone"])
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_installation_repos_added_extend_the_snapshot_without_rows(team, repo_config, keep_bound_row):
-    # A repo added on GitHub must be offered for adding without a manual re-sync, but it must not start
-    # reviewing on its own, so it goes into the snapshot and no row is created. A team that has added
-    # no repository yet is found through its installation record.
+def test_installation_repos_added_leave_the_snapshot_alone(team, repo_config):
+    # The webhook carries no user, so no member proved access to the new repo. An outside collaborator
+    # who connected the installation would otherwise be offered every private repo installed later.
     installation = _record_installation(team.id, [REPO])
-    if not keep_bound_row:
-        with team_scope(team.id):
-            StamphogRepoConfig.objects.filter(id=repo_config.id).delete()
 
-    process_installation_event(
-        _installation_payload(action="added", added=["acme/new-repo", REPO]), f"delivery-inst-added-{keep_bound_row}"
-    )
+    process_installation_event(_installation_payload(action="added", added=["acme/new-repo"]), "delivery-inst-added")
 
     installation.refresh_from_db()
-    assert installation.repositories == sorted(["acme/new-repo", REPO])
+    assert installation.repositories == [REPO]
     assert not StamphogRepoConfig.objects.unscoped().filter(repository="acme/new-repo").exists()
 
 
@@ -815,26 +808,6 @@ def test_installation_uninstall_tombstones_every_owning_team(team, repo_config):
         assert log.detail is not None
         enabled_change = next(change for change in log.detail["changes"] if change["field"] == "enabled")
         assert (enabled_change["before"], enabled_change["after"]) == (True, False)
-
-
-@pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_installation_repos_added_skips_when_installation_spans_multiple_teams(team, repo_config):
-    # Ambiguous ownership: two teams share the installation, so auto-binding a newly added repo could
-    # attach it to a team its adder never intended. The webhook add is skipped and left to the
-    # authenticated sync flow — neither team's snapshot changes and no row is created.
-    installation = _record_installation(team.id, [REPO])
-    second_team = _make_second_team(team.organization)
-    with team_scope(second_team.id):
-        StamphogRepoConfig.objects.create(
-            team_id=second_team.id, repository="acme/other", installation_id=INSTALLATION_ID
-        )
-
-    payload = _installation_payload(action="added", added=["acme/brand-new"])
-    process_installation_event(payload, "delivery-multi-add")
-
-    assert StamphogRepoConfig.objects.unscoped().filter(repository="acme/brand-new").exists() is False
-    installation.refresh_from_db()
-    assert installation.repositories == [REPO]
 
 
 def _selfdriving_payload(**overrides: Any) -> dict[str, Any]:
