@@ -1,7 +1,7 @@
 import { ASYNC_STL, BYTECODE_STL, STL } from '@posthog/hogvm'
 
 import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent } from '../../types'
-import { HogFunctionInvocationGlobals } from '../types'
+import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs } from '../types'
 import { convertClickhouseRawEventToFilterGlobals, convertToHogFunctionFilterGlobal } from './hog-function-filtering'
 
 /** Where Django reads the result. Relative to the repository root. */
@@ -18,6 +18,23 @@ export type FilterRuntime = {
      * the argument count the VM enforces as [min, max]. A null max means unbounded.
      */
     functions: Record<string, [number, number | null]>
+    /** Root names an input template can read: the union of what every invocation path puts in globals. */
+    template_roots: string[]
+}
+
+// A key added to HogFunctionInvocationGlobals has to be added here or the build fails.
+const templateRoots: Record<keyof HogFunctionInvocationGlobalsWithInputs, true> = {
+    project: true,
+    source: true,
+    event: true,
+    person: true,
+    groups: true,
+    request: true,
+    unsubscribe_url: true,
+    unsubscribe_url_one_click: true,
+    actions: true,
+    variables: true,
+    inputs: true,
 }
 
 // These stand for the callers of compile_filters_bytecode: hog function filters, evaluated by the two
@@ -102,7 +119,7 @@ export function describeFilterRuntime(): FilterRuntime {
             `Suspiciously small runtime description: ${fromInvocation.length} roots, ${callables.length} callables`
         )
     }
-    return { roots: fromInvocation, callables, functions }
+    return { roots: fromInvocation, callables, functions, template_roots: Object.keys(templateRoots).sort() }
 }
 
 export function renderFilterGlobalsFile(runtime: FilterRuntime): string {
@@ -114,11 +131,13 @@ export function renderFilterGlobalsFile(runtime: FilterRuntime): string {
                     'roots are the data globals the CDP filter runtime builds for a hog function. callables are ' +
                     'the standard-library names the VM hands back as values and can then invoke, so they are the ' +
                     'ones a filter can pass as a callback. functions are every standard-library name a filter can ' +
-                    'call directly, with the argument count the VM enforces as [min, max]. Django reads this to ' +
-                    'refuse a filter the runtime could not evaluate.',
+                    'call directly, with the argument count the VM enforces as [min, max]. template_roots are the ' +
+                    'names an input template can read. Django reads this to refuse a filter or an input the ' +
+                    'runtime could not evaluate.',
                 roots: runtime.roots,
                 callables: runtime.callables,
                 functions: runtime.functions,
+                template_roots: runtime.template_roots,
             },
             null,
             // Matches what the pre-commit hook (bin/hogli format:yaml) writes, so a regenerate is a no-op.

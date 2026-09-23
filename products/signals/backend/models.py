@@ -3128,6 +3128,8 @@ class SignalScoutSuggestionSet(TeamScopedRootMixin, UUIDModel):
         FAILED = "failed", "Failed"
         # The last generation completed and found nothing worth suggesting.
         EMPTY = "empty", "Empty"
+        # The project was too quiet in the activity window to be worth a scan, so none ran.
+        LOW_ACTIVITY = "low_activity", "Low activity"
 
     # See SignalScoutConfig.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012
