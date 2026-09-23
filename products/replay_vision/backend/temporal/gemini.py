@@ -59,14 +59,12 @@ def describe_gemini_error(error: BaseException) -> str:
 def _is_unreadable_response(error: BaseException) -> bool:
     """Whether the provider sent a body the SDK could not turn into JSON.
 
-    The next draw usually parses, so this is transient: it must not reach the user as `internal_error`, and the
-    cached-run fallback must not re-spend the video tokens on it. The SDK raises `UnknownApiResponseError` for a
-    malformed body, but a number longer than the interpreter's digit limit escapes as a bare `ValueError` from
-    `int()`, which only its message identifies.
+    The SDK raises `UnknownApiResponseError` for a malformed body, but a number longer than the interpreter's
+    digit limit escapes as a bare `ValueError` from `int()`, which only its message identifies.
     """
-    if isinstance(error, UnknownApiResponseError):
-        return True
-    return type(error) is ValueError and "integer string conversion" in str(error)
+    return isinstance(error, UnknownApiResponseError) or (
+        type(error) is ValueError and "integer string conversion" in str(error)
+    )
 
 
 def classify_gemini_error(error: BaseException) -> FailureKind | None:
@@ -79,6 +77,8 @@ def classify_gemini_error(error: BaseException) -> FailureKind | None:
     """
     if isinstance(error, _PROVIDER_TRANSPORT_ERRORS):
         return FailureKind.PROVIDER_TRANSIENT
+    # The next draw usually parses, so an unreadable body is transient: it must not reach the user as
+    # `internal_error`, and the cached-run fallback must not re-spend the video tokens on it.
     if _is_unreadable_response(error):
         return FailureKind.PROVIDER_TRANSIENT
     if not isinstance(error, APIError):
