@@ -89,7 +89,7 @@ def sync_suggested_reviewer_index(*, team_id: int, report_id: str) -> None:
     with transaction.atomic():
         SignalReportSuggestedReviewer.objects.for_team(team_id).filter(report_id=report_id).delete()
         if rows:
-            SignalReportSuggestedReviewer.objects.bulk_create(rows)
+            SignalReportSuggestedReviewer.objects.for_team(team_id).bulk_create(rows)
 
 
 def _identity_filter(user_uuids: list[str], github_logins: list[str], *, logins_match_unidentified_only: bool) -> Q:
