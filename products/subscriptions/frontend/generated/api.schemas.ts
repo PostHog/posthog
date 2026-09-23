@@ -719,7 +719,7 @@ export interface SubscriptionDeliveryFailureReasonApi {
     /** Server-generated classification of the failure: an exception class name or a stable pipeline key such as no_assets or AIReportQueryFailure. `unknown` when the run recorded no usable classification. */
     type: string
     /**
-     * Short failure reason vetted as safe for the subscription owner; null when the run only produced an internal error, which exposes `type` alone.
+     * First failure reason the run recorded that is vetted as safe for the subscription owner; null when the run only produced an internal error, which exposes `type` alone.
      * @nullable
      */
     detail: string | null
