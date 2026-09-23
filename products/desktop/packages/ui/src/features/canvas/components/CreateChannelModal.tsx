@@ -39,7 +39,7 @@ import {
   ANALYTICS_EVENTS,
   type ChannelsSurface,
 } from "@posthog/shared/analytics-events";
-import type { UserBasic } from "@posthog/shared/domain-types";
+import type { SpaceSetupInput, UserBasic } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import {
@@ -54,6 +54,7 @@ import { MemberSearch } from "@posthog/ui/features/canvas/components/MemberSearc
 import { SpaceFeatureFields } from "@posthog/ui/features/canvas/components/spaceSetup/SpaceFeatureFields";
 import { SpaceGoalFields } from "@posthog/ui/features/canvas/components/spaceSetup/SpaceGoalFields";
 import { SpaceSetupChoiceField } from "@posthog/ui/features/canvas/components/spaceSetup/SpaceSetupChoiceField";
+import { SpaceSetupRetryDialog } from "@posthog/ui/features/canvas/components/spaceSetup/SpaceSetupRetryDialog";
 import { useChannelMutations } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useGenerateContext } from "@posthog/ui/features/canvas/hooks/useGenerateContext";
@@ -153,6 +154,12 @@ export function CreateChannelModal({
   const [memberIds, setMemberIds] = useState<number[]>([]);
   const [setupDraft, setSetupDraft] =
     useState<SpaceSetupDraft>(emptySpaceSetupDraft);
+  const [failedSetup, setFailedSetup] = useState<{
+    channelId: string;
+    input: SpaceSetupInput;
+    error: string;
+  } | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const authClient = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client: authClient });
   const { members: orgMembers } = useOrgMembers();
@@ -189,7 +196,7 @@ export function CreateChannelModal({
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
-    if (open) {
+    if (open && !failedSetup) {
       setName("");
       setDescription("");
       setRepositories([]);
@@ -208,7 +215,11 @@ export function CreateChannelModal({
   const nameError = isDescribeMode ? null : validateChannelName(trimmedName);
 
   const busy =
-    isCreating || isStarting || isSettingUp || linkRepositories.isPending;
+    isSubmitting ||
+    isCreating ||
+    isStarting ||
+    isSettingUp ||
+    linkRepositories.isPending;
   const canAdvance = !busy && !!trimmedName && !nameError;
   const canDescribe = !busy && !!trimmedDescription;
   const setupMissingField = spaceSetupDraftMissingField(setupDraft);
@@ -220,11 +231,41 @@ export function CreateChannelModal({
   const submitOnce = async (submit: () => Promise<void>) => {
     if (submittingRef.current) return;
     submittingRef.current = true;
+    setIsSubmitting(true);
     try {
       await submit();
     } finally {
       submittingRef.current = false;
+      setIsSubmitting(false);
     }
+  };
+
+  const openSpace = (channelId: string): void => {
+    setFailedSetup(null);
+    onOpenChange(false);
+    void navigate({ to: "/spaces/$channelId", params: { channelId } });
+  };
+
+  const startSetup = async (
+    channelId: string,
+    input: SpaceSetupInput,
+  ): Promise<boolean> => {
+    try {
+      await setup({ channelId, setup: input });
+    } catch (error) {
+      setFailedSetup({
+        channelId,
+        input,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+    track(ANALYTICS_EVENTS.CONTEXT_ACTION, {
+      action_type: "setup_started",
+      channel_id: channelId,
+      setup_kind: input.kind,
+    });
+    return true;
   };
 
   const submitCreate = async () => {
@@ -273,18 +314,7 @@ export function CreateChannelModal({
       repositories[0] ?? null,
     );
     if (setupInput) {
-      track(ANALYTICS_EVENTS.CONTEXT_ACTION, {
-        action_type: "setup_started",
-        channel_id: contextId,
-        setup_kind: setupInput.kind,
-      });
-      try {
-        await setup({ channelId: contextId, setup: setupInput });
-      } catch (error) {
-        toast.error("Couldn't start the space setup", {
-          description: error instanceof Error ? error.message : String(error),
-        });
-      }
+      if (!(await startSetup(contextId, setupInput))) return;
     } else if (trimmedDescription) {
       track(ANALYTICS_EVENTS.CONTEXT_ACTION, {
         action_type: "generate_started",
@@ -297,11 +327,7 @@ export function CreateChannelModal({
       });
     }
 
-    onOpenChange(false);
-    void navigate({
-      to: "/spaces/$channelId",
-      params: { channelId: contextId },
-    });
+    openSpace(contextId);
   };
 
   const submitDescribe = async () => {
@@ -411,6 +437,27 @@ export function CreateChannelModal({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    );
+  }
+
+  if (failedSetup) {
+    return (
+      <SpaceSetupRetryDialog
+        open={open}
+        onOpenChange={(next) => {
+          if (!busy) onOpenChange(next);
+        }}
+        error={failedSetup.error}
+        busy={busy}
+        onOpenSpace={() => openSpace(failedSetup.channelId)}
+        onRetry={() =>
+          void submitOnce(async () => {
+            if (await startSetup(failedSetup.channelId, failedSetup.input)) {
+              openSpace(failedSetup.channelId);
+            }
+          })
+        }
+      />
     );
   }
 

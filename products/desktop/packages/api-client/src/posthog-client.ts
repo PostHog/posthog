@@ -80,6 +80,10 @@ import type {
 } from "@posthog/shared/domain-types";
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import {
+  spaceSetupInputSchema,
+  spaceSetupStartedSchema,
+} from "@posthog/shared/schemas";
+import {
   activitySection,
   compactCount,
   dailySparkLabels,
@@ -3870,10 +3874,10 @@ export class PostHogAPIClient {
         url: new URL(`${this.api.baseUrl}${urlPath}`),
         path: urlPath,
         overrides: {
-          body: JSON.stringify(input),
+          body: JSON.stringify(spaceSetupInputSchema.parse(input)),
         },
       });
-      return (await response.json()) as SpaceSetupStarted;
+      return spaceSetupStartedSchema.parse(await response.json());
     } catch (error) {
       throw new Error(
         extractRequestErrorMessage(

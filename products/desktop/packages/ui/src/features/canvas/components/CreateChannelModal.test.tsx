@@ -1,9 +1,17 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
-vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  createChannel: vi.fn(),
+  setup: vi.fn(),
+  navigate: vi.fn(),
+  track: vi.fn(),
+}));
+vi.mock("@posthog/ui/shell/analytics", () => ({ track: mocks.track }));
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => mocks.navigate,
+}));
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => null,
 }));
@@ -20,13 +28,16 @@ vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: () => true,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
-  useChannelMutations: () => ({ createChannel: vi.fn(), isCreating: false }),
+  useChannelMutations: () => ({
+    createChannel: mocks.createChannel,
+    isCreating: false,
+  }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useGenerateContext", () => ({
   useGenerateContext: () => ({ generate: vi.fn(), isStarting: false }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useSetupSpace", () => ({
-  useSetupSpace: () => ({ setup: vi.fn(), isStarting: false }),
+  useSetupSpace: () => ({ setup: mocks.setup, isStarting: false }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskChannels", () => ({
   useUpdateTaskChannelRepositories: () => ({
@@ -57,6 +68,71 @@ const current = (label: string) => {
 };
 
 describe("CreateChannelModal setup steps", () => {
+  beforeEach(() => {
+    for (const mock of Object.values(mocks)) mock.mockReset();
+    window.scrollTo = () => {};
+  });
+
+  it("keeps a failed setup and retries it without creating another space", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    mocks.createChannel.mockResolvedValue({ id: "space-1" });
+    mocks.setup.mockRejectedValueOnce(
+      new Error("Setup is unavailable. Try again."),
+    );
+    render(<CreateChannelModal open onOpenChange={onOpenChange} />);
+
+    await user.type(screen.getByLabelText("Name"), "search");
+    await user.click(current("Next"));
+    await user.click(screen.getByText("A feature"));
+    await user.type(screen.getByLabelText("Feature"), "Search filters");
+    await user.click(current("Next"));
+    await user.click(current("Create"));
+
+    expect(
+      await screen.findByText("Setup is unavailable. Try again."),
+    ).toBeTruthy();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(mocks.track).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action_type: "setup_started" }),
+    );
+    const firstInput = mocks.setup.mock.calls[0][0];
+    expect(firstInput).toMatchObject({
+      channelId: "space-1",
+      setup: { kind: "feature", feature: { name: "Search filters" } },
+    });
+
+    let finish: () => void = () => {};
+    mocks.setup.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await user.dblClick(screen.getByRole("button", { name: "Retry setup" }));
+    expect(mocks.setup).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: /Retry setup/ })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(mocks.setup).toHaveBeenLastCalledWith(firstInput);
+    finish();
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(mocks.createChannel).toHaveBeenCalledOnce();
+    expect(mocks.navigate).toHaveBeenCalledWith({
+      to: "/spaces/$channelId",
+      params: { channelId: "space-1" },
+    });
+    expect(mocks.track).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action_type: "setup_started",
+        channel_id: "space-1",
+      }),
+    );
+  });
   it("walks from the name through the setup step to repositories and back", async () => {
     const user = userEvent.setup();
     render(<CreateChannelModal open onOpenChange={vi.fn()} />);

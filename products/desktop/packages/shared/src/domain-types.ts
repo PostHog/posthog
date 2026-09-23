@@ -159,39 +159,15 @@ export interface TaskChannel {
 /** Lifecycle events a client may post into a channel's feed. */
 export type ChannelFeedMessageEvent = "context_md_building";
 
-export type SpaceSetupKind = "goal" | "feature";
-export type SpaceGoalPeriod = "day" | "week" | "month";
-export type SpaceGoalDirection = "at_least" | "at_most";
-
-/** Mirrors the backend `SpaceGoalWriteSerializer`. */
-export interface SpaceGoalInput {
-  statement: string;
-  period: SpaceGoalPeriod;
-  direction: SpaceGoalDirection;
-  target?: string | null;
-  /** YYYY-MM-DD */
-  deadline?: string | null;
-  insight_short_id?: string | null;
-}
-
-/** Mirrors the backend `SpaceFeatureWriteSerializer`. */
-export interface SpaceFeatureInput {
-  name: string;
-  description?: string;
-  flag_key?: string | null;
-}
-
-/** Body of `POST task_channels/{id}/setup/`. Exactly one of goal/feature matches `kind`. */
-export interface SpaceSetupInput {
-  kind: SpaceSetupKind;
-  goal?: SpaceGoalInput;
-  feature?: SpaceFeatureInput;
-  repository?: string | null;
-}
-
-export interface SpaceSetupStarted {
-  task_id: string;
-}
+export type {
+  SpaceFeatureInput,
+  SpaceGoalDirection,
+  SpaceGoalInput,
+  SpaceGoalPeriod,
+  SpaceSetupInput,
+  SpaceSetupKind,
+  SpaceSetupStarted,
+} from "./schemas";
 
 /**
  * A durable, team-visible "PostHog agent" announcement in a channel's feed —
