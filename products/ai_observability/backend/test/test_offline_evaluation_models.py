@@ -362,7 +362,10 @@ class TestOfflineEvaluationModels(TestCase):
 
         with self.assertRaises(IntegrityError), transaction.atomic():
             if operation == "bulk_create":
-                type(instance).objects.for_team(self.team.id).bulk_create([instance])
+                if isinstance(instance, OfflineExperiment):
+                    OfflineExperiment.objects.for_team(self.team.id).bulk_create([instance])
+                else:
+                    OfflineExperimentItem.objects.for_team(self.team.id).bulk_create([instance])
             elif target == "revision":
                 OfflineExperiment.objects.for_team(self.team.id).filter(pk=self.experiment.pk).update(
                     dataset_revision=revision
