@@ -1080,13 +1080,14 @@ class Task(DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        # A repo-less signals task must carry no GitHub credential at all — team or personal.
-        # Provisioning injects whatever integration is attached, and these runs read text any
-        # member can write, so an attached token turns planted text into repository access.
+        # A repo-less signals or autoresearch task must carry no GitHub credential at all — team
+        # or personal. Provisioning injects whatever integration is attached, and these runs read
+        # text any member can write, so an attached token turns planted text into repository access.
         github_resolution_allowed = bool(repository) or origin_product not in (
             Task.OriginProduct.SIGNALS_CHAT,
             Task.OriginProduct.SIGNAL_REPORT,
             Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
+            Task.OriginProduct.AUTORESEARCH,
         )
         github_integration = None
         if github_resolution_allowed:
@@ -1429,9 +1430,13 @@ class Task(DeletedMetaFields, models.Model):
         from products.tasks.backend.temporal.client import _normalize_slack_context
 
         # extra_run_state overwrites the derived run state below, so the template it carries is
-        # the one provisioning reads. Route it through the same validation as the parameter.
+        # the one provisioning reads. Route it through the same validation as the parameter; a
+        # null is "no choice", as on later runs, and must not replace the parameter.
         if extra_run_state and "sandbox_template" in extra_run_state:
-            sandbox_template = extra_run_state["sandbox_template"]
+            extra_run_state = dict(extra_run_state)
+            carried_template = extra_run_state.pop("sandbox_template")
+            if carried_template is not None:
+                sandbox_template = carried_template
 
         task, extra_state = Task._build_task(
             team=team,

@@ -248,6 +248,53 @@ class TestTask(TestCase):
         self.assertEqual(Task.objects.count(), 0)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_keeps_the_template_when_extra_run_state_carries_null(self, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Task.create_and_run(
+                team=self.team,
+                title="Slack Task",
+                description="Slack Description",
+                origin_product=Task.OriginProduct.SLACK,
+                user_id=user.id,
+                repository="posthog/posthog",
+                sandbox_template="autoresearch_base",
+                extra_run_state={"sandbox_template": None},
+            )
+
+        state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
+        self.assertEqual(state["sandbox_template"], "autoresearch_base")
+
+    @parameterized.expand(
+        [
+            (Task.OriginProduct.SIGNALS_CHAT,),
+            (Task.OriginProduct.SIGNAL_REPORT,),
+            (Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,),
+            (Task.OriginProduct.AUTORESEARCH,),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_attaches_no_github_integration_to_a_repo_less_restricted_origin(
+        self, origin_product, mock_execute_workflow
+    ):
+        user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Repo-less task",
+                description="No repository",
+                origin_product=origin_product,
+                user_id=user.id,
+            )
+
+        self.assertIsNone(task.github_integration)
+        self.assertIsNone(task.github_user_integration)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_run_keeps_the_previous_template_and_refuses_a_forbidden_one(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
