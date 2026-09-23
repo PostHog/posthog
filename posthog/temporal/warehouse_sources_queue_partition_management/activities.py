@@ -12,6 +12,8 @@ import structlog
 import temporalio.activity
 from asgiref.sync import sync_to_async
 
+from posthog.dataclasses import frozen
+
 logger = structlog.get_logger(__name__)
 
 PARTITIONED_TABLES = ["sourcebatch", "sourcebatchstatus"]
@@ -40,15 +42,51 @@ class PartitionResult:
         return len(self.errors) == 0
 
 
+@frozen
+class _PartitionChanges:
+    ensured: list[str]
+    dropped: list[str]
+
+
 @temporalio.activity.defn
 async def manage_warehouse_sources_queue_partitions() -> dict:
+    errors: list[str] = []
+    today = datetime.now(UTC).date()
+
+    # The connection sets no lock_timeout, so partition DDL can wait on a lock for an unbounded time.
+    # Run the database work in a thread so that the wait does not block the worker's event loop.
+    changes = await sync_to_async(_manage_database_partitions)(today, errors)
+
+    s3_deleted = _cleanup_old_s3_extractions(today, errors)
+
+    result = PartitionResult(ensured=changes.ensured, dropped=changes.dropped, errors=errors, s3_deleted=s3_deleted)
+
+    logger.info(
+        "Partition management completed",
+        ensured_count=len(result.ensured),
+        dropped_count=len(result.dropped),
+        s3_deleted_count=len(s3_deleted),
+        error_count=len(errors),
+        success=result.success,
+    )
+
+    if not result.success:
+        _send_slack_failure(errors)
+
+    return {
+        "ensured": result.ensured,
+        "dropped": result.dropped,
+        "s3_deleted": result.s3_deleted,
+        "errors": result.errors,
+        "success": result.success,
+    }
+
+
+def _manage_database_partitions(today: date, errors: list[str]) -> _PartitionChanges:
     ensured: list[str] = []
     dropped: list[str] = []
-    errors: list[str] = []
 
     with psycopg.Connection.connect(_partition_ddl_database_url(), autocommit=True) as conn:
-        today = datetime.now(UTC).date()
-
         for table in PARTITIONED_TABLES:
             for offset in range(PARTITIONS_AHEAD):
                 d = today + timedelta(days=offset)
@@ -77,7 +115,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
             ).fetchall():
                 partition_name = row[0]
                 if partition_name.endswith("_default"):
-                    await sync_to_async(_expire_default_partition_rows)(conn, table, partition_name, cutoff, errors)
+                    _expire_default_partition_rows(conn, table, partition_name, cutoff, errors)
                     continue
                 suffix = partition_name.rsplit("_", 1)[-1]
                 try:
@@ -87,7 +125,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
                 if partition_date < cutoff:
                     if table == "sourcebatch":
                         try:
-                            await sync_to_async(_terminalize_stranded_runs)(conn, partition_name)
+                            _terminalize_stranded_runs(conn, partition_name)
                         except Exception as e:
                             # Keep the partition as evidence while the alert is live;
                             # partitions are daily and small, so retrying tomorrow is cheap.
@@ -98,7 +136,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
                             )
                             continue
                     try:
-                        await sync_to_async(_drop_partition)(conn, partition_name)
+                        _drop_partition(conn, partition_name)
                         dropped.append(partition_name)
                     except Exception as e:
                         errors.append(f"Failed to drop {partition_name}: {e}")
@@ -106,29 +144,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
 
         _verify_partitions(conn, today, errors)
 
-    s3_deleted = _cleanup_old_s3_extractions(today, errors)
-
-    result = PartitionResult(ensured=ensured, dropped=dropped, errors=errors, s3_deleted=s3_deleted)
-
-    logger.info(
-        "Partition management completed",
-        ensured_count=len(ensured),
-        dropped_count=len(dropped),
-        s3_deleted_count=len(s3_deleted),
-        error_count=len(errors),
-        success=result.success,
-    )
-
-    if not result.success:
-        _send_slack_failure(errors)
-
-    return {
-        "ensured": result.ensured,
-        "dropped": result.dropped,
-        "s3_deleted": result.s3_deleted,
-        "errors": result.errors,
-        "success": result.success,
-    }
+    return _PartitionChanges(ensured=ensured, dropped=dropped)
 
 
 def _partition_ddl_database_url() -> str:
