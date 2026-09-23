@@ -113,11 +113,17 @@ def parse_xml(xml_path: Path, covered_lines: dict[str, set[int]], valid_lines: d
 
 
 def write_xml_from_data(
-    data_paths: list[Path], xml_path: Path, source: list[str], config_file: str | bool = False
+    data_paths: list[Path],
+    xml_path: Path,
+    source: list[str],
+    config_file: str | bool = False,
+    path_aliases: dict[str, list[str]] | None = None,
 ) -> None:
     """Combine the shards' coverage data files and write one Cobertura XML from the result."""
     with tempfile.TemporaryDirectory() as tmp:
         cov = coverage.Coverage(data_file=str(Path(tmp) / ".coverage"), source=source, config_file=config_file)
+        if path_aliases:
+            cov.set_option("paths", path_aliases)
         cov.combine([str(path) for path in data_paths], keep=True)
         try:
             # A file that master deleted after the PR branched is measured but absent from this checkout.
@@ -134,7 +140,13 @@ def convert_product_data(artifacts_dir: Path, repo_root: Path) -> None:
     for product, data_paths in data_by_product.items():
         # --cov=backend names the source this way, and the XML filenames are relative to it.
         source = str(repo_root / "products" / product / "backend")
-        write_xml_from_data(data_paths, artifacts_dir / f"{product}.xml", source=[source])
+        # The shards record absolute paths. Map them onto this checkout, which can sit at another path.
+        write_xml_from_data(
+            data_paths,
+            artifacts_dir / f"{product}.xml",
+            source=[source],
+            path_aliases={"backend": [source, f"*/products/{product}/backend"]},
+        )
 
 
 def convert_core_data(core_dir: Path) -> None:

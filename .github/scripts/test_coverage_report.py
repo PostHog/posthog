@@ -56,12 +56,13 @@ def test_convert_product_data_combines_shards_under_repo_paths(tmp_path: Path) -
     source = tmp_path / "products" / "links" / "backend" / "api.py"
     source.parent.mkdir(parents=True)
     source.write_text("def a():\n    return 1\n\n\ndef b():\n    return 2\n")
+    shard_source = "/home/runner/work/posthog/posthog/products/links/backend/api.py"
     artifacts = tmp_path / "cov-artifacts"
     for shard, executed in enumerate([{1, 2, 5}, {1, 5}]):
         shard_dir = artifacts / f"coverage-products-{shard}"
         shard_dir.mkdir(parents=True)
         data = coverage.CoverageData(basename=str(shard_dir / "links.coverage"))
-        data.add_lines({str(source): executed})
+        data.add_lines({shard_source: executed})
         data.write()
 
     coverage_report.convert_product_data(artifacts, tmp_path)
