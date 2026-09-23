@@ -16,8 +16,8 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
-from posthog.models.integration import Integration
+from posthog.cdp.filters import TEMPLATE_CALLABLES, TEMPLATE_GLOBALS, compile_filters_bytecode, compile_filters_expr
+from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration
 
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
@@ -69,6 +69,18 @@ def _sender_integration_ids(from_value: dict) -> set[int]:
         for integration_id in [from_value.get("integrationId"), *(from_value.get("integrationIds") or [])]
         if isinstance(integration_id, int) and not isinstance(integration_id, bool)
     }
+
+
+def _validate_not_posthog_connection(integration_ids: list[int], context: dict) -> None:
+    # A PostHog connection acts as the user who created it, so only that user may use it. A function
+    # runs for the whole team and the runtime never resolves one, so reject it where the author sees why.
+    get_team = context.get("get_team")
+    if get_team is None or not integration_ids:
+        return
+    if Integration.objects.filter(team_id=get_team().id, id__in=integration_ids, kind=POSTHOG_CONNECT_KIND).exists():
+        raise serializers.ValidationError(
+            {"input": "A PostHog connection can't be used as a function input. Choose a different integration."}
+        )
 
 
 def _validate_email_sender_override(from_value: dict, context: dict) -> None:
@@ -262,10 +274,12 @@ class InputCollector(TraversingVisitor):
                 self.inputs.add(str(node.chain[1]))
 
 
-class TransformationGlobalsValidator(TraversingVisitor):
-    """Reject input templates that reference globals unavailable to the realtime
-    transformer (e.g. `person`, `groups`, `source`). Without this check, the bytecode
-    compiles fine and the failure surfaces only at ingestion time as
+class TemplateGlobalsValidator(TraversingVisitor):
+    """Reject input templates that reference globals the runtime will not have.
+
+    Each function type passes the globals its runtime provides (transformations see `project`,
+    `event` and `inputs`; everything else the invocation globals). Without this check the bytecode
+    compiles fine and the failure surfaces only at run time as
     "Could not execute bytecode for input field" / "Global variable not found".
     """
 
@@ -275,9 +289,14 @@ class TransformationGlobalsValidator(TraversingVisitor):
         self,
         available_globals: Optional[set[str]] = None,
         runtime_functions: Optional[set[str]] = None,
+        # The Python tables describe the Python VM. A template that runs in the Node VM passes its
+        # own callables as runtime_functions and turns these off.
+        python_stl: bool = True,
     ):
         super().__init__()
         self.invalid_globals = set()
+        self._python_stl = python_stl
+        self._declared: set[str] = set()
         self._available_globals = (
             available_globals if available_globals is not None else TRANSFORMATION_AVAILABLE_GLOBALS
         )
@@ -285,18 +304,25 @@ class TransformationGlobalsValidator(TraversingVisitor):
             runtime_functions if runtime_functions is not None else TRANSFORMATION_RUNTIME_FUNCTIONS
         )
 
+    def check(self, node: ast.Expr) -> None:
+        # Lambda parameters and anything a lambda body declares are locals, not globals.
+        declared = DeclaredNamesCollector()
+        declared.visit(node)
+        self._declared = declared.names
+        self.visit(node)
+
     def visit_field(self, node: ast.Field):
         super().visit_field(node)
         if not node.chain:
             return
         root = str(node.chain[0])
         if (
-            root in self._available_globals
+            root in self._declared
+            or root in self._available_globals
             or root in self._runtime_functions
             or root in CORE_SUPPORTED_FUNCTIONS
             or root in PRODUCT_ASYNC_FUNCTIONS
-            or root in STL
-            or root in BYTECODE_STL
+            or (self._python_stl and (root in STL or root in BYTECODE_STL))
         ):
             return
         self.invalid_globals.add(root)
@@ -428,6 +454,7 @@ def generate_template_bytecode(
     input_collector: set[str],
     function_type: Optional[str] = None,
     is_dwh_source: bool = False,
+    validate_globals: bool = True,
 ) -> Any:
     """
     Clones an object, compiling any string values to bytecode templates
@@ -435,11 +462,14 @@ def generate_template_bytecode(
 
     if isinstance(obj, dict):
         return {
-            key: generate_template_bytecode(value, input_collector, function_type, is_dwh_source)
+            key: generate_template_bytecode(value, input_collector, function_type, is_dwh_source, validate_globals)
             for key, value in obj.items()
         }
     elif isinstance(obj, list):
-        return [generate_template_bytecode(item, input_collector, function_type, is_dwh_source) for item in obj]
+        return [
+            generate_template_bytecode(item, input_collector, function_type, is_dwh_source, validate_globals)
+            for item in obj
+        ]
     elif isinstance(obj, str):
         node = parse_string_template(obj)
         if is_dwh_source:
@@ -450,8 +480,8 @@ def generate_template_bytecode(
         if detector.errors:
             raise Exception(detector.errors[0])
         if function_type == "transformation":
-            transformation_validator = TransformationGlobalsValidator()
-            transformation_validator.visit(node)
+            transformation_validator = TemplateGlobalsValidator()
+            transformation_validator.check(node)
             if transformation_validator.invalid_globals:
                 names = ", ".join(sorted(transformation_validator.invalid_globals))
                 raise Exception(
@@ -459,16 +489,30 @@ def generate_template_bytecode(
                     f"Transformations only have access to project, event, and inputs."
                 )
         elif function_type == "transformation_log":
-            log_validator = TransformationGlobalsValidator(
+            log_validator = TemplateGlobalsValidator(
                 available_globals=TRANSFORMATION_LOG_AVAILABLE_GLOBALS,
                 runtime_functions=set(),
             )
-            log_validator.visit(node)
+            log_validator.check(node)
             if log_validator.invalid_globals:
                 names = ", ".join(sorted(log_validator.invalid_globals))
                 raise Exception(
                     f"Variable not available in log transformations: {names}. "
                     f"Log transformations only have access to project, record, and inputs."
+                )
+        elif function_type is not None and validate_globals:
+            # Every other type resolves its inputs against the invocation globals at run time. A save
+            # that disables or deletes the function skips this, so a broken function can be turned off.
+            template_validator = TemplateGlobalsValidator(
+                available_globals=TEMPLATE_GLOBALS, runtime_functions=TEMPLATE_CALLABLES, python_stl=False
+            )
+            template_validator.check(node)
+            if template_validator.invalid_globals:
+                names = ", ".join(sorted(template_validator.invalid_globals))
+                raise Exception(
+                    f"Variable not available in inputs: {names}. "
+                    f"Inputs can read event, person, groups, project, source and inputs, and in a workflow "
+                    f"also variables."
                 )
         return create_bytecode(node).bytecode
     else:
@@ -637,9 +681,11 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "integration":
             if not isinstance(value, int):
                 raise serializers.ValidationError({"input": f"Value must be an Integration ID."})
+            _validate_not_posthog_connection([value], self.context)
         elif item_type == "integration_multi":
             if not isinstance(value, list) or not all(isinstance(v, int) and not isinstance(v, bool) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of Integration IDs."})
+            _validate_not_posthog_connection(value, self.context)
         elif item_type == "task_repository":
             if not isinstance(value, str):
                 raise serializers.ValidationError({"input": "Value must be a repository name like your-org/your-repo."})
@@ -770,7 +816,11 @@ class InputsItemSerializer(serializers.Serializer):
                         else:
                             input_collector: set[str] = set()
                             attrs["bytecode"] = generate_template_bytecode(
-                                value, input_collector, function_type=function_type, is_dwh_source=is_dwh_source
+                                value,
+                                input_collector,
+                                function_type=function_type,
+                                is_dwh_source=is_dwh_source,
+                                validate_globals=self.context.get("function_will_be_enabled", True),
                             )
                             attrs["input_deps"] = list(input_collector)
                             if "transpiled" in attrs:
@@ -1114,7 +1164,7 @@ def compile_hog(
             # at ingestion time. Declared locals are excluded from the check.
             declared = DeclaredNamesCollector()
             declared.visit(program)
-            body_validator = TransformationGlobalsValidator(
+            body_validator = TemplateGlobalsValidator(
                 available_globals=TRANSFORMATION_LOG_AVAILABLE_GLOBALS | declared.names,
                 runtime_functions=set(),
             )

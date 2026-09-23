@@ -78,12 +78,22 @@ function capturesOf(event: string): any[][] {
     return (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name === event)
 }
 
+// A promise the test resolves by hand, so it can hold a request open while something else lands.
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+    let resolve: () => void = () => {}
+    const promise = new Promise<void>((innerResolve) => {
+        resolve = innerResolve
+    })
+    return { promise, resolve }
+}
+
 // jest.config.ts sets clearMocks: true, so these mock.fn() call histories reset before every test.
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
         success: jest.fn(),
         error: jest.fn(),
         warning: jest.fn(),
+        info: jest.fn(),
     },
 }))
 
@@ -285,8 +295,166 @@ describe('featureFlagLogic', () => {
 
             expect(logic.values.featureFlag.active).toBe(true)
             expect(featureFlagsLogic.values.featureFlags.results[0].active).toBe(true)
+            expect(lemonToast.info).not.toHaveBeenCalled()
 
             featureFlagsLogic.unmount()
+        })
+    })
+
+    describe('refresh after a PostHog AI change', () => {
+        const FLAG_URL = `/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`
+
+        function serverFlagMock(flag: Record<string, any>): Parameters<typeof useMocks>[0] {
+            return { get: { [FLAG_URL]: () => [200, { ...MOCK_FEATURE_FLAG, ...flag }] } }
+        }
+
+        // The agent reaches fields no manual mutation path folds, so folding only active/archived
+        // would leave the reader on the old name and rollout with nothing saying so.
+        it('shows the saved flag when the form is clean', async () => {
+            useMocks(serverFlagMock({ name: 'renamed by the agent', active: false }))
+
+            await expectLogic(logic, () => logic.actions.refreshFeatureFlagAfterAgentChange())
+                .toDispatchActions(['refreshFeatureFlag', 'loadFeatureFlagStatus', 'refreshFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(logic.values.featureFlag.name).toBe('renamed by the agent')
+            expect(logic.values.featureFlag.active).toBe(false)
+            // Re-baselined, so leaving the page must not warn about changes the reader never made.
+            expect(logic.values.isFormDirty).toBe(false)
+            expect(lemonToast.info).not.toHaveBeenCalled()
+        })
+
+        it('keeps unsaved edits, folds the state fields, and offers a reload', async () => {
+            logic.actions.setFeatureFlag({ ...logic.values.featureFlag, name: 'half-written local edit' })
+            expect(logic.values.isFormDirty).toBe(true)
+
+            useMocks(serverFlagMock({ name: 'renamed by the agent', active: false, version: 9 }))
+
+            await expectLogic(logic, () => logic.actions.refreshFeatureFlagAfterAgentChange())
+                .toDispatchActions(['refreshFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(logic.values.featureFlag.name).toBe('half-written local edit')
+            expect(logic.values.featureFlag.active).toBe(false)
+            expect(logic.values.isFormDirty).toBe(true)
+            // The next save has to submit a version behind the stored row. A folded-in server
+            // version disarms the stale-write check, and these edits then overwrite everything the
+            // agent wrote, with no error. A save submits the baseline, so the server checks that one.
+            expect(logic.values.featureFlag.version).toBe(0)
+            expect(logic.values.originalFeatureFlag?.version).toBe(0)
+            expect(lemonToast.info).toHaveBeenCalledTimes(1)
+
+            const [, options] = jest.mocked(lemonToast.info).mock.calls[0]
+            // Scoped to this flag. The default id hashes the message, which names no flag, so a
+            // notice still open for another flag would swallow this one as a duplicate and keep a
+            // button that reloads that other flag.
+            expect(options?.toastId).toBe('feature-flag-agent-change-1')
+
+            await expectLogic(logic, () => void options?.button?.action())
+                .toDispatchActions(['loadFeatureFlag', 'loadFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(logic.values.featureFlag.name).toBe('renamed by the agent')
+            expect(logic.values.isFormDirty).toBe(false)
+        })
+
+        // The Enabled switch writes to the same form field the refresh folds, so a rename must not
+        // revert a toggle the reader has not saved. The case above edits a field the fold skips,
+        // and asserts the opposite outcome, so it cannot carry this one.
+        it('keeps an unsaved Enabled toggle instead of folding the server value over it', async () => {
+            logic.actions.setFeatureFlag({ ...logic.values.featureFlag, active: false })
+            expect(logic.values.isFormDirty).toBe(true)
+
+            useMocks(serverFlagMock({ name: 'renamed by the agent', active: true }))
+
+            await expectLogic(logic, () => logic.actions.refreshFeatureFlagAfterAgentChange())
+                .toDispatchActions(['refreshFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(logic.values.featureFlag.active).toBe(false)
+            // The toggle is the only edit, so folding it would also leave the form reading clean
+            // while the notice says the edits were kept.
+            expect(logic.values.isFormDirty).toBe(true)
+            expect(lemonToast.info).toHaveBeenCalledTimes(1)
+        })
+
+        // The reaction fires per completed call, so a turn that changes this flag twice starts two
+        // refreshes. Needs its own setup: both requests have to be in flight at once, with the test
+        // choosing which one answers last.
+        it('discards a refresh response that a newer refresh superseded', async () => {
+            const firstResponse = deferred()
+            let requestCount = 0
+
+            useMocks({
+                get: {
+                    [FLAG_URL]: async () => {
+                        requestCount += 1
+                        if (requestCount === 1) {
+                            await firstResponse.promise
+                            return [200, { ...MOCK_FEATURE_FLAG, name: 'first agent change' }]
+                        }
+                        return [200, { ...MOCK_FEATURE_FLAG, name: 'second agent change' }]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.refreshFeatureFlagAfterAgentChange()
+                logic.actions.refreshFeatureFlagAfterAgentChange()
+            }).toDispatchActions(['refreshFeatureFlagSuccess'])
+
+            expect(logic.values.featureFlag.name).toBe('second agent change')
+
+            firstResponse.resolve()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // The older response must not put the page or its baseline back.
+            expect(logic.values.featureFlag.name).toBe('second agent change')
+            expect(logic.values.originalFeatureFlag?.name).toBe('second agent change')
+        })
+
+        // The case above holds a refresh against a second refresh, which `breakpoint()` covers on
+        // its own. A mutation landing mid-request needs a separate guard, so it needs its own case.
+        it.each([
+            ['a toggle', (flag: FeatureFlagType) => logic.actions.updateFeatureFlagActiveSuccess(flag)],
+            // The inline tag and description saves and the cross-project toggle re-baseline without
+            // dispatching any loader success, so a guard keyed to those actions cannot see them.
+            [
+                'an inline field save',
+                (flag: FeatureFlagType) => {
+                    logic.actions.setFeatureFlag(flag)
+                    logic.actions.setOriginalFeatureFlag(flag)
+                },
+            ],
+            ['a full reload', (flag: FeatureFlagType) => logic.actions.loadFeatureFlagSuccess(flag)],
+        ])('discards a refresh response that %s superseded', async (_label, mutate) => {
+            const response = deferred()
+            // The loader samples the mutation count before it calls the API, so mutating before the
+            // request is open would pass without exercising the guard.
+            const requestStarted = deferred()
+
+            useMocks({
+                get: {
+                    [FLAG_URL]: async () => {
+                        requestStarted.resolve()
+                        await response.promise
+                        return [200, { ...MOCK_FEATURE_FLAG, name: 'agent change', active: true, version: 3 }]
+                    },
+                },
+            })
+
+            logic.actions.refreshFeatureFlagAfterAgentChange()
+            await requestStarted.promise
+
+            mutate({ ...MOCK_FEATURE_FLAG, active: false, version: 7 } as FeatureFlagType)
+            expect(logic.values.featureFlag.active).toBe(false)
+
+            response.resolve()
+            await expectLogic(logic).toDispatchActions(['refreshFeatureFlagSuccess']).toFinishAllListeners()
+
+            expect(logic.values.featureFlag.active).toBe(false)
+            expect(logic.values.featureFlag.name).toBe('test-name')
+            expect(logic.values.featureFlag.version).toBe(7)
         })
     })
 
@@ -2543,6 +2711,7 @@ describe('featureFlagLogic', () => {
                 () => logic.actions.updateFeatureFlagActiveSuccess({ ...MOCK_FEATURE_FLAG, active: false }),
             ],
             ['an edit is saved', () => logic.actions.saveFeatureFlagSuccess(MOCK_FEATURE_FLAG)],
+            ['PostHog AI changes the flag', () => logic.actions.refreshFeatureFlagAfterAgentChange()],
         ])('clears the stale banner when %s', async (_name, mutate) => {
             useMocks(statusMock('stale', 'Flag has not been called in 45 days'))
             await expectLogic(logic, () => logic.actions.loadFeatureFlagStatus()).toFinishAllListeners()

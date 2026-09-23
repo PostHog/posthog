@@ -8,15 +8,18 @@ import { mswDecorator } from '~/mocks/browser'
 
 import type {
     CIFailureLogsApi,
+    DeliveryComparisonApi,
     PRCostSummaryApi,
     PRLifecycleApi,
     PRTimelineApi,
     PullRequestTimelinesApi,
+    ReadyToMergeMediansApi,
     WorkflowJobApi,
     WorkflowRunDetailApi,
 } from '../generated/api.schemas'
 
 const HOUR = 3600 * 1000
+const HOUR_SECONDS = 3600
 const REPO = { provider: 'github', owner: 'PostHog', name: 'posthog' } as const
 const AUTHOR = { handle: 'jane-dev', display_name: 'jane-dev', avatar_url: '', is_bot: false }
 
@@ -114,6 +117,13 @@ function timelines(item: PRTimelineApi): PullRequestTimelinesApi {
         jobs_available: true,
         merge_queue_state_available: true,
         generated_at: '2026-07-02T12:00:00Z',
+        merged_pr_count: item.merged_at ? 1 : 0,
+        red_seconds_per_merged_pr: [
+            { kind: 'red_fixed_by_push', seconds_per_merged_pr: 0 },
+            { kind: 'red_passed_on_rerun', seconds_per_merged_pr: 0 },
+            { kind: 'red_master_broken', seconds_per_merged_pr: 0 },
+            { kind: 'red_not_provable', seconds_per_merged_pr: 0 },
+        ],
         truncated: false,
         limit: 200,
         items: [item],
@@ -214,6 +224,40 @@ const NO_FAILURE_LOGS: CIFailureLogsApi = {
     truncated: false,
 }
 
+function medians(count: number, readyHours: number, beforeHours: number, afterHours: number): ReadyToMergeMediansApi {
+    return {
+        merged_pr_count: count,
+        ready_to_merge_seconds: readyHours * HOUR_SECONDS,
+        p90_ready_to_merge_seconds: 2.5 * readyHours * HOUR_SECONDS,
+        ready_to_first_approval_seconds: beforeHours * HOUR_SECONDS,
+        first_approval_to_merge_seconds: afterHours * HOUR_SECONDS,
+        before_first_approval_share: beforeHours / (beforeHours + afterHours),
+    }
+}
+
+// Jane is in two teams that own code; this pull request asked team-replay to review.
+function comparison(pullRequest: DeliveryComparisonApi['pull_request']): DeliveryComparisonApi {
+    return {
+        author: AUTHOR.handle,
+        has_membership_data: true,
+        review_data_available: true,
+        ready_data_available: true,
+        team_basis: 'pull_request',
+        author_medians: medians(21, 16, 5, 6),
+        teams: [{ github_team: 'team-replay', medians: medians(88, 12, 4, 4.5) }],
+        repo_medians: medians(1380, 9, 2.6, 3.4),
+        pull_request: pullRequest,
+    }
+}
+
+const MERGED_COMPARISON = comparison({
+    number: 4721,
+    ready_to_merge_seconds: 31.4 * HOUR_SECONDS,
+    ready_to_first_approval_seconds: 29 * HOUR_SECONDS,
+    first_approval_to_merge_seconds: 2.4 * HOUR_SECONDS,
+    before_first_approval_share: 29 / 31.4,
+})
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Engineering Analytics/Pull Request',
@@ -235,6 +279,7 @@ const meta: Meta = {
                 'api/projects/:team_id/engineering_analytics/pr_cost/': PR_COST,
                 'api/projects/:team_id/engineering_analytics/ci_failure_logs/': NO_FAILURE_LOGS,
                 'api/projects/:team_id/engineering_analytics/pull_request_timelines/': timelines(MERGED),
+                'api/projects/:team_id/engineering_analytics/delivery_comparison/': MERGED_COMPARISON,
             },
         }),
     ],
@@ -259,6 +304,28 @@ export const OutOfTheMergeQueue: Story = {
                 'api/projects/:team_id/engineering_analytics/pr_runs/': KICKED_RUNS,
                 'api/projects/:team_id/engineering_analytics/pull_request_timelines/': timelines(KICKED),
                 'api/projects/:team_id/engineering_analytics/workflow_jobs/': FAILED_GATE_JOBS,
+                // Jane's two teams tie, and the smaller one has too few other authors to show a median.
+                'api/projects/:team_id/engineering_analytics/delivery_comparison/': {
+                    ...comparison(null),
+                    team_basis: 'review_requests',
+                    teams: [
+                        { github_team: 'team-replay', medians: medians(88, 12, 4, 4.5) },
+                        { github_team: 'team-web-analytics', medians: null },
+                    ],
+                },
+            },
+        }),
+    ],
+}
+
+export const SectionLoadErrors: Story = {
+    render: () => <App />,
+    parameters: { testOptions: { waitForSelector: '#ea-section-pr-runs' } },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/engineering_analytics/pr_runs/': () => [500, null],
+                'api/projects/:team_id/engineering_analytics/pull_request_timelines/': () => [500, null],
             },
         }),
     ],

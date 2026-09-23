@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
-import { IconPlay } from '@posthog/icons'
+import { IconPlay, IconPlayFilled } from '@posthog/icons'
 import { LemonButton, LemonDivider, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -11,12 +11,34 @@ import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/
 import { urls } from 'scenes/urls'
 
 import { CitedText, ObservationResultSummary, readResult } from '../../components/ObservationCard'
+import { ObservationThumbnail } from '../../components/ObservationThumbnail'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import type { ReplayObservationApi, WatchFeedItemApi, WatchFeedReasonApi } from '../../generated/api.schemas'
+import { OBSERVATION_ORIGIN_PARAM, WATCH_FEED_ORIGIN } from '../../utils/breadcrumbs'
 import { citedTimestampRange } from '../../utils/citations'
 import { ScannerType } from '../types'
 
 const roundScore = (value: number): number => Math.round(value * 100) / 100
+
+const PROBLEM_TYPE_LABELS: Record<string, string> = {
+    bug: 'bug',
+    crash: 'crash',
+    design_flaw: 'design flaw',
+    ux_friction: 'UX friction',
+}
+
+const problemTypeLabel = (problemType: string): string =>
+    PROBLEM_TYPE_LABELS[problemType] ?? problemType.replace(/_/g, ' ')
+
+// A card lists the findings on one line, so it names the first few and counts the rest.
+const MAX_SHOWN_HEADLINES = 3
+
+const joinWithAnd = (parts: string[]): string =>
+    parts.length > 1 ? `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}` : parts[0]
+
+/** Reason kinds that say nothing about the session. The backend returns these only to pad a near-empty
+ * feed, so a feed made up entirely of them means the window turned up no findings at all. */
+export const FILLER_REASON_KINDS = new Set(['unviewed_recent', 'recent'])
 
 export function watchReasonCopy(reason: WatchFeedReasonApi): string {
     // The scan wrote this sentence while watching the session, so it beats anything derived from the
@@ -25,10 +47,64 @@ export function watchReasonCopy(reason: WatchFeedReasonApi): string {
         return reason.notability_reason
     }
     switch (reason.kind) {
-        case 'signal_emitted':
-            return (reason.signals_count ?? 0) > 1
-                ? `The scanner raised ${reason.signals_count} signals from this session.`
-                : 'The scanner raised a signal from this session.'
+        case 'signal_emitted': {
+            const total = reason.signals_count ?? 0
+            const signals = reason.signals ?? []
+            const problemTypes =
+                signals.length > 0 ? signals.map((signal) => signal.problem_type) : (reason.problem_types ?? [])
+            if (problemTypes.length === 0) {
+                return total > 1
+                    ? `The scanner raised ${total} signals from this session.`
+                    : 'The scanner raised a signal from this session.'
+            }
+            // Count each problem type, keeping the order the scan first raised them.
+            const order: string[] = []
+            const countByType = new Map<string, number>()
+            for (const problemType of problemTypes) {
+                if (!countByType.has(problemType)) {
+                    order.push(problemType)
+                }
+                countByType.set(problemType, (countByType.get(problemType) ?? 0) + 1)
+            }
+            // Sessions scanned before headlines shipped carry the types alone, so those cards still count.
+            if (signals.length === 0) {
+                if (order.length === 1) {
+                    const label = problemTypeLabel(order[0])
+                    return total > 1
+                        ? `The scanner raised ${total} ${label} signals from this session.`
+                        : `The scanner raised a ${label} signal from this session.`
+                }
+                const breakdown = order
+                    .map((problemType) => {
+                        const n = countByType.get(problemType) ?? 0
+                        return `${n} ${problemTypeLabel(problemType)} signal${n === 1 ? '' : 's'}`
+                    })
+                    .join(', ')
+                return `The scanner raised ${total} signals from this session: ${breakdown}.`
+            }
+            const shown = signals.slice(0, MAX_SHOWN_HEADLINES)
+            // Against the count, not the named list: the backend drops a finding whose headline came back
+            // blank, so the card can hold fewer names than the session raised signals.
+            const hidden = Math.max(total, signals.length) - shown.length
+            if (order.length === 1) {
+                const label = problemTypeLabel(order[0])
+                const named = shown.map((signal) => signal.headline)
+                const listed = joinWithAnd(hidden > 0 ? [...named, `${hidden} more`] : named)
+                return total > 1
+                    ? `The scanner raised ${total} ${label} signals from this session: ${listed}.`
+                    : `The scanner raised a ${label} signal from this session: ${listed}.`
+            }
+            const groups = order.map((problemType) => {
+                const n = countByType.get(problemType) ?? 0
+                const named = shown
+                    .filter((signal) => signal.problem_type === problemType)
+                    .map((signal) => signal.headline)
+                const label = `${n} ${problemTypeLabel(problemType)}`
+                return named.length > 0 ? `${label} (${named.join(', ')})` : label
+            })
+            const listed = joinWithAnd(hidden > 0 ? [...groups, `${hidden} more`] : groups)
+            return `The scanner raised ${total} signals from this session: ${listed}.`
+        }
         case 'unusual_verdict':
             return reason.verdict
                 ? `The scanner answered ${reason.verdict}, which is rare for it in this window.`
@@ -103,8 +179,12 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
         scannerType !== 'summarizer' && typeof result?.reasoning === 'string'
             ? { text: result.reasoning, segments: result.reasoning_segments }
             : null
-    // t=0 when nothing is cited, so the observation page still opens with the player expanded.
-    const observationUrl = `${urls.replayVisionObservation(observation.id)}?t=${clip ? Math.floor(clip.startMs / 1000) : 0}`
+    // t=0 when nothing is cited, so the observation page still opens with the player expanded. `from`
+    // marks the feed as the origin, so the observation's back button returns here rather than the scanner.
+    const observationUrl = combineUrl(urls.replayVisionObservation(observation.id), {
+        t: clip ? Math.floor(clip.startMs / 1000) : 0,
+        [OBSERVATION_ORIGIN_PARAM]: WATCH_FEED_ORIGIN,
+    }).url
     const capture = (target: 'clip_modal' | 'observation'): void => {
         posthog.capture('replay_vision_watch_clip_clicked', {
             scanner_id: observation.scanner_id,
@@ -136,8 +216,11 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
         >
             {/* The thumbnail column spans the card's full height; everything else stacks beside it. */}
             <div className="hidden @md:flex w-48 shrink-0 flex-col gap-1">
-                <div className="h-24 rounded bg-surface-secondary border flex items-center justify-center relative">
-                    <IconPlay className="text-2xl text-muted" />
+                {/* The dot and the duration sit outside the poster, which clips its own overflow. */}
+                <div className="relative">
+                    <ObservationThumbnail observation={observation}>
+                        <IconPlayFilled className="text-2xl text-brand-red drop-shadow" aria-hidden />
+                    </ObservationThumbnail>
                     {!observation.viewed && (
                         <Tooltip title="You haven't opened this observation yet">
                             <span

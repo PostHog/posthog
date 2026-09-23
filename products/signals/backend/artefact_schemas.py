@@ -27,7 +27,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
 
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.enums import ReportLinkKind, ReportPriority
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 # Product / type identifier parts must be routing-safe — mirrors the custom-agent identifier
@@ -179,7 +179,7 @@ class RelevantCommit(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    reason: str
+    reason: str = Field(max_length=500)
     sha: str
     url: str
 
@@ -211,6 +211,7 @@ class SuggestedReviewerEntry(BaseModel):
     )
     reason: str | None = Field(
         default=None,
+        max_length=500,
         description="Why this reviewer was chosen — the evidence behind the routing (e.g. recent author on the affected surface, human correction precedent).",
     )
     is_skill_owner: bool = Field(
@@ -276,6 +277,11 @@ class ChannelAssignment(BaseModel):
 # Reason code shared by the dismissal writer (the state API) and the corrections reader
 # (`repo_corrections`), defined here so the two cannot drift apart.
 DISMISSAL_REASON_WRONG_REPO = "wrong_repo"
+# Reason codes that claim the issue is fixed, rather than stating a preference about the report.
+# A later matching signal contradicts the claim, so the grouping stage treats these dismissals the
+# way it treats a resolved report: the recurrence gets a fresh report (see `recurrence.py`). The
+# `wontfix_*` codes and the rest stay sinks, because they say "I do not want this".
+FIXED_DISMISSAL_REASONS = frozenset({"already_fixed", "fixed_outside_posthog", "pr_merged"})
 # Bounds shared by the state API and this schema, so the generic artefact endpoint cannot store a
 # dismissal the state API would reject. Readers scan these rows in bulk (`repo_corrections`), so an
 # unbounded row is a cost on every repository selection, not just on the write.
@@ -585,6 +591,43 @@ class RelatedTo(BaseModel):
         return v
 
 
+MAX_REPORT_LINK_REASON_LENGTH = 500
+# One write declares one report's place in a stack, so a handful of links is the whole shape. The cap
+# bounds the per-link cycle check each write does.
+MAX_REPORT_LINKS_PER_WRITE = 10
+
+
+class ReportLink(BaseModel):
+    """Content schema for a `report_link` artefact: a typed, directed link from this report to
+    another `SignalReport`. The row reads as a sentence starting at the report it is written on:
+    "this report `kind` the report named by `report_id`".
+
+    Unlike `related_to`, nothing is mirrored onto the target. The direction is the payload, so
+    writing the reverse row would assert the opposite relationship. A reader that wants both
+    sides queries the type from either end.
+
+    `SignalReportArtefact.add_log` rejects a link that names the report it is written on, a link
+    to a report outside the writing team, and a link that closes a cycle of the same kind, so an
+    ordering the pipeline reads (a stack of dependent pull requests) can never contradict itself.
+    """
+
+    kind: ReportLinkKind = Field(description="How this report relates to the report named by `report_id`.")
+    report_id: str = Field(description="UUID of the SignalReport this link points at, in the same project.")
+    reason: str | None = Field(
+        default=None,
+        max_length=MAX_REPORT_LINK_REASON_LENGTH,
+        description="Optional one-line note on why the reports are linked this way.",
+    )
+
+    @field_validator("report_id")
+    @classmethod
+    def report_id_must_be_a_uuid(cls, v: str) -> str:
+        try:
+            return str(UUID(v.strip()))
+        except ValueError:
+            raise ValueError("must be a UUID")
+
+
 class ImplementationTarget(BaseModel):
     task_id: UUID
     run_id: UUID
@@ -745,6 +788,63 @@ class CheckResult(BaseModel):
         return v
 
 
+class CheckLifecycleEntry(BaseModel):
+    """What every entry in a check's life carries, so the three cannot drift apart.
+
+    A check soaks for days before its first run, so its verdict alone leaves the log silent over
+    the window a reader most wants explained. These types fill that silence. All are
+    system-generated: `check_result`'s writer is the executor, and the writers below are in
+    `report_check_artefacts`.
+    """
+
+    check_id: str = Field(description="UUID of the SignalReportCheck this entry describes.")
+    kind: str = Field(description="The check's kind, e.g. `metric_threshold`.")
+    title: str = Field(description="The check's title, copied so the log entry reads on its own.")
+
+
+class CheckScheduled(CheckLifecycleEntry):
+    """A check now watches this report: when it runs, what it watches, and which lane answers it."""
+
+    rationale: str = Field(default="", description="Why the author wrote the check, in their own words.")
+    next_run_at: str = Field(description="ISO 8601 date of the first run. Provisional when `arms_on_resolve`.")
+    arms_on_resolve: bool = Field(
+        description="True when the report has not resolved yet, so the clock starts at the resolve."
+    )
+    soak_minutes: int | None = Field(
+        default=None, description="How long after the resolve the first run waits. Absent on a dated check."
+    )
+    skill_name: str | None = Field(
+        default=None,
+        description="Scout skill that answers an `agent` check. Absent when it runs on the fleet's follow-up scout.",
+    )
+    runs: int = Field(default=1, description="How many runs the check was written for.")
+
+
+class CheckExpired(CheckLifecycleEntry):
+    """A check reached its horizon without deciding, the one transition nobody chose.
+
+    An absent `last_run_at` is what a reader acts on: the claim was never re-measured, so the
+    report's conclusion still stands unverified.
+    """
+
+    expired_at: str = Field(description="ISO 8601 time the sweep retired the check.")
+    last_run_at: str | None = Field(
+        default=None, description="ISO 8601 time of the last run. Absent when the check never ran at all."
+    )
+
+
+class CheckCancelled(CheckLifecycleEntry):
+    """A check was stopped before it could decide.
+
+    Kept apart from `check_scheduled` so each entry records one transition and the renderer reads
+    the type rather than a nullable field.
+    """
+
+    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research"] = Field(
+        description="Which path stopped the check."
+    )
+
+
 # ── Type mapping ─────────────────────────────────────────────────────────────────
 
 # Content models that describe the report's current state (latest row of each type wins) vs
@@ -769,10 +869,14 @@ LogArtefactContent = (
     | SummaryChange
     | CodeReview
     | RelatedTo
+    | ReportLink
     | WorkClaim
     | WorkRelease
     | PullRequestLink
     | CheckResult
+    | CheckScheduled
+    | CheckExpired
+    | CheckCancelled
     | ImplementationReplacement
     | ImplementationHandover
 )
@@ -798,10 +902,14 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "summary_change": SummaryChange,
     "code_review": CodeReview,
     "related_to": RelatedTo,
+    "report_link": ReportLink,
     "work_claim": WorkClaim,
     "work_release": WorkRelease,
     "pull_request": PullRequestLink,
     "check_result": CheckResult,
+    "check_scheduled": CheckScheduled,
+    "check_expired": CheckExpired,
+    "check_cancelled": CheckCancelled,
     "implementation_decision": ImplementationDecision,
     "implementation_dispatch": ImplementationDispatch,
     "implementation_replacement": ImplementationReplacement,
@@ -819,7 +927,10 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # that never happened. They stay readable (and so show up in the report's artefact log) but cannot
 # be created or edited directly.
 # `check_result` is likewise system-generated — the check executor is its only writer; accepting it
-# through the API would let a caller fabricate a verdict for a soak that never ran.
+# through the API would let a caller fabricate a verdict for a soak that never ran. The three
+# lifecycle types around it are closed for the same reason: a fabricated `check_scheduled` claims a
+# watch nobody set up, and a fabricated `check_expired` or `check_cancelled` retires one that is
+# still running.
 # `code_review` is likewise system-generated — the ReviewHog workflow is its only writer; accepting
 # it through the API would let a caller fabricate review receipts for reviews that never ran.
 # Replacement decisions, reservations, and outcomes authorize GitHub closures. Only the server
@@ -835,6 +946,10 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "work_release",
         "pull_request",
         "check_result",
+        "check_scheduled",
+        "check_expired",
+        "check_cancelled",
+        "report_link",
         "implementation_decision",
         "implementation_dispatch",
         "implementation_replacement",

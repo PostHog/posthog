@@ -34,7 +34,9 @@ A queue that batched several PRs onto one gate branch would break the one-PR ass
 shape above does — batching would need a new shape here, not a new rule at each call site.
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta
+
+from posthog.dataclasses import frozen
 
 # Both shapes carry the source PR as a ``pr-<number>`` segment; the trailing separator ('/' before
 # Trunk's uuid, '-' before GitHub's sha) is what ends the digit run. ``[0-9]`` rather than ``\d``
@@ -50,6 +52,16 @@ MERGE_QUEUE_BOT_HANDLES: frozenset[str] = frozenset({"trunk-io[bot]"})
 # OBSERVED gate run anchors every gate measure. One bound for every gate read, so two surfaces
 # cannot split the same PR's legs differently.
 GATE_RUN_LOOKBACK = timedelta(days=7)
+
+
+@frozen
+class GateAttempt:
+    """One merge-queue attempt for a pull request, with bisection probes folded into their parent."""
+
+    attempt: str
+    started_at: datetime
+    completed_at: datetime | None
+    failed: bool
 
 
 # Both helpers ``ifNull`` their input, and that is load-bearing rather than defensive: a branch or
@@ -131,3 +143,30 @@ def gate_attempt_expr(branch_column: str) -> str:
     ``-bisection`` suffix collapsed, so a flake-bisection probe groups with the attempt it
     investigates instead of counting as an attempt of its own."""
     return f"replaceRegexpOne({branch_column}, '-bisection$', '')"
+
+
+def gate_attempts_sql(
+    *,
+    runs_source: str,
+    pull_requests_source: str,
+    pull_request_filter: str,
+    decisive_failure_conclusions_sql: str,
+) -> str:
+    """One row per merge-queue attempt, bounded before grouping so post-merge probes cannot change it."""
+    return f"""
+        SELECT
+            r.pr_number AS pr_number,
+            {gate_attempt_expr("r.head_branch")} AS attempt,
+            min(r.run_started_at) AS started_at,
+            max(r.updated_at) AS completed_at,
+            countIf(r.status != 'completed' OR r.updated_at IS NULL) AS unfinished,
+            max(r.status = 'completed' AND r.conclusion IN ({decisive_failure_conclusions_sql})) AS failed,
+            any(pr.merged_at) AS merged_at
+        FROM {runs_source} AS r
+        INNER JOIN {pull_requests_source} AS pr ON pr.number = r.pr_number
+        WHERE r.is_merge_queue
+            AND r.run_started_at >= {{gate_from}}
+            AND (pr.merged_at IS NULL OR r.run_started_at <= pr.merged_at)
+            AND ({pull_request_filter})
+        GROUP BY r.pr_number, attempt
+    """

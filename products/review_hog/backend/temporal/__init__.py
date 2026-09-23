@@ -33,6 +33,7 @@ from products.review_hog.backend.temporal.resolution import (
     fail_resolution_activity,
     resolve_threads_activity,
 )
+from products.review_hog.backend.temporal.scheduling import ReviewPRQueueWorkflow, review_resolution_running_activity
 from products.review_hog.backend.temporal.workflow import (
     ReviewPerspectivesWorkflow,
     ReviewPRWorkflow,
@@ -40,6 +41,7 @@ from products.review_hog.backend.temporal.workflow import (
 )
 
 WORKFLOWS = [
+    ReviewPRQueueWorkflow,
     ReviewPRWorkflow,
     ReviewPerspectivesWorkflow,
     ValidateIssuesWorkflow,
@@ -48,6 +50,7 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    review_resolution_running_activity,
     validate_github_integration_activity,
     fetch_pr_data_activity,
     resolve_acting_user_activity,

@@ -36,6 +36,8 @@ Follow-up messages collect in "Up next" and send after the first response finish
 Once the agent starts, Steer can send them before the current turn ends.
 The thread hides empty and whitespace-only assistant messages during streaming and history replay.
 
+An idle sandbox resume does not run an agent turn, so it does not send a finished notification or mark the run's activity completed.
+
 The chat history filters for PostHog AI, Slack, and Desktop show tasks created by the current user.
 These requests wait until the current user's ID is available, including filter changes, searches, and refreshes.
 When the user loads, the pending request uses the active filter and search term.
@@ -438,6 +440,19 @@ container traffic because their network paths differ.
 The `use_modal_vm_sandbox` run-state key force-selects the VM runtime for trusted server-created runs
 (image builders) and is never accepted from client input.
 
+### Sandbox readiness
+
+Every Modal sandbox is created with a [readiness probe](https://modal.com/docs/guide/sandboxes#readiness-probes) that runs `true` inside the sandbox until it exits 0.
+Provisioning waits on that probe before it runs anything else in the sandbox, because a sandbox can come up dead with every RPC succeeding.
+That happens most often after a filesystem snapshot restore: a resume snapshot, or the prebaked dev-stack image, which is itself a snapshot.
+A sandbox whose probe has not passed within `READINESS_PROBE_TIMEOUT_SECONDS` (`products/tasks/backend/logic/services/modal_sandbox.py`) is terminated and recreated from the next image candidate in the downgrade chain: resume snapshot, then custom or dev-stack image, then the plain base.
+Termination is retried, and provisioning fails when it still does not complete: the run stores only the id of the sandbox that `create()` returned, so a sandbox left running here is invisible to every later cleanup path.
+A directory resume snapshot is mounted into the sandbox after the probe has passed, and Modal stops the probe at its first success.
+Provisioning therefore runs one more `true` after that mount, and recreates the sandbox without the mount when it fails.
+The run log records the full downgrade chain as "Sandbox image downgraded: ...", one entry per recreation.
+The application log keeps a warning for every recreation.
+When no candidate remains, provisioning fails with a transient error and Temporal retries the activity.
+
 ### Network access
 
 Network access is configured per-team via `SandboxEnvironment`:
@@ -612,10 +627,10 @@ for readiness before signaling completion, then checks persisted status, error, 
 sandbox shutdown. It does not test Django API authentication or LLM task execution.
 
 These tests consume the published sandbox image, not the agent source in the checkout.
-An agent release triggers a separate sandbox image build that installs the published
-package and updates the shared image. Running backend tests against that image alone
-does not validate an unpublished agent change. A release check must exercise the
-candidate image before promoting it to the shared tag.
+The image pins the agent version in `Dockerfile.sandbox-base`.
+An agent release opens a pull request that bumps that pin, and merging it rebuilds the shared image.
+That build checks the installed agent against the pin and starts the `agent-server` entrypoint on both architectures before the image is promoted.
+Running backend tests against that image alone does not validate an unpublished agent change.
 
 ## Questions?
 

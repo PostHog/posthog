@@ -34,6 +34,10 @@ from products.tasks.backend.facade.contracts import (
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
     SlackThreadReferenceDTO,
+    SpaceFeatureRequest,
+    SpaceGoalRequest,
+    SpaceSetupRequest,
+    SpaceSetupStartedDTO,
     TaskActivityDTO,
     TaskActivityPageDTO,
     TaskCreateResponseDTO,
@@ -52,10 +56,11 @@ from products.tasks.backend.facade.run_config import (
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     CONTEXT_WINDOW_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
-    PUBLIC_REASONING_EFFORTS,
+    REASONING_EFFORTS,
     WARMABLE_ORIGIN_PRODUCTS,
     LLMProvider,
     PrAuthorshipMode,
+    ReasoningEffort,
     RunSource,
     RuntimeAdapter,
     TaskArtifactAdapter,
@@ -68,12 +73,7 @@ from products.tasks.backend.facade.run_config import (
 
 logger = logging.getLogger(__name__)
 
-PI_THINKING_LEVEL_CHOICES = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
-TASK_RUN_REASONING_EFFORT_CHOICES = [
-    "off",
-    "minimal",
-    *(effort.value for effort in PUBLIC_REASONING_EFFORTS),
-]
+TASK_RUN_REASONING_EFFORT_CHOICES = [effort.value for effort in ReasoningEffort]
 
 
 def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
@@ -784,7 +784,7 @@ class TaskWriteSerializer(serializers.Serializer):
         help_text="LLM model for the first run when start_run is true, or for matching a pre-warmed run. Write-only.",
     )
     reasoning_effort = serializers.ChoiceField(
-        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+        choices=list(REASONING_EFFORTS),
         required=False,
         default=None,
         allow_null=True,
@@ -887,6 +887,7 @@ class TaskWriteSerializer(serializers.Serializer):
     def validate_origin_product(self, value):
         """Reject internal-only origins that are set by server-side flows, never by API callers."""
         reserved_origins = {
+            tasks_facade.TaskOriginProduct.SPACE_SETUP,
             tasks_facade.TaskOriginProduct.IMAGE_BUILDER,
             tasks_facade.TaskOriginProduct.EXPERIMENTS,
             tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
@@ -906,6 +907,8 @@ class TaskWriteSerializer(serializers.Serializer):
             # mint an internally funded scoped token. Only ReviewHog's executor sets it.
             tasks_facade.TaskOriginProduct.REVIEW_HOG,
             tasks_facade.TaskOriginProduct.TASK_ANALYSIS,
+            # Maps to the mintable `slack_app` gateway product. Only the Slack app's server flows set it.
+            tasks_facade.TaskOriginProduct.SLACK,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
@@ -2523,6 +2526,118 @@ class ChannelContextGenerationSerializer(serializers.Serializer):
     task_id = serializers.UUIDField(allow_null=True)
 
 
+class SpaceSetupKind(models.TextChoices):
+    GOAL = "goal", "Goal"
+    FEATURE = "feature", "Feature"
+
+
+class SpaceGoalDirection(models.TextChoices):
+    AT_LEAST = "at_least", "At least"
+    AT_MOST = "at_most", "At most"
+
+
+class SpaceGoalPeriod(models.TextChoices):
+    DAY = "day", "Day"
+    WEEK = "week", "Week"
+    MONTH = "month", "Month"
+
+
+class SpaceGoalWriteSerializer(serializers.Serializer):
+    """The metric a goal space should move."""
+
+    statement = serializers.CharField(
+        max_length=2000, help_text="The goal in one or two sentences, e.g. 'Increase the weekly activation rate'."
+    )
+    period = serializers.ChoiceField(
+        choices=SpaceGoalPeriod.choices, default=SpaceGoalPeriod.WEEK, help_text="How often the metric is measured."
+    )
+    direction = serializers.ChoiceField(
+        choices=SpaceGoalDirection.choices,
+        default=SpaceGoalDirection.AT_LEAST,
+        help_text="Whether the target is a floor ('at_least') or a ceiling ('at_most').",
+    )
+    target = serializers.CharField(
+        max_length=64,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Target value as typed, e.g. '20%' or '1500'.",
+    )
+    deadline = serializers.DateField(required=False, allow_null=True, help_text="Date the target should be reached.")
+    insight_short_id = serializers.CharField(
+        max_length=64,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Short id of an existing insight that measures the goal, when there is one.",
+    )
+
+
+class SpaceFeatureWriteSerializer(serializers.Serializer):
+    """The feature a feature space is set up around."""
+
+    name = serializers.CharField(max_length=200, help_text="Feature name as people call it.")
+    description = serializers.CharField(
+        max_length=2000, required=False, allow_blank=True, default="", help_text="What the feature does, in a sentence."
+    )
+    flag_key = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Key of the feature flag that gates it, if any.",
+    )
+
+
+def _blank_to_none(data: dict, *, keep: frozenset[str] = frozenset()) -> dict:
+    """Optional text fields arrive as "" from a form; the contracts use None for "not given"."""
+    return {key: (None if value == "" and key not in keep else value) for key, value in data.items()}
+
+
+class ChannelSetupWriteSerializer(serializers.Serializer):
+    """Request body for starting the task that sets a space up for a goal or a feature."""
+
+    kind = serializers.ChoiceField(choices=SpaceSetupKind.choices, help_text="What the space is set up for.")
+    goal = SpaceGoalWriteSerializer(required=False, help_text="Required when kind is 'goal'.")
+    feature = SpaceFeatureWriteSerializer(required=False, help_text="Required when kind is 'feature'.")
+    repository = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Repository the loops work in, as 'owner/name'. Defaults to the channel's first repository.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        kind = attrs["kind"]
+        if kind == SpaceSetupKind.GOAL and not attrs.get("goal"):
+            raise serializers.ValidationError({"goal": "A goal setup needs a goal."})
+        if kind == SpaceSetupKind.FEATURE and not attrs.get("feature"):
+            raise serializers.ValidationError({"feature": "A feature setup needs a feature."})
+        return attrs
+
+    def to_request(self) -> SpaceSetupRequest:
+        data = self.validated_data
+        goal = data.get("goal")
+        feature = data.get("feature")
+        return SpaceSetupRequest(
+            kind=data["kind"],
+            goal=SpaceGoalRequest(**_blank_to_none(goal)) if goal else None,
+            feature=SpaceFeatureRequest(**_blank_to_none(feature, keep=frozenset({"description"})))
+            if feature
+            else None,
+            repository=data.get("repository") or None,
+        )
+
+
+class ChannelSetupResponseSerializer(DataclassSerializer):
+    """The setup task that was started for the channel."""
+
+    class Meta:
+        dataclass = SpaceSetupStartedDTO
+        fields = ["task_id"]
+
+
 class ChannelStarWriteSerializer(serializers.Serializer):
     """Request body for starring/unstarring a channel for the requesting user."""
 
@@ -2956,13 +3071,22 @@ class ModelChoiceSerializer(DataclassSerializer):
         source="label", help_text="Display name for the model, such as 'Claude Opus 4.8'."
     )
     supported_efforts = serializers.ListField(
-        child=serializers.ChoiceField(choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS]),
+        child=serializers.ChoiceField(choices=list(REASONING_EFFORTS)),
         help_text="Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control.",
+    )
+    cost_multiplier = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Per-token cost against the catalogue baseline, ready to display, such as '2.5x' or "
+            "'~0.55x'. Prefixed when the input and output rates diverge enough that one number "
+            "flatters either. Null for a model the catalogue quotes no rate for."
+        ),
     )
 
     class Meta:
         dataclass = ModelChoice
-        fields = ["runtime_adapter", "model", "display_name", "supported_efforts"]
+        fields = ["runtime_adapter", "model", "display_name", "supported_efforts", "cost_multiplier"]
 
 
 class ModelCatalogueResponseSerializer(serializers.Serializer):
@@ -3023,6 +3147,20 @@ class ConnectionTokenResponseSerializer(serializers.Serializer):
     """Response containing a JWT token for direct sandbox connection"""
 
     token = serializers.CharField(help_text="JWT token for authenticating with the sandbox")
+
+
+class StreamReadTokenQuerySerializer(serializers.Serializer):
+    """Query parameters for requesting a task run stream read token"""
+
+    resync = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Set to true when the client can rebuild the run from its durable log after the agent-proxy "
+            "reports a trimmed stream cursor. Without it, runs that keep only a short live tail in Redis "
+            "are read from the Django endpoint, which replays the durable backlog itself."
+        ),
+    )
 
 
 class StreamReadTokenResponseSerializer(serializers.Serializer):
@@ -3216,7 +3354,7 @@ class TaskRunCreateRequestSerializer(
     PR_AUTHORSHIP_MODE_CHOICES = [mode.value for mode in PrAuthorshipMode]
     RUN_SOURCE_CHOICES = [source.value for source in RunSource]
     RUNTIME_ADAPTER_CHOICES = [adapter.value for adapter in RuntimeAdapter]
-    REASONING_EFFORT_CHOICES = [effort.value for effort in PUBLIC_REASONING_EFFORTS]
+    REASONING_EFFORT_CHOICES = list(REASONING_EFFORTS)
 
     mode = serializers.ChoiceField(
         choices=TaskExecutionMode.choices,
@@ -3533,10 +3671,8 @@ class TaskRunBootstrapCreateRequestSerializer(
             for field in pi_incompatible_fields:
                 if attrs.get(field) is not None:
                     errors[field] = "This field cannot be used with a Pi task."
-
-            reasoning_effort = attrs.get("reasoning_effort")
-            if reasoning_effort is not None and reasoning_effort not in PI_THINKING_LEVEL_CHOICES:
-                errors["reasoning_effort"] = "This thinking level is not supported by Pi."
+            if attrs.get("reasoning_effort") == ReasoningEffort.ULTRACODE:
+                errors["reasoning_effort"] = "This reasoning effort cannot be used with a Pi task."
 
             if errors:
                 raise serializers.ValidationError(errors)
@@ -3647,7 +3783,7 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         help_text="LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run.",
     )
     reasoning_effort = serializers.ChoiceField(
-        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+        choices=list(REASONING_EFFORTS),
         required=False,
         default=None,
         allow_null=True,
@@ -3686,6 +3822,22 @@ class WarmTaskRequestSerializer(serializers.Serializer):
             "cold Run. Omit to take the runtime's default."
         ),
     )
+    signal_report = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
+        queryset=Integration.objects.none(),
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text=(
+            "Inbox report the warm discussion is about. Required with origin_product `signal_report`, where the "
+            "warm Run boots repo-less and the submit that creates the report's discussion task activates it."
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        cast(
+            serializers.PrimaryKeyRelatedField, self.fields["signal_report"]
+        ).queryset = tasks_facade.signal_report_queryset()
 
     def validate_repository(self, value: str | None) -> str | None:
         if value is None:
@@ -3696,7 +3848,22 @@ class WarmTaskRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError("Repository must be in the format organization/repository")
         return normalized
 
+    def validate_signal_report(self, value):
+        if value and value.team_id != self.context["team"].id:
+            raise serializers.ValidationError("Signal report must belong to the same team")
+        return value
+
     def validate(self, attrs):
+        if attrs.get("origin_product") == tasks_facade.TaskOriginProduct.SIGNAL_REPORT:
+            if not attrs.get("signal_report"):
+                raise serializers.ValidationError({"signal_report": "Requires signal_report when set."})
+            if attrs.get("repository") or attrs.get("repositories") or attrs.get("github_integration"):
+                raise serializers.ValidationError(
+                    {"repository": "Signal report tasks resolve their repository server-side."}
+                )
+        elif attrs.get("signal_report"):
+            raise serializers.ValidationError({"signal_report": "Requires origin_product signal_report when set."})
+
         # A repository needs an integration to clone with. The reverse is allowed: the create path
         # accepts and stores an integration on a repo-less task, and the sandbox uses it to mint a
         # GitHub token, so a repo-less warm must carry the same integration to boot with the same
@@ -3749,7 +3916,7 @@ class WarmTaskResumeRequestSerializer(serializers.Serializer):
         help_text="LLM model to start before the next message is submitted.",
     )
     reasoning_effort = serializers.ChoiceField(
-        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+        choices=list(REASONING_EFFORTS),
         required=False,
         default=None,
         help_text="Reasoning effort to apply when the warmed successor receives its first message.",
@@ -4585,6 +4752,14 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
             "This is true for 'heartbeat' and 'agent_activity', and false otherwise."
         ),
     )
+    turn_completed = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether 'awaiting_input' reports a completed turn. Set false for an idle sandbox resume "
+            "to mark the agent idle without sending a completion notification or updating activity."
+        ),
+    )
     task_id = serializers.CharField(
         max_length=36,
         help_text="UUID of the Task that owns this run. Must match the JWT claim.",
@@ -4604,16 +4779,27 @@ class AgentProxyCallbackResponseSerializer(serializers.Serializer):
 
 
 class TasksAIRunPreferencesSerializer(serializers.Serializer):
-    """The default AI run triple stored at team or user level.
+    """The default AI run selection stored at team or user level.
 
     Write payload for the tasks config endpoints and the `ai_run_preferences` block of
-    their responses. `runtime_adapter` and `model` must be set together; send all three
-    as null to clear a stored preference.
+    their responses. What a complete selection is depends on the harness: an ACP default
+    sets `runtime_adapter` and `model` together, a Pi default sets `model` alone. Send
+    every field as null to clear a stored preference.
     """
 
     RUNTIME_ADAPTER_CHOICES = [adapter.value for adapter in RuntimeAdapter]
-    REASONING_EFFORT_CHOICES = [effort.value for effort in PUBLIC_REASONING_EFFORTS]
+    REASONING_EFFORT_CHOICES = TASK_RUN_REASONING_EFFORT_CHOICES
 
+    runtime = serializers.ChoiceField(
+        choices=tasks_facade.TaskRuntime.choices,
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Harness the default runs on: 'acp' for the Claude and Codex adapters, 'pi' for the "
+            "Pi harness. Defaults to 'acp' when omitted."
+        ),
+    )
     runtime_adapter = serializers.ChoiceField(
         choices=RUNTIME_ADAPTER_CHOICES,
         required=False,
@@ -4621,7 +4807,8 @@ class TasksAIRunPreferencesSerializer(serializers.Serializer):
         default=None,
         help_text=(
             "Default agent runtime adapter for new task runs. Use 'claude' for the Claude "
-            "runtime or 'codex' for the Codex runtime. Must be set together with `model`."
+            "runtime or 'codex' for the Codex runtime. Must be set together with `model`, and "
+            "must be null when `runtime` is 'pi'."
         ),
     )
     model = serializers.CharField(
@@ -4629,26 +4816,36 @@ class TasksAIRunPreferencesSerializer(serializers.Serializer):
         allow_null=True,
         allow_blank=False,
         default=None,
-        help_text="Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.",
+        help_text=(
+            "Default LLM model identifier for new task runs. Must be set together with "
+            "`runtime_adapter` on the ACP harness, and is required on its own for a Pi default."
+        ),
     )
     reasoning_effort = serializers.ChoiceField(
         choices=REASONING_EFFORT_CHOICES,
         required=False,
         allow_null=True,
         default=None,
-        help_text="Default reasoning effort for models that expose an effort control.",
+        help_text=(
+            "Default reasoning effort for models that expose an effort control. A Pi default "
+            "stores a Pi thinking level here, which also allows 'off' and 'minimal'."
+        ),
     )
 
 
 class TasksResolvedAIRunDefaultsSerializer(serializers.Serializer):
-    """The AI run triple a new run will effectively use when the caller pins nothing,
+    """The AI run selection a new run will effectively use when the caller pins nothing,
     plus which preference level supplied it."""
 
     # Not bound to `ResolvedAIRunConfig` via DataclassSerializer: that dataclass also carries the
     # internal `explicit` resolution state this endpoint never returns, and its per-field defaults
     # would mark every field optional when the response always sends all four.
+    runtime = serializers.CharField(
+        help_text="Harness the effective default runs on: 'acp' or 'pi'. 'acp' when no preference is stored."
+    )
     runtime_adapter = serializers.CharField(
-        allow_null=True, help_text="Effective default runtime adapter, or null when no preference is stored."
+        allow_null=True,
+        help_text="Effective default runtime adapter, or null when no preference is stored or the harness is Pi.",
     )
     model = serializers.CharField(
         allow_null=True, help_text="Effective default model identifier, or null when no preference is stored."
