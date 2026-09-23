@@ -60,7 +60,7 @@ export const optOutSceneLogic = kea<optOutSceneLogicType>([
 
                 try {
                     const response = await messagingPreferencesGenerateLinkCreate(
-                        String(ApiConfig.getCurrentProjectId()),
+                        String(ApiConfig.getCurrentTeamId()),
                         { recipient: recipient ?? values.user.email }
                     )
                     if (!response.preferences_url) {

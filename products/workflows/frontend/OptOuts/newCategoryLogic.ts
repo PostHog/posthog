@@ -137,14 +137,14 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
                 }
             },
             submit: async (formValues: CategoryForm) => {
-                const projectId = String(ApiConfig.getCurrentProjectId())
+                const teamId = String(ApiConfig.getCurrentTeamId())
                 if (props.category) {
                     // Update existing category
-                    await messagingCategoriesPartialUpdate(projectId, props.category.id, formValues)
+                    await messagingCategoriesPartialUpdate(teamId, props.category.id, formValues)
                     lemonToast.success('Category updated successfully')
                 } else {
                     // Create new category
-                    await messagingCategoriesCreate(projectId, formValues)
+                    await messagingCategoriesCreate(teamId, formValues)
                     lemonToast.success('Category created successfully')
                 }
                 // Reload categories in the parent logic
