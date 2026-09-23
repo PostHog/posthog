@@ -1,5 +1,23 @@
 import { MAX_TERMINAL_FILE_BYTES, TerminalFilesystem } from './terminalFilesystem'
 
+const OPEN_SCRIPT = String.raw`#!/bin/sh
+set -eu
+if [ "$#" -gt 1 ]; then
+    printf '%s\n' 'Use open with one file or folder path. Quote paths containing spaces.' >&2
+    exit 1
+fi
+if [ "$#" -eq 0 ]; then
+    set -- .
+fi
+target="$1"
+case "$target" in
+    /*) ;;
+    *) target="$PWD/$target" ;;
+esac
+target=$(realpath "$target")
+exec ph open "$target"
+`
+
 export const PH_SCRIPT = String.raw`#!/bin/sh
 set -eu
 set -o pipefail
@@ -70,7 +88,7 @@ export class TerminalCommands {
                         response = encoded
                     } catch (error) {
                         // A failed tool can put its whole payload in the message, and the guest reads
-                        // this file into a shell variable inside a 128 MiB virtual machine.
+                        // this file into a shell variable inside the virtual machine.
                         const encoded = envelope({
                             ok: false,
                             error: error instanceof Error ? error.message : 'The command failed. Try ph help.',
@@ -89,5 +107,6 @@ export class TerminalCommands {
             true
         )
         filesystem.text('ph', filesystem.directory('bin', filesystem.root), PH_SCRIPT)
+        filesystem.text('open', filesystem.directory('bin', filesystem.root), OPEN_SCRIPT)
     }
 }

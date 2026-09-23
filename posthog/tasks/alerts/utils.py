@@ -18,6 +18,7 @@ from posthog.slo.types import SloOperation
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.alerts.backend.facade.api import LLM_DETECTOR_UNAVAILABLE_ERROR_CODE
 from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.facade.delivery_slo import alert_delivery_slo
 from products.alerts.backend.facade.destinations import (
@@ -319,6 +320,9 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
             "insight_url": insight_url,
             "insight_name": alert.insight.name,
             "next_check_at": alert.next_check_at,
+            # The template drops its "review the alert settings" advice for this code, because
+            # a provider PostHog could not reach is not something the alert's owner can fix.
+            "provider_unavailable": error.get("code") == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
         },
     )
     accepted_at = datetime.now(UTC).isoformat()

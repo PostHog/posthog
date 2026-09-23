@@ -8,6 +8,8 @@ import biosUrl from './assets/seabios.bin?url'
 import toolsUrl from './assets/tools-linux-i386.tar.gz.bin?url'
 import vgaBiosUrl from './assets/vgabios.bin?url'
 import { NinePServer } from './ninepServer'
+import packageManifest from './terminal-packages.json'
+import { TerminalPackages } from './terminalPackages'
 
 function browserClock(): { timestamp: number; timezone: string } {
     const now = new Date()
@@ -82,6 +84,7 @@ export class TerminalRuntime {
         if (signal.aborted || this.disposed) {
             return
         }
+        new TerminalPackages(server.filesystem, signal).mount()
         const bin = server.filesystem.directory('bin', server.filesystem.root)
         server.filesystem.file('jq', bin, async () => ({ bytes: new Uint8Array(jq) })).size = jq.byteLength
         server.filesystem.file('tools.tar', bin, async () => ({ bytes: new Uint8Array(toolsArchive) })).size =
@@ -91,7 +94,7 @@ export class TerminalRuntime {
             bios: { buffer: bios },
             vga_bios: { buffer: vgaBios },
             bzimage: { buffer: kernel },
-            memory_size: 128 * 1024 * 1024,
+            memory_size: 512 * 1024 * 1024,
             filesystem: { handle9p: server.handle },
             cmdline: 'tsc=reliable mitigations=off random.trust_cpu=on',
             disable_keyboard: true,
@@ -151,8 +154,17 @@ export class TerminalRuntime {
                         `date -s @${clock.timestamp} > /dev/null`,
                         'tar -xf /posthog/bin/tools.tar -C / || exit',
                         'export EDITOR=nano VISUAL=nano',
+                        'mkdir -p /opt/posthog-packages && mount -t tmpfs -o size=256m tmpfs /opt/posthog-packages || exit',
+                        'ln -sf /opt/posthog-tools/lib/ld-musl-i386.so.1 /lib/ld-musl-i386.so.1',
                         'cp /posthog/bin/jq /usr/bin/jq && chmod +x /usr/bin/jq || exit',
                         'cp /posthog/bin/ph /usr/bin/ph && chmod +x /usr/bin/ph || exit',
+                        'cp /posthog/bin/open /usr/bin/open && chmod +x /usr/bin/open || exit',
+                        ...Object.values(packageManifest.packages).flatMap((pkg) =>
+                            Object.keys(pkg.commands).map(
+                                (command) =>
+                                    `cp /posthog/bin/${command} /usr/bin/${command} && chmod +x /usr/bin/${command} || exit`
+                            )
+                        ),
                         'stty -F /dev/ttyS1 raw -echo',
                         // Detach the control helper so the shell's wait command only waits for user jobs.
                         '(while read -r command first second; do case "$command" in resize) stty -F /dev/ttyS0 rows "$first" cols "$second";; clock) date -s "@$first" > /dev/null; printf "%s\\n" "$second" > /etc/TZ;; esac; done < /dev/ttyS1 &)',
