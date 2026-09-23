@@ -27,6 +27,8 @@ pub enum Destination {
     /// valve (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`) is armed; overflow on the AI lane
     /// lands here, never on the analytics `Overflow` destination.
     AiEventsOverflow,
+    /// Verified capture_internal traffic, consumed without customer filters or transformations.
+    AnalyticsInternal,
 }
 
 impl Destination {
@@ -37,7 +39,10 @@ impl Destination {
     /// `AiEvents` is false: `$ai_*` events are diverted out of the analytics
     /// pipeline into a dedicated AI lane, just like heatmaps/exceptions.
     pub fn is_analytics_pipeline(&self) -> bool {
-        matches!(self, Self::AnalyticsMain | Self::AnalyticsHistorical)
+        matches!(
+            self,
+            Self::AnalyticsMain | Self::AnalyticsHistorical | Self::AnalyticsInternal
+        )
     }
 
     /// Restriction pipeline this destination is governed by, if any. Mirrors
@@ -48,9 +53,10 @@ impl Destination {
     /// themselves restriction/terminal outcomes (Dlq, Custom, Drop).
     pub fn pipeline(&self) -> Option<Pipeline> {
         match self {
-            Self::AnalyticsMain | Self::AnalyticsHistorical | Self::Overflow => {
-                Some(Pipeline::Analytics)
-            }
+            Self::AnalyticsMain
+            | Self::AnalyticsHistorical
+            | Self::AnalyticsInternal
+            | Self::Overflow => Some(Pipeline::Analytics),
             Self::AiEvents | Self::AiEventsOverflow => Some(Pipeline::Ai),
             Self::ExceptionErrorTracking => Some(Pipeline::ErrorTracking),
             Self::HeatmapMain | Self::ClientIngestionWarning | Self::Dlq | Self::Custom(_) => None,
@@ -77,7 +83,8 @@ impl Destination {
             | Self::ExceptionErrorTracking
             | Self::HeatmapMain
             | Self::ClientIngestionWarning
-            | Self::AiEvents => false,
+            | Self::AiEvents
+            | Self::AnalyticsInternal => false,
             // Never published, so it never reaches a partition key.
             Self::Drop => false,
         }
@@ -98,6 +105,7 @@ impl Destination {
         match self {
             Self::AnalyticsMain
             | Self::AnalyticsHistorical
+            | Self::AnalyticsInternal
             | Self::Overflow
             | Self::Dlq
             | Self::Custom(_) => true,
@@ -126,6 +134,7 @@ impl Destination {
             Self::ClientIngestionWarning => "client_ingestion_warning",
             Self::AiEvents => "ai_events",
             Self::AiEventsOverflow => "ai_events_overflow",
+            Self::AnalyticsInternal => "analytics_internal",
         }
     }
 }
@@ -135,9 +144,10 @@ mod destination_tests {
     use super::Destination;
 
     #[test]
-    fn is_analytics_pipeline_true_for_main_and_historical() {
+    fn is_analytics_pipeline_true_for_analytics_lanes() {
         assert!(Destination::AnalyticsMain.is_analytics_pipeline());
         assert!(Destination::AnalyticsHistorical.is_analytics_pipeline());
+        assert!(Destination::AnalyticsInternal.is_analytics_pipeline());
     }
 
     #[test]
@@ -179,6 +189,7 @@ mod destination_tests {
             ),
             (Destination::AiEvents, "ai_events"),
             (Destination::AiEventsOverflow, "ai_events_overflow"),
+            (Destination::AnalyticsInternal, "analytics_internal"),
         ];
 
         let mut seen = std::collections::HashSet::new();

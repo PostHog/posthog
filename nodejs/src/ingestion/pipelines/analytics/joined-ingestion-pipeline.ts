@@ -57,6 +57,7 @@ import {
 import { prefetchTeamsStep } from './steps/prefetchTeamsStep'
 
 export interface JoinedIngestionPipelineConfig {
+    customerEventControlsEnabled: boolean
     eventSchemaEnforcementEnabled: boolean
     overflowMode: IngestionOverflowMode
     preservePartitionLocality: boolean
@@ -127,6 +128,7 @@ export function createJoinedIngestionPipeline<
     CFeed extends object = Record<never, never>,
 >(config: JoinedIngestionPipelineConfig, deps: JoinedIngestionPipelineDeps) {
     const {
+        customerEventControlsEnabled,
         eventSchemaEnforcementEnabled,
         overflowMode,
         preservePartitionLocality,
@@ -162,7 +164,7 @@ export function createJoinedIngestionPipeline<
     const topHogWrapper = createTopHogWrapper(topHog)
 
     const postTeamConfig: PostTeamPreprocessingSubpipelineConfig = {
-        eventFilterManager,
+        eventFilterManager: customerEventControlsEnabled ? eventFilterManager : null,
         eventIngestionRestrictionManager,
         eventSchemaEnforcementManager,
         eventSchemaEnforcementEnabled,
@@ -172,7 +174,7 @@ export function createJoinedIngestionPipeline<
         personsPrefetchEnabled,
         groupsPrefetchEnabled,
         eventSchemasPrefetchEnabled,
-        hogFunctionsPrefetchEnabled,
+        hogFunctionsPrefetchEnabled: hogFunctionsPrefetchEnabled && customerEventControlsEnabled,
         groupTypeManager,
         hogTransformer,
     }
@@ -182,7 +184,7 @@ export function createJoinedIngestionPipeline<
         outputs,
         teamManager,
         groupTypeManager,
-        hogTransformer,
+        hogTransformer: customerEventControlsEnabled ? hogTransformer : null,
         topHog: topHogWrapper,
         flagEvaluationsService,
     }

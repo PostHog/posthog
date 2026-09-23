@@ -522,7 +522,10 @@ fn validate_events(
             ));
         }
 
-        let destination = destination_for_event_name(&event.event, ai_lane_predicate);
+        let mut destination = destination_for_event_name(&event.event, ai_lane_predicate);
+        if context.internal_producer && destination == Destination::AnalyticsMain {
+            destination = Destination::AnalyticsInternal;
+        }
 
         match validate_event(&event) {
             Ok(raw_ts) => {
@@ -1196,6 +1199,19 @@ mod tests {
             capture_internal: None,
             batch: events,
         }
+    }
+
+    #[test]
+    fn internal_producer_routes_analytics_events_to_the_internal_lane() {
+        let mut ctx = crate::v1::test_utils::test_context();
+        ctx.internal_producer = true;
+        let ai = Event {
+            event: "$ai_generation".to_string(),
+            ..valid_event()
+        };
+        let events = validate_events(&ctx, valid_batch(vec![valid_event(), ai])).unwrap();
+        assert_eq!(events[0].destination, Destination::AnalyticsInternal);
+        assert_eq!(events[1].destination, Destination::AiEvents);
     }
 
     /// Build an Event through serde — the production entry point — so the

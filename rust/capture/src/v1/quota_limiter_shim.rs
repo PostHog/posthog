@@ -176,6 +176,7 @@ mod tests {
                 dlq: "events_plugin_ingestion_dlq".to_string(),
                 ai_events: "events_plugin_ingestion_ai".to_string(),
                 ai_events_overflow: None,
+                internal: None,
             },
             replay_envelope_compression: EnvelopeCompression::None,
             outputs_completeness_check_enabled: true,

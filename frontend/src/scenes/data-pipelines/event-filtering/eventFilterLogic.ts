@@ -128,13 +128,6 @@ const DEFAULT_FORM: EventFilterFormValues = {
 
 // --- Pure functions (shared across 3 implementations) ---
 
-/** Mirrors nodejs/src/common/protected-internal-events.ts */
-export const PROTECTED_INTERNAL_EVENTS: ReadonlySet<string> = new Set(['$recording_observed'])
-
-export function wouldDropTestEvent(node: FilterNode, event: Record<string, string>): boolean {
-    return !PROTECTED_INTERNAL_EVENTS.has(event.event_name) && evaluateFilterTree(node, event)
-}
-
 /**
  * Evaluate a filter tree against a test event. Returns true if the event should be dropped.
  *
@@ -442,7 +435,7 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
             (s) => [s.filterForm],
             (form: EventFilterFormValues): TestResult[] =>
                 form.test_cases.map((tc) => {
-                    const dropped = wouldDropTestEvent(form.filter_tree, {
+                    const dropped = evaluateFilterTree(form.filter_tree, {
                         event_name: tc.event_name,
                         distinct_id: tc.distinct_id,
                     })

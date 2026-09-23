@@ -378,6 +378,7 @@ services:
         environment:
             ADDRESS: '0.0.0.0:3000'
             KAFKA_TOPIC: 'events_plugin_ingestion'
+            CAPTURE_INTERNAL_EVENTS_TOPIC: 'events_plugin_ingestion_internal'
             KAFKA_ERROR_TRACKING_TOPIC: 'ingestion-errortracking-main'
             KAFKA_HOSTS: 'kafka:9092'
             KAFKA_INGESTION_PRODUCER_METADATA_BROKER_LIST: 'kafka:9092'

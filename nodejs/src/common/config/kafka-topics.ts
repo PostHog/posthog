@@ -17,6 +17,7 @@ export const KAFKA_EVENTS_PLUGIN_INGESTION = `${prefix}events_plugin_ingestion${
 export const KAFKA_EVENTS_PLUGIN_INGESTION_DLQ = `${prefix}events_plugin_ingestion_dlq${suffix}`
 export const KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW = `${prefix}events_plugin_ingestion_overflow${suffix}`
 export const KAFKA_EVENTS_PLUGIN_INGESTION_AI = `${prefix}events_plugin_ingestion_ai${suffix}`
+export const KAFKA_EVENTS_PLUGIN_INGESTION_INTERNAL = `${prefix}events_plugin_ingestion_internal${suffix}`
 export const KAFKA_EVENTS_PLUGIN_INGESTION_ASYNC = `${prefix}events_plugin_ingestion_async${suffix}`
 export const KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL = `${prefix}events_plugin_ingestion_historical${suffix}`
 export const KAFKA_PLUGIN_LOG_ENTRIES = `${prefix}plugin_log_entries${suffix}`

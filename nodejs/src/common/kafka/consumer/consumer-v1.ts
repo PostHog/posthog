@@ -912,8 +912,6 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
                 result.historical_migration = value === 'true'
             } else if (key === 'skip_heatmap_processing') {
                 result.skip_heatmap_processing = value === 'true'
-            } else if (key === 'internal_producer') {
-                result.internal_producer = value === 'true'
             } else if (key === 'redirect-original-key') {
                 result.redirect_original_key = value
             }

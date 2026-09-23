@@ -120,7 +120,6 @@ pub struct CapturedEventHeaders {
     pub force_disable_person_processing: Option<bool>,
     pub historical_migration: Option<bool>,
     pub skip_heatmap_processing: Option<bool>,
-    pub internal_producer: Option<bool>,
     pub dlq_reason: Option<String>,
     pub dlq_step: Option<String>,
     pub dlq_timestamp: Option<String>,
@@ -205,13 +204,6 @@ impl From<CapturedEventHeaders> for OwnedHeaders {
                 value: Some(val.as_str()),
             });
         }
-        if let Some(internal_producer) = headers.internal_producer {
-            let val = internal_producer.to_string();
-            owned = owned.insert(Header {
-                key: "internal_producer",
-                value: Some(val.as_str()),
-            });
-        }
         if let Some(ref reason) = headers.dlq_reason {
             owned = owned.insert(Header {
                 key: "dlq_reason",
@@ -268,9 +260,6 @@ impl From<OwnedHeaders> for CapturedEventHeaders {
                 .and_then(|v| v.parse::<bool>().ok()),
             skip_heatmap_processing: headers_map
                 .get("skip_heatmap_processing")
-                .and_then(|v| v.parse::<bool>().ok()),
-            internal_producer: headers_map
-                .get("internal_producer")
                 .and_then(|v| v.parse::<bool>().ok()),
             dlq_reason: headers_map.get("dlq_reason").cloned(),
             dlq_step: headers_map.get("dlq_step").cloned(),
@@ -333,7 +322,6 @@ impl CapturedEvent {
                 None
             },
             skip_heatmap_processing: None,
-            internal_producer: None,
             dlq_reason: None,
             dlq_step: None,
             dlq_timestamp: None,

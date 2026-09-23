@@ -302,7 +302,6 @@ impl SinkEvent for WrappedEvent {
             force_disable_person_processing,
             historical_migration,
             skip_heatmap_processing: None,
-            internal_producer: ctx.internal_producer.then_some(true),
             dlq_reason,
             dlq_step,
             dlq_timestamp,
@@ -1175,15 +1174,6 @@ mod tests {
         ev.result = result;
         ev.destination = dest;
         assert!(!ev.should_publish());
-    }
-
-    #[test]
-    fn headers_mark_internal_producer_only_when_verified() {
-        let mut ctx = test_utils::test_context();
-        let ev = ok_wrapped("$recording_observed", "user-1");
-        assert!(ev.headers(&ctx).internal_producer.is_none());
-        ctx.internal_producer = true;
-        assert_eq!(ev.headers(&ctx).internal_producer, Some(true));
     }
 
     #[test]

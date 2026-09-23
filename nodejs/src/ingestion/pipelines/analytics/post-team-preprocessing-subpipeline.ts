@@ -41,7 +41,7 @@ export interface PostTeamPreprocessingSubpipelineInput {
 }
 
 export interface PostTeamPreprocessingSubpipelineConfig {
-    eventFilterManager: EventFilterManager
+    eventFilterManager: EventFilterManager | null
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
     eventSchemaEnforcementEnabled: boolean

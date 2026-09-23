@@ -67,7 +67,7 @@ import { OverflowLaneOverflowRedirect } from './common/overflow-redirect/overflo
 import { OverflowRedirectService } from './common/overflow-redirect/overflow-redirect-service'
 import { RedisOverflowRepository } from './common/overflow-redirect/overflow-redis-repository'
 import { createAnalyticsOverflowStrategies } from './common/overflow-redirect/overflow-strategy'
-import { IngestionConsumerConfig, IngestionOutputsConfig } from './config'
+import { IngestionConsumerConfig, IngestionLane, IngestionOutputsConfig } from './config'
 
 export type IngestionConsumerFullConfig = IngestionConsumerConfig &
     UsageIngestionConfig &
@@ -126,6 +126,7 @@ export class IngestionConsumer {
     protected name = 'ingestion-consumer'
     protected groupId: string
     protected topic: string
+    private lane: IngestionLane | null
     protected kafkaConsumer: KafkaConsumerInterface
     isStopping = false
     public hogTransformer: HogTransformer
@@ -162,9 +163,11 @@ export class IngestionConsumer {
                 | 'INGESTION_CONSUMER_CONSUME_TOPIC'
                 | 'INGESTION_CONSUMER_OVERFLOW_TOPIC'
                 | 'INGESTION_CONSUMER_DLQ_TOPIC'
+                | 'INGESTION_LANE'
             >
         > = {}
     ) {
+        this.lane = overrides.INGESTION_LANE ?? config.INGESTION_LANE
         // The group and topic are configurable allowing for multiple ingestion consumers to be run in parallel
         this.groupId = overrides.INGESTION_CONSUMER_GROUP_ID ?? config.INGESTION_CONSUMER_GROUP_ID
         this.topic = overrides.INGESTION_CONSUMER_CONSUME_TOPIC ?? config.INGESTION_CONSUMER_CONSUME_TOPIC
@@ -263,7 +266,7 @@ export class IngestionConsumer {
         this.topHog = new TopHog({
             outputs: this.deps.outputs,
             pipeline: this.config.INGESTION_PIPELINE ?? 'unknown',
-            lane: this.config.INGESTION_LANE ?? 'unknown',
+            lane: this.lane ?? 'unknown',
         })
     }
 
@@ -297,6 +300,7 @@ export class IngestionConsumer {
         }
 
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
+            customerEventControlsEnabled: this.lane !== 'internal',
             eventSchemaEnforcementEnabled: this.config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
             overflowMode: this.config.INGESTION_OVERFLOW_MODE,
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,

@@ -1,6 +1,5 @@
 import { AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { isProtectedInternalEvent } from '~/common/protected-internal-events'
 import { EventFilterManager, evaluateFilterTree } from '~/ingestion/common/event-filters'
 import { EventFiltersBatchAppMetrics } from '~/ingestion/common/event-filters/batch-app-metrics'
 import { eventFiltersEventsEvaluated } from '~/ingestion/common/event-filters/metrics'
@@ -50,17 +49,12 @@ export interface ApplyEventFiltersInput {
  * producing individual Kafka messages per event.
  */
 export function createApplyEventFiltersStep<T extends ApplyEventFiltersInput>(
-    manager: EventFilterManager
+    manager: EventFilterManager | null
 ): ProcessingStep<T, T> {
     return function applyEventFiltersStep(input: T): Promise<PipelineResult<T>> {
-        const filter = manager.getFilter(input.team.id)
+        const filter = manager?.getFilter(input.team.id)
 
         if (!filter) {
-            return Promise.resolve(ok(input))
-        }
-
-        if (isProtectedInternalEvent(input.headers)) {
-            eventFiltersEventsEvaluated.inc({ outcome: 'protected' })
             return Promise.resolve(ok(input))
         }
 

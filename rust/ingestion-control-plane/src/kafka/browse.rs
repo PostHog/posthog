@@ -260,7 +260,6 @@ mod tests {
             force_disable_person_processing: None,
             historical_migration: None,
             skip_heatmap_processing: None,
-            internal_producer: None,
             dlq_reason: None,
             dlq_step: None,
             dlq_timestamp: None,

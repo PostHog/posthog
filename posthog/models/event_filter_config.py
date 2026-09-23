@@ -226,18 +226,12 @@ def validate_test_cases(test_cases: object) -> None:
                 raise ValidationError({"test_cases": f"Test case {i}: {field} must be a string."})
 
 
-# Mirrors nodejs/src/common/protected-internal-events.ts
-PROTECTED_INTERNAL_EVENTS = frozenset({"$recording_observed"})
-
-
 def run_test_cases(filter_tree: dict, test_cases: list[dict]) -> list[str]:
     """Run test cases against a filter tree. Returns a list of failure descriptions (empty if all pass)."""
     failures: list[str] = []
     for i, tc in enumerate(test_cases):
         event = {k: v for k, v in tc.items() if k != "expected_result"}
-        should_drop = event.get("event_name") not in PROTECTED_INTERNAL_EVENTS and evaluate_filter_tree(
-            filter_tree, event
-        )
+        should_drop = evaluate_filter_tree(filter_tree, event)
         actual = "drop" if should_drop else "ingest"
         expected = tc["expected_result"]
         if actual != expected:

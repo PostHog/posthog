@@ -384,7 +384,7 @@ pub struct Config {
     // (all $ai_gateway* props are stripped as untrusted).
     pub ai_gateway_signing_secret: Option<String>,
 
-    // HMAC-SHA256 key shared with Django's capture_internal. Signed requests get the internal_producer header.
+    // HMAC-SHA256 key shared with Django's capture_internal. Verified requests route to the internal lane.
     pub capture_internal_signing_secret: Option<String>,
 
     // HTTP/1 header read timeout in milliseconds - closes connections that don't
@@ -552,6 +552,9 @@ pub struct KafkaTopicsConfig {
     /// because imports must never overflow.
     #[envconfig(from = "CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC")]
     pub ai_events_overflow: Option<String>,
+    /// Lane for verified capture_internal events. Unset keeps them on main.
+    #[envconfig(from = "CAPTURE_INTERNAL_EVENTS_TOPIC")]
+    pub internal: Option<String>,
 }
 
 #[derive(Envconfig, Clone)]
