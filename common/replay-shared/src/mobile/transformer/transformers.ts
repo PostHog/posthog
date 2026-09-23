@@ -275,6 +275,7 @@ function makeImageElement(
                 height: wireframe.height,
                 style: makeStylesString(wireframe),
                 'data-rrweb-id': wireframe.id,
+                ...(wireframe.type === 'screenshot' ? { 'data-rrweb-mobile-screenshot': 'true' } : {}),
             },
             id: wireframe.id,
             childNodes: children,
