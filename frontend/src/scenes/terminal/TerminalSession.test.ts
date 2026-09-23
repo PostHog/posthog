@@ -20,25 +20,16 @@ describe('TerminalSession', () => {
         }
     })
 
-    it('keeps xterm from reporting a selection it cannot map as an unhandled error', () => {
-        const listeners = guardSelectionListeners(() => {
+    it.each([
+        ['invalid range', []],
+        ['something else', ['something else']],
+    ])('the xterm selection listener throwing "%s"', (message, expected) => {
+        const guard = new AbortController()
+        guardSelectionListeners(() => {
             document.addEventListener('selectionchange', () => {
-                throw new Error('invalid range')
+                throw new Error(message)
             })
-        })
-        try {
-            expect(() => document.dispatchEvent(new Event('selectionchange'))).not.toThrow()
-        } finally {
-            listeners.forEach((listener) => document.removeEventListener('selectionchange', listener))
-        }
-    })
-
-    it('still reports every other selection failure', () => {
-        const listeners = guardSelectionListeners(() => {
-            document.addEventListener('selectionchange', () => {
-                throw new Error('something else')
-            })
-        })
+        }, guard.signal)
         const reported: string[] = []
         const onError = (event: ErrorEvent): void => {
             event.preventDefault()
@@ -47,47 +38,44 @@ describe('TerminalSession', () => {
         window.addEventListener('error', onError)
         try {
             document.dispatchEvent(new Event('selectionchange'))
-            expect(reported).toEqual(['something else'])
         } finally {
             window.removeEventListener('error', onError)
-            listeners.forEach((listener) => document.removeEventListener('selectionchange', listener))
+            guard.abort()
         }
+        expect(reported).toEqual(expected)
     })
 
-    it('removes its document selection listener when the session is disposed', () => {
-        const registered: EventListener[] = []
-        const removed: EventListener[] = []
-        const addEventListener = document.addEventListener.bind(document)
-        const removeEventListener = document.removeEventListener.bind(document)
-        document.addEventListener = (type: string, listener: EventListener, options?: unknown): void => {
-            if (type === 'selectionchange') {
-                registered.push(listener)
-            }
-            addEventListener(type, listener, options as AddEventListenerOptions)
-        }
-        let session: TerminalSession
+    it('detaches the guarded listener once the signal is aborted', () => {
+        const guard = new AbortController()
+        let calls = 0
+        guardSelectionListeners(() => {
+            document.addEventListener('selectionchange', () => {
+                calls++
+            })
+        }, guard.signal)
+        document.dispatchEvent(new Event('selectionchange'))
+        guard.abort()
+        document.dispatchEvent(new Event('selectionchange'))
+        expect(calls).toBe(1)
+    })
+
+    it('detaches its document selection listener when the session is disposed', () => {
+        const addEventListener = jest.spyOn(document, 'addEventListener')
         try {
-            session = new TerminalSession(
+            const session = new TerminalSession(
                 () => {},
                 () => {},
                 () => {},
                 () => {}
             )
-        } finally {
-            Reflect.deleteProperty(document, 'addEventListener')
-        }
-        document.removeEventListener = (type: string, listener: EventListener, options?: unknown): void => {
-            if (type === 'selectionchange') {
-                removed.push(listener)
-            }
-            removeEventListener(type, listener, options as AddEventListenerOptions)
-        }
-        try {
+            const registrations = addEventListener.mock.calls.filter(([type]) => type === 'selectionchange')
+            expect(registrations).not.toHaveLength(0)
             session.dispose()
+            for (const [, , options] of registrations) {
+                expect((options as AddEventListenerOptions).signal?.aborted).toBe(true)
+            }
         } finally {
-            Reflect.deleteProperty(document, 'removeEventListener')
+            addEventListener.mockRestore()
         }
-        expect(registered).not.toHaveLength(0)
-        expect(registered.filter((listener) => !removed.includes(listener))).toEqual([])
     })
 })
