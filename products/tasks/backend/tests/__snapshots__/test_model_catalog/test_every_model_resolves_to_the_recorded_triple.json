@@ -148,6 +148,17 @@
             "ultracode"
           ]
         },
+        "claude-opus-5-5": {
+          "cost_multiplier": "2×",
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode"
+          ]
+        },
         "claude-sonnet-4-6": {
           "cost_multiplier": "1.5×",
           "reasoning_efforts": [
