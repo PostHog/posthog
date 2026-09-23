@@ -273,6 +273,10 @@ function clearQueryOutlineOverlay(
 
 export const NEW_QUERY = 'Untitled'
 
+// Tags editor-issued queries in the ClickHouse query log, which is how the recent queries tab
+// finds them again. Matches Product.SQL_EDITOR in posthog/clickhouse/query_tagging.py.
+export const SQL_EDITOR_PRODUCT_KEY = 'sql_editor'
+
 export interface QueryTab {
     uri: Uri
     view?: DataWarehouseSavedQuery
@@ -2110,7 +2114,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 // insights/views and change detection never pick them up
                 const executedSource: HogQLQuery = {
                     ...newSource,
-                    tags: { ...newSource.tags, productKey: 'sql_editor' },
+                    tags: { ...newSource.tags, productKey: SQL_EDITOR_PRODUCT_KEY },
                 }
 
                 actions.setSourceQuery({
