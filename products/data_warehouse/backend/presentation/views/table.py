@@ -30,6 +30,7 @@ from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.facade.api import (
     FILE_FORMAT_READ_HINTS,
     FILE_FORMAT_TO_TABLE_FORMAT,
+    FORMAT_CSV,
     MAX_FILE_UPLOAD_SIZE_BYTES,
     SUPPORTED_FILE_FORMATS,
     build_file_upload_s3_path,
@@ -98,6 +99,11 @@ def resolve_created_via(request: request.Request) -> str:
     return created_via
 
 
+def _file_read_error_message(file_format: str) -> str:
+    hint = FILE_FORMAT_READ_HINTS.get(file_format, "")
+    return f"Couldn't read the columns from your file. {hint}".strip()
+
+
 def _delete_hosted_upload_file(table: DataWarehouseTable) -> None:
     """Best-effort removal of a self-managed table's backing file from PostHog's own bucket.
 
@@ -124,6 +130,17 @@ def _delete_hosted_upload_file(table: DataWarehouseTable) -> None:
         get_s3_client().rm(path)
     except Exception as e:
         capture_exception(e)
+
+
+def _discard_failed_upload(table: DataWarehouseTable) -> None:
+    """Reclaim a table and its hosted file after the upload that created them failed.
+
+    The legacy `file` action writes the object and persists the row before it reads the file even
+    once, so every failure after that point has both to undo. The file goes first, because
+    `_delete_hosted_upload_file` decides by looking for another live table on the same url_pattern.
+    """
+    _delete_hosted_upload_file(table)
+    table.delete()
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -784,17 +801,31 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             created_by=request.user if isinstance(request.user, User) else None,
             created_via=resolve_created_via(request),
         )
+
+        # An upload carries no quote preference, unlike a self-managed source where the user picks
+        # one, so store a detected setting rather than leave the read to a ClickHouse default.
+        if table._is_csv_format():
+            try:
+                allow_double_quotes = table.detect_csv_double_quotes_setting()
+            except Exception as err:
+                capture_exception(err)
+                allow_double_quotes = None
+            if allow_double_quotes is None:
+                return response.Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": _file_read_error_message(file_format)},
+                )
+            table.options = {"csv_allow_double_quotes": allow_double_quotes}
+
         try:
             table.columns = table.get_columns()
         except Exception as err:
             # The raw column-detection failure is a ClickHouse error that's opaque to users, so keep it
             # in error tracking and hand back plain, format-specific guidance on what to check instead.
             capture_exception(err)
-            hint = FILE_FORMAT_READ_HINTS.get(file_format, "")
-            message = f"Couldn't read the columns from your file. {hint}".strip()
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": message},
+                data={"message": _file_read_error_message(file_format)},
             )
         table.save()
 
@@ -874,6 +905,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 data={"message": f"File size exceeds maximum allowed size of 50MB"},
             )
 
+        created_table = table is None
+
         # Create the table record
         try:
             # Create the table if it doesn't exist, otherwise use existing one
@@ -907,6 +940,23 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 )
                 table.format = file_format
 
+                # Detect on this path too, so a CSV uploaded here is read under the quoting its
+                # columns are detected with. Only an unset option is filled, so an explicit choice
+                # on an existing table survives a re-upload.
+                if table._is_csv_format() and table.csv_allow_double_quotes is None:
+                    allow_double_quotes = table.detect_csv_double_quotes_setting()
+                    if allow_double_quotes is None:
+                        # Left behind, the row is an incomplete table that the next upload of the
+                        # same name silently reuses. A table that already existed belongs to the
+                        # caller, so leave it alone.
+                        if created_table:
+                            _discard_failed_upload(table)
+                        return response.Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={"message": _file_read_error_message(FORMAT_CSV)},
+                        )
+                    table.options = {**table.options, "csv_allow_double_quotes": allow_double_quotes}
+
                 # Try to determine columns from the file
                 table.columns = table.get_columns()
                 # team_id comes from routing and safe_filename is sanitized (no path separators), so
@@ -930,4 +980,9 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 )
         except Exception as e:
             capture_exception(e)
+            # Reading the file can fail outright rather than return an answer, in column detection
+            # and in quote detection alike. A table that already existed belongs to the caller, so
+            # leave it alone.
+            if created_table and table is not None:
+                _discard_failed_upload(table)
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Failed to upload file"})
