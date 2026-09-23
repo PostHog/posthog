@@ -73,10 +73,10 @@ def _code_language(info_string: str) -> str:
     Markdown puts the language first on the fence line and lets anything follow it. Only the
     first word is the hint, and a word longer than a short identifier is not a language.
     """
-    first_word = info_string.strip().split(maxsplit=1)[:1]
-    if not first_word or len(first_word[0]) > _MAX_CODE_LANGUAGE_LEN:
+    words = info_string.split(maxsplit=1)
+    if not words or len(words[0]) > _MAX_CODE_LANGUAGE_LEN:
         return ""
-    return first_word[0]
+    return words[0]
 
 
 class _SlackChunkPacker:
