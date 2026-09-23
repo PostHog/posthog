@@ -37,7 +37,7 @@ from rest_framework.response import Response
 
 from posthog.schema import ProductKey
 
-from posthog.hogql.constants import FEATURE_FLAG_FALSE_VARIANT_SENTINEL
+from posthog.hogql.constants import FEATURE_FLAG_RESERVED_VARIANT_KEY_PREFIX
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend_schema
@@ -922,7 +922,7 @@ _RUST_PROPERTY_TYPES: frozenset[str] = frozenset({*FEATURE_FLAG_PROPERTY_TYPES, 
 
 
 def _uses_reserved_variant_key(filters: dict) -> bool:
-    """Whether a `multivariate.variants[].key` is the sentinel the ingest cleaner stores a variant named "false" under.
+    """Whether a `multivariate.variants[].key` starts with the prefix the ingest cleaner keeps for sentinels such as `$false`.
 
     Checked on the raw request shape ahead of every validation tier, so the rejection does not depend on the #50084
     rollout switch.
@@ -934,7 +934,10 @@ def _uses_reserved_variant_key(filters: dict) -> bool:
     if not isinstance(variants, list):
         return False
     return any(
-        isinstance(variant, dict) and variant.get("key") == FEATURE_FLAG_FALSE_VARIANT_SENTINEL for variant in variants
+        isinstance(variant, dict)
+        and isinstance(variant.get("key"), str)
+        and variant["key"].startswith(FEATURE_FLAG_RESERVED_VARIANT_KEY_PREFIX)
+        for variant in variants
     )
 
 
@@ -1856,7 +1859,7 @@ class FeatureFlagSerializer(
     def _validate_filters_inner(self, filters, operation: str):
         if _uses_reserved_variant_key(filters):
             raise serializers.ValidationError(
-                f"The variant key {FEATURE_FLAG_FALSE_VARIANT_SENTINEL} is reserved. Choose another key.",
+                f"Variant keys can't start with {FEATURE_FLAG_RESERVED_VARIANT_KEY_PREFIX}. That prefix is reserved.",
                 code="reserved_variant_key",
             )
 

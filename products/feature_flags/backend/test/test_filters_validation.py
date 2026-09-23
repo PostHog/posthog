@@ -474,14 +474,21 @@ class TestRejectSerdeUnsafeFilters(SimpleTestCase):
 
 
 class TestReservedVariantKey(SimpleTestCase):
-    @parameterized.expand([("log_only", set()), ("full", {"*"})])
-    def test_false_sentinel_is_rejected_as_a_variant_key(self, _name: str, enforced_rules: set[str]) -> None:
+    @parameterized.expand(
+        [
+            ("sentinel_log_only", FEATURE_FLAG_FALSE_VARIANT_SENTINEL, set()),
+            ("sentinel_full", FEATURE_FLAG_FALSE_VARIANT_SENTINEL, {"*"}),
+            ("prefix_log_only", "$control", set()),
+            ("prefix_full", "$control", {"*"}),
+        ]
+    )
+    def test_reserved_prefix_is_rejected_as_a_variant_key(self, _name: str, key: str, enforced_rules: set[str]) -> None:
         filters = {
             "groups": [{"properties": [], "rollout_percentage": 100}],
             "multivariate": {
                 "variants": [
                     {"key": "control", "rollout_percentage": 50},
-                    {"key": FEATURE_FLAG_FALSE_VARIANT_SENTINEL, "rollout_percentage": 50},
+                    {"key": key, "rollout_percentage": 50},
                 ]
             },
         }
