@@ -58,6 +58,7 @@ from products.replay_vision.backend.temporal.errors import (
     ScannerFailureError,
 )
 from products.replay_vision.backend.temporal.media_types import (
+    MEDIA_WORKFLOW_EXECUTION_TIMEOUT,
     MEDIA_WORKFLOW_NAME,
     ObservationMediaInputs,
     build_media_workflow_id,
@@ -604,7 +605,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 retry_policy=common.RetryPolicy(maximum_attempts=2),
-                execution_timeout=dt.timedelta(minutes=20),
+                execution_timeout=MEDIA_WORKFLOW_EXECUTION_TIMEOUT,
             )
         except Exception:
             wf.logger.exception("Media rendering could not be started for observation %s", observation_id)
