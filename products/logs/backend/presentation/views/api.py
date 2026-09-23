@@ -282,6 +282,15 @@ def _session_scope_field(noun: str) -> serializers.CharField:
     )
 
 
+class _LogsQueryErrorSerializer(serializers.Serializer):
+    error = serializers.CharField(
+        help_text=(
+            "Why the query could not run: a rejected filter expression, or a read cap the scanned "
+            "window went past. Narrow the window or the filters, then retry."
+        )
+    )
+
+
 class _LogsQueryBodySerializer(serializers.Serializer):
     dateRange = _DateRangeSerializer(
         required=False,
@@ -403,6 +412,8 @@ class _LogsCountBodySerializer(serializers.Serializer):
         default=list,
         help_text="Property filters for the query.",
     )
+    personId = _person_scope_field("the count")
+    sessionId = _session_scope_field("the count")
 
 
 class _LogsCountRequestSerializer(serializers.Serializer):
@@ -577,6 +588,8 @@ class _LogsCountRangesBodySerializer(serializers.Serializer):
         default=list,
         help_text="Property filters applied before bucketing. Same shape as `query-logs`.",
     )
+    personId = _person_scope_field("the buckets")
+    sessionId = _session_scope_field("the buckets")
 
 
 class _LogsCountRangesRequestSerializer(serializers.Serializer):
@@ -1576,7 +1589,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
         return Response({"results": response.results}, status=status.HTTP_200_OK)
 
-    @extend_schema(request=_LogsCountRequestSerializer, responses={200: _LogsCountResponseSerializer})
+    @extend_schema(
+        request=_LogsCountRequestSerializer,
+        responses={200: _LogsCountResponseSerializer, 400: _LogsQueryErrorSerializer},
+    )
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def count(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
@@ -1586,10 +1602,15 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query = self._filtered_logs_query(query_data)
 
         runner = CountQueryRunner(team=self.team, query=query)
-        response = runner.run(
-            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            analytics_props=get_request_analytics_properties(request),
-        )
+        try:
+            response = runner.run(
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                analytics_props=get_request_analytics_properties(request),
+            )
+        except (QueryError, ExposedCHQueryError) as e:
+            # The count runs under a read cap, so a wide window trips ClickHouse rather than the
+            # caller. Keep the cause in a 400 instead of letting it escape as a bare 500.
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
 
         report_user_action(
@@ -1630,7 +1651,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
     @extend_schema(
         request=_LogsCountRangesRequestSerializer,
-        responses={200: _LogsCountRangesResponseSerializer},
+        responses={200: _LogsCountRangesResponseSerializer, 400: _LogsQueryErrorSerializer},
     )
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"], url_path="count-ranges")
     def count_ranges(self, request: Request, *args, **kwargs) -> Response:
@@ -1638,24 +1659,19 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query_data = request.data.get("query", {})
         self._require_dict_query(query_data)
 
-        date_range_data = query_data.get("dateRange")
-        date_range = self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h")
-
         target_buckets = query_data.get("targetBuckets", DEFAULT_TARGET_BUCKETS)
 
-        query = LogsQuery(
-            dateRange=date_range,
-            severityLevels=query_data.get("severityLevels", []),
-            serviceNames=query_data.get("serviceNames", []),
-            searchTerm=query_data.get("searchTerm", None),
-            filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
-        )
+        query = self._filtered_logs_query(query_data)
 
         runner = CountRangesQueryRunner(team=self.team, query=query, target_buckets=target_buckets)
-        response = runner.run(
-            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            analytics_props=get_request_analytics_properties(request),
-        )
+        try:
+            response = runner.run(
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                analytics_props=get_request_analytics_properties(request),
+            )
+        except (QueryError, ExposedCHQueryError) as e:
+            # Same guard as count: the bucketed read cap must reach the caller as a cause, not a 500.
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
 
         report_user_action(

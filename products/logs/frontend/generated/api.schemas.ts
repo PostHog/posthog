@@ -1590,6 +1590,10 @@ export interface _LogsCountBodyApi {
     searchTerm?: string
     /** Property filters for the query. */
     filterGroup?: _LogPropertyFilterApi[]
+    /** Scope the count to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+    personId?: string
+    /** Scope the count to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsCountRequestApi {
@@ -1600,6 +1604,11 @@ export interface _LogsCountRequestApi {
 export interface _LogsCountResponseApi {
     /** Number of log entries matching the filters. */
     count: number
+}
+
+export interface _LogsQueryErrorApi {
+    /** Why the query could not run — a rejected filter expression, or a ClickHouse read cap the scanned window went past. Narrow the window or the filters and retry. */
+    error: string
 }
 
 export interface _LogsCountRangesBodyApi {
@@ -1619,6 +1628,10 @@ export interface _LogsCountRangesBodyApi {
     searchTerm?: string
     /** Property filters applied before bucketing. Same shape as `query-logs`. */
     filterGroup?: _LogPropertyFilterApi[]
+    /** Scope the buckets to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+    personId?: string
+    /** Scope the buckets to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsCountRangesRequestApi {
