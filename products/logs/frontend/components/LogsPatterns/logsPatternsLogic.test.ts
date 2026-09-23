@@ -49,8 +49,14 @@ const RESPONSE: _LogsPatternsResponseApi = {
             // The miner's `extract_match_literal` returns the longest run between `<*>` holes —
             // for 'User <*> not found' that's 'not found', not 'User'. Keep the fixture faithful.
             match_literal: 'not found',
+            pattern_truncated: false,
+            match_patterns_omitted: 0,
+            match_regex_omitted: false,
+            match_literal_truncated: false,
         },
     ],
+    returned_pattern_count: 1,
+    omitted_pattern_count: 0,
     scanned_count: 3,
     total_count: 3,
     sampled: false,

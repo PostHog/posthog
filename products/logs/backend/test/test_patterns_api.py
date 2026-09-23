@@ -135,6 +135,7 @@ class TestPatternsAPI(ClickhouseTestMixin, APIBaseTest):
 
         over_mcp = self._request(query, headers={"x-posthog-client": "mcp"})
         direct = self._request(query)
+        opted_out = self._request({**query, "maxPatternChars": 0}, headers={"x-posthog-client": "mcp"})
 
         bounded = next(p for p in over_mcp["patterns"] if p["pattern"].startswith("Query failed:"))
         assert len(bounded["pattern"]) == MCP_MAX_PATTERN_CHARS
@@ -148,6 +149,13 @@ class TestPatternsAPI(ClickhouseTestMixin, APIBaseTest):
         whole = next(p for p in direct["patterns"] if p["pattern"].startswith("Query failed:"))
         assert len(whole["pattern"]) > MCP_MAX_PATTERN_CHARS
         assert whole["pattern_truncated"] is False
+        # An explicit zero has to beat the MCP default, or an agent asking for one whole template
+        # silently reads a cut one.
+        unbounded = next(p for p in opted_out["patterns"] if p["pattern"].startswith("Query failed:"))
+        assert unbounded["pattern"] == whole["pattern"]
+        assert unbounded["pattern_truncated"] is False
+        assert unbounded["match_regex_omitted"] is False
+        assert unbounded["match_literal_truncated"] is False
 
     @time_machine.travel("2026-06-23T13:00:00Z", tick=False)
     def test_patterns_endpoint_honors_an_explicit_limit(self) -> None:

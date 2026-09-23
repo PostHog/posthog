@@ -1815,27 +1815,20 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             analytics_props=get_request_analytics_properties(request),
         )
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
-        results = (
-            bound_patterns_response(response.results, limit=limit, max_pattern_chars=max_pattern_chars)
-            if isinstance(response.results, dict)
-            else response.results
-        )
+        mined = response.results if isinstance(response.results, dict) else {}
+        results = bound_patterns_response(mined, limit=limit, max_pattern_chars=max_pattern_chars)
 
         report_user_action(
             request.user,
             "logs patterns queried",
             {
-                "patterns_count": results.get("returned_pattern_count", 0) if isinstance(results, dict) else 0,
-                "omitted_patterns_count": results.get("omitted_pattern_count", 0) if isinstance(results, dict) else 0,
+                "patterns_count": results["returned_pattern_count"],
+                "omitted_patterns_count": results["omitted_pattern_count"],
                 "max_pattern_chars": max_pattern_chars,
-                "sampled": response.results.get("sampled") if isinstance(response.results, dict) else None,
-                "source": response.results.get("source") if isinstance(response.results, dict) else None,
-                "pattern_version": response.results.get("pattern_version")
-                if isinstance(response.results, dict)
-                else None,
-                "fallback_reason": response.results.get("fallback_reason")
-                if isinstance(response.results, dict)
-                else None,
+                "sampled": mined.get("sampled"),
+                "source": mined.get("source"),
+                "pattern_version": mined.get("pattern_version"),
+                "fallback_reason": mined.get("fallback_reason"),
                 "has_search_term": bool(query_data.get("searchTerm")),
                 "severity_levels_count": len(query_data.get("severityLevels") or []),
                 "service_names_count": len(query_data.get("serviceNames") or []),
