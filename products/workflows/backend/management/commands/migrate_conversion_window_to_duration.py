@@ -6,12 +6,13 @@ from django.db import transaction
 
 from posthog.dataclasses import frozen
 
-from products.workflows.backend.api.hog_flow import MAX_LEGACY_WINDOW_MINUTES
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.services.timing_reschedule import parse_delay_duration_seconds
 
 MINUTES_PER_DAY = 1440
+# The ceiling the matcher clamped a legacy value to, kept here because nothing else needs it now.
+MAX_LEGACY_WINDOW_MINUTES = 90 * 24 * 60
 
 
 @frozen
@@ -45,12 +46,27 @@ class Command(BaseCommand):
     def add_arguments(self, parser: Any) -> None:
         parser.add_argument("--team-id", default=None, type=int, help="Limit to a specific team ID")
         parser.add_argument("--live-run", action="store_true", help="Apply changes (default is dry-run)")
+        parser.add_argument(
+            "--strip-inert",
+            action="store_true",
+            help=(
+                "Delete window_minutes wherever it cannot change what a workflow measures: null, zero, a "
+                "row that already carries window, or a value above the legacy ceiling the matcher clamped "
+                "anyway. Refuses to touch a row the convert pass would still convert, so run without this "
+                "flag first."
+            ),
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         live_run = options.get("live_run", False)
         team_id = options.get("team_id")
+        strip_inert = options.get("strip_inert", False)
         mode = "LIVE RUN" if live_run else "DRY RUN"
         self.stdout.write(f"Starting migrate_conversion_window_to_duration ({mode})")
+
+        if strip_inert:
+            self.strip_inert(live_run, team_id, mode)
+            return
 
         flows = HogFlow.objects.filter(conversion__isnull=False)
         if team_id:
@@ -102,6 +118,82 @@ class Command(BaseCommand):
         verb = "converted" if live_run else "to convert"
         self.stdout.write(self.style.SUCCESS(f"Completed ({mode}): {converted} flow(s) {verb}"))
         self.stdout.write(self.style.SUCCESS(f"  plus {drafts} draft(s) and {revisions} revision snapshot(s)"))
+
+    def strip_inert(self, live_run: bool, team_id: int | None, mode: str) -> None:
+        """Delete the key everywhere it is dead weight, so nothing is left to read or restore."""
+        flows = HogFlow.objects.filter(conversion__isnull=False)
+        drafted = HogFlow.objects.filter(draft__isnull=False)
+        if team_id:
+            flows = flows.filter(team_id=team_id)
+            drafted = drafted.filter(team_id=team_id)
+            self.stdout.write(f"Filtering to team_id={team_id}")
+
+        verb = "Stripping" if live_run else "Would strip"
+        still_convertible = 0
+        flows_stripped = 0
+        for flow in flows.iterator():
+            if converted_conversion(flow.conversion) is not None:
+                still_convertible += 1
+                continue
+            if stripped_conversion(flow.conversion) is None:
+                continue
+            value = (flow.conversion or {}).get("window_minutes")
+            self.stdout.write(f"  {verb} flow id={flow.id} team_id={flow.team_id}: window_minutes={value!r}")
+            if live_run:
+                with transaction.atomic():
+                    locked = HogFlow.objects.select_for_update().get(pk=flow.pk)
+                    fresh = stripped_conversion(locked.conversion)
+                    if fresh is None:
+                        continue
+                    HogFlow.objects.filter(pk=flow.pk).update(conversion=fresh)
+            flows_stripped += 1
+
+        drafts_stripped = 0
+        for flow in drafted.iterator():
+            draft = flow.draft
+            if not isinstance(draft, dict) or stripped_conversion(draft.get("conversion")) is None:
+                continue
+            self.stdout.write(f"  {verb} draft on flow id={flow.id} team_id={flow.team_id}")
+            if live_run:
+                with transaction.atomic():
+                    locked = HogFlow.objects.select_for_update().get(pk=flow.pk)
+                    locked_draft = locked.draft
+                    if not isinstance(locked_draft, dict):
+                        continue
+                    fresh = stripped_conversion(locked_draft.get("conversion"))
+                    if fresh is None:
+                        continue
+                    HogFlow.objects.filter(pk=flow.pk).update(draft={**locked_draft, "conversion": fresh})
+            drafts_stripped += 1
+
+        revisions = HogFlowRevision.objects.for_team(team_id) if team_id else HogFlowRevision.objects.unscoped().all()
+        revisions_stripped = 0
+        for revision in revisions.iterator():
+            content = revision.content
+            if not isinstance(content, dict):
+                continue
+            fresh = stripped_conversion(content.get("conversion"))
+            if fresh is None:
+                continue
+            self.stdout.write(f"  {verb} revision id={revision.id} flow={revision.hog_flow_id} v{revision.version}")
+            if live_run:
+                HogFlowRevision.objects.for_team(revision.team_id).filter(pk=revision.pk).update(
+                    content={**content, "conversion": fresh}
+                )
+            revisions_stripped += 1
+
+        if still_convertible:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"  {still_convertible} flow(s) still carry a convertible value and were left alone. "
+                    "Run the command without --strip-inert first, then repeat this pass."
+                )
+            )
+        done = "stripped" if live_run else "to strip"
+        self.stdout.write(self.style.SUCCESS(f"Completed ({mode}): {flows_stripped} flow(s) {done}"))
+        self.stdout.write(
+            self.style.SUCCESS(f"  plus {drafts_stripped} draft(s) and {revisions_stripped} revision snapshot(s)")
+        )
 
     def convert_drafts(self, live_run: bool, team_id: int | None) -> int:
         """Drafts whose live conversion needed no change of its own. The pass above already rewrote a
@@ -209,6 +301,18 @@ class Command(BaseCommand):
             "  Read it as whichever column sits closest to the workflow's own delay steps. A value that "
             "only makes sense as seconds was written by someone who meant that many days."
         )
+
+
+def stripped_conversion(conversion: object) -> dict | None:
+    """The same conversion without window_minutes, or None when the key must stay or is already gone.
+
+    A row the convert pass would still rewrite is left alone: dropping its value there would move the
+    window it measures, which is the one thing this whole change must not do."""
+    if not isinstance(conversion, dict) or "window_minutes" not in conversion:
+        return None
+    if converted_conversion(conversion) is not None:
+        return None
+    return {k: v for k, v in conversion.items() if k != "window_minutes"}
 
 
 def converted_conversion(conversion: object) -> RewrittenWindow | None:

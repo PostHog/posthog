@@ -112,3 +112,67 @@ class TestMigrateConversionWindowToDuration(BaseTest):
         with team_scope(self.team.id):
             revision.refresh_from_db()
         assert revision.content == {"conversion": {"filters": [], "window_minutes": 604800}}
+
+
+class TestStripInert(BaseTest):
+    @parameterized.expand(
+        [
+            ("null", None),
+            ("zero", 0),
+            ("above the legacy ceiling, which the matcher clamped anyway", 604800),
+        ]
+    )
+    def test_strips_a_value_that_cannot_change_what_the_workflow_measures(self, _name, minutes):
+        flow = _flow(self.team, "inert", {"filters": [], "window_minutes": minutes})
+
+        call_command("migrate_conversion_window_to_duration", team_id=self.team.pk, live_run=True, strip_inert=True)
+
+        flow.refresh_from_db()
+        assert flow.conversion == {"filters": []}
+
+    def test_refuses_a_row_the_convert_pass_would_still_convert(self):
+        # Stripping here would move the window from two days to the default, which is the one outcome
+        # this whole change must not produce. The operator is told to run the convert pass first.
+        flow = _flow(self.team, "convertible", {"filters": [], "window_minutes": 2880})
+
+        call_command("migrate_conversion_window_to_duration", team_id=self.team.pk, live_run=True, strip_inert=True)
+
+        flow.refresh_from_db()
+        assert flow.conversion == {"filters": [], "window_minutes": 2880}
+
+    def test_strips_alongside_an_existing_window_without_touching_it(self):
+        flow = _flow(self.team, "both", {"filters": [], "window": "7d", "window_minutes": 60})
+
+        call_command("migrate_conversion_window_to_duration", team_id=self.team.pk, live_run=True, strip_inert=True)
+
+        flow.refresh_from_db()
+        assert flow.conversion == {"filters": [], "window": "7d"}
+
+    def test_strips_drafts_and_revision_snapshots(self):
+        # A snapshot that keeps the key puts it back the moment someone restores that version.
+        flow = _flow(self.team, "with draft", {"filters": [], "window_minutes": 0})
+        flow.draft = {"conversion": {"filters": [], "window_minutes": None}}
+        flow.save()
+        with team_scope(self.team.pk):
+            revision = HogFlowRevision.objects.create(
+                team=self.team,
+                hog_flow=flow,
+                version=1,
+                content={"conversion": {"filters": [], "window_minutes": 0}},
+            )
+
+        call_command("migrate_conversion_window_to_duration", team_id=self.team.pk, live_run=True, strip_inert=True)
+
+        flow.refresh_from_db()
+        revision.refresh_from_db()
+        assert flow.conversion == {"filters": []}
+        assert flow.draft == {"conversion": {"filters": []}}
+        assert revision.content == {"conversion": {"filters": []}}
+
+    def test_dry_run_writes_nothing(self):
+        flow = _flow(self.team, "inert", {"filters": [], "window_minutes": 0})
+
+        call_command("migrate_conversion_window_to_duration", team_id=self.team.pk, strip_inert=True)
+
+        flow.refresh_from_db()
+        assert flow.conversion == {"filters": [], "window_minutes": 0}
