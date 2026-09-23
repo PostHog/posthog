@@ -15,6 +15,7 @@ import {
     resolveConnectErrorMessage,
     shouldHydrateSourceFromUrl,
     sourceWizardLogic,
+    WIZARD_DESTINATION_STEP,
 } from '../sourceWizardLogic'
 
 function buildSourceConfig(overrides: Partial<SourceConfigResponseApi>): SourceConfigResponseApi {
@@ -77,6 +78,38 @@ describe('sourceWizardLogic', () => {
             expect(logic.values.currentStep).toEqual(5)
             expect(onComplete).not.toHaveBeenCalled()
         } finally {
+            unmount()
+        }
+    })
+
+    it('goes to the webhook step after a source created from the destination step', async () => {
+        // The destination step is numbered after the real steps, so an increment from it lands on
+        // a step the scene cannot render: the user saw a dead-end fallback and the webhook that
+        // the source needs to receive any data was never registered.
+        const githubSource = buildSourceConfig({ name: 'Github' })
+        const logic = sourceWizardLogic({ availableSources: { Github: githubSource } })
+        const unmount = logic.mount()
+        jest.spyOn(api.externalDataSources, 'create').mockResolvedValue({ id: 'source-1' } as Awaited<
+            ReturnType<typeof api.externalDataSources.create>
+        >)
+
+        try {
+            logic.actions.selectConnector(githubSource)
+            logic.actions.setDatabaseSchemas([
+                {
+                    table: 'posthog/posthog.workflow_runs',
+                    supports_webhooks: true,
+                    sync_type: 'webhook',
+                    should_sync: true,
+                },
+            ] as ExternalDataSourceSyncSchema[])
+            logic.actions.setStep(WIZARD_DESTINATION_STEP)
+
+            await expectLogic(logic, () => logic.actions.createSource()).toFinishAllListeners()
+
+            expect(logic.values.currentStep).toEqual(4)
+        } finally {
+            jest.restoreAllMocks()
             unmount()
         }
     })
