@@ -24,12 +24,14 @@ rules:
           # Three documents sandbox untrusted HTML, so each carries a policy of its own rather than
           # the app policy. Each exception names the policy it allows, not the file, so a fourth
           # document in the same file trips the rule, and a change to one of these three policies
-          # trips it too. Adding an exception needs a team-security review.
-          - pattern-not: $RESPONSE[$HEADER] = artifact_csp(...)
-          - pattern-not: $RESPONSE[$HEADER] = _public_survey_csp(...)
+          # trips it too. Each exception also pins the enforced header name, because the `sandbox`
+          # directive these three documents rely on has no effect when a browser gets the policy as
+          # `Content-Security-Policy-Report-Only`. Adding an exception needs a team-security review.
+          - pattern-not: $RESPONSE["Content-Security-Policy"] = artifact_csp(...)
+          - pattern-not: $RESPONSE["Content-Security-Policy"] = _public_survey_csp(...)
           - pattern-not: >-
-                $RESPONSE[$HEADER] = "sandbox; default-src 'none'; img-src https: data:; style-src
-                'unsafe-inline'"
+                $RESPONSE["Content-Security-Policy"] = "sandbox; default-src 'none'; img-src https:
+                data:; style-src 'unsafe-inline'"
       paths:
           exclude:
               # The app and admin policies, and the middleware that attaches them.

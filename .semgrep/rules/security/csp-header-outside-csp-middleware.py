@@ -56,6 +56,23 @@ def ok_workflow_asset_policy(response):
     )
 
 
+def flag_report_only_canvas_artifact_policy(response, network_origins):
+    # ruleid: csp-header-outside-csp-middleware
+    response["Content-Security-Policy-Report-Only"] = artifact_csp(network_origins)
+
+
+def flag_report_only_public_survey_policy(request, response):
+    # ruleid: csp-header-outside-csp-middleware
+    response["Content-Security-Policy-Report-Only"] = _public_survey_csp(request)
+
+
+def flag_report_only_workflow_asset_policy(response):
+    # ruleid: csp-header-outside-csp-middleware
+    response["Content-Security-Policy-Report-Only"] = (
+        "sandbox; default-src 'none'; img-src https: data:; style-src 'unsafe-inline'"
+    )
+
+
 def flag_changed_workflow_asset_policy(response):
     # ruleid: csp-header-outside-csp-middleware
     response["Content-Security-Policy"] = "sandbox; default-src 'none'; img-src https: data:; script-src 'self'"
