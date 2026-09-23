@@ -171,9 +171,14 @@ def _governed_metrics_section(project_has_governed_metrics: bool) -> str:
     return _GOVERNED_METRICS_NUDGE if project_has_governed_metrics else ""
 
 
+# The close-out summary tool is a sandbox harness tool, not a PostHog MCP tool, so it is absent from
+# the `mcp__posthog__exec` catalog and has to be called under its qualified name.
+_TASK_SUMMARY_TOOL = "task_summary_update"
+_TASK_SUMMARY_TOOL_ID = f"mcp__posthog-code-tools__{_TASK_SUMMARY_TOOL}"
+
 # The close-out step is identical on every channel bar the word for what the run produces, and it is
 # numbered differently (the report channel has an extra search step), so both are rendered from here.
-_CLOSE_OUT_STEP_TEMPLATE = """{number}. **Close out.** End your turn with a JSON object matching the schema in *Output format* below. Its `summary` field is your run close-out; see *Writing the summary* for how to structure it. A quiet day is a real outcome: "looked, found nothing meaningful" is a genuine, useful summary, not a failure, so don't manufacture {output} to fill space. The harness parses the JSON and writes `summary` to the run row as searchable prose."""
+_CLOSE_OUT_STEP_TEMPLATE = """{number}. **Close out.** End your turn with a JSON object matching the schema in *Output format* below. Its `summary` field is your run close-out; see *Writing the summary* for how to structure it. A quiet day is a real outcome: "looked, found nothing meaningful" is a genuine, useful summary, not a failure, so don't manufacture {output} to fill space. The harness parses the JSON and writes `summary` to the run row as searchable prose. Before that, call `task_summary_update` with the same close-out text, per *Writing the summary*."""
 
 _HOW_A_RUN_WORKS_SIGNAL_STEPS = """4. **Decide.** For each hypothesis, decide whether to:
    - **Emit** a finding (call `scout-emit-signal`). This includes building on a prior finding when new evidence materially advances the picture: emit a fresh finding citing the prior one's `finding_id` in your description.
@@ -629,6 +634,7 @@ _REPORT_CHARTS = f"""# Attaching charts
 
 - **Each chart is `chart_id` + `title` + `query`.** `chart_id` is your own slug (lowercase letters, numbers, `_`, `-`), `title` the heading above it, `query` a query node: `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a `HogQLQuery` source, plus `display` and `chartSettings` when you want a graph rather than a result table), or `SavedInsightNode` (an existing insight by `shortId`). Anything else is refused. Add a `caption` when there's something specific to look at.
 - **A graph from SQL needs its axes named.** Setting `display` without `chartSettings` draws an empty box: `chartSettings.xAxis.column` and `chartSettings.yAxis[].column` say which columns of your result are which. Leave `display` off entirely and the node renders the result table instead, which reads better than a chart for a handful of rows.
+- **A graph from SQL needs one row per x-axis value.** The x axis is built from the result rows in the order they arrive, so a query that also groups by a second dimension puts several rows at the same x position and the line zigzags instead of trending. Either aggregate the query down to one row per x value, or name the second dimension in `chartSettings.seriesBreakdownColumn`, which pivots those rows into one series per value of that column. For a time series per segment, an `InsightVizNode` wrapping a `TrendsQuery` with a `breakdownFilter` is usually cleaner than SQL.
 - **Only attach a query you actually ran this session.** A query is checked for its `kind` and its size when you write it, not for whether it runs, so a well-formed node holding a broken query is stored without complaint and then fails to draw when a reader opens the report, with nothing to tell you. When you want the exact shape of an ad-hoc node, read it off an existing insight rather than guessing.
 - **A chart renders data, it does not run code.** HogVM `bytecode`, a nested `HogQuery`, `sendRawQuery`, and a nested `SuggestedQuestionsQuery` (whose runner would buy an LLM completion per reader) are each refused wherever they sit in the node. A warehouse query is fine through HogQL: keep `connectionId`, drop `sendRawQuery`.
 - **Place it from the summary.** A markdown link with a `chart:` target, `[Daily signups](chart:signups-drop)`, draws the chart at that point in the body; reference it once, since repeating doesn't draw a second copy, and an unreferenced chart still renders after the prose. Two references in one paragraph sit side by side, so give a pair you want compared a paragraph of their own; one inside a table cell or heading has no room to draw, so its chart falls to the end. The inbox sizes a chart from its query, so set `size` (`small`, `medium`, `large`) only when it gets that wrong.
@@ -665,6 +671,16 @@ A trends chart and a graph built from SQL, as they arrive in `charts`:
       "display": "ActionsBar",
       "chartSettings": {{"xAxis": {{"column": "exception_type"}}, "yAxis": [{{"column": "people"}}]}}
     }}
+  }},
+  {{
+    "chart_id": "exceptions-by-type-daily",
+    "title": "Exceptions per day, by type",
+    "query": {{
+      "kind": "DataVisualizationNode",
+      "source": {{"kind": "HogQLQuery", "query": "SELECT toDate(timestamp) AS day, exception_type, count() AS occurrences FROM ... GROUP BY day, exception_type ORDER BY day"}},
+      "display": "ActionsLineGraph",
+      "chartSettings": {{"xAxis": {{"column": "day"}}, "yAxis": [{{"column": "occurrences"}}], "seriesBreakdownColumn": "exception_type", "showLegend": true}}
+    }}
   }}
 ]
 ```"""
@@ -699,7 +715,9 @@ Everything you write for a reader follows one rule: {_FRONT_LOAD_RULE}. Whatever
 
 Your close-out `summary` renders in the scout's run history **collapsed to the first ~2 lines** until expanded, so applied here that means one or two sentences stating the outcome (what was found, with the key number, or that the run was quiet), a blank line, then two to five short bullets for what you checked, what you skipped and why, and what you wrote to memory.
 
-Keep it a close-out, not a transcript: methodology and tool-by-tool narration belong in the task log."""
+Keep it a close-out, not a transcript: methodology and tool-by-tool narration belong in the task log.
+
+The `{_TASK_SUMMARY_TOOL}` tool holds the same close-out for the task run row, which is what a reader sees without opening the transcript. It is a harness tool in your sandbox, so call it directly as `{_TASK_SUMMARY_TOOL_ID}`; it is not on the `mcp__posthog__exec` interface, per *How to call tools*. Send it the same verdict-first text you put in `summary`. Run ritual does not belong there: your skill version, the emit-eligibility gate, and a list of scratchpad keys tell a reader nothing about what you found."""
 
 # Rendered only for a team whose knowledge base is reachable and looks maintained — the runner
 # resolves `business_knowledge.is_maintained_for_team` per run (`business_knowledge_maintained`).
@@ -1369,6 +1387,8 @@ def build_run_prompt(
 # How to call tools
 
 Every tool named in this prompt, the `scout-*` harness tools and all PostHog MCP tools alike, is invoked through the `mcp__posthog__exec` interface as `call <tool_name> <json>`, never as a direct tool call. Bare names like `skill-get`, `scout-project-profile-get`, or `{emit_tool}` are how you *refer* to a tool, so don't burn opening moves trying to invoke them directly. For any tool you haven't already used, `search <regex>` to find it and `info <tool_name>` to read its schema on that same interface, then `call` it. Search by prefix, one family at a time (`search ^scout-`, `search ^inbox-report`), and confirm a single name with `info <tool_name>`. Do not build one pattern that lists every tool you hold: `search` refuses a pattern over 800 characters. If a `scout-*` tool comes back unknown, the server may still expose it under its legacy `signals-scout-*` name: `search scout` and call whichever name the catalog returns.
+
+One tool named in this prompt is not on that interface: `{_TASK_SUMMARY_TOOL}`, the close-out summary tool. It is a harness tool your sandbox mounts, so call it directly as `{_TASK_SUMMARY_TOOL_ID}`. `search` and `info` on `mcp__posthog__exec` do not know it under any spelling, so a lookup there tells you nothing and is not a gap to report through `agent-feedback`. If the qualified name is not in your tool catalog, this run does not mount it: write the close-out in your final JSON `summary` as usual and move on.
 
 # First: read your skill
 

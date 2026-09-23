@@ -25,7 +25,6 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.git import extract_explicit_repo, extract_linked_repo, extract_repo_from_scopes
-from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
     Integration,
@@ -94,6 +93,7 @@ from products.slack_app.backend.services.slack_messages import (
     parse_slack_file_refs,
     post_slack_thread_reply,
 )
+from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 from products.slack_app.backend.services.slack_settings import resolve_untagged_followup_mode
 from products.slack_app.backend.services.slack_user_info import (
     clear_workspace_profile_cache,
@@ -735,20 +735,24 @@ def _workspace_claims_cache_key(slack_team_id: str, kinds: list[str]) -> str:
     return f"slack_app:ws_claims:{slack_team_id}:{kinds_token}"
 
 
-def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], incoming_host: str) -> bool | None:
+def does_other_region_claim_workspace(
+    *,
+    slack_team_id: str,
+    kinds: list[str],
+    incoming_host: str,
+    channel: str | None = None,
+    thread_ts: str | None = None,
+) -> bool | None:
     """Ask the other region whether it claims the given workspace for any of the kinds.
 
-    Ownership is asked at workspace granularity on purpose. Project ids are issued per region, so
-    "does the other region hold project 2 for this workspace" compares two unrelated numbering
-    spaces and answers no almost every time — which reads as "we own this" and pins the event to
-    whichever region Slack happened to deliver it to.
-
-    Returns True/False on a definitive answer, or None on transport failure or bad response.
-    Definitive answers are cached for ``WORKSPACE_CLAIMS_CACHE_TTL_SECONDS`` so a single probe
-    flake does not reroute the next event. None is never cached so the next event re-probes.
+    Project IDs differ between regions, so probes use Slack workspace and thread IDs.
+    Thread probes bypass the workspace cache because a notification can create a new mapping.
+    Returns None when the peer cannot confirm ownership. Workspace-only probes cache definitive
+    answers for ``WORKSPACE_CLAIMS_CACHE_TTL_SECONDS``.
     """
     cache_key = _workspace_claims_cache_key(slack_team_id, kinds)
-    cached = cache.get(cache_key)
+    thread_probe = bool(channel and thread_ts)
+    cached = None if thread_probe else cache.get(cache_key)
     if isinstance(cached, bool):
         logger.info(
             "slack_app_workspace_claims_cache_hit",
@@ -761,7 +765,10 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
     scheme = "http" if settings.DEBUG else "https"
     target_url = f"{scheme}://{target_domain}/slack/workspace/claims/"
 
-    body = json.dumps({"slack_team_id": slack_team_id, "kinds": kinds}).encode("utf-8")
+    payload: dict[str, Any] = {"slack_team_id": slack_team_id, "kinds": kinds}
+    if thread_probe:
+        payload.update(channel=channel, thread_ts=thread_ts)
+    body = json.dumps(payload).encode("utf-8")
     signing_secret = SlackIntegration.slack_config()["SLACK_APP_SIGNING_SECRET"]
     signed = sign_slack_request(body, signing_secret)
 
@@ -795,12 +802,13 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
         logger.warning("slack_app_workspace_claims_bad_json", target_url=target_url)
         return None
 
-    claimed = data.get("claimed")
+    claimed = data.get("thread_claimed" if thread_probe else "claimed")
     if not isinstance(claimed, bool):
         logger.warning("slack_app_workspace_claims_bad_payload", target_url=target_url)
         return None
 
-    cache.set(cache_key, claimed, timeout=WORKSPACE_CLAIMS_CACHE_TTL_SECONDS)
+    if not thread_probe:
+        cache.set(cache_key, claimed, timeout=WORKSPACE_CLAIMS_CACHE_TTL_SECONDS)
     return claimed
 
 
@@ -845,6 +853,13 @@ def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
         kind__in=filtered,
         integration_id=slack_team_id,
     ).exists()
+    channel, thread_ts = data.get("channel"), data.get("thread_ts")
+    if channel is not None or thread_ts is not None:
+        if not isinstance(channel, str) or not channel or not isinstance(thread_ts, str) or not thread_ts:
+            return HttpResponse("Invalid thread", status=400)
+        candidates = list(Integration.objects.filter(kind__in=filtered, integration_id=slack_team_id))
+        result = resolve_from_candidates(candidates, slack_team_id=slack_team_id, channel=channel, thread_ts=thread_ts)
+        return JsonResponse({"claimed": claimed, "thread_claimed": result.source == "thread"})
     return JsonResponse({"claimed": claimed})
 
 
@@ -1943,6 +1958,9 @@ def _route_assistant_event(
         other_domain=other_domain,
         incoming_host=incoming_host,
         can_defer=can_defer,
+        channel=fields.dm_channel_id,
+        thread_ts=fields.thread_ts if event.get("thread_ts") else None,
+        local_thread=result.source == "thread",
     )
     if region_route is not None:
         return region_route
@@ -2306,6 +2324,9 @@ def route_posthog_code_event_to_relevant_region(
             other_domain=other_domain,
             incoming_host=incoming_host,
             can_defer=can_defer_to_other_region,
+            channel=channel_str,
+            thread_ts=thread_ts_str if mention_is_threaded else None,
+            local_thread=workspace_result.source == "thread",
         )
         if region_route is not None:
             # A mention that no region claims is the most confusing failure of all: the
@@ -2689,6 +2710,9 @@ def resolve_region_or_terminal_route(
     other_domain: str,
     incoming_host: str,
     can_defer: bool,
+    channel: str | None = None,
+    thread_ts: str | None = None,
+    local_thread: bool = False,
 ) -> str | None:
     """Shared region gate for every coding-agent surface (mentions, channel followups, DMs).
 
@@ -2696,6 +2720,21 @@ def resolve_region_or_terminal_route(
     local integration claims the workspace, or proxied to US under the US-precedence rule — else
     ``None`` to signal the caller should keep handling the event locally.
     """
+    if local_thread:
+        return None
+    if channel and thread_ts and not proxied and cross_region_routing_enabled():
+        thread_claimed = does_other_region_claim_workspace(
+            slack_team_id=slack_team_id,
+            kinds=kinds,
+            incoming_host=incoming_host,
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+        if thread_claimed is True:
+            return _proxy_event_and_return_route(request, other_domain)
+        if thread_claimed is None:
+            # Unknown ownership must not send report context to an unrelated project.
+            return ROUTE_PROXY_FAILED
     if not candidates_present:
         return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
     if _us_should_handle_instead(slack_team_id, kinds, can_defer, incoming_host):

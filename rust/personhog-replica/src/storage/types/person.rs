@@ -16,6 +16,36 @@ pub struct DistinctIdWithVersion {
     pub id: i64,
 }
 
+/// How DeletePersons removes rows. A caller that publishes ClickHouse tombstones
+/// asks for `Tombstone` and reads the versions back; everything else hard-deletes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeletePersonsMode {
+    Hard,
+    Tombstone,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TombstonedDistinctId {
+    pub distinct_id: String,
+    pub version: i64,
+}
+
+/// The versions a tombstone wrote for one person, for the caller's ClickHouse
+/// tombstones.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TombstonedPerson {
+    pub uuid: Uuid,
+    pub version: i64,
+    pub distinct_ids: Vec<TombstonedDistinctId>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DeletePersonsOutcome {
+    pub deleted: i64,
+    /// Set only when the rows were tombstoned.
+    pub tombstones: Option<Vec<TombstonedPerson>>,
+}
+
 /// Outcome of one bounded DeleteTombstonedPersons call. Every requested uuid lands in at most
 /// one bucket; a uuid with no Postgres row, or whose person is live again, lands in none.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

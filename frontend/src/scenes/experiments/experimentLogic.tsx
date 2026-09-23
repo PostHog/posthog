@@ -3066,22 +3066,19 @@ export const experimentLogic = kea<experimentLogicType>([
                 /**
                  * create a new dashboard
                  */
-                const dashboard: DashboardType = await api.create(
-                    `api/environments/${values.currentTeamId}/dashboards/`,
-                    {
-                        name: 'Experiment: ' + values.experiment.name,
-                        description: `Dashboard for [${experimentUrl}](${experimentUrl})`,
-                        filters: {
-                            date_from: values.experiment.start_date,
-                            date_to: values.experiment.end_date,
-                            properties: [],
-                            breakdown_filter: {
-                                breakdown: featureFlagVariantProperty(values.experiment.feature_flag_key),
-                                breakdown_type: 'event' as BreakdownType,
-                            },
+                const dashboard: DashboardType = await api.create(`api/projects/${values.currentTeamId}/dashboards/`, {
+                    name: 'Experiment: ' + values.experiment.name,
+                    description: `Dashboard for [${experimentUrl}](${experimentUrl})`,
+                    filters: {
+                        date_from: values.experiment.start_date,
+                        date_to: values.experiment.end_date,
+                        properties: [],
+                        breakdown_filter: {
+                            breakdown: featureFlagVariantProperty(values.experiment.feature_flag_key),
+                            breakdown_type: 'event' as BreakdownType,
                         },
-                    } as Partial<DashboardType>
-                )
+                    },
+                } as Partial<DashboardType>)
 
                 /**
                  * create a new insight for each metric, either primary or secondary

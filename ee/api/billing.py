@@ -32,11 +32,7 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
-from posthog.permissions import (
-    get_authenticator_scoped_team_ids,
-    get_authenticator_scopes,
-    posthog_feature_flag_enabled,
-)
+from posthog.permissions import get_authenticator_scoped_team_ids, get_authenticator_scopes
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 from posthog.user_permissions import UserPermissions
 from posthog.utils import generate_short_id, get_trusted_client_ip, relative_date_parse
@@ -45,15 +41,18 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 
 from ee.billing.billing_manager import BillingManager, http_session
 from ee.billing.billing_types import USAGE_TYPE_VALUES
+from ee.billing.grants import (
+    BILLING_LIMIT_TODAYS_USAGE_KEYS,
+    _billing_limit_todays_usage_enabled,
+    _member_billing_usage_spend_read_access_enabled,
+    _owner_only_billing_enabled,
+)
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
 logger = structlog.get_logger(__name__)
 
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
-OWNER_ONLY_BILLING_FLAG = "owner-only-billing"
-MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG = "member-billing-usage-spend-read-access"
-BILLING_LIMIT_TODAYS_USAGE_FLAG = "billing-limit-todays-usage"
 
 
 class BillingQueryTimeout(APIException):
@@ -123,8 +122,23 @@ BILLING_GUIDANCE_ERRORS: dict[str, type[APIException]] = {
     BillingDateRangeTooLong.default_code: BillingDateRangeTooLong,
 }
 
+BILLING_VALIDATION_ERROR_MESSAGES = {
+    "required": "This field is required.",
+    "invalid_input": "Invalid value. Check this parameter's format and allowed values.",
+    "invalid_choice": "Select a valid option for this parameter.",
+}
 
-BILLING_LIMIT_TODAYS_USAGE_KEYS = ("posthog_code_credits",)
+
+BREAKDOWNS_MESSAGE = "Value must be a JSON array containing only 'type' and/or 'team'."
+# Spend adds across products, so the spend read serves a project on its own. Usage counts each
+# type in units that do not add: events, recordings, rows. So the usage read serves a project
+# breakdown only beside the product one.
+USAGE_BREAKDOWNS_MESSAGE = (
+    'Pass [], ["type"] or ["type","team"]. To break usage down by project, pass "type" with '
+    '"team": billing counts usage per product, and the counts do not add up across products.'
+)
+
+
 BILLING_ACCESS_DENIED_MESSAGE = (
     "Your PostHog user does not have billing access for this organization. "
     "Ask someone with billing access to run this or update your role."
@@ -137,21 +151,6 @@ BILLING_PROJECT_ACCESS_DENIED_MESSAGE = (
     "The requested projects are not available to this PostHog user or token. "
     "Adjust the project filter or ask someone with billing access to run this."
 )
-
-
-def _owner_only_billing_enabled(user: User, organization: Organization) -> Optional[bool]:
-    if not user.distinct_id:
-        return None
-
-    try:
-        return posthog_feature_flag_enabled(
-            OWNER_ONLY_BILLING_FLAG,
-            str(user.distinct_id),
-            organization_id=organization.id,
-        )
-    except Exception as e:
-        capture_exception(e, {"organization_id": organization.id, "flag": OWNER_ONLY_BILLING_FLAG})
-        return None
 
 
 def user_has_billing_access(user: User, organization: Organization) -> bool:
@@ -167,42 +166,6 @@ def user_has_billing_access(user: User, organization: Organization) -> bool:
 
     # Only a confirmed disabled flag lets admins through. Unknown flag state fails closed to owners.
     return _owner_only_billing_enabled(user, organization) is False
-
-
-def _member_billing_usage_spend_read_access_enabled(user: User, organization: Organization) -> bool:
-    if not user.distinct_id:
-        return False
-
-    try:
-        return (
-            posthog_feature_flag_enabled(
-                MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG,
-                str(user.distinct_id),
-                organization_id=organization.id,
-            )
-            is True
-        )
-    except Exception as e:
-        capture_exception(e, {"organization_id": organization.id, "flag": MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG})
-        return False
-
-
-def _billing_limit_todays_usage_enabled(user: User, organization: Organization) -> bool:
-    if not user.distinct_id:
-        return False
-
-    try:
-        return (
-            posthog_feature_flag_enabled(
-                BILLING_LIMIT_TODAYS_USAGE_FLAG,
-                str(user.distinct_id),
-                organization_id=organization.id,
-            )
-            is True
-        )
-    except Exception as e:
-        capture_exception(e, {"organization_id": organization.id, "flag": BILLING_LIMIT_TODAYS_USAGE_FLAG})
-        return False
 
 
 def _todays_usage_value(usage_key: str, usage: dict[str, Any]) -> int:
@@ -479,10 +442,10 @@ class BillingUsageRequestSerializer(serializers.Serializer):
         try:
             parsed = json.loads(value)
         except json.JSONDecodeError:
-            raise serializers.ValidationError("Value must be a JSON array containing only 'type' and/or 'team'.")
+            raise serializers.ValidationError(BREAKDOWNS_MESSAGE)
 
         if not isinstance(parsed, list) or any(breakdown not in ("type", "team") for breakdown in parsed):
-            raise serializers.ValidationError("Value must be a JSON array containing only 'type' and/or 'team'.")
+            raise serializers.ValidationError(BREAKDOWNS_MESSAGE)
 
         return value
 
@@ -1339,10 +1302,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """Raise the named exception for an error billing returned on a usage, spend or export request.
 
         handle_billing_service_error raises with the status in its message and the parsed body as
-        the third argument. A guidance code maps to its named exception, whose text the page owns;
-        anything else is a 400 or a 502 with a fixed message. Billing's body goes to the log and
-        nowhere else. An exception of any other shape is not billing's answer and is re-raised as
-        it is.
+        the third argument. Known guidance and validation codes use controlled messages because
+        upstream detail can contain caller input or internal data. Unknown errors remain a generic
+        400 or 502. An exception of any other shape is not billing's answer and is re-raised as it is.
         """
         status_match = re.search(r"status code: (\d+)", str(error.args[0]) if error.args else "")
         if not status_match:
@@ -1361,8 +1323,17 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # Billing evaluates the same permission from its own cache, so flag rollout windows
             # can still return a downstream permission denial.
             raise PermissionDenied(HasBillingUsageSpendReadAccess.message) from error
-        if code in BILLING_GUIDANCE_ERRORS:
+        if isinstance(code, str) and code in BILLING_GUIDANCE_ERRORS:
             raise BILLING_GUIDANCE_ERRORS[code]() from error
+        if upstream_status == 400 and isinstance(body, dict) and body.get("type") == "validation_error":
+            field = body.get("attr")
+            if (
+                isinstance(field, str)
+                and field in BillingUsageRequestSerializer().fields
+                and isinstance(code, str)
+                and code in BILLING_VALIDATION_ERROR_MESSAGES
+            ):
+                raise ValidationError({field: [BILLING_VALIDATION_ERROR_MESSAGES[code]]}, code=code) from error
         if 400 <= upstream_status < 500:
             raise BillingQueryRejected() from error
         raise BillingServiceError() from error
