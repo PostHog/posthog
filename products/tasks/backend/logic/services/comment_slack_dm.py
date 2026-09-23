@@ -31,7 +31,7 @@ from posthog.models.user import NOTIFICATION_DEFAULTS, User
 from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
-from products.canvas.backend.models import Canvas
+from products.canvas.backend.facade.models import Canvas
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.services.slack_user_info import lookup_slack_user_id_by_email
 from products.tasks.backend.models import Task, TaskCommentActivity

@@ -53,7 +53,6 @@ billing_alerts.BillingAlertConfiguration products.billing_alerts.backend.facade.
 billing_alerts.BillingAlertEvent products.billing_alerts.backend.facade.api.BillingAlertDispatchResult.__init__ facade-accepts(event) 1
 billing_alerts.BillingAlertEvent products.billing_alerts.backend.facade.api.visible_events_for_alert facade-returns 1
 canvas.Canvas products.canvas.backend.facade.api.seed_home_canvas facade-accepts(canvas) 1
-canvas.Canvas products.tasks.backend.logic.services.loop_runs get_model 1
 cohorts.Cohort experiments.Experiment.exposure_cohort reverse-accessor(experiment_set) 1
 context_layer.ContextLayerConfig products.context_layer.backend.facade.api.enable_context_layer facade-returns 1
 context_layer.ContextLayerConfig products.context_layer.backend.facade.api.get_config facade-returns 1
