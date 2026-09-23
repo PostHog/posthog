@@ -95,7 +95,7 @@ export interface payGateMiniLogicMeta {
             gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
             productWithFeature: BillingProductV2AddonType | BillingProductV2Type | undefined,
             featureInfo: BillingFeatureType | undefined,
-            mustAskAdminToUpgrade: boolean
+            canAccessBilling: boolean
         ) => string | undefined
         ctaLabel: (
             gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
@@ -105,7 +105,7 @@ export interface payGateMiniLogicMeta {
             gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
             isAddonProduct: boolean | undefined,
             billing: BillingType | null,
-            mustAskAdminToUpgrade: boolean
+            canAccessBilling: boolean
         ) => boolean
     }
 }
@@ -262,19 +262,19 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
                 gateVariant === 'add-card' && !canAccessBilling,
         ],
         ctaLink: [
-            (s) => [s.gateVariant, s.productWithFeature, s.featureInfo, s.mustAskAdminToUpgrade],
+            (s) => [s.gateVariant, s.productWithFeature, s.featureInfo, s.canAccessBilling],
             (
                 gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
                 productWithFeature: BillingProductV2AddonType | BillingProductV2Type | undefined,
                 featureInfo: import('~/types').BillingFeatureType | undefined,
-                mustAskAdminToUpgrade: boolean
+                canAccessBilling: boolean
             ) => {
                 // product activation is already handled in the startPaymentEntryFlow,
                 // ctaLink is used only when isPaymentEntryFlow is false
                 if (gateVariant === 'add-card') {
                     // The billing page is a restricted area, so linking a viewer who cannot open it
                     // only sends them to a permissions error.
-                    if (mustAskAdminToUpgrade) {
+                    if (!canAccessBilling) {
                         return undefined
                     }
                     return `/organization/billing${productWithFeature?.type ? `?products=${productWithFeature.type}` : ''}`
@@ -305,12 +305,12 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             },
         ],
         isPaymentEntryFlow: [
-            (s) => [s.gateVariant, s.isAddonProduct, s.billing, s.mustAskAdminToUpgrade],
+            (s) => [s.gateVariant, s.isAddonProduct, s.billing, s.canAccessBilling],
             (
                 gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
                 isAddonProduct: boolean | undefined,
                 billing: null | import('~/types').BillingType,
-                mustAskAdminToUpgrade: boolean
+                canAccessBilling: boolean
             ): boolean => {
                 // Show payment entry flow only for free customers trying to upgrade to a paid plan
                 // to use core features (not addons)
@@ -318,7 +318,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
                     gateVariant === 'add-card' &&
                     !isAddonProduct &&
                     billing?.subscription_level === 'free' &&
-                    !mustAskAdminToUpgrade
+                    canAccessBilling
                 )
             },
         ],

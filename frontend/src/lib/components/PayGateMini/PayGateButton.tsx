@@ -13,9 +13,9 @@ import type { payGateMiniLogicType } from './payGateMiniLogic'
 
 type UsePayGateButtonReturn = Pick<
     payGateMiniLogicType['values'],
-    'ctaLabel' | 'gateVariant' | 'productWithFeature' | 'mustAskAdminToUpgrade'
+    'ctaLabel' | 'gateVariant' | 'productWithFeature'
 > & {
-    clickHandlerProps: Pick<LemonButtonProps, 'onClick' | 'to'>
+    clickHandlerProps: Pick<LemonButtonProps, 'disabledReason' | 'onClick' | 'to'>
 }
 
 function usePayGateButton({
@@ -43,32 +43,24 @@ function usePayGateButton({
         : { to: ctaLink }
 
     return {
-        clickHandlerProps,
+        clickHandlerProps: {
+            ...clickHandlerProps,
+            disabledReason: mustAskAdminToUpgrade
+                ? 'Only organization admins can change the plan. Ask an admin in your organization to upgrade.'
+                : undefined,
+        },
         ctaLabel,
         gateVariant,
         productWithFeature,
-        mustAskAdminToUpgrade,
     }
 }
 
-const ASK_ADMIN_REASON = 'Only organization admins can change the plan. Ask an admin in your organization to upgrade.'
-
 type PayGateButtonProps = PayGateMiniLogicProps & Partial<LemonButtonProps>
 export const PayGateButton = ({ feature, currentUsage, ...buttonProps }: PayGateButtonProps): JSX.Element | null => {
-    const { clickHandlerProps, ctaLabel, mustAskAdminToUpgrade } = usePayGateButton({
-        feature,
-        currentUsage,
-        onClick: buttonProps.onClick,
-    })
+    const { clickHandlerProps, ctaLabel } = usePayGateButton({ feature, currentUsage, onClick: buttonProps.onClick })
 
     return (
-        <LemonButton
-            type="primary"
-            center
-            disabledReason={mustAskAdminToUpgrade ? ASK_ADMIN_REASON : undefined}
-            {...buttonProps}
-            {...clickHandlerProps}
-        >
+        <LemonButton type="primary" center {...buttonProps} {...clickHandlerProps}>
             {ctaLabel}
         </LemonButton>
     )
@@ -82,7 +74,7 @@ export const PayGateIcon = ({
     disableAutoHide,
     ...buttonProps
 }: PayGateIconProps): JSX.Element | null => {
-    const { clickHandlerProps, ctaLabel, gateVariant, productWithFeature, mustAskAdminToUpgrade } = usePayGateButton({
+    const { clickHandlerProps, ctaLabel, gateVariant, productWithFeature } = usePayGateButton({
         feature,
         currentUsage,
         onClick: (ev) => {
@@ -110,7 +102,6 @@ export const PayGateIcon = ({
             icon={icon ?? <IconLock />}
             size="xxsmall"
             tooltip={ctaLabel}
-            disabledReason={mustAskAdminToUpgrade ? ASK_ADMIN_REASON : undefined}
             {...buttonProps}
             {...clickHandlerProps}
         />

@@ -262,17 +262,15 @@ const renderUsageLimitMessage = (
                                 <b>{featureInfoOnNextPlan?.limit} projects</b>.
                             </p>
                         )}
-                        <p className="mb-4 text-xs italic text-secondary">
-                            Need unlimited projects? Check out one of our{' '}
-                            {mustAskAdminToUpgrade ? (
-                                <span>platform add-ons</span>
-                            ) : (
+                        {!mustAskAdminToUpgrade && (
+                            <p className="mb-4 text-xs italic text-secondary">
+                                Need unlimited projects? Check out one of our{' '}
                                 <Link to="/organization/billing?products=platform_and_support" onClick={handleCtaClick}>
                                     platform add-ons
                                 </Link>
-                            )}
-                            .
-                        </p>
+                                .
+                            </p>
+                        )}
                     </>
                 ) : !isAddonProduct ? (
                     <p>Upgrade to create more {featureInfo.name}</p>
