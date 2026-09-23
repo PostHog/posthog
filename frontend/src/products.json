@@ -273,14 +273,14 @@
         { "path": "Wizard", "category": "Tools", "iconType": null, "type": "wizard", "intents": [] },
         {
             "path": "Workflows",
-            "category": "Messaging",
+            "category": "Tools",
             "iconType": "workflows",
             "type": "workflows",
             "intents": ["workflows"]
         },
         {
             "path": "Broadcasts",
-            "category": "Messaging",
+            "category": "Tools",
             "iconType": "broadcasts",
             "type": "broadcasts",
             "intents": ["workflows"]

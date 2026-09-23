@@ -239,9 +239,6 @@ export interface broadcastWizardLogicActions {
     prevStep: () => {
         value: true
     }
-    refreshFromAgentEdit: () => {
-        value: true
-    }
     saveBroadcastFinished: (broadcast: HogFlowApi | null) => {
         broadcast: HogFlowApi | null
     }
@@ -385,7 +382,6 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         cancelSchedule: true,
         launchBroadcast: true,
         launchBroadcastFinished: true,
-        refreshFromAgentEdit: true,
     }),
 
     loaders(({ props, values }) => ({
@@ -980,26 +976,6 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         },
         loadBroadcastFailure: () => {
             lemonToast.error("Couldn't load the broadcast. Refresh the page to try again.")
-        },
-        refreshFromAgentEdit: async (_, breakpoint) => {
-            if (!values.broadcastId || !values.currentProjectId) {
-                return
-            }
-            // Coalesce bursts of agent patches into one refetch.
-            await breakpoint(300)
-            try {
-                const refreshed = await hogFlowsRetrieve(String(values.currentProjectId), values.broadcastId)
-                breakpoint()
-                actions.saveBroadcastFinished(refreshed)
-                // Only the email is re-hydrated: the agent edits the email step, and pulling the other
-                // wizard fields from the server would clobber edits the user hasn't saved yet.
-                const value = findAction(refreshed, 'function_email')?.config?.inputs?.email?.value
-                if (value) {
-                    actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, ...value })
-                }
-            } catch {
-                // The editor keeps its current state; the next patch or a reload will resync.
-            }
         },
     })),
 
