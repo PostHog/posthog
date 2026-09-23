@@ -735,6 +735,44 @@ describe('PersonhogPersonsStore', () => {
         expect(repository.fetchPersonById).not.toHaveBeenCalled()
     })
 
+    it('a create answer declined by a purge still clears the absence it contradicts', async () => {
+        const bound = store.forBatch(0)
+        // Identity has no mapping yet, so the update read caches an absence.
+        expect(await bound.fetchForUpdate(1, 'd1')).toBeNull()
+        expect(edgeOf('1:d1')).toBeNull()
+
+        // Another pod attaches d1 meanwhile; the create resolves to that person,
+        // but a purge lands while the call is open, so the answer is not installed.
+        let release!: (value: unknown) => void
+        repository.getOrCreatePersonByDistinctId.mockReturnValueOnce(
+            new Promise((resolve) => {
+                release = resolve
+            }) as never
+        )
+        repository.fetchPersonById.mockResolvedValue({ ...person } as never)
+        const creating = bound.createPerson(
+            DateTime.fromMillis(3_600_000, { zone: 'utc' }),
+            { seed: 'value' },
+            {},
+            {},
+            1,
+            null,
+            false,
+            'advisory-uuid',
+            { distinctId: 'd1' },
+            undefined
+        )
+        ;(store as any).bumpGeneration(1)
+        release({ person, created: false })
+        await creating
+
+        // The next update read must re-resolve rather than serve the stale absence.
+        repository.resolvePersonsByDistinctIds.mockResolvedValueOnce([
+            { teamId: 1, distinctId: 'd1', person: { ...person } },
+        ] as never)
+        expect((await bound.fetchForUpdate(1, 'd1'))?.id).toBe('7')
+    })
+
     it('drops a size-rejected segment from the lane rather than retrying it forever', async () => {
         repository.updatePersonProperties.mockRejectedValue(new PersonhogPropertiesSizeError('too big', 1, '7'))
         const bound = store.forBatch(0)

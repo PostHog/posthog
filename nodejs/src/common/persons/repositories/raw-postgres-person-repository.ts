@@ -74,6 +74,9 @@ export interface RawPostgresPersonRepository {
     /** See PersonRepository.isPersonLive. */
     isPersonLive(person: InternalPerson, tx?: TransactionClient): Promise<boolean>
 
+    /** The live rows among these persons, row-locked for the rest of the transaction. */
+    lockPersons(teamId: number, personIds: string[], tx?: TransactionClient): Promise<InternalPerson[]>
+
     addDistinctId(
         person: InternalPerson,
         distinctId: string,

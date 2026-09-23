@@ -2162,6 +2162,76 @@ describe('PersonState.processEvent()', () => {
             expect(persons[0]).toMatchObject({ uuid: newUserUuid, properties: { a: 1, b: 3, d: 6 } })
         })
 
+        it(`merge carries a property another writer lands on the source after the merge read it`, async () => {
+            await createPerson(hub, timestamp, { a: 1 }, {}, {}, teamId, null, false, oldUserUuid, {
+                distinctId: oldUserDistinctId,
+            })
+            const target = await createPerson(hub, timestamp2, { b: 2 }, {}, {}, teamId, null, false, newUserUuid, {
+                distinctId: newUserDistinctId,
+            })
+
+            // Another pod's flush lands on the source between the merge's reads and its transaction.
+            jest.spyOn(personRepository, 'inTransaction').mockImplementationOnce(async (description, body) => {
+                await hub.postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `UPDATE posthog_person SET properties = properties || '{"late": "yes"}'::jsonb, version = version + 1
+                     WHERE team_id = $1 AND uuid = $2`,
+                    [teamId, oldUserUuid],
+                    'lateSourceWrite'
+                )
+                return await PostgresPersonRepository.prototype.inTransaction.call(personRepository, description, body)
+            })
+
+            const mergeService = personMergeService({
+                event: '$identify',
+                distinct_id: newUserDistinctId,
+                properties: { $anon_distinct_id: oldUserDistinctId },
+            })
+            const result = await mergeService.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            await flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
+
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toMatchObject({ id: target.id, properties: { a: 1, b: 2, late: 'yes' } })
+        })
+
+        it(`joins both ids when another writer creates the anon person during a neither-exists merge`, async () => {
+            // Neither person exists. The anon person lands on another pod after the merge's
+            // lookups and before its two-id create, so that create loses on the anon id.
+            let raced = false
+            jest.spyOn(personRepository, 'createPerson').mockImplementation(async (...args) => {
+                if (!raced) {
+                    raced = true
+                    await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, newUserUuid, {
+                        distinctId: newUserDistinctId,
+                    })
+                }
+                return await PostgresPersonRepository.prototype.createPerson.apply(personRepository, args)
+            })
+
+            const mergeService = personMergeService({
+                event: '$identify',
+                distinct_id: oldUserDistinctId,
+                properties: { $anon_distinct_id: newUserDistinctId },
+            })
+            const result = await mergeService.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            await flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
+
+            const persons = sortPersons(await fetchPostgresPersonsH())
+            expect(persons.length).toEqual(1)
+            expect(persons[0].uuid).toEqual(newUserUuid)
+            const distinctIds = await fetchDistinctIdValues(hub.postgres, persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
+        })
+
         it(`handles race condition when other thread creates the user`, async () => {
             await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, {
                 distinctId: oldUserDistinctId,
@@ -3672,33 +3742,16 @@ describe('PersonState.processEvent()', () => {
             // Mock removeDistinctIdFromCache to verify it's called
             const removeDistinctIdFromCacheSpy = jest.spyOn(batchStore, 'removeDistinctIdFromCache')
 
-            // Mock moveDistinctIds to first move the distinct ID to person3 (simulating race condition), then succeed
-            let moveDistinctIdsCalls = 0
-            const originalMoveDistinctIds = batchStore.moveDistinctIds.bind(batchStore)
-
-            // Mock the batch store method which is what gets called through the transaction wrapper
-            const moveDistinctIdsSpy = jest
-                .spyOn(batchStore, 'moveDistinctIds')
-                .mockImplementation(async (source, target, distinctId, limit, tx) => {
-                    moveDistinctIdsCalls++
-                    if (moveDistinctIdsCalls === 1) {
-                        // Simulate the race condition: move firstUserDistinctId to person3
-                        // This simulates another process moving the distinct ID during the merge
-                        await personRepository.inRawTransaction('test', async (tx) => {
-                            await personRepository.moveDistinctIds(person1, person3, undefined, tx)
-                            await personRepository.deletePerson(person1, tx)
-                        })
-
-                        // First call fails with SourcePersonNotFoundError (person1 no longer exists)
-                        return Promise.resolve({
-                            success: false,
-                            error: 'SourceNotFound',
-                            message: 'Source person no longer exists',
-                        })
-                    }
-                    // Second call succeeds - call the original method
-                    return originalMoveDistinctIds(source, target, distinctId, limit, tx, 0)
+            // Another process moves firstUserDistinctId to person3 and deletes person1 between the
+            // merge's reads and its transaction; the locked read inside the transaction finds person1 gone.
+            jest.spyOn(personRepository, 'inTransaction').mockImplementationOnce(async (description, body) => {
+                await personRepository.inRawTransaction('test', async (tx) => {
+                    await personRepository.moveDistinctIds(person1, person3, undefined, tx)
+                    await personRepository.deletePerson(person1, tx)
                 })
+                return await PostgresPersonRepository.prototype.inTransaction.call(personRepository, description, body)
+            })
+            const moveDistinctIdsSpy = jest.spyOn(batchStore, 'moveDistinctIds')
 
             // Attempt to merge persons - this should trigger the retry logic
             const result = await mergeService.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
@@ -3711,8 +3764,8 @@ describe('PersonState.processEvent()', () => {
             // Verify the cache was cleared during retry
             expect(removeDistinctIdFromCacheSpy).toHaveBeenCalledWith(teamId, firstUserDistinctId)
 
-            // Verify moveDistinctIds was called twice (first failed with person1, second succeeded with person3)
-            expect(moveDistinctIdsSpy).toHaveBeenCalledTimes(2)
+            // The first transaction stops at the locked read; the retry moves person3 once.
+            expect(moveDistinctIdsSpy).toHaveBeenCalledTimes(1)
 
             // Verify we got the target person back
             expect(person).toMatchObject({
@@ -3755,29 +3808,14 @@ describe('PersonState.processEvent()', () => {
                 event: '$merge_dangerously',
             })
 
-            // Mock moveDistinctIds to first move the distinct ID to person3 (simulating race condition), then succeed
-            let moveDistinctIdsCalls = 0
-            const originalMoveDistinctIds = personRepository.moveDistinctIds
-            const moveDistinctIdsSpy = jest
-                .spyOn(personRepository, 'moveDistinctIds')
-                .mockImplementation(async (...args) => {
-                    moveDistinctIdsCalls++
-                    if (moveDistinctIdsCalls === 1) {
-                        // Simulate the race condition: move firstUserDistinctId to person3
-                        // This simulates another process moving the distinct ID during the merge
-                        await originalMoveDistinctIds.call(personRepository, person1, person3)
-                        await personRepository.deletePerson(person1)
-
-                        // First call fails with SourcePersonNotFoundError (person1 no longer exists)
-                        return Promise.resolve({
-                            success: false,
-                            error: 'SourceNotFound',
-                            message: 'Source person no longer exists',
-                        })
-                    }
-                    // Second call succeeds - call the original method
-                    return originalMoveDistinctIds.call(personRepository, ...args)
-                })
+            // Another process moves firstUserDistinctId to person3 and deletes person1 between the
+            // merge's reads and its transaction; the locked read inside the transaction finds person1 gone.
+            jest.spyOn(personRepository, 'inTransaction').mockImplementationOnce(async (description, body) => {
+                await PostgresPersonRepository.prototype.moveDistinctIds.call(personRepository, person1, person3)
+                await PostgresPersonRepository.prototype.deletePerson.call(personRepository, person1)
+                return await PostgresPersonRepository.prototype.inTransaction.call(personRepository, description, body)
+            })
+            const moveDistinctIdsSpy = jest.spyOn(personRepository, 'moveDistinctIds')
 
             // Attempt to merge persons - this should trigger the retry logic
             const result = await mergeService.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
@@ -3787,8 +3825,8 @@ describe('PersonState.processEvent()', () => {
             }
             const person = result.person
 
-            // Verify moveDistinctIds was called twice (first failed with person1, second succeeded with person3)
-            expect(moveDistinctIdsSpy).toHaveBeenCalledTimes(2)
+            // The first transaction stops at the locked read; the retry moves person3 once.
+            expect(moveDistinctIdsSpy).toHaveBeenCalledTimes(1)
 
             // Verify we got the target person back
             expect(person).toMatchObject({

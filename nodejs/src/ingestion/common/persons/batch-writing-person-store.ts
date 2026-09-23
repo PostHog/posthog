@@ -74,6 +74,7 @@ type MethodName =
     | 'claimLifecycleMarks'
     | 'releaseLifecycleMarks'
     | 'isPersonLive'
+    | 'lockPersons'
     | 'addDistinctId'
     | 'moveDistinctIds'
     | 'moveDistinctIdsFromPersons'
@@ -1531,6 +1532,28 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     async isPersonLive(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<boolean> {
         this.incrementDatabaseOperation('isPersonLive', distinctId)
         return await (tx || this.personRepository).isPersonLive(person)
+    }
+
+    async lockPersons(
+        teamId: number,
+        personIds: string[],
+        distinctId: string,
+        tx: PersonRepositoryTransaction
+    ): Promise<InternalPerson[]> {
+        this.incrementDatabaseOperation('lockPersons', distinctId)
+        return await tx.lockPersons(teamId, personIds)
+    }
+
+    /** This batch's buffered property changes for the person behind a distinct id, if it has any. */
+    pendingPropertyChanges(
+        teamId: number,
+        distinctId: string,
+        batchId: number
+    ): { toSet: Properties; toUnset: string[] } | null {
+        const cached = this.personCache
+            .obtainForBatchId(batchId)
+            .getCachedPersonForUpdateByDistinctId(teamId, distinctId)
+        return cached ? { toSet: cached.properties_to_set, toUnset: cached.properties_to_unset } : null
     }
 
     async fetchPersonsForUpdateByDistinctIds(

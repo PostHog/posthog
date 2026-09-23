@@ -57,6 +57,12 @@ export interface PersonsStoreTransactionForBatch {
     /** Whether the person is live; only meaningful while holding its lifecycle mark. */
     isPersonLive(person: InternalPerson, distinctId: string): Promise<boolean>
 
+    /** The live rows among these persons, row-locked until the transaction ends. */
+    lockPersons(teamId: number, personIds: string[], distinctId: string): Promise<InternalPerson[]>
+
+    /** This batch's buffered property changes for the person behind a distinct id, if it has any. */
+    pendingPropertyChanges(teamId: number, distinctId: string): { toSet: Properties; toUnset: string[] } | null
+
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
 
     moveDistinctIds(
@@ -228,6 +234,14 @@ export class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactio
 
     isPersonLive(person: InternalPerson, distinctId: string): Promise<boolean> {
         return this.tx.isPersonLive(person, distinctId)
+    }
+
+    lockPersons(teamId: number, personIds: string[], distinctId: string): Promise<InternalPerson[]> {
+        return this.tx.lockPersons(teamId, personIds, distinctId)
+    }
+
+    pendingPropertyChanges(teamId: number, distinctId: string): { toSet: Properties; toUnset: string[] } | null {
+        return this.tx.pendingPropertyChanges(teamId, distinctId, this.batchId)
     }
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]> {

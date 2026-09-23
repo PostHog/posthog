@@ -390,10 +390,15 @@ export class PersonhogPersonsStore implements PersonsStore {
         batchId: number,
         options: { grade: 'check' | 'update'; generation: number; fillOnly?: boolean }
     ): InternalPerson | null {
+        const distinctKey = `${teamId}:${distinctId}`
         if (options.generation !== this.generationOf(teamId)) {
+            // The answer is not installed, but a cached absence it contradicts is
+            // wrong now: a merge never unmaps an id, so the next read must re-resolve.
+            if (fetched !== null && this.resolutions.get(distinctKey) === null) {
+                this.resolutions.delete(distinctKey)
+            }
             return this.snapshot(fetched)
         }
-        const distinctKey = `${teamId}:${distinctId}`
         if (fetched === null) {
             // A stale absence must not overwrite presence; a live mapping
             // stands and serves its best available view.

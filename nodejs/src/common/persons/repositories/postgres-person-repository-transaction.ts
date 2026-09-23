@@ -71,6 +71,10 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
         return await this.repository.isPersonLive(person, this.transaction)
     }
 
+    async lockPersons(teamId: number, personIds: string[]): Promise<InternalPerson[]> {
+        return await this.repository.lockPersons(teamId, personIds, this.transaction)
+    }
+
     async addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]> {
         return await this.repository.addDistinctId(person, distinctId, version, this.transaction)
     }

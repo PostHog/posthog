@@ -1529,6 +1529,20 @@ export class PostgresPersonRepository
         return rows.length > 0
     }
 
+    async lockPersons(teamId: number, personIds: string[], tx?: TransactionClient): Promise<InternalPerson[]> {
+        // Ascending id order keeps concurrent merges over the same persons from deadlocking.
+        const { rows } = await this.postgres.query<RawPerson>(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            `SELECT ${PERSON_COLUMNS} FROM posthog_person
+             WHERE team_id = $1 AND id = ANY($2::bigint[]) AND is_deleted = false
+             ORDER BY id
+             FOR UPDATE`,
+            [teamId, personIds],
+            'lockPersons'
+        )
+        return rows.map((row) => this.toPerson(row))
+    }
+
     async addDistinctId(
         person: InternalPerson,
         distinctId: string,

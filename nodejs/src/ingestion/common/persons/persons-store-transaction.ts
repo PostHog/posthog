@@ -101,6 +101,18 @@ export class PersonsStoreTransaction {
         return await this.store.isPersonLive(person, distinctId, this.tx)
     }
 
+    async lockPersons(teamId: number, personIds: string[], distinctId: string): Promise<InternalPerson[]> {
+        return await this.store.lockPersons(teamId, personIds, distinctId, this.tx)
+    }
+
+    pendingPropertyChanges(
+        teamId: number,
+        distinctId: string,
+        batchId: number
+    ): { toSet: Properties; toUnset: string[] } | null {
+        return this.store.pendingPropertyChanges(teamId, distinctId, batchId)
+    }
+
     async addDistinctId(
         person: InternalPerson,
         distinctId: string,
