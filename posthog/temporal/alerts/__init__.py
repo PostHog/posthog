@@ -21,6 +21,11 @@ WORKFLOWS = [
     CleanupAlertChecksWorkflow,
 ]
 
+# CheckAlertWorkflow routes an AI detector's evaluation to the AI task queue, because only
+# that worker holds the model provider credentials. The worker for that queue registers this
+# subset alongside its own activities.
+AI_QUEUE_ACTIVITIES = [evaluate_alert]
+
 ACTIVITIES = [
     retrieve_due_alerts,
     prepare_alert,
