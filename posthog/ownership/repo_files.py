@@ -65,6 +65,10 @@ class NoRootOwnersFile(OwnershipUnavailable):
     """The repository answers with no root owners file, which is normal for most repositories."""
 
 
+class ResponseTooLarge(OwnershipUnavailable):
+    """A response body passed its byte limit. The same request gets the same body every time."""
+
+
 class RepoFiles(BatchOwnershipSource, Protocol):
     """A repository's ownership files: one file, or a whole batch's before the resolver reads any."""
 
@@ -99,7 +103,7 @@ def capped_text(response: requests.Response, *, description: str, limit: int, de
     # Content-Length can be absent or wrong, so the streamed read below is the actual ceiling.
     declared = response.headers.get("Content-Length")
     if declared is not None and declared.isdigit() and int(declared) > limit:
-        raise OwnershipUnavailable(too_large)
+        raise ResponseTooLarge(too_large)
     body = bytearray()
     for chunk in response.iter_content(chunk_size=8192):
         # The request timeout starts again on every chunk received, so a host that sends the body
@@ -110,7 +114,7 @@ def capped_text(response: requests.Response, *, description: str, limit: int, de
             raise OwnershipUnavailable(f"reading {description} passed the resolution budget")
         body.extend(chunk)
         if len(body) > limit:
-            raise OwnershipUnavailable(too_large)
+            raise ResponseTooLarge(too_large)
     return body.decode(response.encoding or "utf-8", errors="replace")
 
 

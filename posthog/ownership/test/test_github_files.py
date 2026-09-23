@@ -334,7 +334,14 @@ class TestAuthenticatedRepoFiles(SimpleTestCase):
                 2,
                 True,
             ),
-            ("compare_failed", lambda _base, _head: _Response(502, None), 2, True),
+            (
+                "compare_too_large",
+                lambda _base, _head: _Response(200, None, raw=b"x" * (_MAX_RESPONSE_BYTES + 1)),
+                2,
+                True,
+            ),
+            # A transient failure can succeed on the next batch, so it is asked again.
+            ("compare_failed", lambda _base, _head: _Response(502, None), 2, True, _ROOT_OWNERS, 2),
         ]
     )
     def test_a_new_commit_reuses_only_what_the_compare_proves_unchanged(
@@ -344,6 +351,7 @@ class TestAuthenticatedRepoFiles(SimpleTestCase):
         file_calls: int,
         sees_edit: bool,
         body: str | None = _ROOT_OWNERS,
+        compare_calls: int = 1,
     ) -> None:
         github = _FakeGitHub({"owners.yaml": body} if body is not None else {})
         github.compare = compare
@@ -360,8 +368,10 @@ class TestAuthenticatedRepoFiles(SimpleTestCase):
                 github.blobs = {"owners.yaml": edited}
             assert self._files().read("owners.yaml") == (edited if sees_edit else body)
             assert self._files().read("owners.yaml") == (edited if sees_edit else body)
-        assert github.file_calls == file_calls
-        assert github.compare_calls == 1
+            assert github.file_calls == file_calls
+            # Another batch at the same head misses on a new path, and takes the compare answer from the cache.
+            assert self._files().read("rust/owners.yaml") is None
+        assert github.compare_calls == compare_calls
 
 
 class TestFetcherForTeam(BaseTest):

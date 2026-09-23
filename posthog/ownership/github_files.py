@@ -32,6 +32,7 @@ from posthog.ownership.repo_files import (
     CachedRepoFiles,
     GitHubRepoFiles,
     OwnershipUnavailable,
+    ResponseTooLarge,
     _cache_set_many,
     _cached_by_path,
     _fetch_all,
@@ -242,19 +243,24 @@ class GitHubFilesFetcher:
         """Every path that a change between the two commits added, removed, modified or renamed.
 
         None means the answer cannot prove that the other paths are unchanged: ``head`` does not
-        descend from ``base`` (a force-push or a rewind), or GitHub cut the file list short.
+        descend from ``base`` (a force-push or a rewind), GitHub cut the file list short, or the
+        answer is too large to read.
         """
         if not (_is_safe_github_repo_path(repository) and _is_safe_github_sha(base) and _is_safe_github_sha(head)):
             raise OwnershipUnavailable(f"unsafe compare for {repository!r}: {base!r}...{head!r}")
-        status, body = self._answer(
-            repository,
-            "GET",
-            f"{_API_HOST}/repos/{repository}/compare/{base}...{head}",
-            endpoint=_COMPARE_ENDPOINT,
-            deadline=deadline,
-            # The file list comes on the first page whatever the page size, and the commits are not needed.
-            params={"per_page": 1},
-        )
+        try:
+            status, body = self._answer(
+                repository,
+                "GET",
+                f"{_API_HOST}/repos/{repository}/compare/{base}...{head}",
+                endpoint=_COMPARE_ENDPOINT,
+                deadline=deadline,
+                # The file list comes on the first page whatever the page size, and the commits are not needed.
+                params={"per_page": 1},
+            )
+        except ResponseTooLarge:
+            # The body carries each file's patch, so a merge that changes a lockfile can pass the cap.
+            return None
         if status != HTTPStatus.OK or not isinstance(body, dict):
             raise OwnershipUnavailable(f"{repository} answered {status} for {_COMPARE_ENDPOINT}")
         merge_base = body.get("merge_base_commit")
