@@ -119,7 +119,8 @@ export function JobAggregatesTable({
                     title: 'Failure rate',
                     key: 'failureRate',
                     align: 'right',
-                    tooltip: 'Decisive failures (failure / timed out) over completed job instances.',
+                    tooltip:
+                        'Job instances that failed, timed out, failed to start, or went stale, out of instances that passed or failed. Skipped and canceled instances are left out.',
                     sorter: (a, b) => (a.failure_rate ?? -1) - (b.failure_rate ?? -1),
                     render: (_, row) => (
                         <span

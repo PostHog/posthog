@@ -32,6 +32,7 @@ export interface workflowRunDetailLogicValues {
     failureLogsLoading: boolean
     isValidRunId: boolean
     jobs: WorkflowJobApi[] | null
+    jobsFailed: boolean
     jobsLoading: boolean
     loadFailed: boolean
     run: WorkflowRunDetailApi | null
@@ -125,8 +126,8 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
                     }),
             },
         ],
-        // null = not loaded, [] = source unsynced. Scoped to the run's actual attempt (loaded first) —
-        // the backend's omitted-attempt fallback would otherwise show an older attempt's jobs/costs.
+        // null = not loaded, [] = source unsynced. Scoped to the run's actual attempt (loaded first),
+        // because the backend's omitted-attempt fallback would otherwise show an older attempt's jobs/costs.
         jobs: [
             null as WorkflowJobApi[] | null,
             {
@@ -167,6 +168,14 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
                 loadRunFailure: () => true,
             },
         ],
+        jobsFailed: [
+            false,
+            {
+                loadJobs: () => false,
+                loadJobsSuccess: () => false,
+                loadJobsFailure: () => true,
+            },
+        ],
     }),
 
     selectors({
@@ -174,12 +183,12 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
             () => [(_, p: WorkflowRunDetailLogicProps) => p.sourceId],
             (sourceId: string | null): string | null => sourceId,
         ],
-        // Summed from the already-loaded jobs — no extra query.
+        // Summed from the already-loaded jobs, so no extra query.
         runCost: [
             (s) => [s.jobs],
             (jobs: WorkflowJobApi[] | null): RunCostSummary | null => (jobs ? summarizeRunCost(jobs) : null),
         ],
-        // A non-numeric path segment yields NaN — the scene shows a clean "not found" instead of a load error.
+        // A non-numeric path segment yields NaN, so the scene shows a clean "not found" instead of a load error.
         isValidRunId: [
             () => [(_, p: WorkflowRunDetailLogicProps) => p.runId],
             (runId: number): boolean => Number.isFinite(runId),
@@ -212,7 +221,7 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
         // Load jobs only once the run is in, so they can be scoped to the run's real attempt.
         loadRunSuccess: () => {
             actions.loadJobs()
-            // Failure logs only exist for failed runs — skip the query otherwise.
+            // Failure logs only exist for failed runs, so skip the query otherwise.
             if (isDecisiveFailure(values.run?.conclusion ?? null)) {
                 actions.loadFailureLogs()
             }
