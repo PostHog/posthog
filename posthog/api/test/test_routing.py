@@ -7,6 +7,7 @@ from datetime import timedelta
 import pytest
 from posthog.test.base import APIBaseTest
 
+from django.db.models.functions import Lower
 from django.test import override_settings
 from django.urls import include, path
 from django.utils import timezone
@@ -18,8 +19,10 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from posthog.api.pagination import StableCursorPagination, stable_queryset_ordering
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry, TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -48,6 +51,25 @@ class ScopedFooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "annotation"
     queryset = Annotation.objects.all()
     serializer_class = AnnotationSerializer
+
+
+def test_stable_queryset_ordering_adds_a_primary_key_tiebreaker():
+    queryset = stable_queryset_ordering(Annotation.objects.order_by("date_marker"))
+
+    assert queryset.query.order_by == ("date_marker", "pk")
+
+    expression_queryset = stable_queryset_ordering(FileSystem.objects.order_by(Lower("path")))
+
+    assert expression_queryset.query.order_by[-1] == "pk"
+
+
+def test_stable_cursor_pagination_adds_a_primary_key_tiebreaker():
+    class DateMarkerCursorPagination(StableCursorPagination):
+        ordering = "-date_marker"
+
+    ordering = DateMarkerCursorPagination().get_ordering(None, Annotation.objects.all(), None)
+
+    assert ordering == ("-date_marker", "-pk")
 
 
 test_router = DefaultRouterPlusPlus()
