@@ -56,7 +56,7 @@ export function DashboardRefreshStatusText(): JSX.Element {
     )
 }
 
-const REFRESH_INTERVAL_SECONDS = [1800, 3600]
+const REFRESH_INTERVAL_SECONDS = [900, 1800, 3600]
 if (process.env.NODE_ENV === 'development') {
     REFRESH_INTERVAL_SECONDS.unshift(10)
 }

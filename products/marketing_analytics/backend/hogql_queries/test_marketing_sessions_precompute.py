@@ -11,6 +11,7 @@ from parameterized import parameterized
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
@@ -18,6 +19,10 @@ from posthog.schema_enums import SessionTableVersion
 from posthog.test.persons import create_person
 from posthog.uuidt import uuid7
 
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationTable,
+    ensure_precomputed,
+)
 from products.marketing_analytics.backend.hogql_queries.marketing_sessions_precompute import (
     SESSIONS_INSERT_TEMPLATE,
     base_placeholders,
@@ -27,16 +32,45 @@ from products.marketing_analytics.backend.hogql_queries.marketing_sessions_preco
 
 @time_machine.travel("2026-09-10T12:00:00Z", tick=False)
 class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
-    @parameterized.expand([(SessionTableVersion.V2,), (SessionTableVersion.V3,)])
-    def test_cookieless_rollout_does_not_invalidate_session_jobs(self, version: SessionTableVersion) -> None:
+    @parameterized.expand(
+        [
+            (version, legacy_value)
+            for version in (SessionTableVersion.V2, SessionTableVersion.V3)
+            for legacy_value in (None, True, False)
+        ]
+    )
+    def test_cookieless_rollout_reuses_jobs_after_cache_key_transition(
+        self, version: SessionTableVersion, legacy_value: bool | None
+    ) -> None:
         self.team.modifiers = {"sessionTableVersion": version}
         start = datetime(2026, 9, 1, tzinfo=UTC)
         end = start + timedelta(days=1)
         with patch(
             "products.web_analytics.backend.hogql_queries.cookieless_flag.resolve_cookieless_traffic_is_regular_modifier"
         ) as resolve:
-            resolve.return_value = None
-            written = ensure_marketing_sessions_precomputed(self.team, start, end)
+            resolve.return_value = legacy_value
+            legacy_modifiers = create_default_modifiers_for_team(self.team)
+            legacy = ensure_precomputed(
+                team=self.team,
+                insert_query=SESSIONS_INSERT_TEMPLATE,
+                time_range_start=start,
+                time_range_end=end,
+                ttl_seconds=90 * 24 * 60 * 60,
+                table=LazyComputationTable.WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED,
+                modifiers=legacy_modifiers,
+                cache_key_context={"modifiers": legacy_modifiers.model_dump_json(exclude_none=True)},
+                placeholders=base_placeholders(),
+            )
+            assert legacy.ready, legacy.errors
+            assert legacy.job_ids
+            written = ensure_marketing_sessions_precomputed(self.team, start, end, run_inserts=False)
+            if legacy_value is None:
+                assert set(written.job_ids) == set(legacy.job_ids)
+            else:
+                assert not written.ready
+                assert not written.job_ids
+                written = ensure_marketing_sessions_precomputed(self.team, start, end)
+                assert set(written.job_ids).isdisjoint(legacy.job_ids)
             assert written.ready, written.errors
             assert written.job_ids
             original_sql = None

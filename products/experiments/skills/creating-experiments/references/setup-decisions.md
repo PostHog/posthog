@@ -39,7 +39,7 @@ Precedent can confirm a choice these facts already allow. It never overrides thi
 ### The steps, in order
 
 Device-id bucketing is a web option. A mobile SDK puts no `$device_id` on its events, flag calls included, so both device-id shares step 1 reads sit near 0 on a mobile row and step 1 can never pass.
-When every `target_surface.libs[]` row that reaches the surface has `category: "mobile"`, go straight to step 2: the choice is persistence or user-id bucketing, and reporting "not decided" over a share that can never arrive is wrong.
+When every `target_surface.libs[]` row that reaches the surface has `category: "mobile"` and `target_surface.libs_truncated` is false, go straight to step 2: the choice is persistence or user-id bucketing, and reporting "not decided" over a share that can never arrive is wrong.
 
 1. **Device-id bucketing**, if `target_surface.device_id_share` is near 1, at least one `sdk_profile.libs` row has a `lib` that appears in `target_surface.libs`, and every matching row has `sdk_profile.libs[].device_id_share` near 1. A flag call without a device ID gets no variant, so a server SDK must forward the browser's device ID; local evaluation works when it does. `target_surface.device_id_share` is read from the target events; a `sdk_profile.libs` row's `device_id_share` is read from flag-call events. Neither is read from the flag requests, so neither proves that the request carried a device ID. The web SDK sends the device ID on flag requests from posthog-js 1.307.1. An older version puts a device ID on events and still gets no variant, so tell the user to check the SDK version. Set it up with the device-id recipe in `configuring-experiment-rollout`. `experiment-create` cannot set it.
 2. **Persistence** (`ensure_experience_continuity: true`), if no matching `sdk_profile.libs` row evaluates flags locally: every row that matches a `lib` in `target_surface.libs` has `sdk_profile.libs[].locally_evaluated_share` near 0, or null on a web or mobile row. Null on a server row is unknown: go to step 3. Persistence also needs person profiles for anonymous users, no bootstrapping, and `$anon_distinct_id` on server flag calls. The tool cannot see those three, so list them for the user to check.
@@ -51,10 +51,10 @@ Name every unmatched SDK in the report.
 When an unmatched row has `category: "server"`, take step 3: an unread server SDK is the case that breaks both steps, because it may send its flag calls without a device ID and may evaluate them locally.
 Otherwise keep the step's choice and drop the tier to "best guess", naming the SDK that was not checked.
 
-Both lists are capped, so read how many rows came back before you trust a match.
-`target_surface.libs` holds at most the 5 SDKs with the most people on the surface, and the response carries no flag for what the cap dropped.
-Fewer than 5 rows is therefore the whole list and the check above is conclusive; exactly 5 rows can hide a further SDK, a server one included.
-On exactly 5 rows, say the list is at its cap and drop the tier to "best guess" even when every row matched, because "no unmatched SDK" is then unproven rather than true.
+Both lists are capped, so read the truncation flag before you trust a match.
+`target_surface.libs` holds at most the 5 SDKs with the most people on the surface, and `target_surface.libs_truncated` is true when the cap dropped a further SDK.
+When it is false, the list is complete and the check above is conclusive; when it is true, an unseen SDK can reach the surface, a server one included.
+When `target_surface.libs_truncated` is true, say the list is at its cap and drop the tier to "best guess" even when every row matched, because "no unmatched SDK" is then unproven rather than true.
 `sdk_profile.libs` is capped at 10 and does report it, in `sdk_profile.libs_truncated`.
 When that is true, an SDK can read as unmatched only because its own row was dropped, so name the cap alongside it. The cap cannot add a bad matching row, so steps 1 and 2 stay safe on the rows that did come back.
 
@@ -62,9 +62,10 @@ If `sdk_profile.libs` is empty, read `sdk_profile.libs_on_any_event`.
 The endpoint fills that field only on an empty profile, so a profile that holds rows and matches none of them to `target_surface.libs` is not this branch: the unmatched-SDK rules above decide that case, and the field reads null there.
 It is null on an empty profile too when its own query timed out. Nothing then names the platforms, so none of the reads below apply: say so and stay on user-id bucketing, marked "not decided".
 It names the platforms the project sends from, which settles one case and no other: a project that sends only from mobile SDKs can never reach the share step 1 needs, so the choice there is persistence or user-id bucketing.
+Trust that mobile-only read only when `sdk_profile.libs_on_any_event_truncated` is false. When it is true, the cap dropped the SDKs that sent the fewest events, so the project can also send from a web or server SDK that the list does not show.
 Every other platform mix stays open, a server-only project included. A server SDK that forwards the browser's device ID puts one on every flag call, and this fallback cannot see whether it does.
 It says nothing about device IDs on flag calls or about local evaluation, so steps 1 and 2 still do not pass. Keep user-id bucketing and mark it "not decided".
-Say which platforms the project sends from. When `target_surface.device_id_share` is near 1 and `target_surface.libs` lists no server SDK, say device-id bucketing is the likely fit: with no server SDK in the mix, nothing has to forward the device ID for the flag call to carry one. A mobile-only project never reaches that share, so it is settled above rather than here.
+Say which platforms the project sends from. When `target_surface.device_id_share` is near 1, `target_surface.libs` lists no server SDK, and `target_surface.libs_truncated` is false, say device-id bucketing is the likely fit: with no server SDK in the mix, nothing has to forward the device ID for the flag call to carry one. A mobile-only project never reaches that share, so it is settled above rather than here.
 That share counts target events, and this branch read no flag call at all, so step 1's version caveat applies here with nothing to offset it: posthog-js sends the device ID on flag requests only from 1.307.1, and an older version puts one on the events while the request still gets no variant.
 Give device-id bucketing as a lead to check, with the version named as the thing to confirm, and leave the choice at user-id bucketing.
 
@@ -99,6 +100,7 @@ Keep the test-account filter on and say so. `team_defaults.new_experiments_filte
    - An empty `shared_metrics.metrics[].metric_event_roles` with a true match is not a rejection. The metric does count the event, but it is stored in a shape the role reader does not parse, which its `shared_metrics.metrics[].metric_type` shows as null or as a type not listed above. Retrieve it and read the query.
    - When the role fits, load the metric with `experiment-saved-metrics-retrieve` and check its `metric_type` and `math` against what the user asked for. The role alone does not prove those, so the tier stays best guess until you have read the query.
    - If it matches, link it after creation through `experiment-update` with `saved_metrics_ids`. Tier: confident. When the user asked for no questions, link it and report it rather than asking first.
+   - When no listed metric fits and `shared_metrics.metric_event_match_truncated` is true, the match read only the newest shared metrics, so an older metric that counts the event shows `matches_metric_event` false. Call `experiment-saved-metrics-list` with `event` set to the metric event before you build an inline metric. That filter reads every shared metric.
    - If it doesn't, build an inline metric.
 3. Otherwise pick a shape from the metric templates in `configuring-experiment-analytics` (`references/metric-templates.md`). Tier: best guess.
 
