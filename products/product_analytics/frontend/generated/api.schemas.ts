@@ -4068,6 +4068,7 @@ export interface Response8Api {
 }
 
 export interface WebVitalsPathBreakdownResultItemApi {
+    count?: number | null
     path: string
     value: number
 }
@@ -6279,6 +6280,8 @@ export interface WebVitalsPathBreakdownQueryApi {
     interval?: IntervalTypeApi | null
     kind?: 'WebVitalsPathBreakdownQuery'
     metric: WebVitalsMetricApi
+    /** Drop paths with fewer measurements than this, so a page measured once does not rank next to a page that is consistently slow. Defaults to 10. * */
+    minimumOccurrences?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     orderBy?: (WebAnalyticsOrderByFieldsApi | WebAnalyticsOrderByDirectionApi)[] | null
