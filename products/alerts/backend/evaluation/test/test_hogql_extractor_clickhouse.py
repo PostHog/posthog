@@ -8,7 +8,7 @@ from posthog.schema import HogQLAlertConfig
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 
-from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
+from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import evaluate_with_detector
 from products.alerts.backend.evaluation.hogql import HogQLExtractor, extract_hogql_detector_series
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -74,17 +74,38 @@ class TestHogQLExtractorFiltersPlaceholder(APIBaseTest, ClickhouseDestroyTablesM
             )
 
 
+class TestHogQLThresholdTruncation(APIBaseTest):
+    @parameterized.expand([("last_row",), ("any_row",)])
+    def test_a_capped_threshold_result_fails_loud(self, evaluation):
+        # Threshold alerts share the completeness guard: a cut tail scores the wrong last row, and
+        # a cut any-row result can hide the breaching row entirely.
+        insight = Insight.objects.create(
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT arrayJoin(range(150)) AS value ORDER BY value ASC"},
+        )
+        alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight=insight,
+            name="threshold truncation",
+            condition={"type": "absolute_value"},
+            config={"type": "HogQLAlertConfig", "evaluation": evaluation, "column": "value"},
+            calculation_interval="daily",
+        )
+        with self.assertRaisesRegex(AlertExtractionError, "result is incomplete"):
+            HogQLExtractor().extract(alert, insight, insight.query, ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+
 class TestHogQLDetectorPagination(APIBaseTest):
     @parameterized.expand(
         [
             ("last_row", 99, 30, None, None, None),
-            ("last_row", 169, 168, None, AlertExtractionError, "newest rows are missing"),
-            ("last_row", 501, 168, None, AlertExtractionError, "newest rows are missing"),
-            ("last_row", 140, 168, None, AlertExtractionError, "newest rows are missing"),
+            ("last_row", 169, 168, None, AlertExtractionError, "result is incomplete"),
+            ("last_row", 501, 168, None, AlertExtractionError, "result is incomplete"),
+            ("last_row", 140, 168, None, AlertExtractionError, "result is incomplete"),
             ("first_row", 501, 30, None, None, None),
             ("first_row", 501, 168, None, AlertExtractionError, "row limit cut the result"),
             ("first_row", 501, 500, None, AlertExtractionError, "row limit cut the result"),
-            ("last_row", 169, 168, 100, AlertDataUnavailableError, "at least 169 rows"),
+            ("last_row", 169, 168, 100, AlertExtractionError, "row limit cut the result"),
             ("last_row", 501, 168, 501, None, None),
         ]
     )

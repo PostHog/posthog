@@ -4,7 +4,10 @@ from typing import Any
 
 from posthog.schema import AlertCondition, AlertConditionType, HogQLAlertConfig, HogQLAlertEvaluation
 
+from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.parser import parse_select
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -48,6 +51,26 @@ def hogql_config_or_default(raw: dict | None) -> HogQLAlertConfig:
 _TRUNCATION_FIX = "Add an explicit SQL LIMIT that covers the full history, or reduce the detector window."
 
 
+def _explicit_limit(insight: Insight) -> int | None:
+    """The constant LIMIT the saved SQL carries, or None.
+
+    The query layer only reports ``has_more`` under its default limit, so a result cut by an
+    author-written LIMIT comes back unmarked and this is the only way to notice.
+    """
+    query = insight.query or {}
+    source = query.get("source") if query.get("kind") == "DataVisualizationNode" else query
+    if not isinstance(source, dict) or not isinstance(source.get("query"), str):
+        return None
+    try:
+        parsed = parse_select(source["query"])
+    except BaseHogQLError:
+        return None
+    limit = getattr(parsed, "limit", None)
+    if isinstance(limit, ast.Constant) and type(limit.value) is int and limit.value > 0:
+        return limit.value
+    return None
+
+
 @frozen
 class _FetchedRows:
     rows: list
@@ -76,13 +99,14 @@ def _calculate_rows_and_columns(
     )
     truncated = calculation_result.has_more is True
     if require_complete_result and truncated:
-        # The rows come back oldest first, so the cut falls on the newest point — the one a
-        # last-row evaluation scores. This recurs identically on every check until the query is
-        # edited, so it is a configuration error: the caller disables the alert and emails the
-        # owner rather than retrying forever at full scan cost.
+        # A cut result cannot be trusted: last-row evaluation scores a row that is not the real
+        # last one, and any-row evaluation can miss a breaching row past the cut. This recurs
+        # identically on every check until the query is edited, so it is a configuration error:
+        # the caller disables the alert and emails the owner rather than retrying forever at
+        # full scan cost.
         raise AlertExtractionError(
-            "The query returns more rows than its row limit, so the newest rows are missing from the result. "
-            + _TRUNCATION_FIX
+            "The query returns more rows than its row limit, so the result is incomplete. "
+            "Add an explicit SQL LIMIT that covers everything the alert evaluates, or aggregate the query."
         )
     rows = calculation_result.result
     if rows is None:
@@ -157,7 +181,13 @@ class HogQLExtractor:
         config = hogql_config_or_default(alert.config)
         evaluation = config.evaluation
 
-        fetched = _calculate_rows_and_columns(insight, alert.team, user=alert.created_by, execution_mode=execution_mode)
+        fetched = _calculate_rows_and_columns(
+            insight,
+            alert.team,
+            user=alert.created_by,
+            execution_mode=execution_mode,
+            require_complete_result=evaluation in (HogQLAlertEvaluation.LAST_ROW, HogQLAlertEvaluation.ANY_ROW),
+        )
         rows = fetched.rows
         column_names = fetched.column_names
         if len(rows) == 0:
@@ -280,7 +310,9 @@ def extract_hogql_detector_series(
     # A short series cannot establish that the alert is not firing.
     min_samples = _compute_min_samples_for_detector(detector_config)
     if len(values) < min_samples:
-        if fetched.truncated:
+        explicit_limit = _explicit_limit(insight)
+        capped = fetched.truncated or (explicit_limit is not None and len(values) >= explicit_limit)
+        if capped:
             # The history is short because the row limit cut it, not because the data is young,
             # so waiting never heals it — same configuration-error routing as the last-row guard.
             raise AlertExtractionError(
