@@ -63,13 +63,11 @@ describe('Exporter (shared dashboard)', () => {
         // Image exports use a minimal header (h1 + description), not the Scene header with "Auto refresh every"
         expect(container.querySelector('.SharedDashboard-header')).toBeNull()
     })
-})
 
-describe('DashboardLoadingState on shared pages', () => {
     it('shows one chart placeholder per tile without dashboard controls', () => {
         const { container } = render(<DashboardLoadingState showControls={false} tileCount={3} />)
 
         expect(container.querySelector('[data-attr="dashboard-loading-controls"]')).toBeNull()
-        expect(container.querySelectorAll('.grid > .border')).toHaveLength(3)
+        expect(container.querySelectorAll('[data-attr="dashboard-loading-tile"]')).toHaveLength(3)
     })
 })

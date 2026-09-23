@@ -25,7 +25,11 @@ export function DashboardLoadingState({
             )}
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 {Array.from({ length: tileCount }, (_, index) => (
-                    <div key={index} className="border rounded bg-surface-primary p-4 min-h-96">
+                    <div
+                        key={index}
+                        className="border rounded bg-surface-primary p-4 min-h-96"
+                        data-attr="dashboard-loading-tile"
+                    >
                         <div className="flex items-center justify-between gap-4 mb-6">
                             <LemonSkeleton className="h-4 w-2/5" />
                             <LemonSkeleton className="h-8 w-8 rounded" />
