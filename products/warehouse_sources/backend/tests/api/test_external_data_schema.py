@@ -90,6 +90,37 @@ class TestExternalDataSchema(APIBaseTest):
         self.postgres_config = postgres_config
         self.temporal = temporal
 
+    @parameterized.expand(
+        [
+            ("healthy", {}, ExternalDataSchema.Status.RUNNING),
+            (
+                "halted",
+                {"cdc_extraction_paused": {"reason": "transaction_too_large"}},
+                ExternalDataSchema.Status.FAILED,
+            ),
+        ]
+    )
+    def test_sync_now_leaves_a_halted_cdc_schema_failed(self, _name: str, config: dict, expected: str) -> None:
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        schema = ExternalDataSchema.objects.create(
+            name="users",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config=config,
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema._trigger_schema_sync"
+        ):
+            response = self.client.post(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/reload/")
+
+        assert response.status_code == 200, response.content
+        schema.refresh_from_db()
+        assert schema.status == expected
+
     def test_incremental_fields_stripe(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
