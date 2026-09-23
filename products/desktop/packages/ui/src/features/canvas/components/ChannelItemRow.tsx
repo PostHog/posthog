@@ -20,7 +20,6 @@ import { formatRelativeTimeShort } from "@posthog/shared";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { writeCanvasDragData } from "@posthog/ui/features/canvas/canvasDrag";
 import { ChannelItemHoverCard } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
-import { RowPresence } from "@posthog/ui/features/canvas/components/ChannelItemPresence";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import {
   type TaskRowBulkMenu,
@@ -187,25 +186,20 @@ function ChannelItemDot({
 }
 
 /**
- * A row's trailing stack: who is here, then what the row is. Shared by both
+ * A row's trailing stack: what the row is. Shared by both
  * surfaces below, so the marks a list is scanned for can't differ between them.
  */
 function ChannelItemTrailing({
   item,
   status,
   pinBadge,
-  currentUserUuid,
 }: {
   item: ChannelItemModel;
   status: TaskStatusInput | null;
   pinBadge: boolean;
-  currentUserUuid?: string;
 }) {
   return (
     <span className={TRAILING_CLASS}>
-      {/* Who's here, ahead of the badges: presence is the row's most
-          time-sensitive fact, and it's absent on a quiet row. */}
-      <RowPresence item={item} currentUserUuid={currentUserUuid} />
       {/* Badges take the timestamp's slot: identity (pin, source, cloud,
           PR) is what you scan a task list for, and the age is still on the
           preview card. */}
@@ -250,7 +244,6 @@ export function ChannelItemRowView({
   isArchiving = false,
   showPinBadge = true,
   draggable = false,
-  currentUserUuid,
   optionValue,
   onClick,
   onDragStart,
@@ -267,7 +260,6 @@ export function ChannelItemRowView({
   isArchiving?: boolean;
   showPinBadge?: boolean;
   draggable?: boolean;
-  currentUserUuid?: string;
   /** Renders the row as an autocomplete option under this value. */
   optionValue?: string;
   onClick?: (e: React.MouseEvent) => void;
@@ -291,12 +283,7 @@ export function ChannelItemRowView({
   const sessionAttribute =
     item.kind === "task" ? { [SESSION_ROW_ATTRIBUTE]: item.id } : {};
   const trailing = (
-    <ChannelItemTrailing
-      item={item}
-      status={status}
-      pinBadge={pinBadge}
-      currentUserUuid={currentUserUuid}
-    />
+    <ChannelItemTrailing item={item} status={status} pinBadge={pinBadge} />
   );
 
   if (optionValue !== undefined) {
@@ -563,7 +550,6 @@ export function ChannelItemRow({
       isArchiving={isArchiving}
       showPinBadge={showPinBadge}
       draggable
-      currentUserUuid={currentUser.data?.uuid}
       optionValue={optionValue}
       onDragStart={handleDragStart}
       onDragEnd={onDragEnd}

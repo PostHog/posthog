@@ -433,15 +433,15 @@ describe("ChannelItemRow", () => {
   });
 
   it.each([
-    ["task", "u-1", null],
-    ["task", "u-2", "Ada Lovelace was here recently"],
-    ["canvas", "u-1", null],
-    ["canvas", "u-2", "Ada Lovelace was here recently"],
-  ] as const)("shows recent %s presence for %s", (kind, uuid, label) => {
+    ["task", "u-1"],
+    ["task", "u-2"],
+    ["canvas", "u-1"],
+    ["canvas", "u-2"],
+  ] as const)("draws no author avatar on a live %s row by %s", (kind, uuid) => {
     renderRow(
       item({
         kind,
-        ts: Date.now() - 5 * 60_000,
+        ts: Date.now(),
         authorUuid: uuid,
         authorUser: {
           id: 1,
@@ -453,13 +453,7 @@ describe("ChannelItemRow", () => {
       }),
     );
 
-    if (label === null) {
-      expect(screen.queryByText("AL")).toBeNull();
-    } else {
-      expect(screen.getByRole("img", { name: label }).textContent).toContain(
-        "AL",
-      );
-    }
+    expect(screen.queryByText("AL")).toBeNull();
   });
 
   // A pinned row offering only `move` resolves against the Command Center's
