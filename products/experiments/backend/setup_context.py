@@ -503,7 +503,7 @@ def _cache_key(team: Team, section: str, inputs: dict[str, Any]) -> str:
     # Bump the version whenever a cached dataclass changes shape: entries are pickled, so a deploy
     # would otherwise restore instances that miss the new fields.
     digest = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
-    return f"experiment_setup_context_v2_{team.pk}_{section}_{digest}"
+    return f"experiment_setup_context_v3_{team.pk}_{section}_{digest}"
 
 
 def _cached(key: str, ttl: int, compute: Callable[[], T]) -> T:
