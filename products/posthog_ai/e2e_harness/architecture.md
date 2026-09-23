@@ -64,6 +64,7 @@ value and consumers. The profile enables tasks, sequenced ingest, proxy streamin
 dispatch flags, and PostHog connections. The MCP profile also enables markdown notebooks. Other task switches have explicit
 false entries. CI never fetches live flag definitions or evaluates real users' targeting rules.
 The launcher also supplies the browser profile through `PERSISTED_FEATURE_FLAGS`, so it remains active when capture is disabled.
+Controlled surface runs omit proxy streaming because their task streams use the mocked Django endpoint.
 
 Backend single-flag and bulk evaluations share the same values. An undeclared Tasks or PostHog AI flag records a test
 failure even if the application catches an evaluation error. Unrelated flags remain false. Add an explicit manifest entry
@@ -337,10 +338,8 @@ The controlled suite runs with regular Playwright, or with `.codex/with-flox hog
 The task composer attaches entity context; it does not expose file uploads.
 These new cases require their own ten-repeat CI validation before being described as stable.
 
-The warm-resume case currently reproduces an extra continuation turn in both runtimes when activation precedes agent readiness.
-The successor asks the model to continue the old conversation before processing the new user message.
-Replay rejects that undeclared turn even when the eventual follow-up and history assertions pass.
-The test remains enabled so this regression blocks the AI check until corrected.
+The warm-resume case checks that the successor processes the new user message without an unsolicited continuation of the old conversation.
+Replay rejects any undeclared model turn even when the eventual follow-up and history assertions pass.
 
 The browser suite runs three cases for each of Claude and Codex:
 

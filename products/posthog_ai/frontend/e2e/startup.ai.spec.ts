@@ -16,7 +16,7 @@ for (const provider of ['claude', 'codex'] as const) {
             expect(await ai.snapshot()).toMatchObject({ task_count: 0, run_count: 0 })
             await page.getByTestId('posthog-ai-context-picker').click()
             await page.getByTestId('taxonomic-filter-searchfield').fill('synthetic_workspace_opened')
-            await page.getByTestId('prop-filter-events-0').click()
+            await page.getByRole('option', { name: 'synthetic_workspace_opened Events', exact: true }).click()
             await page.keyboard.press('Escape')
             await expect(page.getByTestId('taxonomic-filter-searchfield')).toBeHidden()
             await expect(page.getByRole('button', { name: 'synthetic_workspace_opened', exact: true })).toBeVisible()

@@ -63,7 +63,7 @@ test.describe('Startup and approvals', () => {
         await expect(page.getByTestId('sandbox-composer-input')).toBeEditable()
         await page.getByTestId('posthog-ai-context-picker').click()
         await page.getByTestId('taxonomic-filter-searchfield').fill('synthetic_retry_event')
-        await page.getByTestId('prop-filter-events-0').click()
+        await page.getByRole('option', { name: 'synthetic_retry_event Events', exact: true }).click()
         await page.keyboard.press('Escape')
         await expect(page.getByTestId('taxonomic-filter-searchfield')).toBeHidden()
         await expect(page.getByRole('button', { name: 'synthetic_retry_event', exact: true })).toBeVisible()

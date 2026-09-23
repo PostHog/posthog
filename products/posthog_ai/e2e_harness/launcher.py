@@ -173,7 +173,11 @@ def main() -> int:
                 "SECURE_SSL_REDIRECT": False,
                 "SESSION_COOKIE_SECURE": False,
                 "CSRF_COOKIE_SECURE": False,
-                "PERSISTED_FEATURE_FLAGS": [key for key, enabled in flag_values("browser").items() if enabled],
+                "PERSISTED_FEATURE_FLAGS": [
+                    key
+                    for key, enabled in flag_values("browser").items()
+                    if enabled and (not args.surface or key != "tasks-stream-via-proxy")
+                ],
                 "SANDBOX_LLM_GATEWAY_URL": gateway,
                 "SANDBOX_AI_GATEWAY_URL": gateway,
                 "SANDBOX_AI_GATEWAY_PRODUCTS": "",
