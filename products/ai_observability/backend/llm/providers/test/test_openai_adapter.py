@@ -167,8 +167,6 @@ class TestOpenAIAdapterErrorMapping:
     def test_unmapped_400_is_terminal_and_carries_the_providers_reason(
         self, request_no_structured_output: CompletionRequest
     ):
-        # Left unmapped this reaches the caller as a raw SDK error that nothing marks terminal,
-        # so Temporal retries a request that can never succeed.
         adapter = OpenAIAdapter()
         detail = "This model cannot be used with the chat completions endpoint."
         mock_client = MagicMock()

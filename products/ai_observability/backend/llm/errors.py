@@ -151,10 +151,9 @@ def user_facing_error_message(error: Exception | None) -> str:
     explanation the user gets. Raw SDK output leaks provider internals without naming a next
     step, so every branch here says what to do instead.
 
-    A rejected request keeps the provider's own reason. Those are 400s the request itself caused
-    — an unsupported parameter, a malformed tool schema, a model the endpoint cannot serve —
-    where "try again" is advice that cannot work and the provider's sentence is the only
-    actionable thing we have.
+    A rejected request keeps the provider's own reason, and so does a failure with no branch at
+    all. Those are 400s the request itself caused, where "try again" is advice that cannot work
+    and the provider's sentence is the only actionable thing we have.
     """
     if isinstance(error, ModelNotFoundError):
         return f"Model '{error.model}' is not available. Pick a different model and try again."

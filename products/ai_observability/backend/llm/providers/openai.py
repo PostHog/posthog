@@ -240,16 +240,14 @@ class OpenAIAdapter:
                     return ContextWindowExceededError(str(error))
                 if is_output_limit_error_message(str(error)):
                     return OutputTokenLimitError(str(error))
+                # Any other 400 stays wrong on the next attempt, so map it terminal and pass the
+                # provider's reason on.
+                return ProviderRequestInvalidError(provider_error_detail(error))
             # OpenRouter returns 402 when the key can't afford the requested
             # max_tokens (or is out of credits). Retrying never helps — mirror
             # the quota path so the workflow marks the key errored and stops.
             if getattr(error, "status_code", None) == 402:
                 return QuotaExceededError(str(error))
-            if isinstance(error, openai.BadRequestError):
-                # The request itself is wrong: an unsupported parameter, a malformed tool schema,
-                # or a model the chat completions endpoint cannot serve. The next attempt sends
-                # the same request, so map it terminal and pass the provider's reason on.
-                return ProviderRequestInvalidError(provider_error_detail(error))
         return None
 
     def _complete_with_json_fallback(

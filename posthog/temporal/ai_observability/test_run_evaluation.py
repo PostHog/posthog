@@ -80,7 +80,7 @@ def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
 
 def test_status_reason_detail_for_terminal_user_error_only_keeps_truncated_raw_messages():
     hog_spec = require_user_error_spec("hog_error")
-    rejected_spec = require_user_error_spec("provider_request_invalid")
+    rejected_spec = require_user_error_spec("provider_request_invalid", is_byok=True)
     permission_spec = require_user_error_spec("permission_error")
     long_message = "x" * (MAX_STATUS_REASON_DETAIL_LENGTH + 10)
 
@@ -116,6 +116,20 @@ def test_terminal_user_error_result_from_application_error_uses_key_details_for_
     assert result["key_id"] == "key-123"
     assert result["provider"] == "openai"
     assert result["model"] == "missing-model"
+
+
+@pytest.mark.parametrize("error_type", ["model_not_found", "provider_request_invalid"])
+def test_terminal_user_error_result_from_application_error_leaves_posthog_key_failures_enabled(error_type: str):
+    result = terminal_user_error_result_from_application_error(
+        ApplicationError(
+            "The model provider rejected the judge request.",
+            {"error_type": error_type, "provider": "openai", "model": "gpt-5-mini"},
+            non_retryable=True,
+        ),
+        allows_na=False,
+    )
+
+    assert result is None
 
 
 HYDRATE_FETCH = "posthog.temporal.ai_observability.evaluation_event_io.fetch_generation_event"
@@ -2075,8 +2089,6 @@ class TestRunEvaluationWorkflow:
             assert "provider_key_state" not in result
         else:
             assert result["provider_key_state"] == provider_key_state
-        # The reasoning is the only text the disabled evaluation shows, so it has to name the
-        # cause. For a rejected request that is the provider's own sentence.
         assert reasoning_fragment in result["reasoning"]
 
 

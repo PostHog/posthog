@@ -150,10 +150,15 @@ EVALUATION_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
 }
 
 
+# On a PostHog-funded key these two are our bug, not the team's, so they get no spec. The workflow
+# then leaves the evaluation enabled and lets the activity failure reach error tracking.
+_BYOK_ONLY_ERROR_TYPES = frozenset({"model_not_found", "provider_request_invalid"})
+
+
 def get_evaluation_error_spec(error_type: str | None, *, is_byok: bool = False) -> EvaluationErrorSpec | None:
-    if error_type == "model_not_found" and not is_byok:
-        return None
     if error_type is None:
+        return None
+    if error_type in _BYOK_ONLY_ERROR_TYPES and not is_byok:
         return None
     return EVALUATION_ERROR_SPECS.get(error_type)
 
@@ -250,9 +255,9 @@ def truncate_error_detail(message: str | None) -> str | None:
 
 
 def status_reason_detail_for_terminal_user_error(spec: EvaluationErrorSpec, message: str | None) -> str | None:
-    # The Hog traceback and the provider's own rejection sentence are the actionable part of those
-    # two failures. Every other spec's safe_message already says what to do, so keeping the raw
-    # text would only leak provider internals.
+    # The Hog traceback and the provider's rejection sentence are the actionable part of those two
+    # failures. Every other spec's safe_message says what to do, so raw text would only leak
+    # provider internals.
     if spec.error_type not in ("hog_error", "provider_request_invalid"):
         return None
     return truncate_error_detail(message)
