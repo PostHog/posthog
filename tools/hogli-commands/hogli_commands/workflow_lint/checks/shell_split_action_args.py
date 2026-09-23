@@ -17,6 +17,13 @@ pre-existing ``--exclude-rule`` and ``--include`` scopes went with them.
 Quoting is not the fix. ``$SEMGREP_ARGS`` already sits inside double quotes;
 quoting it again would collapse every flag into a single argument.
 
+The table also lists the milder form, ``sh -c 'tool $ARGS'``. There the INNER
+shell expands the value, so a ``#`` in it stays a literal word rather than a
+comment — but the split into flags is still the action's to decide, and the
+same expansion globs, so ``--include *.py`` reaches the tool as whatever
+happened to match in the container. Either way the caller's value does not
+arrive as the caller wrote it, which is what the character set below rejects.
+
 ``SHELL_SPLIT_INPUTS`` is the source of truth for which (action, input) pairs
 carry this hazard, and it is what the check enforces.
 """
@@ -391,9 +398,10 @@ class ShellSplitActionArgsCheck(WorkflowCheck):
                                 job=job.name,
                                 step=step.ref,
                                 message=(
-                                    f"with.{name} passed to {action} contains {offenders!r}; the action splices "
-                                    "this input into an inner shell command string, which re-parses it as a script, "
-                                    "so a '#', newline, ';' or similar silently drops every flag after it"
+                                    f"with.{name} passed to {action} contains {offenders!r}; the action hands "
+                                    "this value to a shell rather than passing it as arguments, so a '#', newline "
+                                    "or ';' can silently drop every flag after it and a '*' can expand against the "
+                                    "container's filesystem"
                                 ),
                                 file=str(wf.path),
                             )

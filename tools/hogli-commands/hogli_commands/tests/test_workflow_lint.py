@@ -2270,7 +2270,7 @@ class TestShellSplitActionArgsCheck:
             _caller("--config p/security-audit\n                # temporarily off\n                --config p/python"),
         )
         assert "with.args" in issue, issue
-        assert "'#'" in issue and "script" in issue, issue
+        assert "'#'" in issue and "hands this value to a shell" in issue, issue
 
     def test_flags_a_semicolon_the_inner_shell_would_treat_as_a_terminator(self, tmp_path: Path) -> None:
         _write_table_actions(tmp_path)
