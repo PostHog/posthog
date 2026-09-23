@@ -63,6 +63,13 @@ class _ResolvedTarget:
     parents: tuple[Table, ...] = field(repr=False)
 
 
+@frozen
+class _CanonicalTable:
+    canonical_name: str = field(repr=False)
+    expected_fields: set[str] = field(repr=False)
+    table_type: Literal["posthog", "external"]
+
+
 class _TraversalCatalogBuilder:
     def __init__(
         self,
@@ -114,8 +121,8 @@ class _TraversalCatalogBuilder:
             logger.warning("hogql_catalog_traversal_edges_omitted", reasons=dict(sorted(self.omissions.items())))
         return CatalogTraversalResult(field_annotations=self.annotations, relations=self.relations)
 
-    def _canonical_tables(self) -> dict[int, tuple[str, set[str], Literal["posthog", "external"]]]:
-        candidates: dict[int, list[tuple[str, set[str], Literal["posthog", "external"]]]] = {}
+    def _canonical_tables(self) -> dict[int, _CanonicalTable]:
+        candidates: dict[int, list[_CanonicalTable]] = {}
         visible_names = set(self.database.tables.resolve_visible_table_names())
         for canonical_name, schema_table in self.schema.tables.items():
             if canonical_name not in visible_names:
@@ -126,7 +133,13 @@ class _TraversalCatalogBuilder:
             table_type: Literal["posthog", "external"] = (
                 "posthog" if schema_table.type in ("posthog", "system") else "external"
             )
-            candidates.setdefault(id(table), []).append((canonical_name, set(schema_table.fields), table_type))
+            candidates.setdefault(id(table), []).append(
+                _CanonicalTable(
+                    canonical_name=canonical_name,
+                    expected_fields=set(schema_table.fields),
+                    table_type=table_type,
+                )
+            )
         return {object_id: entries[0] for object_id, entries in candidates.items() if len(entries) == 1}
 
     def _resolve_canonical(self, name: str) -> Table | None:
@@ -162,7 +175,7 @@ class _TraversalCatalogBuilder:
         overrides = self._property_overrides(resolved.property_namespace, target)
         canonical_name = self._canonical_name(target)
         if canonical_name is not None:
-            canonical_fields = self.canonical_by_object[id(target)][1]
+            canonical_fields = self.canonical_by_object[id(target)].expected_fields
             overrides = {name: namespace for name, namespace in overrides.items() if name in canonical_fields}
             return self._table_relation(target, canonical_name, overrides)
         if isinstance(target, (S3Table, SavedQuery, DirectSQLTable)):
@@ -176,18 +189,17 @@ class _TraversalCatalogBuilder:
         canonical = self.canonical_by_object.get(id(target))
         if canonical is None:
             return None
-        canonical_name, expected_fields, table_type = canonical
         try:
             serialized = serialize_fields(
                 _schema_field_input(target),
                 self.context,
-                [canonical_name],
-                table_type=table_type,
+                [canonical.canonical_name],
+                table_type=canonical.table_type,
             )
         except Exception:
             self.omissions["canonical_unserializable"] += 1
             return None
-        result = canonical_name if {field.name for field in serialized} == expected_fields else None
+        result = canonical.canonical_name if {field.name for field in serialized} == canonical.expected_fields else None
         self.canonical_name_cache[id(target)] = result
         return result
 
