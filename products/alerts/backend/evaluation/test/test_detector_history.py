@@ -35,8 +35,6 @@ RESTRICTIONS_PATH = (
 
 
 class _Warehouse:
-    """Stands in for ClickHouse: holds a bucket->value series and answers narrowed scans from it."""
-
     def __init__(self, series: dict[datetime, float]) -> None:
         self.series = series
         self.overrides: list[dict | None] = []
@@ -58,7 +56,6 @@ class _Warehouse:
         return self._hours(self.overrides[-1])
 
     def is_rebuild(self, override: dict | None) -> bool:
-        """A full-window scan: no narrowing bound, so the tightest interval is the window itself."""
         return self._hours(override) == 48
 
 
