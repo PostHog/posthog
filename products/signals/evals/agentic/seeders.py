@@ -7,11 +7,15 @@ from django.utils import timezone
 
 from posthog.models.integration import Integration
 from posthog.models.integration_repository_cache import IntegrationRepositoryCacheEntry
+from posthog.utils import generate_short_id
 
+from products.error_tracking.backend.facade.api import get_fingerprint, get_issue
+from products.error_tracking.backend.facade.testing import clear_issues, create_issue, create_issue_fingerprint
 from products.event_definitions.backend.logic.placeholder import (
     PlaceholderEventDefinition,
     create_placeholder_event_definitions,
 )
+from products.product_analytics.backend.facade.api import get_or_create_saved_insight
 from products.signals.evals.agentic.datasets import EvalCase, RepoSelectionCase, ResearchCase, ResearchSeed, ScoutCase
 from products.signals.evals.agentic.repos import REGISTRY
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
@@ -252,20 +256,15 @@ def seed_repository_catalog(context: CustomPromptSandboxContext, case: EvalCase 
 
 
 def _seed_error_tracking(context: CustomPromptSandboxContext, *, scenario: str) -> dict[str, object]:
-    from django.apps import apps
-
     from posthog.clickhouse.client import sync_execute
     from posthog.models import Team
     from posthog.models.event.util import format_clickhouse_timestamp
-    from posthog.models.utils import uuid7
 
     from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE
     from products.signals.backend.models import SignalScratchpad
 
-    ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
-    ErrorTrackingIssueFingerprintV2 = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
     team = Team.objects.get(id=context.team_id)
-    ErrorTrackingIssue.objects.filter(team=team).delete()
+    clear_issues(team_id=team.id)
 
     now = datetime.now(UTC)
     if scenario in {"error_burst", "error_low_volume"}:
@@ -307,12 +306,16 @@ def _seed_error_tracking(context: CustomPromptSandboxContext, *, scenario: str) 
     else:
         raise ValueError(f"unknown error-tracking seed {scenario!r}")
 
-    issue = ErrorTrackingIssue.objects.create(id=uuid7(), team=team, name=name)
-    fingerprint = ErrorTrackingIssueFingerprintV2.objects.create(
-        team=team,
-        issue=issue,
+    issue_id = create_issue(team_id=team.id, name=name)
+    fingerprint_id = create_issue_fingerprint(
+        team_id=team.id,
+        issue_id=issue_id,
         fingerprint=fingerprint_value,
     )
+    issue = get_issue(issue_id=issue_id, team_id=team.id)
+    fingerprint = get_fingerprint(team_id=team.id, fingerprint_id=fingerprint_id)
+    if fingerprint is None:
+        raise RuntimeError("The seeded error fingerprint could not be retrieved")
     sync_execute(
         INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
         {
@@ -393,7 +396,6 @@ def _seed_product_funnel(context: CustomPromptSandboxContext, *, denominator_hol
     from posthog.models import EventDefinition, Person, Team
     from posthog.models.event.util import bulk_create_events
 
-    from products.product_analytics.backend.facade.models import Insight
     from products.signals.backend.models import SignalScratchpad
 
     team = Team.objects.get(id=context.team_id)
@@ -407,12 +409,13 @@ def _seed_product_funnel(context: CustomPromptSandboxContext, *, denominator_hol
             name=name,
             defaults={"last_seen_at": now},
         )
-    insight = Insight.objects.create(
-        team=team,
-        created_by_id=context.user_id,
+    insight_short_id = generate_short_id()
+    insight_id, _ = get_or_create_saved_insight(
+        team_id=team.id,
+        user_id=context.user_id,
+        short_id=insight_short_id,
         name="Signals eval activation funnel",
         description="Activation from starting setup to creating a workspace.",
-        saved=True,
         query={
             "kind": "FunnelsQuery",
             "series": [
@@ -465,15 +468,15 @@ def _seed_product_funnel(context: CustomPromptSandboxContext, *, denominator_hol
     bulk_create_events(events, person_mapping=people)
     SignalScratchpad.all_teams.create(
         team=team,
-        key=f"watchlist:product_analytics:flow:{insight.short_id}",
+        key=f"watchlist:product_analytics:flow:{insight_short_id}",
         content=(
-            f"Saved funnel {insight.short_id}: {start_event} -> {conversion_event}. Score the latest complete "
+            f"Saved funnel {insight_short_id}: {start_event} -> {conversion_event}. Score the latest complete "
             "7-day window against the prior six complete 7-day windows; this flow is due now."
         ),
     )
     return {
-        "insight_id": insight.id,
-        "insight_short_id": insight.short_id,
+        "insight_id": insight_id,
+        "insight_short_id": insight_short_id,
         "events": [start_event, conversion_event],
         "windows": window_stats,
     }

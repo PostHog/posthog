@@ -23,7 +23,7 @@ def test_write_events_reuses_shared_event_definition_helper() -> None:
         {
             "event": "signed_up",
             "distinct_id": "person-1",
-            "timestamp": datetime.now(UTC),
+            "timestamp": datetime(2026, 1, 1, tzinfo=UTC),
         }
     ]
 

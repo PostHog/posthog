@@ -1,9 +1,11 @@
 # Reusable scout environments
 
-Implementation checkpoint: September 22, 2026.
+Implementation checkpoint: September 23, 2026.
 The initial harness review used `ba2de6b231b`, with additional dependency checks after merging `e7e0c103433` from master.
-The parameterized command now runs saved code cases through the production scout harness.
-Historical data restoration is verified in two fresh projects; its full agent execution still needs verification.
+The parameterized command now runs saved code and data cases through the production scout harness.
+Historical data restoration is verified in fresh projects, two identical data trials completed, and the code case completed on the updated runtime.
+The data trials start from equal normalized history and event checks with separate mutable identities.
+Both environments retain full results and clean up their agent sandboxes and dedicated services.
 The implementation history below records completed checks and failed attempts.
 
 ## Purpose and agreed constraints
@@ -134,6 +136,11 @@ Reduce unnecessary columns before reducing the time range.
 A smaller declared investigation scope is reasonable, but missing history must not silently become zero activity.
 Preserve event names and property types faithfully, including legacy forms where they are part of the case.
 Restore the supporting discovery metadata so a model can find the data through the normal tools.
+
+Select prior reports from the scout's saved memory references as well as recent runs.
+A recent-run limit can omit an older report that still controls duplicate handling.
+Current report rows and dated artifacts do not always establish the report's status at the starting checkpoint.
+Record unresolved history as a case limitation; do not infer historical status from today's row or score duplicate handling as verified when the relevant report is absent.
 
 ### Feature flag cleanup
 
@@ -284,10 +291,10 @@ Reuse the separation of saved data from execution, with Parquet as a possible ev
 
 ## Next decisions and work
 
-1. Verify a data scout end to end through the private gateway and review its output against the saved reference.
-2. Retain the completed code comparison and its scope failures. Single runs illustrate the workflow and do not establish an improvement.
-3. Clarify severity and execution budget before the repeated, scored comparison.
-4. Keep the devbox command and its private case inputs reproducible. Modal deployment remains outside v0.
+1. Resolve missing historical report context and define complete comparison windows before scoring duplicate handling in the data case.
+2. Retain the completed code comparison and its scope failures. The later baseline also fails read-scope review, so scope compliance needs repeated checks for every configuration.
+3. Clarify severity before a scored model or prompt comparison. These execution checks do not establish an improvement.
+4. Keep the devbox command and private case inputs reproducible. Modal deployment remains outside v0.
 
 The production improvements listed in the round-1 [final report](FINAL_REPORT.md) remain useful, especially memory isolation, effort recording, and complete report capture.
 The isolated eval path can supply these properties without first implementing every production configuration change.
@@ -416,3 +423,45 @@ The normal report safety check completed with invented input through the private
 The provider returned a valid judgment, both capture tokens were absent, and the temporary credential was deleted afterward.
 Gateway settings were restored and the dedicated process stopped without changing the developer's running services.
 The saved feedback case is ready for its first scout execution.
+
+### September 23, 2026: first complete data scout execution
+
+The saved data case completed through Docker, real MCP tools, and the production scout runner.
+It retained a report, memory changes, the full transcript, input versions, restored-data checks, and usage from both the scout and backend report check.
+The dedicated sandbox and service listeners were removed afterward; the developer's normal stack remained running.
+The container mounted local skills without mounting the checkout or private grading files.
+
+Initial review supports the reported symptom but does not establish its root cause or a verified fix.
+The scout also missed a recurring theme and misstated an aggregate count in memory.
+Duplicate handling requires further review of a historical memory pointer and saved report coverage.
+The explicit investigation interval held, while a broader comparison queried beyond the retained data boundary.
+The scout speculated that some feedback might be synthetic; the transcript does not establish that it recognized an evaluation.
+These remain quality and case-coverage findings, separate from the successful execution check.
+
+An identical data repeat is running in a fresh project with the same target cutoff.
+The updated branch passes repository-wide type checking.
+A CI rule flagged an older seed test's use of the current time; its fixture now uses a fixed timestamp, and the focused test and exact lint rule pass.
+
+### September 23, 2026: data repeat and current-runtime code check
+
+The identical data repeat completed with the same case, skill, cutoff, model, and effort in another fresh project.
+Normalized starting reports, artifacts, memory, and prior runs match exactly; mutable record identities are separate and no first-trial writes appear in the second trial's starting state.
+Restored event checks also match.
+Configuration creation and update timestamps reflect each trial's setup time.
+
+Both data trials reported the same candidate issue, while investigation depth, duration, cost, and memory accuracy varied.
+The repeat avoided the first run's speculation about synthetic data but still missed other candidate themes.
+Historical duplicate status remains unresolved.
+Queries using the live clock changed a comparison count despite identical restored events, and broader comparison requests exceeded the saved boundary.
+The case supports repeated discovery checks with these stated limits; it does not establish exact historical behavior for every relative-time query.
+
+The code baseline completed on the updated agent image and private gateway, with its checkout and frozen origin verified at the saved commit.
+Its report describes a supported ordering problem, but it read files outside the selected page and therefore fails scope review.
+Severity remains unsettled.
+Full outputs, input hashes, runtime image identity, gateway costs, failed attempts, and private reviews remain available locally.
+Both completed environments removed their agent containers and dedicated listeners while leaving the developer's normal stack running.
+
+CI follow-up uses the existing product facades for fixture access and moves the Docker integration test into its owning product.
+The empty-project helper returns named fields, preserving the fresh-project setup behavior.
+After these fixes, 48 focused tests pass, including repeated restoration, fresh-project setup, fixture isolation, model-boundary invariants, and test-module naming.
+Repository-wide type checking, the CI import-boundary command, harness discovery, and the exact new lint rule also pass.

@@ -59,7 +59,9 @@ class SandboxedDemoData:
         project_data: Literal["hedgebox", "empty"] = "hedgebox",
     ) -> CustomPromptSandboxContext:
         if project_data == "empty":
-            _, team, user = create_empty_team(self._django_db_blocker, label=case_label)
+            project = create_empty_team(self._django_db_blocker, label=case_label)
+            team = project.team
+            user = project.user
         else:
             _, team, user = copy_demo_data_to_new_team(self.master_team_id, self._django_db_blocker, label=case_label)
             create_core_memory(team, self._django_db_blocker)

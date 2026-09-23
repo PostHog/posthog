@@ -16,6 +16,7 @@ from django.db import transaction
 from django.test import override_settings
 
 from posthog.clickhouse.client import sync_execute
+from posthog.dataclasses import frozen
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
 from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
@@ -174,12 +175,19 @@ def ensure_master_demo_team(django_db_blocker) -> int:
         return team.id
 
 
+@frozen
+class EvalProject:
+    organization: Organization
+    team: Team
+    user: User
+
+
 def create_empty_team(
     django_db_blocker: NullDbBlocker,
     *,
     label: str,
     is_demo: bool = False,
-) -> tuple[Organization, Team, User]:
+) -> EvalProject:
     suffix = uuid.uuid4().hex[:8]
     org_name = f"{'Hedgebox' if is_demo else 'Eval'} ({label}-{suffix})"
     email = f"eval-{label}-{suffix}@posthog.test"
@@ -201,7 +209,7 @@ def create_empty_team(
             completed_snippet_onboarding=True,
             is_demo=is_demo,
         )
-    return org, team, user
+    return EvalProject(organization=org, team=team, user=user)
 
 
 def copy_demo_data_to_new_team(
@@ -221,7 +229,10 @@ def copy_demo_data_to_new_team(
 
     with django_db_blocker.unblock():
         master_team = Team.objects.get(id=master_team_id)
-        org, team, user = create_empty_team(django_db_blocker, label=label, is_demo=True)
+        project = create_empty_team(django_db_blocker, label=label, is_demo=True)
+        org = project.organization
+        team = project.team
+        user = project.user
 
         copy_params = {"source_team_id": master_team_id, "target_team_id": team.id}
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)

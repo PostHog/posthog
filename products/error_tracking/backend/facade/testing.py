@@ -26,6 +26,10 @@ from products.error_tracking.backend.models import (
 _EMPTY_FILTERS: dict = {"type": "AND", "values": []}
 
 
+def clear_issues(*, team_id: int) -> None:
+    ErrorTrackingIssue.objects.filter(team_id=team_id).delete()
+
+
 def create_issue(
     *,
     team_id: int,

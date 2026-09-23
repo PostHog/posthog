@@ -19,8 +19,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.models import EventDefinition, PropertyDefinition
 
-from products.data_catalog.backend.logic.drift import compute_drift
-from products.data_catalog.backend.models import Metric
+from products.data_catalog.backend.facade.api import Metric, compute_drift
 from products.posthog_ai.eval_harness.data_setup import create_empty_team
 from products.posthog_ai.eval_harness.harness.django_env import NullDbBlocker
 from products.signals.backend.models import (
@@ -294,7 +293,7 @@ class TestSavedCaseEventRestore(ClickhouseTestMixin, BaseTest):
     def test_repeated_restore_isolates_events_and_preserves_ingestion_time(self) -> None:
         self.organization.name = "Eval (saved-event-test)"
         self.organization.save(update_fields=["name"])
-        _, other_team, other_user = create_empty_team(NullDbBlocker(), label="second-trial")
+        other_project = create_empty_team(NullDbBlocker(), label="second-trial")
         target = datetime.now(UTC).replace(microsecond=0)
         person_ids = [uuid4(), uuid4()]
         with tempfile.TemporaryDirectory() as temporary:
@@ -307,7 +306,7 @@ class TestSavedCaseEventRestore(ClickhouseTestMixin, BaseTest):
                 )
             )
             source_ids = {str(event.uuid): str(event.person_id) for event in case.events()}
-            for team, user in ((self.team, self.user), (other_team, other_user)):
+            for team, user in ((self.team, self.user), (other_project.team, other_project.user)):
                 result = case.restore(
                     CustomPromptSandboxContext(team_id=team.id, user_id=user.id), target_cutoff=target
                 )
