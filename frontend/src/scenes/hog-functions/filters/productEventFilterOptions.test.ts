@@ -1,4 +1,4 @@
-import { getProductEventPropertyValues } from './HogFunctionFiltersInternal'
+import { getProductEventPropertyValues } from './productEventFilterOptions'
 
 describe('getProductEventPropertyValues', () => {
     it('suggests all activity scopes for the activity-log scope property', () => {
