@@ -76,6 +76,8 @@ import type {
     SignalReportDeletionStatusApi,
     SignalReportFeedbackRequestApi,
     SignalReportFeedbackResponseApi,
+    SignalReportMergeRequestApi,
+    SignalReportMergeResponseApi,
     SignalReportMetricRefreshRequestApi,
     SignalReportMetricRefreshResponseApi,
     SignalReportRefundRequestApi,
@@ -373,6 +375,28 @@ export const signalsReportsFeedbackCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportFeedbackRequestApi),
+    })
+}
+
+export const getSignalsReportsMergeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/merge/`
+}
+
+/**
+ * Fold one or more duplicate reports into this report, which survives. The sources' signals, work-log artefacts, pull requests, task runs and checks move onto the survivor, the survivor's signal counters take on theirs, and each source is archived with a 'duplicate of' link back to the survivor. A source's open pull request stays open, because the survivor holds it after the move. Pick the survivor deliberately: prefer the older report, and prefer the one with an open implementation PR or an active claim. Any active claim on a source is released, so re-claim the survivor if you were working on one. Titles and summaries are not combined, so edit it afterwards if it needs a rewrite. A merged report keeps its URL but cannot be restored, because its signals now belong to the survivor.
+ * @summary Merge duplicate reports into this one
+ */
+export const signalsReportsMergeCreate = async (
+    projectId: string,
+    id: string,
+    signalReportMergeRequestApi: SignalReportMergeRequestApi,
+    options?: RequestInit
+): Promise<SignalReportMergeResponseApi> => {
+    return apiMutator<SignalReportMergeResponseApi>(getSignalsReportsMergeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportMergeRequestApi),
     })
 }
 

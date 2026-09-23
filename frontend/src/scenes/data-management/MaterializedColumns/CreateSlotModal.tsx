@@ -29,7 +29,7 @@ export function CreateSlotModal(): JSX.Element {
 
         setIsSubmitting(true)
         try {
-            await api.create(`api/environments/${currentTeam.id}/materialized_column_slots/assign_slot/`, {
+            await api.create(`api/projects/${currentTeam.id}/materialized_column_slots/assign_slot/`, {
                 property_definition_id: selectedPropertyId,
             })
             lemonToast.success('Property queued for materialization — it will be picked up by the next weekly cycle')

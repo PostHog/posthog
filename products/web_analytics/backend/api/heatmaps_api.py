@@ -70,6 +70,7 @@ from products.access_control.backend.presentation.access_control import (
 from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.api.heatmaps_utils import (
     DEFAULT_TARGET_WIDTHS,
+    HEATMAP_SNAPSHOT_IMAGE_FORMATS,
     MAX_TARGET_WIDTHS,
     PREWARM_PREVIEW_WIDTH,
     PREWARM_TTL,
@@ -152,7 +153,7 @@ def _requests_event_filter(request: request.Request) -> bool:
 
 def _reject_oversized_capture_image(image_bytes: bytes) -> None:
     try:
-        with Image.open(BytesIO(image_bytes)) as im:
+        with Image.open(BytesIO(image_bytes), formats=HEATMAP_SNAPSHOT_IMAGE_FORMATS) as im:
             width, height = im.size
     except Exception:
         raise ValidationError(code="invalid_image", detail="Uploaded media must be a valid image")
@@ -1426,7 +1427,9 @@ class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
 
 
 class SavedHeatmapCaptureRequestSerializer(serializers.Serializer):
-    image = serializers.ImageField(
+    # FileField, not ImageField: ImageField opens the upload with every Pillow format before
+    # capture() checks it against HEATMAP_SNAPSHOT_IMAGE_FORMATS.
+    image = serializers.FileField(
         required=False,
         help_text="Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. "
         "Pair with 'width'. Use 'images'/'widths' instead to save several viewport widths on one heatmap.",
@@ -1438,7 +1441,7 @@ class SavedHeatmapCaptureRequestSerializer(serializers.Serializer):
         help_text="Viewport width (CSS pixels) the single 'image' was captured at.",
     )
     images = serializers.ListField(
-        child=serializers.ImageField(),
+        child=serializers.FileField(),
         required=False,
         allow_empty=False,
         max_length=MAX_TARGET_WIDTHS,
@@ -1794,7 +1797,7 @@ class SavedHeatmapViewSet(
             image_file.seek(0)
             image_bytes = image_file.read()
             _reject_oversized_capture_image(image_bytes)
-            if not validate_image_file(image_bytes, user=user_id):
+            if not validate_image_file(image_bytes, user=user_id, formats=HEATMAP_SNAPSHOT_IMAGE_FORMATS):
                 raise ValidationError(code="invalid_image", detail="Uploaded media must be a valid image")
             snapshot_bytes.append((width, image_bytes))
 

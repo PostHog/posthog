@@ -144,6 +144,13 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     source_skills_from_suggested_reviewer_artefacts,
 )
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
+from products.signals.backend.report_merge import (
+    MAX_MERGE_REASON_LENGTH,
+    MAX_MERGE_SOURCE_REPORTS,
+    ReportMergeError,
+    merge_reports,
+    was_merged_away,
+)
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
@@ -739,6 +746,59 @@ class SignalReportBulkStateResponseSerializer(serializers.Serializer):
     skipped_count = serializers.IntegerField(help_text="Number of reports whose transition was not allowed.")
     failed_count = serializers.IntegerField(help_text="Number of reports that failed on invalid request data.")
     not_found_count = serializers.IntegerField(help_text="Number of requested ids not visible to the caller.")
+
+
+class SignalReportMergeRequestSerializer(serializers.Serializer):
+    source_report_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        # min_length (not just allow_empty=False) so the non-empty constraint surfaces as
+        # `minItems: 1` in the generated OpenAPI/Zod schema, not only as a server-side 400.
+        min_length=1,
+        max_length=MAX_MERGE_SOURCE_REPORTS,
+        help_text=(
+            "Ids of the duplicate reports to fold into this one (1–"
+            f"{MAX_MERGE_SOURCE_REPORTS}). Each must be a live report in this project: a resolved, "
+            "archived or deleted report is rejected with 409, as is the survivor's own id. "
+            "Duplicates in the list are de-duplicated. The whole merge applies or none of it does."
+        ),
+    )
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=MAX_MERGE_REASON_LENGTH,
+        help_text=(
+            "Optional one-line explanation of why these reports are the same issue. Recorded on "
+            "each source's 'duplicate of' link and on the note left on the survivor. Capped at "
+            f"{MAX_MERGE_REASON_LENGTH} characters."
+        ),
+    )
+
+
+class SignalReportMergeSourceResultSerializer(serializers.Serializer):
+    id = serializers.UUIDField(source="report_id", help_text="The source report that was folded into the survivor.")
+    artefacts_moved = serializers.IntegerField(
+        help_text=(
+            "How many work-log artefacts moved to the survivor (notes, findings, pull requests, "
+            "task runs, code references, commits, checks)."
+        )
+    )
+    signals_moved = serializers.IntegerField(
+        help_text=(
+            "How many signals the survivor took on from this source. The signals themselves are "
+            "re-pointed asynchronously; the survivor's counters already include them."
+        )
+    )
+    released_claim = serializers.BooleanField(
+        help_text="Whether an active work claim held by another actor was released before the move."
+    )
+
+
+class SignalReportMergeResponseSerializer(serializers.Serializer):
+    report = SignalReportSerializer(help_text="The surviving report, as it stands after the merge.")
+    sources = SignalReportMergeSourceResultSerializer(
+        many=True, help_text="One result per merged source, in request order (after de-duplication)."
+    )
 
 
 # The thumbs rating at the end of the report body carries an optional note, capped in the UI at the
@@ -2465,6 +2525,82 @@ class SignalReportViewSet(
 
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 
+    @validated_request(
+        request_serializer=SignalReportMergeRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SignalReportMergeResponseSerializer,
+                description="The surviving report after the merge, plus one result per merged source.",
+            ),
+            404: OpenApiResponse(description="The surviving report was not found in this project."),
+            409: OpenApiResponse(
+                description=(
+                    "Both ends of a merge must be a live report of this project. Returned when "
+                    "the survivor is resolved, or when a source is the survivor itself, is resolved "
+                    "or archived, is still being researched, carries more signals than one merge "
+                    "can move, or belongs to another project. Nothing is applied."
+                )
+            ),
+        },
+        summary="Merge duplicate reports into this one",
+        description=(
+            "Fold one or more duplicate reports into this report, which survives. The sources' "
+            "signals, work-log artefacts, pull requests, task runs and checks move onto the "
+            "survivor, the survivor's signal counters take on theirs, and each source is archived "
+            "with a 'duplicate of' link back to the survivor. A source's open pull request stays "
+            "open, because the survivor holds it after the move. Pick the survivor deliberately: "
+            "prefer the older report, and prefer the one with an open implementation PR or an "
+            "active claim. Any active claim on a source is released, so re-claim the survivor if "
+            "you were working on one. Titles and summaries are not combined, so edit it afterwards "
+            "if it needs a rewrite. A merged report keeps its URL but cannot be restored, because "
+            "its signals now belong to the survivor."
+        ),
+        operation_id="signals_reports_merge_create",
+    )
+    @action(detail=True, methods=["post"], url_path="merge", required_scopes=["task:write"])
+    def merge(self, request: ValidatedRequest, pk=None, **kwargs):
+        survivor = cast(SignalReport, self.get_object())
+        data = request.validated_data
+        # Resolved before the merge transaction, so a bad X-PostHog-Task-Id header 400s before
+        # anything moves (the same rule as the refund and artefact write paths).
+        attribution = resolve_request_attribution(request, self.team.id)
+
+        try:
+            result = merge_reports(
+                team=self.team,
+                survivor=survivor,
+                source_ids=[str(source_id) for source_id in data["source_report_ids"]],
+                attribution=attribution,
+                reason=(data.get("reason") or "").strip() or None,
+            )
+        except ReportMergeError as e:
+            return Response({"error": e.detail}, status=status.HTTP_409_CONFLICT)
+
+        report_user_action(
+            request.user,
+            "signals_report_merged",
+            properties={
+                "team_id": self.team.id,
+                "organization_id": str(self.organization.id),
+                "report_id": result.survivor_id,
+                "actor_kind": attribution.kind,
+                "source_count": len(result.sources),
+                "released_claim_count": sum(1 for source in result.sources if source.released_claim),
+                "signals_moved": sum(source.signals_moved for source in result.sources),
+            },
+            team=self.team,
+            organization=self.organization,
+            request=request,
+        )
+
+        survivor.refresh_from_db()
+        return Response(
+            SignalReportMergeResponseSerializer(
+                {"report": survivor, "sources": result.sources},
+                context=self._enriched_report_context(survivor),
+            ).data
+        )
+
     @extend_schema(
         summary="Leave feedback on a report",
         description=(
@@ -2804,6 +2940,15 @@ class SignalReportViewSet(
                     return (
                         SignalReportBulkStateOutcome.SKIPPED,
                         "This report is archived. Refresh it before continuing.",
+                    )
+                # A merged report has no signals of its own left: they moved to the survivor, and
+                # so did its work log. Restoring it would put an empty duplicate back in the inbox
+                # and start it collecting again alongside the report it was folded into.
+                if was_merged_away(report):
+                    return (
+                        SignalReportBulkStateOutcome.SKIPPED,
+                        "This report was merged into another one and can't be restored. Open the report it was "
+                        "merged into instead.",
                     )
                 effective_target = report.restore_target_status()
 

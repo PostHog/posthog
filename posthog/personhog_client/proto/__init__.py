@@ -68,8 +68,11 @@ from personhog.types.v1.group_pb2 import (
 from personhog.types.v1.person_pb2 import (
     DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse,
+    DeletePersonsMode,
     DeletePersonsRequest,
     DeletePersonsResponse,
+    TombstonedDistinctId,
+    TombstonedPerson,
     DeleteTombstonedPersonsRequest,
     DeleteTombstonedPersonsResponse,
     GetDistinctIdsForPersonRequest,

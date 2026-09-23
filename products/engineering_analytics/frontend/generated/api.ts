@@ -128,7 +128,7 @@ export const getEngineeringAnalyticsBrokenTestsUrl = (
 }
 
 /**
- * The broken-tests triage panel: live CI failures over the last 2 days grouped into distinct failures (by test id + normalized error signature) and classified by how each is behaving right now — breaking trunk, blocking the merge queue, a new failure spreading across branches, probably-resolved, flaky, or one PR's own problem — ranked with the most urgent first. A blocking_merge_queue row is a failure on a merge-queue gate branch that never hit trunk: the commit had already passed the PR's own CI, so it is the semantic conflict the queue exists to catch, and it is holding up landings. Also returns breaking_master_jobs, the default-branch jobs whose latest run is red. Reach for this to answer 'what CI failures should I care about right now'; expand a row's latest_run_id via run_failure_logs for the failing lines. Fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the breaking/resolved distinction needs the job-level source synced — without it those failures fall through to flaky/pr_only rather than being misreported.
+ * The broken-tests triage panel: live CI failures over the last 2 days grouped into distinct failures (by test id + normalized error signature) and classified by how each is behaving right now: breaking trunk, blocking the merge queue, a new failure spreading across branches, probably-resolved, flaky, or one PR's own problem: ranked with the most urgent first. A blocking_merge_queue row is a failure on a merge-queue gate branch that never hit trunk: the commit had already passed the PR's own CI, so it is the semantic conflict the queue exists to catch, and it is holding up landings. Also returns breaking_master_jobs, the default-branch jobs whose latest run is red. Reach for this to answer 'what CI failures should I care about right now'; expand a row's latest_run_id via run_failure_logs for the failing lines. Fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the breaking/resolved distinction needs the job-level source synced: without it those failures fall through to flaky/pr_only rather than being misreported.
  */
 export const engineeringAnalyticsBrokenTests = async (
     projectId: string,
@@ -366,7 +366,7 @@ export const getEngineeringAnalyticsDoraUrl = (projectId: string, params?: Engin
 }
 
 /**
- * DORA-style deploy metrics over the GitHub deployments + deployment_statuses warehouse pair, each headline with its previous-window twin: deployment frequency, merge-to-deploy lead time (with a per-bucket box-plot series), and honest proxies for change failure rate and time to restore (deploy-status based — no incident data is linked). deploy_data_available is false when the deploy tables aren't synced.
+ * DORA-style deploy metrics over the GitHub deployments + deployment_statuses warehouse pair, each headline with its previous-window twin: deployment frequency, merge-to-deploy lead time (with a per-bucket box-plot series), and honest proxies for change failure rate and time to restore (deploy-status based: no incident data is linked). deploy_data_available is false when the deploy tables aren't synced.
  */
 export const engineeringAnalyticsDora = async (
     projectId: string,
@@ -432,7 +432,7 @@ export const getEngineeringAnalyticsJobAggregatesUrl = (
 }
 
 /**
- * Per-job aggregates for one workflow over a window (default -30d), one row per de-sharded job name (matrix shards aggregate together), busiest first: queue p50, duration p50/p95, failure rate, retry pressure, run share (below 1.0 = conditional job), and billable cost. Optionally scope to a single git branch via `branch` or one run group via `run_scope`. Jobs always need their run as context — this is the aggregate view; use workflow_jobs for one run's jobs. Empty when the job-level source isn't synced.
+ * Per-job aggregates for one workflow over a window (default -30d), one row per de-sharded job name (matrix shards aggregate together), busiest first: queue p50, duration p50/p95, failure rate, retry pressure, run share (below 1.0 = conditional job), and billable cost. Optionally scope to a single git branch via `branch` or one run group via `run_scope`. Jobs always need their run as context: this is the aggregate view; use workflow_jobs for one run's jobs. Empty when the job-level source isn't synced.
  */
 export const engineeringAnalyticsJobAggregates = async (
     projectId: string,
@@ -465,7 +465,7 @@ export const getEngineeringAnalyticsMasterFailuresUrl = (
 }
 
 /**
- * Default-branch failures over a window (default -24h), grouped error-tracking style by (workflow, de-sharded failing job) with a run count and first/last seen, newest group first. `branch` overrides the detected default branch. PR-branch failures are deliberately excluded — at monorepo volume a flat feed is a firehose; those surface per PR. Groups degrade to workflow level (failed_job '') when the job-level source isn't synced.
+ * Default-branch failures over a window (default -24h), grouped error-tracking style by (workflow, de-sharded failing job) with a run count and first/last seen, newest group first. `branch` overrides the detected default branch. PR-branch failures are deliberately excluded: at monorepo volume a flat feed is a firehose; those surface per PR. Groups degrade to workflow level (failed_job '') when the job-level source isn't synced.
  */
 export const engineeringAnalyticsMasterFailures = async (
     projectId: string,
@@ -495,7 +495,7 @@ export const getEngineeringAnalyticsPrCostUrl = (projectId: string, params: Engi
 }
 
 /**
- * Estimated CI cost for a pull request, summed over the jobs of all its workflow runs. Billable self-hosted Linux runners only — provider-hosted (free GitHub-hosted) and non-Linux jobs are excluded. Every figure is zero/null with `jobs_available` false when the job-level source isn't synced yet. `llm_spend` carries the agent LLM token spend attributed to the PR by git branch, or null when no `$ai_generation` event matched.
+ * Estimated CI cost for a pull request, summed over the jobs of all its workflow runs. Billable self-hosted Linux runners only: provider-hosted (free GitHub-hosted) and non-Linux jobs are excluded. Every figure is zero/null with `jobs_available` false when the job-level source isn't synced yet. `llm_spend` carries the agent LLM token spend attributed to the PR by git branch, or null when no `$ai_generation` event matched.
  */
 export const engineeringAnalyticsPrCost = async (
     projectId: string,
@@ -624,7 +624,7 @@ export const getEngineeringAnalyticsPullRequestsUrl = (
 }
 
 /**
- * Open pull requests plus any merged or closed since date_from (default -30d), newest first, each with its head-SHA CI rollup. The list is capped; when more match, `truncated` is true and the ci_cards counts can exceed it. open_to_merge_seconds is coarse — it fuses draft and ready-for-review time; CI counts can lag until late completions settle.
+ * Open pull requests plus any merged or closed since date_from (default -30d), newest first, each with its head-SHA CI rollup. The list is capped; when more match, `truncated` is true and the ci_cards counts can exceed it. open_to_merge_seconds is coarse: it fuses draft and ready-for-review time; CI counts can lag until late completions settle.
  */
 export const engineeringAnalyticsPullRequests = async (
     projectId: string,
@@ -657,7 +657,7 @@ export const getEngineeringAnalyticsQuarantineUrl = (
 }
 
 /**
- * The repository's checked-in .test_quarantine.json: flaky tests temporarily quarantined with a hard expiry, classified by urgency (overdue, in grace, expiring soon, active). `available` is false when the repo has no quarantine file — that is not an error. Parsing is fail-open: malformed entries are reported in parse_errors while well-formed ones are kept.
+ * The repository's checked-in .test_quarantine.json: flaky tests temporarily quarantined with a hard expiry, classified by urgency (overdue, in grace, expiring soon, active). `available` is false when the repo has no quarantine file: that is not an error. Parsing is fail-open: malformed entries are reported in parse_errors while well-formed ones are kept.
  * @summary Flaky-test quarantine file
  */
 export const engineeringAnalyticsQuarantine = async (
@@ -676,7 +676,7 @@ export const getEngineeringAnalyticsQuarantineRequestUrl = (projectId: string) =
 }
 
 /**
- * Opens a pull request that edits the repository's checked-in .test_quarantine.json — and, for a new quarantine, a tracking issue the PR links but does not close. The file stays the source of truth that CI enforces; this never bypasses it. A quarantine only affects CI runs that start after the PR merges.
+ * Opens a pull request that edits the repository's checked-in .test_quarantine.json and, for a new quarantine, opens a tracking issue that the PR links but does not close. The file stays the source of truth that CI enforces; this never bypasses it. A quarantine only affects CI runs that start after the PR merges.
  * @summary Quarantine, extend, or unquarantine a flaky test
  */
 export const engineeringAnalyticsQuarantineRequest = async (
@@ -712,7 +712,7 @@ export const getEngineeringAnalyticsRepoOverviewUrl = (
 }
 
 /**
- * Repo-level headline aggregates over a window (default -30d): run count, conclusive-run success rate, re-run cycles, merged-PR count (bots included), median PR open-to-merge (bots and drafts excluded; coarse — draft and ready time fused), median time-to-green, billable minutes + estimated cost (with the merge-queue slice of billable minutes broken out), and merge-queue landing stats (queue-landed merges, first-gate-to-merge median and p90, gate attempts, failed-gate share) — each with its equal-length previous-window twin so a caller can render honest deltas. Also carries the detected default branch and its completed-run history series (skippable via include_series=false). Cost figures are null until the job-level source is synced.
+ * Repo-level headline aggregates over a window (default -30d): run count, conclusive-run success rate, re-run cycles, merged-PR count (bots included), median PR open-to-merge (bots and drafts excluded; coarse: draft and ready time fused), median time-to-green, billable minutes + estimated cost (with the merge-queue slice of billable minutes broken out), and merge-queue landing stats (queue-landed merges, first-gate-to-merge median and p90, gate attempts, failed-gate share): each with its equal-length previous-window twin so a caller can render honest deltas. Also carries the detected default branch and its completed-run history series (skippable via include_series=false). Cost figures are null until the job-level source is synced.
  */
 export const engineeringAnalyticsRepoOverview = async (
     projectId: string,
@@ -778,7 +778,7 @@ export const getEngineeringAnalyticsResolveBranchUrl = (
 }
 
 /**
- * Resolve a git branch to the pull request(s) it belongs to — the cross-product link seam so another product (the LLM analytics UI) can turn a git branch into a PR detail link. Matches the PR's head ref, open PRs first then most recently updated. Pass `timestamp` (the trace's capture time) to prefer the PR that was active at that moment when a branch name has been reused across PRs. `branch` is required. Returns a possibly-empty, possibly-multi list — an empty list is a valid 200 (the caller renders a plain chip).
+ * Resolve a git branch to the pull request(s) it belongs to: the cross-product link seam so another product (the LLM analytics UI) can turn a git branch into a PR detail link. Matches the PR's head ref, open PRs first then most recently updated. Pass `timestamp` (the trace's capture time) to prefer the PR that was active at that moment when a branch name has been reused across PRs. `branch` is required. Returns a possibly-empty, possibly-multi list: an empty list is a valid 200 (the caller renders a plain chip).
  */
 export const engineeringAnalyticsResolveBranch = async (
     projectId: string,
@@ -811,7 +811,7 @@ export const getEngineeringAnalyticsRunFailureLogsUrl = (
 }
 
 /**
- * The thinned CI failure logs of one workflow run, grouped by failed job — the run-scoped twin of ci_failure_logs for surfaces that aren't PR-scoped (default-branch failures, the run page). logs_available is false when the run didn't fail or its logs aged out of the short Logs retention.
+ * The thinned CI failure logs of one workflow run, grouped by failed job: the run-scoped twin of ci_failure_logs for surfaces that aren't PR-scoped (default-branch failures, the run page). logs_available is false when the run didn't fail or its logs aged out of the short Logs retention.
  */
 export const engineeringAnalyticsRunFailureLogs = async (
     projectId: string,
@@ -829,7 +829,7 @@ export const getEngineeringAnalyticsSourcesUrl = (projectId: string) => {
 }
 
 /**
- * The team's selectable GitHub repositories, oldest source first — one entry per repository a source is configured to sync, so a source syncing several repositories appears once per repo. Populate a repo picker from this and pass a chosen entry's `id` back as `source_id` and its `repo` back as `repo` to the other endpoints. Includes repositories whose tables aren't fully synced yet.
+ * The team's selectable GitHub repositories, oldest source first: one entry per repository a source is configured to sync, so a source syncing several repositories appears once per repo. Populate a repo picker from this and pass a chosen entry's `id` back as `source_id` and its `repo` back as `repo` to the other endpoints. Includes repositories whose tables aren't fully synced yet.
  */
 export const engineeringAnalyticsSources = async (
     projectId: string,
@@ -960,7 +960,7 @@ export const getEngineeringAnalyticsTrunkQuarantineUrl = (
 }
 
 /**
- * The standing Trunk quarantine debt: every test Trunk currently quarantines (failures suppressed in CI), attributed to the team that owns its file in the repository, aged against a TTL, and rolled up per team with the most indebted first. A quarantine only masks a test; it never fixes it, so this is the work queue of tests someone still has to repair or delete. `available` is false when no TrunkIo source has the QuarantinedTests endpoint synced — that is not an error.
+ * The standing Trunk quarantine debt: every test Trunk currently quarantines (failures suppressed in CI), attributed to the team that owns its file in the repository, aged against a TTL, and rolled up per team with the most indebted first. A quarantine only masks a test; it never fixes it, so this is the work queue of tests someone still has to repair or delete. `available` is false when no TrunkIo source has the QuarantinedTests endpoint synced: that is not an error.
  * @summary Trunk quarantine debt by owning team
  */
 export const engineeringAnalyticsTrunkQuarantine = async (
@@ -994,7 +994,7 @@ export const getEngineeringAnalyticsWorkflowHealthUrl = (
 }
 
 /**
- * Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. Success rate covers runs that succeeded or ended in a decisive failure. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over successful runs only, so cancelled (superseded) and failed runs never bias the duration trend. Optionally scope to a single git branch via `branch`, to one workflow via `workflow_name`, or to one run group via `run_scope` (default_branch, pull_request, merge_queue). Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
+ * Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. Success rate covers runs that succeeded or ended in a decisive failure. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over successful runs only, so cancelled (superseded) and failed runs never bias the duration trend. Runs under 10 seconds that did no work are excluded when longer successful runs exist. An all-fast workflow uses every successful run. Optionally scope to a single git branch via `branch`, to one workflow via `workflow_name`, or to one run group via `run_scope` (default_branch, pull_request, merge_queue). Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
  */
 export const engineeringAnalyticsWorkflowHealth = async (
     projectId: string,
@@ -1060,7 +1060,7 @@ export const getEngineeringAnalyticsWorkflowRunUrl = (
 }
 
 /**
- * A single workflow run: status, conclusion, duration, branch, attempt, and the attributed pull request. Run-level only — per-job and per-step detail are not tracked yet.
+ * A single workflow run: status, conclusion, duration, branch, attempt, and the attributed pull request. Run-level only: per-job and per-step detail are not tracked yet.
  */
 export const engineeringAnalyticsWorkflowRun = async (
     projectId: string,
@@ -1159,7 +1159,7 @@ export const getEngineeringAnalyticsWorkflowRunsUrl = (
 }
 
 /**
- * Runs of a single workflow within a repo over a window (date_from default -30d), newest first. Optionally scope to a single git branch via `branch` or to one run group via `run_scope`. Each row is run-level — per-job and per-step detail are not tracked yet. Use this as the GitHub 'workflow' page between the workflow list and a single run.
+ * Runs of a single workflow within a repo over a window (date_from default -30d), newest first. Optionally scope to a single git branch via `branch` or to one run group via `run_scope`. Each row is run-level: per-job and per-step detail are not tracked yet. Use this as the GitHub 'workflow' page between the workflow list and a single run.
  */
 export const engineeringAnalyticsWorkflowRuns = async (
     projectId: string,

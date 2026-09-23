@@ -76,6 +76,7 @@ dependencies = [
     "jsonref==1.1.0",
     "kafka-python==2.3.0",
     "kombu==5.6.2",
+    "jsonpatch~=1.33",
     "langchain~=0.3.27",
     "langchain-community~=0.3.31",
     "langchain-core~=0.3.81",

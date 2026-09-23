@@ -16,9 +16,11 @@ from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+import requests
 import structlog
 from celery import shared_task
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import get_instance_setting
 
@@ -29,9 +31,11 @@ from products.stamphog.backend.activity_logging import (
     log_repo_configs_disabled_by_webhook,
     suppress_created_activity,
 )
+from products.stamphog.backend.facade.contracts import ReviewRequestRefusedError, StamphogGitHubError
 from products.stamphog.backend.facade.enums import (
     TERMINAL_STATUSES,
     ReviewMode,
+    ReviewRequestRefusal,
     ReviewRunStatus,
     ReviewTrigger,
     ReviewVerdict,
@@ -1403,6 +1407,98 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
         _mark_pr_event_processed(delivery_id)
 
 
+def _reviewable_repo_config(team_id: int, repository: str) -> StamphogRepoConfig | None:
+    """The team's enabled config for ``repository`` that was bound through the verified sync flow.
+
+    Writer-pinned like every read that gates run creation (reader-lag invariant). Matched
+    case-insensitively because callers pass repository names in whatever casing they hold, while
+    configs keep GitHub's casing.
+    """
+    return (
+        StamphogRepoConfig.objects.for_team(team_id)
+        .using(router.db_for_write(StamphogRepoConfig))
+        .filter(provider="github", repository__iexact=repository, enabled=True, connected_by_user_id__isnull=False)
+        .exclude(installation_id="")
+        .order_by("created_at", "id")
+        .first()
+    )
+
+
+def _reviewed_base_ref(run: ReviewRun) -> str:
+    """The base branch the run reviewed against, or "" before the workflow recorded the PR."""
+    reviewed_pr = (run.output or {}).get("pr") or {}
+    return (reviewed_pr.get("base") or {}).get("ref") or ""
+
+
+@frozen
+class _HeadQueueResult:
+    """What ``_queue_review_at_head`` did for one PR head."""
+
+    # None when a newer PR snapshot already committed, so this caller's head is stale.
+    run: ReviewRun | None
+    created: bool
+
+
+def _queue_review_at_head(
+    repo_config: StamphogRepoConfig, pr: dict[str, Any], head_sha: str, *, output: dict[str, Any]
+) -> _HeadQueueResult:
+    """Create a QUEUED run for the PR's current head, or return the run that already covers it.
+
+    Shared by the entries that fetch the PR from GitHub themselves rather than receive a webhook
+    payload. Same transaction and on_commit shape as ``process_pull_request_event``. A live or
+    delivered run at this head is returned as is, and a QUEUED one lost its workflow start, so its
+    workflow restarts on commit. Otherwise older live runs are superseded and a fresh run starts
+    once the row commits. Errors propagate so the caller can retry or report them.
+    """
+    team_id = repo_config.team_id
+    run_write_db = router.db_for_write(ReviewRun)
+    with transaction.atomic(using=run_write_db):
+        pr_obj = _upsert_pull_request(repo_config, pr)
+        # This fetch raced a push and a newer webhook snapshot already committed, so superseding
+        # its run for this older head would cancel the up-to-date review.
+        incoming_updated_at = parse_datetime(pr.get("updated_at") or "")
+        if (
+            incoming_updated_at is not None
+            and pr_obj.payload_updated_at is not None
+            and pr_obj.payload_updated_at > incoming_updated_at
+        ):
+            return _HeadQueueResult(run=None, created=False)
+        # Dedupe repeat requests against the current head; the row lock serializes races.
+        existing = (
+            ReviewRun.objects.for_team(team_id)
+            .using(run_write_db)
+            .select_for_update()
+            .filter(pull_request=pr_obj, head_sha=head_sha)
+            .exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
+            .order_by("-created_at")
+            .first()
+        )
+        # A retarget changes the diff without moving the head, and in label mode no webhook run
+        # replaces the old verdict. A run that reviewed another base branch does not cover this one.
+        reviewed_base_ref = _reviewed_base_ref(existing) if existing is not None else ""
+        if reviewed_base_ref and reviewed_base_ref != (pr.get("base") or {}).get("ref"):
+            existing = None
+        if existing is not None:
+            if existing.status == ReviewRunStatus.QUEUED:
+                existing_run_id = str(existing.id)
+                transaction.on_commit(lambda: _start_review_workflow(existing_run_id, team_id), using=run_write_db)
+            return _HeadQueueResult(run=existing, created=False)
+        _supersede_prior_runs(pr_obj)
+        review_run = ReviewRun.objects.for_team(team_id).create(
+            team_id=team_id,
+            pull_request=pr_obj,
+            head_sha=head_sha,
+            delivery_id=None,
+            status=ReviewRunStatus.QUEUED,
+            output=output,
+        )
+        review_run_id = str(review_run.id)
+        # A post-commit start failure propagates to the caller. A retry re-enters through the
+        # dedupe above and restarts the still-QUEUED run.
+        transaction.on_commit(lambda: _start_review_workflow(review_run_id, team_id), using=run_write_db)
+    return _HeadQueueResult(run=review_run, created=True)
+
+
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
 def process_inbox_pr_review(
     team_id: int, pr_url: str, repository: str, acting_user_id: int, signal_report_id: str, task_run_id: str
@@ -1446,18 +1542,9 @@ def process_inbox_pr_review(
         )
         return
 
-    # Writer-pinned like every read that gates run creation (reader-lag invariant); iexact because
-    # tasks stores repository slugs lowercased while configs keep GitHub's casing.
-    write_db = router.db_for_write(StamphogRepoConfig)
+    # iexact because tasks stores repository slugs lowercased while configs keep GitHub's casing.
     try:
-        repo_config = (
-            StamphogRepoConfig.objects.for_team(team_id)
-            .using(write_db)
-            .filter(provider="github", repository__iexact=repository, enabled=True, connected_by_user_id__isnull=False)
-            .exclude(installation_id="")
-            .order_by("created_at", "id")
-            .first()
-        )
+        repo_config = _reviewable_repo_config(team_id, repository)
     except Exception as e:
         logger.exception("stamphog_inbox_pr_config_resolution_failed", team_id=team_id, error=str(e))
         raise cast(Any, process_inbox_pr_review).retry(exc=e)
@@ -1524,65 +1611,130 @@ def process_inbox_pr_review(
         "task_run_id": str(linked.run_id),
         "acting_user_id": acting_reviewer_id,
     }
-    # Same transaction/on_commit shape as the webhook path (see process_pull_request_event).
-    run_write_db = router.db_for_write(ReviewRun)
     try:
-        with transaction.atomic(using=run_write_db):
-            pr_obj = _upsert_pull_request(repo_config, pr)
-            # This fetch raced a push and a newer webhook snapshot already committed, so superseding
-            # its run for this older head would cancel the up-to-date review.
-            incoming_updated_at = parse_datetime(pr.get("updated_at") or "")
-            if (
-                incoming_updated_at is not None
-                and pr_obj.payload_updated_at is not None
-                and pr_obj.payload_updated_at > incoming_updated_at
-            ):
-                logger.info("stamphog_inbox_pr_stale_snapshot", repository=repository, pr_number=pr_number)
-                return
-            # Dedupe repeat fires against the current head; the row lock serializes races. A live or
-            # delivered run is already handled; a QUEUED one lost its workflow start, so restart it.
-            existing = (
-                ReviewRun.objects.for_team(team_id)
-                .using(run_write_db)
-                .select_for_update()
-                .filter(pull_request=pr_obj, head_sha=head_sha)
-                .exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
-                .order_by("-created_at")
-                .first()
-            )
-            if existing is not None:
-                if existing.status == ReviewRunStatus.QUEUED:
-                    existing_run_id = str(existing.id)
-                    transaction.on_commit(lambda: _start_review_workflow(existing_run_id, team_id), using=run_write_db)
-                logger.info(
-                    "stamphog_inbox_pr_already_reviewed",
-                    repository=repository,
-                    pr_number=pr_number,
-                    existing_status=existing.status,
-                )
-                return
-            _supersede_prior_runs(pr_obj)
-            review_run = ReviewRun.objects.for_team(team_id).create(
-                team_id=team_id,
-                pull_request=pr_obj,
-                head_sha=head_sha,
-                delivery_id=None,
-                status=ReviewRunStatus.QUEUED,
-                # Always self-driving on this leg: it exists only for inbox-linked PRs.
-                output={"inbox_review": inbox_review, "review_trigger": ReviewTrigger.SELF_DRIVING.value},
-            )
-            review_run_id = str(review_run.id)
-            # A post-commit start failure propagates into the retry below; the retry re-enters
-            # through the dedupe above and restarts the still-QUEUED run.
-            transaction.on_commit(lambda: _start_review_workflow(review_run_id, team_id), using=run_write_db)
+        queued = _queue_review_at_head(
+            repo_config,
+            pr,
+            head_sha,
+            # Always self-driving on this leg: it exists only for inbox-linked PRs.
+            output={"inbox_review": inbox_review, "review_trigger": ReviewTrigger.SELF_DRIVING.value},
+        )
     except Exception as e:
         logger.exception("stamphog_inbox_pr_create_run_failed", repository=repository, pr_number=pr_number)
         raise cast(Any, process_inbox_pr_review).retry(exc=e)
+    if queued.run is None:
+        logger.info("stamphog_inbox_pr_stale_snapshot", repository=repository, pr_number=pr_number)
+        return
+    if not queued.created:
+        logger.info(
+            "stamphog_inbox_pr_already_reviewed",
+            repository=repository,
+            pr_number=pr_number,
+            existing_status=queued.run.status,
+        )
+        return
 
     logger.info(
         "stamphog_inbox_pr_review_queued",
         repository=repository,
         pr_number=pr_number,
-        review_run_id=review_run_id,
+        review_run_id=str(queued.run.id),
         team_id=team_id,
     )
+
+
+_MANUAL_SKIP_MESSAGES = {
+    "draft": "Stamphog does not review draft pull requests. Mark the pull request as ready for review, then request again.",
+    "bot_author": "Stamphog does not review pull requests opened by bots. This change needs a human reviewer.",
+    "untrusted_author_association": "Stamphog only reviews pull requests from members and collaborators of the repository.",
+}
+
+# Transport-level GitHub failures. StamphogGitHubError is caught next to each call instead, because a
+# 404 on the PR fetch is a refusal of its own rather than an outage.
+_GITHUB_ERRORS = (GitHubRateLimitError, requests.RequestException)
+
+
+def _github_unavailable(repo: str, pr_number: int) -> ReviewRequestRefusedError:
+    logger.warning("stamphog_manual_review_github_failed", repository=repo, pr_number=pr_number, exc_info=True)
+    return ReviewRequestRefusedError(
+        ReviewRequestRefusal.GITHUB_UNAVAILABLE,
+        "Stamphog could not reach GitHub to check this request. Try again in a minute.",
+    )
+
+
+@frozen
+class QueuedReview:
+    """The run a manual review request points at, and whether the request created it."""
+
+    run: ReviewRun
+    created: bool
+
+
+def request_manual_review(team_id: int, user_id: int | None, repository: str, pr_number: int) -> QueuedReview:
+    """Queue a review of one PR because a PostHog user asked for it, and return the run that covers it.
+
+    The request stands in for the trigger label, so it bypasses the repo's review mode and nothing
+    else. Every other webhook gate still applies: open state, the draft, bot-author and
+    author-association pre-filters, and the PR author's own write access. No refusal here touches
+    GitHub, and a queued run enters the workflow through its dismiss-first step like every other run.
+
+    Runs synchronously in the API request, so the caller learns right away why a request was
+    refused. Raises ``ReviewRequestRefusedError`` with a message written for the requester.
+    """
+    repo_config = _reviewable_repo_config(team_id, repository)
+    if repo_config is None:
+        raise ReviewRequestRefusedError(
+            ReviewRequestRefusal.NOT_FOUND,
+            f"Stamphog is not connected and enabled for {repository} in this project. "
+            "Connect the repository in Stamphog settings and turn on reviews first.",
+        )
+    repo = repo_config.repository
+    try:
+        pr = StamphogGitHubClient(repo_config.installation_id).get_pr(repo, pr_number)
+    except StamphogGitHubError as e:
+        if e.status_code == 404:
+            raise ReviewRequestRefusedError(
+                ReviewRequestRefusal.NOT_FOUND, f"Pull request #{pr_number} was not found in {repo}."
+            )
+        raise _github_unavailable(repo, pr_number) from e
+    except _GITHUB_ERRORS as e:
+        raise _github_unavailable(repo, pr_number) from e
+    if (pr.get("state") or "") != "open":
+        raise ReviewRequestRefusedError(
+            ReviewRequestRefusal.NOT_REVIEWABLE,
+            f"Pull request #{pr_number} is closed, so Stamphog will not review it.",
+        )
+    skip_reason = _review_skip_reason(pr)
+    if skip_reason is not None:
+        raise ReviewRequestRefusedError(ReviewRequestRefusal.NOT_REVIEWABLE, _MANUAL_SKIP_MESSAGES[skip_reason])
+    try:
+        author_below_write = _author_lacks_write_permission(repo_config, repo, pr)
+    except (StamphogGitHubError, *_GITHUB_ERRORS) as e:
+        raise _github_unavailable(repo, pr_number) from e
+    if author_below_write:
+        raise ReviewRequestRefusedError(
+            ReviewRequestRefusal.NOT_REVIEWABLE,
+            f"The author of pull request #{pr_number} does not have write access to {repo}, "
+            "so Stamphog will not review it.",
+        )
+
+    queued = _queue_review_at_head(
+        repo_config,
+        pr,
+        pr["head"]["sha"],
+        output={"manual_review": {"acting_user_id": user_id}, "review_trigger": ReviewTrigger.MANUAL.value},
+    )
+    if queued.run is None:
+        raise ReviewRequestRefusedError(
+            ReviewRequestRefusal.NOT_REVIEWABLE,
+            f"Pull request #{pr_number} changed while the request was checked. Request the review again.",
+        )
+    logger.info(
+        "stamphog_manual_review_requested",
+        repository=repo,
+        pr_number=pr_number,
+        review_run_id=str(queued.run.id),
+        created=queued.created,
+        team_id=team_id,
+    )
+    return QueuedReview(run=queued.run, created=queued.created)
