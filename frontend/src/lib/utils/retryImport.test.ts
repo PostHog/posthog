@@ -1,5 +1,5 @@
 import { isChunkLoadError } from './isChunkLoadError'
-import { retryImport } from './retryImport'
+import { retryImport, retryReloadableImport } from './retryImport'
 
 describe('retryImport', () => {
     beforeEach(() => {
@@ -47,26 +47,43 @@ describe('retryImport', () => {
         expect(factory).toHaveBeenCalledTimes(3)
     })
 
-    it.each([
+    const minifiedEvaluationErrors: [string, string][] = [
         ['V8 call shape', 'g is not a function'],
         ['Firefox property access', `can't access property "message", _ is undefined`],
-    ])('marks a minified module-evaluation TypeError without retrying (%s)', async (_name, message) => {
-        const error = new TypeError(message)
-        const factory = jest.fn().mockRejectedValue(error)
+    ]
 
-        await expect(retryImport(factory)).rejects.toBe(error)
-        expect(factory).toHaveBeenCalledTimes(1)
-        expect(isChunkLoadError(error)).toBe(true)
-    })
+    it.each(minifiedEvaluationErrors)(
+        'marks a minified module-evaluation TypeError on a reloadable import without retrying (%s)',
+        async (_name, message) => {
+            const error = new TypeError(message)
+            const factory = jest.fn().mockRejectedValue(error)
+
+            await expect(retryReloadableImport(factory)).rejects.toBe(error)
+            expect(factory).toHaveBeenCalledTimes(1)
+            expect(isChunkLoadError(error)).toBe(true)
+        }
+    )
+
+    it.each(minifiedEvaluationErrors)(
+        'leaves a minified module-evaluation TypeError unmarked on an ordinary import (%s)',
+        async (_name, message) => {
+            const error = new TypeError(message)
+            const factory = jest.fn().mockRejectedValue(error)
+
+            await expect(retryImport(factory)).rejects.toBe(error)
+            expect(factory).toHaveBeenCalledTimes(1)
+            expect(isChunkLoadError(error)).toBe(false)
+        }
+    )
 
     it.each([
         ['a multi-character subject', 'undefined is not a function'],
         ['a subject-free property access', `Cannot read properties of undefined (reading 'message')`],
-    ])('rethrows a non-chunk error immediately without retrying (%s)', async (_name, message) => {
+    ])('leaves an unrelated TypeError unmarked on a reloadable import (%s)', async (_name, message) => {
         const error = new TypeError(message)
         const factory = jest.fn().mockRejectedValue(error)
 
-        await expect(retryImport(factory)).rejects.toBe(error)
+        await expect(retryReloadableImport(factory)).rejects.toBe(error)
         expect(factory).toHaveBeenCalledTimes(1)
         expect(isChunkLoadError(error)).toBe(false)
     })

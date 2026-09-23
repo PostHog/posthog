@@ -45,11 +45,6 @@ export async function retryImport<T>(factory: () => T, retries = 2, baseDelayMs 
     try {
         return await factory()
     } catch (error) {
-        if (isMinifiedModuleEvaluationError(error)) {
-            // No retry: the chunk already loaded, so a re-attempt evaluates the same stale binding.
-            markAsChunkLoadError(error)
-            throw error
-        }
         if (!isChunkLoadError(error) && !isGenericNetworkTypeError(error)) {
             throw error
         }
@@ -64,13 +59,36 @@ export async function retryImport<T>(factory: () => T, retries = 2, baseDelayMs 
 }
 
 /**
+ * `retryImport` for an import a full-page reload can recover: the app boot modules, and the
+ * per-route scene chunks.
+ *
+ * A stale evaluation in either one leaves no working app around the failure, so these two alone
+ * accept the `isMinifiedModuleEvaluationError` guess: a wrong guess costs a reload of a page the
+ * user cannot use. Every other caller keeps the original error, so an ordinary bug in a module's
+ * top-level code still reports rather than turning into a reload.
+ *
+ * There is no retry for this class: the chunk already loaded, so a re-attempt evaluates the same
+ * stale binding.
+ */
+export async function retryReloadableImport<T>(factory: () => T): Promise<Awaited<T>> {
+    try {
+        return await retryImport(factory)
+    } catch (error) {
+        if (isMinifiedModuleEvaluationError(error)) {
+            markAsChunkLoadError(error)
+        }
+        throw error
+    }
+}
+
+/**
  * Drop-in replacement for `React.lazy` that retries a transient chunk-load failure before giving up.
  *
  * Lazily-loaded chunks are content-hashed per deploy, so a tab opened before a deploy can fail to
  * fetch a now-deleted chunk ("Failed to fetch dynamically imported module"). `retryImport` re-attempts
  * the import a few times (preserving page state) before the error propagates to `ChunkLoadErrorBoundary`
- * for a one-time reload. This is the same wrapping the scene loader (`sceneLogic`) and the root `App`
- * lazy import already use; this helper just makes it the easy default for any lazily-loaded component.
+ * for a one-time reload. This is the same wrapping the root `App` lazy import already uses; this
+ * helper just makes it the easy default for any lazily-loaded component.
  *
  * Prefer this over `lazy(() => import(...))`.
  */
