@@ -113,11 +113,15 @@ from posthog.query_cache.storage import entry_redis_key
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.types import SloOutcome
+from posthog.utils import generate_cache_key, to_json
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.revenue_analytics.backend.views.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -796,6 +800,50 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
 
         assert "restricted_objects" not in runner.get_cache_payload()
+
+    @time_machine.travel("2023-02-04T13:37:42Z", tick=False)
+    def test_restricted_user_does_not_receive_pre_enforcement_cached_results(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team, name="$ai_input", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=property_definition,
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        runner = self.setup_test_query_runner_class()(query={"some_attr": "bla"}, team=self.team, user=self.user)
+        legacy_payload = runner.get_cache_payload()
+        legacy_payload.pop("property_access_control_version", None)
+        legacy_cache_key = generate_cache_key(self.team.pk, f"query_{to_json(legacy_payload).decode()}")
+        now = datetime.now(tz=UTC)
+        legacy_response = TheTestCachedBasicQueryResponse(
+            results=[["private prompt"]],
+            cache_key=legacy_cache_key,
+            is_cached=False,
+            last_refresh=now,
+            next_allowed_client_refresh=now + timedelta(minutes=4),
+            timezone=self.team.timezone,
+        )
+        legacy_cache = QueryCache(team_id=self.team.pk, cache_key=legacy_cache_key)
+        assert legacy_cache.store_result(response=legacy_response.model_dump(), target_age=None)
+        legacy_entry = legacy_cache.lookup().entry
+        assert legacy_entry is not None
+        stored_response = legacy_entry.as_full_response()
+        assert stored_response is not None
+        assert stored_response["results"] == [["private prompt"]]
+
+        response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+        assert isinstance(response, CacheMissResponse)
+
+        response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        assert isinstance(response, TheTestCachedBasicQueryResponse)
+        assert response.is_cached is False
+        assert response.results[0] == ["row", 1, 2, 3]
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):

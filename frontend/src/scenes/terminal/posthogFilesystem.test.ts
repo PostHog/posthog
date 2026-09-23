@@ -71,6 +71,145 @@ describe('PostHog filesystem projection', () => {
         jest.mocked(notebooksRetrieve).mockResolvedValue(notebook)
     })
 
+    it('loads only browsed folders, shares pending requests, and refreshes visited directories', async () => {
+        let entries = [
+            entry('research', 'Research', 'folder'),
+            entry('other', 'Other', 'folder'),
+            entry('nested', 'Research/Nested', 'folder'),
+            entry('note1', 'Research/Notes'),
+            entry('12', 'Other/Dashboard', 'dashboard'),
+        ]
+        jest.mocked(fileSystemList).mockImplementation(async (_, params) => {
+            const { parent, depth, type } = params as { parent?: string; depth?: number; type?: string }
+            const results = entries.filter((item) =>
+                type
+                    ? item.type === type
+                    : item.path.split('/').length === depth && item.path.split('/').slice(0, -1).join('/') === parent
+            )
+            return { count: results.length, results }
+        })
+        const fs = new PosthogFilesystem('42', new AbortController().signal)
+        const server = new NinePServer(fs, jest.fn())
+        const request = async (type: number, body: NinePWriter): Promise<NinePReader> => {
+            const bytes = await new Promise<Uint8Array>((resolve) => server.handle(body.frame(type, 1), resolve))
+            const response = new NinePReader(bytes)
+            response.number(4)
+            expect(response.number(1)).toBe(type + 1)
+            response.number(2)
+            return response
+        }
+        await request(104, new NinePWriter().number(1, 4).number(0xffffffff, 4).string('root').string(''))
+        await request(110, new NinePWriter().number(1, 4).number(2, 4).number(1, 2).string('files'))
+        expect(fileSystemList).not.toHaveBeenCalled()
+        await request(40, new NinePWriter().number(2, 4).number(0, 8).number(4096, 4))
+        expect(fileSystemList).toHaveBeenCalledTimes(1)
+        expect(fileSystemList).toHaveBeenLastCalledWith(
+            '42',
+            { parent: '', depth: 1, limit: 500, offset: 0 },
+            expect.anything()
+        )
+        expect(notebooksList).not.toHaveBeenCalled()
+        const files = fs.root.children!.get('files')!
+        const research = files.children!.get('Research')!
+        expect(research.children!.size).toBe(0)
+        await Promise.all([research.loadChildren!(), research.loadChildren!()])
+        expect(fileSystemList).toHaveBeenCalledTimes(2)
+        expect(fileSystemList).toHaveBeenLastCalledWith(
+            '42',
+            { parent: 'Research', depth: 2, limit: 500, offset: 0 },
+            expect.anything()
+        )
+        expect([...research.children!.keys()]).toEqual(['Nested', 'Notes.md'])
+        expect(notebooksRetrieve).not.toHaveBeenCalled()
+        const note = research.children!.get('Notes.md')!
+        await request(
+            110,
+            new NinePWriter().number(2, 4).number(3, 4).number(2, 2).string('Research').string('Notes.md')
+        )
+        expect(fileSystemList).toHaveBeenCalledTimes(2)
+        jest.mocked(fileSystemList).mockResolvedValueOnce({ count: 1, results: [entries[4]] })
+        const cachedPath = jest.spyOn(
+            Object.defineProperty(entries[3], 'path', { configurable: true, get: () => 'Research/Notes' }),
+            'path',
+            'get'
+        )
+        await files.children!.get('Other')!.loadChildren!()
+        expect(files.children!.get('Other')!.children!.has('Dashboard.json')).toBe(true)
+        expect(cachedPath).not.toHaveBeenCalled()
+        cachedPath.mockRestore()
+        entries.push(entry('note2', 'Research/New'))
+        await fs.load()
+        expect(fileSystemList).toHaveBeenCalledTimes(6)
+        expect(research.children!.get('Notes.md')).toBe(note)
+        expect(research.children!.has('New.md')).toBe(true)
+        expect(files.children!.get('Other')!.children!.has('Dashboard.json')).toBe(true)
+        expect(research.children!.get('Nested')!.children!.size).toBe(0)
+        expect(notebooksRetrieve).not.toHaveBeenCalled()
+        entries = entries.map((item) => ({ ...item, path: item.path.replace(/^Research/, 'Published') }))
+        await fs.load()
+        expect(files.children!.has('Research')).toBe(false)
+        expect(files.children!.has('Published')).toBe(true)
+        await fs.loadReference('/posthog/files/Published/Notes.md', '/')
+        expect(fs.resolveReference('/posthog/files/Published/Notes.md', '/')).toBe('note1')
+        const publishedNote = files.children!.get('Published')!.children!.get('Notes.md')!
+        entries = entries.filter((item) => !item.path.startsWith('Published'))
+        await fs.load()
+        expect(files.children!.has('Published')).toBe(false)
+        await expect(publishedNote.open!()).rejects.toMatchObject({ errno: 116 })
+    })
+
+    it.each(['dashboard', 'hog_function/source', 'unknown'])(
+        'loads API paths for %s and retries failed directory pages without caching partial results',
+        async (type) => {
+            const fs = new PosthogFilesystem('42', new AbortController().signal)
+            const server = new NinePServer(fs, jest.fn())
+            const request = async (type: number, body: NinePWriter): Promise<NinePReader> => {
+                const bytes = await new Promise<Uint8Array>((resolve) => server.handle(body.frame(type, 1), resolve))
+                const response = new NinePReader(bytes)
+                response.number(4)
+                expect(response.number(1)).toBe(type + 1)
+                response.number(2)
+                return response
+            }
+            await request(104, new NinePWriter().number(1, 4).number(0xffffffff, 4).string('root').string(''))
+            const name = encodeURIComponent(type)
+            const walked = await request(
+                110,
+                new NinePWriter().number(1, 4).number(2, 4).number(2, 2).string('api').string(name)
+            )
+            expect(walked.number(2)).toBe(2)
+            const directory = fs.root.children!.get('api')!.children!.get(name)!
+            expect(fileSystemList).not.toHaveBeenCalled()
+            jest.mocked(fileSystemList)
+                .mockResolvedValueOnce({ count: 2, next: '/next', results: [entry('12', 'First', type)] })
+                .mockRejectedValueOnce(new Error('Try again'))
+            await expect(directory.loadChildren!()).rejects.toThrow('Try again')
+            expect(directory.children!.size).toBe(0)
+            jest.mocked(fileSystemList)
+                .mockResolvedValueOnce({ count: 2, next: '/next', results: [entry('12', 'First', type)] })
+                .mockResolvedValueOnce({ count: 2, next: null, results: [entry('13', 'Second', type)] })
+            await fs.loadReference(`/posthog/api/${name}/13.json`, '/')
+            expect(fs.resolveReference(`/posthog/api/${name}/13.json`, '/', type)).toBe('13')
+            expect([...directory.children!.keys()]).toEqual(['12.json', '13.json'])
+            expect(jest.mocked(fileSystemList).mock.calls.map(([, params]) => params)).toEqual([
+                { type, limit: 500, offset: 0 },
+                { type, limit: 500, offset: 1 },
+                { type, limit: 500, offset: 0 },
+                { type, limit: 500, offset: 1 },
+            ])
+            expect(notebooksList).not.toHaveBeenCalled()
+            expect(apiMutator).not.toHaveBeenCalled()
+            jest.mocked(fileSystemList).mockResolvedValue({ count: 0, next: null, results: [] })
+            await fs.load()
+            expect(fs.root.children!.get('api')!.children!.get(name)).toBe(directory)
+            expect(directory.children!.size).toBe(0)
+            const fresh = new PosthogFilesystem('42', new AbortController().signal)
+            jest.mocked(fileSystemList).mockResolvedValue({ count: 1, results: [entry('13', 'Second', type)] })
+            await fresh.loadReference(`/posthog/api/${name}/13.json`, '/')
+            expect(fresh.resolveReference(`/posthog/api/${name}/13.json`, '/', type)).toBe('13')
+        }
+    )
+
     it('projects markdown without changing the stored path and saves with the version it read', async () => {
         const session = new AbortController()
         const read = new AbortController()
@@ -444,6 +583,27 @@ describe('PostHog filesystem projection', () => {
         }
     })
 
+    it('updates permissions in both projections when browsing an overlapping API type', async () => {
+        const object = entry('12', 'Object', 'dashboard')
+        jest.mocked(fileSystemList).mockResolvedValue({ count: 1, results: [object] })
+        const fs = new PosthogFilesystem('42', new AbortController().signal)
+        await fs.root.children!.get('files')!.loadChildren!()
+        const file = fs.root.children!.get('files')!.children!.get('Object.json')!
+        const type = fs.root.children!.get('api')!.children!.get('dashboard')!
+        const apiFile = type.children!.get('12.json')!
+        expect(file.writable).toBe(true)
+        expect(apiFile.writable).toBe(true)
+        jest.mocked(fileSystemList).mockResolvedValue({
+            count: 1,
+            results: [{ ...object, user_access_level: 'viewer' }],
+        })
+        await type.loadChildren!()
+        expect(file.writable).toBe(false)
+        expect(apiFile.writable).toBe(false)
+        expect(fs.root.children!.get('files')!.children!.get('Object.json')).toBe(file)
+        expect(type.children!.get('12.json')).toBe(apiFile)
+    })
+
     it('rejects invalid JSON and propagates API failures without retrying a failed update', async () => {
         jest.mocked(fileSystemList).mockResolvedValue({ count: 1, results: [entry('12', 'Object', 'dashboard')] })
         jest.mocked(apiMutator).mockResolvedValue({ id: 12, name: 'Original' })
@@ -474,7 +634,8 @@ describe('PostHog filesystem projection', () => {
         for (const node of fs.root.children!.get('files')!.children!.values()) {
             expect(node.writable).toBe(false)
         }
-        for (const directory of fs.root.children!.get('api')!.children!.values()) {
+        for (const type of ['unknown', 'dashboard']) {
+            const directory = fs.root.children!.get('api')!.children!.get(type)!
             expect([...directory.children!.values()][0].writable).toBe(false)
         }
     })
