@@ -26,7 +26,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.gateway_client import GatewayNotConfiguredError, Product
+from posthog.llm.gateway_client import GatewayNotConfiguredError, Product, TransientGatewayError
 from posthog.llm.semantic_enrichment import (
     DEFAULT_ENRICHMENT_MODEL,
     ENRICHMENT_BATCH_BUDGET_SECONDS,
@@ -35,7 +35,6 @@ from posthog.llm.semantic_enrichment import (
     MAX_ENRICHMENT_BATCHES,
     MAX_PROMPT_CHARS,
     BoundedPrompt,
-    TransientGatewayError,
     bound_prompt_over_columns,
     collapse_untrusted,
     generate_json_completion,
@@ -520,9 +519,8 @@ def _run_enrichment_batches(target: _EnrichmentTarget, plan: _AnnotationPlan, lo
             log.warning("view_enrichment.llm_gateway_not_configured")
             return _BatchRun(ai_count=ai_count, unfinished=remaining, failed=True)
         except Exception as e:
-            # A gateway 5xx is upstream and passes on its own: the SDK has already retried, and the
-            # failed run withholds the hash, so the next materialization enriches again. The log
-            # line below still records it, so a sustained outage stays visible.
+            # A gateway 5xx needs no report: this run withholds the hash, so the next
+            # materialization enriches again. The log line below still records it.
             if not isinstance(e, TransientGatewayError):
                 capture_exception(e)
             log.error("view_enrichment.llm_failed", error=str(e), exc_info=True)

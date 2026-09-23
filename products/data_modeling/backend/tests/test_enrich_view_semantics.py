@@ -8,7 +8,8 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.llm.semantic_enrichment import MAX_OUTPUT_TOKENS, TransientGatewayError
+from posthog.llm.gateway_client import TransientGatewayError
+from posthog.llm.semantic_enrichment import MAX_OUTPUT_TOKENS
 from posthog.models import Organization, Team
 from posthog.models.scoping.manager import TeamScopedQuerySet
 
@@ -241,8 +242,6 @@ class TestEnrichViewSemanticsSync:
         assert not sq.semantic_enrichment_hash
 
     def test_a_transient_gateway_failure_stays_out_of_error_tracking(self):
-        # A gateway 5xx recovers on its own and the failed run withholds the hash, so the next
-        # materialization enriches again. The log line still records it.
         team = _team()
         sq = _saved_query(team, columns=_columns("amount"))
 

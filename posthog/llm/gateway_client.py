@@ -53,6 +53,14 @@ def team_distinct_id(team_id: int) -> str:
     return f"team-{team_id}"
 
 
+class TransientGatewayError(RuntimeError):
+    """The gateway answered the call with a 5xx, so the fault is upstream rather than ours.
+
+    A distinct type so a caller whose work retries by itself can keep the failure in its logs and
+    its analytics without reporting it to error tracking.
+    """
+
+
 class GatewayNotConfiguredError(ValueError):
     """No LLM gateway is configured, so the client could not be built and no call was made.
 

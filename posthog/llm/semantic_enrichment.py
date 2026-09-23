@@ -28,6 +28,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import (
     Product,
+    TransientGatewayError,
     build_anthropic_client,
     get_llm_client,
     resolve_ai_gateway_config,
@@ -130,15 +131,6 @@ def get_team_business_context(team: Team) -> str:
 
     core_memory = CoreMemory.objects.filter(team=team).first()
     return (core_memory.text or "").strip() if core_memory else ""
-
-
-class TransientGatewayError(RuntimeError):
-    """The gateway answered the call with a 5xx, so the failure is upstream and passes on its own.
-
-    A distinct type so a caller can keep such a failure in its logs and its analytics without
-    reporting it to error tracking: the SDK has already retried, the run recovers on its next
-    trigger, and one gateway blip otherwise files an issue for every consumer of this core.
-    """
 
 
 class TruncatedCompletionError(ValueError):

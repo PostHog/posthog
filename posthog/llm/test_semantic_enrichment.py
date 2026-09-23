@@ -10,13 +10,12 @@ from anthropic import APIStatusError as AnthropicAPIStatusError
 from openai import APIStatusError as OpenAIAPIStatusError
 from parameterized import parameterized
 
-from posthog.llm.gateway_client import team_distinct_id, team_trace_id
+from posthog.llm.gateway_client import TransientGatewayError, team_distinct_id, team_trace_id
 from posthog.llm.semantic_enrichment import (
     MAX_COLUMNS_PER_TABLE,
     MAX_ENRICHMENT_BATCHES,
     MAX_OUTPUT_TOKENS,
     MIN_OUTPUT_TOKENS,
-    TransientGatewayError,
     TruncatedCompletionError,
     _ChatClient,
     _Completion,
@@ -210,8 +209,6 @@ class TestGenerateJsonCompletion:
         ]
     )
     def test_a_gateway_5xx_is_separable_from_a_fault_of_ours(self, _name, error_class, status_code, is_transient):
-        # Both consumers report every enrichment failure, so one gateway blip files an issue per
-        # consumer unless the core tells an upstream fault and a fault of ours apart.
         client = self._client("{}")
         request = httpx.Request("POST", "https://gateway.example/v1/messages")
         client.complete.side_effect = error_class(

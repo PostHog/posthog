@@ -9,7 +9,8 @@ from django.test import override_settings
 
 from temporalio.testing import ActivityEnvironment
 
-from posthog.llm.semantic_enrichment import MAX_OUTPUT_TOKENS, TransientGatewayError, TruncatedCompletionError
+from posthog.llm.gateway_client import TransientGatewayError
+from posthog.llm.semantic_enrichment import MAX_OUTPUT_TOKENS, TruncatedCompletionError
 from posthog.models import Organization, Team
 from posthog.models.scoping.manager import TeamScopedQuerySet
 
@@ -752,8 +753,6 @@ class TestEnrichTableSemanticsSync:
         assert _annotations(team, table) == {}
 
     def test_a_transient_gateway_failure_stays_out_of_error_tracking(self, _mock_capture_enrichment_event):
-        # A gateway 5xx recovers on its own and this run leaves the columns unannotated, so the next
-        # sync asks again. It stays in the log and the events, which a sustained outage still shows.
         team = _team()
         schema, table = _make_schema(team, columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}])
         with (
@@ -768,7 +767,6 @@ class TestEnrichTableSemanticsSync:
         assert result["status"] == "partial"
         assert result["error"] == "llm_failed"
         events = {call.args[1]: call.args[2] for call in _mock_capture_enrichment_event.call_args_list}
-        # The events keep a sustained outage visible without an issue per blip.
         assert events[enrich.EVENT_LLM_CALL]["success"] is False
         assert events[enrich.EVENT_COMPLETED]["llm_error"] is True
 
