@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from decimal import Decimal
 from threading import Barrier, Event
+from uuid import UUID
 
 from posthog.test.base import (
     APIBaseTest,
@@ -2348,8 +2349,9 @@ class TestComposeTicketAPI(APIBaseTest):
         assert first.json()["id"] != second.json()["id"]
         assert Ticket.objects.filter(team=self.team).count() == 2
 
-    def test_compose_same_content_with_different_tags_is_not_deduplicated(self, mock_on_commit):
-        # A different tag set must open its own ticket, not silently drop the tags of a replay.
+    def test_compose_same_content_with_different_tags_is_deduplicated(self, mock_on_commit):
+        # Tags are not part of the dedupe identity, so the same content to the same recipient
+        # replays the first ticket. A replay does not re-tag, so the first ticket's tags stand.
         base = {
             "recipient_email": "pitch@test.com",
             "email_config_id": str(self.email_config.id),
@@ -2360,14 +2362,35 @@ class TestComposeTicketAPI(APIBaseTest):
         second = self._compose({**base, "tags": ["bug_report"]})
 
         assert first.status_code == status.HTTP_201_CREATED
-        assert second.status_code == status.HTTP_201_CREATED
-        assert first.json()["id"] != second.json()["id"]
-        assert Ticket.objects.filter(team=self.team).count() == 2
+        assert second.status_code == status.HTTP_200_OK
+        assert first.json()["id"] == second.json()["id"]
+        assert Ticket.objects.filter(team=self.team).count() == 1
 
-        first_detail = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{first.json()['id']}/")
-        second_detail = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{second.json()['id']}/")
-        assert first_detail.json()["tags"] == ["roadmap_pitch"]
-        assert second_detail.json()["tags"] == ["bug_report"]
+        detail = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{first.json()['id']}/")
+        assert detail.json()["tags"] == ["roadmap_pitch"]
+
+    def test_compose_replays_after_the_ticket_gains_a_system_tag(self, mock_on_commit):
+        # The system tags a composed ticket after it is created (plan tier at creation, then
+        # triage). A retry must still replay the original ticket, not open a duplicate.
+        payload = {
+            "recipient_email": "pitch@test.com",
+            "email_config_id": str(self.email_config.id),
+            "message": "Great idea, we logged it.",
+            "tags": ["roadmap_pitch"],
+        }
+
+        first = self._compose(payload)
+        assert first.status_code == status.HTTP_201_CREATED
+
+        ticket = Ticket.objects.get(pk=first.json()["id"])
+        plan_tag, _ = Tag.objects.get_or_create(name="plan_free", team_id=self.team.id)
+        ticket.tagged_items.create(tag=plan_tag)
+
+        second = self._compose(payload)
+
+        assert second.status_code == status.HTTP_200_OK
+        assert second.json()["id"] == first.json()["id"]
+        assert Ticket.objects.filter(team=self.team).count() == 1
 
     def test_compose_recovers_the_existing_ticket_past_newer_unrelated_tickets(self, mock_on_commit):
         # A burst of newer, unrelated tickets to the same channel must not crowd out the real match.
@@ -2902,15 +2925,25 @@ class TestTicketMessagesAPI(APIBaseTest):
 
     def test_messages_pagination(self, mock_on_commit):
         base = timezone.now()
-        for i in range(5):
-            comment = Comment.objects.create(
+        # msg-2 and msg-3 tie on created_at, and msg-3 holds the lower id. The ids are
+        # explicit so the row order in the table contradicts the expected order.
+        rows = [
+            ("msg-0", UUID("00000000-0000-7000-8000-000000000001"), 0),
+            ("msg-1", UUID("00000000-0000-7000-8000-000000000002"), 1),
+            ("msg-2", UUID("00000000-0000-7000-8000-000000000009"), 2),
+            ("msg-3", UUID("00000000-0000-7000-8000-000000000003"), 2),
+            ("msg-4", UUID("00000000-0000-7000-8000-000000000004"), 3),
+        ]
+        for content, comment_id, offset in rows:
+            Comment.objects.create(
+                id=comment_id,
                 team=self.team,
                 scope="conversations_ticket",
                 item_id=str(self.ticket.id),
-                content=f"msg-{i}",
+                content=content,
                 item_context={"author_type": "customer"},
             )
-            Comment.objects.filter(id=comment.id).update(created_at=base + timedelta(seconds=i))
+            Comment.objects.filter(id=comment_id).update(created_at=base + timedelta(seconds=offset))
 
         response = self.client.get(self.url, {"limit": 2})
         assert response.status_code == status.HTTP_200_OK
@@ -2924,6 +2957,15 @@ class TestTicketMessagesAPI(APIBaseTest):
         body = response.json()
         assert len(body["results"]) == 1
         assert body["results"][0]["content"] == "msg-4"
+
+        # Walk every page. Tied rows must keep one stable position, so no message is
+        # lost between pages and none appears twice.
+        walked: list[str] = []
+        for offset in range(0, len(rows), 2):
+            page = self.client.get(self.url, {"limit": 2, "offset": offset}).json()
+            walked.extend(message["id"] for message in page["results"])
+
+        assert walked == [str(comment_id) for _, comment_id, _ in sorted(rows, key=lambda row: (row[2], row[1]))]
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
