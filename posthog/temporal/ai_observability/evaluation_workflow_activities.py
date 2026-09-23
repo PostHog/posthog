@@ -448,7 +448,6 @@ async def emit_internal_telemetry_activity(inputs: EmitInternalTelemetryInputs) 
                 "output_tokens": result.get("output_tokens", 0),
                 "total_tokens": result.get("total_tokens", 0),
                 **({"verdict": result["verdict"]} if "verdict" in result else {}),
-                **({"score": result["score"]} if "score" in result else {}),
                 "result_type": result["result_type"],
             },
             groups={"organization": organization_id, "instance": settings.SITE_URL},

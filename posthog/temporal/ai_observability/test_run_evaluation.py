@@ -55,6 +55,7 @@ from .evaluation_workflow_activities import (
     LocalEvaluationOutcome,
     backfill_verdict_timestamp,
     build_evaluation_event_properties,
+    emit_internal_telemetry_activity,
 )
 from .run_evaluation import (
     BooleanEvalResult,
@@ -517,6 +518,29 @@ class TestRunEvaluationWorkflow:
         assert result["model"]
         assert result["provider"]
         mock_client.complete.assert_called_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_numeric_telemetry_omits_customer_score(self, setup_data: dict[str, Any]) -> None:
+        evaluation = {"id": str(setup_data["evaluation"].id), "name": "Quality", "evaluation_type": "hog"}
+        result: EvaluationActivityResult = {
+            "result_type": "numeric",
+            "score": 123.45,
+            "reasoning": "Customer content",
+            "allows_na": False,
+        }
+        with patch("posthog.tasks.usage_report.get_ph_client") as get_client:
+            await emit_internal_telemetry_activity(
+                EmitInternalTelemetryInputs(evaluation=evaluation, team_id=setup_data["team"].id, result=result)
+            )
+
+        get_client.return_value.capture.assert_called_once()
+        properties = get_client.return_value.capture.call_args.kwargs["properties"]
+        assert properties["result_type"] == "numeric"
+        assert "score" not in properties
+        assert "reasoning" not in properties
+        event_properties = build_evaluation_event_properties(evaluation, result, datetime.now(UTC))
+        assert event_properties["$ai_evaluation_numeric_result"] == 123.45
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
