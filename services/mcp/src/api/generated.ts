@@ -48949,6 +48949,52 @@ export namespace Schemas {
       readonly warnings: readonly HogFlowCodeWarning[];
     }
 
+    export interface HogFlowCodeVariable {
+      /** The name steps use to read the variable. */
+      key: string;
+      /** string, number or boolean. A variable of another type is left out of the code with a warning. */
+      type: string;
+      /** The value the variable starts with. */
+      default?: unknown;
+      /** Display name of the variable. */
+      label?: string;
+    }
+
+    /**
+     * The workflow as the editor holds it. Every field is optional, and an omitted field keeps the stored value.
+     */
+    export interface HogFlowCodeRequest {
+      /**
+         * Workflow name.
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * Workflow description.
+         * @nullable
+         */
+      description?: string | null;
+      /** Every step of the workflow, the trigger and the exit included. Each step needs a text `id` and a text `type`. A secret input is never rendered as its value, even when this body carries it. */
+      actions?: HogFlowAction[];
+      /** The edges that connect the steps. */
+      edges?: HogFlowEdge[];
+      /** Workflow variables. */
+      variables?: HogFlowCodeVariable[];
+      /** Conversion goal. The code cannot declare one, so it adds a warning. */
+      conversion?: HogFlowConversion | null;
+      /** When a person leaves the workflow.
+       *
+       * * `exit_on_conversion` - Conversion
+       * * `exit_on_trigger_not_matched` - Trigger Not Matched
+       * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+       * * `exit_only_at_end` - Only At End */
+      exit_condition?: ExitConditionEnum;
+      /** Dedup or throttle on the trigger. The code cannot declare it, so it adds a warning. */
+      trigger_masking?: HogFlowMasking | null;
+      /** Email pacing for the workflow. The code cannot declare it, so it adds a warning. */
+      email_sending_rate_limit?: HogFlowEmailSendingRateLimit | null;
+    }
+
     /**
      * * `update_action` - update_action
      * * `add_action` - add_action

@@ -51,6 +51,9 @@ tools:
     hog-flows-bulk-delete-create:
         operation: hog_flows_bulk_delete_create
         enabled: false
+    hog-flows-code-create:
+        operation: hog_flows_code_create
+        enabled: false
     hog-flows-create:
         operation: hog_flows_create
         enabled: false
