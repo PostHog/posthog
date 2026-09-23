@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ChildFunctionProps, Form } from 'kea-forms'
-import { ReactNode, useEffect, useState } from 'react'
+import posthog from 'posthog-js'
+import { ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import EmailEditor, { EditorRef } from 'react-email-editor'
 
@@ -231,34 +232,30 @@ function DestinationEmailTemplaterForm({
                         </div>
                     </>
                 ) : (
-                    <LemonField name="html" className="flex relative flex-col flex-1">
-                        {({ value }: ChildFunctionProps) => (
-                            <>
-                                <div
-                                    className={clsx(
-                                        'flex absolute inset-0 justify-center items-end p-2 transition-opacity',
-                                        // Persistent start buttons while empty; hover-reveal once there is content
-                                        value ? 'opacity-0 hover:opacity-100' : 'opacity-100'
-                                    )}
-                                >
-                                    <div className="absolute inset-0 opacity-50 bg-surface-primary" />
-                                    {/* A plain-text-only email has no html, so content is judged on every shape */}
-                                    <EmailPreviewOverlayButtons
-                                        hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
-                                    />
-                                </div>
+                    <>
+                        <ResolvedPreviewFields />
+                        <LemonField name="html" className="flex relative flex-col flex-1">
+                            {({ value }: ChildFunctionProps) => (
+                                <>
+                                    <div
+                                        className={clsx(
+                                            'flex absolute inset-0 justify-center items-end p-2 transition-opacity',
+                                            // Persistent start buttons while empty; hover-reveal once there is content
+                                            value ? 'opacity-0 hover:opacity-100' : 'opacity-100'
+                                        )}
+                                    >
+                                        <div className="absolute inset-0 opacity-50 bg-surface-primary" />
+                                        {/* A plain-text-only email has no html, so content is judged on every shape */}
+                                        <EmailPreviewOverlayButtons
+                                            hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
+                                        />
+                                    </div>
 
-                                {/* The floor keeps the preview readable where the host gives it no
-                                    spare height to grow into */}
-                                <iframe
-                                    srcDoc={value}
-                                    sandbox=""
-                                    title="Email template preview"
-                                    className="flex-1 min-h-40"
-                                />
-                            </>
-                        )}
-                    </LemonField>
+                                    <PreviewFrame authoredHtml={value} />
+                                </>
+                            )}
+                        </LemonField>
+                    </>
                 )}
             </Form>
         </>
@@ -765,40 +762,117 @@ function NativeEmailTemplaterForm({
                         </div>
                     </>
                 ) : (
-                    <LemonField name="html" className="flex relative flex-col flex-1">
-                        {({ value }: ChildFunctionProps) => (
-                            <>
-                                <div
-                                    className={clsx(
-                                        'flex absolute inset-0 justify-center items-center p-2 transition-opacity',
-                                        // Persistent start buttons while empty; hover-reveal once there is content
-                                        value ? 'opacity-0 hover:opacity-100' : 'opacity-100'
-                                    )}
-                                >
-                                    <div className="absolute inset-0 opacity-50 bg-surface-primary" />
-                                    {/* A plain-text-only email has no html, so content is judged on every shape */}
-                                    <EmailPreviewOverlayButtons
-                                        hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
-                                    />
-                                </div>
+                    <>
+                        <ResolvedPreviewFields />
+                        <LemonField name="html" className="flex relative flex-col flex-1">
+                            {({ value }: ChildFunctionProps) => (
+                                <>
+                                    <div
+                                        className={clsx(
+                                            'flex absolute inset-0 justify-center items-center p-2 transition-opacity',
+                                            // Persistent start buttons while empty; hover-reveal once there is content
+                                            value ? 'opacity-0 hover:opacity-100' : 'opacity-100'
+                                        )}
+                                    >
+                                        <div className="absolute inset-0 opacity-50 bg-surface-primary" />
+                                        {/* A plain-text-only email has no html, so content is judged on every shape */}
+                                        <EmailPreviewOverlayButtons
+                                            hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
+                                        />
+                                    </div>
 
-                                {/* The floor keeps the preview readable where the host gives it no
-                                    spare height to grow into */}
-                                <iframe
-                                    srcDoc={value}
-                                    sandbox=""
-                                    title="Email template preview"
-                                    className="flex-1 min-h-40"
-                                />
-                            </>
-                        )}
-                    </LemonField>
+                                    <PreviewFrame authoredHtml={value} />
+                                </>
+                            )}
+                        </LemonField>
+                    </>
                 )}
                 {/* Rendered in both modes so the message stays visible while the body is edited in
                     the full editor, not just in the preview */}
                 <FieldErrorMessage error={logicProps.fieldErrors?.body} />
             </Form>
         </>
+    )
+}
+
+/**
+ * The body as this person will receive it, or as authored where the host named no person to
+ * render against.
+ */
+function PreviewFrame({ authoredHtml }: { authoredHtml: string }): JSX.Element {
+    const { previewPerson, emailPreview } = useValues(emailTemplaterLogic)
+
+    return (
+        // The floor keeps the preview readable where the host gives it no spare height to grow into
+        <iframe
+            srcDoc={previewPerson ? emailPreview.html : authoredHtml}
+            sandbox=""
+            title="Email template preview"
+            className="flex-1 min-h-40"
+        />
+    )
+}
+
+/**
+ * The recipient, subject and preheader as this person will receive them, shown above the body
+ * preview. A host opts in by naming a person to render against; without one the whole strip is
+ * absent and the preview stays as authored.
+ */
+function ResolvedPreviewFields(): JSX.Element | null {
+    const { logicProps, previewPerson, emailPreview } = useValues(emailTemplaterLogic)
+    const unresolvedKey = emailPreview.unresolvedVariables.join('|')
+    const reportedKey = useRef<string | null>(null)
+
+    useEffect(() => {
+        if (!previewPerson || unresolvedKey === reportedKey.current) {
+            return
+        }
+        reportedKey.current = unresolvedKey
+        // pinned: analytics event name - renaming breaks dashboards
+        posthog.capture('email_preview_rendered', {
+            email_templater_type: logicProps.type,
+            unresolved_variable_count: emailPreview.unresolvedVariables.length,
+        })
+        // The unresolved set is what makes a preview worth reporting again, so a keystroke that
+        // leaves it alone reports nothing.
+        // oxlint-disable-next-line exhaustive-deps
+    }, [unresolvedKey, !!previewPerson, logicProps.type])
+
+    if (!previewPerson) {
+        return null
+    }
+
+    const personLabel = previewPerson.properties?.name || previewPerson.properties?.email || previewPerson.id
+    const rows = [
+        { label: 'To', value: emailPreview.fields.to },
+        { label: 'Subject', value: emailPreview.fields.subject },
+        { label: 'Preheader', value: emailPreview.fields.preheader },
+    ].filter((row) => !!row.value)
+
+    return (
+        <div
+            className="flex flex-col gap-1 px-2 py-1 text-xs border-b shrink-0 bg-surface-secondary"
+            data-attr="email-preview-resolved-fields"
+        >
+            <div className="flex flex-wrap gap-x-3 gap-y-1">
+                <span className="text-muted">
+                    Values from <span translate="no">{personLabel}</span>
+                </span>
+                {rows.map((row) => (
+                    <span key={row.label} className="flex gap-1 min-w-0">
+                        <span className="text-muted">{row.label}:</span>
+                        <span className="truncate">{row.value}</span>
+                    </span>
+                ))}
+            </div>
+            {emailPreview.unresolvedVariables.length > 0 && (
+                <span className="text-warning">
+                    {emailPreview.unresolvedVariables.length === 1
+                        ? '1 variable has no value for this person and sends as blank text.'
+                        : `${emailPreview.unresolvedVariables.length} variables have no value for this person and send as blank text.`}
+                </span>
+            )}
+        </div>
     )
 }
 

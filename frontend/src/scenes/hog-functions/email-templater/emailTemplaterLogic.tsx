@@ -29,6 +29,7 @@ import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } fr
 
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
+import { EmailPreviewPerson, EmailPreviewResult, renderEmailTemplatePreview } from './emailPreview'
 import type { EmailFieldErrors, EmailTemplate } from './types'
 
 export type { EmailTemplate }
@@ -176,6 +177,11 @@ export interface EmailTemplaterLogicProps {
     // not compute these itself; a caller that validates the email step (e.g. the workflow builder)
     // decides what and when to show.
     fieldErrors?: EmailFieldErrors
+    /**
+     * Render the preview's liquid against this person, the way the send will. Opt-in per host,
+     * because only a host that knows who the email goes to can name someone honest to stand in.
+     */
+    previewPerson?: EmailPreviewPerson | null
 }
 
 function autoRevealAdvancedFields(
@@ -221,6 +227,8 @@ export interface emailTemplaterLogicValues {
     mergeTags: UnlayerMergeTags
     personPropertyDefinitions: PropertyDefinition[]
     personPropertyDefinitionsLoading: boolean
+    emailPreview: EmailPreviewResult
+    previewPerson: EmailPreviewPerson | null
     revealedAdvancedFields: EmailMetaFieldKey[]
     showEmailTemplateErrors: boolean
     templates: MessageTemplate[]
@@ -583,6 +591,24 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             },
         },
     })),
+
+    // Declared after the form, because these read the form's own `emailTemplate` value.
+    selectors({
+        // Hog templating uses a different syntax and a different runtime, so only a liquid email
+        // can be previewed by running the same renderer the worker runs.
+        previewPerson: [
+            (s) => [s.templatingEngine, (_, props: EmailTemplaterLogicProps) => props.previewPerson],
+            (
+                templatingEngine: 'hog' | 'liquid',
+                previewPerson: EmailPreviewPerson | null | undefined
+            ): EmailPreviewPerson | null => (templatingEngine === 'liquid' ? (previewPerson ?? null) : null),
+        ],
+        emailPreview: [
+            (s) => [s.emailTemplate, s.previewPerson],
+            (emailTemplate: EmailTemplate, previewPerson: EmailPreviewPerson | null): EmailPreviewResult =>
+                renderEmailTemplatePreview(emailTemplate, previewPerson),
+        ],
+    }),
 
     listeners(({ props, values, actions, cache }) => ({
         onEmailEditorReady: () => {
