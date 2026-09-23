@@ -45,7 +45,7 @@ When every `target_surface.libs[]` row that reaches the surface has `category: "
 2. **Persistence** (`ensure_experience_continuity: true`), if no matching `sdk_profile.libs` row evaluates flags locally: every row that matches a `lib` in `target_surface.libs` has `sdk_profile.libs[].locally_evaluated_share` near 0, or null on a web or mobile row. Null on a server row is unknown: go to step 3. Persistence also needs person profiles for anonymous users, no bootstrapping, and `$anon_distinct_id` on server flag calls. The tool cannot see those three, so list them for the user to check.
 3. **Otherwise**: user-id bucketing, and mark it "not decided". Say what would unlock the other options: a device ID on every flag call, or no local evaluation.
 
-Steps 1 and 2 read only the rows that match, so a `target_surface.libs[]` row with no `sdk_profile.libs` row of the same `lib` is unchecked rather than safe.
+When `sdk_profile.libs` holds rows, steps 1 and 2 read only the ones that match, so a `target_surface.libs[]` row with no `sdk_profile.libs` row of the same `lib` is unchecked rather than safe.
 `sdk_profile.libs` reads multivariate flag calls over 7 days while `target_surface.libs` reads target events over 14, so a missing row can mean that SDK evaluates no multivariate flag, or only that it made none in the shorter window.
 Name every unmatched SDK in the report.
 When an unmatched row has `category: "server"`, take step 3: an unread server SDK is the case that breaks both steps, because it may send its flag calls without a device ID and may evaluate them locally.
@@ -58,7 +58,9 @@ On exactly 5 rows, say the list is at its cap and drop the tier to "best guess" 
 `sdk_profile.libs` is capped at 10 and does report it, in `sdk_profile.libs_truncated`.
 When that is true, an SDK can read as unmatched only because its own row was dropped, so name the cap alongside it. The cap cannot add a bad matching row, so steps 1 and 2 stay safe on the rows that did come back.
 
-If `sdk_profile.libs` is empty, or no row matches a `lib` in `target_surface.libs`, read `sdk_profile.libs_on_any_event`.
+If `sdk_profile.libs` is empty, read `sdk_profile.libs_on_any_event`.
+The endpoint fills that field only on an empty profile, so a profile that holds rows and matches none of them to `target_surface.libs` is not this branch: the unmatched-SDK rules above decide that case, and the field reads null there.
+It is null on an empty profile too when its own query timed out. Nothing then names the platforms, so none of the reads below apply: say so and stay on user-id bucketing, marked "not decided".
 It names the platforms the project sends from, which settles one case and no other: a project that sends only from mobile SDKs can never reach the share step 1 needs, so the choice there is persistence or user-id bucketing.
 Every other platform mix stays open, a server-only project included. A server SDK that forwards the browser's device ID puts one on every flag call, and this fallback cannot see whether it does.
 It says nothing about device IDs on flag calls or about local evaluation, so steps 1 and 2 still do not pass. Keep user-id bucketing and mark it "not decided".
