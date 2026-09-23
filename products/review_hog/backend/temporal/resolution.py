@@ -140,7 +140,7 @@ class ResolutionRunResult:
     # Deterministic no-op runs name their reason ("pr_not_open" / "no_unresolved_threads" / a CommitHold).
     skipped_reason: str | None = None
     # Set when the PR entered the merge queue mid-session; the run stopped before the next thread.
-    stopped_reason: str | None = None
+    stopped_reason: CommitHold | None = None
     # Threads that got an LLM turn this run, and their outcome counts (keyed by ThreadOutcome value).
     triaged: int = 0
     outcomes: dict[str, int] = field(default_factory=dict)
@@ -190,44 +190,26 @@ def _fetch_pr_metadata(input: ResolveThreadsInput, token: str, installation_id: 
     return PRFetcher(input.owner, input.repo, input.pr_number, token, installation_id).fetch_pr_metadata(pr)
 
 
+def _run_github(team_id: int, integration_row_id: int) -> GitHubIntegration:
+    """The run-pinned installation, rebuilt from its row so every call mints a fresh token."""
+    return GitHubIntegration(Integration.objects.get(id=integration_row_id, team_id=team_id))
+
+
 def _merge_queue_holds(input: ResolveThreadsInput, github: GitHubIntegration) -> bool:
     state = github.get_pull_request_merge_queue_state(f"{input.owner}/{input.repo}", input.pr_number)
     return state is not None and state.holds_pull_request
 
 
-def _has_stacked_pull_requests(
-    input: ResolveThreadsInput, head_branch: str, *, token: str, installation_id: str | None
-) -> bool:
-    pulls = github_api_request(
-        "GET",
-        f"/repos/{input.owner}/{input.repo}/pulls",
-        token=token,
-        installation_id=installation_id,
-        endpoint="/repos/{owner}/{repo}/pulls",
-        params={"state": "open", "base": head_branch, "per_page": 1},
-    ).json()
-    return bool(pulls)
-
-
-def _commit_hold(
-    input: ResolveThreadsInput,
-    github: GitHubIntegration,
-    pr_metadata: PRMetadata,
-    *,
-    token: str,
-    installation_id: str | None,
-) -> CommitHold | None:
+def _commit_hold(input: ResolveThreadsInput, github: GitHubIntegration, head_branch: str) -> CommitHold | None:
     if _merge_queue_holds(input, github):
         return CommitHold.MERGE_QUEUE
-    if _has_stacked_pull_requests(input, pr_metadata.head_branch, token=token, installation_id=installation_id):
+    if github.has_open_pull_request_with_base(f"{input.owner}/{input.repo}", head_branch):
         return CommitHold.STACKED
     return None
 
 
 def _merge_queue_holds_for_run(input: ResolveThreadsInput, integration_row_id: int) -> bool:
-    """The between-turns re-check, on the run-pinned installation like every delivery."""
-    github = GitHubIntegration(Integration.objects.get(id=integration_row_id, team_id=input.team_id))
-    return _merge_queue_holds(input, github)
+    return _merge_queue_holds(input, _run_github(input.team_id, integration_row_id))
 
 
 def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResult:
@@ -277,7 +259,7 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
     overflow = max(0, len(triage) - MAX_THREADS_PER_RUN)
     triage = triage[:MAX_THREADS_PER_RUN]
     # Only triage turns commit. Redeliveries are replies and resolves, which are safe in the queue.
-    hold = _commit_hold(input, github, pr_metadata, token=token, installation_id=installation_id) if triage else None
+    hold = _commit_hold(input, github, pr_metadata.head_branch) if triage else None
     if hold is not None:
         update_resolution_status_comment(
             input.team_id,
@@ -384,7 +366,7 @@ def _delivery_auth(team_id: int, integration_row_id: int) -> tuple[str, str | No
     call — so a mid-run revocation surfaces as a 401/404 on the write itself, the same per-thread
     undelivered accounting the probe failure used to produce.
     """
-    github = GitHubIntegration(Integration.objects.get(id=integration_row_id, team_id=team_id))
+    github = _run_github(team_id, integration_row_id)
     return github.get_access_token(), github.github_installation_id
 
 
@@ -707,7 +689,7 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
                 if await database_sync_to_async(_merge_queue_holds_for_run, thread_sensitive=False)(
                     input, prepared.integration_row_id
                 ):
-                    result.stopped_reason = CommitHold.MERGE_QUEUE.value
+                    result.stopped_reason = CommitHold.MERGE_QUEUE
                     break
                 try:
                     if session is None:
@@ -829,7 +811,7 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
             input.team_id,
             prepared.report_id,
             render_resolution_held_section(
-                CommitHold(result.stopped_reason), done=sum(result.delivered_outcomes.values()), total=total_queued
+                result.stopped_reason, done=sum(result.delivered_outcomes.values()), total=total_queued
             )
             if result.stopped_reason
             # Undelivered threads (judged, or redelivered, without their GitHub writes landing) join

@@ -139,6 +139,24 @@ class TestPullRequestCommentMarker(SimpleTestCase):
             with pytest.raises(GitHubIntegrationError):
                 github.get_pull_request_merge_queue_state("example/repo", 1)
 
+    @parameterized.expand(
+        [
+            ("stacked", 200, [{"number": 2}], True),
+            ("not_stacked", 200, [], False),
+            ("error_status", 502, {"message": "Bad gateway"}, None),
+        ]
+    )
+    def test_stacked_pull_request_read_never_guesses(self, _name, status_code, body, expected) -> None:
+        github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
+        response = MagicMock(status_code=status_code)
+        response.json.return_value = body
+        with patch.object(github, "_installation_authenticated_get", return_value=response):
+            if expected is None:
+                with pytest.raises(GitHubIntegrationError):
+                    github.has_open_pull_request_with_base("example/repo", "feature")
+            else:
+                assert github.has_open_pull_request_with_base("example/repo", "feature") is expected
+
     def test_merge_queue_state_reads_the_trunk_comment(self) -> None:
         github = GitHubIntegration(Integration(kind="github", config={}, sensitive_config={}))
         response = MagicMock(status_code=200)

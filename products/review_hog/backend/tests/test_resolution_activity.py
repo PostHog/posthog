@@ -103,6 +103,7 @@ def _mock_installation() -> Mock:
     github.github_installation_id = "inst-1"
     github.integration.id = 42
     github.get_pull_request_merge_queue_state.return_value = None
+    github.has_open_pull_request_with_base.return_value = False
     return github
 
 
@@ -311,7 +312,6 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
             patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=[thread]),
             patch(f"{_RESOLUTION}.add_eyes_reaction"),
-            patch(f"{_RESOLUTION}._has_stacked_pull_requests", return_value=False),
         ):
             return _prepare_run(
                 ResolveThreadsInput(
@@ -512,7 +512,6 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
             patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=threads),
             patch(f"{_RESOLUTION}.add_eyes_reaction", eyes),
-            patch(f"{_RESOLUTION}._has_stacked_pull_requests", return_value=False),
             patch(
                 f"{_RESOLUTION}.load_resolution_skill_for_run",
                 return_value=Mock(skill_name="review-hog-resolution-criteria", version=1),
@@ -566,6 +565,7 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         self._report()
         installation = _mock_installation()
         installation.get_pull_request_merge_queue_state.return_value = queue_state
+        installation.has_open_pull_request_with_base.return_value = stacked
         thread = ReviewThread(
             thread_id="PRRT_1",
             path="f.py",
@@ -577,7 +577,6 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
             patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=[thread]),
             patch(f"{_RESOLUTION}.add_eyes_reaction", eyes),
-            patch(f"{_RESOLUTION}._has_stacked_pull_requests", return_value=stacked),
             patch(f"{_RESOLUTION}.update_resolution_status_comment") as status_comment,
         ):
             result = _prepare_run(self._input())
@@ -641,7 +640,6 @@ class TestFailedRunActivity(NonAtomicBaseTest):
             patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
             patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=threads),
             patch(f"{_RESOLUTION}.add_eyes_reaction"),
-            patch(f"{_RESOLUTION}._has_stacked_pull_requests", return_value=False),
             patch(f"{_RESOLUTION}._merge_queue_holds_for_run", return_value=False),
             patch(
                 f"{_RESOLUTION}.load_resolution_skill_for_run",
