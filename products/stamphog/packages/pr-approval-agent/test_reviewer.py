@@ -1,10 +1,10 @@
 """Tests for prompt sanitization in reviewer.py."""
 
 import sys
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock
 
 # reviewer.py is imported by a uv-script; its `claude_agent_sdk` dep is
@@ -382,14 +382,14 @@ def test_prompt_provenance_renders_only_for_self_driving_runs() -> None:
     assert self_driving_prompt.index("Provenance:") < self_driving_prompt.rindex("--- BEGIN UNTRUSTED CONTENT ---")
 
 
+@time_machine.travel("2026-01-01T12:00:00Z", tick=False)
 def test_prompt_hides_bot_eyes_that_aged_past_the_in_flight_window() -> None:
     # The guidance tells the reviewer that every 👀 it sees is an in-flight review, so a reviewer
     # bot that fails without clearing its 👀 would make the reviewer refuse that PR forever. Nobody
     # can remove another app's reaction, so the prompt must hide the abandoned one, exactly as the
     # wait gate does.
-    now = datetime.now(UTC)
-    stale = (now - timedelta(days=2)).isoformat()
-    fresh = (now - timedelta(minutes=2)).isoformat()
+    stale = "2025-12-30T12:00:00Z"
+    fresh = "2026-01-01T11:58:00Z"
     pr = _pr(
         pr_reactions=[
             {"user": "greptile-apps[bot]", "emoji": "👀", "created_at": stale},
