@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconBook, IconRefresh, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -13,6 +13,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { KnowledgeSourceForm } from '../components/KnowledgeSourceForm'
 import { StatusTag } from '../components/StatusTag'
+import type { KnowledgeSourceDocumentApi, SafetyVerdictEnumApi } from '../generated/api.schemas'
 import { REFRESH_INTERVAL_OPTIONS } from './businessKnowledgeLogic'
 import { KnowledgeSourceLogicProps, knowledgeSourceLogic } from './knowledgeSourceLogic'
 
@@ -21,6 +22,24 @@ export const scene: SceneExport<KnowledgeSourceLogicProps> = {
     logic: knowledgeSourceLogic,
     productKey: ProductKey.BUSINESS_KNOWLEDGE,
     paramsToProps: ({ params: { id } }) => ({ id }),
+}
+
+function safetyTag(verdict: SafetyVerdictEnumApi): JSX.Element {
+    if (verdict === 'safe') {
+        return <LemonTag type="success">safe</LemonTag>
+    }
+    if (verdict === 'unsafe') {
+        return (
+            <LemonTag type="danger" title="Excluded from search.">
+                unsafe
+            </LemonTag>
+        )
+    }
+    return (
+        <LemonTag type="warning" title="Waiting for the content check. Search skips this page until then.">
+            pending
+        </LemonTag>
+    )
 }
 
 export function KnowledgeSourceScene(): JSX.Element {
@@ -34,8 +53,11 @@ export function KnowledgeSourceScene(): JSX.Element {
         isEditUrlSourceSubmitting,
         isRefreshing,
         isDeleting,
+        sourceDocuments,
+        sourceDocumentsLoaded,
+        sourceDocumentsFailed,
     } = useValues(knowledgeSourceLogic)
-    const { loadSource, submitEditSource, submitEditUrlSource, refreshSource, deleteSource } =
+    const { loadSource, loadSourceDocuments, submitEditSource, submitEditUrlSource, refreshSource, deleteSource } =
         useActions(knowledgeSourceLogic)
 
     if (!isEnabled) {
@@ -129,6 +151,70 @@ export function KnowledgeSourceScene(): JSX.Element {
                 }
             />
             <KnowledgeSourceForm refreshIntervalOptions={REFRESH_INTERVAL_OPTIONS} />
+            {isUrl && (
+                <div className="max-w-3xl min-w-0 flex flex-col gap-2">
+                    <h3 className="text-sm font-semibold m-0">Indexed pages</h3>
+                    {sourceDocumentsFailed && (
+                        <LemonBanner
+                            type="error"
+                            action={{ children: 'Try again', onClick: () => loadSourceDocuments() }}
+                        >
+                            Couldn't load indexed pages.
+                        </LemonBanner>
+                    )}
+                    {!(sourceDocumentsFailed && sourceDocuments.length === 0) && (
+                        <LemonTable<KnowledgeSourceDocumentApi>
+                            dataSource={sourceDocuments}
+                            loading={!sourceDocumentsLoaded}
+                            rowKey={(row) => row.id}
+                            tableLayout="fixed"
+                            nouns={['page', 'pages']}
+                            pagination={{ pageSize: 20 }}
+                            emptyState={
+                                source.status === 'processing'
+                                    ? 'Pages show up here after indexing finishes.'
+                                    : 'No pages indexed.'
+                            }
+                            columns={[
+                                {
+                                    title: 'URL',
+                                    key: 'url',
+                                    width: '55%',
+                                    render: (_, row) =>
+                                        row.url ? (
+                                            <Link
+                                                to={row.url}
+                                                target="_blank"
+                                                title={row.url}
+                                                className="block max-w-full truncate"
+                                            >
+                                                {row.url}
+                                            </Link>
+                                        ) : (
+                                            <span className="text-muted">No URL</span>
+                                        ),
+                                },
+                                {
+                                    title: 'Title',
+                                    key: 'title',
+                                    width: '30%',
+                                    render: (_, row) => (
+                                        <span className="block max-w-full truncate" title={row.title || undefined}>
+                                            {row.title}
+                                        </span>
+                                    ),
+                                },
+                                {
+                                    title: 'Content check',
+                                    key: 'safety_verdict',
+                                    width: '15%',
+                                    render: (_, row) => safetyTag(row.safety_verdict),
+                                },
+                            ]}
+                        />
+                    )}
+                </div>
+            )}
         </SceneContent>
     )
 }

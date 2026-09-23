@@ -469,7 +469,7 @@ class TestRunEvalReportAgentDeadIdGuard(SimpleTestCase):
     @patch.object(graph, "create_react_agent")
     @patch.object(graph, "build_flex_first_chat_client")
     @patch.object(graph, "_compute_metrics")
-    def test_uncited_opaque_id_from_the_result_allowlist_falls_back(
+    def test_uncited_opaque_id_from_the_result_allowlist_is_unwrapped(
         self, mock_metrics, _mock_build_llm, mock_create_agent, _mock_build_callbacks
     ):
         mock_metrics.return_value = EvalReportMetrics()
@@ -501,8 +501,9 @@ class TestRunEvalReportAgentDeadIdGuard(SimpleTestCase):
             )
         )
 
-        self.assertEqual(content.title, "Automated fallback report for Relevance")
-        self.assertIn(session_id, content.sections[0].content)
+        # One dead identifier costs the reader a link, not the whole analysis.
+        self.assertEqual(content.title, "A report")
+        self.assertEqual(content.sections[0].content, f"See {session_id}.")
 
 
 class TestRunEvalReportAgentMetricsUnavailable(SimpleTestCase):

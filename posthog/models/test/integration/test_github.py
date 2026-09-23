@@ -1009,6 +1009,58 @@ class TestGitHubIntegrationModel(BaseTest):
         assert result["success"] is False
         assert result["status_code"] == 422
 
+    def test_add_pull_request_labels_posts_to_issues_endpoint(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200)
+        mock_response.json.return_value = [{"name": "self-driving"}]
+        with patch.object(github, "_installation_authenticated_post", return_value=mock_response) as mock_post:
+            result = github.add_pull_request_labels("PostHog/posthog", 123, ["self-driving"])
+        assert result == {"success": True, "labels": ["self-driving"]}
+        # Labels go through the issues endpoint, not /pulls.
+        assert mock_post.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/labels"
+        assert mock_post.call_args.kwargs["json_body"] == {"labels": ["self-driving"]}
+
+    def test_add_pull_request_labels_creates_a_label_the_repository_lacks(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        refused = MagicMock(status_code=422, text="Validation Failed")
+        created = MagicMock(status_code=201)
+        applied = MagicMock(status_code=200)
+        applied.json.return_value = [{"name": "self-driving"}]
+        with patch.object(
+            github, "_installation_authenticated_post", side_effect=[refused, created, applied]
+        ) as mock_post:
+            result = github.add_pull_request_labels("PostHog/posthog", 123, ["self-driving"])
+        assert result == {"success": True, "labels": ["self-driving"]}
+        assert mock_post.call_args_list[1].args[0] == "https://api.github.com/repos/PostHog/posthog/labels"
+        assert mock_post.call_args_list[1].kwargs["json_body"] == {"name": "self-driving"}
+
+    @parameterized.expand(
+        [
+            ("empty", []),
+            ("all_blank", ["", None, "   "]),
+            # GitHub caps a label name at 50 characters, so a longer one is a caller mistake.
+            ("too_long", ["l" * 51]),
+        ]
+    )
+    def test_add_pull_request_labels_skips_github_when_there_is_nothing_to_apply(self, _name: str, labels: list):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "_installation_authenticated_post") as mock_post:
+            result = github.add_pull_request_labels("PostHog/posthog", 123, labels)
+        assert result == {"success": True, "labels": []}
+        mock_post.assert_not_called()
+
+    def test_add_pull_request_labels_reports_a_github_error(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=403, text="Forbidden")
+        with patch.object(github, "_installation_authenticated_post", return_value=mock_response):
+            result = github.add_pull_request_labels("PostHog/posthog", 123, ["self-driving"])
+        assert result["success"] is False
+        assert result["status_code"] == 403
+
     @parameterized.expand(
         [
             ("assignable", 204, {"success": True, "assignable": True}),
