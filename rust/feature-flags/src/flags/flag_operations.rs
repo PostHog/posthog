@@ -1656,8 +1656,10 @@ mod tests {
                         key: format!("variant-{i}"),
                         name: None,
                         rollout_percentage,
+                        ..Default::default()
                     })
                     .collect(),
+                ..Default::default()
             });
         let condition = FlagPropertyGroup {
             properties: None,

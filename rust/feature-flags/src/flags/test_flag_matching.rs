@@ -6702,13 +6702,16 @@ mod tests {
                             name: None,
                             key: "control".to_string(),
                             rollout_percentage: 40.0,
+                            ..Default::default()
                         },
                         MultivariateFlagVariant {
                             name: None,
                             key: "test".to_string(),
                             rollout_percentage: 60.0,
+                            ..Default::default()
                         },
                     ],
+                    ..Default::default()
                 }),
                 ..Default::default()
             },
@@ -6757,7 +6760,9 @@ mod tests {
                         name: None,
                         key: "test".to_string(),
                         rollout_percentage: 50.0,
+                        ..Default::default()
                     }],
+                    ..Default::default()
                 }),
                 ..Default::default()
             },
