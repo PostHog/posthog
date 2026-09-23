@@ -1412,6 +1412,14 @@ snapshots:
         hash: v1.k794b7964.ebb253a1569c71c4c5a8e8b960f46c9c7c32b29ccab555b5c646cb50a88308ed.Cec9A53K1lhmiX7cygBRREm_UGPUFhNRq3CvIttZMJ4
     components-markdown-notebook--ask-ai-without-consent--light:
         hash: v1.k794b7964.e97394f9850e49896ddddf9624d3b43e20200250d74e94813707d83ab7badfa3.SAe1CR7VbZrrerWJx4oCvLsskyEJ9SwjKrMjxA0Fi3U
+    components-markdown-notebook--btw-selection--dark:
+        hash: v1.k794b7964.88e49b1516512d07d5a012b8c7628cd83b38563ffd0c0af1e7cab515954907ce.1fZdFevBmrjDikYQjsDVBaGP3vXAQbYoLFxdjNKwJY4
+    components-markdown-notebook--btw-selection--light:
+        hash: v1.k794b7964.0a4b40814d56667a7ffe61f0cb45a6e24359a9dfbb374df4461e1b266badab18.sipQlAEjJ4noWFSnV3ltrP8UaZYFvl9lMVJKOfdUKBM
+    components-markdown-notebook--btw-slash-menu--dark:
+        hash: v1.k794b7964.13c5d3c2a4720a9f9eede608418272ac5267bfa73ddd55ab01172cc0a0d43f91.vnCE_FYp75-CONA3DchgqqGJ1zmRpRHOb0MUT_qMqhY
+    components-markdown-notebook--btw-slash-menu--light:
+        hash: v1.k794b7964.1b7425a34e85b58c9b9807c5fec9b3388748986eeb7ec10db9a59e7f1d4a3bc5.A6nDurYcJTVncxV_TEXjnZBiS611u_dlrXtQamC7IHk
     components-markdown-notebook--canvas-header--dark:
         hash: v1.k794b7964.608a0ac08314f9ca439ce83d605b5b7068699aefcdc3ec64d2ea9850b78383a5.6uhW10xIiflrvLM9jcnT-l6on-ERqLyloX1KosD6EnA
     components-markdown-notebook--canvas-header--light:
@@ -9964,6 +9972,14 @@ snapshots:
         hash: v1.k794b7964.370d1ecd1c43f76266ca3675ad0476bd8109db0f06b115d374626e33633c9ee3.0f7haoIw1e_CIr7pgqCBpE4VaFMma7Nccuizeb4HKro
     scenes-app-notebooks--text-only-notebook--light:
         hash: v1.k794b7964.b75392a9efcf1d9898116cd8ecb342011ff3a666418a9f628e9dfa870ed1a781.g2_Fv5QZy5l5xJD7Gzzxl_TRp3tY3kJ_2-862BEYPzk
+    scenes-app-notebooks-btw--default--dark:
+        hash: v1.k794b7964.ed6013135aba8a20c0ff3139a81251e01fa100021de60e33be02fcabb616db5d.g55Nmz6vHWIb6fquVcz7arqgU744j6sE5aGzOB4d4dU
+    scenes-app-notebooks-btw--default--light:
+        hash: v1.k794b7964.f098050eb19522074c201832090db049fbea2f38b39a694c0182678fbde9b75e.l3IEBuN3V47jD6a0Tf-gQxmb24iN_0iV1yUwYW124OA
+    scenes-app-notebooks-btw--narrow--dark:
+        hash: v1.k794b7964.de1c2137235f76b17892bd4cf71ac3a558ca896de7f9602653e27449792e784f.JFI6t5P9IyR3EYezlN_InBCgmZFrTqrD-9uKBdo175E
+    scenes-app-notebooks-btw--narrow--light:
+        hash: v1.k794b7964.ed7ff0a58d3e626f9e8f617b0b2d6456639d8e4ab501a38369875544e03a1cc3.rTPnEIqN-Xry6e_re_klbz3oB6hnF6fSYVee7mnUEcs
     scenes-app-notebooks-components-notebook-select-button--closed-popover-state--dark:
         hash: v1.k794b7964.88d1a3e9fb5510fffa7aea75e2ec02791ce7b62f8089ba839517dbccdf11d322.3ulC8gWrQJ9QnKHdNsfDxzLqV_k-9itTnB4aJNAG4BM
     scenes-app-notebooks-components-notebook-select-button--closed-popover-state--light:
