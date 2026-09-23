@@ -10,11 +10,14 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.api.capture import CaptureInternalError
 from posthog.models import Organization, Team
+from posthog.temporal.common.posthog_client import EXPECTED_CONTROL_FLOW_ERROR_TYPES, is_expected_activity_failure
 
+from products.ai_observability.backend.llm.errors import OutputTokenLimitError
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
 
 from .run_tagger import (
+    SKIPPED_RESULT_ERROR_TYPES,
     EmitTaggerEventInputs,
     ExecuteTaggerInputs,
     RunTaggerInputs,
@@ -786,3 +789,59 @@ class TestFetchTaggerActivityDisabled:
 
         with pytest.raises(ApplicationError, match="disabled"):
             await fetch_tagger_activity(inputs)
+
+
+class TestSkippedResultsStayOutOfErrorTracking:
+    """A tagger run the workflow skips is an outcome, not a defect, so nothing may capture it."""
+
+    def test_skipped_result_types_are_expected_control_flow(self):
+        assert SKIPPED_RESULT_ERROR_TYPES <= EXPECTED_CONTROL_FLOW_ERROR_TYPES
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_output_token_limit_is_skipped_not_captured(self, setup_data):
+        tagger_obj = setup_data["tagger"]
+        team = setup_data["team"]
+
+        tagger = {
+            "id": str(tagger_obj.id),
+            "name": "Feature Tagger",
+            "tagger_config": make_tagger_config(),
+            "team_id": team.id,
+        }
+
+        with patch("posthog.temporal.ai_observability.run_tagger.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.complete.side_effect = OutputTokenLimitError("The model reached its output token limit.")
+
+            with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
+                mock_eval_config.objects.get_or_create.return_value = (_mock_config_with_active_key(), False)
+
+                with pytest.raises(ApplicationError) as exc_info:
+                    await execute_tagger_activity(
+                        ExecuteTaggerInputs(tagger=tagger, event_data=create_mock_event_data(team.id))
+                    )
+
+        assert exc_info.value.details[0]["error_type"] == "parse_error"
+        assert exc_info.value.type == "tagger_parse_error"
+        assert is_expected_activity_failure(exc_info.value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_disabled_tagger_is_skipped_not_captured(self, setup_data):
+        from posthog.sync import database_sync_to_async
+
+        tagger = setup_data["tagger"]
+        team = setup_data["team"]
+
+        tagger.enabled = False
+        await database_sync_to_async(tagger.save)(update_fields=["enabled"])
+
+        inputs = RunTaggerInputs(tagger_id=str(tagger.id), event_data=create_mock_event_data(team.id))
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await fetch_tagger_activity(inputs)
+
+        assert exc_info.value.type == "tagger_disabled"
+        assert is_expected_activity_failure(exc_info.value)

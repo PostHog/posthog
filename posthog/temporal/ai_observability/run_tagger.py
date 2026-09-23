@@ -46,6 +46,13 @@ LLM_TAGGER_RETRY_POLICY = RetryPolicy(
     backoff_coefficient=2.0,
 )
 
+# ApplicationError types RunTaggerWorkflow turns into a skipped result instead of a failure. They
+# are expected outcomes of a tagger run, so they must not reach error tracking: each distinct
+# message mints its own issue and pages the alert channel for something nobody can action. The type
+# string is globally scoped, hence the `tagger_` prefix, while the `error_type` detail stays the
+# workflow's own contract. Kept in sync with EXPECTED_CONTROL_FLOW_ERROR_TYPES by the tests.
+SKIPPED_RESULT_ERROR_TYPES = frozenset({"tagger_disabled", "tagger_parse_error"})
+
 
 class TagResult(BaseModel):
     """Structured output for tagger results."""
@@ -156,6 +163,7 @@ async def fetch_tagger_activity(inputs: RunTaggerInputs) -> dict[str, Any]:
             raise ApplicationError(
                 f"Tagger {inputs.tagger_id} is disabled.",
                 {"error_type": "tagger_disabled"},
+                type="tagger_disabled",
                 non_retryable=True,
             )
 
@@ -194,7 +202,10 @@ class ExecuteTaggerInputs:
 
 
 @temporalio.activity.defn
-@scoped_temporal()
+# capture_exceptions=False: the worker interceptor reports activity failures, and it skips the
+# expected ones this activity raises as control flow (SKIPPED_RESULT_ERROR_TYPES). Capturing in
+# here runs before that filter, so a skipped run minted an issue of its own.
+@scoped_temporal(capture_exceptions=False)
 async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]:
     """Execute LLM tagger to classify the target event."""
     tagger = inputs.tagger
@@ -302,6 +313,7 @@ Output: {output_data}"""
         raise ApplicationError(
             str(e),
             {"error_type": "parse_error"},
+            type="tagger_parse_error",
             non_retryable=True,
         ) from e
 
