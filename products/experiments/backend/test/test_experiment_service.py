@@ -65,6 +65,20 @@ from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 
+def _stored_metric_result(*significant: bool | None) -> dict[str, Any]:
+    # The shape recalculation stores: significance lives on each variant, and the legacy
+    # top-level field stays null. A variant's significance is null when validation stopped the
+    # analysis, for example on too few samples.
+    return {
+        "significant": None,
+        "baseline": {"key": "control", "number_of_samples": 100},
+        "variant_results": [
+            {"key": f"test_{index}", "number_of_samples": 100, "significant": variant_significant}
+            for index, variant_significant in enumerate(significant)
+        ],
+    }
+
+
 # Note that we use allow_unknown_events here since allowing it was the behavior before validating it
 # and to continue allowing it here keeps test setup simple (instead of creating events before)
 class TestExperimentService(APIBaseTest):
@@ -3417,7 +3431,7 @@ class TestExperimentService(APIBaseTest):
             query_from=experiment.start_date,
             query_to=timezone.now(),
             status=ExperimentMetricResult.Status.COMPLETED,
-            result={"significant": True, "variants": []},
+            result=_stored_metric_result(True),
             completed_at=timezone.now(),
         )
 
@@ -3521,8 +3535,11 @@ class TestExperimentService(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("significant", {"significant": True, "variants": []}, "Primary metric: significant"),
-            ("inconclusive", {"significant": False, "variants": []}, "Primary metric: inconclusive"),
+            ("significant", _stored_metric_result(True), "Primary metric: significant"),
+            ("inconclusive", _stored_metric_result(False), "Primary metric: inconclusive"),
+            ("not_analyzed", _stored_metric_result(None), ""),
+            ("one_of_many_significant", _stored_metric_result(False, True), "Primary metric: significant"),
+            ("analyzed_variants_decide", _stored_metric_result(None, False), "Primary metric: inconclusive"),
             ("no_result", None, ""),
         ]
     )
@@ -5598,6 +5615,7 @@ class TestExperimentService(APIBaseTest):
             service.update_experiment(experiment, update_data)
         self.assertIn("legacy metric formats", str(cm.exception))
         self.assertIn(f"Cannot update: {expected_field_in_error}", str(cm.exception))
+        self.assertIn(f"/experiments/{experiment.id}/migrate", str(cm.exception))
 
     @parameterized.expand(
         [

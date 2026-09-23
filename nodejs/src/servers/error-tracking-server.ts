@@ -5,36 +5,35 @@ import {
     createCookielessRedisConnectionConfig,
     createIngestionRedisConnectionConfig,
 } from '~/common/config/redis-pools'
-import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
-import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
-import { PersonHogConfig, createPersonHogClient } from '~/common/personhog'
-import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
-import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
-import { UsageIngestionConfig, createEventUsageBatchFactory } from '~/common/usage-ingestion'
+import { HogTransformerComponent } from '~/common/hog-transformations/hog-transformer-component'
+import { IngestionOutputsComponent } from '~/common/outputs/ingestion-outputs'
+import { PersonHogConfig } from '~/common/personhog'
+import { UsageIngestionConfig } from '~/common/usage-ingestion'
 import { ServerCommands } from '~/common/utils/commands'
-import { PostgresRouter } from '~/common/utils/db/postgres'
-import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { PostgresRouter, PostgresRouterComponent } from '~/common/utils/db/postgres'
+import { RedisPoolComponent } from '~/common/utils/db/redis'
 import { GeoIPService } from '~/common/utils/geoip'
 import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
-import { TeamManager } from '~/common/utils/team-manager'
-import { CookielessManager, CookielessServerConfig } from '~/ingestion/common/cookieless/cookieless-manager'
-import { createIngestionProducerRegistry } from '~/ingestion/common/outputs/producer-registry'
+import { TeamManagerComponent } from '~/common/utils/team-manager'
+import { CookielessManagerComponent, CookielessServerConfig } from '~/ingestion/common/cookieless/cookieless-manager'
+import { ingestionConsumerService } from '~/ingestion/common/ingestion-consumer'
+import { KafkaProducerRegistryComponent } from '~/ingestion/common/outputs/producer-registry'
 import {
     KafkaDownstreamProducerEnvConfig,
     KafkaUpstreamProducerEnvConfig,
-    ProducerName,
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
 } from '~/ingestion/common/outputs/producers'
+import { extend, newScope } from '~/ingestion/common/scopes'
 import {
     ErrorTrackingConsumerConfig,
     ErrorTrackingOutputsConfig,
     getDefaultErrorTrackingConsumerConfig,
     getDefaultErrorTrackingOutputsConfig,
 } from '~/ingestion/pipelines/errortracking/config'
-import { ErrorTrackingConsumer } from '~/ingestion/pipelines/errortracking/error-tracking-consumer'
+import { createErrorTrackingConsumer } from '~/ingestion/pipelines/errortracking/consumer'
 import { createOutputsRegistry } from '~/ingestion/pipelines/errortracking/outputs/registry'
 
 import {
@@ -46,6 +45,7 @@ import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
 import {
     DatabaseConnectionConfig,
+    IngestionConsumerConfig,
     KafkaBrokerConfig,
     KafkaConsumerBaseConfig,
     RedisConnectionsConfig,
@@ -79,6 +79,7 @@ export type ErrorTrackingServerConfig = BaseServerConfig &
     PersonHogConfig &
     UsageIngestionConfig &
     CookielessServerConfig &
+    Pick<IngestionConsumerConfig, 'KAFKA_BATCH_START_LOGGING_ENABLED'> &
     Pick<
         CommonConfig,
         | 'LOG_LEVEL'
@@ -96,11 +97,9 @@ export class ErrorTrackingServer implements NodeServer {
     private config: ErrorTrackingServerConfig
 
     private postgres?: PostgresRouter
-    private producerRegistry?: KafkaProducerRegistry<ProducerName>
     private redisPool?: RedisPool
-    private cookielessRedisPool?: RedisPool
-    private cookielessManager?: CookielessManager
     private pubsub?: PubSub
+    private stopSharedServices?: () => Promise<void>
 
     constructor(config: Partial<ErrorTrackingServerConfig> = {}) {
         this.config = {
@@ -132,57 +131,66 @@ export class ErrorTrackingServer implements NodeServer {
             this.config.INGESTION_LANE ?? 'main'
         )
 
-        // 1. Shared infrastructure
+        // 1. Shared infrastructure — postgres, redis pools and the producer registry are
+        //    owned by a server-level Scope so the consumer can extend off it to get them
+        //    as handles without taking ownership.
         logger.info('ℹ️', 'Connecting to shared infrastructure...')
 
-        this.postgres = new PostgresRouter(this.config)
+        const sharedInfraScope = newScope('shared-infra', (builder) =>
+            builder
+                .add('postgres', new PostgresRouterComponent(this.config, this.config.PLUGIN_SERVER_MODE!))
+                .add(
+                    'redisPool',
+                    new RedisPoolComponent({
+                        connection: createIngestionRedisConnectionConfig(this.config),
+                        poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+                        poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+                    })
+                )
+                .add(
+                    'cookielessRedisPool',
+                    new RedisPoolComponent({
+                        connection: createCookielessRedisConnectionConfig(this.config),
+                        poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+                        poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+                    })
+                )
+                .add('producerRegistry', new KafkaProducerRegistryComponent(this.config.KAFKA_CLIENT_RACK, this.config))
+        )
+
+        const sharedServicesScope = extend(sharedInfraScope, 'shared', (container, builder) =>
+            builder
+                .add(
+                    'teamManager',
+                    // Retry transient team-load failures (e.g. a Postgres pooler scale-down returning
+                    // ECONNREFUSED). The team loader runs detached in the LazyLoader buffer, so an un-retried
+                    // transient failure can surface as an unhandled rejection and restart the worker.
+                    new TeamManagerComponent(container.postgres, { loaderRetry: DEFAULT_LOADER_RETRY })
+                )
+                .add('cookielessManager', new CookielessManagerComponent(this.config, container.cookielessRedisPool))
+        )
+
+        const sharedServices = await sharedServicesScope.start()
+        this.postgres = sharedServices.container.postgres
+        this.redisPool = sharedServices.container.redisPool
+        this.stopSharedServices = sharedServices.stop
         logger.info('👍', 'Postgres Router ready')
-
-        logger.info('🤔', 'Connecting to Kafka...')
-        this.producerRegistry = await createIngestionProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
-        const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
         logger.info('👍', 'Kafka ready')
-
-        logger.info('🤔', 'Connecting to ingestion Redis...')
-        this.redisPool = createRedisPoolFromConfig({
-            connection: createIngestionRedisConnectionConfig(this.config),
-            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
-        })
         logger.info('👍', 'Ingestion Redis ready')
-
-        logger.info('🤔', 'Connecting to cookieless Redis...')
-        this.cookielessRedisPool = createRedisPoolFromConfig({
-            connection: createCookielessRedisConnectionConfig(this.config),
-            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
-        })
         logger.info('👍', 'Cookieless Redis ready')
-
-        this.cookielessManager = new CookielessManager(this.config, this.cookielessRedisPool)
 
         this.pubsub = new PubSub(this.redisPool)
         await this.pubsub.start()
 
-        const teamManager = new TeamManager(this.postgres, { loaderRetry: DEFAULT_LOADER_RETRY })
-
-        // 2. Services needed by ErrorTrackingConsumer and HogTransformer
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
         await geoipService.get()
 
-        const personhogClient = createPersonHogClient(this.config)
-        const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
-
-        if (!personhogClient) {
-            throw new Error(
-                'PersonHog client is required for error tracking — set PERSONHOG_ENABLED=true and PERSONHOG_ADDR'
-            )
-        }
-
-        const personRepository = new PersonHogPersonReadRepository(personhogClient, clientLabel)
-        const groupRepository = new PersonHogGroupReadRepository(personhogClient, clientLabel)
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
+
+        // The same outputs instance backs the pipeline's emissions and the hog
+        // transformer's monitoring (app_metrics + log_entries).
+        const outputs = createOutputsRegistry().build(sharedServices.container.producerRegistry, this.config)
 
         const hogTransformerDeps: HogTransformerServiceDeps = {
             geoipService,
@@ -193,44 +201,28 @@ export class ErrorTrackingServer implements NodeServer {
             monitoringOutputs: outputs,
         }
 
-        // 3. Error tracking consumer
+        const errorTrackingSharedScope = extend(sharedServicesScope, 'errortracking-shared', (_container, builder) =>
+            builder
+                .add(
+                    'hogTransformer',
+                    new HogTransformerComponent(() => createHogTransformerService(this.config, hogTransformerDeps))
+                )
+                .add('outputs', new IngestionOutputsComponent(() => outputs))
+        )
+
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
-        const createEventUsageBatch = createEventUsageBatchFactory(this.config, 'exceptions')
-
         serviceLoaders.push(async () => {
-            const consumer = new ErrorTrackingConsumer(
+            const consumerScope = createErrorTrackingConsumer(
                 {
-                    groupId: this.config.ERROR_TRACKING_CONSUMER_GROUP_ID,
-                    topic: this.config.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
-                    cymbalBaseUrl: this.config.ERROR_TRACKING_CYMBAL_BASE_URL,
-                    cymbalTimeoutMs: this.config.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
-                    cymbalMaxBodyBytes: this.config.ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES,
-                    lane: this.config.INGESTION_LANE ?? 'main',
-                    overflowMode: this.config.INGESTION_OVERFLOW_MODE,
-                    overflowBucketCapacity: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
-                    overflowBucketReplenishRate: this.config.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
-                    statefulOverflowRedisTTLSeconds: this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
-                    statefulOverflowLocalCacheTTLSeconds:
-                        this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
-                    preservePartitionLocality: this.config.ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
-                    pipeline: this.config.INGESTION_PIPELINE ?? 'errortracking',
+                    ...this.config,
+                    INGESTION_CONSUMER_GROUP_ID: this.config.ERROR_TRACKING_CONSUMER_GROUP_ID,
+                    INGESTION_CONSUMER_CONSUME_TOPIC: this.config.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
                 },
-                {
-                    outputs,
-                    teamManager,
-                    hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
-                    groupTypeManager: new ReadOnlyGroupTypeManager(groupRepository, {
-                        loaderRetry: DEFAULT_LOADER_RETRY,
-                    }),
-                    cookielessManager: this.cookielessManager!,
-                    redisPool: this.redisPool!,
-                    personRepository,
-                    createEventUsageBatch,
-                }
+                errorTrackingSharedScope
             )
-            await consumer.start()
-            return consumer.service
+            const { consumer, stop } = await consumerScope.start()
+            return ingestionConsumerService(consumer, stop)
         })
 
         serviceLoaders.push(() => {
@@ -246,12 +238,12 @@ export class ErrorTrackingServer implements NodeServer {
     private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
-            redisPools: [this.redisPool, this.cookielessRedisPool].filter(Boolean) as RedisPool[],
-            postgres: this.postgres,
+            redisPools: [],
             pubsub: this.pubsub,
             additionalCleanup: async () => {
-                await this.producerRegistry?.disconnectAll()
-                this.cookielessManager?.shutdown()
+                if (this.stopSharedServices) {
+                    await this.stopSharedServices()
+                }
             },
         }
     }
