@@ -523,9 +523,11 @@ function renderArtefactSummary(artefact: SignalReportArtefact): JSX.Element | nu
                 <LemonTag size="small" type={supersede ? 'warning' : 'muted'}>
                     {blocked_reason === 'revision_limit'
                         ? 'Replacement limit reached'
-                        : supersede
-                          ? 'Replacement recommended'
-                          : 'Still the right fix'}
+                        : blocked_reason === 'no_implementation'
+                          ? 'No pull request to replace'
+                          : supersede
+                            ? 'Replacement recommended'
+                            : 'Still the right fix'}
                 </LemonTag>
             )
         }

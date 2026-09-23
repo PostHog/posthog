@@ -862,6 +862,40 @@ class TestScoutReportAPI(APIBaseTest):
             is None
         )
 
+    def test_supersede_on_a_report_without_a_pull_request_is_a_no_op(self) -> None:
+        # Most reports never autostart, so a scout that always sets the field on a rewrite would have
+        # every one of those edits refused. The rewrite has to land, and the response has to say that
+        # no replacement was scheduled.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": report_id,
+                    "summary": "The queue needs backpressure.",
+                    "supersedes_implementation": True,
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["is_content_revision"] is True
+        assert response.json()["supersedes_implementation"] is False
+        assert SignalReport.objects.get(id=report_id).summary == "The queue needs backpressure."
+        autostart.assert_not_awaited()
+        assert self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.IMPLEMENTATION_DISPATCH) is None
+        decision = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION)
+        assert decision is not None
+        content = json.loads(decision.content)
+        assert content["supersede"] is False
+        assert content["blocked_reason"] == "no_implementation"
+        # The reviewer reads this entry to find out why nothing was replaced, so it must not read as
+        # the scout judging the fix unchanged, nor as the revision cap refusing the claim.
+        assert "no open pull request" in content["reason"]
+        assert "without changing what the fix should be" not in content["reason"]
+
     def test_supersede_records_a_decision_until_the_report_runs_out_of_revisions(self) -> None:
         # Past the cap the rewrite still has to land: a scout must always be able to correct a
         # report. Only the pull-request side stops.
