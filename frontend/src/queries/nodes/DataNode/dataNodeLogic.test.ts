@@ -930,6 +930,35 @@ describe('dataNodeLogic', () => {
         })
     })
 
+    it('keeps delivered results when the superseded load rejects afterwards', async () => {
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'event', 'timestamp'],
+        })
+        let rejectPending: (error: Error) => void = () => {}
+        logic = dataNodeLogic({ key: testUniqueKey, query, cachedResults: { result: null } as any })
+        logic.mount()
+        mockedQuery.mockReturnValueOnce(
+            new Promise((_resolve, reject) => {
+                rejectPending = reject
+            })
+        )
+        logic.actions.loadData('force_blocking')
+        await expectLogic(logic).toMatchValues({ dataLoading: true })
+
+        const results = [commonResult]
+        dataNodeLogic({ key: testUniqueKey, query, cachedResults: { result: results } as any })
+        await expectLogic(logic).toMatchValues({ dataLoading: false })
+
+        // The tile's own request loses the race and fails. Its failure must not null the results
+        // the dashboard already delivered.
+        rejectPending(new Error('Query failed'))
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({
+            responseError: null,
+            response: partial({ result: results }),
+        })
+    })
+
     it('clears the error when a dashboard refresh delivers results after a failed load', async () => {
         const query = setLatestVersionsOnQuery({
             kind: NodeKind.EventsQuery,

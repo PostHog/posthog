@@ -1082,6 +1082,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
                     actions.abortAnyRunningQuery()
                     actions.setPollResponse(null)
+                    const responseGenerationAtStart = cache.responseGeneration ?? 0
                     const abortController = new AbortController()
                     cache.abortController = abortController
                     const methodOptions: ApiMethodOptions = {
@@ -1128,6 +1129,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         error.queryId = queryId
                         if (shouldCancelQuery(error)) {
                             actions.abortQuery({ queryId })
+                        }
+                        if ((cache.responseGeneration ?? 0) !== responseGenerationAtStart) {
+                            // `setResponse` landed a result while this request was in flight, so the
+                            // request is superseded. Failing here would null that result and put the
+                            // node in an error state over data it holds.
+                            breakpoint()
+                            return values.response
                         }
                         breakpoint()
                         throw error
@@ -2115,6 +2123,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         loadData: () => {
             actions.collectionNodeLoadData(props.key)
             actions.resetLoadingTimer()
+        },
+        setResponse: () => {
+            cache.responseGeneration = (cache.responseGeneration ?? 0) + 1
         },
         loadDataSuccess: ({ response }) => {
             props.onData?.(response as Record<string, unknown> | null | undefined)
