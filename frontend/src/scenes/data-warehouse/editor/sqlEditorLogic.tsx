@@ -3285,7 +3285,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         hasQueryInput: [(s) => [s.queryInput], (queryInput: string | null) => !!queryInput],
         // Replacing the editor content destroys work when the editor holds text that differs
         // from the saved object the tab was opened from. A tab bound to no draft, view or
-        // insight has no saved copy at all, so any text in it counts as unsaved.
+        // insight has no saved copy at all, so any text in it counts as unsaved. An empty
+        // editor holds nothing to lose, even in a tab whose saved object has a query.
         hasUnsavedQueryChanges: [
             (s) => [s.queryInput, s.activeTab],
             (queryInput: string | null, activeTab: QueryTab | null): boolean => {

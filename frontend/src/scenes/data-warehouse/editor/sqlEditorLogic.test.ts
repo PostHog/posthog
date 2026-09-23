@@ -1184,55 +1184,58 @@ describe('sqlEditorLogic', () => {
     describe('hasUnsavedQueryChanges', () => {
         // The sidebar's "Query" items replace the editor content in place. They read this
         // selector to decide whether that discards work the user cannot get back.
-        function mountTab(): void {
+        it.each([
+            ['an empty tab nobody has typed in', [''], null, ['createTab'], false],
+            [
+                'a tab with typed SQL and nothing saved behind it',
+                [''],
+                'SELECT count() FROM events',
+                ['createTab'],
+                true,
+            ],
+            [
+                'a view tab that still matches the saved view',
+                [MOCK_VIEW.query.query, MOCK_VIEW],
+                null,
+                ['createTab', 'updateTab'],
+                false,
+            ],
+            [
+                'a view tab edited away from the saved view',
+                [MOCK_VIEW.query.query, MOCK_VIEW],
+                'SELECT 2',
+                ['createTab', 'updateTab'],
+                true,
+            ],
+            [
+                'a view tab cleared back to empty',
+                [MOCK_VIEW.query.query, MOCK_VIEW],
+                '',
+                ['createTab', 'updateTab'],
+                false,
+            ],
+            [
+                'a draft tab that still matches the saved draft',
+                [MOCK_DRAFT.query.query, undefined, undefined, MOCK_DRAFT],
+                null,
+                ['createTab', 'updateTab'],
+                false,
+            ],
+        ])('%s', async (_case, createTabArgs, editedQuery, expectedActions, expected) => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),
                 editor: createMockEditor(),
             })
             logic.mount()
-        }
 
-        it('reports no unsaved changes for an empty editor', async () => {
-            mountTab()
-            logic.actions.createTab('')
-            await expectLogic(logic).toDispatchActions(['createTab'])
+            logic.actions.createTab(...(createTabArgs as Parameters<typeof logic.actions.createTab>))
+            await expectLogic(logic).toDispatchActions(expectedActions as string[])
+            if (editedQuery !== null) {
+                logic.actions.setQueryInput(editedQuery as string)
+            }
 
-            expect(logic.values.hasUnsavedQueryChanges).toBe(false)
-        })
-
-        it('reports unsaved changes for typed SQL in a tab with nothing saved behind it', async () => {
-            mountTab()
-            logic.actions.createTab('')
-            await expectLogic(logic).toDispatchActions(['createTab'])
-            logic.actions.setQueryInput('SELECT count() FROM events')
-
-            expect(logic.values.hasUnsavedQueryChanges).toBe(true)
-        })
-
-        it('reports no unsaved changes while a view tab still matches the saved view', async () => {
-            mountTab()
-            logic.actions.createTab(MOCK_VIEW.query.query, MOCK_VIEW)
-            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
-
-            expect(logic.values.hasUnsavedQueryChanges).toBe(false)
-        })
-
-        it('reports unsaved changes once a view tab is edited away from the saved view', async () => {
-            mountTab()
-            logic.actions.createTab(MOCK_VIEW.query.query, MOCK_VIEW)
-            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
-            logic.actions.setQueryInput('SELECT 2')
-
-            expect(logic.values.hasUnsavedQueryChanges).toBe(true)
-        })
-
-        it('reports no unsaved changes while a draft tab still matches the saved draft', async () => {
-            mountTab()
-            logic.actions.createTab(MOCK_DRAFT.query.query, undefined, undefined, MOCK_DRAFT)
-            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
-
-            expect(logic.values.hasUnsavedQueryChanges).toBe(false)
+            expect(logic.values.hasUnsavedQueryChanges).toBe(expected)
         })
     })
 
