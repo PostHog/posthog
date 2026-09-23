@@ -171,9 +171,11 @@ const SEND_STATUS_TAG: Record<string, LemonTagType> = {
  */
 function RunRecipients({ workflowId, runId }: { workflowId: string; runId: string }): JSX.Element {
     return (
-        <BindLogic logic={broadcastSentLogic} props={{ id: workflowId || 'new', parentRunId: runId }}>
-            <RunRecipientsTable workflowId={workflowId} />
-        </BindLogic>
+        <div className="bg-surface-secondary border-t px-4 py-3 w-0 min-w-full">
+            <BindLogic logic={broadcastSentLogic} props={{ id: workflowId || 'new', parentRunId: runId }}>
+                <RunRecipientsTable workflowId={workflowId} />
+            </BindLogic>
+        </div>
     )
 }
 
@@ -240,6 +242,16 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
             ),
         },
     ]
+
+    if (!sendsLoading && recipientCount === 0 && !recipientSearch && !statusFilter) {
+        return (
+            <span className="text-sm text-muted">
+                {sendsFailed
+                    ? "Couldn't load recipients. Refresh the page to try again."
+                    : 'No sends recorded for this run yet.'}
+            </span>
+        )
+    }
 
     return (
         <div className="flex flex-col gap-3">
