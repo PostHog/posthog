@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
-import { IconCheck } from '@posthog/icons'
+import { IconCheck, IconSend } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, Link, Spinner } from '@posthog/lemon-ui'
 
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
@@ -19,6 +19,8 @@ import { isGithubEventTriggerConfig } from '../../registry/triggers/githubTrigge
 import { isSlackMessageTriggerConfig } from '../../registry/triggers/slackTriggerFilters'
 import { CustomerTaskWorkflowReferenceInput } from './CustomerTaskWorkflowReferenceInput'
 import { HogFlowFunctionMappings } from './HogFlowFunctionMappings'
+import { StepSendTestEmailModal } from './StepSendTestEmailModal'
+import { stepTestSendLogic } from './stepTestSendLogic'
 import { WorkflowAutoSaveIndicator } from './WorkflowAutoSaveIndicator'
 
 // Builds the sample globals the input editor uses for autocomplete and unknown-global warnings.
@@ -215,6 +217,7 @@ export function HogFlowFunctionConfiguration({
     const { sampleGlobals: realSampleGlobals } = useValues(hogFlowEditorTestLogic(logicProps))
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const { openModal: openTestSendModal } = useActions(stepTestSendLogic(logicProps))
 
     const template = hogFunctionTemplatesById[templateId]
     const isEmailStep = templateId === 'template-email'
@@ -317,6 +320,20 @@ export function HogFlowFunctionConfiguration({
                             : []),
                     ]}
                 />
+            )}
+            {isEmailStep && (
+                <div className="flex justify-end mt-2">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconSend />}
+                        onClick={() => openTestSendModal(inputs?.email ?? null)}
+                        data-attr="workflow-step-open-test-email"
+                    >
+                        Send test email
+                    </LemonButton>
+                    <StepSendTestEmailModal logicProps={logicProps} />
+                </div>
             )}
             {isEmailStep ? (
                 engagementEventsEnabled ? (
