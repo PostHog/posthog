@@ -19,8 +19,13 @@ import { AI_TAXONOMY_EVENT_PROPERTIES } from '@/lib/trace-property-allowlist.gen
 
 const RETAINED_AI_PROPERTIES = new Set<string>(AI_TAXONOMY_EVENT_PROPERTIES)
 
-/** Non-`$ai_*` properties kept so a trace stays navigable and attributable. */
-const RETAINED_NAVIGATION_PROPERTIES = new Set(['$session_id', '$lib', '$lib_version'])
+/**
+ * Properties kept so a trace stays navigable and attributable, on top of the
+ * generated list. `$ai_generation_id` is the identifier of a generation node,
+ * which both tool descriptions promise, but `taxonomy.py` does not describe it,
+ * so the generator cannot emit it.
+ */
+const RETAINED_NAVIGATION_PROPERTIES = new Set(['$ai_generation_id', '$session_id', '$lib', '$lib_version'])
 
 /**
  * Endpoint properties kept without their query string. A provider URL routinely

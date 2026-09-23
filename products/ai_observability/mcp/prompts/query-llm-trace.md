@@ -90,7 +90,7 @@ For a cost or latency survey, request `detail: "summary"` — it carries no conv
 
 # Withheld properties
 
-Only `$ai_*` properties PostHog's taxonomy defines, plus `$session_id`, `$lib`, and `$lib_version`, reach you. Every other event property, and every person property, is withheld whichever `detail` you ask for, and its name is listed in `_redactedKeys` beside the bag. `$ai_base_url` and `$ai_request_url` arrive without their query string.
+Only `$ai_*` properties PostHog's taxonomy defines, plus `$ai_generation_id`, `$session_id`, `$lib`, and `$lib_version`, reach you. Every other event property, and every person property, is withheld whichever `detail` you ask for, and its name is listed in `_redactedKeys` beside the bag. `$ai_base_url` and `$ai_request_url` arrive without their query string.
 
 A withheld property is unchanged in PostHog: it still works as a filter here, and you can read its value in the PostHog UI or with `execute-sql`.
 

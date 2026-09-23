@@ -33,6 +33,7 @@ function traceWithSecrets(): Record<string, unknown> {
                 event: '$ai_generation',
                 createdAt: '2026-09-02T11:30:23Z',
                 properties: {
+                    $ai_generation_id: 'generation-1',
                     $ai_model: 'gpt-4',
                     $ai_total_cost_usd: 0.42,
                     $ai_input: [{ role: 'user', content: 'Why did checkout drop?' }],
@@ -143,5 +144,11 @@ describe('trace redaction through the response pipeline', () => {
 
         expect(secretsIn(single)).toEqual([])
         expect(secretsIn(list)).toEqual([])
+    })
+
+    it.each(['full', 'summary'] as const)('keeps the generation identifier at %s detail', (detail) => {
+        const [trace] = compactTraceResults(redactTraceResults([traceWithSecrets()]), detail) as any[]
+
+        expect(trace.events[0].properties.$ai_generation_id).toBe('generation-1')
     })
 })
