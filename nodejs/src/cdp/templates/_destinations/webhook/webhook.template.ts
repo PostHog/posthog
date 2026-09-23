@@ -29,13 +29,17 @@ if (inputs.debug) {
 
 let res := fetch(inputs.url, payload);
 
-if (res.status >= 400) {
+// A status the author listed as non-failure must reach the return below, so a workflow step can
+// store it in a variable and branch on it. Every other error status still fails the step.
+if (empty(inputs.non_failure_status_codes) and res.status >= 400) {
   throw Error(f'Webhook failed with status {res.status}: {res.body}');
 }
 
 if (inputs.debug) {
   print('Response', res.status, res.body);
 }
+
+return { 'status': res.status, 'body': res.body }
 `,
     inputs_schema: [
         {
@@ -102,6 +106,15 @@ if (inputs.debug) {
             secret: true,
             required: false,
             description: 'Signs each request following the [Standard Webhooks](https://www.standardwebhooks.com) spec.',
+        },
+        {
+            key: 'non_failure_status_codes',
+            type: 'non_failure_status_codes',
+            label: 'Non-failure status codes',
+            secret: false,
+            required: false,
+            description:
+                'Status codes that should not fail this step. Accepts exact codes such as 404, or the wildcards 4xx and 5xx. Store the response in a workflow variable to branch on one of these codes instead of failing.',
         },
         {
             key: 'debug',

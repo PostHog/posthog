@@ -134,6 +134,22 @@ The snapshot is one-way: editing the library template later does not change step
 
 Always give templates a real plain-text `text` alongside the design: clients that block rich content show only `text`, so filler like "placeholder" reaches real inboxes.
 
+## Reacting to what a step returned
+
+A step stores its result in a run-scoped **workflow variable** (`output_variable`), and a later `conditional_branch` reads that variable. That is how a workflow notifies someone only when an HTTP call did not work, without moving the whole job into a destination with custom code.
+
+Build it in this order, on the workflow's own nodes:
+
+1. **Let the status through.** A `function` step on `template-webhook` fails the step on any 4xx or 5xx, and a failed step stores nothing. List the codes you want to handle in its `non_failure_status_codes` input (`{"value": [404, "5xx"]}`) so the step finishes and returns the response instead.
+2. **Store only the field you need.** `"output_variable": {"key": "signup_status", "result_path": "status"}` on that step. The step returns `{status, body}`, and all variables of a run share a 5 KB budget, so store the status rather than the body.
+3. **Declare the key** in the workflow's top-level `variables` with `workflows-update`. Storing works without it, but the editor's branch picker only offers declared variables.
+4. **Branch on it.** A `conditional_branch` whose condition is `{"filters": {"properties": [{"type": "workflow_variable", "key": "signup_status", "operator": "exact", "value": 200}]}}`. Its `branch` edge at `index: 0` is the success path; its `continue` edge is everything else, which is where the Slack step goes.
+5. **Test both paths.** `workflows-test-run` with `mock_async_functions=false` against a URL that answers the status you want to see, then read the variable in the step result and the branch taken in `workflows-logs`.
+
+Full shapes for `output_variable` and the `workflow_variable` condition: [references/graph-schema.md](references/graph-schema.md).
+
+The same pattern covers any step whose result matters later: read the returned fields from a test run, store one of them, branch on it.
+
 ## Hard rules to surface to the user, not work around
 
 - **Behavioral targeting is unsupported.** "Did event X at least N times over the last M days" can't be expressed as a trigger or a batch/schedule audience. If asked, reject it and explain; don't approximate it with a broken filter. (The backend rejects behavioral cohorts in batch audiences outright.)

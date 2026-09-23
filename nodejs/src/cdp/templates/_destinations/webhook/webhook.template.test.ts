@@ -94,6 +94,23 @@ describe('webhook template', () => {
         `)
     })
 
+    // A workflow step branches on the response status, so a status the author accepts has to survive
+    // as the step result instead of failing the step.
+    it('returns the response status for a code listed as non-failure', async () => {
+        let response = await tester.invoke({
+            url: 'https://example.com',
+            non_failure_status_codes: ['4xx'],
+        })
+
+        response = await tester.invokeFetchResponse(response.invocation, {
+            status: 404,
+            body: { message: 'Not Found' },
+        })
+
+        expect(response.error).toBeUndefined()
+        expect(response.execResult).toEqual({ status: 404, body: { message: 'Not Found' } })
+    })
+
     it('should throw an error if the webhook fails', async () => {
         let response = await tester.invoke({
             url: 'https://example.com?v={event.properties.$lib_version}',

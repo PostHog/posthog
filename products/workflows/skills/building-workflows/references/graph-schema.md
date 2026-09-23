@@ -7,6 +7,7 @@ The contract for `actions` and `edges`. The stored workflow is loose JSON, but *
 - Node (action) shape
 - Action types and their `config`
 - Edges
+- Storing a step result in a workflow variable
 - `function*` inputs
 - Duration strings (`delay_duration`, `max_wait_duration`)
 - Waiting until a date (`delay_until`)
@@ -33,7 +34,7 @@ Every action object has these common fields plus a type-specific `config`:
 - `id` — unique within the workflow; edges reference it by `from`/`to`.
 - `on_error` — optional; **only `continue` or `abort`.** Omit to use the default.
 - `filters` — optional property filters gating the action: `{properties: [<cond>]}`. Send `properties`, not `bytecode`.
-- `output_variable` — optional; store a step result into a workflow variable. `{key, result_path?, spread?}`.
+- `output_variable` — optional; store a step result into a workflow variable. `{key, result_path?, spread?}`, or an array of those. See [Storing a step result in a workflow variable](#storing-a-step-result-in-a-workflow-variable).
 
 ## Action types and their `config`
 
@@ -58,7 +59,8 @@ Use **only** these `type` values — they are the complete supported set. An unk
 `conditional_branch` and `wait_until_condition` gate on a **`filters` object**, the action-filter shape (`{properties?, events?, actions?, source?, filter_test_accounts?}`). The wrapper is not optional:
 
 - Write `{ "filters": { "properties": [<cond>] } }` on each condition, **never** `{ "properties": [<cond>] }` directly on the condition object. The bare form saves but the visual editor flags it and the branch compiles to a constant, so it never evaluates your condition.
-- `conditional_branch` conditions are **property-only** (person/group `<cond>`s). Event/action filters are rejected here ("Event filters are not allowed in conditionals").
+- `conditional_branch` conditions are **property-only** (person/group `<cond>`s, plus workflow variables). Event/action filters are rejected here ("Event filters are not allowed in conditionals").
+- A condition reads a workflow variable with a `workflow_variable` `<cond>`: `{"type": "workflow_variable", "key": "<variable key>", "operator": "exact", "value": 200}`. The key is the variable key, without a `variables.` prefix.
 - `wait_until_condition` is event-aware: its `condition.filters` and each `events?[].filters` may also carry `events`/`actions`. An entry naming neither an event nor an action is dropped (it would match everything).
 - `source` is optional (defaults to `events`). Never send `bytecode`; the server compiles it from `properties`.
 
@@ -109,6 +111,36 @@ Property conditions used in trigger/action `filters`, branch conditions, and con
 - **Every non-exit node needs a reachable next action** via an outgoing edge, or execution fails with "No next action found".
 - A `conditional_branch` with N conditions typically has N `branch` edges (`index: 0..N-1`) plus one `continue` edge for the no-match path.
 - A `wait_until_condition` needs a `branch` edge at `index: 0` (resolution) **and** a `continue` edge (timeout). Without the `index: 0` branch it only ever advances on timeout, never on the event/condition firing.
+
+## Storing a step result in a workflow variable
+
+A step writes its result into a run-scoped variable with `output_variable`, and a later step reads it: a `conditional_branch` with a `workflow_variable` condition, or a `{variables.<key>}` placeholder in a function input. This is how one step reacts to what an earlier step returned.
+
+```json
+"output_variable": { "key": "signup_status", "result_path": "status" }
+```
+
+- `key` — the variable name. Identifier characters only, because it is addressed as `variables.<key>`.
+- `result_path` — optional lodash path into the result. Omit it to store the whole result.
+- `spread` — optional; with an object result, store each property as `<key>_<property>` instead of one variable.
+- Pass an array of these objects to write several variables from one result.
+
+Rules that decide whether this works:
+
+- **Declare the key in the workflow's top-level `variables`** (`workflows-update`, entries of `{key, label, type, default}`). Storing works without it, but the editor's branch and input pickers only offer declared variables.
+- **All variables of one run share a 5 KB budget.** A step that pushes the total past it fails with "Total variable size ... exceeds 5KB limit". Use `result_path` to store the one field you need, never a whole HTTP response body.
+- **A failed step stores nothing.** The variable keeps its earlier value, so a branch after a failure reads stale data unless the step is made to succeed (see below).
+- Which fields a step returns depends on the template. Read them from a `workflows-test-run` result rather than guessing.
+
+### Branching on an HTTP response
+
+A `function` step on `template-webhook` fails the whole step on any 4xx or 5xx, so by default there is nothing to branch on. To handle a status instead of failing on it:
+
+1. List the codes in the step's `non_failure_status_codes` input: `"inputs": { "non_failure_status_codes": { "value": [404, "5xx"] } }`. Entries are integers from 400 to 599, or the wildcards `4xx` and `5xx`. Anything else is rejected, so a success code cannot be listed here.
+2. Store the status with `output_variable: {"key": "signup_status", "result_path": "status"}`. The step returns `{status, body}`.
+3. Branch with a `workflow_variable` condition on `signup_status`.
+
+A retriable status (408, 429, and 5xx) is retried first, so the branch reads the last attempt's status. A status outside the list still fails the step, and `on_error` decides what happens next.
 
 ## `function*` inputs
 
@@ -216,3 +248,4 @@ A `delay` waits either a fixed span or until a date carried by the person or the
 - [ ] All durations match `^\d*\.?\d+[dhms]$` and dodge the silent per-unit clamp.
 - [ ] Every `delay` sets exactly one of `delay_duration` and `delay_until`, and no `delay_until` carries hand-written `bytecode`.
 - [ ] Function inputs are `{key: {value: ...}}`; no hand-written `bytecode` anywhere; no top-level `trigger` field set.
+- [ ] Every `output_variable` key is declared in the workflow's top-level `variables`, and stores one field (`result_path`) rather than a whole response.
