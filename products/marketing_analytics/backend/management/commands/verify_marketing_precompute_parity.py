@@ -146,8 +146,14 @@ class Command(BaseCommand):
                 self.stdout.write(f"{team_id:>8}  VACUOUS — precompute path fell back to live, comparison skipped")
                 continue
 
+            metric_names = sorted(set(precompute.metrics) | set(live.metrics))
+            if not metric_names:
+                teams_vacuous.append(team_id)
+                self.stdout.write(f"{team_id:>8}  VACUOUS — no metrics in either read, comparison skipped")
+                continue
+
             team_ok = True
-            for name in sorted(set(precompute.metrics) | set(live.metrics)):
+            for name in metric_names:
                 p = precompute.metrics.get(name, 0.0)
                 lv = live.metrics.get(name, 0.0)
                 diff = _pct_diff(p, lv)

@@ -162,10 +162,9 @@ class TestConversionWarming(APIBaseTest):
         assert inactive.pk not in selected
         assert empty_goals.pk not in selected
 
-    def test_auto_fails_open_to_all_goal_teams_when_activity_unknown(self):
-        # If the activity query can't answer (query_log unavailable), warm every goal team this run rather
-        # than starve the fleet into not-ready.
-        with_goals = self._make_team("with_goals", goals=[_PRECOMPUTABLE_GOAL])
+    def test_auto_skips_the_run_when_activity_unknown(self):
+        # Warming every goal team on a query_log failure would be a fleet-wide backfill.
+        self._make_team("with_goals", goals=[_PRECOMPUTABLE_GOAL])
 
         with (
             patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: "auto"}),
@@ -173,7 +172,7 @@ class TestConversionWarming(APIBaseTest):
         ):
             selected = get_selected_team_ids()
 
-        assert with_goals.pk in selected
+        assert selected == []
 
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)

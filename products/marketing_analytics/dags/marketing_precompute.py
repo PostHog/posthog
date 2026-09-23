@@ -120,6 +120,7 @@ AUTO_AUDIENCE = "auto"
 # we want anyway.
 ACTIVE_DAYS_ENV_VAR = "MARKETING_PRECOMPUTE_ACTIVE_DAYS"
 DEFAULT_ACTIVE_DAYS = 30
+ACTIVE_TEAMS_QUERY_TIMEOUT_SECONDS = 60
 
 # Teams warmed in parallel per run. Warming is I/O-bound (ClickHouse INSERTs), so threads overlap the
 # waits; the ceiling keeps concurrent ClickHouse load and DB connections bounded. Tunable per environment.
@@ -150,8 +151,8 @@ MARKETING_PRECOMPUTE_TEAM_FAILED = Counter(
 def _recently_active_team_ids(days: int) -> set[int] | None:
     """Teams that ran a marketing-analytics query within `days`, from query_log. None on failure.
 
-    None means "couldn't tell" (query_log unavailable / errored) and the caller fails open to warming
-    every team with a goal, so a transient failure over-warms for one run rather than starving the fleet.
+    None means "couldn't tell" (query_log unavailable / errored) and the caller skips the run. Warming
+    every goal team instead would turn one transient failure into a fleet-wide backfill.
     """
     try:
         # Match on the query_type tag in log_comment (the intended API, as the web warmer does), not a
@@ -169,6 +170,7 @@ def _recently_active_team_ids(days: int) -> set[int] | None:
               AND team_id > 0
             """,
             {"days": days},
+            settings={"max_execution_time": ACTIVE_TEAMS_QUERY_TIMEOUT_SECONDS},
         )
         return {int(row[0]) for row in rows}
     except Exception:
@@ -204,8 +206,7 @@ def get_selected_team_ids() -> list[int]:
     active_days = int(os.getenv(ACTIVE_DAYS_ENV_VAR, str(DEFAULT_ACTIVE_DAYS)))
     active_team_ids = _recently_active_team_ids(active_days)
     if active_team_ids is None:
-        # Fail open: couldn't determine activity, so warm every goal team this run rather than starve.
-        return sorted(goal_team_ids)
+        return []
     return sorted(goal_team_ids & active_team_ids)
 
 
