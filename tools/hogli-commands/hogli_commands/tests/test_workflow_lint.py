@@ -2404,13 +2404,14 @@ class TestShellSplitActionArgsCheck:
     @pytest.mark.parametrize(
         ("run", "spliced"),
         [
-            # bare -- the inner shell re-parses it, so the hazard is real
+            # unquoted: the action, not the caller, decides where the value
+            # splits into flags, and a `*` in it globs against the container
             ('sh -c "tool $ARGS"', True),
             ("sh -c 'tool $ARGS'", True),
             # double-quoted -- ONE argument, nothing re-parses it
             ("sh -c 'tool \"$ARGS\"'", False),
             ("sh -c 'tool --flag \"${ARGS}\" --other'", False),
-            # quoted somewhere, bare somewhere else: still a hazard
+            # quoted somewhere, unquoted somewhere else: still listed
             ("sh -c 'tool \"$OTHER\" $ARGS'", True),
             # A GitHub expression is NOT a shell variable: Actions substitutes it into
             # the script text before any shell parses, so a quote in the value closes the
@@ -2458,9 +2459,15 @@ class TestShellSplitActionArgsCheck:
             # `eval` as a literal or an argument re-parses nothing
             ("""sh -c 'echo "eval $ARGS"'""", False),
             ("""sh -c 'tool --eval "$ARGS"'""", False),
+            # a nested `-c` parses its argument exactly as `eval` does
+            ("""sh -c 'bash -c "$ARGS"'""", True),
+            ("""sh -c 'docker exec c sh -c "$ARGS"'""", True),
+            ("""sh -c 'sh -c "$OTHER"; tool "$ARGS"'""", False),
         ],
     )
-    def test_derivation_reads_a_quoted_reference_handed_to_eval(self, tmp_path: Path, run: str, spliced: bool) -> None:
+    def test_derivation_reads_a_quoted_reference_handed_to_a_second_parse(
+        self, tmp_path: Path, run: str, spliced: bool
+    ) -> None:
         # The quoted-reference skip cleared these as safe, which is worse than
         # missing them: the check affirmatively said a hazardous script had none.
         self._write_action(tmp_path, "evaluator", run)

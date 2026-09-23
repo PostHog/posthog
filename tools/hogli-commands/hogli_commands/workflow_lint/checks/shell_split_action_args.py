@@ -70,11 +70,17 @@ SHELL_C_RE = re.compile(
 )
 VAR_REF_RE = re.compile(r"\$(?:\{(?P<braced>[A-Za-z_]\w*)[^}]*\}|(?P<plain>[A-Za-z_]\w*))")
 EVAL_RE = re.compile(r"\beval\b")
+# A nested `-c` parses its argument exactly as `eval` does -- verified against
+# `sh`: with ARGS='one ; echo two', `sh -c 'bash -c "$ARGS"'` runs the echo.
+# Unlike `eval` this is not required to be the command word, because it usually
+# is not one: `docker exec c sh -c`, `timeout 30 sh -c`. That is the same shape
+# as the `docker run ... sh -c` the outer matcher exists to find.
+NESTED_SHELL_C_RE = re.compile(r"(?<!-)\b(?:sh|bash|dash|zsh|ksh)\b\s+(?:" + SHELL_OPTION + r")*-[a-zA-Z]*c\b")
 # What `eval` is the head of ends here, so the next command's arguments are not
 # read as eval's.
 COMMAND_END_RE = re.compile(r"[;&|\n()]")
 # `eval` counts only as a command word. After anything else it is an argument or
-# a literal, and re-parses nothing.
+# a literal (`tool --eval`), and re-parses nothing.
 COMMAND_HEAD_RE = re.compile(r"(?:[;&|\n(){]|\b(?:then|else|do))[ \t]*$")
 # Any `${{ ... }}` block, then the input names inside it. Matching only a bare
 # `${{ inputs.x }}` missed every transformed form -- `${{ inputs.x || '' }}`,
@@ -248,20 +254,26 @@ def _in_any(spans: list[_Span], index: int) -> bool:
     return any(span.start <= index < span.end for span in spans)
 
 
-def _eval_argument_spans(script: str, quoted: list[_Span]) -> list[_Span]:
-    """Index ranges `eval` parses a SECOND time, after the shell expands them.
+def _reparsed_argument_spans(script: str, quoted: list[_Span]) -> list[_Span]:
+    """Index ranges a second parse reads, after the shell expands them.
 
     A quoted reference is one argument, which is why `_spliced_inputs` skips it.
-    `eval` is the exception the skip cannot survive: it joins its arguments and
-    parses the result as a command, so a `#`, `;` or newline in the value still
-    truncates or splits what runs. Anything else that re-parses an argument --
-    a nested `sh -c`, `ssh host "$X"` -- has the same shape; `eval` is the form
-    this repo actually writes.
+    `eval` and a nested `-c` are the exception the skip cannot survive: both take
+    the expanded text and parse it as a command, so a `#`, `;` or newline in the
+    value still truncates or splits what runs. `ssh host "$X"` has the same
+    shape and is not matched -- it hands the value to a shell somewhere else.
+
+    `eval` counts only as a command word, because `--eval` and a bare mention of
+    it are ordinary text.
     """
+    heads = [(match, True) for match in EVAL_RE.finditer(script)]
+    heads += [(match, False) for match in NESTED_SHELL_C_RE.finditer(script)]
     spans: list[_Span] = []
-    for match in EVAL_RE.finditer(script):
+    for match, command_word_only in sorted(heads, key=lambda head: head[0].start()):
         before = script[: match.start()]
-        if _in_any(quoted, match.start()) or (before.strip() and not COMMAND_HEAD_RE.search(before)):
+        if _in_any(quoted, match.start()):
+            continue
+        if command_word_only and before.strip() and not COMMAND_HEAD_RE.search(before):
             continue
         end = len(script)
         for terminator in COMMAND_END_RE.finditer(script, match.end()):
@@ -293,10 +305,10 @@ def _spliced_inputs(step: dict[str, object]) -> Iterator[str]:
             # double-quoted or bare segment the OUTER shell expands the variable into
             # the script text first, so a quote in the value closes the quote around
             # it -- the same pre-substitution problem GitHub expressions have.
-            # `eval` is where "one argument" stops being enough; see
-            # `_eval_argument_spans`.
+            # `eval` and a nested `-c` are where "one argument" stops being
+            # enough; see `_reparsed_argument_spans`.
             quoted = [] if outer_expanded else _quoted_spans(script)
-            reparsed = _eval_argument_spans(script, quoted)
+            reparsed = _reparsed_argument_spans(script, quoted)
             for ref in VAR_REF_RE.finditer(script):
                 if _in_any(quoted, ref.start()) and not _in_any(reparsed, ref.start()):
                     continue
