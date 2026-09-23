@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -26,6 +27,38 @@ from products.marketing_analytics.backend.hogql_queries.marketing_sessions_preco
 
 @time_machine.travel("2026-09-10T12:00:00Z", tick=False)
 class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand([(SessionTableVersion.V2,), (SessionTableVersion.V3,)])
+    def test_cookieless_rollout_does_not_invalidate_session_jobs(self, version: SessionTableVersion) -> None:
+        self.team.modifiers = {"sessionTableVersion": version}
+        start = datetime(2026, 9, 1, tzinfo=UTC)
+        end = start + timedelta(days=1)
+        with patch(
+            "products.web_analytics.backend.hogql_queries.cookieless_flag.resolve_cookieless_traffic_is_regular_modifier"
+        ) as resolve:
+            resolve.return_value = None
+            written = ensure_marketing_sessions_precomputed(self.team, start, end)
+            assert written.ready, written.errors
+            assert written.job_ids
+            original_sql = None
+            for enabled in (None, True, False):
+                resolve.return_value = enabled
+                response = execute_hogql_query(
+                    SESSIONS_INSERT_TEMPLATE,
+                    self.team,
+                    placeholders={
+                        **base_placeholders(),
+                        "time_window_min": ast.Constant(value=start),
+                        "time_window_max": ast.Constant(value=end),
+                    },
+                )
+                assert response.clickhouse
+                if original_sql is None:
+                    original_sql = response.clickhouse
+                assert response.clickhouse == original_sql
+                cached = ensure_marketing_sessions_precomputed(self.team, start, end, run_inserts=False)
+                assert cached.ready, cached.errors
+                assert set(cached.job_ids) == set(written.job_ids)
+
     @parameterized.expand([("UTC",), ("America/Santiago",), ("Asia/Kolkata",), ("Asia/Kathmandu",)])
     def test_session_start_windows_use_utc_boundaries(self, timezone: str) -> None:
         self.team.timezone = timezone
