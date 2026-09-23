@@ -214,6 +214,7 @@ def rank_observations(
     scope = _SCOPE_PREWHERE + "".join(f"\n              AND {clause}" for clause in filters.where_clauses(params))
 
     tag_queries(product=Product.REPLAY_VISION, feature=Feature.SEMANTIC_SEARCH, query_type=_CANDIDATE_QUERY_TYPE)
+    # nosemgrep: clickhouse-fstring-param-audit - `scope` is static clauses from `_append_filter`, values are params
     cutoff_rows = sync_execute(
         f"""
         SELECT minOrNull(timestamp)
@@ -235,6 +236,7 @@ def rank_observations(
         return []
 
     tag_queries(query_type=_RANK_QUERY_TYPE)
+    # nosemgrep: clickhouse-fstring-param-audit - `scope` is static clauses from `_append_filter`, values are params
     rows = sync_execute(
         f"""
         SELECT
