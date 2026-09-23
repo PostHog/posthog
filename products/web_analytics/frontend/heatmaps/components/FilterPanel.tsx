@@ -289,7 +289,9 @@ export function FilterPanel({
             </div>
             {heatmapEmpty && !rawHeatmapLoading && !previewUnavailable ? (
                 <p className="text-sm text-muted mt-2 mb-0">
-                    No interactions found. Try a different date range or adjust your filters in Heatmap settings.
+                    {lockedWidth
+                        ? 'No interactions found at this screen width. Try a different date range, or adjust your filters in Heatmap settings.'
+                        : 'No interactions found at this screen width. Try another screen width, a different date range, or adjust your filters in Heatmap settings.'}
                 </p>
             ) : null}
         </div>
